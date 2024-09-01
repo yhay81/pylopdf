@@ -1,0 +1,51 @@
+[project]
+name = "pylopdf"
+version = "0.1.0"
+description = "Python bindings for the lopdf Rust library"
+authors = [{"name" = "Your Name", "email" = "your.email@example.com"}]
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+dependencies = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup :: PDF",
+]
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "pylopdf.pylopdf_core"
+
+[tool.uv]
+dev-dependencies = [
+    "maturin>=1.7.1",
+    "mypy>=1.11.2",
+    "pre-commit>=3.8.0",
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 120
+src = ["src"]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D104","D100"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["INP001"]
