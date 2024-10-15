@@ -16,4 +16,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 lopdf = "0.33.0"
-pyo3 = { version = "0.22.2", features = ["extension-module", "generate-import-lib"] }
+pyo3 = { version = "0.22.4", features = ["extension-module", "generate-import-lib"] }
