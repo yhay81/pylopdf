@@ -45,7 +45,8 @@ repos:
     hooks:
       - id: validate-pyproject
         # trove-classifiers を入れると classifier の実在チェックまで行う
-        additional_dependencies: ["validate-pyproject-schema-store[all]", "trove-classifiers"]
+        # (schema-store は内部エラーを起こすため外し、[project] 検証に絞る)
+        additional_dependencies: ["trove-classifiers"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.15.22
