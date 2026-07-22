@@ -6,7 +6,7 @@ license = "MIT"
 homepage = "https://github.com/yhay81/pylopdf"
 repository = "https://github.com/yhay81/pylopdf.git"
 readme = "../README.md"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["Yusuke Hayashi <yusuke8h@gmail.com>"]
 

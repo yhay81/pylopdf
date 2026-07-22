@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-23
+
 ### Added
 - Positioned text extraction: `Page.get_text(option)` / `Document.get_page_text(pno,
   option)` accept pymupdf-style `"words"` (8-tuples with bbox + block/line/word
