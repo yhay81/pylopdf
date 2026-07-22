@@ -1,8 +1,10 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
+# python/ と lambda_test/ は本ライブラリの対象外（別作業の同居ファイル）
+exclude: ^(python/|lambda_test/|openai_layer\.zip|rust/src/lopdf/)
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0 # Use the ref you want to point at
+    rev: v6.0.0 # Use the ref you want to point at
     hooks:
       - id: check-added-large-files
       - id: check-ast
@@ -40,7 +42,7 @@ repos:
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.6.2
+    rev: v0.15.22
     hooks:
       # Run the linter.
       - id: ruff
@@ -48,6 +50,6 @@ repos:
       # Run the formatter.
       - id: ruff-format
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v2.3.0
     hooks:
       - id: mypy

@@ -7,4 +7,5 @@
 /rust/target
 /src/pylopdf/*.so
 /target
+/dist
 __pycache__

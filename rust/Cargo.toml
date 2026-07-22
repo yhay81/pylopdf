@@ -6,8 +6,8 @@ license = "MIT"
 homepage = "https://github.com/yhay81/pylopdf"
 repository = "https://github.com/yhay81/pylopdf.git"
 readme = "../README.md"
-version = "0.1.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 authors = ["Yusuke Hayashi <yusuke8h@gmail.com>"]
 
 [lib]
@@ -15,5 +15,9 @@ name = "pylopdf"
 crate-type = ["cdylib"]
 
 [dependencies]
-lopdf = "0.33.0"
-pyo3 = { version = "0.22.2", features = ["extension-module", "generate-import-lib"] }
+# time / jiff は外す: 最新 time クレートと lopdf 0.44 に非互換があり、日時処理は chrono で足りる
+lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+# embed-fonts: 標準 14 フォントの代替を同梱し、フォント未解決でも文字が描画されるようにする
+hayro = { version = "0.7", features = ["embed-fonts"] }
+hayro-svg = "0.7"
+pyo3 = { version = "0.29.0", features = ["abi3-py310"] }

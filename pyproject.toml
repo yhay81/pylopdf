@@ -1,51 +1,82 @@
 [project]
 name = "pylopdf"
-version = "0.1.0"
-description = "Python bindings for the lopdf Rust library"
-authors = [{"name" = "Your Name", "email" = "your.email@example.com"}]
+version = "0.3.0"
+description = "Rust 製の PDF 編集・レンダリングライブラリ（MIT・依存ゼロ）"
+authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
-requires-python = ">=3.9"
-license = {file = "LICENSE"}
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dependencies = []
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Markup :: PDF",
 ]
 
 [build-system]
-requires = ["maturin>=1.7,<2.0"]
+requires = ["maturin>=1.14,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+manifest-path = "rust/Cargo.toml"
+python-source = "src"
 module-name = "pylopdf.pylopdf_core"
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.14.1",
+    "mypy>=1.14",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
 
 [tool.uv]
-dev-dependencies = [
-    "maturin>=1.7.1",
-    "mypy>=1.11.2",
-    "pre-commit>=3.8.0",
-    "pytest",
-    "ruff",
+# Rust ソース変更時に uv が拡張モジュールを再ビルドするためのキャッシュキー
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "rust/Cargo.toml" },
+    { file = "rust/src/*.rs" },
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 120
 src = ["src"]
-target-version = "py39"
+target-version = "py310"
+# python/ と lambda_test/ は本ライブラリの対象外（別作業の同居ファイル）
+extend-exclude = ["python", "lambda_test"]
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["D104","D100"]
+ignore = [
+    "D100",
+    "D104",
+    # ruff format と競合するルール
+    "COM812",
+    "ISC001",
+    "D203",
+    "D213",
+    # 日本語ドキュメント方針（CLAUDE.md）と衝突するルール
+    "D400",   # 「。」を終端句読点と認識しない
+    "D415",   # 同上
+    "D403",   # 日本語文中の英単語先頭を大文字化してしまう
+    "RUF001", # 全角記号を ambiguous unicode として誤検出する
+    "RUF002",
+    "RUF003",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["INP001"]
+"tests/*" = ["INP001", "S101", "D103", "PLR2004", "TC003"]
