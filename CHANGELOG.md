@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lopdf's `replace_partial_text` returning the replacement count. Simple-encoded
   fonts only (no CID/CJK); page attributes are baked first so inherited
   Resources work
+- Annotations: `Page.annots()` reads `{"type", "rect", "contents", "uri"}` dicts
+  (rect in display coordinates, rotation-aware); `Page.add_highlight_annot(rects,
+  color=, opacity=, content=)` highlights one or more rects — `search_for`
+  results feed in directly ("search & mark"). QuadPoints use the Acrobat zigzag
+  convention AND an appearance stream (Form XObject with Multiply blend) is
+  always generated, because hayro (and thus pylopdf's own rendering) only draws
+  annotations that carry an /AP — pixel-verified in tests, including rotated
+  pages; `Page.add_link_annot(rect, uri)` adds a borderless URI link
 - `Page.insert_text(point, text, fontsize=, fontname=, color=)`: print text with
   a PDF standard-14 font (pymupdf-style abbreviations "helv" / "tiro" / "cour" /
   bold-italic variants / "symb" / "zadb"; nothing is embedded). WinAnsi range

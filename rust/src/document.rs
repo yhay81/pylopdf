@@ -23,6 +23,9 @@ use pyo3::prelude::*;
 
 use crate::draw;
 
+/// read_annotations が返す 1 注釈分のタプル（Subtype, 表示座標 Rect, Contents, URI）。
+type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
+
 // Python 側へ公開する例外。PdfError は ValueError のサブクラスなので後方互換。
 pyo3::create_exception!(
     pylopdf,
@@ -315,6 +318,42 @@ impl _Document {
     fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
         let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
         self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        Ok(())
+    }
+
+    /// ページの /Annots 配列へ注釈オブジェクトの参照を追加する（配列が間接参照でも対応）。
+    fn push_page_annotation(&mut self, page_id: ObjectId, annot_id: ObjectId) -> PyResult<()> {
+        let array_ref = {
+            let page = self
+                .doc
+                .get_object(page_id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?;
+            page.get(b"Annots").ok().and_then(|a| a.as_reference().ok())
+        };
+        match array_ref {
+            Some(arr_id) => {
+                let arr = self
+                    .doc
+                    .get_object_mut(arr_id)
+                    .and_then(Object::as_array_mut)
+                    .map_err(to_py_err)?;
+                arr.push(Object::Reference(annot_id));
+            }
+            None => {
+                let page = self
+                    .doc
+                    .get_object_mut(page_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                let mut arr = match page.get(b"Annots").and_then(Object::as_array) {
+                    Ok(existing) => existing.clone(),
+                    Err(_) => Vec::new(),
+                };
+                arr.push(Object::Reference(annot_id));
+                page.set("Annots", arr);
+            }
+        }
         Ok(())
     }
 
@@ -1472,6 +1511,178 @@ impl _Document {
             )
             .map_err(to_py_err)
         })
+    }
+
+    /// 指定ページ（1 始まり）の注釈を読み取る。
+    ///
+    /// 各要素は (Subtype, 表示座標の Rect, Contents, URI)。Rect はページの回転を
+    /// 反映した表示空間（左上原点）。Contents / URI は無ければ None。
+    fn read_annotations(&self, page_number: u32) -> PyResult<Vec<AnnotationTuple>> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        let page = self
+            .doc
+            .get_object(page_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let annots = match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => {
+                match self.doc.get_object(*id).and_then(Object::as_array) {
+                    Ok(arr) => arr.clone(),
+                    Err(_) => return Ok(Vec::new()),
+                }
+            }
+            Ok(Object::Array(arr)) => arr.clone(),
+            _ => return Ok(Vec::new()),
+        };
+        let mut out = Vec::new();
+        for item in annots {
+            let dict = match &item {
+                Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                },
+                Object::Dictionary(d) => d,
+                _ => continue,
+            };
+            let subtype = match dict.get(b"Subtype").and_then(Object::as_name) {
+                Ok(name) => String::from_utf8_lossy(name).into_owned(),
+                Err(_) => continue,
+            };
+            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+                continue;
+            };
+            let display = draw::pdf_rect_to_display(crop, rotation, rect);
+            let contents = dict
+                .get(b"Contents")
+                .ok()
+                .map(|o| match o {
+                    Object::Reference(id) => self.doc.get_object(*id).unwrap_or(o),
+                    other => other,
+                })
+                .and_then(|o| decode_text_string(o).ok());
+            let uri = dict
+                .get(b"A")
+                .ok()
+                .and_then(|a| match a {
+                    Object::Reference(id) => {
+                        self.doc.get_object(*id).and_then(Object::as_dict).ok()
+                    }
+                    Object::Dictionary(d) => Some(d),
+                    _ => None,
+                })
+                .filter(|action| matches!(action.get(b"S").and_then(Object::as_name), Ok(b"URI")))
+                .and_then(|action| action.get(b"URI").ok())
+                .and_then(|o| o.as_str().ok())
+                .map(|s| String::from_utf8_lossy(s).into_owned());
+            out.push((
+                subtype,
+                (display[0], display[1], display[2], display[3]),
+                contents,
+                uri,
+            ));
+        }
+        Ok(out)
+    }
+
+    /// 指定ページ（1 始まり）へハイライト注釈を追加する。
+    ///
+    /// rects は表示座標。QuadPoints（Acrobat 互換のジグザグ順）と、hayro を含む
+    /// ビューアで見た目を保証する外観ストリーム（AP /N、Multiply ブレンド）を生成する。
+    fn add_highlight_annotation(
+        &mut self,
+        page_number: u32,
+        rects: Vec<(f64, f64, f64, f64)>,
+        color: (f64, f64, f64),
+        opacity: f64,
+        content: Option<String>,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+
+        let quads: Vec<[(f64, f64); 4]> = rects
+            .iter()
+            .map(|&(x0, y0, x1, y1)| draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]))
+            .collect();
+        let all_points: Vec<(f64, f64)> = quads.iter().flatten().copied().collect();
+        let bbox = draw::bounding_rect(&all_points);
+
+        // 外観ストリーム: BBox = 注釈 Rect（ページ空間座標のまま描く）
+        let gs_id = self.doc.add_object(dictionary! {
+            "Type" => "ExtGState",
+            "BM" => Object::Name(b"Multiply".to_vec()),
+            "CA" => Object::Real(opacity as f32),
+            "ca" => Object::Real(opacity as f32),
+        });
+        let form_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
+            "Group" => dictionary! { "Type" => "Group", "S" => "Transparency" },
+            "Resources" => dictionary! {
+                "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
+            },
+        };
+        let ap_id = self.doc.add_object(
+            Stream::new(form_dict, draw::highlight_ap_ops(&quads, color)).with_compression(false),
+        );
+
+        let quad_points: Vec<Object> = quads
+            .iter()
+            .flatten()
+            .flat_map(|&(x, y)| [Object::Real(x as f32), Object::Real(y as f32)])
+            .collect();
+        let mut annot = dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Highlight",
+            "Rect" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
+            "QuadPoints" => Object::Array(quad_points),
+            "C" => Object::Array(vec![
+                Object::Real(color.0 as f32),
+                Object::Real(color.1 as f32),
+                Object::Real(color.2 as f32),
+            ]),
+            "CA" => Object::Real(opacity as f32),
+            // 印刷対象フラグ
+            "F" => 4,
+            "P" => page_id,
+            "AP" => dictionary! { "N" => Object::Reference(ap_id) },
+        };
+        if let Some(text) = content {
+            annot.set("Contents", text_string(&text));
+        }
+        let annot_id = self.doc.add_object(annot);
+        self.push_page_annotation(page_id, annot_id)
+    }
+
+    /// 指定ページ（1 始まり）の表示座標 rect へ URI リンク注釈を追加する。
+    fn add_link_annotation(
+        &mut self,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        uri: String,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        let quad = draw::display_rect_quad_pdf(crop, rotation, [rect.0, rect.1, rect.2, rect.3]);
+        let bbox = draw::bounding_rect(&quad);
+        let annot_id = self.doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Link",
+            "Rect" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
+            "Border" => Object::Array(vec![0.into(), 0.into(), 0.into()]),
+            "F" => 4,
+            "P" => page_id,
+            "A" => dictionary! {
+                "Type" => "Action",
+                "S" => "URI",
+                "URI" => Object::string_literal(uri),
+            },
+        });
+        self.push_page_annotation(page_id, annot_id)
     }
 
     /// 指定ページ（1 始まり）の表示座標 point をベースライン起点にテキストを印字する。

@@ -29,7 +29,8 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - abi3: one wheel covers Python 3.10–3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**Limitations**: no precise layout analysis, no annotation/form editing. Use pymupdf if you need those.
+**Limitations**: no precise layout analysis, no form (AcroForm) editing, no advanced annotation editing.
+Use pymupdf if you need those.
 Typesetting, PDF/A output, and digital signatures are covered by the ecosystem recipes below.
 
 ## Install
@@ -111,6 +112,11 @@ page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fo
 # Headers / footers / page numbers (standard-14 fonts, WinAnsi range; CJK via the typst recipe)
 for i, p in enumerate(doc):
     p.insert_text((p.rect.width - 90, p.rect.height - 30), f"Page {i + 1}", fontsize=9)
+
+# Annotations: search & highlight / link
+page.add_highlight_annot(page.search_for("important"))  # appearance stream included (visible everywhere)
+page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
+print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
@@ -251,6 +257,9 @@ signed_pdf: bytes = out.getvalue()
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
+| `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
+| `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
+| `add_link_annot(rect, uri)` | URI link annotation (no border) |
 | `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |

@@ -153,6 +153,19 @@ def _validate_rect(rect: Sequence[float]) -> tuple[float, float, float, float]:
     return x0, y0, x1, y1
 
 
+def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
+    """0〜1 の (r, g, b) を検証して float タプルにする。"""
+    try:
+        red, green, blue = (float(c) for c in color)
+    except (TypeError, ValueError) as exc:
+        msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+        raise ValueError(msg) from exc
+    if not all(0.0 <= c <= 1.0 for c in (red, green, blue)):
+        msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+        raise ValueError(msg)
+    return red, green, blue
+
+
 def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | None) -> bytes:
     """filename / stream のどちらか一方から画像バイト列を得る。"""
     if filename is not None:
@@ -413,14 +426,7 @@ class Page:
         if base_font is None:
             msg = f"fontname は標準 14 フォントの略名で指定してください（{sorted(_BASE14_FONTS)}）: {fontname!r}"
             raise ValueError(msg)
-        try:
-            red, green, blue = (float(c) for c in color)
-        except (TypeError, ValueError) as exc:
-            msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
-            raise ValueError(msg) from exc
-        if not all(0.0 <= c <= 1.0 for c in (red, green, blue)):
-            msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
-            raise ValueError(msg)
+        red, green, blue = _validate_unit_rgb(color)
         if not text:
             msg = "text は 1 文字以上で指定してください"
             raise ValueError(msg)
@@ -456,6 +462,58 @@ class Page:
             msg = "search は 1 文字以上で指定してください"
             raise ValueError(msg)
         return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
+
+    def annots(self) -> list[dict[str, Any]]:
+        """ページの注釈を読み取る。
+
+        各要素は ``{"type", "rect", "contents", "uri"}`` の辞書。type は PDF の
+        Subtype 名（"Highlight" / "Link" など）、rect は表示座標の :class:`Rect`、
+        contents は注釈本文、uri は URI アクションのリンク先（無ければ None）。
+        """
+        raw = self._document._doc.read_annotations(self._page_number())
+        return [
+            {"type": subtype, "rect": Rect(*rect), "contents": contents, "uri": uri}
+            for subtype, rect, contents, uri in raw
+        ]
+
+    def add_highlight_annot(
+        self,
+        rects: Sequence[float] | Sequence[Sequence[float]],
+        *,
+        color: tuple[float, float, float] = (1.0, 1.0, 0.0),
+        opacity: float = 0.4,
+        content: str | None = None,
+    ) -> None:
+        """rects（表示座標。単一の矩形か矩形のリスト）へハイライト注釈を付ける。
+
+        :meth:`search_for` の結果をそのまま渡せば「検索してマーカー」になる。
+        QuadPoints に加えて外観ストリーム（AP、Multiply ブレンド）も生成するため、
+        pylopdf 自身のレンダリングを含むどのビューアでも同じ見た目で表示される。
+        複数の矩形は 1 つの注釈にまとまる。content は注釈本文（ポップアップ）。
+        """
+        seq = list(rects)
+        if not seq:
+            msg = "rects は 1 つ以上の矩形で指定してください"
+            raise ValueError(msg)
+        rect_list = [seq] if isinstance(seq[0], (int, float)) else seq
+        validated = [_validate_rect(r) for r in rect_list]  # type: ignore[arg-type]
+        rgb = _validate_unit_rgb(color)
+        if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
+            msg = f"opacity は 0 より大きく 1 以下で指定してください: {opacity!r}"
+            raise ValueError(msg)
+        self._document._doc.add_highlight_annotation(self._page_number(), validated, rgb, float(opacity), content)
+
+    def add_link_annot(self, rect: Sequence[float], uri: str) -> None:
+        """rect（表示座標）へ URI リンク注釈を付ける（枠線なし）。
+
+        :meth:`search_for` の結果へ「検索してリンク」する用途を想定。
+        新規文書のリンクは typst 側で組む方が自然（README のエコシステム連携）。
+        """
+        if not uri:
+            msg = "uri は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        x0, y0, x1, y1 = _validate_rect(rect)
+        self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
 
     def get_pixmap(
         self,

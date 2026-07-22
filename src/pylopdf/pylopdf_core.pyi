@@ -97,6 +97,18 @@ class _Document:
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...
+    def read_annotations(
+        self, page_number: int
+    ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...
+    def add_highlight_annotation(
+        self,
+        page_number: int,
+        rects: list[tuple[float, float, float, float]],
+        color: tuple[float, float, float],
+        opacity: float,
+        content: str | None,
+    ) -> None: ...
+    def add_link_annotation(self, page_number: int, rect: tuple[float, float, float, float], uri: str) -> None: ...
     def insert_page_text(
         self,
         page_number: int,

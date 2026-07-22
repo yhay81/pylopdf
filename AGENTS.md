@@ -55,6 +55,10 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
   pick_cjk_fallback）。CIDSystemInfo か BaseFont 名で CJK 判定し、明朝系名は serif、
   それ以外は sans スロットを使う。フォント実体は fonts/pylopdf-fonts-cjk/
   （uv workspace メンバー、[cjk] extra、レンダリング時に自動検出）
+- 描き込み（rust/src/draw.rs）: 既存コンテンツは再エンコードせず /Contents への
+  ストリーム追記のみ（既存列は一度だけ q/Q で挟む）。座標は表示空間（左上原点・
+  回転考慮）で受けて cm/Tm に変換する。注釈は AP /N を必ず生成する
+  （hayro は AP の無い注釈を描画しないため。render_annotations は既定 true）
 - メタデータ文字列は ASCII 以外を UTF-16BE（BOM 付き）でエンコードする
 - wheel は abi3-py310 の単一ビルド（Python 3.10–3.14）。サイズを増やす依存追加は慎重に（現在約 3.5MB）
 - hayro の警告は interpreter_settings の sink が pending_warnings に集め、

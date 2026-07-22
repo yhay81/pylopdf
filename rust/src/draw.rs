@@ -195,6 +195,88 @@ fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     }
 }
 
+/// 非回転の PDF ユーザー空間の点を、表示空間（左上原点・y 下向き）の点へ写す。
+///
+/// display_to_pdf の逆写像。
+fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
+    let [cx0, cy0, cx1, cy1] = crop;
+    match rotation {
+        90 => (y - cy0, x - cx0),
+        180 => (cx1 - x, y - cy0),
+        270 => (cy1 - y, cx1 - x),
+        _ => (x - cx0, cy1 - y),
+    }
+}
+
+/// PDF 空間の矩形を、表示空間の正規化済み矩形 (x0, y0, x1, y1) へ写す。
+pub fn pdf_rect_to_display(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [f64; 4] {
+    let (ax, ay) = pdf_to_display(crop, rotation, rect[0], rect[1]);
+    let (bx, by) = pdf_to_display(crop, rotation, rect[2], rect[3]);
+    [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
+}
+
+/// 表示空間の矩形の四隅（表示上の 左上・右上・左下・右下 の順）を PDF 空間の点列で返す。
+///
+/// QuadPoints（Acrobat 互換のジグザグ順）と外接矩形の計算に使う。
+pub fn display_rect_quad_pdf(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [(f64, f64); 4] {
+    let [x0, y0, x1, y1] = rect;
+    [
+        display_to_pdf(crop, rotation, x0, y0),
+        display_to_pdf(crop, rotation, x1, y0),
+        display_to_pdf(crop, rotation, x0, y1),
+        display_to_pdf(crop, rotation, x1, y1),
+    ]
+}
+
+/// PDF 空間の点列の外接矩形（正規化済み）を返す。
+pub fn bounding_rect(points: &[(f64, f64)]) -> [f64; 4] {
+    let mut out = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for &(x, y) in points {
+        out[0] = out[0].min(x);
+        out[1] = out[1].min(y);
+        out[2] = out[2].max(x);
+        out[3] = out[3].max(y);
+    }
+    out
+}
+
+/// ハイライト注釈の外観ストリーム（AP /N）の描画オペレータ列を組み立てる。
+///
+/// quads は display_rect_quad_pdf の返す四隅（左上・右上・左下・右下）。
+/// ExtGState 名 /PyloGS（ブレンド Multiply + 透明度）は呼び出し側が Resources へ登録する。
+pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Vec<u8> {
+    let mut out = format!(
+        "/PyloGS gs\n{} {} {} rg\n",
+        fmt(color.0),
+        fmt(color.1),
+        fmt(color.2)
+    )
+    .into_bytes();
+    for quad in quads {
+        let [ul, ur, ll, lr] = *quad;
+        out.extend_from_slice(
+            format!(
+                "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\nf\n",
+                fmt(ul.0),
+                fmt(ul.1),
+                fmt(ur.0),
+                fmt(ur.1),
+                fmt(lr.0),
+                fmt(lr.1),
+                fmt(ll.0),
+                fmt(ll.1),
+            )
+            .as_bytes(),
+        );
+    }
+    out
+}
+
 /// 配置対象の中身（cm 行列の作り方が異なる 2 種類）。
 pub enum PlacedContent {
     /// 画像 XObject（単位正方形に描かれる）。アスペクト比は width/height。
