@@ -1,5 +1,10 @@
 # pylopdf
 
+[![PyPI](https://img.shields.io/pypi/v/pylopdf)](https://pypi.org/project/pylopdf/)
+[![CI](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml/badge.svg)](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 [English README is here](README.md)
 
 Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](https://github.com/J-F-Liu/lopdf)、
@@ -28,7 +33,7 @@ Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](h
 ## インストール
 
 ```bash
-pip install pylopdf  # (PyPI 公開後)
+pip install pylopdf
 ```
 
 ソースからビルドする場合（要 Rust ツールチェーン）:

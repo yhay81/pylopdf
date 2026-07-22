@@ -1,5 +1,10 @@
 # pylopdf
 
+[![PyPI](https://img.shields.io/pypi/v/pylopdf)](https://pypi.org/project/pylopdf/)
+[![CI](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml/badge.svg)](https://github.com/yhay81/pylopdf/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 [日本語版 README はこちら](README.ja.md)
 
 PDF editing and rendering for Python, powered by Rust — [lopdf](https://github.com/J-F-Liu/lopdf) for editing and [hayro](https://github.com/LaurenzV/hayro) (the pure-Rust PDF renderer adopted by typst) for rendering.
@@ -27,7 +32,7 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 ## Install
 
 ```bash
-pip install pylopdf  # (after PyPI release)
+pip install pylopdf
 ```
 
 Building from source (requires a Rust toolchain):
