@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-22
+
+### Fixed
+- Removed the invalid `Topic :: Text Processing :: Markup :: PDF` classifier that
+  caused PyPI to reject the 0.4.0 upload; added `Typing :: Typed`
+- Added a `validate-pyproject` pre-commit hook to catch invalid metadata earlier
+
 ## [0.4.0] - 2026-07-22
 
 ### Added

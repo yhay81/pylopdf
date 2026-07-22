@@ -40,6 +40,12 @@ repos:
       - id: requirements-txt-fixer
       - id: sort-simple-yaml
       - id: trailing-whitespace
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.24.1
+    hooks:
+      - id: validate-pyproject
+        # trove-classifiers を入れると classifier の実在チェックまで行う
+        additional_dependencies: ["validate-pyproject-schema-store[all]", "trove-classifiers"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.15.22
