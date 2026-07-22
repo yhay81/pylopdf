@@ -797,6 +797,42 @@ class Document:
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
 
+    def get_form_fields(self) -> list[dict[str, Any]]:
+        """AcroForm フィールドの一覧を返す。
+
+        各要素は ``{"name", "type", "value"}``。name はネストを ``.`` で
+        連結した完全名、type は text / checkbox / radio / button / combobox /
+        listbox / signature、value は現在値（チェックボックスは "Yes"/"Off" 等の
+        状態名。未設定なら None）。
+        """
+        self._ensure_open()
+        return [{"name": name, "type": kind, "value": value} for name, kind, value in self._doc.get_form_fields()]
+
+    def set_form_field(self, name: str, value: str | bool) -> None:  # noqa: FBT001  # pymupdf 同様に bool 値を受ける
+        """AcroForm フィールドに値を設定する（記入）。
+
+        テキスト / 選択フィールドは文字列を、チェックボックス / ラジオは状態名
+        （多くは "Yes" / "Off"）か bool を渡す（True はウィジェットの外観から
+        on 状態名を自動解決、False は "Off"）。外観ストリームは再生成せず
+        NeedAppearances を立てるので、値の見た目はビューア側が描画する
+        （pylopdf 自身のレンダリングには現れない点に注意）。
+        署名フィールドへの記入は未対応（電子署名は pyHanko 連携を参照）。
+        """
+        self._ensure_open()
+        if not name:
+            msg = "name は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        if isinstance(value, bool):
+            if value:
+                states = self._doc.form_button_states(name)
+                on_states = [s for s in states if s != "Off"]
+                resolved = on_states[0] if on_states else "Yes"
+            else:
+                resolved = "Off"
+            self._doc.set_form_field(name, resolved)
+            return
+        self._doc.set_form_field(name, value)
+
     def get_page_labels(self) -> list[dict[str, Any]]:
         """ページラベル定義を読む。
 

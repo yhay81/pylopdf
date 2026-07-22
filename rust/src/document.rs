@@ -27,6 +27,9 @@ use crate::ocr;
 /// read_annotations が返す 1 注釈分のタプル（Subtype, 表示座標 Rect, Contents, URI）。
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
 
+/// フィールド木の走査 1 ノード分（ObjectId, 接頭名, 継承 FT, 継承 Ff, 継承 V）。
+type FieldNode = (ObjectId, String, Option<String>, i64, Option<Object>);
+
 // Python 側へ公開する例外。PdfError は ValueError のサブクラスなので後方互換。
 pyo3::create_exception!(
     pylopdf,
@@ -345,6 +348,141 @@ impl _Document {
     fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
         let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
         self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        Ok(())
+    }
+
+    /// AcroForm フィールド木を平坦化して (完全名, フィールド ObjectId, FT, Ff, V) を集める。
+    ///
+    /// FT / Ff / V は親から継承される。完全名は /T をドットで連結したもの。
+    /// 終端 = /T 付きの子を持たず FT が解決できたノード。
+    fn collect_form_fields(&self) -> Vec<(String, ObjectId, String, i64, Option<Object>)> {
+        let Some(acroform) = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|c| c.get(b"AcroForm").ok().cloned())
+            .and_then(|o| deref_dict(&self.doc, &o))
+        else {
+            return Vec::new();
+        };
+        let Ok(fields) = acroform.get(b"Fields").and_then(Object::as_array) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        // (ObjectId, 接頭名, 継承 FT, 継承 Ff, 継承 V)
+        let mut stack: Vec<FieldNode> = fields
+            .iter()
+            .filter_map(|f| f.as_reference().ok())
+            .map(|id| (id, String::new(), None, 0, None))
+            .collect();
+        let mut visited = HashSet::new();
+        while let Some((id, prefix, inh_ft, inh_ff, inh_v)) = stack.pop() {
+            if !visited.insert(id) || visited.len() > 4096 {
+                continue;
+            }
+            let Ok(dict) = self.doc.get_object(id).and_then(Object::as_dict) else {
+                continue;
+            };
+            let name = match dict.get(b"T").ok().and_then(|t| decode_text_string(t).ok()) {
+                Some(t) if prefix.is_empty() => t,
+                Some(t) => format!("{prefix}.{t}"),
+                None => prefix.clone(),
+            };
+            let ft = dict
+                .get(b"FT")
+                .and_then(Object::as_name)
+                .ok()
+                .map(|n| String::from_utf8_lossy(n).into_owned())
+                .or(inh_ft);
+            let ff = dict
+                .get(b"Ff")
+                .ok()
+                .and_then(|o| resolve_i64(&self.doc, o))
+                .unwrap_or(inh_ff);
+            let v = dict.get(b"V").ok().cloned().or(inh_v);
+            // /T を持つ子 = 下位フィールド、持たない子 = ウィジェット
+            let child_fields: Vec<ObjectId> = dict
+                .get(b"Kids")
+                .and_then(Object::as_array)
+                .map(|kids| {
+                    kids.iter()
+                        .filter_map(|k| k.as_reference().ok())
+                        .filter(|kid_id| {
+                            self.doc
+                                .get_object(*kid_id)
+                                .and_then(Object::as_dict)
+                                .is_ok_and(|d| d.has(b"T"))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if child_fields.is_empty() {
+                if let Some(ft) = ft {
+                    out.push((name, id, ft, ff, v));
+                }
+            } else {
+                for kid in child_fields {
+                    stack.push((kid, name.clone(), ft.clone(), ff, v.clone()));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// フィールドのウィジェット注釈 ObjectId 列を返す（Kids が無ければフィールド自身）。
+    fn field_widgets(&self, field_id: ObjectId) -> Vec<ObjectId> {
+        let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
+            return vec![field_id];
+        };
+        let widgets: Vec<ObjectId> = dict
+            .get(b"Kids")
+            .and_then(Object::as_array)
+            .map(|kids| {
+                kids.iter()
+                    .filter_map(|k| k.as_reference().ok())
+                    .filter(|kid_id| {
+                        self.doc
+                            .get_object(*kid_id)
+                            .and_then(Object::as_dict)
+                            .is_ok_and(|d| !d.has(b"T"))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if widgets.is_empty() {
+            vec![field_id]
+        } else {
+            widgets
+        }
+    }
+
+    /// AcroForm 辞書に NeedAppearances = true を立てる（間接参照でも対応）。
+    fn set_need_appearances(&mut self) -> PyResult<()> {
+        let acroform_ref = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|c| c.get(b"AcroForm").ok())
+            .and_then(|a| a.as_reference().ok());
+        match acroform_ref {
+            Some(id) => {
+                let acroform = self
+                    .doc
+                    .get_object_mut(id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                acroform.set("NeedAppearances", true);
+            }
+            None => {
+                let catalog = self.doc.catalog_mut().map_err(to_py_err)?;
+                let acroform = catalog
+                    .get_mut(b"AcroForm")
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                acroform.set("NeedAppearances", true);
+            }
+        }
         Ok(())
     }
 
@@ -1909,6 +2047,161 @@ impl _Document {
             catalog.set("PageLabels", dictionary! { "Nums" => Object::Array(nums) });
         }
         Ok(())
+    }
+
+    /// AcroForm フィールドの一覧（完全名, 種別, 値）を返す。
+    ///
+    /// 種別は text / checkbox / radio / button / combobox / listbox / signature。
+    /// 値は文字列化した /V（チェックボックスは "Yes"/"Off" などの状態名。無ければ None）。
+    fn get_form_fields(&self) -> Vec<(String, String, Option<String>)> {
+        self.collect_form_fields()
+            .into_iter()
+            .map(|(name, _, ft, ff, v)| {
+                let kind = match ft.as_str() {
+                    "Tx" => "text",
+                    "Sig" => "signature",
+                    "Ch" => {
+                        if ff & (1 << 17) != 0 {
+                            "combobox"
+                        } else {
+                            "listbox"
+                        }
+                    }
+                    "Btn" => {
+                        if ff & (1 << 16) != 0 {
+                            "button"
+                        } else if ff & (1 << 15) != 0 {
+                            "radio"
+                        } else {
+                            "checkbox"
+                        }
+                    }
+                    _ => "unknown",
+                };
+                let value = v.and_then(|obj| match &obj {
+                    Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
+                    Object::String(..) => decode_text_string(&obj).ok(),
+                    Object::Reference(id) => self
+                        .doc
+                        .get_object(*id)
+                        .ok()
+                        .and_then(|o| decode_text_string(o).ok()),
+                    Object::Array(items) => Some(
+                        items
+                            .iter()
+                            .filter_map(|i| decode_text_string(i).ok())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                    _ => None,
+                });
+                (name, kind.to_owned(), value)
+            })
+            .collect()
+    }
+
+    /// チェックボックス / ラジオの取り得る状態名（ウィジェットの AP /N のキー）を返す。
+    fn form_button_states(&self, name: &str) -> PyResult<Vec<String>> {
+        let (field_id, ft) = self
+            .collect_form_fields()
+            .into_iter()
+            .find(|(n, ..)| n == name)
+            .map(|(_, id, ft, ..)| (id, ft))
+            .ok_or_else(|| {
+                PdfError::new_err(format!("フォームフィールドが見つかりません: {name:?}"))
+            })?;
+        if ft != "Btn" {
+            return Ok(Vec::new());
+        }
+        let mut states = Vec::new();
+        for widget_id in self.field_widgets(field_id) {
+            let Ok(widget) = self.doc.get_object(widget_id).and_then(Object::as_dict) else {
+                continue;
+            };
+            let Some(ap) = widget
+                .get(b"AP")
+                .ok()
+                .and_then(|o| deref_dict(&self.doc, o))
+            else {
+                continue;
+            };
+            let Some(normal) = ap.get(b"N").ok().and_then(|o| deref_dict(&self.doc, o)) else {
+                continue;
+            };
+            for (key, _) in normal.iter() {
+                let state = String::from_utf8_lossy(key).into_owned();
+                if !states.contains(&state) {
+                    states.push(state);
+                }
+            }
+        }
+        Ok(states)
+    }
+
+    /// フォームフィールドに値を設定する（NeedAppearances も立てる）。
+    ///
+    /// Tx / Ch はテキスト文字列、Btn は状態名（Name）として書き込み、
+    /// Btn は各ウィジェットの /AS も合わせて更新する（AP に無い状態は Off へ）。
+    fn set_form_field(&mut self, name: &str, value: &str) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (field_id, ft) = self
+            .collect_form_fields()
+            .into_iter()
+            .find(|(n, ..)| n == name)
+            .map(|(_, id, ft, ..)| (id, ft))
+            .ok_or_else(|| {
+                PdfError::new_err(format!("フォームフィールドが見つかりません: {name:?}"))
+            })?;
+        match ft.as_str() {
+            "Tx" | "Ch" => {
+                let dict = self
+                    .doc
+                    .get_object_mut(field_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                dict.set("V", text_string(value));
+            }
+            "Btn" => {
+                {
+                    let dict = self
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    dict.set("V", Object::Name(value.as_bytes().to_vec()));
+                }
+                // 各ウィジェットの表示状態（/AS）を V に合わせる（AP に無い状態は Off）
+                for widget_id in self.field_widgets(field_id) {
+                    let has_state = self
+                        .doc
+                        .get_object(widget_id)
+                        .and_then(Object::as_dict)
+                        .ok()
+                        .and_then(|w| w.get(b"AP").ok().and_then(|o| deref_dict(&self.doc, o)))
+                        .and_then(|ap| ap.get(b"N").ok().and_then(|o| deref_dict(&self.doc, o)))
+                        .is_some_and(|normal| normal.has(value.as_bytes()));
+                    let state = if has_state { value } else { "Off" };
+                    if let Ok(widget) = self
+                        .doc
+                        .get_object_mut(widget_id)
+                        .and_then(Object::as_dict_mut)
+                    {
+                        widget.set("AS", Object::Name(state.as_bytes().to_vec()));
+                    }
+                }
+            }
+            "Sig" => {
+                return Err(PdfError::new_err(
+                    "署名フィールドへの記入は未対応です（電子署名は pyHanko 連携を参照）",
+                ));
+            }
+            other => {
+                return Err(PdfError::new_err(format!(
+                    "未対応のフィールド型です: {other:?}"
+                )));
+            }
+        }
+        self.set_need_appearances()
     }
 
     /// 添付ファイル名の一覧を返す（名前ツリーの順序に依らずソート済み）。

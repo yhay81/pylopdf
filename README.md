@@ -29,8 +29,8 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - abi3: one wheel covers Python 3.10–3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**Limitations**: no precise layout analysis, no form (AcroForm) editing, no advanced annotation editing.
-Use pymupdf if you need those.
+**Limitations**: no precise layout analysis, and no appearance-stream regeneration for forms and
+annotations (form filling uses NeedAppearances — viewers draw the values). Use pymupdf if you need those.
 Typesetting, PDF/A output, and digital signatures are covered by the ecosystem recipes below.
 
 ## Install
@@ -123,6 +123,11 @@ page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...)
 
 # Read the PDF/A self-declaration (validation belongs to veraPDF)
 print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
+
+# Forms (AcroForm): read and fill
+print(doc.get_form_fields())        # [{"name", "type", "value"}]
+doc.set_form_field("customer", "Taro Yamada")
+doc.set_form_field("agree", True)   # checkboxes take bool or a state name
 
 # Page labels (display numbers: roman front matter + decimal body, etc.)
 doc.set_page_labels([{"startpage": 0, "style": "r"}, {"startpage": 3, "style": "D"}])
@@ -257,6 +262,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
+| `get_form_fields()` / `set_form_field(name, value)` | List and fill AcroForm fields (NeedAppearances approach; checkboxes take bool) |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |

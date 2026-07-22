@@ -113,7 +113,8 @@ ignore = [
 # Page と Document は同一モジュール内の協調クラスで、内部状態への相互アクセスが設計上の前提
 "src/pylopdf/__init__.py" = ["SLF001"]
 # S106: テストフィクスチャの固定パスワードは秘密情報ではない
-"tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106"]
+# FBT003: set_form_field はチェックボックス値として bool を受ける設計（pymupdf 同様）
+"tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106", "FBT003"]
 # 手動実行の生成スクリプト（進捗表示に print を使う）
 "tests/assets/encrypted/generate.py" = ["T201"]
 # importorskip の後に連携ライブラリを import する必要があるため先頭以外の import を許可

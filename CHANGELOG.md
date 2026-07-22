@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- AcroForm read & fill: `Document.get_form_fields()` lists fields as `{"name",
+  "type", "value"}` (dotted full names, inherited FT/Ff/V resolved; types:
+  text / checkbox / radio / button / combobox / listbox / signature) and
+  `Document.set_form_field(name, value)` fills text/choice fields (UTF-16BE for
+  non-ASCII) and buttons (state name or bool — True resolves the on-state from
+  the widget appearance dictionary, widgets' /AS kept in sync). Filling sets
+  /NeedAppearances so viewers render the values; appearance streams are not
+  generated (documented limitation). Signature fields refuse with a pointer to
+  the pyHanko recipe
 - Page labels: `Document.get_page_labels()` / `set_page_labels(labels)` read and
   write the PageLabels number tree as `{"startpage", "style", "prefix",
   "firstpagenum"}` ranges (kid-split trees read recursively, written back flat;

@@ -29,7 +29,8 @@ Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](h
 - abi3 対応: Python 3.10〜3.14 を単一 wheel でサポート
 - [pymupdf](https://github.com/pymupdf/PyMuPDF) に近い操作感の API
 
-**制約**: 精密なレイアウト解析、フォーム（AcroForm）編集、注釈の高度な編集は未対応です。
+**制約**: 精密なレイアウト解析と、フォーム・注釈の外観ストリーム再生成は未対応です
+（フォーム記入は NeedAppearances 方式 = 見た目の描画はビューア任せ）。
 これらが必要な場合は pymupdf を検討してください。
 組版・PDF/A 生成・電子署名は後述の「エコシステム連携」で解決できます。
 
@@ -123,6 +124,11 @@ page.insert_ocr_text_layer(ocr_words)  # (x0, y0, x1, y1, テキスト, ...) の
 
 # PDF/A の自己宣言を読む（検証は veraPDF へ）
 print(doc.get_pdfa_claim())  # 例: (2, "B") = PDF/A-2b 宣言。無ければ None
+
+# フォーム（AcroForm）の読み取りと記入
+print(doc.get_form_fields())        # [{"name", "type", "value"}]
+doc.set_form_field("customer", "山田 太郎")
+doc.set_form_field("agree", True)   # チェックボックスは bool でも状態名でも
 
 # ページラベル（前付き = ローマ数字、本文 = 算用数字のような表示番号）
 doc.set_page_labels([{"startpage": 0, "style": "r"}, {"startpage": 3, "style": "D"}])
@@ -255,6 +261,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | ページ範囲の結合（負数・逆順可。start_at で挿入位置指定） |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | 空ページの挿入・ページ複製 |
 | `get_toc()` / `set_toc(toc)` | しおり（目次）の読み書き。`[[レベル, タイトル, ページ番号], ...]`（ページ番号はここだけ 1 始まり） |
+| `get_form_fields()` / `set_form_field(name, value)` | AcroForm の一覧と記入（NeedAppearances 方式。チェックボックスは bool 可） |
 | `get_pdfa_claim()` | XMP の PDF/A 宣言 `(part, conformance)` の読み取り（自己申告の読み取りで、検証ではない） |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | 添付ファイル（EmbeddedFiles）の追加・一覧・取得・削除 |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル定義の読み書き（`{"startpage", "style", "prefix", "firstpagenum"}`） |
