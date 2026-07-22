@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- SECURITY.md (private reporting via GitHub Security Advisories, guidance for
+  handling untrusted PDFs with `max_decompressed_size=`) and a RustSec
+  `cargo audit` job in CI
+- CI job exercising the abi3 lower bound: the full test suite now also runs on
+  Python 3.10
+
+### Changed
+- PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`
+
 ## [0.9.0] - 2026-07-23
 
 ### Added

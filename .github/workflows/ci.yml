@@ -10,6 +10,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Rust 依存ツリーの脆弱性監査（RustSec advisory DB）
+  audit:
+    name: audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@cargo-audit
+      - name: Rust dependency audit
+        run: cargo audit --file rust/Cargo.lock
+
+  # abi3-py310 の下限検証（最古のサポート対象 Python で全テストを回す）
+  test-py310:
+    name: test (Python 3.10 lower bound)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build and install (Python 3.10)
+        run: uv sync --all-extras --group interop --python 3.10
+      - name: Test
+        run: uv run pytest
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
