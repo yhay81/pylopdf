@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from types import TracebackType
     from typing import Self
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = ["Document", "open"]
 
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）

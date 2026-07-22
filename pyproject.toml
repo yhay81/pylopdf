@@ -1,7 +1,7 @@
 [project]
 name = "pylopdf"
-version = "0.3.0"
-description = "Rust 製の PDF 編集・レンダリングライブラリ（MIT・依存ゼロ）"
+version = "0.4.0"
+description = "PDF editing and rendering for Python, powered by Rust (lopdf + hayro). MIT, zero dependencies, lightweight wheels."
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.10"

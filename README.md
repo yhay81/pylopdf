@@ -1,129 +1,134 @@
 # pylopdf
 
-Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](https://github.com/J-F-Liu/lopdf)、
-レンダリングは [hayro](https://github.com/LaurenzV/hayro)（typst が採用する純 Rust PDF レンダラ）が担います。
-**自由に使えるライセンス（MIT）・実行時依存ゼロ・軽量 wheel** で、pymupdf の主要ユースケースをカバーすることを目指しています。
+[日本語版 README はこちら](README.ja.md)
 
-## コンセプト
+PDF editing and rendering for Python, powered by Rust — [lopdf](https://github.com/J-F-Liu/lopdf) for editing and [hayro](https://github.com/LaurenzV/hayro) (the pure-Rust PDF renderer adopted by typst) for rendering.
+
+**MIT licensed, zero runtime dependencies, lightweight wheels.** Covers the common pymupdf use cases without the AGPL.
+
+## Why pylopdf?
 
 | | pylopdf | pymupdf | pypdf | pypdfium2 |
 |---|---|---|---|---|
-| ライセンス | **MIT** | AGPL / 商用 | BSD | Apache/BSD |
-| wheel サイズ | **約 3.5 MB** | 約 40 MB+ | 軽量（純 Python） | 約 8 MB |
-| 編集（結合・分割・メタデータ） | ✅ | ✅ | ✅ | 限定的 |
-| レンダリング（PNG / SVG） | ✅ | ✅ | ❌ | ✅（PNG） |
-| テキスト抽出 | ✅（基本） | ✅（高精度） | ✅ | ✅ |
-| 実装 | **純 Rust** | C | Python | C++ (PDFium) |
+| License | **MIT** | AGPL / commercial | BSD | Apache/BSD |
+| Wheel size | **~3.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB |
+| Editing (merge / split / metadata) | ✅ | ✅ | ✅ | limited |
+| Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) |
+| Text extraction | ✅ (basic) | ✅ (advanced) | ✅ | ✅ |
+| Implementation | **pure Rust** | C | Python | C++ (PDFium) |
 
-- AWS Lambda などサイズ制約のある環境にそのまま載る
-- AGPL を避けたい商用プロジェクトで使える
-- abi3 対応: Python 3.10〜3.14 を単一 wheel でサポート
-- [pymupdf](https://github.com/pymupdf/PyMuPDF) に近い操作感の API
+- Fits size-constrained environments such as AWS Lambda
+- Safe for commercial projects that need to avoid the AGPL
+- abi3: one wheel covers Python 3.10–3.14
+- API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**制約**: 精密なレイアウト解析、注釈・フォーム編集、暗号化 PDF は未対応です。
-これらが必要な場合は pymupdf を検討してください。
+**Limitations**: no precise layout analysis, no annotation/form editing, no encrypted PDFs. Use pymupdf if you need those.
 
-## インストール
+## Install
 
 ```bash
-pip install pylopdf  # (PyPI 公開後)
+pip install pylopdf  # (after PyPI release)
 ```
 
-ソースからビルドする場合（要 Rust ツールチェーン）:
+Building from source (requires a Rust toolchain):
 
 ```bash
 uv sync
 ```
 
-## 使い方
+## Usage
 
 ```python
 import pylopdf
 
-# 開く（パス・バイト列のどちらからでも）
+# Open from a path or bytes
 doc = pylopdf.open("input.pdf")
 doc = pylopdf.open(stream=pdf_bytes)
 
-# ページ数
-print(doc.page_count)  # len(doc) でも同じ
+# Page count
+print(doc.page_count)  # same as len(doc)
 
-# メタデータの読み書き
+# Metadata
 print(doc.metadata["title"])
-doc.set_metadata({"title": "月次レポート", "author": "山田 太郎"})
+doc.set_metadata({"title": "Monthly Report", "author": "Alice"})
 
-# テキスト抽出（0 始まりのページ番号）
+# Text extraction (0-based page numbers)
 text = doc.get_page_text(0)
 
-# レンダリング
-png: bytes = doc.render_page(0)             # 72dpi 相当
-png2x: bytes = doc.render_page(0, scale=2)  # 144dpi 相当
+# Rendering
+png: bytes = doc.render_page(0)             # 72 dpi
+png2x: bytes = doc.render_page(0, scale=2)  # 144 dpi
 svg: str = doc.render_page_svg(0)
 
-# ページ削除（split）
+# Delete pages (split)
 doc.delete_page(0)
 doc.delete_pages([1, 2])
 
-# 結合（merge）
+# Keep/reorder pages
+doc.select([2, 0])
+
+# Merge
 merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))
 merged.insert_pdf(pylopdf.open("b.pdf"))
 
-# 保存
+# Save
 merged.save("merged.pdf")
 data: bytes = merged.tobytes()
 
-# コンテキストマネージャ
+# Context manager
 with pylopdf.open("input.pdf") as doc:
     print(doc.metadata)
 ```
 
 ## API
 
-`pylopdf.Document`（`pylopdf.open()` は別名コンストラクタ）:
+`pylopdf.Document` (`pylopdf.open()` is an alias constructor):
 
-| メソッド / プロパティ | 説明 |
+| Method / property | Description |
 |---|---|
-| `Document(filename=None, stream=None)` | パスかバイト列から開く。両方 None で空ドキュメント |
-| `page_count` / `len(doc)` | ページ数 |
-| `metadata` | メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format） |
-| `set_metadata(dict)` | メタデータ設定（空文字列で項目削除） |
-| `get_page_text(pno)` | ページのテキスト抽出 |
-| `render_page(pno, scale=1.0)` | ページを PNG 画像（bytes）にレンダリング |
-| `render_page_svg(pno)` | ページを SVG 文字列にレンダリング |
-| `delete_page(pno)` / `delete_pages(iterable)` | ページ削除 |
-| `insert_pdf(other)` | 別ドキュメントの全ページを末尾に結合 |
-| `save(filename)` / `tobytes()` | 保存 |
-| `close()` | 閉じる（with 文対応） |
+| `Document(filename=None, stream=None)` | Open from a path or bytes; empty document if both are None |
+| `page_count` / `len(doc)` | Number of pages |
+| `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
+| `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
+| `get_page_text(pno)` | Extract text from a page |
+| `render_page(pno, scale=1.0)` | Render a page to PNG bytes |
+| `render_page_svg(pno)` | Render a page to an SVG string |
+| `select(page_numbers)` | Keep only the given pages, in the given order |
+| `delete_page(pno)` / `delete_pages(iterable)` | Delete pages |
+| `insert_pdf(other)` | Append all pages of another document |
+| `save(filename)` / `tobytes()` | Save |
+| `close()` | Close (supports `with`) |
 
-低レベル API が必要な場合は `pylopdf.pylopdf_core._Document`（lopdf の薄いラッパー）を直接使えます。
+For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.
 
-## アーキテクチャ
+## Architecture
 
-2026 年の Rust PDF エコシステムの役割分担に沿った構成です:
+Follows the division of labor in the 2026 Rust PDF ecosystem:
 
 ```
-pylopdf.Document (Python, pymupdf 風 API)
+pylopdf.Document (Python, pymupdf-style API)
    └─ _Document (PyO3)
-        ├─ lopdf 0.44   … 編集: 開く→変更→保存のフルサイクル
-        └─ hayro 0.7    … レンダリング: PNG / SVG（標準フォント同梱）
+        ├─ lopdf 0.44   … editing: open → modify → save
+        └─ hayro 0.7    … rendering: PNG / SVG (standard fonts embedded)
 ```
 
 ```
-rust/          # PyO3 バインディング
-src/pylopdf/   # Python 高レベル API
-tests/         # pytest（Rust 側の挙動も Python テストで検証）
+rust/          # PyO3 bindings
+src/pylopdf/   # Python high-level API
+tests/         # pytest (Rust behavior is verified through Python tests)
 ```
 
 ```bash
-uv sync                    # ビルド + 依存インストール
-uv run pytest              # テスト
+uv sync                    # build + install dependencies
+uv run pytest              # tests
 uv run ruff check .        # lint
-uv run mypy src tests      # 型チェック
-uv build --wheel           # wheel ビルド
+uv run mypy src tests      # type check
+uv build --wheel           # build a wheel
 ```
 
-Rust ソース変更は `uv sync` が検知して自動再ビルドします（`tool.uv.cache-keys` 設定済み）。
+`uv sync` detects Rust source changes and rebuilds automatically (via `tool.uv.cache-keys`).
 
-## ライセンス
+## License
 
-MIT（依存する lopdf は MIT、hayro は MIT/Apache-2.0）
+MIT (lopdf is MIT; hayro is MIT/Apache-2.0)
