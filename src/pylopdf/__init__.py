@@ -258,6 +258,19 @@ class Page:
             raise ValueError(msg)
         return [Rect(*hit) for hit in self._document._doc.search_page(self._page_number(), needle)]
 
+    def get_images(self) -> list[dict[str, Any]]:
+        """ページ上に描画される画像を抽出する。
+
+        各要素は ``{"width", "height", "bbox", "ext", "image"}`` の辞書。
+        DCTDecode 単独の画像は元の JPEG バイト列をそのまま返し（``ext="jpeg"``）、
+        それ以外（CCITT / JBIG2 / Flate 等）はデコードして PNG 化する（``ext="png"``）。
+        bbox はページ上の描画位置（左上原点の :class:`Rect`）。
+        """
+        return [
+            {"width": width, "height": height, "bbox": Rect(*bbox), "ext": ext, "image": data}
+            for width, height, bbox, ext, data in self._document._doc.extract_images(self._page_number())
+        ]
+
     def render(
         self,
         scale: float = 1.0,

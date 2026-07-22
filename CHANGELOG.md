@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including matches across word gaps and CJK text (works even for non-embedded
   CJK fonts, since Unicode comes from the CMap machinery). Line-spanning matches
   are not detected
+- `Page.get_images()`: extracts images drawn on the page as
+  `{"width", "height", "bbox", "ext", "image"}` dicts. Images whose filter chain
+  ends in DCTDecode (including `[FlateDecode, DCTDecode]`) return the original
+  JPEG bytes unmodified (verified against the JPEG magic, no recompression);
+  everything else (CCITT / JBIG2 / Flate / stencils) is decoded and re-encoded
+  as PNG. `bbox` is the drawn position on the page (top-left origin)
 
 ### Changed
 - Text extraction now runs on a hayro-based engine (`rust/src/extract.rs`): the

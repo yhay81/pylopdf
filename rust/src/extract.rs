@@ -8,11 +8,11 @@
 use hayro::hayro_interpret::font::Glyph;
 use hayro::hayro_interpret::hayro_cmap::BfString;
 use hayro::hayro_interpret::{
-    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache,
-    InterpreterSettings, Paint, PathDrawMode, SoftMask, interpret_page,
+    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
+    InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, interpret_page,
 };
-use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::page::Page;
+use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Point, Rect};
 
 /// 収集した 1 グリフ分の情報。座標は「左上原点・下向き y」のページ座標。
@@ -358,6 +358,206 @@ fn search_glyphs(glyphs: Vec<GlyphRecord>, needle: &str) -> Vec<BBox> {
         }
     }
     hits
+}
+
+/// 抽出画像: (幅, 高さ, ページ上の bbox, 形式 "jpeg"/"png", バイト列)。
+pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
+
+/// 画像を収集するだけの Device 実装。
+struct ImageCollector {
+    images: Vec<ImageTuple>,
+    page_height: f64,
+}
+
+/// JPEG マジックナンバー（SOI マーカー）。
+const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
+
+/// 元の JPEG バイト列をそのまま取り出せるならそれを返す。
+///
+/// 対応するのは /Filter が [DCTDecode] か [FlateDecode, DCTDecode] の場合。
+/// 展開結果が JPEG マジックで始まることを検証し、そうでなければ None
+/// （呼び出し側がデコード + PNG 化にフォールバックする）。
+fn try_jpeg_passthrough(stream: &hayro::hayro_syntax::object::Stream<'_>) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let filters = stream.filters();
+    let data = match filters.as_slice() {
+        [Filter::DctDecode] => stream.raw_data().into_owned(),
+        [Filter::FlateDecode, Filter::DctDecode] => {
+            let mut out = Vec::new();
+            flate2::read::ZlibDecoder::new(stream.raw_data().as_ref())
+                .read_to_end(&mut out)
+                .ok()?;
+            out
+        }
+        _ => return None,
+    };
+    data.starts_with(&JPEG_MAGIC).then_some(data)
+}
+
+/// 画像のピクセル矩形を transform で写した外接矩形を、左上原点の bbox で返す。
+///
+/// hayro は draw_image の直前に「ピクセル空間（上原点、0..幅 × 0..高さ）→
+/// PDF の単位正方形」の変換を pre-concat しているため、transform には
+/// ピクセル座標の四隅をそのまま渡す。
+fn image_bbox(transform: Affine, width: f64, height: f64, page_height: f64) -> BBox {
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for (px, py) in [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)] {
+        let p = transform * Point::new(px, py);
+        x0 = x0.min(p.x);
+        x1 = x1.max(p.x);
+        y0 = y0.min(page_height - p.y);
+        y1 = y1.max(page_height - p.y);
+    }
+    (x0, y0, x1, y1)
+}
+
+/// ピクセルデータを PNG にエンコードする。
+fn encode_png(width: u32, height: u32, color: png::ColorType, data: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(data).ok()?;
+        writer.finish().ok()?;
+    }
+    Some(out)
+}
+
+/// デコード済みラスタ画像（RGB/グレー + 別チャンネルのアルファ）を PNG 化する。
+fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, u32, Vec<u8>)> {
+    let (rgb, width, height) = match image {
+        ImageData::Rgb(rgb) => (rgb.data, rgb.width, rgb.height),
+        ImageData::Luma(luma) => {
+            let data = match &alpha {
+                Some(a) if a.width == luma.width && a.height == luma.height => {
+                    let interleaved: Vec<u8> = luma
+                        .data
+                        .iter()
+                        .zip(&a.data)
+                        .flat_map(|(g, a)| [*g, *a])
+                        .collect();
+                    return encode_png(
+                        luma.width,
+                        luma.height,
+                        png::ColorType::GrayscaleAlpha,
+                        &interleaved,
+                    )
+                    .map(|png| (luma.width, luma.height, png));
+                }
+                _ => luma.data,
+            };
+            return encode_png(luma.width, luma.height, png::ColorType::Grayscale, &data)
+                .map(|png| (luma.width, luma.height, png));
+        }
+    };
+    match alpha {
+        Some(a) if a.width == width && a.height == height => {
+            let interleaved: Vec<u8> = rgb
+                .chunks(3)
+                .zip(&a.data)
+                .flat_map(|(rgb, a)| [rgb[0], rgb[1], rgb[2], *a])
+                .collect();
+            encode_png(width, height, png::ColorType::Rgba, &interleaved)
+                .map(|png| (width, height, png))
+        }
+        _ => encode_png(width, height, png::ColorType::Rgb, &rgb).map(|png| (width, height, png)),
+    }
+}
+
+impl Device<'_> for ImageCollector {
+    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+    fn set_blend_mode(&mut self, _: BlendMode) {}
+    fn draw_path(&mut self, _: &kurbo::BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+    fn push_clip_path(&mut self, _: &ClipPath) {}
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+    fn draw_glyph(
+        &mut self,
+        _: &Glyph<'_>,
+        _: Affine,
+        _: Affine,
+        _: &Paint<'_>,
+        _: &GlyphDrawMode,
+    ) {
+    }
+    fn pop_clip_path(&mut self) {}
+    fn pop_transparency_group(&mut self) {}
+
+    fn draw_image(&mut self, image: Image<'_, '_>, transform: Affine) {
+        let bbox = image_bbox(
+            transform,
+            f64::from(image.width()),
+            f64::from(image.height()),
+            self.page_height,
+        );
+        match image {
+            Image::Raster(raster) => {
+                // DCTDecode で終わる画像は生の JPEG をそのまま取り出す（再圧縮しない）
+                if let Some(jpeg) = try_jpeg_passthrough(raster.stream()) {
+                    self.images.push((
+                        raster.width(),
+                        raster.height(),
+                        bbox,
+                        "jpeg".to_owned(),
+                        jpeg,
+                    ));
+                    return;
+                }
+                let images = &mut self.images;
+                raster.with_rgba(
+                    |image_data, alpha| {
+                        if let Some((width, height, data)) = encode_raster_png(image_data, alpha) {
+                            images.push((width, height, bbox, "png".to_owned(), data));
+                        }
+                    },
+                    None,
+                );
+            }
+            Image::Stencil(stencil) => {
+                let images = &mut self.images;
+                stencil.with_stencil(
+                    |luma, _| {
+                        if let Some(data) = encode_png(
+                            luma.width,
+                            luma.height,
+                            png::ColorType::Grayscale,
+                            &luma.data,
+                        ) {
+                            images.push((luma.width, luma.height, bbox, "png".to_owned(), data));
+                        }
+                    },
+                    None,
+                );
+            }
+        }
+    }
+}
+
+/// 指定ページ上に描画される画像を抽出する。
+pub(crate) fn extract_page_images(
+    pdf: &Pdf,
+    page: &Page<'_>,
+    settings: InterpreterSettings,
+) -> Vec<ImageTuple> {
+    let cache = InterpreterCache::new();
+    let mut context = Context::new(
+        Affine::IDENTITY,
+        Rect::new(0.0, 0.0, 1.0, 1.0),
+        &cache,
+        pdf.xref(),
+        settings,
+    );
+    let (_, page_height) = page.render_dimensions();
+    let mut collector = ImageCollector {
+        images: Vec::new(),
+        page_height: f64::from(page_height),
+    };
+    interpret_page(page, &mut context, &mut collector);
+    collector.images
 }
 
 /// ページを解釈してグリフ列を収集する。

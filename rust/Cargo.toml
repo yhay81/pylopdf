@@ -24,3 +24,7 @@ hayro-svg = "0.7"
 pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
 # hayro の Device 実装(テキスト抽出)で座標変換に使う。hayro と同系列のバージョンに合わせる
 kurbo = "0.13"
+# 画像抽出で非 JPEG 画像を PNG 化する（hayro 経由で既にツリー内にある版に合わせる）
+png = "0.18"
+# 画像抽出の JPEG パススルーで [FlateDecode, DCTDecode] の前段を展開する（lopdf 経由でツリー内）
+flate2 = "1"

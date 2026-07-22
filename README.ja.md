@@ -13,16 +13,16 @@ Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](h
 
 ## コンセプト
 
-| | pylopdf | pymupdf | pypdf | pypdfium2 |
-|---|---|---|---|---|
-| ライセンス | **MIT** | AGPL / 商用 | BSD | Apache/BSD |
-| wheel サイズ | **約 3.5 MB** | 約 40 MB+ | 軽量（純 Python） | 約 8 MB |
-| 編集（結合・分割・回転・しおり） | ✅ | ✅ | ✅ | 限定的 |
-| レンダリング（PNG / SVG） | ✅ | ✅ | ❌ | ✅（PNG） |
-| テキスト抽出 | ✅（基本） | ✅（高精度） | ✅ | ✅ |
-| 暗号化（AES-256） | ✅ 読み書き | ✅ | ✅ | ❌ |
-| CJK フォント fallback | ✅（[cjk] extra） | ✅ | — | 手動 |
-| 実装 | **純 Rust** | C | Python | C++ (PDFium) |
+| | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
+|---|---|---|---|---|---|---|
+| ライセンス | **MIT** | AGPL / 商用 | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
+| wheel サイズ | **約 3.5 MB** | 約 40 MB+ | 軽量（純 Python） | 約 8 MB | 約 10〜11 MB | 約 2〜5 MB |
+| 編集（結合・分割・回転・しおり） | ✅ | ✅ | ✅ | 限定的 | ✅ | ✅（構造操作特化） |
+| レンダリング（PNG / SVG） | ✅ | ✅ | ❌ | ✅（PNG） | ❌ | ❌（公式に他ツールを推奨） |
+| テキスト抽出 | ✅（基本） | ✅（高精度） | ✅ | ✅ | ✅（高精度・表検出/Markdown変換） | ❌（公式に他ツールを推奨） |
+| 暗号化（AES-256） | ✅ 読み書き | ✅ | ✅ | ❌ | 未文書化 | ✅（qpdf 経由） |
+| CJK フォント fallback | ✅（[cjk] extra） | ✅ | — | 手動 | — | — |
+| 実装 | **純 Rust** | C | Python | C++ (PDFium) | Rust | C++ (qpdf) |
 
 - AWS Lambda などサイズ制約のある環境にそのまま載る
 - AGPL を避けたい商用プロジェクトで使える
@@ -74,6 +74,7 @@ text = doc.get_page_text(0)
 words = doc[0].get_text("words")     # (x0, y0, x1, y1, 語, ブロック, 行, 語番号)
 layout = doc[0].get_text("dict")     # blocks → lines → spans（bbox 付き）
 rects = doc[0].search_for("税")      # 大文字小文字を区別しない。list[Rect]
+images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
 
 # レンダリング
 png: bytes = doc.render_page(0)             # 72dpi 相当
@@ -171,6 +172,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `number` / `parent` | 0 始まりのページ番号と所属 Document |
 | `get_text(option="text")` | テキスト抽出。`"words"` / `"blocks"` / `"dict"` で位置付きレイアウト |
 | `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
+| `get_images()` | ページ上の画像を抽出（JPEG は元バイト列をパススルー、他は PNG 化） |
 | `render(scale, dpi=, background=)` / `render_svg()` | レンダリング |
 | `rotation` / `set_rotation(deg)` | 表示回転（90 の倍数。継承解決済み） |
 | `mediabox` / `cropbox` / `rect` | ページボックス（`Rect`）。rect は回転を反映した表示矩形 |

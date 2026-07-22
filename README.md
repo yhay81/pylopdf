@@ -13,16 +13,16 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 
 ## Why pylopdf?
 
-| | pylopdf | pymupdf | pypdf | pypdfium2 |
-|---|---|---|---|---|
-| License | **MIT** | AGPL / commercial | BSD | Apache/BSD |
-| Wheel size | **~3.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB |
-| Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited |
-| Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) |
-| Text extraction | ✅ (basic) | ✅ (advanced) | ✅ | ✅ |
-| Encryption (AES-256) | ✅ read & write | ✅ | ✅ | ❌ |
-| CJK font fallback | ✅ ([cjk] extra) | ✅ | — | manual |
-| Implementation | **pure Rust** | C | Python | C++ (PDFium) |
+| | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
+|---|---|---|---|---|---|---|
+| License | **MIT** | AGPL / commercial | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
+| Wheel size | **~3.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB | ~10–11 MB | ~2–5 MB |
+| Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited | ✅ | ✅ (structure-focused) |
+| Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
+| Text extraction | ✅ (basic) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
+| Encryption (AES-256) | ✅ read & write | ✅ | ✅ | ❌ | undocumented | ✅ (via qpdf) |
+| CJK font fallback | ✅ ([cjk] extra) | ✅ | — | manual | — | — |
+| Implementation | **pure Rust** | C | Python | C++ (PDFium) | Rust | C++ (qpdf) |
 
 - Fits size-constrained environments such as AWS Lambda
 - Safe for commercial projects that need to avoid the AGPL
@@ -73,6 +73,7 @@ text = doc.get_page_text(0)
 words = doc[0].get_text("words")     # (x0, y0, x1, y1, word, block, line, word_no)
 layout = doc[0].get_text("dict")     # blocks -> lines -> spans with bboxes
 rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
+images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
 
 # Rendering
 png: bytes = doc.render_page(0)             # 72 dpi
@@ -170,6 +171,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `number` / `parent` | 0-based page number and owning Document |
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
+| `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |

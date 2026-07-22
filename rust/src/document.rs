@@ -760,6 +760,26 @@ impl _Document {
         })
     }
 
+    /// 指定ページ（1 始まり）上に描画される画像を抽出する。
+    ///
+    /// 戻り値は (幅, 高さ, bbox, 形式 "jpeg"/"png", バイト列) のリスト。
+    fn extract_images(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<crate::extract::ImageTuple>> {
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+            Ok(crate::extract::extract_page_images(pdf, page, settings))
+        })
+    }
+
     /// 指定ページ（1 始まり）をテキスト検索する（大文字小文字を区別しない）。
     fn search_page(
         &mut self,
