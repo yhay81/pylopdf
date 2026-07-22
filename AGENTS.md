@@ -98,8 +98,9 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 2026-07-23 のスコープ外領域深掘り再調査に基づく。戦略・リリース計画 v0.6〜v1.0・
 エコシステム連携・ウォッチリスト・スコープ外の宣言を含む）。
 
-- 現在のフェーズ: v0.8.0 リリース済み（2026-07-23。エコシステム連携文書化 +
-  描き込み: insert_image / show_pdf_page / insert_text / replace_text / 注釈）。
+- 現在のフェーズ: v0.8.0 リリース済み（2026-07-23、PyPI 公開・E2E 検証済み。
+  エコシステム連携文書化 + 描き込み: insert_image / show_pdf_page /
+  insert_text / replace_text / 注釈）。
   次: v0.9「文書の仕上げ」（AcroForm 読み取り→記入・添付・ページラベル・
   to_markdown・インクリメンタル保存・OCR 不可視層プリミティブ・XMP PDF/A 宣言読み取り）
 - lopdf#535（コメント + インデント行で抽出が空になる）は v0.7 の hayro エンジン
