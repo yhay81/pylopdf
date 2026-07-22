@@ -66,15 +66,13 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 （workflow: release-fonts.yml / environment: pypi）。本体の [cjk] extra が参照するため、
 本体リリースより先にフォント wheel を公開すること
 
-## ロードマップ（2026-07 時点）
+## ロードマップ
 
-1. lopdf#535（コメント + インデント行で抽出が空になる）の修正リリースを待って
-   xfail の解消を確認する
-2. 検討中の候補: get_toc() の露出、README 比較表への暗号化/CJK 行の追加、
-   CI への Python 3.10 ジョブ、pymupdf/pypdf との簡易ベンチマーク
+中期計画の正本は [ROADMAP.md](ROADMAP.md)（2026-07-22 の市場・upstream 調査に基づく。
+戦略・リリース計画 v0.6〜v1.0・スコープ外の宣言を含む）。
 
-完了済み（2026-07-22）: GitHub Release ノート + README バッジ、実世界 PDF の
-回帰テストスイート（スキャン軸は CCITT+OCR / DCT+JBIG2+テキスト無しまでカバー）、
-暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）、
-v0.5.0 リリース（pylopdf 0.5.0 + pylopdf-fonts-cjk 0.1.0 を PyPI 公開、E2E 検証済み）、
-lopdf#535 の upstream 報告
+- 現在のフェーズ: 0.5.x の基盤強化（レンダリングキャッシュ・GIL 解放・
+  保存/描画オプション）→ v0.6「ページ操作と保存の完成」
+- lopdf#535（コメント + インデント行で抽出が空になる）は xfail で追跡中。
+  v0.7 の hayro ベース抽出エンジンへの置き換えで根本解消する予定
+- 完了済みの履歴は CHANGELOG.md を参照
