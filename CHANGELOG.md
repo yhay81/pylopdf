@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Scanned-PDF coverage in the real-world corpus: `patent-us223898.pdf`
   (Edison's electric-lamp patent, 1880, public domain) exercising CCITTFaxDecode
-  images and an OCR text layer
+  images and an OCR text layer, and `wdl6812-manuscript.pdf` (World Digital
+  Library illuminated manuscript, public domain) exercising DCTDecode + JBIG2Decode
+  color scans with no text layer
 
 ### Changed
 - The content-stream comment bug behind the pdf20 empty-extraction xfail is now

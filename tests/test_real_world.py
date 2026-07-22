@@ -36,6 +36,7 @@ CASES = [
     Case("bill-hr815.pdf", pages=110, version="PDF 1.5", snippet="One Hundred Eighteenth Congress"),
     Case("mhlw-doc.pdf", pages=2, version="PDF 1.7", snippet="裁判例"),
     Case("patent-us223898.pdf", pages=4, version="PDF 1.3", snippet="Electric-Lamp"),
+    Case("wdl6812-manuscript.pdf", pages=2, version="PDF 1.4", snippet=None),
 ]
 
 ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
@@ -75,6 +76,12 @@ def test_pdf20_extract_text_known_limit() -> None:
 def test_f1040_metadata_title() -> None:
     doc = pylopdf.open(ASSETS / "f1040.pdf")
     assert doc.metadata["title"] == "2025 Form 1040"
+
+
+def test_manuscript_scan_has_no_text_layer() -> None:
+    """テキストレイヤーの無い純スキャン PDF は、抽出が空になるのが正しい挙動。"""
+    doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
+    assert doc.get_page_text(0).strip() == ""
 
 
 @ALL

@@ -68,12 +68,13 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 ## ロードマップ（2026-07 時点）
 
-1. コーパスの残り軸: DCT（JPEG）スキャン PDF とテキストレイヤー無しスキャン
-   （詳細は tests/assets/real_world/README.md）
-2. lopdf#535（コメント + インデント行で抽出が空になる）の修正リリースを待って
+1. lopdf#535（コメント + インデント行で抽出が空になる）の修正リリースを待って
    xfail の解消を確認する
+2. 検討中の候補: get_toc() の露出、README 比較表への暗号化/CJK 行の追加、
+   CI への Python 3.10 ジョブ、pymupdf/pypdf との簡易ベンチマーク
 
 完了済み（2026-07-22）: GitHub Release ノート + README バッジ、実世界 PDF の
-回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）、
+回帰テストスイート（スキャン軸は CCITT+OCR / DCT+JBIG2+テキスト無しまでカバー）、
+暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）、
 v0.5.0 リリース（pylopdf 0.5.0 + pylopdf-fonts-cjk 0.1.0 を PyPI 公開、E2E 検証済み）、
-スキャン PDF（CCITT）のコーパス追加、lopdf#535 の upstream 報告
+lopdf#535 の upstream 報告

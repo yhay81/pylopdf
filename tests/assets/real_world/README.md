@@ -13,6 +13,7 @@ lopdf / hayro の限界を早期発見することが目的。すべて再配布
 | bill-hr815.pdf | [govinfo.gov](https://www.govinfo.gov/content/pkg/BILLS-118hr815enr/pdf/BILLS-118hr815enr.pdf)（H.R.815, 118th Congress） | 米国政府著作物（パブリックドメイン） | PDF 1.5、GPO 組版、110 ページの中規模文書 |
 | mhlw-doc.pdf | [mhlw.go.jp](https://www.mhlw.go.jp/content/11201250/001526113.pdf)（労働基準法における「労働者」に関する研究会 資料2-1） | [政府標準利用規約 2.0](https://www.digital.go.jp/resources/open_data/)（CC-BY 4.0 互換） | PDF 1.7、CJK 埋め込み CID フォント、縦横混在レイアウト |
 | patent-us223898.pdf | [Google Patents](https://patents.google.com/patent/US223898A)（エジソンの電球特許、1880 年） | パブリックドメイン（米国特許） | PDF 1.3、スキャン画像（CCITTFaxDecode）、OCR テキストレイヤー（取得日: 2026-07-22） |
+| wdl6812-manuscript.pdf | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Illuminated_Panel_and_Qur%27anic_Chapter_WDL6812.pdf)（World Digital Library の彩飾写本） | パブリックドメイン | PDF 1.4、カラースキャン（DCTDecode + JBIG2Decode）、テキストレイヤー無し（取得日: 2026-07-22） |
 
 ## テストで記録している既知の限界
 
@@ -22,10 +23,11 @@ lopdf / hayro の限界を早期発見することが目的。すべて再配布
   として上流に報告済み。tests/test_real_world.py の xfail（strict）で追跡しており、
   lopdf 側で直ると失敗して気づける（レンダリングは正常）。
 
-## 将来追加したい軸
+## カバー済みの軸
 
-- DCT（JPEG）画像ベースのスキャン PDF（CCITT は patent-us223898.pdf でカバー済み）
-- テキストレイヤーの無い純粋なスキャン PDF
+- 暗号化 PDF（tests/assets/encrypted/: RC4-40/128・AES-128・AES-256）
+- 非埋め込み CJK フォント（tests/test_cjk.py の合成 PDF + pylopdf[cjk]）
+- スキャン画像: CCITTFaxDecode + OCR レイヤー（patent-us223898.pdf）、
+  DCTDecode + JBIG2Decode + テキストレイヤー無し（wdl6812-manuscript.pdf）
 
-カバー済み: 暗号化 PDF（tests/assets/encrypted/）、非埋め込み CJK（tests/test_cjk.py の
-合成 PDF + pylopdf[cjk]）、CCITT スキャン + OCR レイヤー（patent-us223898.pdf）
+追加候補が出たら「再配布可能なライセンス・1MB 未満・既存にない軸」を基準に選ぶ。
