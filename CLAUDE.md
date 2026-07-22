@@ -64,11 +64,10 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 ## ロードマップ（2026-07 時点）
 
-1. v0.5.0 リリース（暗号化 + CJK。先に pylopdf-fonts-cjk 0.1.0 を PyPI 公開 →
-   Trusted Publisher 登録が必要）
-2. 実世界 PDF コーパスの拡充（スキャン画像 PDF など — 詳細は
+1. 実世界 PDF コーパスの拡充（スキャン画像 PDF など — 詳細は
    tests/assets/real_world/README.md の「将来追加したい軸」）
-3. lopdf への upstream 報告: content stream コメントでテキスト抽出が壊れる件
+2. lopdf への upstream 報告: content stream コメントでテキスト抽出が壊れる件
 
 完了済み（2026-07-22）: GitHub Release ノート + README バッジ、実世界 PDF の
-回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）
+回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）、
+v0.5.0 リリース（pylopdf 0.5.0 + pylopdf-fonts-cjk 0.1.0 を PyPI 公開、E2E 検証済み）
