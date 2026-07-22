@@ -12,8 +12,10 @@ use hayro::hayro_interpret::hayro_cmap::CidFamily;
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::AlphaColor;
 use hayro::{RenderCache, RenderSettings, render};
+use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
-    Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
+    Bookmark, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
     decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
@@ -395,6 +397,39 @@ impl _Document {
         let pos = position.unwrap_or(order.len()).min(order.len());
         order.splice(pos..pos, new_ids);
         order
+    }
+
+    /// AES-256（PDF 2.0, V5/R6）で暗号化した複製を作る。self は平文のまま変わらない。
+    ///
+    /// file_encryption_key は呼び出し側（Python の os.urandom）が生成した 32 バイトの乱数。
+    fn encrypted_clone(
+        &self,
+        user_password: &str,
+        owner_password: &str,
+        permissions: u64,
+        file_encryption_key: &[u8],
+    ) -> PyResult<Document> {
+        if file_encryption_key.len() != 32 {
+            return Err(PdfError::new_err(format!(
+                "file_encryption_key は 32 バイトである必要があります（{} バイト）",
+                file_encryption_key.len()
+            )));
+        }
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+        let version = EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            file_encryption_key,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password,
+            user_password,
+            permissions: Permissions::from_bits_truncate(permissions),
+        };
+        let state = EncryptionState::try_from(version).map_err(to_py_err)?;
+        let mut cloned = self.doc.clone();
+        cloned.encrypt(&state).map_err(to_py_err)?;
+        Ok(cloned)
     }
 
     /// root Pages の Kids/Count を指定の並びで置き換える（ページツリーの平坦化）。
@@ -891,6 +926,119 @@ impl _Document {
                 &interpreter_settings,
                 &settings,
             ))
+        })
+    }
+
+    /// 目次（アウトライン）をフラットな (レベル, タイトル, 1 始まりページ番号) の列で返す。
+    ///
+    /// アウトラインが無い場合は空。ページに解決できない項目はスキップされる。
+    fn get_toc(&self) -> PyResult<Vec<(u32, String, u32)>> {
+        match self.doc.get_toc() {
+            Ok(toc) => Ok(toc
+                .toc
+                .into_iter()
+                .map(|t| (t.level as u32, t.title, t.page as u32))
+                .collect()),
+            // アウトライン自体が無い場合は空の目次として扱う
+            // （catalog に Outlines キーが無いと DictKey が返る）
+            Err(lopdf::Error::NoOutline) => Ok(Vec::new()),
+            Err(lopdf::Error::DictKey(ref key)) if key == "Outlines" => Ok(Vec::new()),
+            Err(e) => Err(to_py_err(e)),
+        }
+    }
+
+    /// 目次を (レベル, タイトル, 1 始まりページ番号) の列で置き換える。空列で削除。
+    ///
+    /// レベルの検証（1 始まり・直前 +1 まで）は Python 側で行う。
+    /// 非 ASCII タイトルは lopdf が UTF-16BE（BOM 付き）で書き込む。
+    fn set_toc(&mut self, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        // 既存のアウトラインと構築用状態を捨てる
+        self.doc.bookmarks.clear();
+        self.doc.bookmark_table.clear();
+        self.doc.max_bookmark_id = 0;
+        if let Ok(catalog) = self.doc.catalog_mut() {
+            catalog.remove(b"Outlines");
+        }
+        if entries.is_empty() {
+            self.doc.prune_objects();
+            return Ok(());
+        }
+        let pages = self.doc.get_pages();
+        // parents[level - 1] = その階層の直近ブックマーク id
+        let mut parents: Vec<u32> = Vec::new();
+        for (level, title, page) in entries {
+            let page_id = *pages
+                .get(&page)
+                .ok_or_else(|| PdfError::new_err(format!("ページ {page} は存在しません")))?;
+            let level = level as usize;
+            let parent = if level >= 2 {
+                parents.get(level - 2).copied()
+            } else {
+                None
+            };
+            let id = self
+                .doc
+                .add_bookmark(Bookmark::new(title, [0.0, 0.0, 0.0], 0, page_id), parent);
+            parents.truncate(level - 1);
+            parents.push(id);
+        }
+        if let Some(outline_id) = self.doc.build_outline() {
+            self.doc
+                .catalog_mut()
+                .map_err(to_py_err)?
+                .set("Outlines", Object::Reference(outline_id));
+        }
+        // 旧アウトラインのオブジェクトを掃除する
+        self.doc.prune_objects();
+        Ok(())
+    }
+
+    /// AES-256 で暗号化してファイルへ保存する。このドキュメント自体は平文のまま。
+    fn save_encrypted(
+        &self,
+        py: Python<'_>,
+        path: &str,
+        user_password: &str,
+        owner_password: &str,
+        permissions: u64,
+        file_encryption_key: &[u8],
+    ) -> PyResult<()> {
+        py.detach(|| {
+            let mut cloned = self.encrypted_clone(
+                user_password,
+                owner_password,
+                permissions,
+                file_encryption_key,
+            )?;
+            cloned
+                .save(path)
+                .map(|_| ())
+                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
+        })
+    }
+
+    /// AES-256 で暗号化してバイト列へ書き出す。このドキュメント自体は平文のまま。
+    fn save_bytes_encrypted(
+        &self,
+        py: Python<'_>,
+        user_password: &str,
+        owner_password: &str,
+        permissions: u64,
+        file_encryption_key: &[u8],
+    ) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            let mut cloned = self.encrypted_clone(
+                user_password,
+                owner_password,
+                permissions,
+                file_encryption_key,
+            )?;
+            let mut buffer = Vec::new();
+            cloned
+                .save_to(&mut buffer)
+                .map_err(|e| PdfError::new_err(e.to_string()))?;
+            Ok(buffer)
         })
     }
 

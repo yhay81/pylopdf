@@ -6,15 +6,16 @@ pymupdf に似た操作感の :class:`Document` を提供する。編集は lopd
 
 from __future__ import annotations
 
+import enum
 import functools
 import math
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 from pylopdf.pylopdf_core import PasswordError, PdfError, _Document
 
 if TYPE_CHECKING:
-    import os
     from collections.abc import Iterable, Iterator, Sequence
     from types import TracebackType
     from typing import Self
@@ -27,11 +28,31 @@ __all__ = [
     "Page",
     "PasswordError",
     "PdfError",
+    "Permissions",
     "Rect",
     "StalePageError",
     "open",
     "peek_metadata",
 ]
+
+
+class Permissions(enum.IntFlag):
+    """暗号化 PDF の許可フラグ（save の permissions 引数へ ``|`` で組み合わせて渡す）。
+
+    値は PDF 仕様の /P ビット位置に対応する。
+    """
+
+    PRINT = 1 << 2
+    MODIFY = 1 << 3
+    COPY = 1 << 4
+    ANNOTATE = 1 << 5
+    FILL_FORMS = 1 << 8
+    COPY_FOR_ACCESSIBILITY = 1 << 9
+    ASSEMBLE = 1 << 10
+    PRINT_HIGH_QUALITY = 1 << 11
+    ALL = (
+        PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
+    )
 
 
 class DocumentClosedError(PdfError):
@@ -468,6 +489,43 @@ class Document:
             raise IndexError(msg)
         return value
 
+    def get_toc(self) -> list[list[int | str]]:
+        """目次（しおり／アウトライン）を ``[[レベル, タイトル, ページ番号], ...]`` で返す。
+
+        レベルは 1 始まりの階層。ページ番号は **1 始まり**（pymupdf 互換。
+        0 始まりの他 API と異なるので注意）。目次が無ければ空リスト。
+        """
+        self._ensure_open()
+        return [[level, title, page] for level, title, page in self._doc.get_toc()]
+
+    def set_toc(self, toc: Sequence[Sequence[int | str]]) -> None:
+        """目次を ``[[レベル, タイトル, ページ番号], ...]`` で置き換える。空で削除。
+
+        レベルは 1 から始まり、直前の項目のレベル +1 までしか深くできない。
+        ページ番号は 1 始まり（:meth:`get_toc` と対称）。
+        """
+        self._ensure_open()
+        count = self.page_count
+        entries: list[tuple[int, str, int]] = []
+        previous_level = 0
+        for i, item in enumerate(toc):
+            try:
+                level_raw, title, page_raw = item
+                level = int(level_raw)
+                page = int(page_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"toc[{i}] は [レベル, タイトル, ページ番号] の 3 要素で指定してください: {item!r}"
+                raise ValueError(msg) from exc
+            if level < 1 or level > previous_level + 1:
+                msg = f"toc[{i}] のレベル {level} が不正です（1 以上かつ直前のレベル +1 まで）"
+                raise ValueError(msg)
+            if not 1 <= page <= count:
+                msg = f"toc[{i}] のページ番号 {page} は範囲外です（1..{count}）"
+                raise ValueError(msg)
+            entries.append((level, str(title), page))
+            previous_level = level
+        self._doc.set_toc(entries)
+
     def set_fallback_font(
         self,
         font: bytes | str | os.PathLike[str] | None,
@@ -535,6 +593,9 @@ class Document:
         garbage: bool = False,
         deflate: bool = False,
         object_streams: bool = False,
+        user_pw: str | None = None,
+        owner_pw: str | None = None,
+        permissions: int = Permissions.ALL,
     ) -> None:
         """ファイルへ保存する。
 
@@ -543,10 +604,20 @@ class Document:
         object_streams=True は object stream + xref stream（PDF 1.5+ 形式）で
         書き出し、多くの PDF でファイルサイズを削減する（バージョンは必要に
         応じて 1.5 へ引き上げられる）。
+
+        user_pw / owner_pw のどちらかを与えると AES-256（PDF 2.0）で暗号化して
+        書き出す（このドキュメント自体は平文のまま）。owner_pw 省略時は user_pw と
+        同じ。user_pw を空にして owner_pw だけ与えると「閲覧自由・権限制限のみ」の
+        PDF になる。permissions は :class:`Permissions` の組み合わせ（既定は全許可）。
+        暗号化と object_streams の併用は未対応。
         """
         self._ensure_open()
+        encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
         self._apply_save_options(garbage=garbage, deflate=deflate)
-        if object_streams:
+        if encryption is not None:
+            user, owner, perms = encryption
+            self._doc.save_encrypted(str(filename), user, owner, perms, os.urandom(32))
+        elif object_streams:
             self._doc.save_with_object_streams(str(filename))
         else:
             self._doc.save(str(filename))
@@ -557,10 +628,17 @@ class Document:
         garbage: bool = False,
         deflate: bool = False,
         object_streams: bool = False,
+        user_pw: str | None = None,
+        owner_pw: str | None = None,
+        permissions: int = Permissions.ALL,
     ) -> bytes:
         """PDF をバイト列で返す。オプションの意味は :meth:`save` と同じ。"""
         self._ensure_open()
+        encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
         self._apply_save_options(garbage=garbage, deflate=deflate)
+        if encryption is not None:
+            user, owner, perms = encryption
+            return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32))
         if object_streams:
             return self._doc.save_bytes_with_object_streams()
         return self._doc.save_bytes()
@@ -571,6 +649,24 @@ class Document:
             self._doc.prune_objects()
         if deflate:
             self._doc.compress()
+
+    @staticmethod
+    def _encryption_args(
+        user_pw: str | None,
+        owner_pw: str | None,
+        permissions: int,
+        *,
+        object_streams: bool,
+    ) -> tuple[str, str, int] | None:
+        """暗号化保存の引数を検証・正規化する。暗号化しないなら None。"""
+        if user_pw is None and owner_pw is None:
+            return None
+        if object_streams:
+            msg = "暗号化（user_pw / owner_pw）と object_streams は同時に指定できません"
+            raise ValueError(msg)
+        user = user_pw if user_pw is not None else ""
+        owner = owner_pw if owner_pw is not None else user
+        return (user, owner, int(permissions))
 
     def close(self) -> None:
         """ドキュメントを閉じる。以後の操作は ValueError になる。"""

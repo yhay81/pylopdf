@@ -131,3 +131,56 @@ def test_plain_pdf_reports_not_encrypted(one_page_pdf: bytes) -> None:
     assert not doc.needs_pass
     assert not doc.is_encrypted
     assert doc.authenticate("whatever") == 1
+
+
+def test_save_encrypted_roundtrip(three_page_pdf: bytes) -> None:
+    """AES-256 で暗号化保存し、user / owner 両パスワードで開ける。"""
+    doc = pylopdf.Document(stream=three_page_pdf)
+    data = doc.tobytes(user_pw="secret", owner_pw="boss")
+    # 元ドキュメントは平文のまま使える
+    assert not doc.is_encrypted
+    assert doc.page_count == 3
+
+    locked = pylopdf.Document(stream=data)
+    assert locked.needs_pass
+    assert locked.authenticate("secret") == 2
+    assert locked.page_count == 3
+    assert "Page two" in locked.get_page_text(1)
+
+    locked2 = pylopdf.Document(stream=data)
+    assert locked2.authenticate("boss") == 4
+    assert locked2.page_count == 3
+
+
+def test_save_encrypted_file_and_password_arg(tmp_path: Path, three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    out = tmp_path / "locked.pdf"
+    doc.save(out, user_pw="secret")  # owner_pw 省略 → user_pw と同じ
+    opened = pylopdf.Document(out, password="secret")
+    assert opened.page_count == 3
+    assert "Page one" in opened.get_page_text(0)
+    assert opened.render_page(0).startswith(b"\x89PNG")
+    with pytest.raises(pylopdf.PasswordError):
+        pylopdf.Document(out, password="wrong")
+
+
+def test_save_encrypted_owner_only_restricts(three_page_pdf: bytes) -> None:
+    """user_pw 空 + owner_pw のみ → 閲覧自由・権限制限のみの PDF。"""
+    doc = pylopdf.Document(stream=three_page_pdf)
+    data = doc.tobytes(user_pw="", owner_pw="boss", permissions=pylopdf.Permissions.PRINT)
+    opened = pylopdf.Document(stream=data)
+    assert not opened.needs_pass  # user password 空なので自動復号
+    assert opened.page_count == 3
+    assert "Page one" in opened.get_page_text(0)
+
+
+def test_save_encrypted_rejects_object_streams(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(ValueError, match="同時に指定できません"):
+        doc.tobytes(user_pw="x", object_streams=True)
+
+
+def test_permissions_flags() -> None:
+    perms = pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY
+    assert int(perms) == (1 << 2) | (1 << 4)
+    assert pylopdf.Permissions.MODIFY in pylopdf.Permissions.ALL
