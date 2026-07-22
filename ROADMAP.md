@@ -73,8 +73,10 @@ Python PDF エコシステム）に基づく中期計画の正本。
   - lopdf#535 の xfail はこの置き換えで根本解消する
   - 公式サンプル extract_html.rs（hayro 0.7.0 同梱）が実装の出発点
 - 画像抽出（`RasterImage::stream()` による JPEG パススルー。get_images / extract_image 相当）
-- hayro の warning_sink → Python warnings 連携（フォント未解決・画像デコード失敗の可視化）
-- Pixmap オブジェクト（buffer protocol で NumPy / PIL ゼロコピー）
+- [x] hayro の warning_sink → Python warnings 連携（PylopdfWarning）
+- [x] Pixmap オブジェクト（※buffer protocol は断念: Py_buffer が安定 ABI に入るのは
+      Python 3.11 からで abi3-py310 と両立しない。samples は 1 コピー。
+      abi3 下限引き上げ時か cp314t 別ビルド時に再検討）
 - 注意: hayro 0.8 で Device API の破壊的変更（DrawProps 化）が予定されており、追従が 1 回必要
 
 ### v0.8 — 描き込み

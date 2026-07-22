@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including matches across word gaps and CJK text (works even for non-embedded
   CJK fonts, since Unicode comes from the CMap machinery). Line-spanning matches
   are not detected
+- `Page.get_pixmap(scale, dpi=, background=)`: renders to a `Pixmap` object with
+  straight-alpha RGBA8 pixels (`samples` bytes plus `width` / `height` / `stride`
+  / `n` and `tobytes()` for PNG), ready for
+  `np.frombuffer(pix.samples, np.uint8).reshape(h, w, 4)`. The buffer protocol
+  (zero-copy) is not implemented because `Py_buffer` only joined the stable ABI
+  in Python 3.11 while our wheels are abi3-py310; `samples` costs one copy
+- Interpreter warnings surface as Python warnings: font-resolution and
+  image-decode failures reported by hayro during rendering or extraction are
+  emitted as `PylopdfWarning` (deduplicated per operation, cleared between
+  operations)
 - `Page.get_images()`: extracts images drawn on the page as
   `{"width", "height", "bbox", "ext", "image"}` dicts. Images whose filter chain
   ends in DCTDecode (including `[FlateDecode, DCTDecode]`) return the original

@@ -415,7 +415,12 @@ fn image_bbox(transform: Affine, width: f64, height: f64, page_height: f64) -> B
 }
 
 /// ピクセルデータを PNG にエンコードする。
-fn encode_png(width: u32, height: u32, color: png::ColorType, data: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn encode_png(
+    width: u32,
+    height: u32,
+    color: png::ColorType,
+    data: &[u8],
+) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut out, width, height);

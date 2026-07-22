@@ -4,11 +4,11 @@
 //! `pylopdf.Document` が提供する。
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
+use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning};
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::AlphaColor;
 use hayro::{RenderCache, RenderSettings, render};
@@ -187,6 +187,9 @@ pub struct _Document {
     /// レンダリング用にパース済みの hayro ドキュメント（現在の編集状態のスナップショット）。
     /// 編集メソッドが `invalidate_hayro_pdf` で破棄し、次のレンダリングで再構築される。
     hayro_pdf: Option<Pdf>,
+    /// 直近のレンダリング・抽出で hayro が出した警告（interpreter_settings の sink が
+    /// 書き込み、take_warnings で取り出す）。
+    pending_warnings: Arc<Mutex<Vec<String>>>,
 }
 
 impl _Document {
@@ -196,6 +199,7 @@ impl _Document {
             doc,
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
+            pending_warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -272,23 +276,95 @@ impl _Document {
         Ok(self.hayro_pdf.as_ref().expect("直前で構築している"))
     }
 
-    /// fallback フォント設定を反映した InterpreterSettings を組み立てる。
+    /// fallback フォント設定と警告 sink を反映した InterpreterSettings を組み立てる。
     fn interpreter_settings(&self) -> InterpreterSettings {
         let mut settings = InterpreterSettings::default();
-        if self.fallback_fonts.sans.is_none() && self.fallback_fonts.serif.is_none() {
-            return settings;
+        if self.fallback_fonts.sans.is_some() || self.fallback_fonts.serif.is_some() {
+            let fonts = self.fallback_fonts.clone();
+            let default_resolver = settings.font_resolver.clone();
+            settings.font_resolver = Arc::new(move |query| {
+                if let FontQuery::Fallback(fallback) = query
+                    && let Some(picked) = pick_cjk_fallback(&fonts, fallback)
+                {
+                    return Some(picked);
+                }
+                default_resolver(query)
+            });
         }
-        let fonts = self.fallback_fonts.clone();
-        let default_resolver = settings.font_resolver.clone();
-        settings.font_resolver = Arc::new(move |query| {
-            if let FontQuery::Fallback(fallback) = query
-                && let Some(picked) = pick_cjk_fallback(&fonts, fallback)
+        // hayro の警告を pending_warnings へ集める（同一メッセージは 1 回だけ）
+        let sink = Arc::clone(&self.pending_warnings);
+        settings.warning_sink = Arc::new(move |warning| {
+            let message = match warning {
+                InterpreterWarning::UnsupportedFont => {
+                    "未対応のフォント形式があり、一部のグリフを処理できませんでした"
+                }
+                InterpreterWarning::ImageDecodeFailure => "画像のデコードに失敗しました",
+            };
+            if let Ok(mut pending) = sink.lock()
+                && !pending.iter().any(|m| m == message)
             {
-                return Some(picked);
+                pending.push(message.to_owned());
             }
-            default_resolver(query)
         });
         settings
+    }
+
+    /// ページを検証付きでレンダリングして hayro の Pixmap を返す
+    /// （render_page_png / render_page_pixmap の共通実装）。
+    fn render_pixmap_impl(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        scale: f32,
+        background: Option<(u8, u8, u8, u8)>,
+    ) -> PyResult<hayro::vello_cpu::Pixmap> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(PdfError::new_err("scale は有限の正の値で指定してください"));
+        }
+        let interpreter_settings = self.interpreter_settings();
+        py.detach(|| {
+            let pdf = self.hayro_view()?;
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| {
+                    PdfError::new_err(format!("ページ {page_number} は存在しません"))
+                })?;
+            let (page_width, page_height) = page.render_dimensions();
+            let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
+            let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
+            if !pixel_width.is_finite()
+                || !pixel_height.is_finite()
+                || pixel_width < 1.0
+                || pixel_height < 1.0
+            {
+                return Err(PdfError::new_err(
+                    "scale が小さすぎるか、PDF のページサイズが不正です",
+                ));
+            }
+            if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
+                return Err(PdfError::new_err(format!(
+                    "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
+                )));
+            }
+            let total_pixels = (pixel_width as u64) * (pixel_height as u64);
+            if total_pixels > MAX_RENDER_PIXELS {
+                return Err(PdfError::new_err(format!(
+                    "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
+                )));
+            }
+            let mut render_settings = RenderSettings {
+                x_scale: scale,
+                y_scale: scale,
+                ..Default::default()
+            };
+            if let Some((r, g, b, a)) = background {
+                render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
+            }
+            let cache = RenderCache::new();
+            Ok(render(page, &cache, &interpreter_settings, &render_settings))
+        })
     }
 
     /// ルート Pages ノードの ObjectId を返す。無ければ最小構造を作る（空ドキュメント対応）。
@@ -928,56 +1004,41 @@ impl _Document {
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<Vec<u8>> {
-        if !scale.is_finite() || scale <= 0.0 {
-            return Err(PdfError::new_err("scale は有限の正の値で指定してください"));
-        }
-        let interpreter_settings = self.interpreter_settings();
-        py.detach(|| {
-            let pdf = self.hayro_view()?;
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| {
-                    PdfError::new_err(format!("ページ {page_number} は存在しません"))
-                })?;
-            let (page_width, page_height) = page.render_dimensions();
-            let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
-            let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
-            if !pixel_width.is_finite()
-                || !pixel_height.is_finite()
-                || pixel_width < 1.0
-                || pixel_height < 1.0
-            {
-                return Err(PdfError::new_err(
-                    "scale が小さすぎるか、PDF のページサイズが不正です",
-                ));
-            }
-            if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
-                return Err(PdfError::new_err(format!(
-                    "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
-                )));
-            }
-            let total_pixels = (pixel_width as u64) * (pixel_height as u64);
-            if total_pixels > MAX_RENDER_PIXELS {
-                return Err(PdfError::new_err(format!(
-                    "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
-                )));
-            }
-            let mut render_settings = RenderSettings {
-                x_scale: scale,
-                y_scale: scale,
-                ..Default::default()
-            };
-            if let Some((r, g, b, a)) = background {
-                render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
-            }
-            let cache = RenderCache::new();
-            let pixmap = render(page, &cache, &interpreter_settings, &render_settings);
-            pixmap
-                .into_png()
-                .map_err(|e| PdfError::new_err(format!("failed to encode PNG: {e:?}")))
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        pixmap
+            .into_png()
+            .map_err(|e| PdfError::new_err(format!("failed to encode PNG: {e:?}")))
+    }
+
+    /// 指定ページ（1 始まり）をレンダリングして Pixmap（ストレート RGBA8）を返す。
+    fn render_page_pixmap(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        scale: f32,
+        background: Option<(u8, u8, u8, u8)>,
+    ) -> PyResult<crate::pixmap::Pixmap> {
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        let width = u32::from(pixmap.width());
+        let height = u32::from(pixmap.height());
+        let data = pixmap
+            .take_unpremultiplied()
+            .into_iter()
+            .flat_map(|pixel| [pixel.r, pixel.g, pixel.b, pixel.a])
+            .collect();
+        Ok(crate::pixmap::Pixmap {
+            width,
+            height,
+            data,
         })
+    }
+
+    /// 直近の操作で溜まった hayro の警告メッセージを取り出す（取り出すと空になる）。
+    fn take_warnings(&mut self) -> Vec<String> {
+        self.pending_warnings
+            .lock()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .unwrap_or_default()
     }
 
     /// 指定ページ（1 始まり）を SVG 文字列にレンダリングする。

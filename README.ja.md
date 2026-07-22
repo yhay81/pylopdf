@@ -75,6 +75,7 @@ words = doc[0].get_text("words")     # (x0, y0, x1, y1, 語, ブロック, 行, 
 layout = doc[0].get_text("dict")     # blocks → lines → spans（bbox 付き）
 rects = doc[0].search_for("税")      # 大文字小文字を区別しない。list[Rect]
 images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
+pix = doc[0].get_pixmap(dpi=144)     # NumPy / PIL 向けの RGBA8 画素（pix.samples）
 
 # レンダリング
 png: bytes = doc.render_page(0)             # 72dpi 相当
@@ -173,6 +174,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `get_text(option="text")` | テキスト抽出。`"words"` / `"blocks"` / `"dict"` で位置付きレイアウト |
 | `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
 | `get_images()` | ページ上の画像を抽出（JPEG は元バイト列をパススルー、他は PNG 化） |
+| `get_pixmap(scale, dpi=, background=)` | `Pixmap`（ストレート RGBA8。`samples` / `width` / `height` / `stride` / `tobytes()`）へレンダリング |
 | `render(scale, dpi=, background=)` / `render_svg()` | レンダリング |
 | `rotation` / `set_rotation(deg)` | 表示回転（90 の倍数。継承解決済み） |
 | `mediabox` / `cropbox` / `rect` | ページボックス（`Rect`）。rect は回転を反映した表示矩形 |

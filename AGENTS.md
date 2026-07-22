@@ -57,6 +57,10 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
   （uv workspace メンバー、[cjk] extra、レンダリング時に自動検出）
 - メタデータ文字列は ASCII 以外を UTF-16BE（BOM 付き）でエンコードする
 - wheel は abi3-py310 の単一ビルド（Python 3.10–3.14）。サイズを増やす依存追加は慎重に（現在約 3.5MB）
+- hayro の警告は interpreter_settings の sink が pending_warnings に集め、
+  Python 側 _emit_warnings が PylopdfWarning として発行する（操作ごとにドレイン）
+- buffer protocol は abi3-py310 では使えない（Py_buffer の安定 ABI 入りは 3.11 から）。
+  Pixmap.samples は 1 コピーの bytes
 
 ## 既知の罠
 

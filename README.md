@@ -74,6 +74,7 @@ words = doc[0].get_text("words")     # (x0, y0, x1, y1, word, block, line, word_
 layout = doc[0].get_text("dict")     # blocks -> lines -> spans with bboxes
 rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
 images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
+pix = doc[0].get_pixmap(dpi=144)     # RGBA8 pixels for NumPy / PIL (pix.samples)
 
 # Rendering
 png: bytes = doc.render_page(0)             # 72 dpi
@@ -172,6 +173,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
+| `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |

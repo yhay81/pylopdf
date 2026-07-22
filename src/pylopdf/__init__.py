@@ -10,10 +10,11 @@ import enum
 import functools
 import math
 import os
+import warnings as _warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, overload
 
-from pylopdf.pylopdf_core import PasswordError, PdfError, _Document
+from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -39,6 +40,11 @@ __all__ = [
     "open",
     "peek_metadata",
 ]
+__all__ += ["Pixmap", "PylopdfWarning"]
+
+
+class PylopdfWarning(UserWarning):
+    """レンダリング・抽出中に hayro が報告した警告（フォント未解決・画像デコード失敗）。"""
 
 
 class Permissions(enum.IntFlag):
@@ -256,7 +262,9 @@ class Page:
         if not needle:
             msg = "needle は 1 文字以上で指定してください"
             raise ValueError(msg)
-        return [Rect(*hit) for hit in self._document._doc.search_page(self._page_number(), needle)]
+        hits = self._document._doc.search_page(self._page_number(), needle)
+        self._document._emit_warnings()
+        return [Rect(*hit) for hit in hits]
 
     def get_images(self) -> list[dict[str, Any]]:
         """ページ上に描画される画像を抽出する。
@@ -266,10 +274,39 @@ class Page:
         それ以外（CCITT / JBIG2 / Flate 等）はデコードして PNG 化する（``ext="png"``）。
         bbox はページ上の描画位置（左上原点の :class:`Rect`）。
         """
+        raw = self._document._doc.extract_images(self._page_number())
+        self._document._emit_warnings()
         return [
             {"width": width, "height": height, "bbox": Rect(*bbox), "ext": ext, "image": data}
-            for width, height, bbox, ext, data in self._document._doc.extract_images(self._page_number())
+            for width, height, bbox, ext, data in raw
         ]
+
+    def get_pixmap(
+        self,
+        scale: float = 1.0,
+        *,
+        dpi: float | None = None,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+    ) -> Pixmap:
+        """ページを :class:`Pixmap`（ストレートアルファ RGBA8）にレンダリングする。
+
+        引数は :meth:`Document.render_page` と同じ。得られる Pixmap は
+        ``width`` / ``height`` / ``stride`` / ``n`` / ``samples``（bytes）と
+        ``tobytes()``（PNG）を持ち、``np.frombuffer(pix.samples, np.uint8)``
+        ``.reshape(pix.height, pix.width, 4)`` で NumPy 配列にできる。
+        """
+        if dpi is not None:
+            if scale != 1.0:
+                msg = "scale と dpi は同時に指定できません"
+                raise ValueError(msg)
+            scale = dpi / 72.0
+        rgba = _normalize_background(background)
+        page_number = self._page_number()
+        document = self._document
+        document._ensure_fallback_fonts()
+        result = document._doc.render_page_pixmap(page_number, scale, rgba)
+        document._emit_warnings()
+        return result
 
     def render(
         self,
@@ -462,8 +499,11 @@ class Document:
         近似（実フォントメトリクスではない）。
         """
         if option == "text":
-            return self._doc.extract_text([self._lopdf_page_number(pno)])
+            text = self._doc.extract_text([self._lopdf_page_number(pno)])
+            self._emit_warnings()
+            return text
         width, height, blocks = self._doc.extract_layout(self._lopdf_page_number(pno))
+        self._emit_warnings()
         if option == "words":
             words: list[WordEntry] = []
             for bno, (_, lines) in enumerate(blocks):
@@ -699,13 +739,22 @@ class Document:
         rgba = _normalize_background(background)
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        return self._doc.render_page_png(page_number, scale, rgba)
+        result = self._doc.render_page_png(page_number, scale, rgba)
+        self._emit_warnings()
+        return result
 
     def render_page_svg(self, pno: int) -> str:
         """ページ pno（0 始まり）を SVG 文字列にレンダリングする。"""
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        return self._doc.render_page_svg(page_number)
+        result = self._doc.render_page_svg(page_number)
+        self._emit_warnings()
+        return result
+
+    def _emit_warnings(self) -> None:
+        """直近の操作で hayro が出した警告を :class:`PylopdfWarning` として発行する。"""
+        for message in self._doc.take_warnings():
+            _warnings.warn(message, PylopdfWarning, stacklevel=3)
 
     def save(  # noqa: PLR0913  # 保存オプションはすべてキーワード専用（pymupdf 互換の形）
         self,
