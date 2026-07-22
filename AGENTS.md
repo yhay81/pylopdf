@@ -1,5 +1,8 @@
 # AGENTS.md
 
+このファイルがエージェント向け開発コンテキストの正本
+（CLAUDE.md は @import でここを参照するだけ。更新はこのファイルへ）。
+
 pylopdf: Rust 製 PDF 編集・レンダリングの Python ライブラリ（PyPI 公開中）。
 編集 = [lopdf](https://github.com/J-F-Liu/lopdf)、レンダリング = [hayro](https://github.com/LaurenzV/hayro)。
 API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.md) を参照。
