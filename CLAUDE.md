@@ -27,12 +27,22 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - merge / select / extract_text は「継承属性（Resources, MediaBox, CropBox, Rotate）を
   ページ辞書へ焼き込む」パターンが前提（lopdf はページ属性の継承を解決しないため）
 - レンダリングは save_bytes → hayro で再パースする方式。編集後の状態が常に反映される
+- 暗号化 PDF: user password 空は lopdf がロード時に自動復号。それ以外は password 引数か
+  authenticate()（内部はパスワード付き開き直し）。未復号のまま操作すると 0 ページに
+  見えるため、_ensure_open が is_encrypted を検査して明確なエラーにする
+- CJK fallback: hayro の font_resolver を差し替え（rust/src/document.rs の
+  pick_cjk_fallback）。CIDSystemInfo か BaseFont 名で CJK 判定し、明朝系名は serif、
+  それ以外は sans スロットを使う。フォント実体は fonts/pylopdf-fonts-cjk/
+  （uv workspace メンバー、[cjk] extra、レンダリング時に自動検出）
 - メタデータ文字列は ASCII 以外を UTF-16BE（BOM 付き）でエンコードする
 - wheel は abi3-py310 の単一ビルド（Python 3.10–3.14）。サイズを増やす依存追加は慎重に（現在約 3.5MB）
 
 ## 既知の罠
 
-- lopdf の `time`/`jiff` feature は最新 time クレートとコンパイル非互換 → `chrono` に固定している（rust/Cargo.toml）
+- lopdf の `time` feature は 0.43.0 で入った `From<time::Time>` impl が最初から
+  コンパイル不能（上流 #527 で修正済み・未リリース）→ `chrono` に固定している（rust/Cargo.toml）
+- lopdf のテキスト抽出は content stream 内の `%` コメントで空/エラーになる
+  （レンダリングは正常。tests/test_real_world.py の xfail で追跡）
 - classifier の実在チェックは pre-commit の validate-pyproject（trove-classifiers 付き）が担う
   （v0.4.0 は無効 classifier `Topic :: Text Processing :: Markup :: PDF` で PyPI に拒否された実績）
   ※ validate-pyproject-schema-store は UnboundLocalError を起こすため入れない
@@ -46,11 +56,19 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 3. GitHub Actions（release.yml）が 5 プラットフォームの wheel + sdist をビルドし、
    PyPI Trusted Publishing で自動公開する（PyPI 側設定は登録済み）
 
+フォント wheel（pylopdf-fonts-cjk）は別リリース: fonts/pylopdf-fonts-cjk/pyproject.toml の
+バージョンを上げて `fonts-vX.Y.Z` タグを push すると release-fonts.yml が公開する。
+※初回は PyPI 側で pylopdf-fonts-cjk の Trusted Publisher 登録が必要
+（workflow: release-fonts.yml / environment: pypi）。本体の [cjk] extra が参照するため、
+本体リリースより先にフォント wheel を公開すること
+
 ## ロードマップ（2026-07 時点）
 
-1. CJK フォントの opt-in extra（`pylopdf[cjk]`）— 非埋め込み日本語 PDF のレンダリング対応
-2. 暗号化 PDF の読み取り対応（lopdf の decrypt 機能の露出）
-3. 実世界 PDF コーパスの拡充（スキャン画像 PDF、非埋め込み CJK、暗号化 PDF — 詳細は
+1. v0.5.0 リリース（暗号化 + CJK。先に pylopdf-fonts-cjk 0.1.0 を PyPI 公開 →
+   Trusted Publisher 登録が必要）
+2. 実世界 PDF コーパスの拡充（スキャン画像 PDF など — 詳細は
    tests/assets/real_world/README.md の「将来追加したい軸」）
+3. lopdf への upstream 報告: content stream コメントでテキスト抽出が壊れる件
 
-完了済み: GitHub Release ノート + README バッジ、実世界 PDF の回帰テストスイート（2026-07-22）
+完了済み（2026-07-22）: GitHub Release ノート + README バッジ、実世界 PDF の
+回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）

@@ -27,12 +27,19 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - abi3: one wheel covers Python 3.10–3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**Limitations**: no precise layout analysis, no annotation/form editing, no encrypted PDFs. Use pymupdf if you need those.
+**Limitations**: no precise layout analysis, no annotation/form editing. Use pymupdf if you need those.
 
 ## Install
 
 ```bash
 pip install pylopdf
+```
+
+To render Japanese PDFs without embedded fonts, install the optional CJK fonts
+(Noto Sans/Serif JP, auto-detected at render time):
+
+```bash
+pip install pylopdf[cjk]
 ```
 
 Building from source (requires a Rust toolchain):
@@ -84,6 +91,17 @@ data: bytes = merged.tobytes()
 # Context manager
 with pylopdf.open("input.pdf") as doc:
     print(doc.metadata)
+
+# Encrypted PDFs (RC4-40/128, AES-128, AES-256; empty user passwords open transparently)
+doc = pylopdf.open("locked.pdf", password="secret")
+doc = pylopdf.open("locked.pdf")
+if doc.needs_pass:
+    doc.authenticate("secret")  # 0=failed, 2=user, 4=owner, 6=both
+
+# CJK fallback font for PDFs without embedded fonts
+# (automatic with pylopdf[cjk]; or bring your own font)
+doc.set_fallback_font("NotoSansJP-Regular.otf")
+doc.set_fallback_font(font_bytes, kind="serif")
 ```
 
 ## API
@@ -92,13 +110,16 @@ with pylopdf.open("input.pdf") as doc:
 
 | Method / property | Description |
 |---|---|
-| `Document(filename=None, stream=None)` | Open from a path or bytes; empty document if both are None |
+| `Document(filename=None, stream=None, password=None)` | Open from a path or bytes; empty document if both are None |
+| `needs_pass` / `is_encrypted` | Encryption status (pymupdf-compatible semantics) |
+| `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
 | `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
 | `get_page_text(pno)` | Extract text from a page |
 | `render_page(pno, scale=1.0)` | Render a page to PNG bytes |
 | `render_page_svg(pno)` | Render a page to an SVG string |
+| `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order |
 | `delete_page(pno)` / `delete_pages(iterable)` | Delete pages |
 | `insert_pdf(other)` | Append all pages of another document |

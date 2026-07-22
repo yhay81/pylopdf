@@ -27,13 +27,20 @@ Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](h
 - abi3 対応: Python 3.10〜3.14 を単一 wheel でサポート
 - [pymupdf](https://github.com/pymupdf/PyMuPDF) に近い操作感の API
 
-**制約**: 精密なレイアウト解析、注釈・フォーム編集、暗号化 PDF は未対応です。
+**制約**: 精密なレイアウト解析、注釈・フォーム編集は未対応です。
 これらが必要な場合は pymupdf を検討してください。
 
 ## インストール
 
 ```bash
 pip install pylopdf
+```
+
+フォント非埋め込みの日本語 PDF をレンダリングする場合は、CJK フォント付きで
+インストールする（Noto Sans/Serif JP を同梱、レンダリング時に自動検出）:
+
+```bash
+pip install pylopdf[cjk]
 ```
 
 ソースからビルドする場合（要 Rust ツールチェーン）:
@@ -85,6 +92,17 @@ data: bytes = merged.tobytes()
 # コンテキストマネージャ
 with pylopdf.open("input.pdf") as doc:
     print(doc.metadata)
+
+# 暗号化 PDF（RC4-40/128・AES-128・AES-256。user password 空なら自動復号）
+doc = pylopdf.open("locked.pdf", password="secret")
+doc = pylopdf.open("locked.pdf")
+if doc.needs_pass:
+    doc.authenticate("secret")  # 0=失敗, 2=user, 4=owner, 6=両方
+
+# 非埋め込み CJK フォントの代替フォント
+# （pylopdf[cjk] なら自動。手持ちのフォントも指定できる）
+doc.set_fallback_font("NotoSansJP-Regular.otf")
+doc.set_fallback_font(font_bytes, kind="serif")
 ```
 
 ## API
@@ -93,13 +111,16 @@ with pylopdf.open("input.pdf") as doc:
 
 | メソッド / プロパティ | 説明 |
 |---|---|
-| `Document(filename=None, stream=None)` | パスかバイト列から開く。両方 None で空ドキュメント |
+| `Document(filename=None, stream=None, password=None)` | パスかバイト列から開く。両方 None で空ドキュメント |
+| `needs_pass` / `is_encrypted` | 暗号化状態（pymupdf 互換の意味論） |
+| `authenticate(password)` | パスワードで復号（戻り値 0/1/2/4/6、pymupdf 互換） |
 | `page_count` / `len(doc)` | ページ数 |
 | `metadata` | メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format） |
 | `set_metadata(dict)` | メタデータ設定（空文字列で項目削除） |
 | `get_page_text(pno)` | ページのテキスト抽出 |
 | `render_page(pno, scale=1.0)` | ページを PNG 画像（bytes）にレンダリング |
 | `render_page_svg(pno)` | ページを SVG 文字列にレンダリング |
+| `set_fallback_font(font, kind="sans", index=0)` | 非埋め込み CJK 用の代替フォント（パス/bytes）を設定。`None` で自動検出も無効化 |
 | `select(page_numbers)` | 指定ページだけを指定順で残す（並べ替え可） |
 | `delete_page(pno)` / `delete_pages(iterable)` | ページ削除 |
 | `insert_pdf(other)` | 別ドキュメントの全ページを末尾に結合 |

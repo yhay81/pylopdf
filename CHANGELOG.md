@@ -7,11 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Encrypted PDF reading: `password` argument on `Document`/`open`, `needs_pass` /
+  `is_encrypted` properties, and pymupdf-compatible `authenticate(password)`
+  (0=failed / 1=not needed / 2=user / 4=owner / 6=both). Supports RC4-40/128,
+  AES-128, and AES-256 (R6); PDFs with an empty user password keep opening
+  transparently. Operating on a still-encrypted document now raises a clear
+  ValueError instead of silently appearing to have 0 pages
+- CJK fallback fonts for rendering: `Document.set_fallback_font(font, kind, index)`
+  supplies a TTF/OTF/TTC for non-embedded CID fonts (detected via CIDSystemInfo or
+  BaseFont name; Mincho-like names pick the "serif" slot). The new optional extra
+  `pylopdf[cjk]` installs `pylopdf-fonts-cjk` (Noto Sans/Serif JP, SIL OFL 1.1,
+  built from `fonts/pylopdf-fonts-cjk/` in this repo) which is auto-detected at
+  render time, so non-embedded Japanese PDFs render out of the box
 - Real-world PDF regression test suite (`tests/test_real_world.py`) with a vendored
   redistributable corpus (`tests/assets/real_world/`, ~1.4 MB) covering PDF 1.5/1.7/2.0,
   AcroForm, CJK embedded CID fonts, and a 110-page document; each file's source and
   license are documented in the corpus README, and known lopdf limits are tracked via
-  strict xfail (e.g. text extraction returns empty for simple fonts without /Encoding)
+  strict xfail
+- Encrypted-PDF test fixtures (`tests/assets/encrypted/`, regenerable via `generate.py`)
+
+### Fixed
+- Corrected the recorded root cause of the empty text extraction on the PDF 2.0
+  sample: lopdf fails on `%` comments inside content streams (fonts without
+  /Encoding decode fine via the StandardEncoding fallback)
 
 ## [0.4.1] - 2026-07-22
 
