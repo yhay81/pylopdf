@@ -69,6 +69,11 @@ doc.set_metadata({"title": "Monthly Report", "author": "Alice"})
 # Text extraction (0-based page numbers)
 text = doc.get_page_text(0)
 
+# Positioned text and search (pymupdf-style, top-left origin)
+words = doc[0].get_text("words")     # (x0, y0, x1, y1, word, block, line, word_no)
+layout = doc[0].get_text("dict")     # blocks -> lines -> spans with bboxes
+rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
+
 # Rendering
 png: bytes = doc.render_page(0)             # 72 dpi
 png2x: bytes = doc.render_page(0, scale=2)  # 144 dpi
@@ -146,7 +151,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `page_count` / `len(doc)` | Number of pages |
 | `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
-| `get_page_text(pno)` | Extract text from a page |
+| `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
 | `render_page_svg(pno)` | Render a page to an SVG string |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
@@ -163,7 +168,9 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | Method / property | Description |
 |---|---|
 | `number` / `parent` | 0-based page number and owning Document |
-| `get_text()` / `render(scale, dpi=, background=)` / `render_svg()` | Extraction and rendering |
+| `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
+| `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
+| `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |
 | `set_mediabox(rect)` / `set_cropbox(rect)` | Set page boxes |

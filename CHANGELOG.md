@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Positioned text extraction: `Page.get_text(option)` / `Document.get_page_text(pno,
+  option)` accept pymupdf-style `"words"` (8-tuples with bbox + block/line/word
+  numbers), `"blocks"`, and `"dict"` (blocks → lines → spans with bboxes, sizes,
+  origins) in addition to the default `"text"`. Coordinates are top-left origin;
+  vertical extents are approximated from the font size (not real font metrics)
+- `Page.search_for(needle)`: case-insensitive text search returning `list[Rect]`,
+  including matches across word gaps and CJK text (works even for non-embedded
+  CJK fonts, since Unicode comes from the CMap machinery). Line-spanning matches
+  are not detected
+
 ### Changed
 - Text extraction now runs on a hayro-based engine (`rust/src/extract.rs`): the
   interpreter collects per-glyph Unicode + positions and assembles them into

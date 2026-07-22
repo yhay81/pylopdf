@@ -11,14 +11,19 @@ import functools
 import math
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, overload
 
 from pylopdf.pylopdf_core import PasswordError, PdfError, _Document
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
     from types import TracebackType
-    from typing import Self
+    from typing import Any, Literal, Self
+
+    #: get_text("words") の 1 要素: (x0, y0, x1, y1, 語, ブロック番号, 行番号, 語番号)
+    WordEntry = tuple[float, float, float, float, str, int, int, int]
+    #: get_text("blocks") の 1 要素: (x0, y0, x1, y1, テキスト, ブロック番号, 種別=0)
+    BlockEntry = tuple[float, float, float, float, str, int, int]
 
 __version__ = "0.6.0"
 __all__ = [
@@ -226,10 +231,32 @@ class Page:
             raise ValueError(msg)
         self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
 
-    def get_text(self) -> str:
-        """ページのテキストを抽出する。"""
+    @overload
+    def get_text(self, option: Literal["text"] = "text") -> str: ...
+    @overload
+    def get_text(self, option: Literal["words"]) -> list[WordEntry]: ...
+    @overload
+    def get_text(self, option: Literal["blocks"]) -> list[BlockEntry]: ...
+    @overload
+    def get_text(self, option: Literal["dict"]) -> dict[str, Any]: ...
+    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
+        """ページのテキスト（または位置付きレイアウト）を抽出する。
+
+        option は :meth:`Document.get_page_text` と同じ（"text" / "words" / "blocks" / "dict"）。
+        """
         self._page_number()
-        return self._document.get_page_text(self._pno)
+        return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
+
+    def search_for(self, needle: str) -> list[Rect]:
+        """ページ内のテキスト検索（大文字小文字を区別しない）。
+
+        ヒットごとの :class:`Rect` を返す。行単位で検索するため、
+        行をまたぐ一致は検出しない。
+        """
+        if not needle:
+            msg = "needle は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        return [Rect(*hit) for hit in self._document._doc.search_page(self._page_number(), needle)]
 
     def render(
         self,
@@ -398,9 +425,86 @@ class Document:
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
 
-    def get_page_text(self, pno: int) -> str:
-        """ページ pno（0 始まり）のテキストを抽出する。"""
-        return self._doc.extract_text([self._lopdf_page_number(pno)])
+    @overload
+    def get_page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...
+    @overload
+    def get_page_text(self, pno: int, option: Literal["words"]) -> list[WordEntry]: ...
+    @overload
+    def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[BlockEntry]: ...
+    @overload
+    def get_page_text(self, pno: int, option: Literal["dict"]) -> dict[str, Any]: ...
+    def get_page_text(
+        self, pno: int, option: str = "text"
+    ) -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
+        """ページ pno（0 始まり）のテキスト（または位置付きレイアウト）を抽出する。
+
+        option は pymupdf 互換:
+
+        - "text": プレーンテキスト（既定）
+        - "words": (x0, y0, x1, y1, 語, ブロック番号, 行番号, 語番号) のリスト
+        - "blocks": (x0, y0, x1, y1, テキスト, ブロック番号, 0) のリスト
+        - "dict": width / height / blocks（lines → spans）の入れ子辞書
+
+        座標は左上原点・下向き y。bbox の縦方向はベースライン ± フォントサイズ比の
+        近似（実フォントメトリクスではない）。
+        """
+        if option == "text":
+            return self._doc.extract_text([self._lopdf_page_number(pno)])
+        width, height, blocks = self._doc.extract_layout(self._lopdf_page_number(pno))
+        if option == "words":
+            words: list[WordEntry] = []
+            for bno, (_, lines) in enumerate(blocks):
+                for lno, (_, _, line_words) in enumerate(lines):
+                    words.extend(
+                        (x0, y0, x1, y1, text, bno, lno, wno) for wno, ((x0, y0, x1, y1), text) in enumerate(line_words)
+                    )
+            return words
+        if option == "blocks":
+            return [
+                (
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    "\n".join(" ".join(text for _, text in line_words) for _, _, line_words in lines),
+                    bno,
+                    0,
+                )
+                for bno, ((x0, y0, x1, y1), lines) in enumerate(blocks)
+            ]
+        if option == "dict":
+            return {
+                "width": width,
+                "height": height,
+                "blocks": [
+                    {
+                        "number": bno,
+                        "type": 0,
+                        "bbox": bbox,
+                        "lines": [
+                            {
+                                "bbox": line_bbox,
+                                "wmode": 0,
+                                "dir": (1.0, 0.0),
+                                "spans": [
+                                    {
+                                        "bbox": span_bbox,
+                                        "origin": origin,
+                                        "size": size,
+                                        "font": "",
+                                        "text": text,
+                                    }
+                                    for span_bbox, text, size, origin in spans
+                                ],
+                            }
+                            for line_bbox, spans, _ in lines
+                        ],
+                    }
+                    for bno, (bbox, lines) in enumerate(blocks)
+                ],
+            }
+        msg = f"option は 'text' / 'words' / 'blocks' / 'dict' のいずれかで指定してください: {option!r}"
+        raise ValueError(msg)
 
     def delete_page(self, pno: int) -> None:
         """ページ pno（0 始まり、負数可）を削除する。"""

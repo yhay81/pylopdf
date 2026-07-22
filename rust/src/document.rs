@@ -738,6 +738,47 @@ impl _Document {
         })
     }
 
+    /// 指定ページ（1 始まり）のレイアウトを返す。
+    ///
+    /// 戻り値は (幅, 高さ, ブロック列)。ブロック = (bbox, 行列)、
+    /// 行 = (bbox, スパン列, 語列)、スパン = (bbox, text, size, origin)、語 = (bbox, text)。
+    #[allow(clippy::type_complexity)]
+    fn extract_layout(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+            Ok(crate::extract::extract_page_layout(pdf, page, settings))
+        })
+    }
+
+    /// 指定ページ（1 始まり）をテキスト検索する（大文字小文字を区別しない）。
+    fn search_page(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        needle: &str,
+    ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+            Ok(crate::extract::search_page(pdf, page, settings, needle))
+        })
+    }
+
     /// 別ドキュメントの全ページを末尾に取り込む。
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
         let count = u32::try_from(other.doc.get_pages().len())

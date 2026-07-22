@@ -70,6 +70,11 @@ doc.set_metadata({"title": "月次レポート", "author": "山田 太郎"})
 # テキスト抽出（0 始まりのページ番号）
 text = doc.get_page_text(0)
 
+# 位置付きテキストと検索（pymupdf 風、左上原点）
+words = doc[0].get_text("words")     # (x0, y0, x1, y1, 語, ブロック, 行, 語番号)
+layout = doc[0].get_text("dict")     # blocks → lines → spans（bbox 付き）
+rects = doc[0].search_for("税")      # 大文字小文字を区別しない。list[Rect]
+
 # レンダリング
 png: bytes = doc.render_page(0)             # 72dpi 相当
 png2x: bytes = doc.render_page(0, scale=2)  # 144dpi 相当
@@ -147,7 +152,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `page_count` / `len(doc)` | ページ数 |
 | `metadata` | メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format） |
 | `set_metadata(dict)` | メタデータ設定（空文字列で項目削除） |
-| `get_page_text(pno)` | ページのテキスト抽出 |
+| `get_page_text(pno, option="text")` | ページのテキスト抽出（`"words"` / `"blocks"` / `"dict"` で位置付き） |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | ページを PNG 画像（bytes）にレンダリング。dpi は scale の代替、background は背景色 RGB(A)（1辺65,535px・総64MPまで） |
 | `render_page_svg(pno)` | ページを SVG 文字列にレンダリング |
 | `set_fallback_font(font, kind="sans", index=0)` | 非埋め込み CJK 用の代替フォント（パス/bytes）を設定。`None` で自動検出も無効化 |
@@ -164,7 +169,9 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | メソッド / プロパティ | 説明 |
 |---|---|
 | `number` / `parent` | 0 始まりのページ番号と所属 Document |
-| `get_text()` / `render(scale, dpi=, background=)` / `render_svg()` | テキスト抽出・レンダリング |
+| `get_text(option="text")` | テキスト抽出。`"words"` / `"blocks"` / `"dict"` で位置付きレイアウト |
+| `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
+| `render(scale, dpi=, background=)` / `render_svg()` | レンダリング |
 | `rotation` / `set_rotation(deg)` | 表示回転（90 の倍数。継承解決済み） |
 | `mediabox` / `cropbox` / `rect` | ページボックス（`Rect`）。rect は回転を反映した表示矩形 |
 | `set_mediabox(rect)` / `set_cropbox(rect)` | ページボックスの設定 |

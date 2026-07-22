@@ -30,8 +30,11 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - merge / select は「継承属性（Resources, MediaBox, CropBox, Rotate）を
   ページ辞書へ焼き込む」パターンが前提（lopdf はページ属性の継承を解決しないため）
 - テキスト抽出は hayro Device 実装（rust/src/extract.rs）。グリフの Unicode + 位置を
-  収集し行・語へ組み立てる。CJK 代替フォント設定は抽出にも反映され、不可視テキスト
-  （OCR レイヤー）も対象。縦書きの読み順は未対応（横書き前提のクラスタリング）
+  収集し、行（LINE_TOLERANCE）→ 語（WORD_GAP）→ ブロック（BLOCK_GAP）へ組み立てる。
+  get_text("words"/"blocks"/"dict") と search_for も同じグリフ収集の上に載る。
+  CJK 代替フォント設定は抽出にも反映され、不可視テキスト（OCR レイヤー）も対象。
+  注意: hayro のグリフ空間は 1000 upem 正規化のため、フォントサイズは変換係数 × 1000。
+  bbox の縦方向はベースライン ± サイズ比の近似。縦書きの読み順は未対応
 - レンダリングは save_bytes → hayro 再パースの結果を `_Document.hayro_pdf` にキャッシュし、
   編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
   不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）
