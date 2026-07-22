@@ -16,6 +16,8 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests`
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets` / `cargo fmt --manifest-path rust/Cargo.toml`
 - Rust の単体テストは書かない方針。挙動はすべて Python テスト（tests/）で検証する
+- 実世界 PDF の回帰テストは tests/test_real_world.py。コーパスの出典・ライセンス・既知の限界は
+  tests/assets/real_world/README.md に記録し、追加時も再配布可能なものだけを同梱する
 
 ## アーキテクチャと不変条件
 
@@ -46,7 +48,9 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 ## ロードマップ（2026-07 時点）
 
-1. GitHub Release ノート + README バッジ（PyPI version / CI status）
-2. 実世界 PDF の回帰テストスイート（lopdf/hayro の限界を早期発見する）
-3. CJK フォントの opt-in extra（`pylopdf[cjk]`）— 非埋め込み日本語 PDF のレンダリング対応
-4. 暗号化 PDF の読み取り対応（lopdf の decrypt 機能の露出）
+1. CJK フォントの opt-in extra（`pylopdf[cjk]`）— 非埋め込み日本語 PDF のレンダリング対応
+2. 暗号化 PDF の読み取り対応（lopdf の decrypt 機能の露出）
+3. 実世界 PDF コーパスの拡充（スキャン画像 PDF、非埋め込み CJK、暗号化 PDF — 詳細は
+   tests/assets/real_world/README.md の「将来追加したい軸」）
+
+完了済み: GitHub Release ノート + README バッジ、実世界 PDF の回帰テストスイート（2026-07-22）

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Real-world PDF regression test suite (`tests/test_real_world.py`) with a vendored
+  redistributable corpus (`tests/assets/real_world/`, ~1.4 MB) covering PDF 1.5/1.7/2.0,
+  AcroForm, CJK embedded CID fonts, and a 110-page document; each file's source and
+  license are documented in the corpus README, and known lopdf limits are tracked via
+  strict xfail (e.g. text extraction returns empty for simple fonts without /Encoding)
+
 ## [0.4.1] - 2026-07-22
 
 ### Fixed
