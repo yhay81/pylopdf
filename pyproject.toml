@@ -44,6 +44,11 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.9",
 ]
+# エコシステム連携レシピ（README 記載）の統合テスト用。未インストールならテストは skip
+interop = [
+    "typst>=0.15",
+    "pyhanko>=0.35",
+]
 
 [tool.uv]
 # Rust ソース変更時に uv が拡張モジュールを再ビルドするためのキャッシュキー
@@ -71,6 +76,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # cjk extra 未インストール環境でも型チェックが通るようにする
 module = "pylopdf_fonts_cjk"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# interop グループ（連携テスト用）未インストール環境でも型チェックが通るようにする
+module = ["typst", "pyhanko.*"]
 ignore_missing_imports = true
 
 [tool.ruff]
@@ -106,3 +116,5 @@ ignore = [
 "tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106"]
 # 手動実行の生成スクリプト（進捗表示に print を使う）
 "tests/assets/encrypted/generate.py" = ["T201"]
+# importorskip の後に連携ライブラリを import する必要があるため先頭以外の import を許可
+"tests/test_interop.py" = ["E402"]

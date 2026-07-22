@@ -31,7 +31,8 @@ jobs:
       - name: Rust lint
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Build and install
-        run: uv sync --all-extras
+        # interop グループはエコシステム連携レシピ（README 記載）の統合テスト用
+        run: uv sync --all-extras --group interop
       - name: Validate project metadata
         run: uv run pre-commit run validate-pyproject --all-files
       - name: Python lint

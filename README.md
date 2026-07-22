@@ -30,6 +30,7 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
 **Limitations**: no precise layout analysis, no annotation/form editing. Use pymupdf if you need those.
+Typesetting, PDF/A output, and digital signatures are covered by the ecosystem recipes below.
 
 ## Install
 
@@ -138,6 +139,52 @@ if doc.needs_pass:
 # (automatic with pylopdf[cjk]; or bring your own font)
 doc.set_fallback_font("NotoSansJP-Regular.otf")
 doc.set_fallback_font(font_bytes, kind="serif")
+```
+
+## Ecosystem recipes (typesetting, PDF/A, signatures)
+
+pylopdf stays a lightweight core for editing, extraction, and rendering; adjacent
+concerns are solved by pairing it with established libraries. The recipes below
+are covered by integration tests (tests/test_interop.py).
+
+**Typesetting / creating new documents = [typst](https://typst.app/)**
+(via [typst-py](https://pypi.org/project/typst/)). Typeset reports with typst and
+feed the bytes straight into pylopdf:
+
+```python
+import typst
+import pylopdf
+
+pdf_bytes = typst.compile("report.typ")   # typesetting: typst
+doc = pylopdf.open(stream=pdf_bytes)      # editing / extraction / merging: pylopdf
+```
+
+**PDF/A for new documents** is also typst's job (validated export via krilla;
+PDF/A-1b through 4 and PDF/UA-1):
+
+```python
+pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
+```
+
+Converting or validating *existing* PDFs against PDF/A is a different problem;
+[veraPDF](https://verapdf.org/) (Java) is the de-facto validator.
+
+**Digital signatures (PAdES) = [pyHanko](https://pypi.org/project/pyHanko/)** (MIT).
+pyHanko signs with an incremental update, so the bytes produced by pylopdf remain
+untouched as a prefix of the signed file:
+
+```python
+import io
+from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko.sign import signers
+
+signer = signers.SimpleSigner.load("key.pem", "cert.pem")
+out = signers.sign_pdf(
+    IncrementalPdfFileWriter(io.BytesIO(doc.tobytes())),
+    signers.PdfSignatureMetadata(field_name="Signature1"),
+    signer=signer,
+)
+signed_pdf: bytes = out.getvalue()
 ```
 
 ## API

@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Ecosystem interop recipes, documented in both READMEs and guarded by
+  integration tests (`tests/test_interop.py`, optional `interop` dependency
+  group installed in CI): typesetting and PDF/A output for new documents via
+  typst (`typst.compile()` bytes feed straight into `pylopdf.open(stream=)`),
+  and PAdES signatures via pyHanko (incremental signing keeps pylopdf's output
+  bytes untouched as a prefix — asserted byte-for-byte). veraPDF is documented
+  as the external answer for PDF/A validation
+
 ## [0.7.0] - 2026-07-23
 
 ### Added
