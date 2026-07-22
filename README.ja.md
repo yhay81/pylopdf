@@ -122,6 +122,10 @@ print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 # スキャン PDF を searchable に（外部 OCR の結果を不可視テキスト層として書き込む）
 page.insert_ocr_text_layer(ocr_words)  # (x0, y0, x1, y1, テキスト, ...) の列。日本語もサイズ増ほぼゼロ
 
+# Markdown 変換（RAG / LLM 前処理。見出しはサイズ推定、日本語の折り返しは空白なしで連結）
+md = doc.to_markdown()
+md_p1 = doc[0].to_markdown()
+
 # PDF/A の自己宣言を読む（検証は veraPDF へ）
 print(doc.get_pdfa_claim())  # 例: (2, "B") = PDF/A-2b 宣言。無ければ None
 
@@ -261,6 +265,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | ページ範囲の結合（負数・逆順可。start_at で挿入位置指定） |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | 空ページの挿入・ページ複製 |
 | `get_toc()` / `set_toc(toc)` | しおり（目次）の読み書き。`[[レベル, タイトル, ページ番号], ...]`（ページ番号はここだけ 1 始まり） |
+| `to_markdown(pages=None)` | Markdown 変換（サイズ推定の見出し・CJK 連結・箇条書き正規化。太字・表・多段組は未対応） |
 | `get_form_fields()` / `set_form_field(name, value)` | AcroForm の一覧と記入（NeedAppearances 方式。チェックボックスは bool 可） |
 | `get_pdfa_claim()` | XMP の PDF/A 宣言 `(part, conformance)` の読み取り（自己申告の読み取りで、検証ではない） |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | 添付ファイル（EmbeddedFiles）の追加・一覧・取得・削除 |
@@ -275,6 +280,7 @@ signed_pdf: bytes = out.getvalue()
 | `number` / `parent` | 0 始まりのページ番号と所属 Document |
 | `get_label()` | ページの表示ラベル（"iv"・"A-2" など。定義が無ければ空文字列） |
 | `get_text(option="text")` | テキスト抽出。`"words"` / `"blocks"` / `"dict"` で位置付きレイアウト |
+| `to_markdown()` | このページの Markdown 変換 |
 | `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
 | `get_images()` | ページ上の画像を抽出（JPEG は元バイト列をパススルー、他は PNG 化） |
 | `get_pixmap(scale, dpi=, background=)` | `Pixmap`（ストレート RGBA8。`samples` / `width` / `height` / `stride` / `tobytes()`）へレンダリング |

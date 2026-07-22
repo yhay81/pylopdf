@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Markdown conversion (first cut): `Document.to_markdown(pages=None)` and
+  `Page.to_markdown()` convert extracted layout to Markdown for RAG / LLM
+  preprocessing. Headings are inferred from font sizes (the size with the most
+  characters is body text; larger sizes map to `#`..`####` by rank), CJK line
+  wraps join *without* spaces (Japanese paragraphs stay intact), leading bullet
+  characters (・• etc.) and "1." / "1)" normalize to Markdown lists, and pages
+  with an `insert_ocr_text_layer` convert too. Documented limits: no bold/italic
+  (no font names in spans yet), no tables, no multi-column reading order, no
+  vertical writing
 - AcroForm read & fill: `Document.get_form_fields()` lists fields as `{"name",
   "type", "value"}` (dotted full names, inherited FT/Ff/V resolved; types:
   text / checkbox / radio / button / combobox / listbox / signature) and

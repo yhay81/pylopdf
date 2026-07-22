@@ -121,6 +121,10 @@ print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 # Make scanned PDFs searchable (write external OCR results as an invisible text layer)
 page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
 
+# Markdown conversion (RAG / LLM preprocessing; size-based headings, CJK-aware line joining)
+md = doc.to_markdown()
+md_p1 = doc[0].to_markdown()
+
 # Read the PDF/A self-declaration (validation belongs to veraPDF)
 print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 
@@ -262,6 +266,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
+| `to_markdown(pages=None)` | Markdown conversion (size-inferred headings, CJK-aware joining, bullet normalization; no bold/tables/multi-column) |
 | `get_form_fields()` / `set_form_field(name, value)` | List and fill AcroForm fields (NeedAppearances approach; checkboxes take bool) |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
@@ -276,6 +281,7 @@ signed_pdf: bytes = out.getvalue()
 | `number` / `parent` | 0-based page number and owning Document |
 | `get_label()` | Display label of the page ("iv", "A-2", …; empty string if undefined) |
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
+| `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |

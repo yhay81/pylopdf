@@ -14,6 +14,7 @@ import warnings as _warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, overload
 
+from pylopdf import _markdown
 from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
 
 if TYPE_CHECKING:
@@ -365,6 +366,14 @@ class Page:
         """
         self._page_number()
         return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
+
+    def to_markdown(self) -> str:
+        """このページを Markdown へ変換する（:meth:`Document.to_markdown` の 1 ページ版）。
+
+        見出しサイズの推定もこのページ内だけで行う。
+        """
+        self._page_number()
+        return self._document.to_markdown(pages=[self._pno])
 
     def search_for(self, needle: str) -> list[Rect]:
         """ページ内のテキスト検索（大文字小文字を区別しない）。
@@ -796,6 +805,24 @@ class Document:
             updates.append((pdf_key, value))
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
+
+    def to_markdown(self, pages: Iterable[int] | None = None) -> str:
+        """文書を Markdown へ変換する（RAG / LLM 前処理向けの初版）。
+
+        見出しはフォントサイズから推定する（文字量最頻のサイズ = 本文、
+        それより大きいサイズを大きい順に ``#``..``####`` へ）。日本語の
+        行折り返しは空白を入れずに連結し、行頭の箇条書き記号（・• など）と
+        「1.」「1)」はリストへ正規化する。スキャン PDF も
+        :meth:`Page.insert_ocr_text_layer` で層を書いてあれば変換できる。
+        未対応: 太字・斜体（フォント名情報なし）、表、多段組の読み順、縦書き。
+        pages は 0 始まりのページ番号列（None で全ページ。指定順に出力）。
+        """
+        self._ensure_open()
+        page_numbers = range(self.page_count) if pages is None else pages
+        layouts = [self.get_page_text(pno, "dict") for pno in page_numbers]
+        levels = _markdown.heading_levels(_markdown.collect_sizes(layouts))
+        rendered = (_markdown.page_to_markdown(layout, levels) for layout in layouts)
+        return "\n\n".join(md for md in rendered if md)
 
     def get_form_fields(self) -> list[dict[str, Any]]:
         """AcroForm フィールドの一覧を返す。
