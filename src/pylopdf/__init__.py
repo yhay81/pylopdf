@@ -43,18 +43,69 @@ class Document:
         self,
         filename: str | os.PathLike[str] | None = None,
         stream: bytes | None = None,
+        password: str | None = None,
     ) -> None:
-        """filename（パス）か stream（バイト列)のどちらか一方から開く。両方 None なら空ドキュメント。"""
+        """filename（パス）か stream（バイト列)のどちらか一方から開く。両方 None なら空ドキュメント。
+
+        暗号化 PDF は user password 空なら自動復号される。それ以外は password を
+        指定するか、開いた後に :meth:`authenticate` を呼ぶ。
+        """
         if filename is not None and stream is not None:
             msg = "filename と stream は同時に指定できません"
             raise ValueError(msg)
+        # authenticate() での開き直しに使うため、開いた元を保持する
+        path = None if filename is None else str(filename)
+        self._source_path = path
+        self._source_bytes = stream
         if stream is not None:
-            self._doc = _Document.load_bytes(stream)
-        elif filename is not None:
-            self._doc = _Document.load(str(filename))
+            self._doc = (
+                _Document.load_bytes(stream)
+                if password is None
+                else _Document.load_bytes_with_password(stream, password)
+            )
+        elif path is not None:
+            self._doc = _Document.load(path) if password is None else _Document.load_with_password(path, password)
         else:
             self._doc = _Document()
         self._closed = False
+        # 「この PDF はパスワードを要するか」。password 指定で開けた場合も、
+        # 元が暗号化されていたなら True のままにする（pymupdf の needs_pass と同じ意味論）
+        self._needs_pass = self._doc.is_encrypted() or (password is not None and self._doc.was_encrypted())
+
+    @property
+    def needs_pass(self) -> bool:
+        """この PDF を開くのにパスワードが必要か（認証後も True のまま）。"""
+        self._ensure_not_closed()
+        return self._needs_pass
+
+    @property
+    def is_encrypted(self) -> bool:
+        """まだ復号されていない（認証が必要な）状態か。認証に成功すると False になる。"""
+        self._ensure_not_closed()
+        return self._doc.is_encrypted()
+
+    def authenticate(self, password: str) -> int:
+        """パスワードで認証して復号する。
+
+        戻り値は pymupdf 互換: 0 = 失敗、1 = 認証不要、2 = user password が一致、
+        4 = owner password が一致、6 = 両方に一致。
+        """
+        self._ensure_not_closed()
+        if not self._doc.is_encrypted():
+            return 1
+        code = 0
+        if self._doc.authenticate_user_password(password):
+            code |= 2
+        if self._doc.authenticate_owner_password(password):
+            code |= 4
+        if code == 0:
+            return 0
+        # オブジェクトストリーム内のオブジェクトも読めるよう、パスワード付きで開き直す
+        if self._source_path is not None:
+            self._doc = _Document.load_with_password(self._source_path, password)
+        elif self._source_bytes is not None:
+            self._doc = _Document.load_bytes_with_password(self._source_bytes, password)
+        return code
 
     @property
     def page_count(self) -> int:
@@ -141,10 +192,21 @@ class Document:
         """ドキュメントを閉じる。以後の操作は ValueError になる。"""
         self._closed = True
 
-    def _ensure_open(self) -> None:
+    def _ensure_not_closed(self) -> None:
         """閉じたドキュメントへの操作を防ぐ。"""
         if self._closed:
             msg = "document closed"
+            raise ValueError(msg)
+
+    def _ensure_open(self) -> None:
+        """閉じた・未復号のドキュメントへの操作を防ぐ。
+
+        未復号のまま操作すると「0 ページの空文書」に見えてしまうため、
+        暗号化が解けていない場合は明確なエラーにする。
+        """
+        self._ensure_not_closed()
+        if self._doc.is_encrypted():
+            msg = "暗号化された PDF です。password 引数を付けて開くか authenticate() を呼んでください"
             raise ValueError(msg)
 
     def _lopdf_page_number(self, pno: int) -> int:
@@ -178,6 +240,7 @@ class Document:
 def open(  # noqa: A001
     filename: str | os.PathLike[str] | None = None,
     stream: bytes | None = None,
+    password: str | None = None,
 ) -> Document:
     """:class:`Document` を開く。``pylopdf.open(...)`` は ``Document(...)`` と同じ。"""
-    return Document(filename=filename, stream=stream)
+    return Document(filename=filename, stream=stream, password=password)

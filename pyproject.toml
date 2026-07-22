@@ -52,6 +52,11 @@ cache-keys = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[[tool.mypy.overrides]]
+# pypdf はフィクスチャ生成スクリプト（手動実行）専用で dev 依存に含めない
+module = "pypdf.*"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 120
 src = ["src"]
@@ -79,4 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["INP001", "S101", "D103", "PLR2004", "TC003"]
+# S106: テストフィクスチャの固定パスワードは秘密情報ではない
+"tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106"]
+# 手動実行の生成スクリプト（進捗表示に print を使う）
+"tests/assets/encrypted/generate.py" = ["T201"]

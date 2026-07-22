@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::{RenderCache, RenderSettings, render};
-use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat, dictionary};
+use lopdf::{Dictionary, Document, LoadOptions, Object, ObjectId, StringFormat, dictionary};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -150,6 +150,42 @@ impl _Document {
     #[staticmethod]
     fn load_bytes(data: &[u8]) -> PyResult<Self> {
         Document::load_mem(data).map(Self).map_err(to_py_err)
+    }
+
+    /// パスワード付きでファイルパスから読み込む（ロード時に復号する）。
+    #[staticmethod]
+    fn load_with_password(path: &str, password: &str) -> PyResult<Self> {
+        Document::load_with_options(path, LoadOptions::with_password(password))
+            .map(Self)
+            .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
+    }
+
+    /// パスワード付きでバイト列から読み込む（ロード時に復号する）。
+    #[staticmethod]
+    fn load_bytes_with_password(data: &[u8], password: &str) -> PyResult<Self> {
+        Document::load_mem_with_options(data, LoadOptions::with_password(password))
+            .map(Self)
+            .map_err(to_py_err)
+    }
+
+    /// 現在も暗号化されたままか（復号済みなら false）。
+    fn is_encrypted(&self) -> bool {
+        self.0.is_encrypted()
+    }
+
+    /// ロード時点で暗号化されていたか（復号後も true のまま）。
+    fn was_encrypted(&self) -> bool {
+        self.0.was_encrypted()
+    }
+
+    /// user password として正しいか（復号はしない）。
+    fn authenticate_user_password(&self, password: &str) -> bool {
+        self.0.authenticate_user_password(password).is_ok()
+    }
+
+    /// owner password として正しいか（復号はしない）。
+    fn authenticate_owner_password(&self, password: &str) -> bool {
+        self.0.authenticate_owner_password(password).is_ok()
     }
 
     /// ファイルパスへ保存する。
