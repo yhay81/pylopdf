@@ -15,8 +15,10 @@ lopdf / hayro の限界を早期発見することが目的。すべて再配布
 
 ## テストで記録している既知の限界
 
-- **pdf20-simple.pdf のテキスト抽出が空になる**: フォント辞書に /Encoding も /ToUnicode も
-  ない Type1（内蔵エンコーディング頼み）のテキストを lopdf が抽出できない。
+- **pdf20-simple.pdf のテキスト抽出が空になる**: lopdf のテキスト抽出は content stream 内の
+  `%` コメントを解釈できず、コメントを含むページの抽出が空（または ValueError）になる。
+  切り分け検証で、/Encoding なし Type1・Contents 配列・Widths 付きフォント辞書は問題なく、
+  コメントの有無だけで再現することを確認済み（レンダリングは正常）。
   tests/test_real_world.py の xfail（strict）で追跡しており、lopdf 側で直ると失敗して気づける。
 
 ## 将来追加したい軸

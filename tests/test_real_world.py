@@ -62,7 +62,8 @@ def test_extract_text_page0(case: Case) -> None:
 
 
 @pytest.mark.xfail(
-    reason="lopdf は /Encoding も /ToUnicode もない simple font のテキストを抽出できず空文字列を返す",
+    reason="lopdf は content stream 内の % コメントを解釈できず、コメントを含むページの抽出が空になる"
+    "（/Encoding なし Helvetica 自体は StandardEncoding フォールバックで抽出できることを切り分けで確認済み）",
     strict=True,
 )
 def test_pdf20_extract_text_known_limit() -> None:
