@@ -70,6 +70,8 @@ text = doc.get_page_text(0)
 # Rendering
 png: bytes = doc.render_page(0)             # 72 dpi
 png2x: bytes = doc.render_page(0, scale=2)  # 144 dpi
+png300 = doc.render_page(0, dpi=300)        # by resolution
+png_bg = doc.render_page(0, background=(255, 255, 255))  # white background (default: transparent)
 svg: str = doc.render_page_svg(0)
 
 # Delete pages (split)
@@ -87,6 +89,9 @@ merged.insert_pdf(pylopdf.open("b.pdf"))
 # Save
 merged.save("merged.pdf")
 data: bytes = merged.tobytes()
+
+# Optimized save (prune unreferenced objects + compress + object streams)
+merged.save("small.pdf", garbage=True, deflate=True, object_streams=True)
 
 # Context manager
 with pylopdf.open("input.pdf") as doc:
@@ -117,13 +122,13 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
 | `get_page_text(pno)` | Extract text from a page |
-| `render_page(pno, scale=1.0)` | Render a page to PNG bytes (max 65,535 px per side / 64 MP total) |
+| `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
 | `render_page_svg(pno)` | Render a page to an SVG string |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order |
 | `delete_page(pno)` / `delete_pages(iterable)` | Delete pages |
 | `insert_pdf(other)` | Append all pages of another document |
-| `save(filename)` / `tobytes()` | Save |
+| `save(filename, garbage=False, deflate=False, object_streams=False)` / `tobytes(same)` | Save; `garbage` prunes unreferenced objects, `deflate` compresses streams, `object_streams` writes PDF 1.5+ form for smaller files |
 | `close()` | Close (supports `with`) |
 
 For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.

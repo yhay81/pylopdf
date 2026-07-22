@@ -126,6 +126,23 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
 
 
 @ALL
+def test_save_optimized_roundtrip(case: Case) -> None:
+    """garbage + deflate + object_streams 保存後も開けて内容が保たれる。"""
+    doc = pylopdf.open(ASSETS / case.name)
+    data = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    reopened = pylopdf.open(stream=data)
+    assert reopened.page_count == case.pages
+
+
+def test_object_streams_reduce_size() -> None:
+    """object stream 保存が中規模文書のサイズを削減する。"""
+    doc = pylopdf.open(ASSETS / "bill-hr815.pdf")
+    plain = doc.tobytes()
+    optimized = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    assert len(optimized) < len(plain)
+
+
+@ALL
 def test_set_metadata_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
     doc.set_metadata({"title": "回帰テスト", "author": "pylopdf"})

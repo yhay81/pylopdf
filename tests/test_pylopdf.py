@@ -248,6 +248,70 @@ def test_render_page_svg(one_page_pdf: bytes) -> None:
     assert "svg" in svg[:200]
 
 
+def test_render_page_cache_reflects_edits(three_page_pdf: bytes) -> None:
+    """レンダリングキャッシュ導入後も、編集が確実に反映される（決定性の確認込み）。"""
+    doc = pylopdf.Document(stream=three_page_pdf)
+    assert doc.render_page(0) == doc.render_page(0)  # 連続レンダリングは同一結果
+    page_two = doc.render_page(1)
+    doc.delete_page(0)
+    # 削除後の 0 ページ目は、削除前の 1 ページ目と同じ描画結果になる
+    assert doc.render_page(0) == page_two
+
+
+def test_render_page_dpi(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    assert doc.render_page(0, dpi=144) == doc.render_page(0, scale=2.0)
+
+
+def test_render_page_dpi_with_scale_raises(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="dpi"):
+        doc.render_page(0, scale=2.0, dpi=144)
+
+
+def test_render_page_background(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    transparent = doc.render_page(0)
+    white = doc.render_page(0, background=(255, 255, 255))
+    assert white.startswith(b"\x89PNG\r\n\x1a\n")
+    assert white != transparent
+    # RGB 指定と不透明 RGBA 指定は同じ結果になる
+    assert white == doc.render_page(0, background=(255, 255, 255, 255))
+
+
+@pytest.mark.parametrize("background", [(0, 0, 256), (0, 0, -1)])
+def test_render_page_background_out_of_range(one_page_pdf: bytes, background: tuple[int, int, int]) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="background"):
+        doc.render_page(0, background=background)
+
+
+def test_render_page_background_wrong_length(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="background"):
+        doc.render_page(0, background=(255, 255))  # type: ignore[arg-type]
+
+
+def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    out = tmp_path / "optimized.pdf"
+    doc.save(out, garbage=True, deflate=True, object_streams=True)
+    reopened = pylopdf.Document(out)
+    assert reopened.page_count == 3
+    assert "Page two" in reopened.get_page_text(1)
+    # object streams は PDF 1.5+ 形式なのでバージョンが引き上げられる
+    assert reopened.metadata["format"] == "PDF 1.5"
+
+
+def test_tobytes_object_streams_render_consistent(three_page_pdf: bytes) -> None:
+    """object streams 保存でドキュメント状態が変わっても、レンダリングが壊れない。"""
+    doc = pylopdf.Document(stream=three_page_pdf)
+    before = doc.render_page(0)
+    data = doc.tobytes(object_streams=True)
+    assert doc.render_page(0) == before
+    assert pylopdf.Document(stream=data).render_page(0) == before
+
+
 def test_multi_document_merge() -> None:
     # 3 つの PDF を順に結合する
     merged = pylopdf.Document()

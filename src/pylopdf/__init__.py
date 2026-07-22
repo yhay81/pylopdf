@@ -35,6 +35,31 @@ def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
     )
 
 
+#: 色成分（R/G/B/A）の最大値。
+_COLOR_MAX = 255
+
+
+def _normalize_background(
+    background: tuple[int, int, int] | tuple[int, int, int, int] | None,
+) -> tuple[int, int, int, int] | None:
+    """render_page の background 引数を検証し、RGBA の 4 タプルへ正規化する。"""
+    if background is None:
+        return None
+    match background:
+        case (r, g, b):
+            rgba = (r, g, b, _COLOR_MAX)
+        case (r, g, b, a):
+            rgba = (r, g, b, a)
+        case _:
+            msg = f"background は (R, G, B) か (R, G, B, A) のタプルで指定してください: {background!r}"
+            raise ValueError(msg)
+    for value in rgba:
+        if not isinstance(value, int) or not 0 <= value <= _COLOR_MAX:
+            msg = f"background の各成分は 0〜{_COLOR_MAX} の整数で指定してください: {background!r}"
+            raise ValueError(msg)
+    return rgba
+
+
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
 _METADATA_KEYS: dict[str, str] = {
     "title": "Title",
@@ -220,15 +245,30 @@ class Document:
         for kind, data in _bundled_cjk_fonts():
             self._doc.set_fallback_font(kind, data, 0)
 
-    def render_page(self, pno: int, scale: float = 1.0) -> bytes:
+    def render_page(
+        self,
+        pno: int,
+        scale: float = 1.0,
+        *,
+        dpi: float | None = None,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+    ) -> bytes:
         """ページ pno（0 始まり）を PNG 画像にレンダリングする。
 
-        scale は有限の正の拡大率（1.0 = 72dpi 相当）。出力は1辺65,535ピクセル、
-        総64,000,000画素まで。
+        scale は有限の正の拡大率（1.0 = 72dpi 相当）。dpi を指定すると解像度で
+        指定できる（dpi=144 は scale=2.0 と同じ。scale との併用は不可）。
+        background は背景色の (R, G, B) か (R, G, B, A)（各 0〜255）。
+        省略時は透明背景。出力は1辺65,535ピクセル、総64,000,000画素まで。
         """
+        if dpi is not None:
+            if scale != 1.0:
+                msg = "scale と dpi は同時に指定できません"
+                raise ValueError(msg)
+            scale = dpi / 72.0
+        rgba = _normalize_background(background)
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        return self._doc.render_page_png(page_number, scale)
+        return self._doc.render_page_png(page_number, scale, rgba)
 
     def render_page_svg(self, pno: int) -> str:
         """ページ pno（0 始まり）を SVG 文字列にレンダリングする。"""
@@ -236,15 +276,49 @@ class Document:
         self._ensure_fallback_fonts()
         return self._doc.render_page_svg(page_number)
 
-    def save(self, filename: str | os.PathLike[str]) -> None:
-        """ファイルへ保存する。"""
-        self._ensure_open()
-        self._doc.save(str(filename))
+    def save(
+        self,
+        filename: str | os.PathLike[str],
+        *,
+        garbage: bool = False,
+        deflate: bool = False,
+        object_streams: bool = False,
+    ) -> None:
+        """ファイルへ保存する。
 
-    def tobytes(self) -> bytes:
-        """PDF をバイト列で返す。"""
+        garbage=True は未参照オブジェクトの削除、deflate=True はストリームの
+        Flate 圧縮を保存前に適用する（どちらもドキュメント自体に作用する）。
+        object_streams=True は object stream + xref stream（PDF 1.5+ 形式）で
+        書き出し、多くの PDF でファイルサイズを削減する（バージョンは必要に
+        応じて 1.5 へ引き上げられる）。
+        """
         self._ensure_open()
+        self._apply_save_options(garbage=garbage, deflate=deflate)
+        if object_streams:
+            self._doc.save_with_object_streams(str(filename))
+        else:
+            self._doc.save(str(filename))
+
+    def tobytes(
+        self,
+        *,
+        garbage: bool = False,
+        deflate: bool = False,
+        object_streams: bool = False,
+    ) -> bytes:
+        """PDF をバイト列で返す。オプションの意味は :meth:`save` と同じ。"""
+        self._ensure_open()
+        self._apply_save_options(garbage=garbage, deflate=deflate)
+        if object_streams:
+            return self._doc.save_bytes_with_object_streams()
         return self._doc.save_bytes()
+
+    def _apply_save_options(self, *, garbage: bool, deflate: bool) -> None:
+        """保存前の最適化（未参照オブジェクト削除・ストリーム圧縮）を適用する。"""
+        if garbage:
+            self._doc.prune_objects()
+        if deflate:
+            self._doc.compress()
 
     def close(self) -> None:
         """ドキュメントを閉じる。以後の操作は ValueError になる。"""

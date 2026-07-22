@@ -7,13 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `render_page(pno, scale=1.0, *, dpi=None, background=None)`: resolution-based
+  sizing via `dpi` (alternative to `scale`; combining both raises) and an RGB(A)
+  `background` fill color (rendering stays transparent by default)
+- Save options on `save` / `tobytes`: `garbage=` (prune unreferenced objects),
+  `deflate=` (compress streams), and `object_streams=` (write object streams +
+  cross-reference streams in PDF 1.5+ form; 13% smaller on the already-compressed
+  110-page corpus document, more on object-heavy files)
 - Scanned-PDF coverage in the real-world corpus: `patent-us223898.pdf`
   (Edison's electric-lamp patent, 1880, public domain) exercising CCITTFaxDecode
   images and an OCR text layer, and `wdl6812-manuscript.pdf` (World Digital
   Library illuminated manuscript, public domain) exercising DCTDecode + JBIG2Decode
   color scans with no text layer
+- `ROADMAP.md`: mid-term plan (strategy, v0.6–v1.0 themes, explicit non-goals)
+  based on the 2026-07 survey of lopdf, hayro, and the Python PDF ecosystem
 
 ### Changed
+- Rendering now caches the parsed hayro document and invalidates it on edits,
+  instead of re-serializing and re-parsing the whole document on every page
+  render; rendering many pages of a large document is drastically faster
+- Heavy operations (load, save, render, text extraction, merge, compression)
+  release the GIL so other Python threads keep running
 - The content-stream comment bug behind the pdf20 empty-extraction xfail is now
   reported upstream as [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
 

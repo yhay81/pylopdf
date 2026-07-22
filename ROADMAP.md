@@ -37,12 +37,12 @@ Python PDF エコシステム）に基づく中期計画の正本。
 
 ### 直近（0.5.x の基盤強化）
 
-- [ ] レンダリングキャッシュ（編集で無効化される hayro Pdf の保持。
+- [x] レンダリングキャッシュ（編集で無効化される hayro Pdf の保持。
       毎レンダリングの再シリアライズ + 再パースを解消）
-- [ ] 重い処理（load / save / render / 抽出 / merge）での GIL 解放
-- [ ] `render_page` の `dpi=` / `background=`
-- [ ] `save` / `tobytes` の `garbage=` / `deflate=` / `object_streams=`
-      （lopdf SaveOptions。object stream 化で公称 11〜61% 削減）
+- [x] 重い処理（load / save / render / 抽出 / merge）での GIL 解放
+- [x] `render_page` の `dpi=` / `background=`
+- [x] `save` / `tobytes` の `garbage=` / `deflate=` / `object_streams=`
+      （lopdf SaveOptions。圧縮済みの bill-hr815.pdf でも実測 13% 削減）
 - [ ] リポジトリ public 化と発見可能性（要ユーザー判断。トピック設定、
       README 比較表の暗号化/CJK 行追加、py-pdf/benchmarks への参加検討）
 

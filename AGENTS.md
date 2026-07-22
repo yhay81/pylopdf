@@ -29,7 +29,10 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - ページ番号は Python API が 0 始まり、Rust/lopdf 層が 1 始まり。変換は `_lopdf_page_number` に集約
 - merge / select / extract_text は「継承属性（Resources, MediaBox, CropBox, Rotate）を
   ページ辞書へ焼き込む」パターンが前提（lopdf はページ属性の継承を解決しないため）
-- レンダリングは save_bytes → hayro で再パースする方式。編集後の状態が常に反映される
+- レンダリングは save_bytes → hayro 再パースの結果を `_Document.hayro_pdf` にキャッシュし、
+  編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
+  不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）
+- 重い処理（load / save / render / 抽出 / merge / 圧縮）は `Python::detach` で GIL を解放している
 - 暗号化 PDF: user password 空は lopdf がロード時に自動復号。それ以外は password 引数か
   authenticate()（内部はパスワード付き開き直し）。未復号のまま操作すると 0 ページに
   見えるため、_ensure_open が is_encrypted を検査して明確なエラーにする

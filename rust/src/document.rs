@@ -10,10 +10,11 @@ use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
 use hayro::hayro_syntax::Pdf;
+use hayro::vello_cpu::color::AlphaColor;
 use hayro::{RenderCache, RenderSettings, render};
 use lopdf::{
-    Dictionary, Document, LoadOptions, Object, ObjectId, decode_text_string, dictionary,
-    text_string,
+    Dictionary, Document, LoadOptions, Object, ObjectId, SaveOptions, decode_text_string,
+    dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -27,6 +28,17 @@ const MAX_RENDER_PIXELS: u64 = 64_000_000;
 /// lopdf のエラーを Python の ValueError に変換する。
 fn to_py_err(e: lopdf::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
+}
+
+/// object stream + xref stream を有効にした保存オプション。
+///
+/// ObjectStreamConfig の既定（100 obj / 圧縮レベル 6）をそのまま使う。
+fn modern_save_options() -> SaveOptions {
+    SaveOptions {
+        use_object_streams: true,
+        use_xref_streams: true,
+        ..Default::default()
+    }
 }
 
 /// ページ辞書に、親ツリーから継承される属性を焼き込んで返す。
@@ -112,18 +124,30 @@ fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option
 
 /// lopdf::Document を保持する Python クラス。
 #[pyclass(module = "pylopdf.pylopdf_core")]
-pub struct _Document(pub Document, FallbackFonts);
+pub struct _Document {
+    /// 編集対象の本体（lopdf）。
+    doc: Document,
+    /// レンダリング時の CJK 代替フォント設定。
+    fallback_fonts: FallbackFonts,
+    /// レンダリング用にパース済みの hayro ドキュメント（現在の編集状態のスナップショット）。
+    /// 編集メソッドが `invalidate_hayro_pdf` で破棄し、次のレンダリングで再構築される。
+    hayro_pdf: Option<Pdf>,
+}
 
 impl _Document {
     /// lopdf::Document から（fallback フォント未設定の状態で）構築する。
     fn from_doc(doc: Document) -> Self {
-        Self(doc, FallbackFonts::default())
+        Self {
+            doc,
+            fallback_fonts: FallbackFonts::default(),
+            hayro_pdf: None,
+        }
     }
 
     /// trailer の Info 辞書を（間接参照を解決して）返す。
     fn info_dict(&self) -> Option<&Dictionary> {
-        match self.0.trailer.get(b"Info").ok()? {
-            Object::Reference(id) => self.0.get_object(*id).ok()?.as_dict().ok(),
+        match self.doc.trailer.get(b"Info").ok()? {
+            Object::Reference(id) => self.doc.get_object(*id).ok()?.as_dict().ok(),
             Object::Dictionary(dict) => Some(dict),
             _ => None,
         }
@@ -132,26 +156,40 @@ impl _Document {
     /// 現在の編集状態をシリアライズしたバイト列を返す（レンダリング用）。
     fn current_bytes(&mut self) -> PyResult<Vec<u8>> {
         let mut buffer = Vec::new();
-        self.0
+        self.doc
             .save_to(&mut buffer)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(buffer)
     }
 
-    /// 現在の編集状態を hayro のドキュメントとして開き直す。
-    fn build_hayro_pdf(&mut self) -> PyResult<Pdf> {
-        let data = self.current_bytes()?;
-        Pdf::new(data)
-            .map_err(|e| PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
+    /// キャッシュ済みのレンダリング用ビューを破棄する。編集メソッドの先頭で呼ぶ。
+    fn invalidate_hayro_pdf(&mut self) {
+        self.hayro_pdf = None;
+    }
+
+    /// 現在の編集状態の hayro ドキュメントを返す（未構築ならシリアライズ + パースして保持）。
+    ///
+    /// 編集メソッドが `invalidate_hayro_pdf` でキャッシュを破棄するため、
+    /// 「編集後の状態が常に反映される」不変条件は維持される。
+    /// 連続レンダリングでは再構築が 1 回で済む。
+    fn hayro_view(&mut self) -> PyResult<&Pdf> {
+        if self.hayro_pdf.is_none() {
+            let data = self.current_bytes()?;
+            let pdf = Pdf::new(data).map_err(|e| {
+                PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
+            })?;
+            self.hayro_pdf = Some(pdf);
+        }
+        Ok(self.hayro_pdf.as_ref().expect("直前で構築している"))
     }
 
     /// fallback フォント設定を反映した InterpreterSettings を組み立てる。
     fn interpreter_settings(&self) -> InterpreterSettings {
         let mut settings = InterpreterSettings::default();
-        if self.1.sans.is_none() && self.1.serif.is_none() {
+        if self.fallback_fonts.sans.is_none() && self.fallback_fonts.serif.is_none() {
             return settings;
         }
-        let fonts = self.1.clone();
+        let fonts = self.fallback_fonts.clone();
         let default_resolver = settings.font_resolver.clone();
         settings.font_resolver = Arc::new(move |query| {
             if let FontQuery::Fallback(fallback) = query
@@ -167,215 +205,36 @@ impl _Document {
     /// ルート Pages ノードの ObjectId を返す。無ければ最小構造を作る（空ドキュメント対応）。
     fn ensure_page_tree(&mut self) -> lopdf::Result<ObjectId> {
         let existing = self
-            .0
+            .doc
             .catalog()
             .and_then(|catalog| catalog.get(b"Pages"))
             .and_then(Object::as_reference);
         if let Ok(pages_id) = existing {
             return Ok(pages_id);
         }
-        let pages_id = self.0.add_object(dictionary! {
+        let pages_id = self.doc.add_object(dictionary! {
             "Type" => "Pages",
             "Kids" => Vec::<Object>::new(),
             "Count" => 0,
         });
-        let catalog_id = self.0.add_object(dictionary! {
+        let catalog_id = self.doc.add_object(dictionary! {
             "Type" => "Catalog",
             "Pages" => pages_id,
         });
-        self.0.trailer.set("Root", catalog_id);
+        self.doc.trailer.set("Root", catalog_id);
         Ok(pages_id)
     }
-}
 
-#[pymethods]
-impl _Document {
-    /// 空の PDF ドキュメントを作る。
-    #[new]
-    fn new() -> Self {
-        Self(Document::with_version("1.7"), FallbackFonts::default())
-    }
-
-    /// ファイルパスから読み込む。
-    #[staticmethod]
-    fn load(path: &str) -> PyResult<Self> {
-        Document::load(path)
-            .map(Self::from_doc)
-            .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
-    }
-
-    /// バイト列から読み込む。
-    #[staticmethod]
-    fn load_bytes(data: &[u8]) -> PyResult<Self> {
-        Document::load_mem(data)
-            .map(Self::from_doc)
-            .map_err(to_py_err)
-    }
-
-    /// パスワード付きでファイルパスから読み込む（ロード時に復号する）。
-    #[staticmethod]
-    fn load_with_password(path: &str, password: &str) -> PyResult<Self> {
-        Document::load_with_options(path, LoadOptions::with_password(password))
-            .map(Self::from_doc)
-            .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
-    }
-
-    /// パスワード付きでバイト列から読み込む（ロード時に復号する）。
-    #[staticmethod]
-    fn load_bytes_with_password(data: &[u8], password: &str) -> PyResult<Self> {
-        Document::load_mem_with_options(data, LoadOptions::with_password(password))
-            .map(Self::from_doc)
-            .map_err(to_py_err)
-    }
-
-    /// レンダリング時の CJK 代替フォントを設定する。
-    ///
-    /// kind は "sans"（ゴシック系・既定）か "serif"（明朝系）。
-    /// data はフォントファイルのバイト列（TTF/OTF/TTC）、index は TTC 内の face 番号。
-    fn set_fallback_font(&mut self, kind: &str, data: Vec<u8>, index: u32) -> PyResult<()> {
-        let slot = match kind {
-            "sans" => &mut self.1.sans,
-            "serif" => &mut self.1.serif,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "kind は 'sans' か 'serif' で指定してください: {kind:?}"
-                )));
-            }
-        };
-        *slot = Some((Arc::new(data), index));
-        Ok(())
-    }
-
-    /// CJK 代替フォントの設定をすべて解除する。
-    fn clear_fallback_fonts(&mut self) {
-        self.1 = FallbackFonts::default();
-    }
-
-    /// 現在も暗号化されたままか（復号済みなら false）。
-    fn is_encrypted(&self) -> bool {
-        self.0.is_encrypted()
-    }
-
-    /// ロード時点で暗号化されていたか（復号後も true のまま）。
-    fn was_encrypted(&self) -> bool {
-        self.0.was_encrypted()
-    }
-
-    /// user password として正しいか（復号はしない）。
-    fn authenticate_user_password(&self, password: &str) -> bool {
-        self.0.authenticate_user_password(password).is_ok()
-    }
-
-    /// owner password として正しいか（復号はしない）。
-    fn authenticate_owner_password(&self, password: &str) -> bool {
-        self.0.authenticate_owner_password(password).is_ok()
-    }
-
-    /// ファイルパスへ保存する。
-    fn save(&mut self, path: &str) -> PyResult<()> {
-        self.0
-            .save(path)
-            .map(|_| ())
-            .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))
-    }
-
-    /// バイト列へ書き出す。
-    fn save_bytes(&mut self) -> PyResult<Vec<u8>> {
-        let mut buffer = Vec::new();
-        self.0
-            .save_to(&mut buffer)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(buffer)
-    }
-
-    /// ページ数を返す。
-    fn page_count(&self) -> usize {
-        self.0.get_pages().len()
-    }
-
-    /// PDF バージョン文字列（例: "1.7"）を返す。
-    fn version(&self) -> String {
-        self.0.version.clone()
-    }
-
-    /// Info 辞書の文字列項目を {キー: 値} で返す。
-    fn get_metadata(&self) -> BTreeMap<String, String> {
-        let mut result = BTreeMap::new();
-        let Some(info) = self.info_dict() else {
-            return result;
-        };
-        for (key, value) in info.iter() {
-            let resolved = match value {
-                Object::Reference(id) => match self.0.get_object(*id) {
-                    Ok(object) => object,
-                    Err(_) => continue,
-                },
-                other => other,
-            };
-            if let Ok(text) = decode_text_string(resolved) {
-                result.insert(String::from_utf8_lossy(key).into_owned(), text);
-            }
-        }
-        result
-    }
-
-    /// Info 辞書の項目を設定する。値が空文字列なら項目を削除する。
-    fn set_metadata(&mut self, key: &str, value: &str) -> PyResult<()> {
-        let info_id = if let Ok(Object::Reference(id)) = self.0.trailer.get(b"Info") {
-            *id
-        } else {
-            // 直置き辞書は間接オブジェクトへ移し、無ければ新規作成する
-            let existing = match self.0.trailer.get(b"Info") {
-                Ok(Object::Dictionary(dict)) => dict.clone(),
-                _ => Dictionary::new(),
-            };
-            let id = self.0.add_object(existing);
-            self.0.trailer.set("Info", id);
-            id
-        };
-        let info = self
-            .0
-            .get_object_mut(info_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        if value.is_empty() {
-            info.remove(key.as_bytes());
-        } else {
-            info.set(key, text_string(value));
-        }
-        Ok(())
-    }
-
-    /// 指定ページ（1 始まり）を削除する。
-    fn delete_pages(&mut self, page_numbers: Vec<u32>) {
-        self.0.delete_pages(&page_numbers);
-    }
-
-    /// 指定ページ（1 始まり）のテキストを抽出する。
-    ///
-    /// lopdf の extract_text はページ属性の継承（親 Pages 側の Resources 等)を
-    /// 解決しないため、先に対象ページへ継承属性を焼き込んでから抽出する。
-    fn extract_text(&mut self, page_numbers: Vec<u32>) -> PyResult<String> {
-        let pages = self.0.get_pages();
-        for number in &page_numbers {
-            if let Some(&page_id) = pages.get(number) {
-                let dict = resolve_inherited_page_dict(&self.0, page_id).map_err(to_py_err)?;
-                self.0.set_object(page_id, dict);
-            }
-        }
-        self.0.extract_text(&page_numbers).map_err(to_py_err)
-    }
-
-    /// 別ドキュメントの全ページを末尾に取り込む。
-    fn merge(&mut self, other: &Self) -> PyResult<()> {
+    /// merge の本体（GIL 解放中に実行される）。
+    fn merge_impl(&mut self, other: &Self) -> PyResult<()> {
         // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let starting_id = self
-            .0
+            .doc
             .max_id
             .checked_add(1)
             .ok_or_else(|| PyValueError::new_err("PDF オブジェクト ID が上限に達しています"))?;
-        let mut other_doc = other.0.clone();
+        let mut other_doc = other.doc.clone();
         other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
 
@@ -394,19 +253,19 @@ impl _Document {
             match object.type_name().unwrap_or(b"") {
                 b"Catalog" | b"Pages" | b"Page" => {}
                 _ => {
-                    self.0.objects.insert(id, object);
+                    self.doc.objects.insert(id, object);
                 }
             }
         }
         for (id, dict) in resolved_pages {
-            self.0.objects.insert(id, Object::Dictionary(dict));
+            self.doc.objects.insert(id, Object::Dictionary(dict));
         }
 
         // ルート Pages の Kids / Count を更新する
         let added = i64::try_from(other_page_ids.len())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let pages_dict = self
-            .0
+            .doc
             .get_object_mut(pages_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
@@ -422,8 +281,244 @@ impl _Document {
         pages_dict.set("Kids", kids);
         pages_dict.set("Count", old_count + added);
 
-        self.0.max_id = new_max_id;
+        self.doc.max_id = new_max_id;
         Ok(())
+    }
+}
+
+#[pymethods]
+impl _Document {
+    /// 空の PDF ドキュメントを作る。
+    #[new]
+    fn new() -> Self {
+        Self::from_doc(Document::with_version("1.7"))
+    }
+
+    /// ファイルパスから読み込む。
+    #[staticmethod]
+    fn load(py: Python<'_>, path: &str) -> PyResult<Self> {
+        py.detach(|| {
+            Document::load(path)
+                .map(Self::from_doc)
+                .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
+        })
+    }
+
+    /// バイト列から読み込む。
+    #[staticmethod]
+    fn load_bytes(py: Python<'_>, data: &[u8]) -> PyResult<Self> {
+        py.detach(|| {
+            Document::load_mem(data)
+                .map(Self::from_doc)
+                .map_err(to_py_err)
+        })
+    }
+
+    /// パスワード付きでファイルパスから読み込む（ロード時に復号する）。
+    #[staticmethod]
+    fn load_with_password(py: Python<'_>, path: &str, password: &str) -> PyResult<Self> {
+        py.detach(|| {
+            Document::load_with_options(path, LoadOptions::with_password(password))
+                .map(Self::from_doc)
+                .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
+        })
+    }
+
+    /// パスワード付きでバイト列から読み込む（ロード時に復号する）。
+    #[staticmethod]
+    fn load_bytes_with_password(py: Python<'_>, data: &[u8], password: &str) -> PyResult<Self> {
+        py.detach(|| {
+            Document::load_mem_with_options(data, LoadOptions::with_password(password))
+                .map(Self::from_doc)
+                .map_err(to_py_err)
+        })
+    }
+
+    /// レンダリング時の CJK 代替フォントを設定する。
+    ///
+    /// kind は "sans"（ゴシック系・既定）か "serif"（明朝系）。
+    /// data はフォントファイルのバイト列（TTF/OTF/TTC）、index は TTC 内の face 番号。
+    fn set_fallback_font(&mut self, kind: &str, data: Vec<u8>, index: u32) -> PyResult<()> {
+        let slot = match kind {
+            "sans" => &mut self.fallback_fonts.sans,
+            "serif" => &mut self.fallback_fonts.serif,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "kind は 'sans' か 'serif' で指定してください: {kind:?}"
+                )));
+            }
+        };
+        *slot = Some((Arc::new(data), index));
+        Ok(())
+    }
+
+    /// CJK 代替フォントの設定をすべて解除する。
+    fn clear_fallback_fonts(&mut self) {
+        self.fallback_fonts = FallbackFonts::default();
+    }
+
+    /// 現在も暗号化されたままか（復号済みなら false）。
+    fn is_encrypted(&self) -> bool {
+        self.doc.is_encrypted()
+    }
+
+    /// ロード時点で暗号化されていたか（復号後も true のまま）。
+    fn was_encrypted(&self) -> bool {
+        self.doc.was_encrypted()
+    }
+
+    /// user password として正しいか（復号はしない）。
+    fn authenticate_user_password(&self, password: &str) -> bool {
+        self.doc.authenticate_user_password(password).is_ok()
+    }
+
+    /// owner password として正しいか（復号はしない）。
+    fn authenticate_owner_password(&self, password: &str) -> bool {
+        self.doc.authenticate_owner_password(password).is_ok()
+    }
+
+    /// ファイルパスへ保存する。
+    fn save(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
+        py.detach(|| {
+            self.doc
+                .save(path)
+                .map(|_| ())
+                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))
+        })
+    }
+
+    /// バイト列へ書き出す。
+    fn save_bytes(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            let mut buffer = Vec::new();
+            self.doc
+                .save_to(&mut buffer)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok(buffer)
+        })
+    }
+
+    /// object stream + xref stream（PDF 1.5+ 形式）でファイルへ保存する。
+    ///
+    /// lopdf 側が PDF バージョンの 1.5 への引き上げと xref 種別の切り替えを行い
+    /// ドキュメント状態が変わるため、レンダリングキャッシュも無効化する。
+    fn save_with_object_streams(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let file = std::fs::File::create(path)
+                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))?;
+            let mut writer = std::io::BufWriter::new(file);
+            self.doc
+                .save_with_options(&mut writer, modern_save_options())
+                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))?;
+            writer
+                .into_inner()
+                .map(|_| ())
+                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))
+        })
+    }
+
+    /// object stream + xref stream（PDF 1.5+ 形式）でバイト列へ書き出す。
+    fn save_bytes_with_object_streams(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let mut buffer = Vec::new();
+            self.doc
+                .save_with_options(&mut buffer, modern_save_options())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok(buffer)
+        })
+    }
+
+    /// ページ数を返す。
+    fn page_count(&self) -> usize {
+        self.doc.get_pages().len()
+    }
+
+    /// PDF バージョン文字列（例: "1.7"）を返す。
+    fn version(&self) -> String {
+        self.doc.version.clone()
+    }
+
+    /// Info 辞書の文字列項目を {キー: 値} で返す。
+    fn get_metadata(&self) -> BTreeMap<String, String> {
+        let mut result = BTreeMap::new();
+        let Some(info) = self.info_dict() else {
+            return result;
+        };
+        for (key, value) in info.iter() {
+            let resolved = match value {
+                Object::Reference(id) => match self.doc.get_object(*id) {
+                    Ok(object) => object,
+                    Err(_) => continue,
+                },
+                other => other,
+            };
+            if let Ok(text) = decode_text_string(resolved) {
+                result.insert(String::from_utf8_lossy(key).into_owned(), text);
+            }
+        }
+        result
+    }
+
+    /// Info 辞書の項目を設定する。値が空文字列なら項目を削除する。
+    fn set_metadata(&mut self, key: &str, value: &str) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let info_id = if let Ok(Object::Reference(id)) = self.doc.trailer.get(b"Info") {
+            *id
+        } else {
+            // 直置き辞書は間接オブジェクトへ移し、無ければ新規作成する
+            let existing = match self.doc.trailer.get(b"Info") {
+                Ok(Object::Dictionary(dict)) => dict.clone(),
+                _ => Dictionary::new(),
+            };
+            let id = self.doc.add_object(existing);
+            self.doc.trailer.set("Info", id);
+            id
+        };
+        let info = self
+            .doc
+            .get_object_mut(info_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        if value.is_empty() {
+            info.remove(key.as_bytes());
+        } else {
+            info.set(key, text_string(value));
+        }
+        Ok(())
+    }
+
+    /// 指定ページ（1 始まり）を削除する。
+    fn delete_pages(&mut self, page_numbers: Vec<u32>) {
+        self.invalidate_hayro_pdf();
+        self.doc.delete_pages(&page_numbers);
+    }
+
+    /// 指定ページ（1 始まり）のテキストを抽出する。
+    ///
+    /// lopdf の extract_text はページ属性の継承（親 Pages 側の Resources 等)を
+    /// 解決しないため、先に対象ページへ継承属性を焼き込んでから抽出する。
+    fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
+        // 継承属性の焼き込みでドキュメントが変化するためキャッシュを破棄する
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let pages = self.doc.get_pages();
+            for number in &page_numbers {
+                if let Some(&page_id) = pages.get(number) {
+                    let dict =
+                        resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+                    self.doc.set_object(page_id, dict);
+                }
+            }
+            self.doc.extract_text(&page_numbers).map_err(to_py_err)
+        })
+    }
+
+    /// 別ドキュメントの全ページを末尾に取り込む。
+    fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        py.detach(|| self.merge_impl(other))
     }
 
     /// 指定ページ（1 始まり）だけを指定順で残す。並べ替えにも使える。
@@ -431,6 +526,7 @@ impl _Document {
     /// PDF のページツリーでは Parent が一意である必要があるため、
     /// 同一ページの重複指定（複製）は未対応。
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
         let mut seen = std::collections::HashSet::new();
         for number in &page_numbers {
             if !seen.insert(*number) {
@@ -440,7 +536,7 @@ impl _Document {
             }
         }
 
-        let pages = self.0.get_pages();
+        let pages = self.doc.get_pages();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
 
         // 中間 Pages ノードは捨てて平坦化するため、継承属性を焼き込み Parent を付け替える
@@ -449,7 +545,7 @@ impl _Document {
             let page_id = *pages
                 .get(number)
                 .ok_or_else(|| PyValueError::new_err(format!("ページ {number} は存在しません")))?;
-            let mut dict = resolve_inherited_page_dict(&self.0, page_id).map_err(to_py_err)?;
+            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
             dict.set("Parent", pages_id);
             selected.push((page_id, dict));
         }
@@ -460,10 +556,10 @@ impl _Document {
             .collect();
         let count = i64::try_from(kids.len()).map_err(|e| PyValueError::new_err(e.to_string()))?;
         for (id, dict) in selected {
-            self.0.objects.insert(id, Object::Dictionary(dict));
+            self.doc.objects.insert(id, Object::Dictionary(dict));
         }
         let pages_dict = self
-            .0
+            .doc
             .get_object_mut(pages_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
@@ -471,90 +567,112 @@ impl _Document {
         pages_dict.set("Count", count);
 
         // 参照されなくなったページ・中間ノードを掃除する
-        self.0.prune_objects();
+        self.doc.prune_objects();
         Ok(())
     }
 
     /// 指定ページ（1 始まり）を PNG 画像にレンダリングする。
-    fn render_page_png(&mut self, page_number: u32, scale: f32) -> PyResult<Vec<u8>> {
+    ///
+    /// background は塗りつぶす背景色 RGBA（各 0-255）。None なら透明のまま。
+    fn render_page_png(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        scale: f32,
+        background: Option<(u8, u8, u8, u8)>,
+    ) -> PyResult<Vec<u8>> {
         if !scale.is_finite() || scale <= 0.0 {
             return Err(PyValueError::new_err(
                 "scale は有限の正の値で指定してください",
             ));
         }
-        let pdf = self.build_hayro_pdf()?;
-        let pages = pdf.pages();
-        let page = page_number
-            .checked_sub(1)
-            .and_then(|index| pages.get(index as usize))
-            .ok_or_else(|| PyValueError::new_err(format!("ページ {page_number} は存在しません")))?;
-        let (page_width, page_height) = page.render_dimensions();
-        let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
-        let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
-        if !pixel_width.is_finite()
-            || !pixel_height.is_finite()
-            || pixel_width < 1.0
-            || pixel_height < 1.0
-        {
-            return Err(PyValueError::new_err(
-                "scale が小さすぎるか、PDF のページサイズが不正です",
-            ));
-        }
-        if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
-            return Err(PyValueError::new_err(format!(
-                "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
-            )));
-        }
-        let total_pixels = (pixel_width as u64) * (pixel_height as u64);
-        if total_pixels > MAX_RENDER_PIXELS {
-            return Err(PyValueError::new_err(format!(
-                "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
-            )));
-        }
         let interpreter_settings = self.interpreter_settings();
-        let render_settings = RenderSettings {
-            x_scale: scale,
-            y_scale: scale,
-            ..Default::default()
-        };
-        let cache = RenderCache::new();
-        let pixmap = render(page, &cache, &interpreter_settings, &render_settings);
-        pixmap
-            .into_png()
-            .map_err(|e| PyValueError::new_err(format!("failed to encode PNG: {e:?}")))
+        py.detach(|| {
+            let pdf = self.hayro_view()?;
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| {
+                    PyValueError::new_err(format!("ページ {page_number} は存在しません"))
+                })?;
+            let (page_width, page_height) = page.render_dimensions();
+            let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
+            let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
+            if !pixel_width.is_finite()
+                || !pixel_height.is_finite()
+                || pixel_width < 1.0
+                || pixel_height < 1.0
+            {
+                return Err(PyValueError::new_err(
+                    "scale が小さすぎるか、PDF のページサイズが不正です",
+                ));
+            }
+            if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
+                return Err(PyValueError::new_err(format!(
+                    "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
+                )));
+            }
+            let total_pixels = (pixel_width as u64) * (pixel_height as u64);
+            if total_pixels > MAX_RENDER_PIXELS {
+                return Err(PyValueError::new_err(format!(
+                    "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
+                )));
+            }
+            let mut render_settings = RenderSettings {
+                x_scale: scale,
+                y_scale: scale,
+                ..Default::default()
+            };
+            if let Some((r, g, b, a)) = background {
+                render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
+            }
+            let cache = RenderCache::new();
+            let pixmap = render(page, &cache, &interpreter_settings, &render_settings);
+            pixmap
+                .into_png()
+                .map_err(|e| PyValueError::new_err(format!("failed to encode PNG: {e:?}")))
+        })
     }
 
     /// 指定ページ（1 始まり）を SVG 文字列にレンダリングする。
-    fn render_page_svg(&mut self, page_number: u32) -> PyResult<String> {
-        let pdf = self.build_hayro_pdf()?;
-        let pages = pdf.pages();
-        let page = page_number
-            .checked_sub(1)
-            .and_then(|index| pages.get(index as usize))
-            .ok_or_else(|| PyValueError::new_err(format!("ページ {page_number} は存在しません")))?;
+    fn render_page_svg(&mut self, py: Python<'_>, page_number: u32) -> PyResult<String> {
         let interpreter_settings = self.interpreter_settings();
-        let cache = hayro_svg::RenderCache::new();
-        let settings = hayro_svg::SvgRenderSettings::default();
-        Ok(hayro_svg::convert(
-            page,
-            &cache,
-            &interpreter_settings,
-            &settings,
-        ))
+        py.detach(|| {
+            let pdf = self.hayro_view()?;
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| {
+                    PyValueError::new_err(format!("ページ {page_number} は存在しません"))
+                })?;
+            let cache = hayro_svg::RenderCache::new();
+            let settings = hayro_svg::SvgRenderSettings::default();
+            Ok(hayro_svg::convert(
+                page,
+                &cache,
+                &interpreter_settings,
+                &settings,
+            ))
+        })
     }
 
     /// ストリームを圧縮する。
-    fn compress(&mut self) {
-        self.0.compress();
+    fn compress(&mut self, py: Python<'_>) {
+        self.invalidate_hayro_pdf();
+        py.detach(|| self.doc.compress());
     }
 
     /// ストリームを展開する。
-    fn decompress(&mut self) {
-        self.0.decompress();
+    fn decompress(&mut self, py: Python<'_>) {
+        self.invalidate_hayro_pdf();
+        py.detach(|| self.doc.decompress());
     }
 
     /// 参照されていないオブジェクトを削除する。
     fn prune_objects(&mut self) {
-        self.0.prune_objects();
+        self.invalidate_hayro_pdf();
+        self.doc.prune_objects();
     }
 }

@@ -71,6 +71,8 @@ text = doc.get_page_text(0)
 # レンダリング
 png: bytes = doc.render_page(0)             # 72dpi 相当
 png2x: bytes = doc.render_page(0, scale=2)  # 144dpi 相当
+png300 = doc.render_page(0, dpi=300)        # 解像度で指定
+png_bg = doc.render_page(0, background=(255, 255, 255))  # 白背景（既定は透明）
 svg: str = doc.render_page_svg(0)
 
 # ページ削除（split）
@@ -88,6 +90,9 @@ merged.insert_pdf(pylopdf.open("b.pdf"))
 # 保存
 merged.save("merged.pdf")
 data: bytes = merged.tobytes()
+
+# サイズ最適化して保存（未参照削除 + 圧縮 + object stream 化）
+merged.save("small.pdf", garbage=True, deflate=True, object_streams=True)
 
 # コンテキストマネージャ
 with pylopdf.open("input.pdf") as doc:
@@ -118,13 +123,13 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `metadata` | メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format） |
 | `set_metadata(dict)` | メタデータ設定（空文字列で項目削除） |
 | `get_page_text(pno)` | ページのテキスト抽出 |
-| `render_page(pno, scale=1.0)` | ページを PNG 画像（bytes）にレンダリング（1辺65,535px・総64MPまで） |
+| `render_page(pno, scale=1.0, dpi=None, background=None)` | ページを PNG 画像（bytes）にレンダリング。dpi は scale の代替、background は背景色 RGB(A)（1辺65,535px・総64MPまで） |
 | `render_page_svg(pno)` | ページを SVG 文字列にレンダリング |
 | `set_fallback_font(font, kind="sans", index=0)` | 非埋め込み CJK 用の代替フォント（パス/bytes）を設定。`None` で自動検出も無効化 |
 | `select(page_numbers)` | 指定ページだけを指定順で残す（並べ替え可） |
 | `delete_page(pno)` / `delete_pages(iterable)` | ページ削除 |
 | `insert_pdf(other)` | 別ドキュメントの全ページを末尾に結合 |
-| `save(filename)` / `tobytes()` | 保存 |
+| `save(filename, garbage=False, deflate=False, object_streams=False)` / `tobytes(同)` | 保存。garbage=未参照オブジェクト削除、deflate=ストリーム圧縮、object_streams=PDF 1.5+ 形式でサイズ削減 |
 | `close()` | 閉じる（with 文対応） |
 
 低レベル API が必要な場合は `pylopdf.pylopdf_core._Document`（lopdf の薄いラッパー）を直接使えます。
