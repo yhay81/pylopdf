@@ -185,7 +185,7 @@ pub fn add_image_xobject(doc: &mut Document, parts: ImageParts) -> Result<Object
 ///
 /// crop は対象ページの CropBox、rotation は正規化済みの表示回転（0/90/180/270）。
 /// 導出はページを時計回りに rotation 度回して表示する PDF の規約に従う。
-fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
+pub(crate) fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     let [cx0, cy0, cx1, cy1] = crop;
     match rotation {
         90 => (cx0 + y, cy0 + x),
@@ -387,7 +387,7 @@ pub fn draw_ops(matrix: [f64; 6], name: &str) -> Vec<u8> {
 }
 
 /// PDF コンテンツ向けの数値表記（小数 4 桁、末尾ゼロ削除）。
-fn fmt(v: f64) -> String {
+pub(crate) fn fmt(v: f64) -> String {
     let s = format!("{v:.4}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s.is_empty() || s == "-" {

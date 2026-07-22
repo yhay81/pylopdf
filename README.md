@@ -118,6 +118,12 @@ page.add_highlight_annot(page.search_for("important"))  # appearance stream incl
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 
+# Make scanned PDFs searchable (write external OCR results as an invisible text layer)
+page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
+
+# Read the PDF/A self-declaration (validation belongs to veraPDF)
+print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
+
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
 print(doc.get_toc())
@@ -242,6 +248,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
+| `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |
 | `close()` | Close (supports `with`) |
 
@@ -257,6 +264,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
+| `insert_ocr_text_layer(words)` | Write OCR results as an invisible text layer (searchable PDFs; no font embedding, near-zero size) |
 | `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
 | `add_link_annot(rect, uri)` | URI link annotation (no border) |

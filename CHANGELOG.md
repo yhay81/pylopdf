@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Page.insert_ocr_text_layer(words)`: write external OCR results as an
+  invisible text layer (searchable PDFs). Takes `(x0, y0, x1, y1, text, ...)`
+  sequences — `get_text("words")` shapes and typical OCR API output feed in
+  directly. Uses a non-embedded CID font (Identity-H + ToUnicode, ocrmypdf-style)
+  with invisible render mode, so extraction and search work — CJK included, with
+  no fallback-font dependency and near-zero size cost — while rendering shows
+  nothing. The neutral primitive under any OCR engine (cloud APIs, Tesseract,
+  the future `[ocr]` extra)
+- `Document.get_pdfa_claim()`: read the XMP PDF/A declaration
+  (`pdfaid:part` / `conformance`, e.g. `(2, "B")` for PDF/A-2b; PDF/A-4 yields
+  an empty conformance). Explicitly a self-claim read, not validation —
+  verified against typst's krilla-validated PDF/A output in the interop tests
+
 ## [0.8.0] - 2026-07-23
 
 ### Added

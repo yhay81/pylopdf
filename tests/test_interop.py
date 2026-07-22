@@ -51,6 +51,16 @@ def test_typst_pdfa_output_opens() -> None:
         assert "Hello pylopdf" in doc.get_page_text(0)
 
 
+def test_pdfa_claim_reads_typst_output() -> None:
+    # typst の検証付き PDF/A 出力（krilla）の宣言を get_pdfa_claim で読み取れる
+    pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
+    with pylopdf.open(stream=pdf_a) as doc:
+        assert doc.get_pdfa_claim() == (2, "B")
+    plain = typst.compile(TYP_SOURCE)
+    with pylopdf.open(stream=plain) as doc:
+        assert doc.get_pdfa_claim() is None
+
+
 def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     """README レシピ: typst + fonts-cjk で日本語透かしを組み、show_pdf_page で全ページへ焼く。
 

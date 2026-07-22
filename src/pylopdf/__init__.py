@@ -449,6 +449,28 @@ class Page:
             (red, green, blue),
         )
 
+    def insert_ocr_text_layer(self, words: Iterable[Sequence[Any]]) -> None:
+        """OCR 結果を不可視テキスト層として書き込む（searchable PDF 化）。
+
+        words の各要素は ``(x0, y0, x1, y1, テキスト, ...)`` — 先頭 5 要素だけを
+        使うので、:meth:`get_text` の "words" 形式や一般的な OCR API の出力を
+        そのまま渡せる。座標は表示空間（左上原点）。テキストは描画されず、
+        抽出・検索にだけ現れる。フォント実体は埋め込まない（Identity-H +
+        ToUnicode の参照フォント）ため、日本語を含むどの言語でもファイル
+        サイズをほぼ増やさない。どの OCR エンジン（クラウド API / Tesseract 等）の
+        結果とも組める中立プリミティブ。
+        """
+        payload: list[tuple[float, float, float, float, str]] = []
+        for entry in words:
+            x0, y0, x1, y1 = _validate_rect(entry[:4])
+            text = str(entry[4])
+            if text:
+                payload.append((x0, y0, x1, y1, text))
+        if not payload:
+            msg = "words には少なくとも 1 つのテキスト付きの語が必要です"
+            raise ValueError(msg)
+        self._document._doc.insert_ocr_layer(self._page_number(), payload)
+
     def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:
         """ページ内のテキストを置換し、置換した箇所数を返す。
 
@@ -708,6 +730,18 @@ class Document:
             updates.append((pdf_key, value))
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
+
+    def get_pdfa_claim(self) -> tuple[int, str] | None:
+        """XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
+
+        戻り値は ``(part, conformance)``（例: ``(2, "B")`` = PDF/A-2b の宣言。
+        conformance を持たない PDF/A-4 は空文字列）。宣言が無ければ None。
+        これは自己申告の**読み取り**であって準拠の検証ではない — 本検証は
+        veraPDF などの外部ツールへ（README のエコシステム連携を参照）。
+        """
+        self._ensure_open()
+        claim = self._doc.pdfa_claim()
+        return None if claim is None else (int(claim[0]), claim[1])
 
     @overload
     def get_page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...

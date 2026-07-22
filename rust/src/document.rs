@@ -22,6 +22,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::draw;
+use crate::ocr;
 
 /// read_annotations が返す 1 注釈分のタプル（Subtype, 表示座標 Rect, Contents, URI）。
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
@@ -156,6 +157,23 @@ fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]
         v[0].max(v[2]),
         v[1].max(v[3]),
     ])
+}
+
+/// XMP テキストから属性形式（key="v"）か要素形式（<key>v</key>）の値を取り出す。
+fn xmp_value(xmp: &str, key: &str) -> Option<String> {
+    let idx = xmp.find(key)?;
+    let rest = xmp[idx + key.len()..].trim_start();
+    if let Some(r) = rest.strip_prefix('=') {
+        let r = r.trim_start();
+        let r = r.strip_prefix('"').or_else(|| r.strip_prefix('\''))?;
+        let end = r.find(['"', '\''])?;
+        return Some(r[..end].to_owned());
+    }
+    if let Some(r) = rest.strip_prefix('>') {
+        let end = r.find('<')?;
+        return Some(r[..end].trim().to_owned());
+    }
+    None
 }
 
 /// 間接参照を許容して整数値を読む。
@@ -1683,6 +1701,55 @@ impl _Document {
             },
         });
         self.push_page_annotation(page_id, annot_id)
+    }
+
+    /// XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
+    ///
+    /// 自己申告の読み取りであり、準拠の検証ではない（検証は veraPDF の領分）。
+    /// PDF/A-4 は conformance を持たないため空文字列になる。
+    fn pdfa_claim(&self) -> Option<(i64, String)> {
+        let catalog = self.doc.catalog().ok()?;
+        let meta_ref = catalog.get(b"Metadata").ok()?.as_reference().ok()?;
+        let stream = self.doc.get_object(meta_ref).ok()?.as_stream().ok()?;
+        let data = stream
+            .decompressed_content()
+            .unwrap_or_else(|_| stream.content.clone());
+        let xmp = String::from_utf8_lossy(&data);
+        let part: i64 = xmp_value(&xmp, "pdfaid:part")?.parse().ok()?;
+        let conformance = xmp_value(&xmp, "pdfaid:conformance").unwrap_or_default();
+        Some((part, conformance))
+    }
+
+    /// OCR 結果（表示座標の語 + テキスト）を不可視テキスト層として書き込む。
+    ///
+    /// フォント実体は埋め込まず、Identity-H + ToUnicode の CID フォントと
+    /// Tr 3（不可視）で Unicode と位置だけを持たせる。抽出・検索にだけ現れる。
+    fn insert_ocr_layer(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        words: Vec<(f64, f64, f64, f64, String)>,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        py.detach(|| {
+            let cid_map = ocr::assign_cids(&words);
+            if cid_map.len() >= usize::from(u16::MAX) {
+                return Err(PdfError::new_err(
+                    "OCR 層の文字種が多すぎます（1 回の呼び出しで 65,534 種まで）",
+                ));
+            }
+            let font_id = ocr::add_ocr_font(&mut self.doc, &cid_map);
+            self.bake_page_attrs(page_id)?;
+            self.doc
+                .get_or_create_resources(page_id)
+                .map_err(to_py_err)?;
+            let name = format!("PyloF{}", font_id.0);
+            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
+            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name);
+            draw::push_content(&mut self.doc, page_id, ops, true).map_err(to_py_err)
+        })
     }
 
     /// 指定ページ（1 始まり）の表示座標 point をベースライン起点にテキストを印字する。
