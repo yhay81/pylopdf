@@ -41,8 +41,9 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 - lopdf の `time` feature は 0.43.0 で入った `From<time::Time>` impl が最初から
   コンパイル不能（上流 #527 で修正済み・未リリース）→ `chrono` に固定している（rust/Cargo.toml）
-- lopdf のテキスト抽出は content stream 内の `%` コメントで空/エラーになる
-  （レンダリングは正常。tests/test_real_world.py の xfail で追跡）
+- lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とし
+  テキスト抽出が空になる（レンダリングは正常。lopdf#535 として報告済み、
+  tests/test_real_world.py の xfail で追跡）
 - classifier の実在チェックは pre-commit の validate-pyproject（trove-classifiers 付き）が担う
   （v0.4.0 は無効 classifier `Topic :: Text Processing :: Markup :: PDF` で PyPI に拒否された実績）
   ※ validate-pyproject-schema-store は UnboundLocalError を起こすため入れない
@@ -64,11 +65,12 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 ## ロードマップ（2026-07 時点）
 
-1. v0.5.0 リリース（暗号化 + CJK。先に pylopdf-fonts-cjk 0.1.0 を PyPI 公開 →
-   Trusted Publisher 登録が必要）
-2. 実世界 PDF コーパスの拡充（スキャン画像 PDF など — 詳細は
-   tests/assets/real_world/README.md の「将来追加したい軸」）
-3. lopdf への upstream 報告: content stream コメントでテキスト抽出が壊れる件
+1. コーパスの残り軸: DCT（JPEG）スキャン PDF とテキストレイヤー無しスキャン
+   （詳細は tests/assets/real_world/README.md）
+2. lopdf#535（コメント + インデント行で抽出が空になる）の修正リリースを待って
+   xfail の解消を確認する
 
 完了済み（2026-07-22）: GitHub Release ノート + README バッジ、実世界 PDF の
-回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）
+回帰テストスイート、暗号化 PDF の読み取り対応、CJK フォント fallback（pylopdf[cjk]）、
+v0.5.0 リリース（pylopdf 0.5.0 + pylopdf-fonts-cjk 0.1.0 を PyPI 公開、E2E 検証済み）、
+スキャン PDF（CCITT）のコーパス追加、lopdf#535 の upstream 報告
