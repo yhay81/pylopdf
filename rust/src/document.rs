@@ -176,6 +176,15 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     None
 }
 
+/// 間接参照を許容して辞書を取り出す（クローン）。
+fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
+    match obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
+        Object::Dictionary(d) => Some(d.clone()),
+        _ => None,
+    }
+}
+
 /// 間接参照を許容して整数値を読む。
 fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     match obj {
@@ -1812,6 +1821,94 @@ impl _Document {
         let part: i64 = xmp_value(&xmp, "pdfaid:part")?.parse().ok()?;
         let conformance = xmp_value(&xmp, "pdfaid:conformance").unwrap_or_default();
         Some((part, conformance))
+    }
+
+    /// ページラベル定義（PageLabels 番号ツリー）を読む。
+    ///
+    /// 各要素は (開始ページ index, style, prefix, 開始番号)。Kids 分割も再帰で辿り、
+    /// 開始ページ順にソートして返す。
+    fn get_page_labels(&self) -> Vec<(i64, Option<String>, Option<String>, i64)> {
+        let Some(root) = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|c| c.get(b"PageLabels").ok().cloned())
+            .and_then(|o| deref_dict(&self.doc, &o))
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![(root, 0usize)];
+        while let Some((node, depth)) = stack.pop() {
+            if depth > 32 {
+                continue;
+            }
+            if let Ok(nums) = node.get(b"Nums").and_then(Object::as_array) {
+                for pair in nums.chunks(2) {
+                    let [key, value] = pair else { continue };
+                    let Some(start) = resolve_i64(&self.doc, key) else {
+                        continue;
+                    };
+                    let Some(label) = deref_dict(&self.doc, value) else {
+                        continue;
+                    };
+                    let style = label
+                        .get(b"S")
+                        .and_then(Object::as_name)
+                        .ok()
+                        .map(|n| String::from_utf8_lossy(n).into_owned());
+                    let prefix = label
+                        .get(b"P")
+                        .ok()
+                        .and_then(|o| decode_text_string(o).ok());
+                    let st = label
+                        .get(b"St")
+                        .ok()
+                        .and_then(|o| resolve_i64(&self.doc, o))
+                        .unwrap_or(1);
+                    out.push((start, style, prefix, st));
+                }
+            }
+            if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
+                for kid in kids.clone() {
+                    if let Some(dict) = deref_dict(&self.doc, &kid) {
+                        stack.push((dict, depth + 1));
+                    }
+                }
+            }
+        }
+        out.sort_by_key(|(start, _, _, _)| *start);
+        out
+    }
+
+    /// ページラベル定義を平坦な番号ツリーで書き込む（空リストで削除。検証は Python 側）。
+    fn set_page_labels(
+        &mut self,
+        labels: Vec<(i64, Option<String>, Option<String>, i64)>,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let mut nums = Vec::with_capacity(labels.len() * 2);
+        for (start, style, prefix, st) in labels {
+            let mut label = Dictionary::new();
+            if let Some(s) = style {
+                label.set("S", Object::Name(s.into_bytes()));
+            }
+            if let Some(p) = prefix {
+                label.set("P", text_string(&p));
+            }
+            if st != 1 {
+                label.set("St", st);
+            }
+            nums.push(Object::Integer(start));
+            nums.push(Object::Dictionary(label));
+        }
+        let catalog = self.doc.catalog_mut().map_err(to_py_err)?;
+        if nums.is_empty() {
+            catalog.remove(b"PageLabels");
+        } else {
+            catalog.set("PageLabels", dictionary! { "Nums" => Object::Array(nums) });
+        }
+        Ok(())
     }
 
     /// 添付ファイル名の一覧を返す（名前ツリーの順序に依らずソート済み）。

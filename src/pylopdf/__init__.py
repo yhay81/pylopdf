@@ -201,6 +201,58 @@ _BASE14_FONTS: dict[str, str] = {
 _SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
 
 
+#: ページラベルの番号スタイル（PDF 仕様の /S 値。空文字列は「番号なし = prefix のみ」）
+_PAGE_LABEL_STYLES = frozenset({"", "D", "R", "r", "A", "a"})
+
+
+def _int_to_roman(n: int) -> str:
+    """1 以上の整数をローマ数字（大文字）にする。"""
+    pairs = (
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    )
+    out = []
+    for value, symbol in pairs:
+        count, n = divmod(n, value)
+        out.append(symbol * count)
+    return "".join(out)
+
+
+def _int_to_letters(n: int) -> str:
+    """1 以上の整数を A..Z, AA..ZZ, AAA... 形式（PDF 仕様の反復式）にする。"""
+    letter = chr(ord("A") + (n - 1) % 26)
+    return letter * ((n - 1) // 26 + 1)
+
+
+def _format_page_label(style: str, prefix: str, number: int) -> str:
+    """ページラベル 1 件分の表示文字列を組み立てる。"""
+    match style:
+        case "D":
+            digits = str(number)
+        case "R":
+            digits = _int_to_roman(number)
+        case "r":
+            digits = _int_to_roman(number).lower()
+        case "A":
+            digits = _int_to_letters(number)
+        case "a":
+            digits = _int_to_letters(number).lower()
+        case _:
+            digits = ""
+    return prefix + digits
+
+
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
 _METADATA_KEYS: dict[str, str] = {
     "title": "Title",
@@ -485,6 +537,20 @@ class Page:
             raise ValueError(msg)
         return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
 
+    def get_label(self) -> str:
+        """このページの表示ラベル（"iv" や "A-2" など）を返す。定義が無ければ空文字列。"""
+        pno = self._page_number() - 1
+        applicable: dict[str, Any] | None = None
+        for label in self._document.get_page_labels():
+            if label["startpage"] <= pno:
+                applicable = label
+            else:
+                break
+        if applicable is None:
+            return ""
+        number = pno - applicable["startpage"] + applicable["firstpagenum"]
+        return _format_page_label(applicable["style"], applicable["prefix"], number)
+
     def annots(self) -> list[dict[str, Any]]:
         """ページの注釈を読み取る。
 
@@ -730,6 +796,55 @@ class Document:
             updates.append((pdf_key, value))
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
+
+    def get_page_labels(self) -> list[dict[str, Any]]:
+        """ページラベル定義を読む。
+
+        各要素は ``{"startpage", "style", "prefix", "firstpagenum"}``（startpage は
+        0 始まり、style は "D"/"R"/"r"/"A"/"a" か空文字列 = prefix のみ）。
+        個々のページの表示ラベルは :meth:`Page.get_label` で得る。
+        """
+        self._ensure_open()
+        return [
+            {
+                "startpage": int(start),
+                "style": style or "",
+                "prefix": prefix or "",
+                "firstpagenum": int(first),
+            }
+            for start, style, prefix, first in self._doc.get_page_labels()
+        ]
+
+    def set_page_labels(self, labels: Sequence[dict[str, Any]]) -> None:
+        """ページラベルを設定する（:meth:`get_page_labels` と同じ形式。空リストで削除）。
+
+        最初の範囲は startpage 0 から始まる必要がある（PDF 仕様）。
+        firstpagenum は各範囲の開始番号（既定 1）。
+        """
+        self._ensure_open()
+        payload: list[tuple[int, str | None, str | None, int]] = []
+        seen: set[int] = set()
+        for label in labels:
+            start = int(label.get("startpage", -1))
+            style = str(label.get("style", ""))
+            prefix = str(label.get("prefix", ""))
+            first = int(label.get("firstpagenum", 1))
+            if start < 0 or start in seen:
+                msg = f"startpage は 0 以上で重複なく指定してください: {label!r}"
+                raise ValueError(msg)
+            if style not in _PAGE_LABEL_STYLES:
+                msg = f"style は {sorted(_PAGE_LABEL_STYLES)} のいずれかで指定してください: {style!r}"
+                raise ValueError(msg)
+            if first < 1:
+                msg = f"firstpagenum は 1 以上で指定してください: {label!r}"
+                raise ValueError(msg)
+            seen.add(start)
+            payload.append((start, style or None, prefix or None, first))
+        if payload and min(seen) != 0:
+            msg = "最初のページラベル範囲は startpage 0 から始まる必要があります（PDF 仕様）"
+            raise ValueError(msg)
+        payload.sort(key=lambda item: item[0])
+        self._doc.set_page_labels(payload)
 
     def embfile_add(
         self,

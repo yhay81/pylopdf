@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Page labels: `Document.get_page_labels()` / `set_page_labels(labels)` read and
+  write the PageLabels number tree as `{"startpage", "style", "prefix",
+  "firstpagenum"}` ranges (kid-split trees read recursively, written back flat;
+  an empty list removes the tree), and `Page.get_label()` computes the display
+  label ("iv", "A-2", …) including roman/letter styles and the spec-mandated
+  startpage-0 validation
 - File attachments: `Document.embfile_add(name, data, filename=, desc=)` /
   `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` manage the
   EmbeddedFiles name tree (kid-split trees are read recursively and rewritten

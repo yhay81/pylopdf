@@ -124,6 +124,10 @@ page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...)
 # Read the PDF/A self-declaration (validation belongs to veraPDF)
 print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 
+# Page labels (display numbers: roman front matter + decimal body, etc.)
+doc.set_page_labels([{"startpage": 0, "style": "r"}, {"startpage": 3, "style": "D"}])
+print(doc[4].get_label())  # "2"
+
 # File attachments (e.g. attach the XML data to an invoice PDF)
 doc.embfile_add("invoice.xml", xml_bytes, filename="invoice-data.xml")
 print(doc.embfile_names())  # ["invoice.xml"]
@@ -255,6 +259,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
+| `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |
 | `close()` | Close (supports `with`) |
 
@@ -263,6 +268,7 @@ signed_pdf: bytes = out.getvalue()
 | Method / property | Description |
 |---|---|
 | `number` / `parent` | 0-based page number and owning Document |
+| `get_label()` | Display label of the page ("iv", "A-2", …; empty string if undefined) |
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |

@@ -124,6 +124,10 @@ page.insert_ocr_text_layer(ocr_words)  # (x0, y0, x1, y1, テキスト, ...) の
 # PDF/A の自己宣言を読む（検証は veraPDF へ）
 print(doc.get_pdfa_claim())  # 例: (2, "B") = PDF/A-2b 宣言。無ければ None
 
+# ページラベル（前付き = ローマ数字、本文 = 算用数字のような表示番号）
+doc.set_page_labels([{"startpage": 0, "style": "r"}, {"startpage": 3, "style": "D"}])
+print(doc[4].get_label())  # "2"
+
 # 添付ファイル（請求書 PDF へ XML を添付する等）
 doc.embfile_add("invoice.xml", xml_bytes, filename="請求書データ.xml")
 print(doc.embfile_names())  # ["invoice.xml"]
@@ -253,6 +257,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_toc()` / `set_toc(toc)` | しおり（目次）の読み書き。`[[レベル, タイトル, ページ番号], ...]`（ページ番号はここだけ 1 始まり） |
 | `get_pdfa_claim()` | XMP の PDF/A 宣言 `(part, conformance)` の読み取り（自己申告の読み取りで、検証ではない） |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | 添付ファイル（EmbeddedFiles）の追加・一覧・取得・削除 |
+| `get_page_labels()` / `set_page_labels(labels)` | ページラベル定義の読み書き（`{"startpage", "style", "prefix", "firstpagenum"}`） |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(同)` | 保存。garbage=未参照削除、deflate=圧縮、object_streams=PDF 1.5+ 形式で削減、user_pw/owner_pw=AES-256 暗号化（元は平文のまま） |
 | `close()` | 閉じる（with 文対応） |
 
@@ -261,6 +266,7 @@ signed_pdf: bytes = out.getvalue()
 | メソッド / プロパティ | 説明 |
 |---|---|
 | `number` / `parent` | 0 始まりのページ番号と所属 Document |
+| `get_label()` | ページの表示ラベル（"iv"・"A-2" など。定義が無ければ空文字列） |
 | `get_text(option="text")` | テキスト抽出。`"words"` / `"blocks"` / `"dict"` で位置付きレイアウト |
 | `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
 | `get_images()` | ページ上の画像を抽出（JPEG は元バイト列をパススルー、他は PNG 化） |
