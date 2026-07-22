@@ -35,6 +35,7 @@ CASES = [
     Case("usrguide.pdf", pages=27, version="PDF 1.5", snippet="for authors"),
     Case("bill-hr815.pdf", pages=110, version="PDF 1.5", snippet="One Hundred Eighteenth Congress"),
     Case("mhlw-doc.pdf", pages=2, version="PDF 1.7", snippet="裁判例"),
+    Case("patent-us223898.pdf", pages=4, version="PDF 1.3", snippet="Electric-Lamp"),
 ]
 
 ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
@@ -62,8 +63,8 @@ def test_extract_text_page0(case: Case) -> None:
 
 
 @pytest.mark.xfail(
-    reason="lopdf は content stream 内の % コメントを解釈できず、コメントを含むページの抽出が空になる"
-    "（/Encoding なし Helvetica 自体は StandardEncoding フォールバックで抽出できることを切り分けで確認済み）",
+    reason="lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とす"
+    "（https://github.com/J-F-Liu/lopdf/issues/535 として報告済み。修正されたらこのテストが fail して気づける）",
     strict=True,
 )
 def test_pdf20_extract_text_known_limit() -> None:

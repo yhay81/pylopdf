@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Scanned-PDF coverage in the real-world corpus: `patent-us223898.pdf`
+  (Edison's electric-lamp patent, 1880, public domain) exercising CCITTFaxDecode
+  images and an OCR text layer
+
+### Changed
+- The content-stream comment bug behind the pdf20 empty-extraction xfail is now
+  reported upstream as [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
+
 ## [0.5.0] - 2026-07-22
 
 ### Added
