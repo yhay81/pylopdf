@@ -1,7 +1,8 @@
 # pylopdf ロードマップ
 
 2026-07-22 実施の市場・upstream 調査（lopdf 0.44 全 API / hayro 0.7 全クレート /
-Python PDF エコシステム）に基づく中期計画の正本。
+Python PDF エコシステム）と、2026-07-23 実施のスコープ外領域の深掘り再調査
+（krilla / typst / 純 Rust OCR / 電子署名 / HTML→PDF。確定事実は文末の調査メモ）に基づく中期計画の正本。
 日々の開発コンテキストは [AGENTS.md](AGENTS.md)、確定した変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照。
 
 ## 戦略
@@ -67,12 +68,11 @@ Python PDF エコシステム）に基づく中期計画の正本。
 
 ### v0.7 — 位置付きテキスト抽出（v0.7.0 として 2026-07-23 リリース済み）
 
-- hayro-interpret の Device 実装による抽出エンジン（lopdf extract_text から置き換え）
-  - `get_text("text" / "words" / "blocks" / "dict")`、`search_for → list[Rect]`
-  - 不可視テキスト（スキャン PDF の OCR レイヤー）対応、MCID の保持
-  - lopdf#535 の xfail はこの置き換えで根本解消する
-  - 公式サンプル extract_html.rs（hayro 0.7.0 同梱）が実装の出発点
-- 画像抽出（`RasterImage::stream()` による JPEG パススルー。get_images / extract_image 相当）
+- [x] hayro-interpret の Device 実装による抽出エンジン（lopdf extract_text から置き換え。
+      `get_text("text"/"words"/"blocks"/"dict")`、`search_for → list[Rect]`、
+      不可視テキスト対応。lopdf#535 と非埋め込み CJK 抽出はこれで解消。
+      ※MCID の保持は未実装（v0.9 の to_markdown で必要になったら対応）
+- [x] 画像抽出（Page.get_images。DCT で終わるフィルタ列は JPEG パススルー）
 - [x] hayro の warning_sink → Python warnings 連携（PylopdfWarning）
 - [x] Pixmap オブジェクト（※buffer protocol は断念: Py_buffer が安定 ABI に入るのは
       Python 3.11 からで abi3-py310 と両立しない。samples は 1 コピー。
