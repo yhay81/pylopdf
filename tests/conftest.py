@@ -77,6 +77,14 @@ def build_nonembedded_cjk_pdf() -> bytes:
     return bytes(out)
 
 
+def png_size(data: bytes) -> tuple[int, int]:
+    """PNG の IHDR チャンクから (幅, 高さ) を読み取る。"""
+    assert data.startswith(b"\x89PNG\r\n\x1a\n")
+    width = int.from_bytes(data[16:20], "big")
+    height = int.from_bytes(data[20:24], "big")
+    return width, height
+
+
 @pytest.fixture
 def one_page_pdf() -> bytes:
     return build_pdf(["Hello PDF"])

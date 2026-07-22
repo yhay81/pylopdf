@@ -220,6 +220,40 @@ impl _Document {
         self.hayro_pdf = None;
     }
 
+    /// 指定ページ（1 始まり）の ObjectId を返す。
+    fn page_id(&self, page_number: u32) -> PyResult<ObjectId> {
+        self.doc
+            .get_pages()
+            .get(&page_number)
+            .copied()
+            .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))
+    }
+
+    /// ページ辞書の属性を、親ツリーの継承と間接参照を解決しつつ取得する。
+    fn resolve_page_attr(&self, page_id: ObjectId, key: &[u8]) -> PyResult<Option<Object>> {
+        let mut current = Some(page_id);
+        let mut visited = HashSet::new();
+        while let Some(id) = current {
+            if !visited.insert(id) {
+                return Err(to_py_err(lopdf::Error::ReferenceCycle(id)));
+            }
+            let dict = self
+                .doc
+                .get_object(id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?;
+            if let Ok(value) = dict.get(key) {
+                let resolved = match value {
+                    Object::Reference(rid) => self.doc.get_object(*rid).map_err(to_py_err)?.clone(),
+                    other => other.clone(),
+                };
+                return Ok(Some(resolved));
+            }
+            current = dict.get(b"Parent").and_then(Object::as_reference).ok();
+        }
+        Ok(None)
+    }
+
     /// 現在の編集状態の hayro ドキュメントを返す（未構築ならシリアライズ + パースして保持）。
     ///
     /// 編集メソッドが `invalidate_hayro_pdf` でキャッシュを破棄するため、
@@ -748,6 +782,82 @@ impl _Document {
                 &settings,
             ))
         })
+    }
+
+    /// 指定ページ（1 始まり）の回転角（継承解決済み、0..360 に正規化）を返す。
+    fn get_page_rotation(&self, page_number: u32) -> PyResult<i64> {
+        let page_id = self.page_id(page_number)?;
+        match self.resolve_page_attr(page_id, b"Rotate")? {
+            Some(obj) => Ok(obj.as_i64().map_err(to_py_err)?.rem_euclid(360)),
+            None => Ok(0),
+        }
+    }
+
+    /// 指定ページ（1 始まり）の回転角を設定する（値の検証は Python 側）。
+    fn set_page_rotation(&mut self, page_number: u32, rotation: i64) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let page_id = self.page_id(page_number)?;
+        let dict = self
+            .doc
+            .get_object_mut(page_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        dict.set("Rotate", rotation);
+        Ok(())
+    }
+
+    /// 指定ページ（1 始まり）のボックス（MediaBox / CropBox 等、継承解決済み）を返す。
+    /// 設定されていなければ None。
+    fn get_page_box(&self, page_number: u32, key: &str) -> PyResult<Option<(f64, f64, f64, f64)>> {
+        let page_id = self.page_id(page_number)?;
+        let Some(obj) = self.resolve_page_attr(page_id, key.as_bytes())? else {
+            return Ok(None);
+        };
+        let arr = obj.as_array().map_err(to_py_err)?;
+        if arr.len() != 4 {
+            return Err(PdfError::new_err(format!(
+                "{key} は 4 要素の配列である必要があります（{} 要素）",
+                arr.len()
+            )));
+        }
+        let mut values = [0f64; 4];
+        for (slot, item) in values.iter_mut().zip(arr) {
+            let resolved = match item {
+                Object::Reference(id) => self.doc.get_object(*id).map_err(to_py_err)?,
+                other => other,
+            };
+            *slot = f64::from(resolved.as_float().map_err(to_py_err)?);
+        }
+        Ok(Some((values[0], values[1], values[2], values[3])))
+    }
+
+    /// 指定ページ（1 始まり）のボックスを設定する（矩形の検証は Python 側）。
+    fn set_page_box(
+        &mut self,
+        page_number: u32,
+        key: &str,
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let page_id = self.page_id(page_number)?;
+        let dict = self
+            .doc
+            .get_object_mut(page_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        dict.set(
+            key,
+            Object::Array(vec![
+                Object::Real(x0 as f32),
+                Object::Real(y0 as f32),
+                Object::Real(x1 as f32),
+                Object::Real(y1 as f32),
+            ]),
+        );
+        Ok(())
     }
 
     /// ストリームを圧縮する。

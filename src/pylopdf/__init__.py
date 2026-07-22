@@ -7,14 +7,15 @@ pymupdf に似た操作感の :class:`Document` を提供する。編集は lopd
 from __future__ import annotations
 
 import functools
+import math
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from pylopdf.pylopdf_core import PasswordError, PdfError, _Document
 
 if TYPE_CHECKING:
     import os
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator, Sequence
     from types import TracebackType
     from typing import Self
 
@@ -23,8 +24,11 @@ __all__ = [
     "Document",
     "DocumentClosedError",
     "EncryptedDocumentError",
+    "Page",
     "PasswordError",
     "PdfError",
+    "Rect",
+    "StalePageError",
     "open",
     "peek_metadata",
 ]
@@ -36,6 +40,36 @@ class DocumentClosedError(PdfError):
 
 class EncryptedDocumentError(PdfError):
     """未復号の暗号化 PDF への操作。password 引数か authenticate() で復号する。"""
+
+
+class StalePageError(PdfError):
+    """文書構造の変更（ページの追加・削除・並べ替え）後に古い Page を使った。
+
+    ``doc[i]`` で取得し直すこと。
+    """
+
+
+class Rect(NamedTuple):
+    """PDF 座標の矩形（x0, y0, x1, y1）。"""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+    @property
+    def width(self) -> float:
+        """幅（x1 - x0）。"""
+        return self.x1 - self.x0
+
+    @property
+    def height(self) -> float:
+        """高さ（y1 - y0）。"""
+        return self.y1 - self.y0
+
+
+#: A4 縦（PDF 単位）。MediaBox の無い壊れた PDF での既定値（hayro のレンダリングと同じ想定）。
+_DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 
 @functools.cache
@@ -89,11 +123,122 @@ _METADATA_KEYS: dict[str, str] = {
 }
 
 
+class Page:
+    """ドキュメント内の 1 ページへのビュー。``doc[i]`` で取得する。
+
+    ページの追加・削除・並べ替えを行うと、それ以前に取得した Page は無効になり、
+    使うと :class:`StalePageError` になる。``doc[i]`` で取得し直すこと。
+    """
+
+    def __init__(self, document: Document, pno: int) -> None:
+        """``Document.__getitem__`` から呼ばれる。直接構築しない。"""
+        self._document = document
+        self._pno = pno
+        self._generation = document._generation
+
+    @property
+    def number(self) -> int:
+        """0 始まりのページ番号。"""
+        return self._pno
+
+    @property
+    def parent(self) -> Document:
+        """このページが属する Document。"""
+        return self._document
+
+    def _page_number(self) -> int:
+        """有効性を検証し、lopdf の 1 始まりページ番号を返す。"""
+        doc = self._document
+        doc._ensure_open()
+        if self._generation != doc._generation:
+            msg = f"ページ {self._pno} は文書構造の変更で無効になりました。doc[{self._pno}] で取得し直してください"
+            raise StalePageError(msg)
+        return self._pno + 1
+
+    @property
+    def rotation(self) -> int:
+        """ページの表示回転角（0 / 90 / 180 / 270。継承解決済み）。"""
+        return self._document._doc.get_page_rotation(self._page_number())
+
+    def set_rotation(self, rotation: int) -> None:
+        """表示回転角を設定する（90 の倍数。負値・360 以上は 0..360 に正規化）。"""
+        if rotation % 90 != 0:
+            msg = f"rotation は 90 の倍数で指定してください: {rotation!r}"
+            raise ValueError(msg)
+        self._document._doc.set_page_rotation(self._page_number(), rotation % 360)
+
+    @property
+    def mediabox(self) -> Rect:
+        """MediaBox（継承解決済み。無い場合は A4 相当）。"""
+        box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
+        return Rect(*(box if box is not None else _DEFAULT_MEDIABOX))
+
+    @property
+    def cropbox(self) -> Rect:
+        """CropBox（無い場合は MediaBox と同じ値）。"""
+        box = self._document._doc.get_page_box(self._page_number(), "CropBox")
+        return Rect(*box) if box is not None else self.mediabox
+
+    @property
+    def rect(self) -> Rect:
+        """表示上のページ矩形（原点 0,0。回転 90/270 で幅と高さが入れ替わる）。"""
+        box = self.cropbox
+        if self.rotation in (90, 270):
+            return Rect(0.0, 0.0, box.height, box.width)
+        return Rect(0.0, 0.0, box.width, box.height)
+
+    def set_mediabox(self, rect: Sequence[float]) -> None:
+        """MediaBox を (x0, y0, x1, y1) で設定する。"""
+        self._set_box("MediaBox", rect)
+
+    def set_cropbox(self, rect: Sequence[float]) -> None:
+        """CropBox を (x0, y0, x1, y1) で設定する。"""
+        self._set_box("CropBox", rect)
+
+    def _set_box(self, key: str, rect: Sequence[float]) -> None:
+        """ボックス引数を検証して設定する。"""
+        try:
+            x0, y0, x1, y1 = (float(v) for v in rect)
+        except (TypeError, ValueError) as exc:
+            msg = f"{key} は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
+            raise ValueError(msg) from exc
+        if not all(map(math.isfinite, (x0, y0, x1, y1))) or x0 >= x1 or y0 >= y1:
+            msg = f"{key} は x0 < x1, y0 < y1 の有限な矩形で指定してください: {rect!r}"
+            raise ValueError(msg)
+        self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
+
+    def get_text(self) -> str:
+        """ページのテキストを抽出する。"""
+        self._page_number()
+        return self._document.get_page_text(self._pno)
+
+    def render(
+        self,
+        scale: float = 1.0,
+        *,
+        dpi: float | None = None,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+    ) -> bytes:
+        """ページを PNG にレンダリングする。引数は :meth:`Document.render_page` と同じ。"""
+        self._page_number()
+        return self._document.render_page(self._pno, scale, dpi=dpi, background=background)
+
+    def render_svg(self) -> str:
+        """ページを SVG 文字列にレンダリングする。"""
+        self._page_number()
+        return self._document.render_page_svg(self._pno)
+
+    def __repr__(self) -> str:
+        """ページ番号と所属ドキュメントを含む表現を返す。"""
+        return f"<Page {self._pno} of {self._document!r}>"
+
+
 class Document:
     """PDF ドキュメント。
 
     ファイルパスかバイト列から開くか、引数なしで空ドキュメントを作る。
-    コンテキストマネージャとしても使える。
+    コンテキストマネージャとしても使え、``doc[i]`` / イテレーションで
+    :class:`Page` を取得できる。
     """
 
     def __init__(
@@ -134,6 +279,8 @@ class Document:
         self._doc = doc
         self._closed = False
         self._fallback_configured = False
+        # ページ構造の世代番号。構造変更で増え、古い Page ビューを無効化する
+        self._generation = 0
         # password なしでは復号できなかったかを保持する（認証後も True のまま）
         self._needs_pass = needs_pass
         # authenticate() で開き直す必要がある未復号ドキュメントだけ、開いた元を保持する
@@ -187,6 +334,23 @@ class Document:
         """ページ数を返す。"""
         return self.page_count
 
+    def __getitem__(self, pno: int) -> Page:
+        """0 始まり（負数は末尾から）のページ番号で :class:`Page` を取得する。"""
+        return Page(self, self._normalize_pno(pno))
+
+    def load_page(self, pno: int) -> Page:
+        """``doc[pno]`` と同じ（pymupdf 互換名）。"""
+        return self[pno]
+
+    def __iter__(self) -> Iterator[Page]:
+        """全ページを先頭から順に返す。"""
+        for pno in range(self.page_count):
+            yield self[pno]
+
+    def _bump_generation(self) -> None:
+        """ページ構造の変更を記録し、取得済みの Page ビューを無効化する。"""
+        self._generation += 1
+
     @property
     def metadata(self) -> dict[str, str]:
         """メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format）。"""
@@ -214,13 +378,17 @@ class Document:
         return self._doc.extract_text([self._lopdf_page_number(pno)])
 
     def delete_page(self, pno: int) -> None:
-        """ページ pno（0 始まり）を削除する。"""
-        self._doc.delete_pages([self._lopdf_page_number(pno)])
+        """ページ pno（0 始まり、負数可）を削除する。"""
+        page_number = self._lopdf_page_number(pno)
+        self._bump_generation()
+        self._doc.delete_pages([page_number])
 
     def delete_pages(self, page_numbers: Iterable[int]) -> None:
-        """複数ページ（0 始まり）をまとめて削除する。"""
+        """複数ページ（0 始まり、負数可）をまとめて削除する。"""
         self._ensure_open()
-        self._doc.delete_pages([self._lopdf_page_number(pno) for pno in page_numbers])
+        numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
+        self._bump_generation()
+        self._doc.delete_pages(numbers)
 
     def select(self, page_numbers: Iterable[int]) -> None:
         """指定した 0 始まりのページ番号だけを、指定順で残す。
@@ -228,7 +396,9 @@ class Document:
         並べ替えにも使える。同一ページの重複指定（複製）は未対応。
         """
         self._ensure_open()
-        self._doc.select([self._lopdf_page_number(pno) for pno in page_numbers])
+        numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
+        self._bump_generation()
+        self._doc.select(numbers)
 
     def insert_pdf(self, other: Document) -> None:
         """別ドキュメントの全ページを末尾に取り込む。"""
@@ -237,6 +407,7 @@ class Document:
             msg = "自分自身は挿入できません"
             raise ValueError(msg)
         other._ensure_open()
+        self._bump_generation()
         self._doc.merge(other._doc)
 
     def set_fallback_font(
@@ -364,14 +535,19 @@ class Document:
             msg = "暗号化された PDF です。password 引数を付けて開くか authenticate() を呼んでください"
             raise EncryptedDocumentError(msg)
 
-    def _lopdf_page_number(self, pno: int) -> int:
-        """0 始まりのページ番号を検証し、lopdf の 1 始まりへ変換する。"""
+    def _normalize_pno(self, pno: int) -> int:
+        """負数（末尾から数える）を解決した 0 始まりのページ番号を返す。範囲外は IndexError。"""
         self._ensure_open()
         count = self._doc.page_count()
-        if not 0 <= pno < count:
+        normalized = pno + count if pno < 0 else pno
+        if not 0 <= normalized < count:
             msg = f"ページ番号 {pno} は範囲外です（0..{count - 1}）"
             raise IndexError(msg)
-        return pno + 1
+        return normalized
+
+    def _lopdf_page_number(self, pno: int) -> int:
+        """0 始まり（負数可）のページ番号を検証し、lopdf の 1 始まりへ変換する。"""
+        return self._normalize_pno(pno) + 1
 
     def __enter__(self) -> Self:
         """コンテキストマネージャの開始。自身を返す。"""
