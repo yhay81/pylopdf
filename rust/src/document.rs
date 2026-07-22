@@ -1703,6 +1703,100 @@ impl _Document {
         self.push_page_annotation(page_id, annot_id)
     }
 
+    /// 添付ファイル（EmbeddedFiles 名前ツリー）の (名前, FileSpec の ObjectId) を集める。
+    ///
+    /// /Kids 分割された名前ツリーも再帰的に辿る（深さ・循環はガード）。
+    /// FileSpec がインライン辞書の場合はオブジェクト化して id を返す。
+    fn collect_embedded_files(&mut self) -> Vec<(String, ObjectId)> {
+        fn node_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
+            match obj {
+                Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
+                Object::Dictionary(d) => Some(d.clone()),
+                _ => None,
+            }
+        }
+        let Some(root) = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|c| c.get(b"Names").ok().cloned())
+            .and_then(|names| node_dict(&self.doc, &names))
+            .and_then(|names| names.get(b"EmbeddedFiles").ok().cloned())
+            .and_then(|ef| node_dict(&self.doc, &ef))
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut stack = vec![(root, 0usize)];
+        while let Some((node, depth)) = stack.pop() {
+            if depth > 32 {
+                continue;
+            }
+            if let Ok(pairs) = node.get(b"Names").and_then(Object::as_array) {
+                for pair in pairs.chunks(2) {
+                    let [key, value] = pair else { continue };
+                    let Ok(name) = decode_text_string(key) else {
+                        continue;
+                    };
+                    let id = match value {
+                        Object::Reference(id) => *id,
+                        Object::Dictionary(d) => self.doc.add_object(Object::Dictionary(d.clone())),
+                        _ => continue,
+                    };
+                    out.push((name, id));
+                }
+            }
+            if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
+                for kid in kids.clone() {
+                    if let Some(dict) = node_dict(&self.doc, &kid) {
+                        stack.push((dict, depth + 1));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// EmbeddedFiles 名前ツリーを平坦な 1 ノードで書き戻す（他の名前ツリーは保存）。
+    fn write_embedded_files(&mut self, mut entries: Vec<(String, ObjectId)>) -> PyResult<()> {
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut flat = Vec::with_capacity(entries.len() * 2);
+        for (name, id) in entries {
+            flat.push(text_string(&name));
+            flat.push(Object::Reference(id));
+        }
+        let tree = Object::Dictionary(dictionary! { "Names" => Object::Array(flat) });
+        // /Names が間接参照ならその実体を、インラインなら Catalog 内をその場で書き換える
+        let names_ref = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|c| c.get(b"Names").ok())
+            .and_then(|n| n.as_reference().ok());
+        match names_ref {
+            Some(id) => {
+                let names = self
+                    .doc
+                    .get_object_mut(id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                names.set("EmbeddedFiles", tree);
+            }
+            None => {
+                let catalog = self.doc.catalog_mut().map_err(to_py_err)?;
+                if !catalog.has(b"Names") {
+                    catalog.set("Names", Dictionary::new());
+                }
+                let names = catalog
+                    .get_mut(b"Names")
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                names.set("EmbeddedFiles", tree);
+            }
+        }
+        Ok(())
+    }
+
     /// XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
     ///
     /// 自己申告の読み取りであり、準拠の検証ではない（検証は veraPDF の領分）。
@@ -1718,6 +1812,111 @@ impl _Document {
         let part: i64 = xmp_value(&xmp, "pdfaid:part")?.parse().ok()?;
         let conformance = xmp_value(&xmp, "pdfaid:conformance").unwrap_or_default();
         Some((part, conformance))
+    }
+
+    /// 添付ファイル名の一覧を返す（名前ツリーの順序に依らずソート済み）。
+    fn embfile_names(&mut self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .collect_embedded_files()
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// 添付ファイルの中身を取り出す。
+    fn embfile_get(&mut self, name: &str) -> PyResult<Vec<u8>> {
+        let entries = self.collect_embedded_files();
+        let (_, filespec_id) = entries
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .ok_or_else(|| PdfError::new_err(format!("添付ファイルが見つかりません: {name:?}")))?;
+        let filespec = self
+            .doc
+            .get_object(filespec_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let ef = match filespec.get(b"EF").map_err(to_py_err)? {
+            Object::Reference(id) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?,
+            Object::Dictionary(d) => d,
+            _ => return Err(PdfError::new_err("添付ファイルの EF 辞書が壊れています")),
+        };
+        let stream_ref = ef
+            .get(b"F")
+            .or_else(|_| ef.get(b"UF"))
+            .and_then(Object::as_reference)
+            .map_err(to_py_err)?;
+        let stream = self
+            .doc
+            .get_object(stream_ref)
+            .and_then(Object::as_stream)
+            .map_err(to_py_err)?;
+        Ok(stream
+            .decompressed_content()
+            .unwrap_or_else(|_| stream.content.clone()))
+    }
+
+    /// 添付ファイルを追加する（同名が既にあればエラー）。
+    fn embfile_add(
+        &mut self,
+        py: Python<'_>,
+        name: String,
+        data: Vec<u8>,
+        filename: Option<String>,
+        desc: Option<String>,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let entries = self.collect_embedded_files();
+            if entries.iter().any(|(n, _)| *n == name) {
+                return Err(PdfError::new_err(format!(
+                    "同名の添付ファイルが既にあります: {name:?}（先に embfile_del すること）"
+                )));
+            }
+            let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+            // 保存時の deflate= で圧縮できるよう、圧縮許可は既定のままにする
+            let ef_id = self.doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "EmbeddedFile",
+                    "Params" => dictionary! { "Size" => size },
+                },
+                data,
+            ));
+            let fname = filename.unwrap_or_else(|| name.clone());
+            let mut filespec = dictionary! {
+                "Type" => "Filespec",
+                "F" => Object::string_literal(fname.clone()),
+                "UF" => text_string(&fname),
+                "EF" => dictionary! { "F" => ef_id, "UF" => ef_id },
+            };
+            if let Some(text) = desc {
+                filespec.set("Desc", text_string(&text));
+            }
+            let filespec_id = self.doc.add_object(filespec);
+            let mut entries = entries;
+            entries.push((name, filespec_id));
+            self.write_embedded_files(entries)
+        })
+    }
+
+    /// 添付ファイルを削除する（無ければエラー）。
+    fn embfile_del(&mut self, name: &str) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let entries = self.collect_embedded_files();
+        let before = entries.len();
+        let remaining: Vec<(String, ObjectId)> =
+            entries.into_iter().filter(|(n, _)| n != name).collect();
+        if remaining.len() == before {
+            return Err(PdfError::new_err(format!(
+                "添付ファイルが見つかりません: {name:?}"
+            )));
+        }
+        self.write_embedded_files(remaining)
     }
 
     /// OCR 結果（表示座標の語 + テキスト）を不可視テキスト層として書き込む。

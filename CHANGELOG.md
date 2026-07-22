@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- File attachments: `Document.embfile_add(name, data, filename=, desc=)` /
+  `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` manage the
+  EmbeddedFiles name tree (kid-split trees are read recursively and rewritten
+  flat; sibling name trees under /Names are preserved). Unicode filenames and
+  descriptions are stored as UF/Desc text strings; attachments survive
+  `garbage=/deflate=/object_streams=` saves
 - `Page.insert_ocr_text_layer(words)`: write external OCR results as an
   invisible text layer (searchable PDFs). Takes `(x0, y0, x1, y1, text, ...)`
   sequences — `get_text("words")` shapes and typical OCR API output feed in

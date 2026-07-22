@@ -731,6 +731,42 @@ class Document:
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
 
+    def embfile_add(
+        self,
+        name: str,
+        data: bytes,
+        *,
+        filename: str | None = None,
+        desc: str | None = None,
+    ) -> None:
+        """添付ファイル（EmbeddedFiles）を追加する。
+
+        name は一覧・取得に使うキー（同名が既にあればエラー）。filename は
+        ビューアに表示されるファイル名（省略時は name）、desc は説明文。
+        どちらも日本語可（UF / Desc へ UTF-16BE で入る)。請求書 PDF への
+        XML 添付（ZUGFeRD / Factur-X 風の構成）などに使える。
+        """
+        self._ensure_open()
+        if not name:
+            msg = "name は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        self._doc.embfile_add(name, bytes(data), filename, desc)
+
+    def embfile_names(self) -> list[str]:
+        """添付ファイル名の一覧を返す（ソート済み）。"""
+        self._ensure_open()
+        return self._doc.embfile_names()
+
+    def embfile_get(self, name: str) -> bytes:
+        """添付ファイルの中身（bytes）を取り出す。"""
+        self._ensure_open()
+        return self._doc.embfile_get(name)
+
+    def embfile_del(self, name: str) -> None:
+        """添付ファイルを削除する（無ければエラー）。"""
+        self._ensure_open()
+        self._doc.embfile_del(name)
+
     def get_pdfa_claim(self) -> tuple[int, str] | None:
         """XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
 

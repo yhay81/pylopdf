@@ -124,6 +124,11 @@ page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...)
 # Read the PDF/A self-declaration (validation belongs to veraPDF)
 print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 
+# File attachments (e.g. attach the XML data to an invoice PDF)
+doc.embfile_add("invoice.xml", xml_bytes, filename="invoice-data.xml")
+print(doc.embfile_names())  # ["invoice.xml"]
+xml = doc.embfile_get("invoice.xml")
+
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
 print(doc.get_toc())
@@ -249,6 +254,7 @@ signed_pdf: bytes = out.getvalue()
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
+| `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |
 | `close()` | Close (supports `with`) |
 
