@@ -166,6 +166,28 @@ def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | 
     return bytes(stream)
 
 
+#: insert_text の fontname 略名 → PDF 標準 14 フォントの正式名（pymupdf と同じ略名）
+_BASE14_FONTS: dict[str, str] = {
+    "helv": "Helvetica",
+    "hebo": "Helvetica-Bold",
+    "heit": "Helvetica-Oblique",
+    "hebi": "Helvetica-BoldOblique",
+    "cour": "Courier",
+    "cobo": "Courier-Bold",
+    "coit": "Courier-Oblique",
+    "cobi": "Courier-BoldOblique",
+    "tiro": "Times-Roman",
+    "tibo": "Times-Bold",
+    "tiit": "Times-Italic",
+    "tibi": "Times-BoldItalic",
+    "symb": "Symbol",
+    "zadb": "ZapfDingbats",
+}
+
+#: 組み込みエンコーディングを使うべき標準フォント（WinAnsi を指定しない）
+_SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
+
+
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
 _METADATA_KEYS: dict[str, str] = {
     "title": "Title",
@@ -355,6 +377,70 @@ class Page:
         src_number = src[pno]._page_number()
         self._document._doc.show_pdf_page(
             self._page_number(), (x0, y0, x1, y1), src._doc, src_number, keep_proportion, overlay
+        )
+
+    def insert_text(
+        self,
+        point: Sequence[float],
+        text: str,
+        *,
+        fontsize: float = 11.0,
+        fontname: str = "helv",
+        color: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> None:
+        r"""point（表示座標。1 行目のベースライン左端）へテキストを印字する。
+
+        fontname は PDF 標準 14 フォントの略名（pymupdf と同じ: "helv" / "tiro" /
+        "cour" 系 + 太字 bo / 斜体 it、"symb"、"zadb"）。フォントは埋め込まず、
+        ビューア側の標準書体で表示される。文字は WinAnsi（Latin-1 相当）の範囲のみで、
+        日本語などの CJK は印字できない — typst で組んで :meth:`show_pdf_page` で
+        焼くレシピを使うこと（README のエコシステム連携）。``\n`` で複数行になり、
+        行送りは fontsize の 1.2 倍。回転ページでも表示上で正立する。
+        ヘッダ / フッタ / ページ番号 / Bates 番号はこれをループで印字する。
+        """
+        try:
+            x, y = (float(v) for v in point)
+        except (TypeError, ValueError) as exc:
+            msg = f"point は (x, y) の 2 つの数値で指定してください: {point!r}"
+            raise ValueError(msg) from exc
+        if not (math.isfinite(x) and math.isfinite(y)):
+            msg = f"point は有限の座標で指定してください: {point!r}"
+            raise ValueError(msg)
+        if not (math.isfinite(fontsize) and fontsize > 0):
+            msg = f"fontsize は正の数値で指定してください: {fontsize!r}"
+            raise ValueError(msg)
+        base_font = _BASE14_FONTS.get(fontname)
+        if base_font is None:
+            msg = f"fontname は標準 14 フォントの略名で指定してください（{sorted(_BASE14_FONTS)}）: {fontname!r}"
+            raise ValueError(msg)
+        try:
+            red, green, blue = (float(c) for c in color)
+        except (TypeError, ValueError) as exc:
+            msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+            raise ValueError(msg) from exc
+        if not all(0.0 <= c <= 1.0 for c in (red, green, blue)):
+            msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+            raise ValueError(msg)
+        if not text:
+            msg = "text は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        try:
+            lines = [line.encode("cp1252") for line in normalized.split("\n")]
+        except UnicodeEncodeError as exc:
+            msg = (
+                "insert_text は WinAnsi（Latin-1 相当）の文字だけ印字できます。"
+                "日本語などの CJK は typst + show_pdf_page のレシピを使ってください（README のエコシステム連携）"
+            )
+            raise ValueError(msg) from exc
+        self._document._doc.insert_page_text(
+            self._page_number(),
+            (x, y),
+            lines,
+            base_font,
+            fontname not in _SYMBOLIC_FONTS,
+            float(fontsize),
+            (red, green, blue),
         )
 
     def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:

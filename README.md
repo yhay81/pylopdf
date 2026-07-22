@@ -108,6 +108,10 @@ page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at 
 page.show_pdf_page(page.rect, letterhead)  # overlay another PDF page as vectors (watermark / letterhead)
 page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
 
+# Headers / footers / page numbers (standard-14 fonts, WinAnsi range; CJK via the typst recipe)
+for i, p in enumerate(doc):
+    p.insert_text((p.rect.width - 90, p.rect.height - 30), f"Page {i + 1}", fontsize=9)
+
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
 print(doc.get_toc())
@@ -246,6 +250,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
+| `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
 | `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |

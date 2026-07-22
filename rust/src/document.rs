@@ -1474,6 +1474,47 @@ impl _Document {
         })
     }
 
+    /// 指定ページ（1 始まり）の表示座標 point をベースライン起点にテキストを印字する。
+    ///
+    /// lines は WinAnsi エンコード済みのバイト列（1 要素 = 1 行。検証と cp1252 変換は
+    /// Python 側）。base_font は標準 14 フォントの正式名。フォントは埋め込まない。
+    // Python 側シグネチャをそのまま写す境界メソッドのため引数数は許容する
+    #[allow(clippy::too_many_arguments)]
+    fn insert_page_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: Vec<Vec<u8>>,
+        base_font: &str,
+        winansi: bool,
+        fontsize: f64,
+        color: (f64, f64, f64),
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        py.detach(|| {
+            let mut font_dict = dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => Object::Name(base_font.as_bytes().to_vec()),
+            };
+            if winansi {
+                font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+            }
+            let font_id = self.doc.add_object(font_dict);
+            self.bake_page_attrs(page_id)?;
+            self.doc
+                .get_or_create_resources(page_id)
+                .map_err(to_py_err)?;
+            let name = format!("PyloF{}", font_id.0);
+            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
+            let ops = draw::text_ops(crop, rotation, point, &lines, &name, fontsize, color);
+            draw::push_content(&mut self.doc, page_id, ops, true).map_err(to_py_err)
+        })
+    }
+
     /// 指定ページ（1 始まり）のテキストを置換し、置換回数を返す。
     ///
     /// lopdf の replace_partial_text をそのまま公開する薄い層。単純エンコーディングの

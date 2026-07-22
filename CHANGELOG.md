@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lopdf's `replace_partial_text` returning the replacement count. Simple-encoded
   fonts only (no CID/CJK); page attributes are baked first so inherited
   Resources work
+- `Page.insert_text(point, text, fontsize=, fontname=, color=)`: print text with
+  a PDF standard-14 font (pymupdf-style abbreviations "helv" / "tiro" / "cour" /
+  bold-italic variants / "symb" / "zadb"; nothing is embedded). WinAnsi range
+  only — CJK input raises with a pointer to the typst + `show_pdf_page` recipe.
+  `\n` makes multiple lines (1.2 × fontsize leading); text stays upright on
+  rotated pages via the display-space text matrix. Headers / footers / page
+  numbers / Bates stamps are a documented loop over pages
 - Ecosystem interop recipes, documented in both READMEs and guarded by
   integration tests (`tests/test_interop.py`, optional `interop` dependency
   group installed in CI): typesetting and PDF/A output for new documents via

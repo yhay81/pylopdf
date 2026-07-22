@@ -97,6 +97,16 @@ class _Document:
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...
+    def insert_page_text(
+        self,
+        page_number: int,
+        point: tuple[float, float],
+        lines: list[bytes],
+        base_font: str,
+        winansi: bool,
+        fontsize: float,
+        color: tuple[float, float, float],
+    ) -> None: ...
     def replace_text_on_page(
         self, page_number: int, search: str, replacement: str, default_char: str | None
     ) -> int: ...

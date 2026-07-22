@@ -197,6 +197,85 @@ def test_show_pdf_page_underlay_draws_below() -> None:
     assert _pixel(page, 50, 50) == GREEN
 
 
+def test_insert_text_is_extractable_at_position() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()  # A4 相当（Resources の無いページに印字できることも兼ねて検証）
+    page = doc[0]
+    page.insert_text((50, 100), "Confidential", fontsize=12)
+    words = page.get_text("words")
+    assert [w[4] for w in words] == ["Confidential"]
+    x0, y0, _, y1 = words[0][:4]
+    assert abs(x0 - 50) < 2  # ベースライン左端 = 指定 x
+    assert y0 < 100 < y1  # 指定 y はベースラインとして bbox の縦範囲内
+
+
+def test_insert_text_multiline_stacks_downward() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()
+    page = doc[0]
+    page.insert_text((50, 100), "First\nSecond", fontsize=10)
+    words = {w[4]: w for w in page.get_text("words")}
+    assert words["Second"][1] > words["First"][1]  # 2 行目は下
+
+
+def test_insert_text_on_rotated_page_draws_at_display_position() -> None:
+    # 抽出エンジンは回転ページの読み順に未対応のため（ROADMAP 並走課題）、
+    # 回転ページへの印字はレンダリング画素で検証する
+    doc = pylopdf.Document()
+    doc.new_page(width=100, height=200)
+    page = doc[0]
+    page.set_rotation(90)
+    page.insert_text((20, 50), "Rotated")
+    pix = page.get_pixmap(background=WHITE)
+    assert (pix.width, pix.height) == (200, 100)  # レンダリングは表示空間
+    dark = [(i % pix.stride // 4, i // pix.stride) for i in range(0, len(pix.samples), 4) if pix.samples[i] < 128]
+    assert dark, "テキストが描画されていない"
+    xs = [p[0] for p in dark]
+    ys = [p[1] for p in dark]
+    # 表示座標 (20, 50) をベースライン起点とした行の範囲に収まっている
+    assert 15 <= min(xs) <= 25
+    assert min(ys) >= 35
+    assert max(ys) <= 55
+
+
+def test_insert_text_survives_save_roundtrip() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()
+    doc[0].insert_text((72, 72), "Persistent")
+    reopened = pylopdf.open(stream=doc.tobytes())
+    assert "Persistent" in reopened[0].get_text()
+
+
+def test_insert_text_page_numbering_recipe() -> None:
+    # README に載せる「ページ番号の印字」レシピそのもの
+    doc = pylopdf.Document()
+    for _ in range(3):
+        doc.new_page()
+    for i, page in enumerate(doc):
+        page.insert_text((page.rect.width - 90, page.rect.height - 30), f"Page {i + 1} / 3", fontsize=9)
+    for i in range(3):
+        assert f"Page {i + 1} / 3" in doc[i].get_text()
+
+
+def test_insert_text_rejects_cjk_with_recipe_hint() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()
+    with pytest.raises(ValueError, match="show_pdf_page"):
+        doc[0].insert_text((50, 50), "社外秘")
+
+
+def test_insert_text_rejects_unknown_font_and_bad_args() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()
+    page = doc[0]
+    with pytest.raises(ValueError, match="fontname"):
+        page.insert_text((50, 50), "x", fontname="nosuch")
+    with pytest.raises(ValueError, match="fontsize"):
+        page.insert_text((50, 50), "x", fontsize=0)
+    with pytest.raises(ValueError, match="color"):
+        page.insert_text((50, 50), "x", color=(2.0, 0.0, 0.0))
+
+
 def test_replace_text_replaces_and_counts() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     page = doc[0]

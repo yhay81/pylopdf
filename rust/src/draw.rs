@@ -315,6 +315,117 @@ fn fmt(v: f64) -> String {
     }
 }
 
+/// ページの Resources/Font へフォントオブジェクトの参照を登録する。
+///
+/// 呼び出し前に継承属性の焼き込みと get_or_create_resources 済みで、
+/// ページ辞書に /Resources が存在することが前提。Resources / Font どちらも
+/// 間接参照の可能性があるため、可変借用の前に参照先 id を解決する 2 段構えにする。
+pub fn add_page_font(
+    doc: &mut Document,
+    page_id: ObjectId,
+    name: &str,
+    font_id: ObjectId,
+) -> Result<(), lopdf::Error> {
+    let res_ref = doc
+        .get_object(page_id)?
+        .as_dict()?
+        .get(b"Resources")
+        .ok()
+        .and_then(|r| r.as_reference().ok());
+    let font_ref = {
+        let resources = match res_ref {
+            Some(id) => doc.get_object(id)?.as_dict()?,
+            None => doc
+                .get_object(page_id)?
+                .as_dict()?
+                .get(b"Resources")?
+                .as_dict()?,
+        };
+        resources
+            .get(b"Font")
+            .ok()
+            .and_then(|f| f.as_reference().ok())
+    };
+    if let Some(fid) = font_ref {
+        let fonts = doc.get_object_mut(fid)?.as_dict_mut()?;
+        fonts.set(name, Object::Reference(font_id));
+        return Ok(());
+    }
+    let resources = match res_ref {
+        Some(id) => doc.get_object_mut(id)?.as_dict_mut()?,
+        None => doc
+            .get_object_mut(page_id)?
+            .as_dict_mut()?
+            .get_mut(b"Resources")?
+            .as_dict_mut()?,
+    };
+    if !resources.has(b"Font") {
+        resources.set("Font", Dictionary::new());
+    }
+    let fonts = resources.get_mut(b"Font")?.as_dict_mut()?;
+    fonts.set(name, Object::Reference(font_id));
+    Ok(())
+}
+
+/// 表示座標 point をベースライン起点とするテキスト描画オペレータ列を組み立てる。
+///
+/// lines は WinAnsi（cp1252）エンコード済みのバイト列（1 要素 = 1 行）。
+/// Tm に表示空間の基底ベクトルを入れるため、回転ページでも表示上で正立する。
+/// 行送りは fontsize の 1.2 倍。
+pub fn text_ops(
+    crop: [f64; 4],
+    rotation: i64,
+    point: (f64, f64),
+    lines: &[Vec<u8>],
+    font: &str,
+    size: f64,
+    color: (f64, f64, f64),
+) -> Vec<u8> {
+    let (ox, oy) = display_to_pdf(crop, rotation, point.0, point.1);
+    let (rx, ry) = {
+        let p = display_to_pdf(crop, rotation, point.0 + 1.0, point.1);
+        (p.0 - ox, p.1 - oy)
+    };
+    let (ux, uy) = {
+        let p = display_to_pdf(crop, rotation, point.0, point.1 - 1.0);
+        (p.0 - ox, p.1 - oy)
+    };
+    let mut out = format!(
+        "q\nBT\n/{font} {} Tf\n{} {} {} rg\n{} {} {} {} {} {} Tm\n{} TL\n",
+        fmt(size),
+        fmt(color.0),
+        fmt(color.1),
+        fmt(color.2),
+        fmt(rx),
+        fmt(ry),
+        fmt(ux),
+        fmt(uy),
+        fmt(ox),
+        fmt(oy),
+        fmt(size * 1.2),
+    )
+    .into_bytes();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            out.extend_from_slice(b"T*\n");
+        }
+        out.push(b'(');
+        for &b in line {
+            match b {
+                b'(' | b')' | b'\\' => {
+                    out.push(b'\\');
+                    out.push(b);
+                }
+                0x20..=0x7E => out.push(b),
+                _ => out.extend_from_slice(format!("\\{b:03o}").as_bytes()),
+            }
+        }
+        out.extend_from_slice(b") Tj\n");
+    }
+    out.extend_from_slice(b"ET\nQ\n");
+    out
+}
+
 /// 既存の /Contents 列を一度だけ q / Q ストリームで挟む（グラフィックス状態の遮断）。
 ///
 /// 既に本関数で挟んだ形（先頭が b"q\n"、末尾が b"Q\n" の単独ストリーム）なら何もしない。

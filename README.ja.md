@@ -109,6 +109,10 @@ page.insert_image(page.search_for("承認印")[0], stream=hanko)  # 検索した
 page.show_pdf_page(page.rect, letterhead)  # 別 PDF のページをベクタのまま重ねる（透かし・レターヘッド）
 page.replace_text("DRAFT", "FINAL")        # テキスト置換（単純エンコーディングのフォントのみ）
 
+# ヘッダ / フッタ / ページ番号（標準 14 フォント、WinAnsi の範囲。日本語は typst レシピで）
+for i, p in enumerate(doc):
+    p.insert_text((p.rect.width - 90, p.rect.height - 30), f"Page {i + 1}", fontsize=9)
+
 # しおり（目次）。ページ番号はここだけ 1 始まり（pymupdf 互換）
 doc.set_toc([[1, "第 1 章", 1], [2, "1.1 節", 2]])
 print(doc.get_toc())
@@ -245,6 +249,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_pixmap(scale, dpi=, background=)` | `Pixmap`（ストレート RGBA8。`samples` / `width` / `height` / `stride` / `tobytes()`）へレンダリング |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | 画像の描き込み（JPEG は再圧縮なし、PNG は透過対応。rect は表示座標） |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | 別ドキュメントのページをベクタのまま重ねる（透かし・スタンプ・レターヘッド） |
+| `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | 標準 14 フォントでテキスト印字（WinAnsi の範囲。`\n` で複数行、回転ページでも正立） |
 | `replace_text(search, replacement, default_char=None)` | テキスト置換（単純エンコーディングのみ。置換数を返す。CJK 非対応） |
 | `render(scale, dpi=, background=)` / `render_svg()` | レンダリング |
 | `rotation` / `set_rotation(deg)` | 表示回転（90 の倍数。継承解決済み） |
