@@ -80,6 +80,14 @@ def test_delete_pages(three_page_pdf: bytes) -> None:
     assert "Page two" in doc.get_page_text(0)
 
 
+def test_empty_page_lists(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    doc.delete_pages([])
+    assert doc.page_count == 1
+    doc.select([])
+    assert doc.page_count == 0
+
+
 def test_delete_page_out_of_range(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     with pytest.raises(IndexError, match="範囲外"):
@@ -150,6 +158,15 @@ def test_context_manager_closes(one_page_pdf: bytes) -> None:
         _ = doc.page_count
 
 
+def test_empty_page_lists_reject_closed_document(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    doc.close()
+    with pytest.raises(ValueError, match="document closed"):
+        doc.delete_pages([])
+    with pytest.raises(ValueError, match="document closed"):
+        doc.select([])
+
+
 def test_closed_document_repr(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     assert repr(doc) == "<pylopdf.Document>"
@@ -201,10 +218,27 @@ def test_render_page_out_of_range(one_page_pdf: bytes) -> None:
         doc.render_page(1)
 
 
-def test_render_page_invalid_scale(one_page_pdf: bytes) -> None:
+@pytest.mark.parametrize("scale", [0.0, -1.0, float("nan"), float("inf")])
+def test_render_page_invalid_scale(one_page_pdf: bytes, scale: float) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="scale"):
-        doc.render_page(0, scale=0.0)
+        doc.render_page(0, scale=scale)
+
+
+def test_render_page_too_small_scale(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="scale"):
+        doc.render_page(0, scale=0.0001)
+
+
+@pytest.mark.parametrize(
+    ("page_size", "message"),
+    [((100_000, 100_000), "1辺65535"), ((9_000, 9_000), "64000000画素")],
+)
+def test_render_page_rejects_oversized_page(page_size: tuple[int, int], message: str) -> None:
+    doc = pylopdf.Document(stream=build_pdf(["x"], page_size=page_size))
+    with pytest.raises(ValueError, match=message):
+        doc.render_page(0)
 
 
 def test_render_page_svg(one_page_pdf: bytes) -> None:
@@ -222,3 +256,12 @@ def test_multi_document_merge() -> None:
     assert merged.page_count == 3
     reloaded = pylopdf.Document(stream=merged.tobytes())
     assert "Second" in reloaded.get_page_text(1)
+
+
+def test_inherited_page_parent_cycle_raises(one_page_pdf: bytes) -> None:
+    """ページの Parent が循環する破損 PDF でも処理が停止しない。"""
+    raw = one_page_pdf.replace(b"/Parent 2 0 R", b"/Parent 4 0 R")
+    doc = pylopdf.Document(stream=raw)
+    assert doc.page_count == 1
+    with pytest.raises(ValueError, match="reference cycle"):
+        doc.get_page_text(0)

@@ -69,25 +69,28 @@ class Document:
         if filename is not None and stream is not None:
             msg = "filename と stream は同時に指定できません"
             raise ValueError(msg)
-        # authenticate() での開き直しに使うため、開いた元を保持する
         path = None if filename is None else str(filename)
-        self._source_path = path
-        self._source_bytes = stream
         if stream is not None:
-            self._doc = (
-                _Document.load_bytes(stream)
-                if password is None
-                else _Document.load_bytes_with_password(stream, password)
-            )
+            doc = _Document.load_bytes(stream)
+            needs_pass = doc.is_encrypted()
+            if needs_pass and password is not None:
+                doc = _Document.load_bytes_with_password(stream, password)
         elif path is not None:
-            self._doc = _Document.load(path) if password is None else _Document.load_with_password(path, password)
+            doc = _Document.load(path)
+            needs_pass = doc.is_encrypted()
+            if needs_pass and password is not None:
+                doc = _Document.load_with_password(path, password)
         else:
-            self._doc = _Document()
+            doc = _Document()
+            needs_pass = False
+        self._doc = doc
         self._closed = False
         self._fallback_configured = False
-        # 「この PDF はパスワードを要するか」。password 指定で開けた場合も、
-        # 元が暗号化されていたなら True のままにする（pymupdf の needs_pass と同じ意味論）
-        self._needs_pass = self._doc.is_encrypted() or (password is not None and self._doc.was_encrypted())
+        # password なしでは復号できなかったかを保持する（認証後も True のまま）
+        self._needs_pass = needs_pass
+        # authenticate() で開き直す必要がある未復号ドキュメントだけ、開いた元を保持する
+        self._source_path = path if self._doc.is_encrypted() else None
+        self._source_bytes = stream if self._doc.is_encrypted() else None
 
     @property
     def needs_pass(self) -> bool:
@@ -122,6 +125,8 @@ class Document:
             self._doc = _Document.load_with_password(self._source_path, password)
         elif self._source_bytes is not None:
             self._doc = _Document.load_bytes_with_password(self._source_bytes, password)
+        self._source_path = None
+        self._source_bytes = None
         return code
 
     @property
@@ -166,6 +171,7 @@ class Document:
 
     def delete_pages(self, page_numbers: Iterable[int]) -> None:
         """複数ページ（0 始まり）をまとめて削除する。"""
+        self._ensure_open()
         self._doc.delete_pages([self._lopdf_page_number(pno) for pno in page_numbers])
 
     def select(self, page_numbers: Iterable[int]) -> None:
@@ -173,6 +179,7 @@ class Document:
 
         並べ替えにも使える。同一ページの重複指定（複製）は未対応。
         """
+        self._ensure_open()
         self._doc.select([self._lopdf_page_number(pno) for pno in page_numbers])
 
     def insert_pdf(self, other: Document) -> None:
@@ -216,15 +223,18 @@ class Document:
     def render_page(self, pno: int, scale: float = 1.0) -> bytes:
         """ページ pno（0 始まり）を PNG 画像にレンダリングする。
 
-        scale は拡大率（1.0 = 72dpi 相当）。
+        scale は有限の正の拡大率（1.0 = 72dpi 相当）。出力は1辺65,535ピクセル、
+        総64,000,000画素まで。
         """
+        page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        return self._doc.render_page_png(self._lopdf_page_number(pno), scale)
+        return self._doc.render_page_png(page_number, scale)
 
     def render_page_svg(self, pno: int) -> str:
         """ページ pno（0 始まり）を SVG 文字列にレンダリングする。"""
+        page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        return self._doc.render_page_svg(self._lopdf_page_number(pno))
+        return self._doc.render_page_svg(page_number)
 
     def save(self, filename: str | os.PathLike[str]) -> None:
         """ファイルへ保存する。"""

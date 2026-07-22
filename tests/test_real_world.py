@@ -97,6 +97,17 @@ def test_merge_self_and_roundtrip(case: Case) -> None:
 
 
 @ALL
+def test_merge_into_empty_and_roundtrip(case: Case) -> None:
+    """実世界 PDF を空文書へ挿入しても Catalog / Pages の ID が衝突しない。"""
+    source = pylopdf.open(ASSETS / case.name)
+    doc = pylopdf.Document()
+    doc.insert_pdf(source)
+    assert doc.page_count == case.pages
+    reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened.page_count == case.pages
+
+
+@ALL
 def test_delete_page_and_roundtrip(case: Case) -> None:
     if case.pages < 2:
         pytest.skip("1 ページ文書の全ページ削除は対象外")

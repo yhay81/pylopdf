@@ -65,6 +65,17 @@ def test_metadata_unicode_roundtrip(one_page_pdf: bytes) -> None:
     assert reloaded.get_metadata()["Title"] == "日本語のタイトル"
 
 
+def test_metadata_pdfdocencoding(one_page_pdf: bytes) -> None:
+    """BOM なしの PDF 文字列を PDFDocEncoding としてデコードする。"""
+    raw = one_page_pdf.replace(
+        b"trailer\n<< /Size 6 /Root 1 0 R >>",
+        b"trailer\n<< /Size 6 /Root 1 0 R /Info << /Title <80> >> >>",
+    )
+    doc = _Document.load_bytes(raw)
+    # PDFDocEncoding の 0x80 は bullet（U+2022）
+    assert doc.get_metadata()["Title"] == "•"
+
+
 def test_merge(one_page_pdf: bytes, three_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     other = _Document.load_bytes(three_page_pdf)
@@ -84,3 +95,12 @@ def test_merge_into_empty(three_page_pdf: bytes) -> None:
     assert doc.page_count() == 3
     reloaded = _Document.load_bytes(doc.save_bytes())
     assert reloaded.page_count() == 3
+
+
+def test_merge_empty_then_nonempty(three_page_pdf: bytes) -> None:
+    """空文書の挿入後も max_id とページツリーが壊れない。"""
+    doc = _Document()
+    doc.merge(_Document())
+    doc.merge(_Document.load_bytes(three_page_pdf))
+    assert doc.page_count() == 3
+    assert _Document.load_bytes(doc.save_bytes()).page_count() == 3

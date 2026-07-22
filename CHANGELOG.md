@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The content-stream comment bug behind the pdf20 empty-extraction xfail is now
   reported upstream as [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
 
+### Fixed
+- Prevented object-ID collisions when inserting real-world PDFs into an empty
+  document, including the empty-source edge case
+- Rejected cyclic inherited page parents instead of hanging indefinitely
+- Bounded PNG rendering to finite positive scales, 65,535 pixels per side, and
+  64 million total pixels to avoid unbounded allocations
+- Decoded metadata with the PDF-standard PDFDocEncoding mapping
+- Kept `needs_pass` false for PDFs whose empty user password requires no
+  authentication, regardless of the supplied `password` argument
+- Enforced closed/encrypted document checks for empty `delete_pages([])` and
+  `select([])` calls
+
 ## [0.5.0] - 2026-07-22
 
 ### Added

@@ -118,7 +118,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `metadata` | メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format） |
 | `set_metadata(dict)` | メタデータ設定（空文字列で項目削除） |
 | `get_page_text(pno)` | ページのテキスト抽出 |
-| `render_page(pno, scale=1.0)` | ページを PNG 画像（bytes）にレンダリング |
+| `render_page(pno, scale=1.0)` | ページを PNG 画像（bytes）にレンダリング（1辺65,535px・総64MPまで） |
 | `render_page_svg(pno)` | ページを SVG 文字列にレンダリング |
 | `set_fallback_font(font, kind="sans", index=0)` | 非埋め込み CJK 用の代替フォント（パス/bytes）を設定。`None` で自動検出も無効化 |
 | `select(page_numbers)` | 指定ページだけを指定順で残す（並べ替え可） |

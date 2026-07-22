@@ -79,13 +79,22 @@ def test_authenticate_from_stream(name: str) -> None:
     assert doc.page_count == 2
 
 
-def test_owner_only_opens_transparently() -> None:
-    """user password 空（権限制限のみ）の PDF はパスワード無しで開ける。"""
-    doc = pylopdf.open(ASSETS / "owneronly-aes-256.pdf")
+@pytest.mark.parametrize("password", [None, "", "ownerpw", "wrong"])
+def test_owner_only_opens_transparently(password: str | None) -> None:
+    """user password 空（権限制限のみ）の PDF は password 引数にかかわらず認証不要。"""
+    doc = pylopdf.open(ASSETS / "owneronly-aes-256.pdf", password=password)
     assert not doc.needs_pass
     assert not doc.is_encrypted
     assert doc.page_count == 2
     assert "Encrypted page one" in doc.get_page_text(0)
+
+
+def test_empty_page_lists_reject_unauthenticated_pdf() -> None:
+    doc = pylopdf.open(ASSETS / "user-aes-256.pdf")
+    with pytest.raises(ValueError, match="暗号化された PDF"):
+        doc.delete_pages([])
+    with pytest.raises(ValueError, match="暗号化された PDF"):
+        doc.select([])
 
 
 def test_decrypted_save_produces_plain_pdf() -> None:

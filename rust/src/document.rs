@@ -3,7 +3,7 @@
 //! 型変換とエラー変換のみを担う薄い層。使いやすい API は Python 側の
 //! `pylopdf.Document` が提供する。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use hayro::hayro_interpret::InterpreterSettings;
@@ -11,46 +11,22 @@ use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
 use hayro::hayro_syntax::Pdf;
 use hayro::{RenderCache, RenderSettings, render};
-use lopdf::{Dictionary, Document, LoadOptions, Object, ObjectId, StringFormat, dictionary};
+use lopdf::{
+    Dictionary, Document, LoadOptions, Object, ObjectId, decode_text_string, dictionary,
+    text_string,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// ページ辞書へ親ツリーから継承され得る属性キー。
 const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
+/// PNG レンダリングで許容する総画素数（RGBA bitmap 約 256 MB 相当）。
+const MAX_RENDER_PIXELS: u64 = 64_000_000;
+
 /// lopdf のエラーを Python の ValueError に変換する。
 fn to_py_err(e: lopdf::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
-}
-
-/// PDF テキスト文字列をデコードする。
-///
-/// UTF-16BE（BOM 付き）→ UTF-8 → Latin-1（PDFDocEncoding の近似）の順で解釈する。
-fn decode_pdf_string(bytes: &[u8]) -> String {
-    if let Some(body) = bytes.strip_prefix(&[0xFE, 0xFF]) {
-        let units: Vec<u16> = body
-            .chunks_exact(2)
-            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-            .collect();
-        String::from_utf16_lossy(&units)
-    } else if let Ok(s) = std::str::from_utf8(bytes) {
-        s.to_owned()
-    } else {
-        bytes.iter().map(|&b| b as char).collect()
-    }
-}
-
-/// テキストを PDF 文字列オブジェクトにエンコードする（ASCII 外は UTF-16BE）。
-fn encode_pdf_string(text: &str) -> Object {
-    if text.is_ascii() {
-        Object::string_literal(text)
-    } else {
-        let mut bytes = vec![0xFE, 0xFF];
-        for unit in text.encode_utf16() {
-            bytes.extend_from_slice(&unit.to_be_bytes());
-        }
-        Object::String(bytes, StringFormat::Hexadecimal)
-    }
 }
 
 /// ページ辞書に、親ツリーから継承される属性を焼き込んで返す。
@@ -64,7 +40,11 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
             continue;
         }
         let mut parent = dict.get(b"Parent").and_then(Object::as_reference).ok();
+        let mut visited = HashSet::from([page_id]);
         while let Some(parent_id) = parent {
+            if !visited.insert(parent_id) {
+                return Err(lopdf::Error::ReferenceCycle(parent_id));
+            }
             let parent_dict = doc.get_object(parent_id)?.as_dict()?;
             if let Ok(value) = parent_dict.get(key) {
                 dict.set(key, value.clone());
@@ -332,11 +312,8 @@ impl _Document {
                 },
                 other => other,
             };
-            if let Ok(bytes) = resolved.as_str() {
-                result.insert(
-                    String::from_utf8_lossy(key).into_owned(),
-                    decode_pdf_string(bytes),
-                );
+            if let Ok(text) = decode_text_string(resolved) {
+                result.insert(String::from_utf8_lossy(key).into_owned(), text);
             }
         }
         result
@@ -364,7 +341,7 @@ impl _Document {
         if value.is_empty() {
             info.remove(key.as_bytes());
         } else {
-            info.set(key, encode_pdf_string(value));
+            info.set(key, text_string(value));
         }
         Ok(())
     }
@@ -391,12 +368,18 @@ impl _Document {
 
     /// 別ドキュメントの全ページを末尾に取り込む。
     fn merge(&mut self, other: &Self) -> PyResult<()> {
+        // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
+        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+        let starting_id = self
+            .0
+            .max_id
+            .checked_add(1)
+            .ok_or_else(|| PyValueError::new_err("PDF オブジェクト ID が上限に達しています"))?;
         let mut other_doc = other.0.clone();
-        other_doc.renumber_objects_with(self.0.max_id + 1);
+        other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
 
         let other_page_ids: Vec<ObjectId> = other_doc.get_pages().into_values().collect();
-        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
 
         // 取り込み元のページツリーは捨てるため、継承属性を各ページへ焼き込む
         let mut resolved_pages = Vec::with_capacity(other_page_ids.len());
@@ -494,8 +477,10 @@ impl _Document {
 
     /// 指定ページ（1 始まり）を PNG 画像にレンダリングする。
     fn render_page_png(&mut self, page_number: u32, scale: f32) -> PyResult<Vec<u8>> {
-        if scale <= 0.0 {
-            return Err(PyValueError::new_err("scale は正の値で指定してください"));
+        if !scale.is_finite() || scale <= 0.0 {
+            return Err(PyValueError::new_err(
+                "scale は有限の正の値で指定してください",
+            ));
         }
         let pdf = self.build_hayro_pdf()?;
         let pages = pdf.pages();
@@ -503,6 +488,29 @@ impl _Document {
             .checked_sub(1)
             .and_then(|index| pages.get(index as usize))
             .ok_or_else(|| PyValueError::new_err(format!("ページ {page_number} は存在しません")))?;
+        let (page_width, page_height) = page.render_dimensions();
+        let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
+        let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
+        if !pixel_width.is_finite()
+            || !pixel_height.is_finite()
+            || pixel_width < 1.0
+            || pixel_height < 1.0
+        {
+            return Err(PyValueError::new_err(
+                "scale が小さすぎるか、PDF のページサイズが不正です",
+            ));
+        }
+        if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
+            return Err(PyValueError::new_err(format!(
+                "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
+            )));
+        }
+        let total_pixels = (pixel_width as u64) * (pixel_height as u64);
+        if total_pixels > MAX_RENDER_PIXELS {
+            return Err(PyValueError::new_err(format!(
+                "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
+            )));
+        }
         let interpreter_settings = self.interpreter_settings();
         let render_settings = RenderSettings {
             x_scale: scale,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 
-def build_pdf(page_texts: list[str]) -> bytes:
+def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:
     """1 テキスト = 1 ページの最小 PDF を組み立てる。
 
     MediaBox / Resources はあえて親の Pages 側に置き、
@@ -15,8 +15,10 @@ def build_pdf(page_texts: list[str]) -> bytes:
     objects: dict[int, str] = {}
     kids = " ".join(f"{4 + 2 * i} 0 R" for i in range(n))
     objects[1] = "<< /Type /Catalog /Pages 2 0 R >>"
+    width, height = page_size
     objects[2] = (
-        f"<< /Type /Pages /Kids [{kids}] /Count {n} /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> >>"
+        f"<< /Type /Pages /Kids [{kids}] /Count {n} /MediaBox [0 0 {width} {height}] "
+        "/Resources << /Font << /F1 3 0 R >> >> >>"
     )
     objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
     for i, text in enumerate(page_texts):

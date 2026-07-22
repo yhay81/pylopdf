@@ -117,7 +117,7 @@ doc.set_fallback_font(font_bytes, kind="serif")
 | `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
 | `get_page_text(pno)` | Extract text from a page |
-| `render_page(pno, scale=1.0)` | Render a page to PNG bytes |
+| `render_page(pno, scale=1.0)` | Render a page to PNG bytes (max 65,535 px per side / 64 MP total) |
 | `render_page_svg(pno)` | Render a page to an SVG string |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order |
