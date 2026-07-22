@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Page views: `doc[i]` (negative indices too), iteration, and `load_page` return
+  a `Page` with `number` / `parent`, `rotation` / `set_rotation`, `mediabox` /
+  `cropbox` / `rect` (inheritance-resolved; `rect` is rotation-aware),
+  `set_mediabox` / `set_cropbox`, `get_text`, `render`, and `render_svg`.
+  Structural changes invalidate previously obtained pages (`StalePageError`),
+  matching pymupdf's re-fetch semantics
+- Page operations: `insert_pdf(other, from_page=, to_page=, start_at=)` merges
+  ranges (negative / reversed) at an insertion position, `new_page(pno, width,
+  height)` inserts a blank page, `copy_page(pno, to=)` duplicates a page, and
+  repeating a page number in `select` now duplicates it instead of raising
+- Table of contents: `get_toc()` / `set_toc()` with pymupdf-compatible
+  `[[level, title, 1-based page], ...]` lists; non-ASCII titles are written as
+  UTF-16BE; an empty list removes the outline
+- Encrypted saving: `save` / `tobytes` accept `user_pw` / `owner_pw` /
+  `permissions` and write AES-256 (PDF 2.0, V5/R6) output while the in-memory
+  document stays unencrypted; `Permissions` IntFlag exported. The 256-bit file
+  key comes from `os.urandom`
+- Typed exceptions: `PdfError` (ValueError-compatible base), `PasswordError`
+  (wrong/missing password), `DocumentClosedError`, `EncryptedDocumentError`,
+  and `StalePageError`; existing `except ValueError` code keeps working
+- `peek_metadata()`: metadata / page-count / encryption probe that does not
+  parse the whole document (for scanning large collections), and
+  `max_decompressed_size=` on `Document` / `open` bounding per-stream
+  decompression (bomb protection)
 - `render_page(pno, scale=1.0, *, dpi=None, background=None)`: resolution-based
   sizing via `dpi` (alternative to `scale`; combining both raises) and an RGB(A)
   `background` fill color (rendering stays transparent by default)
