@@ -100,6 +100,13 @@ class Document:
         """複数ページ（0 始まり）をまとめて削除する。"""
         self._doc.delete_pages([self._lopdf_page_number(pno) for pno in page_numbers])
 
+    def select(self, page_numbers: Iterable[int]) -> None:
+        """指定した 0 始まりのページ番号だけを、指定順で残す。
+
+        並べ替えにも使える。同一ページの重複指定（複製）は未対応。
+        """
+        self._doc.select([self._lopdf_page_number(pno) for pno in page_numbers])
+
     def insert_pdf(self, other: Document) -> None:
         """別ドキュメントの全ページを末尾に取り込む。"""
         self._ensure_open()

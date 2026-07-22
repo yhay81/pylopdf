@@ -67,7 +67,10 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
                 dict.set(key, value.clone());
                 break;
             }
-            parent = parent_dict.get(b"Parent").and_then(Object::as_reference).ok();
+            parent = parent_dict
+                .get(b"Parent")
+                .and_then(Object::as_reference)
+                .ok();
         }
     }
     Ok(dict)
@@ -99,7 +102,8 @@ impl _Document {
     /// 現在の編集状態を hayro のドキュメントとして開き直す。
     fn build_hayro_pdf(&mut self) -> PyResult<Pdf> {
         let data = self.current_bytes()?;
-        Pdf::new(data).map_err(|e| PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
+        Pdf::new(data)
+            .map_err(|e| PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
     }
 
     /// ルート Pages ノードの ObjectId を返す。無ければ最小構造を作る（空ドキュメント対応）。
@@ -190,7 +194,10 @@ impl _Document {
                 other => other,
             };
             if let Ok(bytes) = resolved.as_str() {
-                result.insert(String::from_utf8_lossy(key).into_owned(), decode_pdf_string(bytes));
+                result.insert(
+                    String::from_utf8_lossy(key).into_owned(),
+                    decode_pdf_string(bytes),
+                );
             }
         }
         result
@@ -274,13 +281,17 @@ impl _Document {
         }
 
         // ルート Pages の Kids / Count を更新する
-        let added = i64::try_from(other_page_ids.len()).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let added = i64::try_from(other_page_ids.len())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let pages_dict = self
             .0
             .get_object_mut(pages_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
-        let old_count = pages_dict.get(b"Count").and_then(Object::as_i64).unwrap_or(0);
+        let old_count = pages_dict
+            .get(b"Count")
+            .and_then(Object::as_i64)
+            .unwrap_or(0);
         let mut kids = match pages_dict.get(b"Kids").and_then(Object::as_array) {
             Ok(kids) => kids.clone(),
             Err(_) => Vec::new(),
@@ -290,6 +301,55 @@ impl _Document {
         pages_dict.set("Count", old_count + added);
 
         self.0.max_id = new_max_id;
+        Ok(())
+    }
+
+    /// 指定ページ（1 始まり）だけを指定順で残す。並べ替えにも使える。
+    ///
+    /// PDF のページツリーでは Parent が一意である必要があるため、
+    /// 同一ページの重複指定（複製）は未対応。
+    fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
+        let mut seen = std::collections::HashSet::new();
+        for number in &page_numbers {
+            if !seen.insert(*number) {
+                return Err(PyValueError::new_err(format!(
+                    "ページ {number} が重複しています（複製は未対応）"
+                )));
+            }
+        }
+
+        let pages = self.0.get_pages();
+        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+
+        // 中間 Pages ノードは捨てて平坦化するため、継承属性を焼き込み Parent を付け替える
+        let mut selected = Vec::with_capacity(page_numbers.len());
+        for number in &page_numbers {
+            let page_id = *pages
+                .get(number)
+                .ok_or_else(|| PyValueError::new_err(format!("ページ {number} は存在しません")))?;
+            let mut dict = resolve_inherited_page_dict(&self.0, page_id).map_err(to_py_err)?;
+            dict.set("Parent", pages_id);
+            selected.push((page_id, dict));
+        }
+
+        let kids: Vec<Object> = selected
+            .iter()
+            .map(|(id, _)| Object::Reference(*id))
+            .collect();
+        let count = i64::try_from(kids.len()).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        for (id, dict) in selected {
+            self.0.objects.insert(id, Object::Dictionary(dict));
+        }
+        let pages_dict = self
+            .0
+            .get_object_mut(pages_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        pages_dict.set("Kids", kids);
+        pages_dict.set("Count", count);
+
+        // 参照されなくなったページ・中間ノードを掃除する
+        self.0.prune_objects();
         Ok(())
     }
 
@@ -328,7 +388,12 @@ impl _Document {
         let interpreter_settings = InterpreterSettings::default();
         let cache = hayro_svg::RenderCache::new();
         let settings = hayro_svg::SvgRenderSettings::default();
-        Ok(hayro_svg::convert(page, &cache, &interpreter_settings, &settings))
+        Ok(hayro_svg::convert(
+            page,
+            &cache,
+            &interpreter_settings,
+            &settings,
+        ))
     }
 
     /// ストリームを圧縮する。

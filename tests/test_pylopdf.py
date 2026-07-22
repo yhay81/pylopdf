@@ -106,6 +106,30 @@ def test_split_workflow(three_page_pdf: bytes) -> None:
     assert "Page three" in part.get_page_text(0)
 
 
+def test_select_reorder(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    doc.select([2, 0])
+    assert doc.page_count == 2
+    assert "Page three" in doc.get_page_text(0)
+    assert "Page one" in doc.get_page_text(1)
+    # 保存 → 再読込しても構造が壊れていないこと
+    reloaded = pylopdf.Document(stream=doc.tobytes())
+    assert reloaded.page_count == 2
+    assert "Page three" in reloaded.get_page_text(0)
+
+
+def test_select_duplicate_raises(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(ValueError, match="重複"):
+        doc.select([0, 0])
+
+
+def test_select_out_of_range(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(IndexError):
+        doc.select([0, 3])
+
+
 def test_insert_self_raises(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="自分自身"):
