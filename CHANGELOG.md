@@ -25,9 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rendering now caches the parsed hayro document and invalidates it on edits,
   instead of re-serializing and re-parsing the whole document on every page
-  render; rendering many pages of a large document is drastically faster
+  render (hayro parses lazily, so the win is small for typical files and grows
+  with document size; the cached view is also the groundwork for the planned
+  hayro-based text extraction)
 - Heavy operations (load, save, render, text extraction, merge, compression)
-  release the GIL so other Python threads keep running
+  release the GIL; concurrent rendering on two threads now scales near-linearly
+  (measured 1.9x) where it previously serialized
 - The content-stream comment bug behind the pdf20 empty-extraction xfail is now
   reported upstream as [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
 
