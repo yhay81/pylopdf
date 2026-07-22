@@ -80,6 +80,26 @@ class _Document:
         self, page_number: int, scale: float, background: tuple[int, int, int, int] | None
     ) -> Pixmap: ...
     def take_warnings(self) -> list[str]: ...
+    def insert_image(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        data: bytes,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> None: ...
+    def show_pdf_page(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        other: _Document,
+        src_page_number: int,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> None: ...
+    def replace_text_on_page(
+        self, page_number: int, search: str, replacement: str, default_char: str | None
+    ) -> int: ...
     def merge(self, other: _Document) -> None: ...
     def merge_pages(self, other: _Document, page_numbers: list[int], position: int | None) -> None: ...
     def new_page(self, position: int | None, width: float, height: float) -> None: ...

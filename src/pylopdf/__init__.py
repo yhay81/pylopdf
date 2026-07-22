@@ -140,6 +140,32 @@ def _normalize_background(
     return rgba
 
 
+def _validate_rect(rect: Sequence[float]) -> tuple[float, float, float, float]:
+    """(x0, y0, x1, y1) の矩形引数を検証して float タプルにする。"""
+    try:
+        x0, y0, x1, y1 = (float(v) for v in rect)
+    except (TypeError, ValueError) as exc:
+        msg = f"rect は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
+        raise ValueError(msg) from exc
+    if not all(map(math.isfinite, (x0, y0, x1, y1))) or x0 >= x1 or y0 >= y1:
+        msg = f"rect は x0 < x1, y0 < y1 の有限な矩形で指定してください: {rect!r}"
+        raise ValueError(msg)
+    return x0, y0, x1, y1
+
+
+def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | None) -> bytes:
+    """filename / stream のどちらか一方から画像バイト列を得る。"""
+    if filename is not None:
+        if stream is not None:
+            msg = "filename と stream は同時に指定できません"
+            raise ValueError(msg)
+        return Path(filename).read_bytes()
+    if stream is None:
+        msg = "filename か stream のどちらかを指定してください"
+        raise ValueError(msg)
+    return bytes(stream)
+
+
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
 _METADATA_KEYS: dict[str, str] = {
     "title": "Title",
@@ -280,6 +306,70 @@ class Page:
             {"width": width, "height": height, "bbox": Rect(*bbox), "ext": ext, "image": data}
             for width, height, bbox, ext, data in raw
         ]
+
+    def insert_image(
+        self,
+        rect: Sequence[float],
+        *,
+        filename: str | os.PathLike[str] | None = None,
+        stream: bytes | None = None,
+        keep_proportion: bool = True,
+        overlay: bool = True,
+    ) -> None:
+        """rect（表示座標、左上原点）へ画像を描き込む。
+
+        JPEG は再圧縮せずそのまま埋め込み（DCTDecode パススルー）、PNG は展開して
+        埋め込む（透過はソフトマスクとして保持）。他形式は Pillow 等で JPEG / PNG に
+        変換してから渡すこと。rect は :meth:`search_for` / :meth:`get_text` と同じ
+        表示座標系なので、検索結果の位置へそのまま描ける。keep_proportion なら
+        縦横比を保って rect 内へ中央合わせで収める。overlay=False で既存コンテンツの
+        下に描く。既存のページコンテンツには一切手を入れない（追記のみ）。
+        """
+        data = _read_image_source(filename, stream)
+        x0, y0, x1, y1 = _validate_rect(rect)
+        self._document._doc.insert_image(self._page_number(), (x0, y0, x1, y1), data, keep_proportion, overlay)
+
+    def show_pdf_page(
+        self,
+        rect: Sequence[float],
+        src: Document,
+        pno: int = 0,
+        *,
+        keep_proportion: bool = True,
+        overlay: bool = True,
+    ) -> None:
+        """別ドキュメント src のページ pno（0 始まり、負数可）をベクタのまま rect へ重ねる。
+
+        透かし・スタンプ・レターヘッドの焼き込みに使う（pymupdf の show_pdf_page 相当）。
+        取り込み元ページは Form XObject として埋め込まれるため、テキストやベクタは
+        劣化せず、フォント埋め込みも保たれる。typst 等で組んだ 1 ページ PDF を
+        全ページへ重ねれば、日本語の透かしやヘッダ / フッタも描ける
+        （README のエコシステム連携を参照）。src の回転・CropBox は表示上の見た目で
+        rect へ収まるよう解決される。src が self と同じドキュメントの場合は未対応
+        （``pylopdf.open(stream=doc.tobytes())`` で複製してから渡すこと）。
+        """
+        if src is self._document:
+            msg = "同一ドキュメントのページは重ねられません（open(stream=doc.tobytes()) で複製してから渡してください）"
+            raise ValueError(msg)
+        x0, y0, x1, y1 = _validate_rect(rect)
+        src_number = src[pno]._page_number()
+        self._document._doc.show_pdf_page(
+            self._page_number(), (x0, y0, x1, y1), src._doc, src_number, keep_proportion, overlay
+        )
+
+    def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:
+        """ページ内のテキストを置換し、置換した箇所数を返す。
+
+        lopdf の部分置換（replace_partial_text）の薄い公開で、制約が多い:
+        単純エンコーディング（WinAnsi 等）のフォントだけが対象で、CID フォント
+        （日本語等の CJK）には効かない。置換後の文字がフォントに無い場合は
+        default_char（既定 "?"）へ落ちる。文字幅は再計算しないため、長さの違う
+        置換ではレイアウトがずれることがある。
+        """
+        if not search:
+            msg = "search は 1 文字以上で指定してください"
+            raise ValueError(msg)
+        return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
 
     def get_pixmap(
         self,

@@ -51,6 +51,33 @@ def test_typst_pdfa_output_opens() -> None:
         assert "Hello pylopdf" in doc.get_page_text(0)
 
 
+def test_typst_japanese_watermark_via_show_pdf_page() -> None:
+    """README レシピ: typst + fonts-cjk で日本語透かしを組み、show_pdf_page で全ページへ焼く。
+
+    typst がフォントをサブセット埋め込みするため、透かしの日本語は
+    pylopdf[cjk] の代替フォント無しでも抽出・レンダリングできる。
+    """
+    fonts = pytest.importorskip("pylopdf_fonts_cjk", reason="cjk extra が未インストール")
+    stamp_typ = """
+#set page(width: 595pt, height: 842pt, fill: none)
+#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#align(center + horizon)[社外秘]
+"""
+    stamp_pdf = typst.compile(stamp_typ.encode(), font_paths=[str(fonts.sans_path().parent)])
+    stamp = pylopdf.open(stream=stamp_pdf)
+
+    doc = pylopdf.Document()
+    doc.new_page()  # A4 相当
+    page = doc[0]
+    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+
+    # ベクタのまま焼かれているので、透かしの日本語がそのまま抽出できる
+    assert "社外秘" in page.get_text()
+    # ページ背景は fill: none で透明のまま（白背景レンダリングで四隅が白）
+    pix = page.get_pixmap(background=(255, 255, 255))
+    assert tuple(pix.samples[0:3]) == (255, 255, 255)
+
+
 def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
     """テスト専用の自己署名証明書と秘密鍵を PEM で書き出す（cryptography は pyhanko の依存）。"""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

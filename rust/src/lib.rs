@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 mod document;
+mod draw;
 mod extract;
 mod pixmap;
 use document::{_Document, PasswordError, PdfError};

@@ -16,10 +16,12 @@ use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
     Bookmark, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
-    decode_text_string, dictionary, text_string,
+    Stream, decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+
+use crate::draw;
 
 // Python 側へ公開する例外。PdfError は ValueError のサブクラスなので後方互換。
 pyo3::create_exception!(
@@ -124,6 +126,41 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
         }
     }
     Ok(dict)
+}
+
+/// 辞書のボックス配列（間接参照許容）を正規化済みの [x0, y0, x1, y1] で読む。
+fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]> {
+    let obj = dict.get(key).ok()?;
+    let obj = match obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?,
+        other => other,
+    };
+    let arr = obj.as_array().ok()?;
+    if arr.len() != 4 {
+        return None;
+    }
+    let mut v = [0f64; 4];
+    for (slot, item) in v.iter_mut().zip(arr) {
+        let resolved = match item {
+            Object::Reference(id) => doc.get_object(*id).ok()?,
+            other => other,
+        };
+        *slot = f64::from(resolved.as_float().ok()?);
+    }
+    Some([
+        v[0].min(v[2]),
+        v[1].min(v[3]),
+        v[0].max(v[2]),
+        v[1].max(v[3]),
+    ])
+}
+
+/// 間接参照を許容して整数値を読む。
+fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
+    match obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_i64().ok(),
+        other => other.as_i64().ok(),
+    }
 }
 
 /// レンダリング時に非埋め込み CJK フォントへ充てる代替フォント。
@@ -258,6 +295,27 @@ impl _Document {
             current = dict.get(b"Parent").and_then(Object::as_reference).ok();
         }
         Ok(None)
+    }
+
+    /// ページの表示ジオメトリ（CropBox → MediaBox → A4 の順で決まる矩形と、正規化済み回転）。
+    fn page_display_geometry(&self, page_number: u32) -> PyResult<([f64; 4], i64)> {
+        let rotation = self.get_page_rotation(page_number)?;
+        let boxed = self
+            .get_page_box(page_number, "CropBox")?
+            .or(self.get_page_box(page_number, "MediaBox")?)
+            .unwrap_or((0.0, 0.0, 595.0, 842.0));
+        let (x0, y0, x1, y1) = boxed;
+        Ok(([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)], rotation))
+    }
+
+    /// ページ辞書へ継承属性を焼き込む。
+    ///
+    /// lopdf の add_xobject はページ自身に /Resources が無いと空辞書を新設して
+    /// 親ツリーの継承 Resources を影で潰すため、描き込み系の前処理として必須。
+    fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
+        let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+        self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        Ok(())
     }
 
     /// 現在の編集状態の hayro ドキュメントを返す（未構築ならシリアライズ + パースして保持）。
@@ -1267,5 +1325,176 @@ impl _Document {
     fn prune_objects(&mut self) {
         self.invalidate_hayro_pdf();
         self.doc.prune_objects();
+    }
+
+    /// 指定ページ（1 始まり）の表示座標 rect へ画像（JPEG / PNG のバイト列）を描き込む。
+    ///
+    /// rect は左上原点の表示空間（page.rect と同じ系。回転ページも表示上の位置で指定する）。
+    /// 既存コンテンツには触れず、新しいコンテンツストリームの追加だけで描く。
+    fn insert_image(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        data: Vec<u8>,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        py.detach(|| {
+            let parts = draw::parse_image(&data).map_err(PdfError::new_err)?.ok_or_else(|| {
+                PdfError::new_err(
+                    "対応していない画像形式です（JPEG か PNG を渡してください。他形式は Pillow 等で変換できます）",
+                )
+            })?;
+            let content = draw::PlacedContent::Image {
+                width: parts.width,
+                height: parts.height,
+            };
+            let matrix = draw::placement_matrix(
+                crop,
+                rotation,
+                [rect.0, rect.1, rect.2, rect.3],
+                &content,
+                keep_proportion,
+            );
+            let xobj_id = draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
+            self.bake_page_attrs(page_id)?;
+            let name = format!("PyloIm{}", xobj_id.0);
+            self.doc
+                .add_xobject(page_id, name.as_bytes(), xobj_id)
+                .map_err(to_py_err)?;
+            draw::push_content(&mut self.doc, page_id, draw::draw_ops(matrix, &name), overlay).map_err(to_py_err)
+        })
+    }
+
+    /// other の指定ページ（1 始まり）を Form XObject として取り込み、表示座標 rect へ重ねる。
+    ///
+    /// merge と同じ流儀で取り込み元のオブジェクトを番号替えして持ち込み、
+    /// ページコンテンツは Form XObject に包んで「ベクタのまま」配置する。
+    // Python 側シグネチャをそのまま写す境界メソッドのため引数数は許容する
+    #[allow(clippy::too_many_arguments)]
+    fn show_pdf_page(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        other: &Self,
+        src_page_number: u32,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        py.detach(|| {
+            let starting_id = self
+                .doc
+                .max_id
+                .checked_add(1)
+                .ok_or_else(|| PdfError::new_err("PDF オブジェクト ID が上限に達しています"))?;
+            let mut other_doc = other.doc.clone();
+            other_doc.renumber_objects_with(starting_id);
+            let src_id = *other_doc.get_pages().get(&src_page_number).ok_or_else(|| {
+                PdfError::new_err(format!(
+                    "取り込み元のページ {src_page_number} は存在しません"
+                ))
+            })?;
+            let src_dict = resolve_inherited_page_dict(&other_doc, src_id).map_err(to_py_err)?;
+
+            // 取り込み元ページの表示ジオメトリ（CropBox → MediaBox → A4、回転は 0..360）
+            let src_crop = resolve_box(&other_doc, &src_dict, b"CropBox")
+                .or_else(|| resolve_box(&other_doc, &src_dict, b"MediaBox"))
+                .unwrap_or([0.0, 0.0, 595.0, 842.0]);
+            let src_rotation = src_dict
+                .get(b"Rotate")
+                .ok()
+                .and_then(|o| resolve_i64(&other_doc, o))
+                .unwrap_or(0)
+                .rem_euclid(360);
+
+            // 元コンテンツの q/Q 不均衡から自衛しつつ Form にまとめる（中身は再エンコードしない）
+            let mut form_content = b"q\n".to_vec();
+            form_content.extend_from_slice(&other_doc.get_page_content(src_id));
+            form_content.extend_from_slice(b"\nQ\n");
+
+            let mut form_dict = dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "FormType" => 1,
+                "BBox" => Object::Array(src_crop.iter().map(|&v| Object::Real(v as f32)).collect()),
+            };
+            if let Ok(res) = src_dict.get(b"Resources") {
+                form_dict.set("Resources", res.clone());
+            }
+            if let Ok(group) = src_dict.get(b"Group") {
+                form_dict.set("Group", group.clone());
+            }
+
+            // ページツリー以外のオブジェクト（Resources が参照する資産）を取り込む
+            let new_max_id = other_doc.max_id;
+            for (id, object) in other_doc.objects {
+                match object.type_name().unwrap_or(b"") {
+                    b"Catalog" | b"Pages" | b"Page" => {}
+                    _ => {
+                        self.doc.objects.insert(id, object);
+                    }
+                }
+            }
+            self.doc.max_id = new_max_id;
+
+            let form_id = self
+                .doc
+                .add_object(Stream::new(form_dict, form_content).with_compression(false));
+            let content = draw::PlacedContent::Form {
+                crop: src_crop,
+                rotation: src_rotation,
+            };
+            let matrix = draw::placement_matrix(
+                crop,
+                rotation,
+                [rect.0, rect.1, rect.2, rect.3],
+                &content,
+                keep_proportion,
+            );
+            self.bake_page_attrs(page_id)?;
+            let name = format!("PyloFm{}", form_id.0);
+            self.doc
+                .add_xobject(page_id, name.as_bytes(), form_id)
+                .map_err(to_py_err)?;
+            draw::push_content(
+                &mut self.doc,
+                page_id,
+                draw::draw_ops(matrix, &name),
+                overlay,
+            )
+            .map_err(to_py_err)
+        })
+    }
+
+    /// 指定ページ（1 始まり）のテキストを置換し、置換回数を返す。
+    ///
+    /// lopdf の replace_partial_text をそのまま公開する薄い層。単純エンコーディングの
+    /// フォントだけが対象で、コンテンツは lopdf の content パーサを往復する
+    /// （制約の説明は Python 側 docstring が担う）。
+    fn replace_text_on_page(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        search: &str,
+        replacement: &str,
+        default_char: Option<String>,
+    ) -> PyResult<usize> {
+        self.invalidate_hayro_pdf();
+        let page_id = self.page_id(page_number)?;
+        py.detach(|| {
+            // lopdf の get_page_fonts はページ属性の継承を解決しないため、先に焼き込む
+            self.bake_page_attrs(page_id)?;
+            self.doc
+                .replace_partial_text(page_number, search, replacement, default_char.as_deref())
+                .map_err(|e| lopdf_err(Some("テキスト置換に失敗しました"), &e))
+        })
     }
 }

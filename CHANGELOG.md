@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.insert_image(rect, filename=/stream=, keep_proportion=, overlay=)`:
+  draw a JPEG (embedded as-is, no recompression) or PNG (decoded, alpha kept as
+  a soft mask) into a display-space rect — the same top-left coordinate system
+  as `search_for` / `get_text`, so search hits can be stamped directly. Existing
+  page content is never re-encoded: drawing only appends new content streams
+  (the existing stream list is wrapped once in `q`/`Q` to isolate its graphics
+  state). Rotated pages take display coordinates too
+- `Page.show_pdf_page(rect, src, pno=0, keep_proportion=, overlay=)`: overlay a
+  page from another document as a Form XObject — text and vectors stay intact
+  (extractable afterwards), fonts stay embedded. Source rotation and CropBox are
+  resolved so the page lands in the rect exactly as displayed. This is the
+  universal adapter for the ecosystem recipes: a one-page stamp typeset with
+  typst (e.g. a Japanese watermark using the pylopdf-fonts-cjk fonts via
+  `font_paths`) burns onto every page as vectors, covered by an integration test
+- `Page.replace_text(search, replacement, default_char=None)`: thin wrapper over
+  lopdf's `replace_partial_text` returning the replacement count. Simple-encoded
+  fonts only (no CID/CJK); page attributes are baked first so inherited
+  Resources work
 - Ecosystem interop recipes, documented in both READMEs and guarded by
   integration tests (`tests/test_interop.py`, optional `interop` dependency
   group installed in CI): typesetting and PDF/A output for new documents via

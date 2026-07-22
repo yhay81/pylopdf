@@ -103,6 +103,12 @@ page.set_mediabox((0, 0, 300, 400))  # ページボックス変更
 doc.new_page()          # 末尾に空ページ（既定 A4）
 doc.copy_page(0, to=1)  # 0 ページ目の複製を 1 ページ目の位置へ
 
+# 描き込み（座標は search_for / get_text と同じ左上原点の表示座標）
+page.insert_image((72, 72, 200, 200), filename="logo.png")     # JPEG はそのまま、PNG は透過対応
+page.insert_image(page.search_for("承認印")[0], stream=hanko)  # 検索した位置へ押印
+page.show_pdf_page(page.rect, letterhead)  # 別 PDF のページをベクタのまま重ねる（透かし・レターヘッド）
+page.replace_text("DRAFT", "FINAL")        # テキスト置換（単純エンコーディングのフォントのみ）
+
 # しおり（目次）。ページ番号はここだけ 1 始まり（pymupdf 互換）
 doc.set_toc([[1, "第 1 章", 1], [2, "1.1 節", 2]])
 print(doc.get_toc())
@@ -166,6 +172,23 @@ PDF/A-1b〜4 / PDF/UA-1 対応）:
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 ```
 
+**日本語の透かし・ヘッダ / フッタ** も typst との合わせ技で描けます。typst で
+1 ページの透かしを組み（フォントはサブセット埋め込みされる）、`show_pdf_page` で
+全ページへベクタのまま焼き込みます:
+
+```python
+from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]（Noto フォントを再利用）
+
+stamp_typ = """
+#set page(width: 595pt, height: 842pt, fill: none)
+#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#align(center + horizon)[社外秘]
+"""
+stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
+for page in doc:
+    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+```
+
 既存 PDF の PDF/A 変換・検証は別問題で、検証は [veraPDF](https://verapdf.org/)（Java）が
 事実上の標準です。
 
@@ -220,6 +243,9 @@ signed_pdf: bytes = out.getvalue()
 | `search_for(needle)` | ページ内検索（大文字小文字を区別しない）。`list[Rect]` |
 | `get_images()` | ページ上の画像を抽出（JPEG は元バイト列をパススルー、他は PNG 化） |
 | `get_pixmap(scale, dpi=, background=)` | `Pixmap`（ストレート RGBA8。`samples` / `width` / `height` / `stride` / `tobytes()`）へレンダリング |
+| `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | 画像の描き込み（JPEG は再圧縮なし、PNG は透過対応。rect は表示座標） |
+| `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | 別ドキュメントのページをベクタのまま重ねる（透かし・スタンプ・レターヘッド） |
+| `replace_text(search, replacement, default_char=None)` | テキスト置換（単純エンコーディングのみ。置換数を返す。CJK 非対応） |
 | `render(scale, dpi=, background=)` / `render_svg()` | レンダリング |
 | `rotation` / `set_rotation(deg)` | 表示回転（90 の倍数。継承解決済み） |
 | `mediabox` / `cropbox` / `rect` | ページボックス（`Rect`）。rect は回転を反映した表示矩形 |

@@ -102,6 +102,12 @@ page.set_mediabox((0, 0, 300, 400))  # page boxes
 doc.new_page()          # blank A4 appended
 doc.copy_page(0, to=1)  # duplicate page 0 in front of page 1
 
+# Drawing (coordinates are the same top-left display space as search_for / get_text)
+page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough, PNG with alpha
+page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at a search hit
+page.show_pdf_page(page.rect, letterhead)  # overlay another PDF page as vectors (watermark / letterhead)
+page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
+
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
 print(doc.get_toc())
@@ -166,6 +172,23 @@ PDF/A-1b through 4 and PDF/UA-1):
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 ```
 
+**CJK watermarks / headers / footers** combine typst with pylopdf: typeset a
+one-page stamp with typst (fonts get subset-embedded), then burn it onto every
+page as vectors with `show_pdf_page`:
+
+```python
+from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk] (reuses the Noto fonts)
+
+stamp_typ = """
+#set page(width: 595pt, height: 842pt, fill: none)
+#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#align(center + horizon)[社外秘]
+"""
+stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
+for page in doc:
+    page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
+```
+
 Converting or validating *existing* PDFs against PDF/A is a different problem;
 [veraPDF](https://verapdf.org/) (Java) is the de-facto validator.
 
@@ -221,6 +244,9 @@ signed_pdf: bytes = out.getvalue()
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
+| `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
+| `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
+| `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |
