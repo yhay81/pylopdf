@@ -19,7 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
+      # job レベルの permissions はトップレベルを置き換えるため contents: read も明記する
+      # （無いと actions/checkout が "Repository not found" で失敗する）
       id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
