@@ -586,7 +586,7 @@ class Document:
         self._ensure_fallback_fonts()
         return self._doc.render_page_svg(page_number)
 
-    def save(
+    def save(  # noqa: PLR0913  # 保存オプションはすべてキーワード専用（pymupdf 互換の形）
         self,
         filename: str | os.PathLike[str],
         *,
@@ -622,7 +622,7 @@ class Document:
         else:
             self._doc.save(str(filename))
 
-    def tobytes(
+    def tobytes(  # noqa: PLR0913  # 保存オプションはすべてキーワード専用（pymupdf 互換の形）
         self,
         *,
         garbage: bool = False,

@@ -77,6 +77,8 @@ def test_real_world_toc_readable() -> None:
     for name in ["usrguide.pdf", "bill-hr815.pdf", "f1040.pdf"]:
         doc = pylopdf.open(REAL_WORLD / name)
         for level, title, page in doc.get_toc():
-            assert level >= 1
+            assert isinstance(level, int)
             assert isinstance(title, str)
+            assert isinstance(page, int)
+            assert level >= 1
             assert 1 <= page <= doc.page_count
