@@ -44,8 +44,8 @@ Python PDF エコシステム）に基づく中期計画の正本。
 - [x] `save` / `tobytes` の `garbage=` / `deflate=` / `object_streams=`
       （lopdf SaveOptions。圧縮済みの bill-hr815.pdf でも実測 13% 削減）
 - [x] リポジトリ public 化（2026-07-22。説明文とトピックも設定済み）
-- [ ] 発見可能性の続き: README 比較表への暗号化/CJK 行追加、
-      py-pdf/benchmarks への参加検討、Zenn/Qiita 等での発信
+- [x] README 比較表への暗号化/CJK 行追加（2026-07-23）
+- [ ] 発見可能性の続き: py-pdf/benchmarks への参加検討、Zenn/Qiita 等での発信
 
 ### v0.6 — ページ操作と保存の完成（実装完了 2026-07-23、リリース準備中）
 

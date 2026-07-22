@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-23
+
 ### Added
 - Page views: `doc[i]` (negative indices too), iteration, and `load_page` return
   a `Page` with `number` / `parent`, `rotation` / `set_rotation`, `mediabox` /
