@@ -110,6 +110,19 @@ def test_select_first_page_and_roundtrip(case: Case) -> None:
 
 
 @ALL
+def test_insert_subset_with_position_roundtrip(case: Case) -> None:
+    """先頭 1 ページだけを先頭位置へ挿入し、prune 後も内容が壊れないこと。"""
+    doc = pylopdf.open(ASSETS / case.name)
+    src = pylopdf.open(ASSETS / case.name)
+    doc.insert_pdf(src, from_page=0, to_page=0, start_at=0)
+    assert doc.page_count == case.pages + 1
+    reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened.page_count == case.pages + 1
+    # 挿入ページが参照する資産（フォント・画像）が prune で失われていないこと
+    assert reopened.render_page(0).startswith(b"\x89PNG")
+
+
+@ALL
 def test_merge_self_and_roundtrip(case: Case) -> None:
     raw = (ASSETS / case.name).read_bytes()
     doc = pylopdf.open(stream=raw)

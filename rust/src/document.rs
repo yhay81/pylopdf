@@ -312,10 +312,16 @@ impl _Document {
         Ok(pages_id)
     }
 
-    /// merge の本体（GIL 解放中に実行される）。
-    fn merge_impl(&mut self, other: &Self) -> PyResult<()> {
-        // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
-        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+    /// other の指定ページ（1 始まり・指定順）を self のオブジェクト空間へ取り込み、
+    /// 取り込んだページの ObjectId 列を返す（root Kids への接続は呼び出し側が行う）。
+    ///
+    /// ページ辞書には継承属性を焼き込み、Parent を root Pages に付け替える。
+    fn transplant_pages(
+        &mut self,
+        other: &Self,
+        page_numbers: &[u32],
+        pages_id: ObjectId,
+    ) -> PyResult<Vec<ObjectId>> {
         let starting_id = self
             .doc
             .max_id
@@ -325,11 +331,18 @@ impl _Document {
         other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
 
-        let other_page_ids: Vec<ObjectId> = other_doc.get_pages().into_values().collect();
+        let other_pages = other_doc.get_pages();
+        let mut ordered_ids = Vec::with_capacity(page_numbers.len());
+        for number in page_numbers {
+            let id = *other_pages
+                .get(number)
+                .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
+            ordered_ids.push(id);
+        }
 
         // 取り込み元のページツリーは捨てるため、継承属性を各ページへ焼き込む
-        let mut resolved_pages = Vec::with_capacity(other_page_ids.len());
-        for &page_id in &other_page_ids {
+        let mut resolved_pages = Vec::with_capacity(ordered_ids.len());
+        for &page_id in &ordered_ids {
             let mut dict = resolve_inherited_page_dict(&other_doc, page_id).map_err(to_py_err)?;
             dict.set("Parent", pages_id);
             resolved_pages.push((page_id, dict));
@@ -348,9 +361,13 @@ impl _Document {
             self.doc.objects.insert(id, Object::Dictionary(dict));
         }
 
-        // ルート Pages の Kids / Count を更新する
-        let added =
-            i64::try_from(other_page_ids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+        self.doc.max_id = new_max_id;
+        Ok(ordered_ids)
+    }
+
+    /// root Pages の Kids/Count に new_ids を追記する（末尾追加の高速パス。平坦化しない）。
+    fn append_pages(&mut self, pages_id: ObjectId, new_ids: Vec<ObjectId>) -> PyResult<()> {
+        let added = i64::try_from(new_ids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
         let pages_dict = self
             .doc
             .get_object_mut(pages_id)
@@ -364,11 +381,41 @@ impl _Document {
             Ok(kids) => kids.clone(),
             Err(_) => Vec::new(),
         };
-        kids.extend(other_page_ids.into_iter().map(Object::Reference));
+        kids.extend(new_ids.into_iter().map(Object::Reference));
         pages_dict.set("Kids", kids);
         pages_dict.set("Count", old_count + added);
+        Ok(())
+    }
 
-        self.doc.max_id = new_max_id;
+    /// 現在のページ列に new_ids を position（0 始まり、None で末尾）で挿入した並びを返す。
+    ///
+    /// new_ids はまだ root Kids から到達できないこと（get_pages に含まれないこと）が前提。
+    fn spliced_page_order(&self, new_ids: Vec<ObjectId>, position: Option<usize>) -> Vec<ObjectId> {
+        let mut order: Vec<ObjectId> = self.doc.get_pages().into_values().collect();
+        let pos = position.unwrap_or(order.len()).min(order.len());
+        order.splice(pos..pos, new_ids);
+        order
+    }
+
+    /// root Pages の Kids/Count を指定の並びで置き換える（ページツリーの平坦化）。
+    ///
+    /// 各ページには継承属性を焼き込み、Parent を root に付け替える。
+    /// 旧中間ノードの掃除（prune_objects）は呼び出し側で行う。
+    fn rebuild_page_tree(&mut self, pages_id: ObjectId, ordered: Vec<ObjectId>) -> PyResult<()> {
+        for &page_id in &ordered {
+            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            dict.set("Parent", pages_id);
+            self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        }
+        let kids: Vec<Object> = ordered.iter().map(|&id| Object::Reference(id)).collect();
+        let count = i64::try_from(kids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+        let pages_dict = self
+            .doc
+            .get_object_mut(pages_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        pages_dict.set("Kids", kids);
+        pages_dict.set("Count", count);
         Ok(())
     }
 }
@@ -647,8 +694,89 @@ impl _Document {
 
     /// 別ドキュメントの全ページを末尾に取り込む。
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
+        let count = u32::try_from(other.doc.get_pages().len())
+            .map_err(|e| PdfError::new_err(e.to_string()))?;
+        let all: Vec<u32> = (1..=count).collect();
+        self.merge_pages(py, other, all, None)
+    }
+
+    /// 別ドキュメントの指定ページ（1 始まり・指定順）を取り込む。
+    ///
+    /// position は既存ページ列への挿入位置（0 始まり）。None なら末尾に追加する。
+    /// 挿入時はページツリーを root 直下へ平坦化する。
+    fn merge_pages(
+        &mut self,
+        py: Python<'_>,
+        other: &Self,
+        page_numbers: Vec<u32>,
+        position: Option<usize>,
+    ) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        py.detach(|| self.merge_impl(other))
+        py.detach(|| {
+            // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
+            let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+            let subset = page_numbers.len() < other.doc.get_pages().len();
+            let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
+            match position {
+                None => self.append_pages(pages_id, new_ids)?,
+                Some(_) => {
+                    let order = self.spliced_page_order(new_ids, position);
+                    self.rebuild_page_tree(pages_id, order)?;
+                }
+            }
+            if subset || position.is_some() {
+                // 対象外ページの資産や旧中間ノードを掃除する
+                self.doc.prune_objects();
+            }
+            Ok(())
+        })
+    }
+
+    /// 空ページを position（0 始まり、None で末尾）に挿入する。
+    fn new_page(&mut self, position: Option<usize>, width: f32, height: f32) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+        let page_id = self.doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => Object::Array(vec![
+                Object::Real(0.0),
+                Object::Real(0.0),
+                Object::Real(width),
+                Object::Real(height),
+            ]),
+        });
+        match position {
+            None => self.append_pages(pages_id, vec![page_id]),
+            Some(_) => {
+                let order = self.spliced_page_order(vec![page_id], position);
+                self.rebuild_page_tree(pages_id, order)?;
+                self.doc.prune_objects();
+                Ok(())
+            }
+        }
+    }
+
+    /// 指定ページ（1 始まり）の複製を position（0 始まり、None で末尾）に挿入する。
+    ///
+    /// ページ辞書は継承属性を焼き込んだ独立コピーになり、Contents / Resources は
+    /// 元ページとオブジェクトを共有する。
+    fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+        let source_id = self.page_id(page_number)?;
+        let mut dict = resolve_inherited_page_dict(&self.doc, source_id).map_err(to_py_err)?;
+        dict.set("Parent", pages_id);
+        let new_id = self.doc.add_object(Object::Dictionary(dict));
+        match position {
+            None => self.append_pages(pages_id, vec![new_id]),
+            Some(_) => {
+                let order = self.spliced_page_order(vec![new_id], position);
+                self.rebuild_page_tree(pages_id, order)?;
+                self.doc.prune_objects();
+                Ok(())
+            }
+        }
     }
 
     /// 指定ページ（1 始まり）だけを指定順で残す。並べ替えにも使える。
@@ -657,44 +785,26 @@ impl _Document {
     /// 同一ページの重複指定（複製）は未対応。
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        let mut seen = std::collections::HashSet::new();
-        for number in &page_numbers {
-            if !seen.insert(*number) {
-                return Err(PdfError::new_err(format!(
-                    "ページ {number} が重複しています（複製は未対応）"
-                )));
-            }
-        }
-
         let pages = self.doc.get_pages();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
 
-        // 中間 Pages ノードは捨てて平坦化するため、継承属性を焼き込み Parent を付け替える
-        let mut selected = Vec::with_capacity(page_numbers.len());
+        // 同一ページの 2 回目以降は、継承属性焼き込み済みの複製ページを作る
+        // （PDF のページツリーでは Parent が一意である必要があるため）
+        let mut seen = HashSet::new();
+        let mut ordered = Vec::with_capacity(page_numbers.len());
         for number in &page_numbers {
             let page_id = *pages
                 .get(number)
                 .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
-            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
-            dict.set("Parent", pages_id);
-            selected.push((page_id, dict));
+            let use_id = if seen.insert(page_id) {
+                page_id
+            } else {
+                let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+                self.doc.add_object(Object::Dictionary(dict))
+            };
+            ordered.push(use_id);
         }
-
-        let kids: Vec<Object> = selected
-            .iter()
-            .map(|(id, _)| Object::Reference(*id))
-            .collect();
-        let count = i64::try_from(kids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
-        for (id, dict) in selected {
-            self.doc.objects.insert(id, Object::Dictionary(dict));
-        }
-        let pages_dict = self
-            .doc
-            .get_object_mut(pages_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        pages_dict.set("Kids", kids);
-        pages_dict.set("Count", count);
+        self.rebuild_page_tree(pages_id, ordered)?;
 
         // 参照されなくなったページ・中間ノードを掃除する
         self.doc.prune_objects();

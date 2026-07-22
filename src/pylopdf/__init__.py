@@ -393,22 +393,80 @@ class Document:
     def select(self, page_numbers: Iterable[int]) -> None:
         """指定した 0 始まりのページ番号だけを、指定順で残す。
 
-        並べ替えにも使える。同一ページの重複指定（複製）は未対応。
+        並べ替えにも使える。同一ページを複数回指定するとそのページを複製する
+        （複製ページの Contents / Resources は元とオブジェクトを共有する）。
         """
         self._ensure_open()
         numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
         self._bump_generation()
         self._doc.select(numbers)
 
-    def insert_pdf(self, other: Document) -> None:
-        """別ドキュメントの全ページを末尾に取り込む。"""
+    def insert_pdf(
+        self,
+        other: Document,
+        from_page: int = 0,
+        to_page: int = -1,
+        start_at: int = -1,
+    ) -> None:
+        """別ドキュメントのページ範囲を取り込む。
+
+        from_page..to_page（0 始まり・両端含む・負数は末尾から）を、
+        start_at（0 始まりの挿入位置。-1 で末尾に追加）へ挿入する。
+        from_page > to_page なら逆順で取り込む。
+        """
         self._ensure_open()
         if other is self:
             msg = "自分自身は挿入できません"
             raise ValueError(msg)
         other._ensure_open()
+        if other.page_count == 0:
+            return
+        start = other._normalize_pno(from_page)
+        stop = other._normalize_pno(to_page)
+        step = 1 if start <= stop else -1
+        numbers = list(range(start, stop + step, step))
+        position = None if start_at == -1 else self._insert_position(start_at, "start_at")
         self._bump_generation()
-        self._doc.merge(other._doc)
+        self._doc.merge_pages(other._doc, [n + 1 for n in numbers], position)
+
+    def new_page(self, pno: int = -1, width: float = 595.0, height: float = 842.0) -> Page:
+        """空ページを挿入して、その :class:`Page` を返す。
+
+        pno は挿入位置（0 始まり。-1 で末尾に追加）。width / height は
+        ページサイズ（PDF 単位。既定は A4 縦 595x842）。
+        """
+        self._ensure_open()
+        if not (math.isfinite(width) and math.isfinite(height)) or width <= 0 or height <= 0:
+            msg = f"width / height は正の有限値で指定してください: ({width!r}, {height!r})"
+            raise ValueError(msg)
+        if pno == -1:
+            position = None
+            index = self.page_count
+        else:
+            position = self._insert_position(pno, "pno")
+            index = position
+        self._bump_generation()
+        self._doc.new_page(position, width, height)
+        return self[index]
+
+    def copy_page(self, pno: int, to: int = -1) -> None:
+        """ページ pno（0 始まり、負数可）の複製を挿入位置 to（-1 で末尾）に追加する。
+
+        複製ページの Contents / Resources は元ページとオブジェクトを共有する。
+        """
+        self._ensure_open()
+        page_number = self._lopdf_page_number(pno)
+        position = None if to == -1 else self._insert_position(to, "to")
+        self._bump_generation()
+        self._doc.copy_page(page_number, position)
+
+    def _insert_position(self, value: int, name: str) -> int:
+        """挿入位置（0..page_count。page_count は末尾追加と同義）を検証して返す。"""
+        count = self.page_count
+        if not 0 <= value <= count:
+            msg = f"{name} {value} は範囲外です（0..{count} か -1）"
+            raise IndexError(msg)
+        return value
 
     def set_fallback_font(
         self,

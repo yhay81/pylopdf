@@ -126,10 +126,18 @@ def test_select_reorder(three_page_pdf: bytes) -> None:
     assert "Page three" in reloaded.get_page_text(0)
 
 
-def test_select_duplicate_raises(three_page_pdf: bytes) -> None:
+def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
+    """同一ページの重複指定は複製になる。"""
     doc = pylopdf.Document(stream=three_page_pdf)
-    with pytest.raises(ValueError, match="重複"):
-        doc.select([0, 0])
+    doc.select([0, 0, 1])
+    assert doc.page_count == 3
+    assert "Page one" in doc.get_page_text(0)
+    assert "Page one" in doc.get_page_text(1)
+    assert "Page two" in doc.get_page_text(2)
+    reloaded = pylopdf.Document(stream=doc.tobytes())
+    assert reloaded.page_count == 3
+    assert "Page one" in reloaded.get_page_text(1)
+    assert reloaded.render_page(0) == reloaded.render_page(1)
 
 
 def test_select_out_of_range(three_page_pdf: bytes) -> None:
