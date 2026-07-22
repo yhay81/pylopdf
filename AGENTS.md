@@ -27,8 +27,11 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - `_Document`（rust/src/document.rs）は型変換とエラー変換のみの薄い層。
   使い勝手（検証・0/1 始まり変換・close 管理）は Python 側 `Document`（src/pylopdf/__init__.py）が担う
 - ページ番号は Python API が 0 始まり、Rust/lopdf 層が 1 始まり。変換は `_lopdf_page_number` に集約
-- merge / select / extract_text は「継承属性（Resources, MediaBox, CropBox, Rotate）を
+- merge / select は「継承属性（Resources, MediaBox, CropBox, Rotate）を
   ページ辞書へ焼き込む」パターンが前提（lopdf はページ属性の継承を解決しないため）
+- テキスト抽出は hayro Device 実装（rust/src/extract.rs）。グリフの Unicode + 位置を
+  収集し行・語へ組み立てる。CJK 代替フォント設定は抽出にも反映され、不可視テキスト
+  （OCR レイヤー）も対象。縦書きの読み順は未対応（横書き前提のクラスタリング）
 - レンダリングは save_bytes → hayro 再パースの結果を `_Document.hayro_pdf` にキャッシュし、
   編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
   不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）
@@ -56,9 +59,9 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 
 - lopdf の `time` feature は 0.43.0 で入った `From<time::Time>` impl が最初から
   コンパイル不能（上流 #527 で修正済み・未リリース）→ `chrono` に固定している（rust/Cargo.toml）
-- lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とし
-  テキスト抽出が空になる（レンダリングは正常。lopdf#535 として報告済み、
-  tests/test_real_world.py の xfail で追跡）
+- lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とす
+  （lopdf#535 として報告済み）。pylopdf は v0.7 で抽出を hayro エンジン
+  （rust/src/extract.rs）へ置き換えたため影響を受けない
 - classifier の実在チェックは pre-commit の validate-pyproject（trove-classifiers 付き）が担う
   （v0.4.0 は無効 classifier `Topic :: Text Processing :: Markup :: PDF` で PyPI に拒否された実績）
   ※ validate-pyproject-schema-store は UnboundLocalError を起こすため入れない

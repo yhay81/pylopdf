@@ -715,21 +715,26 @@ impl _Document {
 
     /// 指定ページ（1 始まり）のテキストを抽出する。
     ///
-    /// lopdf の extract_text はページ属性の継承（親 Pages 側の Resources 等)を
-    /// 解決しないため、先に対象ページへ継承属性を焼き込んでから抽出する。
+    /// hayro のインタープリタ（rust/src/extract.rs）でグリフの Unicode と位置を収集し、
+    /// 読み順のテキストへ組み立てる。CJK 代替フォントの設定は抽出にも反映される。
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        // 継承属性の焼き込みでドキュメントが変化するためキャッシュを破棄する
-        self.invalidate_hayro_pdf();
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
         py.detach(|| {
-            let pages = self.doc.get_pages();
+            let pages = pdf.pages();
+            let mut out = String::new();
             for number in &page_numbers {
-                if let Some(&page_id) = pages.get(number) {
-                    let dict =
-                        resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
-                    self.doc.set_object(page_id, dict);
-                }
+                let page = number
+                    .checked_sub(1)
+                    .and_then(|index| pages.get(index as usize))
+                    .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
+                out.push_str(&crate::extract::extract_page_text(
+                    pdf,
+                    page,
+                    settings.clone(),
+                ));
             }
-            self.doc.extract_text(&page_numbers).map_err(to_py_err)
+            Ok(out)
         })
     }
 

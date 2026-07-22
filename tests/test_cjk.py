@@ -92,10 +92,12 @@ def test_auto_discovery_via_extra() -> None:
     assert png != render_blank_baseline()
 
 
-@pytest.mark.xfail(
-    reason="lopdf は定義済み CMap（90ms-RKSJ-H）のデコードに未対応で invalid character encoding になる",
-    strict=True,
-)
-def test_nonembedded_cjk_extract_text_known_limit() -> None:
+def test_nonembedded_cjk_extract_text() -> None:
+    """非埋め込み CJK（90ms-RKSJ-H）のテキスト抽出。
+
+    hayro エンジンが定義済み CMap を解決するため、v0.7 から抽出できる。
+    Unicode は CMap 由来なので、代替フォントが無くても抽出は成立する。
+    """
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
-    assert "こんにちは" in doc.get_page_text(0)
+    doc.set_fallback_font(None)
+    assert "こんにちは日本語" in doc.get_page_text(0)

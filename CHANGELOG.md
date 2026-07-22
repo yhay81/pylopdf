@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Text extraction now runs on a hayro-based engine (`rust/src/extract.rs`): the
+  interpreter collects per-glyph Unicode + positions and assembles them into
+  reading order (top-to-bottom, left-to-right with word-gap detection). This
+  fixes two known limits at once — content streams with `%` comments
+  ([lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)) and non-embedded
+  CJK fonts via predefined CMaps (90ms-RKSJ-H etc.) both extract correctly now —
+  and covers invisible text (OCR layers) explicitly. Extraction no longer
+  mutates the document (the inherited-attribute baking step became unnecessary).
+  Vertical writing order is not reconstructed yet
+
 ## [0.6.0] - 2026-07-23
 
 ### Added

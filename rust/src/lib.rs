@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 mod document;
+mod extract;
 use document::{_Document, PasswordError, PdfError};
 
 #[pymodule]

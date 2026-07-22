@@ -845,6 +845,7 @@ version = "0.6.0"
 dependencies = [
  "hayro",
  "hayro-svg",
+ "kurbo",
  "lopdf",
  "pyo3",
 ]

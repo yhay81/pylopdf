@@ -372,10 +372,16 @@ def test_multi_document_merge() -> None:
     assert "Second" in reloaded.get_page_text(1)
 
 
-def test_inherited_page_parent_cycle_raises(one_page_pdf: bytes) -> None:
-    """ページの Parent が循環する破損 PDF でも処理が停止しない。"""
+def test_inherited_page_parent_cycle_does_not_hang(one_page_pdf: bytes) -> None:
+    """ページの Parent が循環する破損 PDF でも処理が停止しない。
+
+    hayro 抽出エンジンは循環があってもハングせず完走する（Resources が辿れない
+    ため結果は空になり得る）。継承解決を自前で歩く経路（Page の mediabox 等）には
+    循環検出が残っており、そちらは明確なエラーになる。
+    """
     raw = one_page_pdf.replace(b"/Parent 2 0 R", b"/Parent 4 0 R")
     doc = pylopdf.Document(stream=raw)
     assert doc.page_count == 1
+    assert isinstance(doc.get_page_text(0), str)
     with pytest.raises(ValueError, match="reference cycle"):
-        doc.get_page_text(0)
+        _ = doc[0].mediabox

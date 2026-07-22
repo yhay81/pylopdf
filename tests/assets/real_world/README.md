@@ -15,13 +15,13 @@ lopdf / hayro の限界を早期発見することが目的。すべて再配布
 | patent-us223898.pdf | [Google Patents](https://patents.google.com/patent/US223898A)（エジソンの電球特許、1880 年） | パブリックドメイン（米国特許） | PDF 1.3、スキャン画像（CCITTFaxDecode）、OCR テキストレイヤー（取得日: 2026-07-22） |
 | wdl6812-manuscript.pdf | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Illuminated_Panel_and_Qur%27anic_Chapter_WDL6812.pdf)（World Digital Library の彩飾写本） | パブリックドメイン | PDF 1.4、カラースキャン（DCTDecode + JBIG2Decode）、テキストレイヤー無し（取得日: 2026-07-22） |
 
-## テストで記録している既知の限界
+## 過去に記録していた既知の限界（解消済み）
 
-- **pdf20-simple.pdf のテキスト抽出が空になる**: lopdf の content パーサは
-  「`%` コメント行 + 直後のインデント（行頭空白）行」の組み合わせで以降の全演算を落とす。
-  Rust 単体の最小再現で確認し、[lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
-  として上流に報告済み。tests/test_real_world.py の xfail（strict）で追跡しており、
-  lopdf 側で直ると失敗して気づける（レンダリングは正常）。
+- **pdf20-simple.pdf のテキスト抽出が空になる**（lopdf の content パーサが
+  「`%` コメント行 + 直後のインデント行」で以降の全演算を落とす。
+  [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535) として上流報告済み）
+  → v0.7 で抽出を hayro エンジンへ置き換えて解消。test_pdf20_comment_streams_extract が
+  回帰検知を担う。非埋め込み CJK（90ms-RKSJ-H）の抽出も同時に可能になった。
 
 ## カバー済みの軸
 

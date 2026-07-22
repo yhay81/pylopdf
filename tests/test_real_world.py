@@ -31,7 +31,7 @@ class Case:
 
 CASES = [
     Case("f1040.pdf", pages=2, version="PDF 1.7", snippet="U.S. Individual Income Tax Return"),
-    Case("pdf20-simple.pdf", pages=1, version="PDF 2.0", snippet=None),
+    Case("pdf20-simple.pdf", pages=1, version="PDF 2.0", snippet="Hello World"),
     Case("usrguide.pdf", pages=27, version="PDF 1.5", snippet="for authors"),
     Case("bill-hr815.pdf", pages=110, version="PDF 1.5", snippet="One Hundred Eighteenth Congress"),
     Case("mhlw-doc.pdf", pages=2, version="PDF 1.7", snippet="裁判例"),
@@ -79,14 +79,14 @@ def test_extract_text_page0(case: Case) -> None:
     assert case.snippet in doc.get_page_text(0)
 
 
-@pytest.mark.xfail(
-    reason="lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とす"
-    "（https://github.com/J-F-Liu/lopdf/issues/535 として報告済み。修正されたらこのテストが fail して気づける）",
-    strict=True,
-)
-def test_pdf20_extract_text_known_limit() -> None:
+def test_pdf20_comment_streams_extract() -> None:
+    """コメント + インデント入り content stream の抽出（lopdf#535 の回帰検知）。
+
+    v0.7 で抽出を hayro エンジンへ置き換えたことで解消した。lopdf の
+    extract_text には未修正のまま残っているが、pylopdf はもう影響を受けない。
+    """
     doc = pylopdf.open(ASSETS / "pdf20-simple.pdf")
-    assert "HelloWorld" in doc.get_page_text(0).replace(" ", "")
+    assert "Hello World" in doc.get_page_text(0)
 
 
 def test_f1040_metadata_title() -> None:
