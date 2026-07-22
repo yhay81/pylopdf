@@ -4,8 +4,11 @@
 //! `pylopdf.Document` が提供する。
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use hayro::hayro_interpret::InterpreterSettings;
+use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
+use hayro::hayro_interpret::hayro_cmap::CidFamily;
 use hayro::hayro_syntax::Pdf;
 use hayro::{RenderCache, RenderSettings, render};
 use lopdf::{Dictionary, Document, LoadOptions, Object, ObjectId, StringFormat, dictionary};
@@ -76,11 +79,67 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
     Ok(dict)
 }
 
+/// レンダリング時に非埋め込み CJK フォントへ充てる代替フォント。
+#[derive(Default, Clone)]
+struct FallbackFonts {
+    /// ゴシック系（および判別不能時の既定）
+    sans: Option<(Arc<Vec<u8>>, u32)>,
+    /// 明朝系
+    serif: Option<(Arc<Vec<u8>>, u32)>,
+}
+
+/// BaseFont 名の小文字表現に含まれていたら CJK フォントとみなすパターン。
+const CJK_NAME_HINTS: [&str; 12] = [
+    "mincho", "gothic", "ryumin", "kozmin", "kozgo", "kozuka", "meiryo", "yugoth", "yumin",
+    "hiragino", "ipaex", "ipam",
+];
+
+/// BaseFont 名の小文字表現に含まれていたら明朝系とみなすパターン。
+const SERIF_NAME_HINTS: [&str; 5] = ["mincho", "ryumin", "kozmin", "yumin", "serif"];
+
+/// 非埋め込みフォントの問い合わせが CJK なら、設定済みの代替フォントを返す。
+///
+/// CIDSystemInfo（Adobe-Japan1/GB1/CNS1/Korea1）か BaseFont 名で CJK と判定する。
+/// Adobe-Identity は CID→Unicode の手がかりが CMap に無いため名前判定に任せる
+/// （埋め込み ToUnicode があれば hayro 側がそれを使って解決する）。
+fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option<(FontData, u32)> {
+    let is_cjk_collection = matches!(
+        query.character_collection.as_ref().map(|cc| &cc.family),
+        Some(
+            CidFamily::AdobeJapan1
+                | CidFamily::AdobeGB1
+                | CidFamily::AdobeCNS1
+                | CidFamily::AdobeKorea1
+        )
+    );
+    let name = query
+        .post_script_name
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let is_cjk_name = CJK_NAME_HINTS.iter().any(|hint| name.contains(hint));
+    if !is_cjk_collection && !is_cjk_name {
+        return None;
+    }
+    let prefers_serif = SERIF_NAME_HINTS.iter().any(|hint| name.contains(hint));
+    let slot = if prefers_serif {
+        fonts.serif.as_ref().or(fonts.sans.as_ref())
+    } else {
+        fonts.sans.as_ref().or(fonts.serif.as_ref())
+    };
+    slot.map(|(data, index)| (Arc::clone(data) as FontData, *index))
+}
+
 /// lopdf::Document を保持する Python クラス。
 #[pyclass(module = "pylopdf.pylopdf_core")]
-pub struct _Document(pub Document);
+pub struct _Document(pub Document, FallbackFonts);
 
 impl _Document {
+    /// lopdf::Document から（fallback フォント未設定の状態で）構築する。
+    fn from_doc(doc: Document) -> Self {
+        Self(doc, FallbackFonts::default())
+    }
+
     /// trailer の Info 辞書を（間接参照を解決して）返す。
     fn info_dict(&self) -> Option<&Dictionary> {
         match self.0.trailer.get(b"Info").ok()? {
@@ -104,6 +163,25 @@ impl _Document {
         let data = self.current_bytes()?;
         Pdf::new(data)
             .map_err(|e| PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
+    }
+
+    /// fallback フォント設定を反映した InterpreterSettings を組み立てる。
+    fn interpreter_settings(&self) -> InterpreterSettings {
+        let mut settings = InterpreterSettings::default();
+        if self.1.sans.is_none() && self.1.serif.is_none() {
+            return settings;
+        }
+        let fonts = self.1.clone();
+        let default_resolver = settings.font_resolver.clone();
+        settings.font_resolver = Arc::new(move |query| {
+            if let FontQuery::Fallback(fallback) = query
+                && let Some(picked) = pick_cjk_fallback(&fonts, fallback)
+            {
+                return Some(picked);
+            }
+            default_resolver(query)
+        });
+        settings
     }
 
     /// ルート Pages ノードの ObjectId を返す。無ければ最小構造を作る（空ドキュメント対応）。
@@ -135,28 +213,30 @@ impl _Document {
     /// 空の PDF ドキュメントを作る。
     #[new]
     fn new() -> Self {
-        Self(Document::with_version("1.7"))
+        Self(Document::with_version("1.7"), FallbackFonts::default())
     }
 
     /// ファイルパスから読み込む。
     #[staticmethod]
     fn load(path: &str) -> PyResult<Self> {
         Document::load(path)
-            .map(Self)
+            .map(Self::from_doc)
             .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
     }
 
     /// バイト列から読み込む。
     #[staticmethod]
     fn load_bytes(data: &[u8]) -> PyResult<Self> {
-        Document::load_mem(data).map(Self).map_err(to_py_err)
+        Document::load_mem(data)
+            .map(Self::from_doc)
+            .map_err(to_py_err)
     }
 
     /// パスワード付きでファイルパスから読み込む（ロード時に復号する）。
     #[staticmethod]
     fn load_with_password(path: &str, password: &str) -> PyResult<Self> {
         Document::load_with_options(path, LoadOptions::with_password(password))
-            .map(Self)
+            .map(Self::from_doc)
             .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
     }
 
@@ -164,8 +244,31 @@ impl _Document {
     #[staticmethod]
     fn load_bytes_with_password(data: &[u8], password: &str) -> PyResult<Self> {
         Document::load_mem_with_options(data, LoadOptions::with_password(password))
-            .map(Self)
+            .map(Self::from_doc)
             .map_err(to_py_err)
+    }
+
+    /// レンダリング時の CJK 代替フォントを設定する。
+    ///
+    /// kind は "sans"（ゴシック系・既定）か "serif"（明朝系）。
+    /// data はフォントファイルのバイト列（TTF/OTF/TTC）、index は TTC 内の face 番号。
+    fn set_fallback_font(&mut self, kind: &str, data: Vec<u8>, index: u32) -> PyResult<()> {
+        let slot = match kind {
+            "sans" => &mut self.1.sans,
+            "serif" => &mut self.1.serif,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "kind は 'sans' か 'serif' で指定してください: {kind:?}"
+                )));
+            }
+        };
+        *slot = Some((Arc::new(data), index));
+        Ok(())
+    }
+
+    /// CJK 代替フォントの設定をすべて解除する。
+    fn clear_fallback_fonts(&mut self) {
+        self.1 = FallbackFonts::default();
     }
 
     /// 現在も暗号化されたままか（復号済みなら false）。
@@ -400,7 +503,7 @@ impl _Document {
             .checked_sub(1)
             .and_then(|index| pages.get(index as usize))
             .ok_or_else(|| PyValueError::new_err(format!("ページ {page_number} は存在しません")))?;
-        let interpreter_settings = InterpreterSettings::default();
+        let interpreter_settings = self.interpreter_settings();
         let render_settings = RenderSettings {
             x_scale: scale,
             y_scale: scale,
@@ -421,7 +524,7 @@ impl _Document {
             .checked_sub(1)
             .and_then(|index| pages.get(index as usize))
             .ok_or_else(|| PyValueError::new_err(format!("ページ {page_number} は存在しません")))?;
-        let interpreter_settings = InterpreterSettings::default();
+        let interpreter_settings = self.interpreter_settings();
         let cache = hayro_svg::RenderCache::new();
         let settings = hayro_svg::SvgRenderSettings::default();
         Ok(hayro_svg::convert(

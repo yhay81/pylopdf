@@ -22,6 +22,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.optional-dependencies]
+# 非埋め込み日本語 PDF のレンダリング用フォント（Noto Sans/Serif JP を自動検出）
+cjk = ["pylopdf-fonts-cjk>=0.1.0"]
+
 [build-system]
 requires = ["maturin>=1.14,<2.0"]
 build-backend = "maturin"
@@ -49,12 +53,24 @@ cache-keys = [
     { file = "rust/src/*.rs" },
 ]
 
+[tool.uv.workspace]
+members = ["fonts/pylopdf-fonts-cjk"]
+
+[tool.uv.sources]
+# ローカル開発では extra をワークスペース内のフォントパッケージへ解決する
+pylopdf-fonts-cjk = { workspace = true }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [[tool.mypy.overrides]]
 # pypdf はフィクスチャ生成スクリプト（手動実行）専用で dev 依存に含めない
 module = "pypdf.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# cjk extra 未インストール環境でも型チェックが通るようにする
+module = "pylopdf_fonts_cjk"
 ignore_missing_imports = true
 
 [tool.ruff]

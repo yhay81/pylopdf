@@ -31,7 +31,7 @@ jobs:
       - name: Rust lint
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Build and install
-        run: uv sync
+        run: uv sync --all-extras
       - name: Python lint
         run: uv run ruff check .
       - name: Python format check

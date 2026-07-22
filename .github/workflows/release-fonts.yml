@@ -1,0 +1,30 @@
+# フォントデータ wheel のリリース CI: fonts-v* タグの push で pylopdf-fonts-cjk を PyPI へ公開する
+#
+# 公開には PyPI 側で Trusted Publisher の登録が必要:
+#   PyPI → プロジェクト pylopdf-fonts-cjk → Publishing → GitHub
+#   owner: yhay81 / repository: pylopdf / workflow: release-fonts.yml / environment: pypi
+name: Release fonts
+
+on:
+  push:
+    tags: ["fonts-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish pylopdf-fonts-cjk
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build sdist and wheel
+        run: uv build --package pylopdf-fonts-cjk --out-dir dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true

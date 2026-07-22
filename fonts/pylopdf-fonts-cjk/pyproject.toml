@@ -1,0 +1,26 @@
+[project]
+name = "pylopdf-fonts-cjk"
+version = "0.1.0"
+description = "CJK (Japanese) fallback fonts for pylopdf — Noto Sans JP / Noto Serif JP (SIL OFL 1.1)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: SIL Open Font License 1.1 (OFL-1.1)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Fonts",
+]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/yhay81/pylopdf"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pylopdf_fonts_cjk"]

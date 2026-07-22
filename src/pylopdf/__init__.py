@@ -6,6 +6,8 @@ pymupdf に似た操作感の :class:`Document` を提供する。編集は lopd
 
 from __future__ import annotations
 
+import functools
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pylopdf.pylopdf_core import _Document
@@ -18,6 +20,20 @@ if TYPE_CHECKING:
 
 __version__ = "0.4.1"
 __all__ = ["Document", "open"]
+
+
+@functools.cache
+def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
+    """pylopdf-fonts-cjk（``pip install pylopdf[cjk]``）があれば同梱フォントを読み込む。"""
+    try:
+        import pylopdf_fonts_cjk  # noqa: PLC0415  # optional 依存の遅延 import
+    except ImportError:
+        return ()
+    return (
+        ("sans", pylopdf_fonts_cjk.sans_path().read_bytes()),
+        ("serif", pylopdf_fonts_cjk.serif_path().read_bytes()),
+    )
+
 
 #: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
 _METADATA_KEYS: dict[str, str] = {
@@ -68,6 +84,7 @@ class Document:
         else:
             self._doc = _Document()
         self._closed = False
+        self._fallback_configured = False
         # 「この PDF はパスワードを要するか」。password 指定で開けた場合も、
         # 元が暗号化されていたなら True のままにする（pymupdf の needs_pass と同じ意味論）
         self._needs_pass = self._doc.is_encrypted() or (password is not None and self._doc.was_encrypted())
@@ -167,15 +184,46 @@ class Document:
         other._ensure_open()
         self._doc.merge(other._doc)
 
+    def set_fallback_font(
+        self,
+        font: bytes | str | os.PathLike[str] | None,
+        kind: str = "sans",
+        index: int = 0,
+    ) -> None:
+        """非埋め込み CJK フォントのレンダリングに使う代替フォントを設定する。
+
+        font はフォントファイル（TTF/OTF/TTC）のパスかバイト列。None を渡すと
+        設定を解除し、pylopdf[cjk] 同梱フォントの自動検出も無効化する。
+        kind は "sans"（ゴシック系・既定）か "serif"（明朝系）、
+        index は TTC 内の face 番号。
+        """
+        self._ensure_open()
+        self._fallback_configured = True
+        if font is None:
+            self._doc.clear_fallback_fonts()
+            return
+        data = font if isinstance(font, bytes) else Path(font).read_bytes()
+        self._doc.set_fallback_font(kind, data, index)
+
+    def _ensure_fallback_fonts(self) -> None:
+        """set_fallback_font 未使用なら、pylopdf[cjk] の同梱フォントを自動設定する。"""
+        if self._fallback_configured:
+            return
+        self._fallback_configured = True
+        for kind, data in _bundled_cjk_fonts():
+            self._doc.set_fallback_font(kind, data, 0)
+
     def render_page(self, pno: int, scale: float = 1.0) -> bytes:
         """ページ pno（0 始まり）を PNG 画像にレンダリングする。
 
         scale は拡大率（1.0 = 72dpi 相当）。
         """
+        self._ensure_fallback_fonts()
         return self._doc.render_page_png(self._lopdf_page_number(pno), scale)
 
     def render_page_svg(self, pno: int) -> str:
         """ページ pno（0 始まり）を SVG 文字列にレンダリングする。"""
+        self._ensure_fallback_fonts()
         return self._doc.render_page_svg(self._lopdf_page_number(pno))
 
     def save(self, filename: str | os.PathLike[str]) -> None:
