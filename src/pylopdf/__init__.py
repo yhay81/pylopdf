@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     #: get_text("blocks") の 1 要素: (x0, y0, x1, y1, テキスト, ブロック番号, 種別=0)
     BlockEntry = tuple[float, float, float, float, str, int, int]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __all__ = [
     "Document",
     "DocumentClosedError",

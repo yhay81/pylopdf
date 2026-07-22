@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-23
+
 ### Added
 - `Page.insert_image(rect, filename=/stream=, keep_proportion=, overlay=)`:
   draw a JPEG (embedded as-is, no recompression) or PNG (decoded, alpha kept as
