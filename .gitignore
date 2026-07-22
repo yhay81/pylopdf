@@ -6,6 +6,7 @@
 /rust/src/lopdf
 /rust/target
 /src/pylopdf/*.so
+/src/pylopdf/*.pyd
 /target
 /dist
 __pycache__
