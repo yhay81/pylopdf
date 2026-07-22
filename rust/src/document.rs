@@ -13,11 +13,25 @@ use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::AlphaColor;
 use hayro::{RenderCache, RenderSettings, render};
 use lopdf::{
-    Dictionary, Document, LoadOptions, Object, ObjectId, SaveOptions, decode_text_string,
-    dictionary, text_string,
+    Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
+    decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+
+// Python 側へ公開する例外。PdfError は ValueError のサブクラスなので後方互換。
+pyo3::create_exception!(
+    pylopdf,
+    PdfError,
+    PyValueError,
+    "pylopdf の基底例外（ValueError 互換）。"
+);
+pyo3::create_exception!(
+    pylopdf,
+    PasswordError,
+    PdfError,
+    "パスワードが必要か、正しくない。"
+);
 
 /// ページ辞書へ親ツリーから継承され得る属性キー。
 const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
@@ -25,9 +39,48 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 /// PNG レンダリングで許容する総画素数（RGBA bitmap 約 256 MB 相当）。
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
 
-/// lopdf のエラーを Python の ValueError に変換する。
+/// 文脈プレフィックス付きで lopdf のエラーを Python 例外に変換する。
+///
+/// パスワード起因（復号失敗・パスワード不一致）は PasswordError、それ以外は PdfError。
+fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
+    let message = match prefix {
+        Some(p) => format!("{p}: {e}"),
+        None => e.to_string(),
+    };
+    if matches!(
+        e,
+        lopdf::Error::Decryption(_) | lopdf::Error::InvalidPassword
+    ) {
+        PasswordError::new_err(message)
+    } else {
+        PdfError::new_err(message)
+    }
+}
+
+/// lopdf のエラーを Python 例外に変換する。
 fn to_py_err(e: lopdf::Error) -> PyErr {
-    PyValueError::new_err(e.to_string())
+    lopdf_err(None, &e)
+}
+
+/// PdfMetadata を Python へ渡すタプル（Info 文字列辞書, ページ数, バージョン, 暗号化有無）に変換する。
+fn pdf_metadata_to_tuple(meta: PdfMetadata) -> (BTreeMap<String, String>, u32, String, bool) {
+    let mut map = BTreeMap::new();
+    let pairs = [
+        ("Title", meta.title),
+        ("Author", meta.author),
+        ("Subject", meta.subject),
+        ("Keywords", meta.keywords),
+        ("Creator", meta.creator),
+        ("Producer", meta.producer),
+        ("CreationDate", meta.creation_date),
+        ("ModDate", meta.modification_date),
+    ];
+    for (key, value) in pairs {
+        if let Some(v) = value {
+            map.insert(key.to_string(), v);
+        }
+    }
+    (map, meta.page_count, meta.version, meta.encrypted)
 }
 
 /// object stream + xref stream を有効にした保存オプション。
@@ -158,7 +211,7 @@ impl _Document {
         let mut buffer = Vec::new();
         self.doc
             .save_to(&mut buffer)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            .map_err(|e| PdfError::new_err(e.to_string()))?;
         Ok(buffer)
     }
 
@@ -176,7 +229,7 @@ impl _Document {
         if self.hayro_pdf.is_none() {
             let data = self.current_bytes()?;
             let pdf = Pdf::new(data).map_err(|e| {
-                PyValueError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
+                PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
             })?;
             self.hayro_pdf = Some(pdf);
         }
@@ -233,7 +286,7 @@ impl _Document {
             .doc
             .max_id
             .checked_add(1)
-            .ok_or_else(|| PyValueError::new_err("PDF オブジェクト ID が上限に達しています"))?;
+            .ok_or_else(|| PdfError::new_err("PDF オブジェクト ID が上限に達しています"))?;
         let mut other_doc = other.doc.clone();
         other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
@@ -262,8 +315,8 @@ impl _Document {
         }
 
         // ルート Pages の Kids / Count を更新する
-        let added = i64::try_from(other_page_ids.len())
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let added =
+            i64::try_from(other_page_ids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
         let pages_dict = self
             .doc
             .get_object_mut(pages_id)
@@ -295,42 +348,85 @@ impl _Document {
     }
 
     /// ファイルパスから読み込む。
+    ///
+    /// password は暗号化 PDF の復号に使う。max_decompressed_size は
+    /// 1 ストリームあたりの展開上限バイト数（解凍爆弾対策、None で無制限）。
     #[staticmethod]
-    fn load(py: Python<'_>, path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path, password=None, max_decompressed_size=None))]
+    fn load(
+        py: Python<'_>,
+        path: &str,
+        password: Option<String>,
+        max_decompressed_size: Option<usize>,
+    ) -> PyResult<Self> {
+        let options = LoadOptions {
+            password,
+            max_decompressed_size,
+            ..Default::default()
+        };
         py.detach(|| {
-            Document::load(path)
+            Document::load_with_options(path, options)
                 .map(Self::from_doc)
-                .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
+                .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))
         })
     }
 
-    /// バイト列から読み込む。
+    /// バイト列から読み込む。引数の意味は load と同じ。
     #[staticmethod]
-    fn load_bytes(py: Python<'_>, data: &[u8]) -> PyResult<Self> {
+    #[pyo3(signature = (data, password=None, max_decompressed_size=None))]
+    fn load_bytes(
+        py: Python<'_>,
+        data: &[u8],
+        password: Option<String>,
+        max_decompressed_size: Option<usize>,
+    ) -> PyResult<Self> {
+        let options = LoadOptions {
+            password,
+            max_decompressed_size,
+            ..Default::default()
+        };
         py.detach(|| {
-            Document::load_mem(data)
+            Document::load_mem_with_options(data, options)
                 .map(Self::from_doc)
                 .map_err(to_py_err)
         })
     }
 
-    /// パスワード付きでファイルパスから読み込む（ロード時に復号する）。
+    /// 文書全体をロードせず、メタデータだけを高速に読む。
+    ///
+    /// 戻り値は (Info 文字列辞書, ページ数, バージョン, 暗号化有無)。
     #[staticmethod]
-    fn load_with_password(py: Python<'_>, path: &str, password: &str) -> PyResult<Self> {
+    #[pyo3(signature = (path, password=None))]
+    fn load_metadata(
+        py: Python<'_>,
+        path: &str,
+        password: Option<String>,
+    ) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
         py.detach(|| {
-            Document::load_with_options(path, LoadOptions::with_password(password))
-                .map(Self::from_doc)
-                .map_err(|e| PyValueError::new_err(format!("failed to load {path}: {e}")))
+            let meta = match &password {
+                Some(pw) => Document::load_metadata_with_password(path, pw),
+                None => Document::load_metadata(path),
+            }
+            .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))?;
+            Ok(pdf_metadata_to_tuple(meta))
         })
     }
 
-    /// パスワード付きでバイト列から読み込む（ロード時に復号する）。
+    /// バイト列からメタデータだけを高速に読む。戻り値は load_metadata と同じ。
     #[staticmethod]
-    fn load_bytes_with_password(py: Python<'_>, data: &[u8], password: &str) -> PyResult<Self> {
+    #[pyo3(signature = (data, password=None))]
+    fn load_metadata_bytes(
+        py: Python<'_>,
+        data: &[u8],
+        password: Option<String>,
+    ) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
         py.detach(|| {
-            Document::load_mem_with_options(data, LoadOptions::with_password(password))
-                .map(Self::from_doc)
-                .map_err(to_py_err)
+            let meta = match &password {
+                Some(pw) => Document::load_metadata_mem_with_password(data, pw),
+                None => Document::load_metadata_mem(data),
+            }
+            .map_err(to_py_err)?;
+            Ok(pdf_metadata_to_tuple(meta))
         })
     }
 
@@ -343,7 +439,7 @@ impl _Document {
             "sans" => &mut self.fallback_fonts.sans,
             "serif" => &mut self.fallback_fonts.serif,
             _ => {
-                return Err(PyValueError::new_err(format!(
+                return Err(PdfError::new_err(format!(
                     "kind は 'sans' か 'serif' で指定してください: {kind:?}"
                 )));
             }
@@ -383,7 +479,7 @@ impl _Document {
             self.doc
                 .save(path)
                 .map(|_| ())
-                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))
+                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
         })
     }
 
@@ -393,7 +489,7 @@ impl _Document {
             let mut buffer = Vec::new();
             self.doc
                 .save_to(&mut buffer)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PdfError::new_err(e.to_string()))?;
             Ok(buffer)
         })
     }
@@ -406,15 +502,15 @@ impl _Document {
         self.invalidate_hayro_pdf();
         py.detach(|| {
             let file = std::fs::File::create(path)
-                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))?;
+                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
             let mut writer = std::io::BufWriter::new(file);
             self.doc
                 .save_with_options(&mut writer, modern_save_options())
-                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))?;
+                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
             writer
                 .into_inner()
                 .map(|_| ())
-                .map_err(|e| PyValueError::new_err(format!("failed to save {path}: {e}")))
+                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
         })
     }
 
@@ -425,7 +521,7 @@ impl _Document {
             let mut buffer = Vec::new();
             self.doc
                 .save_with_options(&mut buffer, modern_save_options())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PdfError::new_err(e.to_string()))?;
             Ok(buffer)
         })
     }
@@ -530,7 +626,7 @@ impl _Document {
         let mut seen = std::collections::HashSet::new();
         for number in &page_numbers {
             if !seen.insert(*number) {
-                return Err(PyValueError::new_err(format!(
+                return Err(PdfError::new_err(format!(
                     "ページ {number} が重複しています（複製は未対応）"
                 )));
             }
@@ -544,7 +640,7 @@ impl _Document {
         for number in &page_numbers {
             let page_id = *pages
                 .get(number)
-                .ok_or_else(|| PyValueError::new_err(format!("ページ {number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
             let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
             dict.set("Parent", pages_id);
             selected.push((page_id, dict));
@@ -554,7 +650,7 @@ impl _Document {
             .iter()
             .map(|(id, _)| Object::Reference(*id))
             .collect();
-        let count = i64::try_from(kids.len()).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let count = i64::try_from(kids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
         for (id, dict) in selected {
             self.doc.objects.insert(id, Object::Dictionary(dict));
         }
@@ -582,9 +678,7 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<Vec<u8>> {
         if !scale.is_finite() || scale <= 0.0 {
-            return Err(PyValueError::new_err(
-                "scale は有限の正の値で指定してください",
-            ));
+            return Err(PdfError::new_err("scale は有限の正の値で指定してください"));
         }
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
@@ -594,7 +688,7 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| {
-                    PyValueError::new_err(format!("ページ {page_number} は存在しません"))
+                    PdfError::new_err(format!("ページ {page_number} は存在しません"))
                 })?;
             let (page_width, page_height) = page.render_dimensions();
             let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
@@ -604,18 +698,18 @@ impl _Document {
                 || pixel_width < 1.0
                 || pixel_height < 1.0
             {
-                return Err(PyValueError::new_err(
+                return Err(PdfError::new_err(
                     "scale が小さすぎるか、PDF のページサイズが不正です",
                 ));
             }
             if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
-                return Err(PyValueError::new_err(format!(
+                return Err(PdfError::new_err(format!(
                     "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
                 )));
             }
             let total_pixels = (pixel_width as u64) * (pixel_height as u64);
             if total_pixels > MAX_RENDER_PIXELS {
-                return Err(PyValueError::new_err(format!(
+                return Err(PdfError::new_err(format!(
                     "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
                 )));
             }
@@ -631,7 +725,7 @@ impl _Document {
             let pixmap = render(page, &cache, &interpreter_settings, &render_settings);
             pixmap
                 .into_png()
-                .map_err(|e| PyValueError::new_err(format!("failed to encode PNG: {e:?}")))
+                .map_err(|e| PdfError::new_err(format!("failed to encode PNG: {e:?}")))
         })
     }
 
@@ -644,9 +738,7 @@ impl _Document {
             let page = page_number
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| {
-                    PyValueError::new_err(format!("ページ {page_number} は存在しません"))
-                })?;
+                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
             let cache = hayro_svg::RenderCache::new();
             let settings = hayro_svg::SvgRenderSettings::default();
             Ok(hayro_svg::convert(

@@ -10,7 +10,7 @@ import functools
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pylopdf.pylopdf_core import _Document
+from pylopdf.pylopdf_core import PasswordError, PdfError, _Document
 
 if TYPE_CHECKING:
     import os
@@ -19,7 +19,23 @@ if TYPE_CHECKING:
     from typing import Self
 
 __version__ = "0.5.0"
-__all__ = ["Document", "open"]
+__all__ = [
+    "Document",
+    "DocumentClosedError",
+    "EncryptedDocumentError",
+    "PasswordError",
+    "PdfError",
+    "open",
+    "peek_metadata",
+]
+
+
+class DocumentClosedError(PdfError):
+    """閉じた Document への操作。"""
+
+
+class EncryptedDocumentError(PdfError):
+    """未復号の暗号化 PDF への操作。password 引数か authenticate() で復号する。"""
 
 
 @functools.cache
@@ -85,26 +101,33 @@ class Document:
         filename: str | os.PathLike[str] | None = None,
         stream: bytes | None = None,
         password: str | None = None,
+        max_decompressed_size: int | None = None,
     ) -> None:
         """filename（パス）か stream（バイト列)のどちらか一方から開く。両方 None なら空ドキュメント。
 
         暗号化 PDF は user password 空なら自動復号される。それ以外は password を
         指定するか、開いた後に :meth:`authenticate` を呼ぶ。
+        max_decompressed_size は 1 ストリームあたりの展開上限バイト数
+        （信頼できない PDF の解凍爆弾対策。None で無制限）。
         """
         if filename is not None and stream is not None:
             msg = "filename と stream は同時に指定できません"
             raise ValueError(msg)
+        if max_decompressed_size is not None and max_decompressed_size <= 0:
+            msg = f"max_decompressed_size は正の整数で指定してください: {max_decompressed_size!r}"
+            raise ValueError(msg)
         path = None if filename is None else str(filename)
+        self._max_decompressed_size = max_decompressed_size
         if stream is not None:
-            doc = _Document.load_bytes(stream)
+            doc = _Document.load_bytes(stream, None, max_decompressed_size)
             needs_pass = doc.is_encrypted()
             if needs_pass and password is not None:
-                doc = _Document.load_bytes_with_password(stream, password)
+                doc = _Document.load_bytes(stream, password, max_decompressed_size)
         elif path is not None:
-            doc = _Document.load(path)
+            doc = _Document.load(path, None, max_decompressed_size)
             needs_pass = doc.is_encrypted()
             if needs_pass and password is not None:
-                doc = _Document.load_with_password(path, password)
+                doc = _Document.load(path, password, max_decompressed_size)
         else:
             doc = _Document()
             needs_pass = False
@@ -147,9 +170,9 @@ class Document:
             return 0
         # オブジェクトストリーム内のオブジェクトも読めるよう、パスワード付きで開き直す
         if self._source_path is not None:
-            self._doc = _Document.load_with_password(self._source_path, password)
+            self._doc = _Document.load(self._source_path, password, self._max_decompressed_size)
         elif self._source_bytes is not None:
-            self._doc = _Document.load_bytes_with_password(self._source_bytes, password)
+            self._doc = _Document.load_bytes(self._source_bytes, password, self._max_decompressed_size)
         self._source_path = None
         self._source_bytes = None
         return code
@@ -328,7 +351,7 @@ class Document:
         """閉じたドキュメントへの操作を防ぐ。"""
         if self._closed:
             msg = "document closed"
-            raise ValueError(msg)
+            raise DocumentClosedError(msg)
 
     def _ensure_open(self) -> None:
         """閉じた・未復号のドキュメントへの操作を防ぐ。
@@ -339,7 +362,7 @@ class Document:
         self._ensure_not_closed()
         if self._doc.is_encrypted():
             msg = "暗号化された PDF です。password 引数を付けて開くか authenticate() を呼んでください"
-            raise ValueError(msg)
+            raise EncryptedDocumentError(msg)
 
     def _lopdf_page_number(self, pno: int) -> int:
         """0 始まりのページ番号を検証し、lopdf の 1 始まりへ変換する。"""
@@ -373,6 +396,37 @@ def open(  # noqa: A001
     filename: str | os.PathLike[str] | None = None,
     stream: bytes | None = None,
     password: str | None = None,
+    max_decompressed_size: int | None = None,
 ) -> Document:
     """:class:`Document` を開く。``pylopdf.open(...)`` は ``Document(...)`` と同じ。"""
-    return Document(filename=filename, stream=stream, password=password)
+    return Document(
+        filename=filename,
+        stream=stream,
+        password=password,
+        max_decompressed_size=max_decompressed_size,
+    )
+
+
+def peek_metadata(
+    filename: str | os.PathLike[str] | None = None,
+    stream: bytes | None = None,
+    password: str | None = None,
+) -> dict[str, str | int | bool]:
+    """文書全体をパースせずに、メタデータとページ数だけを高速に読み取る。
+
+    戻り値は :attr:`Document.metadata` と同じキー（title, author, subject,
+    keywords, creator, producer, creationDate, modDate, format）に、
+    page_count（int）と encrypted（bool）を加えた辞書。大量の PDF の走査に向く。
+    """
+    if (filename is None) == (stream is None):
+        msg = "filename と stream はどちらか一方だけを指定してください"
+        raise ValueError(msg)
+    if stream is not None:
+        raw, page_count, version, encrypted = _Document.load_metadata_bytes(stream, password)
+    else:
+        raw, page_count, version, encrypted = _Document.load_metadata(str(filename), password)
+    result: dict[str, str | int | bool] = {key: raw.get(pdf_key, "") for key, pdf_key in _METADATA_KEYS.items()}
+    result["format"] = f"PDF {version}"
+    result["page_count"] = page_count
+    result["encrypted"] = encrypted
+    return result

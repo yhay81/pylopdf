@@ -52,6 +52,24 @@ def test_open_with_wrong_password_raises(name: str) -> None:
 
 
 @USER
+def test_wrong_password_is_password_error(name: str) -> None:
+    """パスワード起因の失敗は PasswordError で捕捉できる（ValueError 互換）。"""
+    with pytest.raises(pylopdf.PasswordError):
+        pylopdf.open(ASSETS / name, password="wrong")
+
+
+def test_unauthenticated_use_is_encrypted_document_error() -> None:
+    doc = pylopdf.open(ASSETS / "user-aes-256.pdf")
+    with pytest.raises(pylopdf.EncryptedDocumentError):
+        _ = doc.page_count
+
+
+def test_peek_metadata_reports_encrypted_flag() -> None:
+    meta = pylopdf.peek_metadata(ASSETS / "user-aes-256.pdf")
+    assert meta["encrypted"] is True
+
+
+@USER
 def test_authenticate(name: str) -> None:
     doc = pylopdf.open(ASSETS / name)
     assert doc.authenticate("wrong") == 0

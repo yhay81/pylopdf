@@ -56,6 +56,22 @@ def test_metadata_format(case: Case) -> None:
     assert doc.metadata["format"] == case.version
 
 
+@ALL
+def test_peek_metadata_matches_full_load(case: Case) -> None:
+    """高速パス peek_metadata がフルロードと同じページ数を返す。"""
+    meta = pylopdf.peek_metadata(ASSETS / case.name)
+    assert meta["page_count"] == case.pages
+    assert meta["encrypted"] is False
+
+
+def test_max_decompressed_size_guards_against_bombs() -> None:
+    """object stream を含む PDF は、極端に小さい展開上限だとロードを拒否する。"""
+    path = ASSETS / "f1040.pdf"
+    with pytest.raises(pylopdf.PdfError, match="limit"):
+        pylopdf.open(path, max_decompressed_size=100)
+    assert pylopdf.open(path, max_decompressed_size=50_000_000).page_count == 2
+
+
 @WITH_TEXT
 def test_extract_text_page0(case: Case) -> None:
     assert case.snippet is not None

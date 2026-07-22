@@ -151,6 +151,37 @@ def test_tobytes(one_page_pdf: bytes) -> None:
     assert data.startswith(b"%PDF-")
 
 
+def test_exception_hierarchy(one_page_pdf: bytes) -> None:
+    """新設の例外は既存の ValueError 捕捉と後方互換。"""
+    assert issubclass(pylopdf.PdfError, ValueError)
+    assert issubclass(pylopdf.PasswordError, pylopdf.PdfError)
+    assert issubclass(pylopdf.DocumentClosedError, pylopdf.PdfError)
+    assert issubclass(pylopdf.EncryptedDocumentError, pylopdf.PdfError)
+    doc = pylopdf.Document(stream=one_page_pdf)
+    doc.close()
+    with pytest.raises(pylopdf.DocumentClosedError):
+        _ = doc.page_count
+
+
+def test_broken_pdf_raises_pdf_error() -> None:
+    with pytest.raises(pylopdf.PdfError):
+        pylopdf.Document(stream=b"%PDF-1.4 broken garbage")
+
+
+def test_peek_metadata_stream(three_page_pdf: bytes) -> None:
+    meta = pylopdf.peek_metadata(stream=three_page_pdf)
+    assert meta["page_count"] == 3
+    assert meta["encrypted"] is False
+    assert meta["format"] == "PDF 1.4"
+
+
+def test_peek_metadata_requires_exactly_one_source(one_page_pdf: bytes) -> None:
+    with pytest.raises(ValueError, match="どちらか一方"):
+        pylopdf.peek_metadata()
+    with pytest.raises(ValueError, match="どちらか一方"):
+        pylopdf.peek_metadata("a.pdf", one_page_pdf)
+
+
 def test_context_manager_closes(one_page_pdf: bytes) -> None:
     with pylopdf.Document(stream=one_page_pdf) as doc:
         assert doc.page_count == 1
