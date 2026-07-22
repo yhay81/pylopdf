@@ -55,6 +55,17 @@ def test_metadata_unknown_key_raises(one_page_pdf: bytes) -> None:
         doc.set_metadata({"format": "PDF 2.0"})
 
 
+def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="不明なメタデータキー"):
+        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})
+    assert doc.metadata["title"] == ""
+
+    with pytest.raises(TypeError, match="文字列"):
+        doc.set_metadata({"author": "変更されない", "title": 42})  # type: ignore[dict-item]
+    assert doc.metadata["author"] == ""
+
+
 def test_get_page_text(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     assert "Page two" in doc.get_page_text(1)

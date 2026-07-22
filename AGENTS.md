@@ -33,6 +33,15 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
   編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
   不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）
 - 重い処理（load / save / render / 抽出 / merge / 圧縮）は `Python::detach` で GIL を解放している
+- `Page` は Document への軽量ビュー + 世代番号（`_generation`）。ページ構造を変える
+  Python メソッドを足したら必ず `_bump_generation()` を呼ぶ（忘れると古い Page が
+  黙って別のページを指す）。構造変更後の古い Page は StalePageError
+- 例外は Rust 定義の `PdfError`（ValueError 互換の基底）/ `PasswordError` と、
+  Python 定義の `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError`。
+  新しいエラーは PdfError 系に載せる（素の ValueError を増やさない）
+- 暗号化保存（save の user_pw/owner_pw）は clone に対して encrypt するため、
+  メモリ上のドキュメントは常に平文。鍵は Python 側 os.urandom(32) で生成する
+- TOC（get_toc/set_toc）のページ番号だけは pymupdf 互換の 1 始まり（他 API は 0 始まり）
 - 暗号化 PDF: user password 空は lopdf がロード時に自動復号。それ以外は password 引数か
   authenticate()（内部はパスワード付き開き直し）。未復号のまま操作すると 0 ページに
   見えるため、_ensure_open が is_encrypted を検査して明確なエラーにする
@@ -74,8 +83,8 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 中期計画の正本は [ROADMAP.md](ROADMAP.md)（2026-07-22 の市場・upstream 調査に基づく。
 戦略・リリース計画 v0.6〜v1.0・スコープ外の宣言を含む）。
 
-- 現在のフェーズ: 0.5.x の基盤強化（レンダリングキャッシュ・GIL 解放・
-  保存/描画オプション）→ v0.6「ページ操作と保存の完成」
+- 現在のフェーズ: v0.6「ページ操作と保存の完成」の実装完了（2026-07-23、未リリース）。
+  次: v0.6.0 リリース → v0.7「hayro Device による位置付きテキスト抽出」
 - lopdf#535（コメント + インデント行で抽出が空になる）は xfail で追跡中。
   v0.7 の hayro ベース抽出エンジンへの置き換えで根本解消する予定
 - 完了済みの履歴は CHANGELOG.md を参照

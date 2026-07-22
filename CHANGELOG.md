@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported upstream as [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535)
 
 ### Fixed
+- Built a valid Catalog and empty page tree for newly created documents, so
+  saving a zero-page document no longer emits a PDF without a trailer `/Root`
+- Recomputed page-tree `/Count` from reachable pages when appending, repairing
+  stale counts in input PDFs instead of propagating them to merged output
+- Validated complete metadata updates before applying them, preventing partial
+  changes when a later key or value is invalid
+- Made `validate-pyproject` UTF-8-safe on Windows, enabled complete dependency
+  validation, and added the metadata check to CI
 - Prevented object-ID collisions when inserting real-world PDFs into an empty
   document, including the empty-source edge case
 - Rejected cyclic inherited page parents instead of hanging indefinitely

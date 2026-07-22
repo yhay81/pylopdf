@@ -369,23 +369,27 @@ impl _Document {
 
     /// root Pages の Kids/Count に new_ids を追記する（末尾追加の高速パス。平坦化しない）。
     fn append_pages(&mut self, pages_id: ObjectId, new_ids: Vec<ObjectId>) -> PyResult<()> {
-        let added = i64::try_from(new_ids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+        // 入力 PDF の Count は壊れていることがあるため、実際に到達可能なページ数から再計算する。
+        // new_ids はまだ Kids から参照されていないので、ここでの get_pages は既存ページだけを返す。
+        let total_count = self
+            .doc
+            .get_pages()
+            .len()
+            .checked_add(new_ids.len())
+            .ok_or_else(|| PdfError::new_err("ページ数が上限に達しています"))?;
+        let count = i64::try_from(total_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let pages_dict = self
             .doc
             .get_object_mut(pages_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
-        let old_count = pages_dict
-            .get(b"Count")
-            .and_then(Object::as_i64)
-            .unwrap_or(0);
         let mut kids = match pages_dict.get(b"Kids").and_then(Object::as_array) {
             Ok(kids) => kids.clone(),
             Err(_) => Vec::new(),
         };
         kids.extend(new_ids.into_iter().map(Object::Reference));
         pages_dict.set("Kids", kids);
-        pages_dict.set("Count", old_count + added);
+        pages_dict.set("Count", count);
         Ok(())
     }
 
@@ -459,8 +463,10 @@ impl _Document {
 impl _Document {
     /// 空の PDF ドキュメントを作る。
     #[new]
-    fn new() -> Self {
-        Self::from_doc(Document::with_version("1.7"))
+    fn new() -> PyResult<Self> {
+        let mut document = Self::from_doc(Document::with_version("1.7"));
+        document.ensure_page_tree().map_err(to_py_err)?;
+        Ok(document)
     }
 
     /// ファイルパスから読み込む。

@@ -50,9 +50,7 @@ class Permissions(enum.IntFlag):
     COPY_FOR_ACCESSIBILITY = 1 << 9
     ASSEMBLE = 1 << 10
     PRINT_HIGH_QUALITY = 1 << 11
-    ALL = (
-        PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
-    )
+    ALL = PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
 
 
 class DocumentClosedError(PdfError):
@@ -387,11 +385,17 @@ class Document:
         キーは :attr:`metadata` と同じ（format は読み取り専用のため不可）。
         """
         self._ensure_open()
+        updates: list[tuple[str, str]] = []
         for key, value in metadata.items():
             pdf_key = _METADATA_KEYS.get(key)
             if pdf_key is None:
                 msg = f"不明なメタデータキー: {key!r}（有効: {sorted(_METADATA_KEYS)}）"
                 raise ValueError(msg)
+            if not isinstance(value, str):
+                msg = f"メタデータ値は文字列で指定してください: {key!r}={value!r}"
+                raise TypeError(msg)
+            updates.append((pdf_key, value))
+        for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
 
     def get_page_text(self, pno: int) -> str:

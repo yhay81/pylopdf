@@ -11,6 +11,15 @@ def test_new_document_is_empty() -> None:
     assert doc.version() == "1.7"
 
 
+def test_new_document_saves_valid_minimum_structure() -> None:
+    data = _Document().save_bytes()
+    assert b"/Root" in data
+    assert b"/Type/Catalog" in data
+    assert b"/Type/Pages" in data
+    assert b"/Count 0" in data
+    assert _Document.load_bytes(data).page_count() == 0
+
+
 def test_load_bytes_and_page_count(three_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(three_page_pdf)
     assert doc.page_count() == 3
@@ -104,3 +113,17 @@ def test_merge_empty_then_nonempty(three_page_pdf: bytes) -> None:
     doc.merge(_Document.load_bytes(three_page_pdf))
     assert doc.page_count() == 3
     assert _Document.load_bytes(doc.save_bytes()).page_count() == 3
+
+
+def test_merge_repairs_incorrect_page_count(one_page_pdf: bytes) -> None:
+    """入力の Count が不正でも、結合後は実ページ数へ正規化する。"""
+    broken_count = one_page_pdf.replace(b"/Count 1", b"/Count 9")
+    doc = _Document.load_bytes(broken_count)
+    assert doc.page_count() == 1
+
+    doc.merge(_Document.load_bytes(one_page_pdf))
+    data = doc.save_bytes()
+
+    assert doc.page_count() == 2
+    assert b"/Count 2" in data
+    assert b"/Count 10" not in data

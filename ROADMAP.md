@@ -47,17 +47,19 @@ Python PDF エコシステム）に基づく中期計画の正本。
 - [ ] 発見可能性の続き: README 比較表への暗号化/CJK 行追加、
       py-pdf/benchmarks への参加検討、Zenn/Qiita 等での発信
 
-### v0.6 — ページ操作と保存の完成
+### v0.6 — ページ操作と保存の完成（実装完了 2026-07-23、リリース準備中）
 
-- Page オブジェクト（`doc[i]` / イテレーション。以後のすべての API の置き場）
-- ページ回転・MediaBox/CropBox の取得/設定
-- `insert_pdf` の範囲指定（from_page / to_page / start_at）、`new_page`、
-  ページ複製（select の重複制限解消）
-- TOC 読み書き（`get_toc` / `set_toc`。lopdf の get_toc / add_bookmark / build_outline）
-- 保存時暗号化（`Document::encrypt`、AES-256 + Permissions ビットフラグ）
-- 例外階層（PasswordError / PageIndexError など。ValueError 一辺倒からの脱却）
-- `load_metadata` 高速パス（全体パース無しのメタデータ走査）、
-  LoadOptions の解凍爆弾対策（max_decompressed_size）の公開
+- [x] Page オブジェクト（`doc[i]` / 負数インデックス / イテレーション。世代管理で
+      構造変更後の古い Page を StalePageError に）
+- [x] ページ回転・MediaBox/CropBox の取得/設定（継承・間接参照解決付き）
+- [x] `insert_pdf` の範囲指定（from_page / to_page / start_at、逆順可）、`new_page`、
+      `copy_page`、select の重複指定によるページ複製
+- [x] TOC 読み書き（`get_toc` / `set_toc`。ページ番号は pymupdf 互換の 1 始まり）
+- [x] 保存時暗号化（AES-256 V5/R6 + Permissions。元ドキュメントは平文のまま）
+- [x] 例外階層（PdfError 基底 = ValueError 互換、PasswordError / DocumentClosedError /
+      EncryptedDocumentError / StalePageError）
+- [x] `peek_metadata`（全体パース無しの高速メタデータ）、
+      `max_decompressed_size`（解凍爆弾対策）の公開
 
 ### v0.7 — 位置付きテキスト抽出（最大の差別化）
 
