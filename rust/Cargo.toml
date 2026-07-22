@@ -20,4 +20,5 @@ lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "r
 # embed-fonts: 標準 14 フォントの代替を同梱し、フォント未解決でも文字が描画されるようにする
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
-pyo3 = { version = "0.29.0", features = ["abi3-py310"] }
+# generate-import-lib: Python の無いコンテナ/クロス環境でも Windows 向けビルドを可能にする
+pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
