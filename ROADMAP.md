@@ -65,7 +65,7 @@ Python PDF エコシステム）に基づく中期計画の正本。
 - [x] `peek_metadata`（全体パース無しの高速メタデータ）、
       `max_decompressed_size`（解凍爆弾対策）の公開
 
-### v0.7 — 位置付きテキスト抽出（最大の差別化）
+### v0.7 — 位置付きテキスト抽出（v0.7.0 として 2026-07-23 リリース済み）
 
 - hayro-interpret の Device 実装による抽出エンジン（lopdf extract_text から置き換え）
   - `get_text("text" / "words" / "blocks" / "dict")`、`search_for → list[Rect]`
