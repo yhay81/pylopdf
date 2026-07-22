@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-23
+
 ### Added
 - Markdown conversion (first cut): `Document.to_markdown(pages=None)` and
   `Page.to_markdown()` convert extracted layout to Markdown for RAG / LLM
