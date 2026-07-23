@@ -218,9 +218,7 @@ def test_insert_text_multiline_stacks_downward() -> None:
     assert words["Second"][1] > words["First"][1]  # 2 行目は下
 
 
-def test_insert_text_on_rotated_page_draws_at_display_position() -> None:
-    # 抽出エンジンは回転ページの読み順に未対応のため（ROADMAP 並走課題）、
-    # 回転ページへの印字はレンダリング画素で検証する
+def test_insert_text_on_rotated_page_reads_upright() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=200)
     page = doc[0]
@@ -228,14 +226,25 @@ def test_insert_text_on_rotated_page_draws_at_display_position() -> None:
     page.insert_text((20, 50), "Rotated")
     pix = page.get_pixmap(background=WHITE)
     assert (pix.width, pix.height) == (200, 100)  # レンダリングは表示空間
-    dark = [(i % pix.stride // 4, i // pix.stride) for i in range(0, len(pix.samples), 4) if pix.samples[i] < 128]
-    assert dark, "テキストが描画されていない"
-    xs = [p[0] for p in dark]
-    ys = [p[1] for p in dark]
-    # 表示座標 (20, 50) をベースライン起点とした行の範囲に収まっている
-    assert 15 <= min(xs) <= 25
-    assert min(ys) >= 35
-    assert max(ys) <= 55
+    # 抽出・検索もレンダリングと同じ表示空間（回転解決済み）で返る
+    words = page.get_text("words")
+    assert [w[4] for w in words] == ["Rotated"]
+    assert abs(words[0][0] - 20) < 2  # 指定した表示 x
+    assert words[0][1] < 50 < words[0][3]  # 指定した表示 y はベースラインとして縦範囲内
+    assert page.search_for("Rotated")
+
+
+def test_get_images_bbox_on_rotated_page_is_display_space() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=100, height=200)
+    page = doc[0]
+    page.set_rotation(90)
+    page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    bbox = page.get_images()[0]["bbox"]
+    assert abs(bbox.x0 - 150) < 1
+    assert abs(bbox.y0 - 25) < 1
+    assert abs(bbox.x1 - 190) < 1
+    assert abs(bbox.y1 - 75) < 1
 
 
 def test_insert_text_survives_save_roundtrip() -> None:

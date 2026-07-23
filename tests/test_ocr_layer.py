@@ -81,6 +81,17 @@ def test_ocr_layer_accepts_get_text_words_shape() -> None:
     assert extracted == {"Roundtrip", "works"}
 
 
+def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=100, height=200)
+    page = doc[0]
+    page.set_rotation(90)  # 表示は 200x100
+    page.insert_ocr_text_layer([(120, 30, 180, 50, "回転ページ")])
+    hits = page.search_for("回転ページ")
+    assert hits
+    assert abs(hits[0].x0 - 120) < 5  # 指定した表示座標の近傍で見つかる
+
+
 def test_ocr_layer_rejects_empty() -> None:
     doc = _blank_page_doc()
     with pytest.raises(ValueError, match="words"):

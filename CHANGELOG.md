@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Extraction, search, positioned layout (words/blocks/dict) and image bboxes on
+  **rotated pages** now come out in display space with the rotation resolved,
+  matching rendering: the extraction Context receives the same
+  `initial_transform` as hayro's renderer instead of a manual y-flip. Reading
+  order on rotated pages is fixed as a result (previously each glyph landed on
+  its own line, bottom-to-top), and pages with a non-zero CropBox origin get
+  correctly offset coordinates too. The OCR text layer and `to_markdown` benefit
+  on rotated scans as well
+
 ### Added
 - Reproducible benchmark harness (`bench/run.py`, optional `bench` dependency
   group): same corpus / same tasks / medians against pymupdf, pypdf and

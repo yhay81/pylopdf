@@ -36,7 +36,9 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
   get_text("words"/"blocks"/"dict") と search_for も同じグリフ収集の上に載る。
   CJK 代替フォント設定は抽出にも反映され、不可視テキスト（OCR レイヤー）も対象。
   注意: hayro のグリフ空間は 1000 upem 正規化のため、フォントサイズは変換係数 × 1000。
-  bbox の縦方向はベースライン ± サイズ比の近似。縦書きの読み順は未対応
+  bbox の縦方向はベースライン ± サイズ比の近似。抽出座標はレンダリングと同じ表示空間
+  （Context にレンダラと同じ initial_transform(true) を渡す = ページ回転・CropBox
+  オフセット解決済み）。縦書きの読み順は未対応
 - レンダリングは save_bytes → hayro 再パースの結果を `_Document.hayro_pdf` にキャッシュし、
   編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
   不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）

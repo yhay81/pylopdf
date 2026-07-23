@@ -9,13 +9,14 @@ use hayro::hayro_interpret::font::Glyph;
 use hayro::hayro_interpret::hayro_cmap::BfString;
 use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
-    InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, interpret_page,
+    InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Point, Rect};
 
-/// 収集した 1 グリフ分の情報。座標は「左上原点・下向き y」のページ座標。
+/// 収集した 1 グリフ分の情報。座標は「左上原点・下向き y」の表示座標
+/// （レンダリングと同じ initial_transform 適用後の空間。ページ回転も解決済み）。
 struct GlyphRecord {
     /// グリフの Unicode 表現（合字は複数文字になる）
     text: String,
@@ -34,7 +35,6 @@ struct GlyphRecord {
 /// グリフを収集するだけの Device 実装。描画系の命令はすべて無視する。
 struct TextCollector {
     glyphs: Vec<GlyphRecord>,
-    page_height: f64,
 }
 
 impl Device<'_> for TextCollector {
@@ -90,10 +90,12 @@ impl Device<'_> for TextCollector {
         if !origin.x.is_finite() || !origin.y.is_finite() {
             return;
         }
+        // Context の基底変換（initial_transform）が y 反転と回転を済ませているため、
+        // 変換後の座標がそのまま表示空間（左上原点・下向き y）になる
         self.glyphs.push(GlyphRecord {
             text,
             x: origin.x,
-            y: self.page_height - origin.y,
+            y: origin.y,
             size,
             advance,
             font_key,
@@ -366,7 +368,6 @@ pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
 /// 画像を収集するだけの Device 実装。
 struct ImageCollector {
     images: Vec<ImageTuple>,
-    page_height: f64,
 }
 
 /// JPEG マジックナンバー（SOI マーカー）。
@@ -394,12 +395,13 @@ fn try_jpeg_passthrough(stream: &hayro::hayro_syntax::object::Stream<'_>) -> Opt
     data.starts_with(&JPEG_MAGIC).then_some(data)
 }
 
-/// 画像のピクセル矩形を transform で写した外接矩形を、左上原点の bbox で返す。
+/// 画像のピクセル矩形を transform で写した外接矩形を、表示空間の bbox で返す。
 ///
 /// hayro は draw_image の直前に「ピクセル空間（上原点、0..幅 × 0..高さ）→
 /// PDF の単位正方形」の変換を pre-concat しているため、transform には
-/// ピクセル座標の四隅をそのまま渡す。
-fn image_bbox(transform: Affine, width: f64, height: f64, page_height: f64) -> BBox {
+/// ピクセル座標の四隅をそのまま渡す。基底変換（initial_transform）が
+/// y 反転と回転を済ませているので、結果はそのまま表示座標になる。
+fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
     let mut x1 = f64::NEG_INFINITY;
@@ -408,8 +410,8 @@ fn image_bbox(transform: Affine, width: f64, height: f64, page_height: f64) -> B
         let p = transform * Point::new(px, py);
         x0 = x0.min(p.x);
         x1 = x1.max(p.x);
-        y0 = y0.min(page_height - p.y);
-        y1 = y1.max(page_height - p.y);
+        y0 = y0.min(p.y);
+        y1 = y1.max(p.y);
     }
     (x0, y0, x1, y1)
 }
@@ -497,7 +499,6 @@ impl Device<'_> for ImageCollector {
             transform,
             f64::from(image.width()),
             f64::from(image.height()),
-            self.page_height,
         );
         match image {
             Image::Raster(raster) => {
@@ -542,6 +543,26 @@ impl Device<'_> for ImageCollector {
     }
 }
 
+/// 抽出用の Context を組み立てる。
+///
+/// レンダラ（hayro::render）と同じく `initial_transform(true)` を基底に渡すことで、
+/// Device が受け取る座標が表示空間（左上原点・回転解決済み）になる。
+fn extraction_context<'a>(
+    pdf: &'a Pdf,
+    page: &Page<'a>,
+    cache: &'a InterpreterCache<'a>,
+    settings: InterpreterSettings,
+) -> Context<'a> {
+    let (width, height) = page.render_dimensions();
+    Context::new(
+        page.initial_transform(true).to_kurbo(),
+        Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
+        cache,
+        pdf.xref(),
+        settings,
+    )
+}
+
 /// 指定ページ上に描画される画像を抽出する。
 pub(crate) fn extract_page_images(
     pdf: &Pdf,
@@ -549,18 +570,8 @@ pub(crate) fn extract_page_images(
     settings: InterpreterSettings,
 ) -> Vec<ImageTuple> {
     let cache = InterpreterCache::new();
-    let mut context = Context::new(
-        Affine::IDENTITY,
-        Rect::new(0.0, 0.0, 1.0, 1.0),
-        &cache,
-        pdf.xref(),
-        settings,
-    );
-    let (_, page_height) = page.render_dimensions();
-    let mut collector = ImageCollector {
-        images: Vec::new(),
-        page_height: f64::from(page_height),
-    };
+    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut collector = ImageCollector { images: Vec::new() };
     interpret_page(page, &mut context, &mut collector);
     collector.images
 }
@@ -568,18 +579,8 @@ pub(crate) fn extract_page_images(
 /// ページを解釈してグリフ列を収集する。
 fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Vec<GlyphRecord> {
     let cache = InterpreterCache::new();
-    let mut context = Context::new(
-        Affine::IDENTITY,
-        Rect::new(0.0, 0.0, 1.0, 1.0),
-        &cache,
-        pdf.xref(),
-        settings,
-    );
-    let (_, page_height) = page.render_dimensions();
-    let mut collector = TextCollector {
-        glyphs: Vec::new(),
-        page_height: f64::from(page_height),
-    };
+    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut collector = TextCollector { glyphs: Vec::new() };
     interpret_page(page, &mut context, &mut collector);
     collector.glyphs
 }
