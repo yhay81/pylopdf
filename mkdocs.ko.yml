@@ -1,18 +1,18 @@
 site_name: pylopdf
-site_url: https://yhay81.github.io/pylopdf/
-site_description: Python-native PDF editing, extraction and rendering, powered by Rust. MIT licensed, zero runtime dependencies, lightweight wheels.
+site_url: https://yhay81.github.io/pylopdf/ko/
+site_description: Rust를 핵심으로 한 Python다운 PDF 편집, 추출, 렌더링 라이브러리. MIT 라이선스, 런타임 의존성 없음, 경량 wheel.
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
 repo_name: yhay81/pylopdf
-edit_uri: edit/main/docs/en/
-docs_dir: docs/en
-site_dir: site
+edit_uri: edit/main/docs/ko/
+docs_dir: docs/ko
+site_dir: site/ko
 
 theme:
   name: material
   variant: modern
-  language: en
+  language: ko
   custom_dir: docs/overrides
   font: false
   icon:
@@ -44,27 +44,27 @@ theme:
       accent: custom
       toggle:
         icon: material/weather-night
-        name: Switch to dark mode
+        name: 다크 모드로 전환
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: custom
       accent: custom
       toggle:
         icon: material/weather-sunny
-        name: Switch to light mode
+        name: 라이트 모드로 전환
 
 nav:
-  - Home: index.md
-  - Guide:
-      - Getting started: getting-started.md
-      - Ecosystem recipes: ecosystem.md
-      - Migrating from pymupdf: migration.md
+  - 홈: index.md
+  - 가이드:
+      - 시작하기: getting-started.md
+      - 생태계 연동: ecosystem.md
+      - pymupdf에서 이전: migration.md
   - API: api.md
-  - Project:
-      - Benchmarks: benchmarks.md
-      - Security: security.md
-      - Languages: languages.md
-  - Changelog: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
+  - 프로젝트:
+      - 벤치마크: benchmarks.md
+      - 보안: security.md
+      - 언어 정책: languages.md
+  - 변경 이력: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition
@@ -85,8 +85,8 @@ plugins:
   - search
 
 extra:
-  current_language: en
-  announcement: "pylopdf 0.9.0 · OCR layers, Markdown conversion, forms and PDF/A claim reading"
+  current_language: ko
+  announcement: "pylopdf 0.9.0 · OCR 비가시 텍스트 레이어, Markdown 변환, 폼 입력, PDF/A 선언 읽기"
   announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.9.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
   alternate:
@@ -105,7 +105,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/yhay81/pylopdf
-      name: pylopdf on GitHub
+      name: GitHub의 pylopdf
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/pylopdf/
-      name: pylopdf on PyPI
+      name: PyPI의 pylopdf

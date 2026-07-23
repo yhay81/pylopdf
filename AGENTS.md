@@ -20,9 +20,10 @@ API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.
 - `uv sync --group bench && uv run python bench/run.py` — 再現可能ベンチマーク
   （結果は bench/results/latest.md。勝ち負け両方掲載の方針）
 - `uv sync --group docs && uv run zensical serve -f mkdocs.yml` — 英語ドキュメントを
-  Zensical でプレビュー（日本語は `-f mkdocs.ja.yml -a localhost:8001`）。
-  `docs/en` / `docs/ja` を順にビルドし、main へ push すると docs.yml が GitHub Pages へ
-  自動デプロイ
+  Zensical でプレビュー。言語別設定は `mkdocs.ja.yml` / `mkdocs.zh-cn.yml` /
+  `mkdocs.ko.yml`。本番と同じ検証は 4 設定を EN → JA → zh-CN → KO の順で
+  `uv run --no-sync zensical build -f <config> -c -s` し、main へ push すると
+  docs.yml が GitHub Pages へ自動デプロイ
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets` / `cargo fmt --manifest-path rust/Cargo.toml`
 - Rust の単体テストは書かない方針。挙動はすべて Python テスト（tests/）で検証する
 - 実世界 PDF の回帰テストは tests/test_real_world.py。コーパスの出典・ライセンス・既知の限界は

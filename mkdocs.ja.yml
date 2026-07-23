@@ -63,6 +63,7 @@ nav:
   - プロジェクト:
       - ベンチマーク: benchmarks.md
       - セキュリティ: security.md
+      - 言語ポリシー: languages.md
   - 変更履歴: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
@@ -84,6 +85,7 @@ plugins:
   - search
 
 extra:
+  current_language: ja
   announcement: "pylopdf 0.9.0 · OCR不可視層、Markdown変換、フォーム記入、PDF/A宣言読み取り"
   announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.9.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
@@ -94,6 +96,12 @@ extra:
     - name: 日本語
       link: https://yhay81.github.io/pylopdf/ja/
       lang: ja
+    - name: 简体中文
+      link: https://yhay81.github.io/pylopdf/zh-cn/
+      lang: zh-Hans
+    - name: 한국어
+      link: https://yhay81.github.io/pylopdf/ko/
+      lang: ko
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/yhay81/pylopdf

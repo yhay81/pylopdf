@@ -4,6 +4,8 @@
 
 Canonical documentation: https://yhay81.github.io/pylopdf/
 Japanese documentation: https://yhay81.github.io/pylopdf/ja/
+Simplified Chinese documentation: https://yhay81.github.io/pylopdf/zh-cn/
+Korean documentation: https://yhay81.github.io/pylopdf/ko/
 Source: https://github.com/yhay81/pylopdf
 PyPI: https://pypi.org/project/pylopdf/
 
@@ -14,6 +16,7 @@ Core pages:
 - Migrating from pymupdf: https://yhay81.github.io/pylopdf/migration/
 - Benchmarks: https://yhay81.github.io/pylopdf/benchmarks/
 - Security: https://yhay81.github.io/pylopdf/security/
+- Language policy: https://yhay81.github.io/pylopdf/languages/
 
 Key facts:
 - MIT licensed.

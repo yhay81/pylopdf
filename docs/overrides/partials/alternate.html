@@ -7,13 +7,14 @@
     <div class="md-select__inner">
       <ul class="md-select__list">
         {% for alt in config.extra.alternate %}
-          {% if alt.lang == "ja" %}
-            {% set alternate_url = "https://yhay81.github.io/pylopdf/ja/" ~ page.url %}
-          {% else %}
-            {% set alternate_url = "https://yhay81.github.io/pylopdf/" ~ page.url %}
-          {% endif %}
+          {% set alternate_url = alt.link ~ page.url %}
           <li class="md-select__item">
-            <a href="{{ alternate_url }}" hreflang="{{ alt.lang }}" class="md-select__link">
+            <a
+              href="{{ alternate_url }}"
+              hreflang="{{ alt.lang }}"
+              class="md-select__link"
+              {% if alt.lang == config.extra.current_language %}aria-current="page"{% endif %}
+            >
               {{ alt.name }}
             </a>
           </li>

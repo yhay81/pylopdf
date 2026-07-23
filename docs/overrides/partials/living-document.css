@@ -18,6 +18,21 @@
   --md-accent-fg-color: var(--living-cobalt);
 }
 
+html[lang="ja"] {
+  --living-serif: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
+  --living-sans: "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", sans-serif;
+}
+
+html[lang="zh"] {
+  --living-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  --living-sans: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", sans-serif;
+}
+
+html[lang="ko"] {
+  --living-serif: "Noto Serif KR", "Nanum Myeongjo", "Batang", serif;
+  --living-sans: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+
 [data-md-color-scheme="default"] {
   --md-default-fg-color: var(--living-ink);
   --md-default-fg-color--light: #5e5b54;
@@ -152,6 +167,11 @@ body {
 
 .md-search__input {
   color: var(--living-ink);
+}
+
+.md-select__link[aria-current="page"] {
+  color: var(--living-cobalt-dark);
+  font-weight: 750;
 }
 
 .md-typeset {
@@ -804,7 +824,9 @@ body {
     white-space: normal;
   }
 
-  [lang="ja"] .living-annotated {
+  [lang="ja"] .living-annotated,
+  [lang="zh"] .living-annotated,
+  [lang="ko"] .living-annotated {
     white-space: nowrap;
   }
 

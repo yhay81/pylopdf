@@ -1,18 +1,18 @@
 site_name: pylopdf
-site_url: https://yhay81.github.io/pylopdf/
-site_description: Python-native PDF editing, extraction and rendering, powered by Rust. MIT licensed, zero runtime dependencies, lightweight wheels.
+site_url: https://yhay81.github.io/pylopdf/zh-cn/
+site_description: 以Rust为核心、符合Python使用习惯的PDF编辑、提取与渲染库。MIT许可、零运行时依赖、轻量wheel。
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
 repo_name: yhay81/pylopdf
-edit_uri: edit/main/docs/en/
-docs_dir: docs/en
-site_dir: site
+edit_uri: edit/main/docs/zh-cn/
+docs_dir: docs/zh-cn
+site_dir: site/zh-cn
 
 theme:
   name: material
   variant: modern
-  language: en
+  language: zh
   custom_dir: docs/overrides
   font: false
   icon:
@@ -44,27 +44,27 @@ theme:
       accent: custom
       toggle:
         icon: material/weather-night
-        name: Switch to dark mode
+        name: 切换到深色模式
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: custom
       accent: custom
       toggle:
         icon: material/weather-sunny
-        name: Switch to light mode
+        name: 切换到浅色模式
 
 nav:
-  - Home: index.md
-  - Guide:
-      - Getting started: getting-started.md
-      - Ecosystem recipes: ecosystem.md
-      - Migrating from pymupdf: migration.md
+  - 首页: index.md
+  - 指南:
+      - 快速开始: getting-started.md
+      - 生态系统方案: ecosystem.md
+      - 从pymupdf迁移: migration.md
   - API: api.md
-  - Project:
-      - Benchmarks: benchmarks.md
-      - Security: security.md
-      - Languages: languages.md
-  - Changelog: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
+  - 项目:
+      - 性能基准: benchmarks.md
+      - 安全: security.md
+      - 语言政策: languages.md
+  - 更新日志: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition
@@ -85,8 +85,8 @@ plugins:
   - search
 
 extra:
-  current_language: en
-  announcement: "pylopdf 0.9.0 · OCR layers, Markdown conversion, forms and PDF/A claim reading"
+  current_language: zh-Hans
+  announcement: "pylopdf 0.9.0 · OCR不可见文本层、Markdown转换、表单填写、PDF/A声明读取"
   announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.9.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
   alternate:
@@ -105,7 +105,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/yhay81/pylopdf
-      name: pylopdf on GitHub
+      name: GitHub上的pylopdf
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/pylopdf/
-      name: pylopdf on PyPI
+      name: PyPI上的pylopdf

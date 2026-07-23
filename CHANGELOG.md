@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
-- Rebuilt the English/Japanese documentation with Zensical 0.0.51 and a custom
+- Rebuilt the English, Japanese, Simplified Chinese and Korean documentation
+  with Zensical 0.0.51 and a custom
   responsive Living Document theme, including instant navigation, search,
   same-page language switching, light/dark palettes, reproducible benchmark and
   security pages, `llms.txt`, and an Open Graph social card
+- Defined English as the canonical language and Japanese, Simplified Chinese
+  and Korean as first-class translations, with shared anchors and strict builds
+  for every locale
 
 ### Performance
 - `render_page` and `Pixmap.tobytes()` now encode PNG with
