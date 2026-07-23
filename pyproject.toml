@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# 非埋め込み日本語 PDF のレンダリング用フォント（Noto Sans/Serif JP を自動検出）
+# Fonts for PDFs that reference non-embedded CJK fonts; auto-detect Noto Sans/Serif JP.
 cjk = ["pylopdf-fonts-cjk>=0.1.0"]
 
 [build-system]
@@ -44,24 +44,24 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.9",
 ]
-# エコシステム連携レシピ（README 記載）の統合テスト用。未インストールならテストは skip
+# Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
     "typst>=0.15",
     "pyhanko>=0.35",
 ]
-# 再現可能ベンチマーク（bench/run.py）の比較対象。手動実行のみで CI には入れない
+# Comparison libraries for reproducible benchmarks; manual only, not installed in CI.
 bench = [
     "pymupdf>=1.26",
     "pypdf>=5",
     "pdfplumber>=0.11",
 ]
-# ドキュメントサイト（Zensical）。CI は --only-group docs --no-install-project で使う
+# Zensical documentation site. CI uses --only-group docs --no-install-project.
 docs = [
     "zensical>=0.0.51,<0.1",
 ]
 
 [tool.uv]
-# Rust ソース変更時に uv が拡張モジュールを再ビルドするためのキャッシュキー
+# Cache keys that make uv rebuild the extension after Rust source changes.
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "rust/Cargo.toml" },
@@ -72,25 +72,25 @@ cache-keys = [
 members = ["fonts/pylopdf-fonts-cjk"]
 
 [tool.uv.sources]
-# ローカル開発では extra をワークスペース内のフォントパッケージへ解決する
+# Resolve the extra to the workspace font package during local development.
 pylopdf-fonts-cjk = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [[tool.mypy.overrides]]
-# pypdf はフィクスチャ生成スクリプト（手動実行）専用で dev 依存に含めない
+# pypdf is used only by a manually run fixture generator, not as a dev dependency.
 module = "pypdf.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# cjk extra 未インストール環境でも型チェックが通るようにする
+# Allow type checking without the cjk extra installed.
 module = "pylopdf_fonts_cjk"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# interop グループ（連携テスト用）未インストール環境でも型チェックが通るようにする。
-# cryptography は pyHanko の推移依存だが、通常の dev グループだけでは入らない。
+# Allow type checking without the interop test group.
+# cryptography is transitive through pyHanko and absent from the regular dev group.
 module = ["typst", "pyhanko.*", "cryptography", "cryptography.*"]
 ignore_missing_imports = true
 
@@ -98,7 +98,7 @@ ignore_missing_imports = true
 line-length = 120
 src = ["src"]
 target-version = "py310"
-# python/ と lambda_test/ は本ライブラリの対象外（別作業の同居ファイル）
+# python/ and lambda_test/ are unrelated colocated work.
 extend-exclude = ["python", "lambda_test"]
 
 [tool.ruff.lint]
@@ -106,30 +106,27 @@ select = ["ALL"]
 ignore = [
     "D100",
     "D104",
-    # ruff format と競合するルール
+    # Rules that conflict with ruff format.
     "COM812",
     "ISC001",
     "D203",
     "D213",
-    # 日本語ドキュメント方針（CLAUDE.md）と衝突するルール
-    "D400",   # 「。」を終端句読点と認識しない
-    "D415",   # 同上
-    "D403",   # 日本語文中の英単語先頭を大文字化してしまう
-    "RUF001", # 全角記号を ambiguous unicode として誤検出する
+    # CJK fixture data intentionally contains ambiguous Unicode characters.
+    "RUF001",
     "RUF002",
     "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Page と Document は同一モジュール内の協調クラスで、内部状態への相互アクセスが設計上の前提
+# Page and Document are cooperating classes that intentionally share internal state.
 "src/pylopdf/__init__.py" = ["SLF001"]
-# S106: テストフィクスチャの固定パスワードは秘密情報ではない
-# FBT003: set_form_field はチェックボックス値として bool を受ける設計（pymupdf 同様）
+# S106: fixed test-fixture passwords are not secrets.
+# FBT003: set_form_field intentionally accepts bool checkbox values, like pymupdf.
 "tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106", "FBT003"]
-# 手動実行の生成スクリプト（進捗表示に print を使う）
+# Manually run generator that prints progress.
 "tests/assets/encrypted/generate.py" = ["T201"]
-# importorskip の後に連携ライブラリを import する必要があるため先頭以外の import を許可
+# Integration libraries must be imported after importorskip.
 "tests/test_interop.py" = ["E402"]
-# 手動実行のベンチマークスクリプト（進捗と結果を print で出す。比較対象の失敗は握って
-# 続行し、レポート生成の逐次処理はステートメント数・ループ内 try を許容する）
+# Manual benchmark script: prints progress/results, tolerates competitor failures,
+# and uses sequential report generation with a loop-local try block.
 "bench/**" = ["INP001", "T201", "BLE001", "PLR0915", "PERF203"]

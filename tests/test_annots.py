@@ -1,7 +1,7 @@
-"""注釈 API（Page.annots / add_highlight_annot / add_link_annot）のテスト。
+"""Tests for Page annotation APIs.
 
-ハイライトは外観ストリーム（AP）を生成するため、hayro のレンダリングにも
-現れる。見た目の正しさはレンダリング画素で検証する。
+Highlights generate appearance streams, so Hayro renders them. Visual
+correctness is checked through rendered pixels.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ WHITE_MIN = 240
 
 
 def _region_pixels(page: pylopdf.Page, rect: pylopdf.Rect) -> list[tuple[int, int, int]]:
-    """白背景でレンダリングした rect 内の RGB 画素列を返す。"""
+    """Return RGB pixels inside ``rect`` after rendering on white."""
     pix = page.get_pixmap(background=(255, 255, 255))
     out = []
     for y in range(int(rect.y0), min(int(rect.y1), pix.height)):
@@ -28,7 +28,7 @@ def _region_pixels(page: pylopdf.Page, rect: pylopdf.Rect) -> list[tuple[int, in
 
 
 def _has_yellowish(pixels: list[tuple[int, int, int]]) -> bool:
-    """黄色系（赤緑が高く青が下がった）画素があるか。"""
+    """Return whether the sample contains yellowish pixels."""
     return any(r > WHITE_MIN and g > WHITE_MIN and b < YELLOWISH_BLUE_MAX for r, g, b in pixels)
 
 
@@ -45,12 +45,12 @@ def test_search_and_highlight() -> None:
     assert annot["type"] == "Highlight"
     assert annot["uri"] is None
     hit = hits[0]
-    # 注釈の rect は検索ヒットを覆う（座標は f32 格納なので僅かな丸めを許容）
+    # The annotation covers the hit; allow small f32 storage differences.
     assert annot["rect"].x0 <= hit.x0 + 0.01
     assert annot["rect"].x1 >= hit.x1 - 0.01
-    # AP により hayro のレンダリングでも黄色く見える
+    # The appearance stream makes the highlight visible in Hayro.
     assert _has_yellowish(_region_pixels(page, hit))
-    # テキスト（黒画素）は Multiply ブレンドで潰れず残る
+    # Multiply blending preserves the black text pixels.
     assert any(r < 128 for r, _, _ in _region_pixels(page, hit))
 
 
@@ -73,7 +73,7 @@ def test_highlight_multiple_rects_in_one_annot() -> None:
     page.add_highlight_annot(rects)
     annots = page.annots()
     assert len(annots) == 1
-    # 外接矩形は両方を覆う
+    # The bounding rectangle covers both input rectangles.
     assert annots[0]["rect"].x0 <= 10
     assert annots[0]["rect"].x1 >= 90
     assert annots[0]["rect"].y1 >= 50
@@ -94,12 +94,12 @@ def test_highlight_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=200)
     page = doc[0]
-    page.set_rotation(90)  # 表示は 200x100
+    page.set_rotation(90)  # Display coordinates are 200 x 100.
     target = pylopdf.Rect(120, 30, 180, 70)
     page.add_highlight_annot(target)
     assert _has_yellowish(_region_pixels(page, target))
     assert not _has_yellowish(_region_pixels(page, pylopdf.Rect(10, 10, 60, 60)))
-    # 読み取りも表示座標で返る
+    # Readback also uses display coordinates.
     annot_rect = page.annots()[0]["rect"]
     assert abs(annot_rect.x0 - target.x0) < 1
     assert abs(annot_rect.y1 - target.y1) < 1
@@ -118,7 +118,7 @@ def test_add_link_annot_reads_back() -> None:
 
 
 def test_copy_page_detaches_shared_indirect_annots_array() -> None:
-    """複製ページへの注釈追加が、共有元ページの Annots 配列へ漏れない。"""
+    """Detach a shared Annots array before annotating a copied page."""
     pdf = build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",

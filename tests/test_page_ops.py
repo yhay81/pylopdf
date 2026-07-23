@@ -1,4 +1,4 @@
-"""ページ操作（範囲付き結合・挿入位置・new_page・copy_page）のテスト。"""
+"""Tests for page insertion, ranges, new_page, and copy_page."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None
     assert "Page one" in doc.get_page_text(0)
     assert "Hello PDF" in doc.get_page_text(1)
     assert "Page two" in doc.get_page_text(2)
-    # 保存 → 再読込しても並びが保たれる
+    # Preserve page order after save and reload.
     reloaded = pylopdf.Document(stream=doc.tobytes())
     assert "Hello PDF" in reloaded.get_page_text(1)
 
@@ -66,7 +66,7 @@ def test_insert_pdf_empty_source_noop(three_page_pdf: bytes) -> None:
 
 
 def test_insert_pdf_does_not_keep_unreachable_source_data() -> None:
-    """ページから到達しない添付データを取り込み先へ漏らさない。"""
+    """Do not copy unreachable attachments into the destination."""
     secret = b"SECRET-UNREFERENCED-ATTACHMENT-7c3f"
     source = pylopdf.Document()
     source.new_page(width=100, height=100)
@@ -114,7 +114,7 @@ def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     doc.copy_page(0)
     assert doc.page_count == 4
     assert "Page one" in doc.get_page_text(3)
-    doc.copy_page(2, to=0)  # 現 2 ページ目（Page three）を先頭へ複製
+    doc.copy_page(2, to=0)  # Copy the current Page three to the front.
     assert doc.page_count == 5
     assert "Page three" in doc.get_page_text(0)
     reloaded = pylopdf.Document(stream=doc.tobytes())

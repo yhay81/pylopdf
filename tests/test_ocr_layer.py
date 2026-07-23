@@ -1,7 +1,8 @@
-"""OCR 不可視テキスト層（Page.insert_ocr_text_layer）のテスト。
+"""Tests for the invisible OCR layer from Page.insert_ocr_text_layer.
 
-「見た目には何も描かれず、抽出・検索にだけ現れる」を両面から検証する。
-フォント実体を埋め込まないため、CJK 代替フォントの有無に依存しないことも確認する。
+Verify both sides of the contract: nothing is drawn, while extraction and
+search see the text. Because no font program is embedded, behavior must not
+depend on CJK fallback fonts.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def test_ocr_layer_is_extractable_and_searchable() -> None:
 
     hits = page.search_for("日本語")
     assert hits
-    # 指定した bbox の近傍で見つかる（合成フォントなので厳密一致は求めない）
+    # Match near the requested bbox; the synthetic font need not match exactly.
     assert abs(hits[0].x0 - 50) < 5
     assert 70 < hits[0].y0 < 105
     assert 70 < hits[0].y1 < 110
@@ -44,12 +45,12 @@ def test_ocr_layer_is_invisible() -> None:
     page.insert_ocr_text_layer([(50, 50, 150, 70, "Invisible")])
     pix = page.get_pixmap(background=(255, 255, 255))
     samples = pix.samples
-    assert all(samples[i] == 255 for i in range(0, len(samples), 4))  # 全画素が白のまま
+    assert all(samples[i] == 255 for i in range(0, len(samples), 4))  # Every pixel remains white.
 
 
 def test_ocr_layer_does_not_need_fallback_fonts() -> None:
-    # フォント実体を埋め込まない参照フォントなので、CJK 代替フォントを
-    # 無効化しても抽出できる（[cjk] extra 非依存であることの保証）
+    # A non-embedded reference font remains extractable when CJK fallbacks are
+    # disabled, proving independence from the [cjk] extra.
     doc = _blank_page_doc()
     doc.set_fallback_font(None)
     page = doc[0]
@@ -68,7 +69,8 @@ def test_ocr_layer_survives_save_roundtrip() -> None:
 
 
 def test_ocr_layer_accepts_get_text_words_shape() -> None:
-    # get_text("words") の 8 要素タプルをそのまま渡せる（先頭 5 要素だけ使う）
+    # Pass get_text("words") eight-item tuples directly; only the first five
+    # items are used.
     src = pylopdf.Document()
     src.new_page()
     src[0].insert_text((72, 100), "Roundtrip works")
@@ -85,11 +87,11 @@ def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=200)
     page = doc[0]
-    page.set_rotation(90)  # 表示は 200x100
+    page.set_rotation(90)  # Display is 200 x 100.
     page.insert_ocr_text_layer([(120, 30, 180, 50, "回転ページ")])
     hits = page.search_for("回転ページ")
     assert hits
-    assert abs(hits[0].x0 - 120) < 5  # 指定した表示座標の近傍で見つかる
+    assert abs(hits[0].x0 - 120) < 5  # Match near the requested display coordinates.
 
 
 def test_ocr_layer_rejects_empty() -> None:

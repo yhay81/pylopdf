@@ -1,9 +1,9 @@
-//! hayro Device によるテキスト抽出エンジン。
+//! Text extraction engine implemented as a hayro Device.
 //!
-//! hayro のインタープリタでページを解釈し、グリフごとの Unicode と位置を収集して
-//! 行・語・ブロックのレイアウトへ組み立てる。lopdf の extract_text と異なり、
-//! content stream のコメント（lopdf#535）や定義済み CMap（90ms-RKSJ-H 等）も
-//! hayro 側で解決される。不可視テキスト（OCR レイヤー、Tr 3）も抽出対象。
+//! Interpret pages with hayro, collect Unicode and position per glyph, then
+//! assemble lines, words, and blocks. Unlike lopdf `extract_text`, hayro handles
+//! content-stream comments (lopdf#535), predefined CMaps such as 90ms-RKSJ-H,
+//! and invisible text such as OCR layers using `Tr 3`.
 
 use hayro::hayro_interpret::font::Glyph;
 use hayro::hayro_interpret::hayro_cmap::BfString;
@@ -18,16 +18,16 @@ use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Point, Rect};
 
-/// フォント単位の表示属性（スパンへ引き渡す。pymupdf 互換の flags ビット）。
+/// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
 struct FontInfo {
-    /// PostScript 名（取れなければ空）
+    /// PostScript name, or empty when unavailable.
     name: Arc<str>,
-    /// pymupdf 互換フラグ: italic=2, serif=4, monospace=8, bold=16
+    /// pymupdf-compatible flags: italic=2, serif=4, monospace=8, bold=16.
     flags: i64,
 }
 
-/// OutlineGlyph からフォント名とフラグを求める（フォントごとに 1 回だけ呼ぶ）。
+/// Derive a font name and flags from OutlineGlyph, once per font.
 fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo {
     let Some(data) = glyph.font_data() else {
         return FontInfo::default();
@@ -50,29 +50,29 @@ fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo 
     FontInfo { name, flags }
 }
 
-/// 収集した 1 グリフ分の情報。座標は「左上原点・下向き y」の表示座標
-/// （レンダリングと同じ initial_transform 適用後の空間。ページ回転も解決済み）。
+/// One collected glyph in top-left-origin, downward-y display coordinates after
+/// the renderer's `initial_transform`, with page rotation resolved.
 struct GlyphRecord {
-    /// グリフの Unicode 表現（合字は複数文字になる）
+    /// Unicode representation; ligatures may contain multiple characters.
     text: String,
-    /// ベースライン原点の x
+    /// Baseline-origin x.
     x: f64,
-    /// ベースライン原点の y（上から下へ増加）
+    /// Baseline-origin y, increasing downward.
     y: f64,
-    /// デバイス空間でのフォントサイズ（行・語の判定しきい値に使う）
+    /// Device-space font size used by line and word thresholds.
     size: f64,
-    /// デバイス空間での送り幅（不明なフォントでは size から推定）
+    /// Device-space advance, estimated from size for unknown fonts.
     advance: f64,
-    /// フォントの識別キー（スパン分割に使う。Type3 は 0）
+    /// Font identity key for span splitting; Type 3 uses 0.
     font_key: u128,
-    /// フォントの表示属性（名前 + pymupdf 互換 flags）
+    /// Font display attributes: name plus pymupdf-compatible flags.
     font: FontInfo,
 }
 
-/// グリフを収集するだけの Device 実装。描画系の命令はすべて無視する。
+/// A Device that only collects glyphs and ignores all drawing commands.
 struct TextCollector {
     glyphs: Vec<GlyphRecord>,
-    /// font_key → FontInfo のキャッシュ（font_data の解決はフォントごとに 1 回で済ます）
+    /// font_key → FontInfo cache, resolving font_data only once per font.
     font_infos: HashMap<u128, FontInfo>,
 }
 
@@ -106,15 +106,15 @@ impl Device<'_> for TextCollector {
         }
         let combined = transform * glyph_transform;
         let origin = combined * Point::ZERO;
-        // フォントサイズ: y 基底ベクトルの像の長さ × 1000
-        // （hayro のグリフ空間は 1000 upem 正規化のため、変換係数は実サイズの 1/1000）
+        // Font size is the transformed y-basis length × 1000. Hayro normalizes
+        // glyph space to 1000 upem, so the transform factor is actual size / 1000.
         let [_, _, c, d, _, _] = combined.as_coeffs();
         let mut size = (c * c + d * d).sqrt() * 1000.0;
         if !size.is_finite() || size <= 0.0 {
             size = 12.0;
         }
-        // 送り幅: グリフ座標系の advance を x 基底で変換した長さ。
-        // 取れないフォント（Type3 等）はサイズの半分で近似する
+        // Advance is the glyph-space advance transformed by the x basis.
+        // Approximate missing fonts such as Type 3 as half the font size.
         let (advance_width, font_key, font) = match glyph {
             Glyph::Outline(g) => {
                 let key = g.font_cache_key();
@@ -137,8 +137,8 @@ impl Device<'_> for TextCollector {
         if !origin.x.is_finite() || !origin.y.is_finite() {
             return;
         }
-        // Context の基底変換（initial_transform）が y 反転と回転を済ませているため、
-        // 変換後の座標がそのまま表示空間（左上原点・下向き y）になる
+        // Context initial_transform already flips y and applies rotation, so
+        // transformed coordinates are directly in top-left-origin display space.
         self.glyphs.push(GlyphRecord {
             text,
             x: origin.x,
@@ -151,22 +151,22 @@ impl Device<'_> for TextCollector {
     }
 }
 
-/// 行のしきい値: ベースライン差がこの倍率 × フォントサイズ以内なら同じ行とみなす。
-/// 上付き・下付き文字のずれを吸収しつつ、通常の行送り（1.0 以上）は分離できる値。
+/// Line threshold: baselines within this factor × font size share a line.
+/// This absorbs super/subscripts while separating normal leading of 1.0 or more.
 const LINE_TOLERANCE: f64 = 0.5;
 
-/// 語のしきい値: グリフ間の隙間がこの倍率 × フォントサイズを超えたら空白を補う。
-/// 通常の語間空白は 0.25em 前後、カーニングは ±0.05em 程度なので、その間に置く。
+/// Word threshold: synthesize a space above this factor × font size.
+/// Typical word gaps are about 0.25 em and kerning about ±0.05 em.
 const WORD_GAP: f64 = 0.15;
 
-/// ブロックのしきい値: 行送りがこの倍率 × フォントサイズを超えたら段落の切れ目とみなす。
+/// Block threshold: leading above this factor × font size starts a paragraph.
 const BLOCK_GAP: f64 = 1.5;
 
-/// ベースラインからの上端・下端の近似（実フォントメトリクスは持たないため）。
+/// Approximate top/bottom from the baseline without real font metrics.
 const ASCENT: f64 = 0.8;
 const DESCENT: f64 = 0.2;
 
-/// グリフ列を「読み順の行」へまとめる（各行は x 昇順に整列済み）。
+/// Group glyphs into reading-order lines, each sorted by ascending x.
 fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
     glyphs.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
@@ -176,7 +176,7 @@ fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
         if (glyph.y - current_baseline).abs() <= tolerance {
             lines
                 .last_mut()
-                .expect("行は直前に作られている")
+                .expect("a line was created immediately before")
                 .push(glyph);
         } else {
             current_baseline = glyph.y;
@@ -189,12 +189,12 @@ fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
     lines
 }
 
-/// 行内のグリフ間に空白を補うべきか（前グリフの右端と次グリフの左端の隙間で判定）。
+/// Decide whether to insert a space from the gap between adjacent glyphs.
 fn needs_gap(prev_end: Option<f64>, glyph: &GlyphRecord) -> bool {
     prev_end.is_some_and(|end| glyph.x - end > glyph.size.max(1.0) * WORD_GAP)
 }
 
-/// 収集済みグリフを読み順（上→下、行内は左→右）のプレーンテキストへ組み立てる。
+/// Assemble glyphs into top-to-bottom, left-to-right plain text.
 fn assemble_text(glyphs: Vec<GlyphRecord>) -> String {
     let mut out = String::new();
     for line in cluster_lines(glyphs) {
@@ -206,7 +206,7 @@ fn assemble_text(glyphs: Vec<GlyphRecord>) -> String {
             out.push_str(&glyph.text);
             prev_end = Some(glyph.x + glyph.advance);
         }
-        // 行末の余分な空白グリフは落とす
+        // Drop extra whitespace glyphs at line ends.
         while out.ends_with(' ') {
             out.pop();
         }
@@ -215,18 +215,18 @@ fn assemble_text(glyphs: Vec<GlyphRecord>) -> String {
     out
 }
 
-/// bbox（x0, y0, x1, y1。左上原点・下向き y）。
+/// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
 type BBox = (f64, f64, f64, f64);
-/// スパン: (bbox, text, size, origin, フォント名, flags)。
+/// Span: `(bbox, text, size, origin, font name, flags)`.
 type SpanTuple = (BBox, String, f64, (f64, f64), String, i64);
-/// 語: (bbox, text)。
+/// Word: `(bbox, text)`.
 type WordTuple = (BBox, String);
-/// 行: (bbox, spans, words)。
+/// Line: `(bbox, spans, words)`.
 type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>);
-/// ブロック: (bbox, lines)。
+/// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
 
-/// グリフ列の外接矩形（ベースライン ± サイズ近似で縦方向を推定）。
+/// Glyph bounding box with vertical extents approximated from baseline and size.
 fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
@@ -241,7 +241,7 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// 1 行のグリフ列をスパン（サイズ・フォントが同じ連続部分）へ分割する。
+/// Split a line into contiguous spans sharing size and font.
 fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
     let mut spans: Vec<SpanTuple> = Vec::new();
     let mut start = 0;
@@ -275,7 +275,7 @@ fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
     spans
 }
 
-/// 1 行のグリフ列を語（空白と隙間で区切られた連続部分）へ分割する。
+/// Split a line into words delimited by whitespace and gaps.
 fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
     let mut words: Vec<WordTuple> = Vec::new();
     let mut current: Vec<&GlyphRecord> = Vec::new();
@@ -312,7 +312,7 @@ fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
     words
 }
 
-/// 収集済みグリフをブロック → 行 → スパン / 語のレイアウトへ組み立てる。
+/// Assemble collected glyphs into blocks, lines, spans, and words.
 fn assemble_layout(glyphs: Vec<GlyphRecord>) -> Vec<BlockTuple> {
     let lines = cluster_lines(glyphs);
     let mut blocks: Vec<Vec<Vec<GlyphRecord>>> = Vec::new();
@@ -330,7 +330,10 @@ fn assemble_layout(glyphs: Vec<GlyphRecord>) -> Vec<BlockTuple> {
         }
         prev_baseline = Some(baseline);
         prev_size = line_size;
-        blocks.last_mut().expect("直前に作られている").push(line);
+        blocks
+            .last_mut()
+            .expect("a block was created immediately before")
+            .push(line);
     }
 
     blocks
@@ -355,10 +358,10 @@ fn assemble_layout(glyphs: Vec<GlyphRecord>) -> Vec<BlockTuple> {
         .collect()
 }
 
-/// 行のグリフ列から「検索用の小文字テキスト + 文字→グリフ対応表」を作る。
+/// Build lowercase search text and a character-to-glyph map from a line.
 ///
-/// 語の隙間には合成空白を挿入する（対応するグリフは無いので None）。
-/// 合字や小文字化で 1 グリフが複数文字になる場合は、全文字を同じグリフへ対応させる。
+/// Insert synthetic spaces with no glyph mapping between words. When a ligature
+/// or lowercasing yields multiple characters, map all of them to the same glyph.
 fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
     let mut haystack = String::new();
     let mut map: Vec<Option<usize>> = Vec::new();
@@ -379,9 +382,9 @@ fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
     (haystack, map)
 }
 
-/// ページ内のテキスト検索（大文字小文字を区別しない）。ヒットごとの bbox を返す。
+/// Search page text case-insensitively and return one bbox per match.
 ///
-/// 行単位で検索するため、行をまたぐ一致は検出しない。
+/// Search is line-based and does not detect matches across lines.
 fn search_glyphs(glyphs: Vec<GlyphRecord>, needle: &str) -> Vec<BBox> {
     let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
     if needle_lower.is_empty() {
@@ -394,7 +397,7 @@ fn search_glyphs(glyphs: Vec<GlyphRecord>, needle: &str) -> Vec<BBox> {
         while let Some(found) = haystack[from..].find(&needle_lower) {
             let start = from + found;
             let end = start + needle_lower.len();
-            // バイト位置 → 文字位置 → グリフ集合
+            // Byte position → character position → glyph set.
             let char_start = haystack[..start].chars().count();
             let char_len = haystack[start..end].chars().count();
             let glyph_indices: Vec<usize> = map[char_start..char_start + char_len]
@@ -412,22 +415,22 @@ fn search_glyphs(glyphs: Vec<GlyphRecord>, needle: &str) -> Vec<BBox> {
     hits
 }
 
-/// 抽出画像: (幅, 高さ, ページ上の bbox, 形式 "jpeg"/"png", バイト列)。
+/// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
 pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
 
-/// 画像を収集するだけの Device 実装。
+/// A Device that only collects images.
 struct ImageCollector {
     images: Vec<ImageTuple>,
 }
 
-/// JPEG マジックナンバー（SOI マーカー）。
+/// JPEG magic number (SOI marker).
 const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
 
-/// 元の JPEG バイト列をそのまま取り出せるならそれを返す。
+/// Return original JPEG bytes when they can be extracted unchanged.
 ///
-/// 対応するのは /Filter が [DCTDecode] か [FlateDecode, DCTDecode] の場合。
-/// 展開結果が JPEG マジックで始まることを検証し、そうでなければ None
-/// （呼び出し側がデコード + PNG 化にフォールバックする）。
+/// Supports `/Filter` of `[DCTDecode]` or `[FlateDecode, DCTDecode]`.
+/// Verify the decoded prefix is JPEG magic; otherwise return None so the caller
+/// can fall back to decoding and PNG encoding.
 fn try_jpeg_passthrough(stream: &hayro::hayro_syntax::object::Stream<'_>) -> Option<Vec<u8>> {
     use std::io::Read;
     let filters = stream.filters();
@@ -445,12 +448,12 @@ fn try_jpeg_passthrough(stream: &hayro::hayro_syntax::object::Stream<'_>) -> Opt
     data.starts_with(&JPEG_MAGIC).then_some(data)
 }
 
-/// 画像のピクセル矩形を transform で写した外接矩形を、表示空間の bbox で返す。
+/// Transform an image pixel rectangle and return its display-space bounding box.
 ///
-/// hayro は draw_image の直前に「ピクセル空間（上原点、0..幅 × 0..高さ）→
-/// PDF の単位正方形」の変換を pre-concat しているため、transform には
-/// ピクセル座標の四隅をそのまま渡す。基底変換（initial_transform）が
-/// y 反転と回転を済ませているので、結果はそのまま表示座標になる。
+/// Before `draw_image`, hayro pre-concats pixel space (top origin,
+/// `0..width × 0..height`) to the PDF unit square, so pass pixel corners
+/// directly to the transform. `initial_transform` already flips y and rotates,
+/// producing display coordinates.
 fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
@@ -466,11 +469,11 @@ fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// ピクセルデータを PNG にエンコードする。
+/// Encode pixel data as PNG.
 ///
-/// compression の使い分け: レンダリング経路は Fast（fdeflate。既定の Balanced は
-/// サイズ 1 割減のために数十倍遅く、render_page の主コストが PNG になる — bench 実測）、
-/// 画像抽出（get_images）は保存物なので Balanced のまま。
+/// Rendering uses Fast/fdeflate: Balanced is tens of times slower for about 10%
+/// smaller output and makes PNG the dominant render cost in benchmarks.
+/// `get_images` keeps Balanced because extracted images are stored artifacts.
 pub(crate) fn encode_png(
     width: u32,
     height: u32,
@@ -491,7 +494,7 @@ pub(crate) fn encode_png(
     Some(out)
 }
 
-/// デコード済みラスタ画像（RGB/グレー + 別チャンネルのアルファ）を PNG 化する。
+/// Encode decoded RGB/gray raster data plus separate alpha as PNG.
 fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, u32, Vec<u8>)> {
     let (rgb, width, height) = match image {
         ImageData::Rgb(rgb) => (rgb.data, rgb.width, rgb.height),
@@ -578,7 +581,7 @@ impl Device<'_> for ImageCollector {
         );
         match image {
             Image::Raster(raster) => {
-                // DCTDecode で終わる画像は生の JPEG をそのまま取り出す（再圧縮しない）
+                // Extract images ending in DCTDecode as raw JPEG without recompression.
                 if let Some(jpeg) = try_jpeg_passthrough(raster.stream()) {
                     self.images.push((
                         raster.width(),
@@ -620,10 +623,10 @@ impl Device<'_> for ImageCollector {
     }
 }
 
-/// 抽出用の Context を組み立てる。
+/// Build the extraction Context.
 ///
-/// レンダラ（hayro::render）と同じく `initial_transform(true)` を基底に渡すことで、
-/// Device が受け取る座標が表示空間（左上原点・回転解決済み）になる。
+/// Use the renderer's `initial_transform(true)` so Device coordinates are in
+/// top-left-origin display space with rotation resolved.
 fn extraction_context<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
@@ -640,7 +643,7 @@ fn extraction_context<'a>(
     )
 }
 
-/// 指定ページ上に描画される画像を抽出する。
+/// Extract images drawn on the given page.
 pub(crate) fn extract_page_images(
     pdf: &Pdf,
     page: &Page<'_>,
@@ -653,7 +656,7 @@ pub(crate) fn extract_page_images(
     collector.images
 }
 
-/// ページを解釈してグリフ列を収集する。
+/// Interpret a page and collect glyphs.
 fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Vec<GlyphRecord> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
@@ -665,7 +668,7 @@ fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> 
     collector.glyphs
 }
 
-/// 指定ページのテキストを抽出する。
+/// Extract text from the given page.
 pub(crate) fn extract_page_text(
     pdf: &Pdf,
     page: &Page<'_>,
@@ -674,7 +677,7 @@ pub(crate) fn extract_page_text(
     assemble_text(collect_glyphs(pdf, page, settings))
 }
 
-/// 指定ページのレイアウト（ブロック → 行 → スパン / 語）と表示サイズを返す。
+/// Return page display size and block/line/span/word layout.
 pub(crate) fn extract_page_layout(
     pdf: &Pdf,
     page: &Page<'_>,
@@ -685,7 +688,7 @@ pub(crate) fn extract_page_layout(
     (f64::from(width), f64::from(height), blocks)
 }
 
-/// 指定ページ内を検索し、ヒットした矩形を返す（大文字小文字を区別しない）。
+/// Search a page case-insensitively and return matching rectangles.
 pub(crate) fn search_page(
     pdf: &Pdf,
     page: &Page<'_>,

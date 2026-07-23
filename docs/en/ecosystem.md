@@ -56,7 +56,7 @@ for page in doc:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-The stamp stays extractable text afterwards — `page.get_text()` finds 社外秘.
+The stamp stays extractable text afterwards — `page.get_text()` finds `社外秘`.
 
 ## Digital signatures (PAdES) — pyHanko { #signatures }
 

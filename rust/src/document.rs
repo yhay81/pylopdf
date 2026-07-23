@@ -1,7 +1,7 @@
-//! lopdf::Document の Python バインディング。
+//! Python bindings for `lopdf::Document`.
 //!
-//! 型変換とエラー変換のみを担う薄い層。使いやすい API は Python 側の
-//! `pylopdf.Document` が提供する。
+//! This is a thin type- and error-conversion layer. Python's
+//! `pylopdf.Document` provides the ergonomic API.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -24,12 +24,12 @@ use pyo3::prelude::*;
 use crate::draw;
 use crate::ocr;
 
-/// read_annotations が返す 1 注釈分のタプル（Subtype, 表示座標 Rect, Contents, URI）。
+/// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
 
-/// read_links が返す 1 リンク分のタプル
-/// (種別, 表示座標 Rect, uri, 宛先ページ番号（lopdf 1 始まり）, 宛先ページ表示座標の to 点,
-///  zoom, 外部ファイル名, named destination 名または Named アクション名)。
+/// One link returned by read_links: kind, display Rect, URI, one-based lopdf
+/// destination page, destination display point, zoom, external file, and named
+/// destination or Named action.
 type LinkTuple = (
     String,
     (f64, f64, f64, f64),
@@ -41,15 +41,15 @@ type LinkTuple = (
     Option<String>,
 );
 
-/// リンク宛先の解決結果（ページ番号、表示座標、ズーム、named destination）。
+/// Resolved link destination: page number, display point, zoom, named destination.
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
 
-/// EmbeddedFiles 名前ツリーの 1 要素（表示名、FileSpec オブジェクト）。
+/// One EmbeddedFiles name-tree item: display name and FileSpec object.
 ///
-/// FileSpec は仕様上、間接参照とインライン辞書のどちらも取り得る。
+/// FileSpec may be either an indirect reference or an inline dictionary.
 type EmbeddedFileEntry = (String, Object);
 
-/// 参照なら 1 段だけ実体へ解決する（解決できなければ元のオブジェクトを返す）。
+/// Resolve one reference level, returning the original object on failure.
 fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     match obj {
         Object::Reference(id) => doc.get_object(*id).unwrap_or(obj),
@@ -57,8 +57,8 @@ fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     }
 }
 
-/// 名前ツリー（/Names + /Kids 構造）から name を線形探索する。
-/// depth は循環参照対策の再帰上限。
+/// Linearly search a `/Names` plus `/Kids` name tree for `name`.
+/// `depth` limits recursion against cycles.
 fn search_name_tree<'a>(
     doc: &'a Document,
     node: &'a Object,
@@ -93,8 +93,8 @@ fn search_name_tree<'a>(
     None
 }
 
-/// 名前付き宛先を catalog から解決する。
-/// PDF 1.2+ の /Names → /Dests 名前ツリーと、旧式（PDF 1.1）の /Dests 辞書の両方を探す。
+/// Resolve a named destination from the catalog.
+/// Search both the PDF 1.2+ `/Names` → `/Dests` tree and legacy `/Dests`.
 fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Object> {
     let catalog = doc.catalog().ok()?;
     if let Ok(names) = catalog.get(b"Names")
@@ -113,7 +113,7 @@ fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Object> {
     None
 }
 
-/// PDF のファイル指定（プレーン文字列 or /UF・/F を持つ filespec 辞書）から表示名を取り出す。
+/// Extract a display name from a string or FileSpec dictionary with `/UF`/`/F`.
 fn filespec_name(doc: &Document, obj: &Object) -> Option<String> {
     match deref_object(doc, obj) {
         Object::Dictionary(d) => d
@@ -125,32 +125,32 @@ fn filespec_name(doc: &Document, obj: &Object) -> Option<String> {
     }
 }
 
-/// フィールド木の走査 1 ノード分（ObjectId, 接頭名, 継承 FT, 継承 Ff, 継承 V）。
+/// One field-tree traversal node: ObjectId, prefix, inherited FT, Ff, and V.
 type FieldNode = (ObjectId, String, Option<String>, i64, Option<Object>);
 
-// Python 側へ公開する例外。PdfError は ValueError のサブクラスなので後方互換。
+// Python-visible exceptions. PdfError subclasses ValueError for compatibility.
 pyo3::create_exception!(
     pylopdf,
     PdfError,
     PyValueError,
-    "pylopdf の基底例外（ValueError 互換）。"
+    "Base pylopdf exception compatible with ValueError."
 );
 pyo3::create_exception!(
     pylopdf,
     PasswordError,
     PdfError,
-    "パスワードが必要か、正しくない。"
+    "A password is required or incorrect."
 );
 
-/// ページ辞書へ親ツリーから継承され得る属性キー。
+/// Page dictionary keys that may be inherited from parent nodes.
 const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
-/// PNG レンダリングで許容する総画素数（RGBA bitmap 約 256 MB 相当）。
+/// Maximum PNG render pixels, approximately a 256 MB RGBA bitmap.
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
 
-/// 文脈プレフィックス付きで lopdf のエラーを Python 例外に変換する。
+/// Convert a lopdf error to a Python exception with a context prefix.
 ///
-/// パスワード起因（復号失敗・パスワード不一致）は PasswordError、それ以外は PdfError。
+/// Password/decryption failures become PasswordError; others become PdfError.
 fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
     let message = match prefix {
         Some(p) => format!("{p}: {e}"),
@@ -166,12 +166,12 @@ fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
     }
 }
 
-/// lopdf のエラーを Python 例外に変換する。
+/// Convert a lopdf error to a Python exception.
 fn to_py_err(e: lopdf::Error) -> PyErr {
     lopdf_err(None, &e)
 }
 
-/// f64 を PDF の実数表現（lopdf::Object::Real = f32）へ安全に変換する。
+/// Safely convert f64 to PDF real representation (`lopdf::Object::Real = f32`).
 fn checked_pdf_real(value: f64, name: &str) -> PyResult<f32> {
     let converted = value as f32;
     if !value.is_finite() || !converted.is_finite() {
@@ -182,7 +182,7 @@ fn checked_pdf_real(value: f64, name: &str) -> PyResult<f32> {
     Ok(converted)
 }
 
-/// PdfMetadata を Python へ渡すタプル（Info 文字列辞書, ページ数, バージョン, 暗号化有無）に変換する。
+/// Convert PdfMetadata to an Info dict, page count, version, and encrypted flag.
 fn pdf_metadata_to_tuple(meta: PdfMetadata) -> (BTreeMap<String, String>, u32, String, bool) {
     let mut map = BTreeMap::new();
     let pairs = [
@@ -203,9 +203,9 @@ fn pdf_metadata_to_tuple(meta: PdfMetadata) -> (BTreeMap<String, String>, u32, S
     (map, meta.page_count, meta.version, meta.encrypted)
 }
 
-/// object stream + xref stream を有効にした保存オプション。
+/// Save options enabling object and xref streams.
 ///
-/// ObjectStreamConfig の既定（100 obj / 圧縮レベル 6）をそのまま使う。
+/// Keep ObjectStreamConfig defaults: 100 objects and compression level 6.
 fn modern_save_options() -> SaveOptions {
     SaveOptions {
         use_object_streams: true,
@@ -214,10 +214,10 @@ fn modern_save_options() -> SaveOptions {
     }
 }
 
-/// ページ辞書に、親ツリーから継承される属性を焼き込んで返す。
+/// Return a page dictionary with inherited parent-tree attributes materialized.
 ///
-/// merge では取り込み元のページツリー（親ノード）を捨てるため、
-/// 継承頼みの属性をページ自身へ移しておく必要がある。
+/// Merge discards the source page tree, so inherited attributes must move onto
+/// the page itself.
 fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Result<Dictionary> {
     let mut dict = doc.get_object(page_id)?.as_dict()?.clone();
     for key in INHERITABLE_PAGE_KEYS {
@@ -244,7 +244,7 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
     Ok(dict)
 }
 
-/// 辞書のボックス配列（間接参照許容）を正規化済みの [x0, y0, x1, y1] で読む。
+/// Read an indirect-capable box array as normalized `[x0, y0, x1, y1]`.
 fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]> {
     let obj = dict.get(key).ok()?;
     let obj = match obj {
@@ -271,7 +271,7 @@ fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]
     ])
 }
 
-/// XMP テキストから属性形式（key="v"）か要素形式（<key>v</key>）の値を取り出す。
+/// Extract an XMP value from `key="v"` attributes or `<key>v</key>` elements.
 fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     let idx = xmp.find(key)?;
     let rest = xmp[idx + key.len()..].trim_start();
@@ -288,7 +288,7 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     None
 }
 
-/// hayro の Pixmap をストレートアルファの RGBA8 バイト列へ変換する。
+/// Convert a hayro Pixmap to straight-alpha RGBA8 bytes.
 fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
     let pixels = pixmap.take_unpremultiplied();
     let mut out = Vec::with_capacity(pixels.len() * 4);
@@ -298,7 +298,7 @@ fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
     out
 }
 
-/// 間接参照を許容して辞書を取り出す（クローン）。
+/// Clone a dictionary while allowing an indirect reference.
 fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
     match obj {
         Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
@@ -307,7 +307,7 @@ fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
     }
 }
 
-/// 間接参照を許容して整数値を読む。
+/// Read an integer while allowing an indirect reference.
 fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     match obj {
         Object::Reference(id) => doc.get_object(*id).ok()?.as_i64().ok(),
@@ -315,7 +315,7 @@ fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     }
 }
 
-/// RunLengthDecode の展開後サイズを、出力を確保せずに検証する。
+/// Validate RunLengthDecode output size without allocating the output.
 fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
     let mut pos = 0usize;
     let mut output_len = 0usize;
@@ -359,7 +359,7 @@ fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
     Ok(())
 }
 
-/// ASCIIHexDecode の展開後サイズを、出力を確保せずに検証する。
+/// Validate ASCIIHexDecode output size without allocating the output.
 fn validate_ascii_hex_size(data: &[u8], max_output: usize) -> PyResult<()> {
     let digits = data
         .iter()
@@ -375,7 +375,7 @@ fn validate_ascii_hex_size(data: &[u8], max_output: usize) -> PyResult<()> {
     Ok(())
 }
 
-/// PDF 仕様で許可されるフィルタ名の短縮形を正規名へそろえる。
+/// Normalize PDF-spec filter abbreviations to canonical names.
 fn canonical_filter_name(filter: &[u8]) -> &[u8] {
     match filter {
         b"Fl" => b"FlateDecode",
@@ -389,12 +389,11 @@ fn canonical_filter_name(filter: &[u8]) -> &[u8] {
     }
 }
 
-/// hayro が遅延展開するストリームも含め、ロード時に展開上限を先行検証する。
+/// Prevalidate decompression limits at load, including hayro-lazy streams.
 ///
-/// lopdf が上限付きで扱える Flate/LZW/ASCII85 は実際に上限付き展開し、
-/// RunLength/ASCIIHex は出力サイズだけを走査する。画像デコーダが展開する
-/// DCT/JPX/JBIG2/CCITT は、RGBA 化時の画素バッファを Width×Height×4 で制限する。
-/// 安全に上限を検証できないフィルタ鎖は、上限指定時には明示的に拒否する。
+/// Decode Flate/LZW/ASCII85 with lopdf's bound; scan RunLength/ASCIIHex sizes
+/// only. Bound image-decoder DCT/JPX/JBIG2/CCITT buffers as Width×Height×4.
+/// Reject filter chains that cannot be bounded safely when a limit is set.
 fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<()> {
     const LOPDF_FILTERS: [&[u8]; 3] = [b"FlateDecode", b"LZWDecode", b"ASCII85Decode"];
     const IMAGE_FILTERS: [&[u8]; 4] = [
@@ -425,7 +424,7 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
                 .map_err(to_py_err)?;
             continue;
         }
-        // lopdf のデコーダは正規名だけを受け付けるため、短縮形を clone 側で正規化する。
+        // lopdf accepts canonical filter names only; normalize on the clone.
         let mut checked_stream = stream.clone();
         let normalized_filter = if filters.len() == 1 {
             Object::Name(filters[0].to_vec())
@@ -455,7 +454,7 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
                         .iter()
                         .all(|filter| LOPDF_FILTERS.contains(filter)) =>
             {
-                // 画像フィルタより前の圧縮層は lopdf で上限付き展開する。
+                // Decode compression layers before image filters with lopdf's bound.
                 if index > 0 {
                     match checked_stream.get_plain_content_with_limit(max_output) {
                         Err(lopdf::Error::Unimplemented(_)) => {}
@@ -513,29 +512,29 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
     Ok(())
 }
 
-/// レンダリング時に非埋め込み CJK フォントへ充てる代替フォント。
+/// Fallback font used for non-embedded CJK fonts during rendering.
 #[derive(Default, Clone)]
 struct FallbackFonts {
-    /// ゴシック系（および判別不能時の既定）
+    /// Sans/gothic family and the default when style is unknown.
     sans: Option<(Arc<Vec<u8>>, u32)>,
-    /// 明朝系
+    /// Mincho-style serif font.
     serif: Option<(Arc<Vec<u8>>, u32)>,
 }
 
-/// BaseFont 名の小文字表現に含まれていたら CJK フォントとみなすパターン。
+/// Lowercase BaseFont-name patterns indicating CJK.
 const CJK_NAME_HINTS: [&str; 12] = [
     "mincho", "gothic", "ryumin", "kozmin", "kozgo", "kozuka", "meiryo", "yugoth", "yumin",
     "hiragino", "ipaex", "ipam",
 ];
 
-/// BaseFont 名の小文字表現に含まれていたら明朝系とみなすパターン。
+/// Lowercase BaseFont-name patterns indicating a serif/mincho family.
 const SERIF_NAME_HINTS: [&str; 5] = ["mincho", "ryumin", "kozmin", "yumin", "serif"];
 
-/// 非埋め込みフォントの問い合わせが CJK なら、設定済みの代替フォントを返す。
+/// Return a configured fallback when a non-embedded font request is CJK.
 ///
-/// CIDSystemInfo（Adobe-Japan1/GB1/CNS1/Korea1）か BaseFont 名で CJK と判定する。
-/// Adobe-Identity は CID→Unicode の手がかりが CMap に無いため名前判定に任せる
-/// （埋め込み ToUnicode があれば hayro 側がそれを使って解決する）。
+/// Detect CJK through CIDSystemInfo (Adobe-Japan1/GB1/CNS1/Korea1) or BaseFont.
+/// Adobe-Identity lacks CID-to-Unicode clues in its CMap, so use the name;
+/// hayro resolves an embedded ToUnicode map when present.
 fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option<(FontData, u32)> {
     let is_cjk_collection = matches!(
         query.character_collection.as_ref().map(|cc| &cc.family),
@@ -564,23 +563,22 @@ fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option
     slot.map(|(data, index)| (Arc::clone(data) as FontData, *index))
 }
 
-/// lopdf::Document を保持する Python クラス。
+/// Python class holding a `lopdf::Document`.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct _Document {
-    /// 編集対象の本体（lopdf）。
+    /// Editable lopdf document.
     doc: Document,
-    /// レンダリング時の CJK 代替フォント設定。
+    /// CJK fallback configuration for rendering.
     fallback_fonts: FallbackFonts,
-    /// レンダリング用にパース済みの hayro ドキュメント（現在の編集状態のスナップショット）。
-    /// 編集メソッドが `invalidate_hayro_pdf` で破棄し、次のレンダリングで再構築される。
+    /// Parsed hayro snapshot of current edit state, rebuilt after invalidation.
     hayro_pdf: Option<Pdf>,
-    /// 直近のレンダリング・抽出で hayro が出した警告（interpreter_settings の sink が
-    /// 書き込み、take_warnings で取り出す）。
+    /// Hayro warnings from the latest render/extraction, written by the
+    /// interpreter-settings sink and drained by `take_warnings`.
     pending_warnings: Arc<Mutex<Vec<String>>>,
 }
 
 impl _Document {
-    /// lopdf::Document から（fallback フォント未設定の状態で）構築する。
+    /// Construct from lopdf with no fallback fonts configured.
     fn from_doc(doc: Document) -> Self {
         Self {
             doc,
@@ -590,7 +588,7 @@ impl _Document {
         }
     }
 
-    /// trailer の Info 辞書を（間接参照を解決して）返す。
+    /// Return the trailer Info dictionary with indirect references resolved.
     fn info_dict(&self) -> Option<&Dictionary> {
         match self.doc.trailer.get(b"Info").ok()? {
             Object::Reference(id) => self.doc.get_object(*id).ok()?.as_dict().ok(),
@@ -599,7 +597,7 @@ impl _Document {
         }
     }
 
-    /// 現在の編集状態をシリアライズしたバイト列を返す（レンダリング用）。
+    /// Serialize current edit state to bytes for rendering.
     fn current_bytes(&mut self) -> PyResult<Vec<u8>> {
         let mut buffer = Vec::new();
         self.doc
@@ -608,12 +606,12 @@ impl _Document {
         Ok(buffer)
     }
 
-    /// キャッシュ済みのレンダリング用ビューを破棄する。編集メソッドの先頭で呼ぶ。
+    /// Drop the cached render view; call at the start of every editing method.
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
     }
 
-    /// 指定ページ（1 始まり）の ObjectId を返す。
+    /// Return the ObjectId of a one-based page.
     fn page_id(&self, page_number: u32) -> PyResult<ObjectId> {
         self.doc
             .get_pages()
@@ -622,7 +620,7 @@ impl _Document {
             .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
     }
 
-    /// ページ辞書の属性を、親ツリーの継承と間接参照を解決しつつ取得する。
+    /// Read a page attribute while resolving inheritance and indirect references.
     fn resolve_page_attr(&self, page_id: ObjectId, key: &[u8]) -> PyResult<Option<Object>> {
         let mut current = Some(page_id);
         let mut visited = HashSet::new();
@@ -647,7 +645,7 @@ impl _Document {
         Ok(None)
     }
 
-    /// ページの表示ジオメトリ（CropBox → MediaBox → A4 の順で決まる矩形と、正規化済み回転）。
+    /// Page display geometry: CropBox, then MediaBox, then A4, plus rotation.
     fn page_display_geometry(&self, page_number: u32) -> PyResult<([f64; 4], i64)> {
         let rotation = self.get_page_rotation(page_number)?;
         let boxed = self
@@ -658,20 +656,20 @@ impl _Document {
         Ok(([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)], rotation))
     }
 
-    /// ページ辞書へ継承属性を焼き込む。
+    /// Materialize inherited attributes into the page dictionary.
     ///
-    /// lopdf の add_xobject はページ自身に /Resources が無いと空辞書を新設して
-    /// 親ツリーの継承 Resources を影で潰すため、描き込み系の前処理として必須。
+    /// Required before drawing: lopdf `add_xobject` creates empty `/Resources`
+    /// when absent and would shadow inherited parent resources.
     fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
         let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
         self.doc.objects.insert(page_id, Object::Dictionary(dict));
         Ok(())
     }
 
-    /// AcroForm フィールド木を平坦化して (完全名, フィールド ObjectId, FT, Ff, V) を集める。
+    /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
     ///
-    /// FT / Ff / V は親から継承される。完全名は /T をドットで連結したもの。
-    /// 終端 = /T 付きの子を持たず FT が解決できたノード。
+    /// FT/Ff/V inherit from parents; full names join `/T` components with dots.
+    /// A leaf has resolved FT and no child carrying `/T`.
     fn collect_form_fields(&self) -> Vec<(String, ObjectId, String, i64, Option<Object>)> {
         let Some(acroform) = self
             .doc
@@ -686,7 +684,7 @@ impl _Document {
             return Vec::new();
         };
         let mut out = Vec::new();
-        // (ObjectId, 接頭名, 継承 FT, 継承 Ff, 継承 V)
+        // (ObjectId, qualified name, inherited FT, inherited Ff, inherited V)
         let mut stack: Vec<FieldNode> = fields
             .iter()
             .filter_map(|f| f.as_reference().ok())
@@ -717,7 +715,7 @@ impl _Document {
                 .and_then(|o| resolve_i64(&self.doc, o))
                 .unwrap_or(inh_ff);
             let v = dict.get(b"V").ok().cloned().or(inh_v);
-            // /T を持つ子 = 下位フィールド、持たない子 = ウィジェット
+            // Children with /T are fields; children without it are widgets.
             let child_fields: Vec<ObjectId> = dict
                 .get(b"Kids")
                 .and_then(Object::as_array)
@@ -747,7 +745,7 @@ impl _Document {
         out
     }
 
-    /// フィールドのウィジェット注釈 ObjectId 列を返す（Kids が無ければフィールド自身）。
+    /// Return widget annotation ObjectIds, or the field itself when Kids is absent.
     fn field_widgets(&self, field_id: ObjectId) -> Vec<ObjectId> {
         let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
             return vec![field_id];
@@ -774,7 +772,7 @@ impl _Document {
         }
     }
 
-    /// AcroForm 辞書に NeedAppearances = true を立てる（間接参照でも対応）。
+    /// Set NeedAppearances=true in AcroForm, including indirect dictionaries.
     fn set_need_appearances(&mut self) -> PyResult<()> {
         let acroform_ref = self
             .doc
@@ -803,7 +801,7 @@ impl _Document {
         Ok(())
     }
 
-    /// ページの /Annots 配列へ注釈オブジェクトの参照を追加する（配列が間接参照でも対応）。
+    /// Add an annotation reference to page `/Annots`, including indirect arrays.
     fn push_page_annotation(&mut self, page_id: ObjectId, annot_id: ObjectId) -> PyResult<()> {
         let array_ref = {
             let page = self
@@ -815,8 +813,8 @@ impl _Document {
         };
         match array_ref {
             Some(arr_id) => {
-                // copy_page / select の複製ページは間接 Annots 配列を共有し得る。
-                // 共有中だけ clone-on-write し、片方への追加が他方へ漏れないようにする。
+                // copy_page/select duplicates may share indirect Annots arrays.
+                // Clone on write while shared so additions do not leak.
                 let shared = self.doc.get_pages().into_values().any(|other_page_id| {
                     other_page_id != page_id
                         && self
@@ -868,11 +866,10 @@ impl _Document {
         Ok(())
     }
 
-    /// 現在の編集状態の hayro ドキュメントを返す（未構築ならシリアライズ + パースして保持）。
+    /// Return the hayro view of current state, serializing/parsing when absent.
     ///
-    /// 編集メソッドが `invalidate_hayro_pdf` でキャッシュを破棄するため、
-    /// 「編集後の状態が常に反映される」不変条件は維持される。
-    /// 連続レンダリングでは再構築が 1 回で済む。
+    /// Editing methods invalidate the cache, preserving the invariant that
+    /// rendered state always reflects edits. Consecutive renders rebuild once.
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
             let data = self.current_bytes()?;
@@ -881,10 +878,13 @@ impl _Document {
             })?;
             self.hayro_pdf = Some(pdf);
         }
-        Ok(self.hayro_pdf.as_ref().expect("直前で構築している"))
+        Ok(self
+            .hayro_pdf
+            .as_ref()
+            .expect("constructed immediately before"))
     }
 
-    /// fallback フォント設定と警告 sink を反映した InterpreterSettings を組み立てる。
+    /// Build InterpreterSettings with fallbacks and the warning sink.
     fn interpreter_settings(&self) -> InterpreterSettings {
         let mut settings = InterpreterSettings::default();
         if self.fallback_fonts.sans.is_some() || self.fallback_fonts.serif.is_some() {
@@ -899,7 +899,7 @@ impl _Document {
                 default_resolver(query)
             });
         }
-        // hayro の警告を pending_warnings へ集める（同一メッセージは 1 回だけ）
+        // Collect hayro warnings in pending_warnings, deduplicating messages.
         let sink = Arc::clone(&self.pending_warnings);
         settings.warning_sink = Arc::new(move |warning| {
             let message = match warning {
@@ -917,8 +917,7 @@ impl _Document {
         settings
     }
 
-    /// ページを検証付きでレンダリングして hayro の Pixmap を返す
-    /// （render_page_png / render_page_pixmap の共通実装）。
+    /// Validate and render a page to hayro Pixmap; shared by PNG and Pixmap APIs.
     fn render_pixmap_impl(
         &mut self,
         py: Python<'_>,
@@ -975,7 +974,7 @@ impl _Document {
         })
     }
 
-    /// ルート Pages ノードの ObjectId を返す。無ければ最小構造を作る（空ドキュメント対応）。
+    /// Return root Pages ObjectId, creating a minimal tree for empty documents.
     fn ensure_page_tree(&mut self) -> lopdf::Result<ObjectId> {
         let existing = self
             .doc
@@ -998,10 +997,10 @@ impl _Document {
         Ok(pages_id)
     }
 
-    /// other の指定ページ（1 始まり・指定順）を self のオブジェクト空間へ取り込み、
-    /// 取り込んだページの ObjectId 列を返す（root Kids への接続は呼び出し側が行う）。
+    /// Import selected one-based pages from `other` in order into self's object
+    /// space and return their ObjectIds; the caller connects root Kids.
     ///
-    /// ページ辞書には継承属性を焼き込み、Parent を root Pages に付け替える。
+    /// Materialize inherited page attributes and repoint Parent to root Pages.
     fn transplant_pages(
         &mut self,
         other: &Self,
@@ -1026,7 +1025,7 @@ impl _Document {
             ordered_ids.push(id);
         }
 
-        // 取り込み元のページツリーは捨てるため、継承属性を各ページへ焼き込む
+        // The source page tree is discarded; materialize inheritance per page.
         let mut resolved_pages = Vec::with_capacity(ordered_ids.len());
         for &page_id in &ordered_ids {
             let mut dict = resolve_inherited_page_dict(&other_doc, page_id).map_err(to_py_err)?;
@@ -1034,7 +1033,7 @@ impl _Document {
             resolved_pages.push((page_id, dict));
         }
 
-        // ページツリー構造（Catalog / Pages / Page）以外のオブジェクトを取り込む
+        // Import objects outside the Catalog/Pages/Page tree.
         for (id, object) in other_doc.objects {
             match object.type_name().unwrap_or(b"") {
                 b"Catalog" | b"Pages" | b"Page" => {}
@@ -1051,10 +1050,10 @@ impl _Document {
         Ok(ordered_ids)
     }
 
-    /// root Pages の Kids/Count に new_ids を追記する（末尾追加の高速パス。平坦化しない）。
+    /// Append `new_ids` to root Pages Kids/Count without flattening.
     fn append_pages(&mut self, pages_id: ObjectId, new_ids: Vec<ObjectId>) -> PyResult<()> {
-        // 入力 PDF の Count は壊れていることがあるため、実際に到達可能なページ数から再計算する。
-        // new_ids はまだ Kids から参照されていないので、ここでの get_pages は既存ページだけを返す。
+        // Input Count may be damaged; recalculate from reachable pages.
+        // new_ids are not in Kids yet, so get_pages returns existing pages only.
         let total_count = self
             .doc
             .get_pages()
@@ -1077,9 +1076,9 @@ impl _Document {
         Ok(())
     }
 
-    /// 現在のページ列に new_ids を position（0 始まり、None で末尾）で挿入した並びを返す。
+    /// Return current pages with `new_ids` inserted at zero-based `position`.
     ///
-    /// new_ids はまだ root Kids から到達できないこと（get_pages に含まれないこと）が前提。
+    /// `new_ids` must not yet be reachable from root Kids or included by get_pages.
     fn spliced_page_order(&self, new_ids: Vec<ObjectId>, position: Option<usize>) -> Vec<ObjectId> {
         let mut order: Vec<ObjectId> = self.doc.get_pages().into_values().collect();
         let pos = position.unwrap_or(order.len()).min(order.len());
@@ -1087,9 +1086,9 @@ impl _Document {
         order
     }
 
-    /// AES-256（PDF 2.0, V5/R6）で暗号化した複製を作る。self は平文のまま変わらない。
+    /// Create an AES-256 PDF 2.0 V5/R6 encrypted clone; leave self plaintext.
     ///
-    /// file_encryption_key は呼び出し側（Python の os.urandom）が生成した 32 バイトの乱数。
+    /// `file_encryption_key` is 32 random bytes generated by Python `os.urandom`.
     fn encrypted_clone(
         &self,
         user_password: &str,
@@ -1120,10 +1119,10 @@ impl _Document {
         Ok(cloned)
     }
 
-    /// root Pages の Kids/Count を指定の並びで置き換える（ページツリーの平坦化）。
+    /// Replace root Pages Kids/Count with the given order, flattening the tree.
     ///
-    /// 各ページには継承属性を焼き込み、Parent を root に付け替える。
-    /// 旧中間ノードの掃除（prune_objects）は呼び出し側で行う。
+    /// Materialize inheritance on every page and point Parent to root.
+    /// The caller prunes obsolete intermediate nodes.
     fn rebuild_page_tree(&mut self, pages_id: ObjectId, ordered: Vec<ObjectId>) -> PyResult<()> {
         for &page_id in &ordered {
             let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
@@ -1142,12 +1141,12 @@ impl _Document {
         Ok(())
     }
 
-    /// 宛先オブジェクト（配列 / 名前 / 文字列 / /D 付き辞書）を
-    /// (宛先ページ番号（lopdf 1 始まり）, 宛先ページ表示座標の to 点, zoom, named dest 名) へ解決する。
+    /// Resolve an array/name/string/or `/D` dictionary to a one-based lopdf page,
+    /// destination display point, zoom, and named destination.
     ///
-    /// to 点は /XYZ の (left, top)・/FitH の top・/FitV の left を宛先ページの
-    /// 表示空間（左上原点・回転考慮）へ変換したもの。/Fit や /FitR など点を持たない
-    /// フィット種別では None。
+    /// Convert `/XYZ` left/top, `/FitH` top, or `/FitV` left into the destination
+    /// page's rotated top-left-origin display space. Point-less `/Fit` or `/FitR`
+    /// destinations return None.
     fn resolve_dest(
         &self,
         dest: &Object,
@@ -1163,7 +1162,7 @@ impl _Document {
                 None => return (None, None, None, nameddest),
             }
         }
-        // named dest の値は「/D を持つ辞書」の形もある
+        // A named destination value may be a dictionary containing `/D`.
         if let Object::Dictionary(d) = resolved {
             match d.get(b"D") {
                 Ok(inner) => resolved = deref_object(doc, inner),
@@ -1173,8 +1172,8 @@ impl _Document {
         let Object::Array(arr) = resolved else {
             return (None, None, None, nameddest);
         };
-        // 要素 0 はページへの間接参照が正だが、整数（0 始まりインデックス）を書く生成系もある。
-        // 参照はページ番号の逆引きに使うため実体へ解決してはいけない
+        // Element 0 should be a page reference, but some producers write a
+        // zero-based integer. Keep references unresolved for reverse lookup.
         let page = match arr.first() {
             Some(Object::Reference(id)) => page_map.get(id).copied(),
             Some(Object::Integer(i)) if *i >= 0 => Some(*i as u32 + 1),
@@ -1194,7 +1193,7 @@ impl _Document {
             };
             match arr.get(1).and_then(|o| deref_object(doc, o).as_name().ok()) {
                 Some(b"XYZ") => {
-                    // left / top は Null のことがある → クロップの左端 / 上端を既定にする
+                    // left/top may be Null; default to the crop's left/top edge.
                     let left = num(2).unwrap_or(crop[0]);
                     let top = num(3).unwrap_or(crop[3]);
                     zoom = num(4).filter(|z| *z != 0.0);
@@ -1215,10 +1214,10 @@ impl _Document {
     }
 }
 
-/// 添付ファイル（EmbeddedFiles 名前ツリー）の (名前, FileSpec) を集める。
+/// Collect `(name, FileSpec)` attachments from the EmbeddedFiles name tree.
 ///
-/// /Kids 分割された名前ツリーも再帰的に辿る（深さ・循環はガード）。
-/// 読み取り操作で文書を変えないよう、インライン辞書はそのまま保持する。
+/// Recurse through `/Kids` with depth/cycle guards. Preserve inline dictionaries
+/// so a read operation does not mutate the document.
 fn collect_embedded_files(doc: &Document) -> Vec<EmbeddedFileEntry> {
     fn node_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
         match obj {
@@ -1268,7 +1267,7 @@ fn collect_embedded_files(doc: &Document) -> Vec<EmbeddedFileEntry> {
     out
 }
 
-/// EmbeddedFiles 名前ツリーを平坦な 1 ノードで書き戻す（他の名前ツリーは保存）。
+/// Rewrite EmbeddedFiles as one flat node while preserving other name trees.
 fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>) -> PyResult<()> {
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let mut flat = Vec::with_capacity(entries.len() * 2);
@@ -1277,7 +1276,7 @@ fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>)
         flat.push(filespec);
     }
     let tree = Object::Dictionary(dictionary! { "Names" => Object::Array(flat) });
-    // /Names が間接参照ならその実体を、インラインなら Catalog 内をその場で書き換える
+    // Mutate an indirect `/Names` target or the inline Catalog value in place.
     let names_ref = doc
         .catalog()
         .ok()
@@ -1308,7 +1307,7 @@ fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>)
 
 #[pymethods]
 impl _Document {
-    /// 空の PDF ドキュメントを作る。
+    /// Create an empty PDF document.
     #[new]
     fn new() -> PyResult<Self> {
         let mut document = Self::from_doc(Document::with_version("1.7"));
@@ -1316,10 +1315,10 @@ impl _Document {
         Ok(document)
     }
 
-    /// ファイルパスから読み込む。
+    /// Load from a file path.
     ///
-    /// password は暗号化 PDF の復号に使う。max_decompressed_size は
-    /// 1 ストリームあたりの展開上限バイト数（解凍爆弾対策、None で無制限）。
+    /// `password` decrypts encrypted PDFs. `max_decompressed_size` limits bytes
+    /// per stream against decompression bombs; None is unlimited.
     #[staticmethod]
     #[pyo3(signature = (path, password=None, max_decompressed_size=None))]
     fn load(
@@ -1345,7 +1344,7 @@ impl _Document {
         })
     }
 
-    /// バイト列から読み込む。引数の意味は load と同じ。
+    /// Load from bytes with the same arguments as `load`.
     #[staticmethod]
     #[pyo3(signature = (data, password=None, max_decompressed_size=None))]
     fn load_bytes(
@@ -1370,9 +1369,9 @@ impl _Document {
         })
     }
 
-    /// 文書全体をロードせず、メタデータだけを高速に読む。
+    /// Read metadata quickly without loading the complete document.
     ///
-    /// 戻り値は (Info 文字列辞書, ページ数, バージョン, 暗号化有無)。
+    /// Return `(Info string dict, page count, version, encrypted flag)`.
     #[staticmethod]
     #[pyo3(signature = (path, password=None))]
     fn load_metadata(
@@ -1390,7 +1389,7 @@ impl _Document {
         })
     }
 
-    /// バイト列からメタデータだけを高速に読む。戻り値は load_metadata と同じ。
+    /// Read metadata from bytes, returning the same shape as `load_metadata`.
     #[staticmethod]
     #[pyo3(signature = (data, password=None))]
     fn load_metadata_bytes(
@@ -1408,10 +1407,10 @@ impl _Document {
         })
     }
 
-    /// レンダリング時の CJK 代替フォントを設定する。
+    /// Configure a CJK fallback font for rendering.
     ///
-    /// kind は "sans"（ゴシック系・既定）か "serif"（明朝系）。
-    /// data はフォントファイルのバイト列（TTF/OTF/TTC）、index は TTC 内の face 番号。
+    /// `kind` is `sans` (default) or `serif`. `data` contains TTF/OTF/TTC bytes;
+    /// `index` selects a TTC face.
     fn set_fallback_font(&mut self, kind: &str, data: Vec<u8>, index: u32) -> PyResult<()> {
         let slot = match kind {
             "sans" => &mut self.fallback_fonts.sans,
@@ -1426,32 +1425,32 @@ impl _Document {
         Ok(())
     }
 
-    /// CJK 代替フォントの設定をすべて解除する。
+    /// Clear all CJK fallback-font configuration.
     fn clear_fallback_fonts(&mut self) {
         self.fallback_fonts = FallbackFonts::default();
     }
 
-    /// 現在も暗号化されたままか（復号済みなら false）。
+    /// Return whether the document remains encrypted.
     fn is_encrypted(&self) -> bool {
         self.doc.is_encrypted()
     }
 
-    /// ロード時点で暗号化されていたか（復号後も true のまま）。
+    /// Return whether the document was encrypted at load; remains true after decryption.
     fn was_encrypted(&self) -> bool {
         self.doc.was_encrypted()
     }
 
-    /// user password として正しいか（復号はしない）。
+    /// Check a user password without decrypting.
     fn authenticate_user_password(&self, password: &str) -> bool {
         self.doc.authenticate_user_password(password).is_ok()
     }
 
-    /// owner password として正しいか（復号はしない）。
+    /// Check an owner password without decrypting.
     fn authenticate_owner_password(&self, password: &str) -> bool {
         self.doc.authenticate_owner_password(password).is_ok()
     }
 
-    /// ファイルパスへ保存する。
+    /// Save to a file path.
     fn save(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
         py.detach(|| {
             self.doc
@@ -1461,7 +1460,7 @@ impl _Document {
         })
     }
 
-    /// バイト列へ書き出す。
+    /// Serialize to bytes.
     fn save_bytes(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
         py.detach(|| {
             let mut buffer = Vec::new();
@@ -1472,10 +1471,10 @@ impl _Document {
         })
     }
 
-    /// object stream + xref stream（PDF 1.5+ 形式）でファイルへ保存する。
+    /// Save with PDF 1.5+ object and xref streams.
     ///
-    /// lopdf 側が PDF バージョンの 1.5 への引き上げと xref 種別の切り替えを行い
-    /// ドキュメント状態が変わるため、レンダリングキャッシュも無効化する。
+    /// lopdf raises the version and changes xref type, mutating document state,
+    /// so invalidate the rendering cache.
     fn save_with_object_streams(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         py.detach(|| {
@@ -1492,7 +1491,7 @@ impl _Document {
         })
     }
 
-    /// object stream + xref stream（PDF 1.5+ 形式）でバイト列へ書き出す。
+    /// Serialize with PDF 1.5+ object and xref streams.
     fn save_bytes_with_object_streams(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
         self.invalidate_hayro_pdf();
         py.detach(|| {
@@ -1504,17 +1503,17 @@ impl _Document {
         })
     }
 
-    /// ページ数を返す。
+    /// Return the page count.
     fn page_count(&self) -> usize {
         self.doc.get_pages().len()
     }
 
-    /// PDF バージョン文字列（例: "1.7"）を返す。
+    /// Return the PDF version string, such as `"1.7"`.
     fn version(&self) -> String {
         self.doc.version.clone()
     }
 
-    /// Info 辞書の文字列項目を {キー: 値} で返す。
+    /// Return Info dictionary strings as `{key: value}`.
     fn get_metadata(&self) -> BTreeMap<String, String> {
         let mut result = BTreeMap::new();
         let Some(info) = self.info_dict() else {
@@ -1535,13 +1534,13 @@ impl _Document {
         result
     }
 
-    /// Info 辞書の項目を設定する。値が空文字列なら項目を削除する。
+    /// Set an Info entry, deleting it when the value is empty.
     fn set_metadata(&mut self, key: &str, value: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let info_id = if let Ok(Object::Reference(id)) = self.doc.trailer.get(b"Info") {
             *id
         } else {
-            // 直置き辞書は間接オブジェクトへ移し、無ければ新規作成する
+            // Move an inline dictionary to an indirect object, or create one.
             let existing = match self.doc.trailer.get(b"Info") {
                 Ok(Object::Dictionary(dict)) => dict.clone(),
                 _ => Dictionary::new(),
@@ -1563,16 +1562,16 @@ impl _Document {
         Ok(())
     }
 
-    /// 指定ページ（1 始まり）を削除する。
+    /// Delete a one-based page.
     fn delete_pages(&mut self, page_numbers: Vec<u32>) {
         self.invalidate_hayro_pdf();
         self.doc.delete_pages(&page_numbers);
     }
 
-    /// 指定ページ（1 始まり）のテキストを抽出する。
+    /// Extract text from a one-based page.
     ///
-    /// hayro のインタープリタ（rust/src/extract.rs）でグリフの Unicode と位置を収集し、
-    /// 読み順のテキストへ組み立てる。CJK 代替フォントの設定は抽出にも反映される。
+    /// Collect glyph Unicode/positions through the hayro interpreter and
+    /// assemble reading-order text. CJK fallbacks also apply to extraction.
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
         let settings = self.interpreter_settings();
         let pdf = self.hayro_view()?;
@@ -1594,10 +1593,11 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）のレイアウトを返す。
+    /// Return layout for a one-based page.
     ///
-    /// 戻り値は (幅, 高さ, ブロック列)。ブロック = (bbox, 行列)、
-    /// 行 = (bbox, スパン列, 語列)、スパン = (bbox, text, size, origin)、語 = (bbox, text)。
+    /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
+    /// line=`(bbox, spans, words)`, span=`(bbox, text, size, origin)`, and
+    /// word=`(bbox, text)`.
     #[allow(clippy::type_complexity)]
     fn extract_layout(
         &mut self,
@@ -1616,9 +1616,9 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）上に描画される画像を抽出する。
+    /// Extract images drawn on a one-based page.
     ///
-    /// 戻り値は (幅, 高さ, bbox, 形式 "jpeg"/"png", バイト列) のリスト。
+    /// Return `(width, height, bbox, "jpeg"/"png", bytes)` items.
     fn extract_images(
         &mut self,
         py: Python<'_>,
@@ -1636,7 +1636,7 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）をテキスト検索する（大文字小文字を区別しない）。
+    /// Search a one-based page case-insensitively.
     fn search_page(
         &mut self,
         py: Python<'_>,
@@ -1655,7 +1655,7 @@ impl _Document {
         })
     }
 
-    /// 別ドキュメントの全ページを末尾に取り込む。
+    /// Append every page from another document.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
         let count = u32::try_from(other.doc.get_pages().len())
             .map_err(|e| PdfError::new_err(e.to_string()))?;
@@ -1663,10 +1663,10 @@ impl _Document {
         self.merge_pages(py, other, all, None)
     }
 
-    /// 別ドキュメントの指定ページ（1 始まり・指定順）を取り込む。
+    /// Import specified one-based pages from another document in order.
     ///
-    /// position は既存ページ列への挿入位置（0 始まり）。None なら末尾に追加する。
-    /// 挿入時はページツリーを root 直下へ平坦化する。
+    /// `position` is a zero-based insertion point; None appends. Flatten the
+    /// page tree under root while inserting.
     fn merge_pages(
         &mut self,
         py: Python<'_>,
@@ -1676,7 +1676,7 @@ impl _Document {
     ) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         py.detach(|| {
-            // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
+            // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
             let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
             match position {
@@ -1686,15 +1686,15 @@ impl _Document {
                     self.rebuild_page_tree(pages_id, order)?;
                 }
             }
-            // transplant_pages は取り込み元の全非ページオブジェクトを一度移すため、
-            // 選択ページから到達できない添付・メタデータ等を必ず掃除する。
-            // 省略すると完全範囲の末尾追加でも非表示データが保存結果へ残る。
+            // transplant_pages initially moves all non-page objects. Prune
+            // attachments/metadata unreachable from selected pages or hidden
+            // source data remains even for a full-range append.
             self.doc.prune_objects();
             Ok(())
         })
     }
 
-    /// 空ページを position（0 始まり、None で末尾）に挿入する。
+    /// Insert a blank page at zero-based `position`; None appends.
     fn new_page(&mut self, position: Option<usize>, width: f32, height: f32) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
@@ -1724,10 +1724,10 @@ impl _Document {
         }
     }
 
-    /// 指定ページ（1 始まり）の複製を position（0 始まり、None で末尾）に挿入する。
+    /// Copy a one-based page to zero-based `position`; None appends.
     ///
-    /// ページ辞書は継承属性を焼き込んだ独立コピーになり、Contents / Resources は
-    /// 元ページとオブジェクトを共有する。
+    /// The page dictionary is an independent copy with inheritance materialized;
+    /// Contents and Resources remain shared with the source page.
     fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
@@ -1746,17 +1746,16 @@ impl _Document {
         }
     }
 
-    /// 指定ページ（1 始まり）だけを指定順で残す。並べ替えにも使える。
+    /// Keep specified one-based pages in order, also supporting reordering.
     ///
-    /// PDF のページツリーでは Parent が一意である必要があるため、
-    /// 同一ページの重複指定（複製）は未対応。
+    /// PDF page-tree Parent must be unique, so duplicate selections require copies.
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let pages = self.doc.get_pages();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
 
-        // 同一ページの 2 回目以降は、継承属性焼き込み済みの複製ページを作る
-        // （PDF のページツリーでは Parent が一意である必要があるため）
+        // For repeated pages, create a copy with inheritance materialized because
+        // PDF page-tree Parent references must be unique.
         let mut seen = HashSet::new();
         let mut ordered = Vec::with_capacity(page_numbers.len());
         for number in &page_numbers {
@@ -1773,14 +1772,14 @@ impl _Document {
         }
         self.rebuild_page_tree(pages_id, ordered)?;
 
-        // 参照されなくなったページ・中間ノードを掃除する
+        // Remove pages and intermediate nodes that became unreachable.
         self.doc.prune_objects();
         Ok(())
     }
 
-    /// 指定ページ（1 始まり）を PNG 画像にレンダリングする。
+    /// Render a one-based page to PNG.
     ///
-    /// background は塗りつぶす背景色 RGBA（各 0-255）。None なら透明のまま。
+    /// `background` is fill RGBA in 0–255; None preserves transparency.
     fn render_page_png(
         &mut self,
         py: Python<'_>,
@@ -1789,9 +1788,9 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<Vec<u8>> {
         let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
-        // PNG エンコードはページによってはラスタライズより高コストなので GIL を解放し、
-        // 圧縮は Fast（fdeflate）を使う。既定の Balanced はサイズ約 1 割減のために
-        // 数十倍遅く、render_page の主コストが PNG になってしまう（bench で実測）
+        // PNG encoding can cost more than rasterization, so release the GIL and
+        // use Fast/fdeflate. Balanced is tens of times slower for about 10%
+        // smaller output and made PNG the dominant render cost in benchmarks.
         py.detach(|| {
             let width = u32::from(pixmap.width());
             let height = u32::from(pixmap.height());
@@ -1807,7 +1806,7 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）をレンダリングして Pixmap（ストレート RGBA8）を返す。
+    /// Render a one-based page and return a straight-alpha RGBA8 Pixmap.
     fn render_page_pixmap(
         &mut self,
         py: Python<'_>,
@@ -1818,7 +1817,7 @@ impl _Document {
         let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
         let width = u32::from(pixmap.width());
         let height = u32::from(pixmap.height());
-        // アルファ非乗算化 + バイト列化も大画像では重いので GIL を解放する
+        // Release the GIL: unpremultiplication and byte conversion are costly.
         let data = py.detach(|| rgba_bytes(pixmap));
         Ok(crate::pixmap::Pixmap {
             width,
@@ -1827,7 +1826,7 @@ impl _Document {
         })
     }
 
-    /// 直近の操作で溜まった hayro の警告メッセージを取り出す（取り出すと空になる）。
+    /// Drain hayro warning messages accumulated by the latest operation.
     fn take_warnings(&mut self) -> Vec<String> {
         self.pending_warnings
             .lock()
@@ -1835,7 +1834,7 @@ impl _Document {
             .unwrap_or_default()
     }
 
-    /// 指定ページ（1 始まり）を SVG 文字列にレンダリングする。
+    /// Render a one-based page to an SVG string.
     fn render_page_svg(&mut self, py: Python<'_>, page_number: u32) -> PyResult<String> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
@@ -1856,9 +1855,9 @@ impl _Document {
         })
     }
 
-    /// 目次（アウトライン）をフラットな (レベル, タイトル, 1 始まりページ番号) の列で返す。
+    /// Return the TOC as flat `(level, title, one-based page number)` entries.
     ///
-    /// アウトラインが無い場合は空。ページに解決できない項目はスキップされる。
+    /// Return empty when absent and skip entries that do not resolve to a page.
     fn get_toc(&self) -> PyResult<Vec<(u32, String, u32)>> {
         match self.doc.get_toc() {
             Ok(toc) => Ok(toc
@@ -1866,21 +1865,20 @@ impl _Document {
                 .into_iter()
                 .map(|t| (t.level as u32, t.title, t.page as u32))
                 .collect()),
-            // アウトライン自体が無い場合は空の目次として扱う
-            // （catalog に Outlines キーが無いと DictKey が返る）
+            // Missing catalog Outlines raises DictKey; treat it as an empty TOC.
             Err(lopdf::Error::NoOutline) => Ok(Vec::new()),
             Err(lopdf::Error::DictKey(ref key)) if key == "Outlines" => Ok(Vec::new()),
             Err(e) => Err(to_py_err(e)),
         }
     }
 
-    /// 目次を (レベル, タイトル, 1 始まりページ番号) の列で置き換える。空列で削除。
+    /// Replace the TOC from `(level, title, one-based page)` entries; empty deletes.
     ///
-    /// レベルの検証（1 始まり・直前 +1 まで）は Python 側で行う。
-    /// 非 ASCII タイトルは lopdf が UTF-16BE（BOM 付き）で書き込む。
+    /// Python validates one-based levels and maximum +1 depth. lopdf writes
+    /// non-ASCII titles as UTF-16BE with a BOM.
     fn set_toc(&mut self, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        // 既存のアウトラインと構築用状態を捨てる
+        // Discard existing outlines and construction state.
         self.doc.bookmarks.clear();
         self.doc.bookmark_table.clear();
         self.doc.max_bookmark_id = 0;
@@ -1892,7 +1890,7 @@ impl _Document {
             return Ok(());
         }
         let pages = self.doc.get_pages();
-        // parents[level - 1] = その階層の直近ブックマーク id
+        // parents[level - 1] = latest bookmark ID at that level.
         let mut parents: Vec<u32> = Vec::new();
         for (level, title, page) in entries {
             let page_id = *pages
@@ -1916,12 +1914,12 @@ impl _Document {
                 .map_err(to_py_err)?
                 .set("Outlines", Object::Reference(outline_id));
         }
-        // 旧アウトラインのオブジェクトを掃除する
+        // Prune old outline objects.
         self.doc.prune_objects();
         Ok(())
     }
 
-    /// AES-256 で暗号化してファイルへ保存する。このドキュメント自体は平文のまま。
+    /// Save an AES-256 encrypted clone to a file while this document stays plaintext.
     fn save_encrypted(
         &self,
         py: Python<'_>,
@@ -1945,7 +1943,7 @@ impl _Document {
         })
     }
 
-    /// AES-256 で暗号化してバイト列へ書き出す。このドキュメント自体は平文のまま。
+    /// Serialize an AES-256 encrypted clone while this document stays plaintext.
     fn save_bytes_encrypted(
         &self,
         py: Python<'_>,
@@ -1969,7 +1967,7 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）の回転角（継承解決済み、0..360 に正規化）を返す。
+    /// Return inherited, normalized 0..360 rotation for a one-based page.
     fn get_page_rotation(&self, page_number: u32) -> PyResult<i64> {
         let page_id = self.page_id(page_number)?;
         match self.resolve_page_attr(page_id, b"Rotate")? {
@@ -1978,7 +1976,7 @@ impl _Document {
         }
     }
 
-    /// 指定ページ（1 始まり）の回転角を設定する（値の検証は Python 側）。
+    /// Set rotation for a one-based page; Python validates the value.
     fn set_page_rotation(&mut self, page_number: u32, rotation: i64) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let page_id = self.page_id(page_number)?;
@@ -1991,8 +1989,7 @@ impl _Document {
         Ok(())
     }
 
-    /// 指定ページ（1 始まり）のボックス（MediaBox / CropBox 等、継承解決済み）を返す。
-    /// 設定されていなければ None。
+    /// Return a resolved page box such as MediaBox/CropBox, or None when absent.
     fn get_page_box(&self, page_number: u32, key: &str) -> PyResult<Option<(f64, f64, f64, f64)>> {
         let page_id = self.page_id(page_number)?;
         let Some(obj) = self.resolve_page_attr(page_id, key.as_bytes())? else {
@@ -2016,7 +2013,7 @@ impl _Document {
         Ok(Some((values[0], values[1], values[2], values[3])))
     }
 
-    /// 指定ページ（1 始まり）のボックスを設定する（矩形の検証は Python 側）。
+    /// Set a box on a one-based page; Python validates the rectangle.
     fn set_page_box(
         &mut self,
         page_number: u32,
@@ -2049,28 +2046,28 @@ impl _Document {
         Ok(())
     }
 
-    /// ストリームを圧縮する。
+    /// Compress streams.
     fn compress(&mut self, py: Python<'_>) {
         self.invalidate_hayro_pdf();
         py.detach(|| self.doc.compress());
     }
 
-    /// ストリームを展開する。
+    /// Decompress streams.
     fn decompress(&mut self, py: Python<'_>) {
         self.invalidate_hayro_pdf();
         py.detach(|| self.doc.decompress());
     }
 
-    /// 参照されていないオブジェクトを削除する。
+    /// Remove unreferenced objects.
     fn prune_objects(&mut self) {
         self.invalidate_hayro_pdf();
         self.doc.prune_objects();
     }
 
-    /// 指定ページ（1 始まり）の表示座標 rect へ画像（JPEG / PNG のバイト列）を描き込む。
+    /// Draw JPEG/PNG bytes into display `rect` on a one-based page.
     ///
-    /// rect は左上原点の表示空間（page.rect と同じ系。回転ページも表示上の位置で指定する）。
-    /// 既存コンテンツには触れず、新しいコンテンツストリームの追加だけで描く。
+    /// `rect` uses top-left-origin page display space, including rotation.
+    /// Drawing only adds a content stream and never rewrites existing content.
     fn insert_image(
         &mut self,
         py: Python<'_>,
@@ -2110,11 +2107,11 @@ impl _Document {
         })
     }
 
-    /// other の指定ページ（1 始まり）を Form XObject として取り込み、表示座標 rect へ重ねる。
+    /// Import a one-based page from `other` as a Form XObject into display `rect`.
     ///
-    /// merge と同じ流儀で取り込み元のオブジェクトを番号替えして持ち込み、
-    /// ページコンテンツは Form XObject に包んで「ベクタのまま」配置する。
-    // Python 側シグネチャをそのまま写す境界メソッドのため引数数は許容する
+    /// Renumber source objects as in merge and wrap page content in a Form
+    /// XObject to preserve vectors.
+    // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
     fn show_pdf_page(
         &mut self,
@@ -2142,7 +2139,7 @@ impl _Document {
             })?;
             let src_dict = resolve_inherited_page_dict(&other_doc, src_id).map_err(to_py_err)?;
 
-            // 取り込み元ページの表示ジオメトリ（CropBox → MediaBox → A4、回転は 0..360）
+            // Source display geometry: CropBox, MediaBox, A4; rotation 0..360.
             let src_crop = resolve_box(&other_doc, &src_dict, b"CropBox")
                 .or_else(|| resolve_box(&other_doc, &src_dict, b"MediaBox"))
                 .unwrap_or([0.0, 0.0, 595.0, 842.0]);
@@ -2153,7 +2150,7 @@ impl _Document {
                 .unwrap_or(0)
                 .rem_euclid(360);
 
-            // 元コンテンツの q/Q 不均衡から自衛しつつ Form にまとめる（中身は再エンコードしない）
+            // Wrap in q/Q to contain imbalance without re-encoding source content.
             let mut form_content = b"q\n".to_vec();
             form_content.extend_from_slice(&other_doc.get_page_content(src_id));
             form_content.extend_from_slice(b"\nQ\n");
@@ -2171,7 +2168,7 @@ impl _Document {
                 form_dict.set("Group", group.clone());
             }
 
-            // ページツリー以外のオブジェクト（Resources が参照する資産）を取り込む
+            // Import non-page-tree objects referenced by Resources.
             let new_max_id = other_doc.max_id;
             for (id, object) in other_doc.objects {
                 match object.type_name().unwrap_or(b"") {
@@ -2209,17 +2206,17 @@ impl _Document {
                 overlay,
             )
             .map_err(to_py_err)?;
-            // 取り込み元の非ページオブジェクトを一度すべて移しているため、
-            // Form XObject から到達できない別ページ資産・添付等を残さない。
+            // All source non-page objects were moved initially; prune assets and
+            // attachments unreachable from the Form XObject.
             self.doc.prune_objects();
             Ok(())
         })
     }
 
-    /// 指定ページ（1 始まり）の注釈を読み取る。
+    /// Read annotations from a one-based page.
     ///
-    /// 各要素は (Subtype, 表示座標の Rect, Contents, URI)。Rect はページの回転を
-    /// 反映した表示空間（左上原点）。Contents / URI は無ければ None。
+    /// Each item is `(Subtype, display Rect, Contents, URI)`. Rect uses rotated
+    /// top-left-origin display space; Contents/URI are optional.
     fn read_annotations(&self, page_number: u32) -> PyResult<Vec<AnnotationTuple>> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
@@ -2288,10 +2285,10 @@ impl _Document {
         Ok(out)
     }
 
-    /// 指定ページ（1 始まり）のリンク注釈を宛先解決付きで読み取る。
+    /// Read link annotations from a one-based page and resolve destinations.
     ///
-    /// /A アクション（URI / GoTo / GoToR / Launch / Named）と直接 /Dest の両方に対応し、
-    /// GoTo の named destination は /Names 名前ツリーと旧式 /Dests 辞書から解決する。
+    /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
+    /// Resolve GoTo names from `/Names` trees and legacy `/Dests`.
     fn read_links(&self, page_number: u32) -> PyResult<Vec<LinkTuple>> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
@@ -2310,7 +2307,7 @@ impl _Document {
             Ok(Object::Array(arr)) => arr.clone(),
             _ => return Ok(Vec::new()),
         };
-        // 宛先解決用に ObjectId → lopdf ページ番号の逆引きを作る
+        // Build ObjectId → lopdf page-number lookup for destination resolution.
         let page_map: BTreeMap<ObjectId, u32> = self
             .doc
             .get_pages()
@@ -2380,7 +2377,7 @@ impl _Document {
                             .get(b"F")
                             .ok()
                             .and_then(|o| filespec_name(&self.doc, o));
-                        // 宛先は別文書のためページ解決はしない。名前だけ保持する
+                        // External-document destinations retain names without page resolution.
                         let name =
                             action
                                 .get(b"D")
@@ -2454,10 +2451,10 @@ impl _Document {
         Ok(out)
     }
 
-    /// 指定ページ（1 始まり）へハイライト注釈を追加する。
+    /// Add a highlight annotation to a one-based page.
     ///
-    /// rects は表示座標。QuadPoints（Acrobat 互換のジグザグ順）と、hayro を含む
-    /// ビューアで見た目を保証する外観ストリーム（AP /N、Multiply ブレンド）を生成する。
+    /// `rects` use display coordinates. Generate Acrobat-order QuadPoints and
+    /// an `AP /N` appearance with Multiply blending for hayro and other viewers.
     fn add_highlight_annotation(
         &mut self,
         page_number: u32,
@@ -2477,7 +2474,7 @@ impl _Document {
         let all_points: Vec<(f64, f64)> = quads.iter().flatten().copied().collect();
         let bbox = draw::bounding_rect(&all_points);
 
-        // 外観ストリーム: BBox = 注釈 Rect（ページ空間座標のまま描く）
+        // Appearance BBox equals annotation Rect and draws in page space.
         let gs_id = self.doc.add_object(dictionary! {
             "Type" => "ExtGState",
             "BM" => Object::Name(b"Multiply".to_vec()),
@@ -2514,7 +2511,7 @@ impl _Document {
                 Object::Real(color.2 as f32),
             ]),
             "CA" => Object::Real(opacity as f32),
-            // 印刷対象フラグ
+            // Printable flag.
             "F" => 4,
             "P" => page_id,
             "AP" => dictionary! { "N" => Object::Reference(ap_id) },
@@ -2526,7 +2523,7 @@ impl _Document {
         self.push_page_annotation(page_id, annot_id)
     }
 
-    /// 指定ページ（1 始まり）の表示座標 rect へ URI リンク注釈を追加する。
+    /// Add a URI link annotation to display `rect` on a one-based page.
     fn add_link_annotation(
         &mut self,
         page_number: u32,
@@ -2554,10 +2551,10 @@ impl _Document {
         self.push_page_annotation(page_id, annot_id)
     }
 
-    /// XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
+    /// Read the XMP PDF/A claim from `pdfaid:part` and conformance.
     ///
-    /// 自己申告の読み取りであり、準拠の検証ではない（検証は veraPDF の領分）。
-    /// PDF/A-4 は conformance を持たないため空文字列になる。
+    /// This reads a self-declaration rather than validating compliance; use
+    /// veraPDF for validation. PDF/A-4 without conformance returns an empty string.
     fn pdfa_claim(&self) -> Option<(i64, String)> {
         let catalog = self.doc.catalog().ok()?;
         let meta_ref = catalog.get(b"Metadata").ok()?.as_reference().ok()?;
@@ -2571,10 +2568,10 @@ impl _Document {
         Some((part, conformance))
     }
 
-    /// ページラベル定義（PageLabels 番号ツリー）を読む。
+    /// Read page-label definitions from the PageLabels number tree.
     ///
-    /// 各要素は (開始ページ index, style, prefix, 開始番号)。Kids 分割も再帰で辿り、
-    /// 開始ページ順にソートして返す。
+    /// Each item is `(start index, style, prefix, first number)`. Recurse through
+    /// Kids and return entries sorted by start page.
     fn get_page_labels(&self) -> Vec<(i64, Option<String>, Option<String>, i64)> {
         let Some(root) = self
             .doc
@@ -2629,7 +2626,7 @@ impl _Document {
         out
     }
 
-    /// ページラベル定義を平坦な番号ツリーで書き込む（空リストで削除。検証は Python 側）。
+    /// Write labels as a flat number tree; empty removes it, Python validates.
     fn set_page_labels(
         &mut self,
         labels: Vec<(i64, Option<String>, Option<String>, i64)>,
@@ -2659,10 +2656,10 @@ impl _Document {
         Ok(())
     }
 
-    /// AcroForm フィールドの一覧（完全名, 種別, 値）を返す。
+    /// Return AcroForm fields as `(full name, kind, value)`.
     ///
-    /// 種別は text / checkbox / radio / button / combobox / listbox / signature。
-    /// 値は文字列化した /V（チェックボックスは "Yes"/"Off" などの状態名。無ければ None）。
+    /// Kind is text/checkbox/radio/button/combobox/listbox/signature. Value is
+    /// stringified `/V`, including state names such as Yes/Off, or None.
     fn get_form_fields(&self) -> Vec<(String, String, Option<String>)> {
         self.collect_form_fields()
             .into_iter()
@@ -2710,7 +2707,7 @@ impl _Document {
             .collect()
     }
 
-    /// チェックボックス / ラジオの取り得る状態名（ウィジェットの AP /N のキー）を返す。
+    /// Return checkbox/radio state names from widget `AP /N` keys.
     fn form_button_states(&self, name: &str) -> PyResult<Vec<String>> {
         let (field_id, ft) = self
             .collect_form_fields()
@@ -2746,10 +2743,10 @@ impl _Document {
         Ok(states)
     }
 
-    /// フォームフィールドに値を設定する（NeedAppearances も立てる）。
+    /// Set a form-field value and enable NeedAppearances.
     ///
-    /// Tx / Ch はテキスト文字列、Btn は状態名（Name）として書き込み、
-    /// Btn は各ウィジェットの /AS も合わせて更新する（AP に無い状態は Off へ）。
+    /// Write Tx/Ch as text and Btn as a Name state. Update each Btn widget `/AS`,
+    /// falling back to Off when the requested state is absent from AP.
     fn set_form_field(&mut self, name: &str, value: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let (field_id, ft) = self
@@ -2776,7 +2773,7 @@ impl _Document {
                         .map_err(to_py_err)?;
                     dict.set("V", Object::Name(value.as_bytes().to_vec()));
                 }
-                // 各ウィジェットの表示状態（/AS）を V に合わせる（AP に無い状態は Off）
+                // Match each widget `/AS` to V; use Off when absent from AP.
                 for widget_id in self.field_widgets(field_id) {
                     let has_state = self
                         .doc
@@ -2810,7 +2807,7 @@ impl _Document {
         self.set_need_appearances()
     }
 
-    /// 添付ファイル名の一覧を返す（名前ツリーの順序に依らずソート済み）。
+    /// Return sorted attachment names independent of name-tree order.
     fn embfile_names(&self) -> Vec<String> {
         let mut names: Vec<String> = collect_embedded_files(&self.doc)
             .into_iter()
@@ -2820,7 +2817,7 @@ impl _Document {
         names
     }
 
-    /// 添付ファイルの中身を取り出す。
+    /// Return attachment contents.
     fn embfile_get(&self, name: &str) -> PyResult<Vec<u8>> {
         let entries = collect_embedded_files(&self.doc);
         let (_, filespec_obj) = entries
@@ -2860,7 +2857,7 @@ impl _Document {
             .unwrap_or_else(|_| stream.content.clone()))
     }
 
-    /// 添付ファイルを追加する（同名が既にあればエラー）。
+    /// Add an attachment, rejecting duplicate names.
     fn embfile_add(
         &mut self,
         py: Python<'_>,
@@ -2878,7 +2875,7 @@ impl _Document {
                 )));
             }
             let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
-            // 保存時の deflate= で圧縮できるよう、圧縮許可は既定のままにする
+            // Keep compression allowed so save(deflate=True) can compress it.
             let ef_id = self.doc.add_object(Stream::new(
                 dictionary! {
                     "Type" => "EmbeddedFile",
@@ -2903,7 +2900,7 @@ impl _Document {
         })
     }
 
-    /// 添付ファイルを削除する（無ければエラー）。
+    /// Delete an attachment, raising an error when absent.
     fn embfile_del(&mut self, name: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let entries = collect_embedded_files(&self.doc);
@@ -2916,10 +2913,10 @@ impl _Document {
         write_embedded_files(&mut self.doc, remaining)
     }
 
-    /// OCR 結果（表示座標の語 + テキスト）を不可視テキスト層として書き込む。
+    /// Insert display-coordinate OCR words as an invisible text layer.
     ///
-    /// フォント実体は埋め込まず、Identity-H + ToUnicode の CID フォントと
-    /// Tr 3（不可視）で Unicode と位置だけを持たせる。抽出・検索にだけ現れる。
+    /// Store only Unicode and position using a non-embedded Identity-H CID font,
+    /// ToUnicode, and invisible `Tr 3`; it appears only in extraction and search.
     fn insert_ocr_layer(
         &mut self,
         py: Python<'_>,
@@ -2948,11 +2945,11 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）の表示座標 point をベースライン起点にテキストを印字する。
+    /// Draw text from display-coordinate baseline `point` on a one-based page.
     ///
-    /// lines は WinAnsi エンコード済みのバイト列（1 要素 = 1 行。検証と cp1252 変換は
-    /// Python 側）。base_font は標準 14 フォントの正式名。フォントは埋め込まない。
-    // Python 側シグネチャをそのまま写す境界メソッドのため引数数は許容する
+    /// `lines` contains WinAnsi bytes, one per line; Python validates and
+    /// converts cp1252. `base_font` is a Standard 14 name and is not embedded.
+    // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
     fn insert_page_text(
         &mut self,
@@ -2989,11 +2986,11 @@ impl _Document {
         })
     }
 
-    /// 指定ページ（1 始まり）のテキストを置換し、置換回数を返す。
+    /// Replace text on a one-based page and return the replacement count.
     ///
-    /// lopdf の replace_partial_text をそのまま公開する薄い層。単純エンコーディングの
-    /// フォントだけが対象で、コンテンツは lopdf の content パーサを往復する
-    /// （制約の説明は Python 側 docstring が担う）。
+    /// Thinly expose lopdf `replace_partial_text`. It supports simply encoded
+    /// fonts only and round-trips content through lopdf's parser. Python's
+    /// docstring documents the limitations.
     fn replace_text_on_page(
         &mut self,
         py: Python<'_>,
@@ -3005,7 +3002,7 @@ impl _Document {
         self.invalidate_hayro_pdf();
         let page_id = self.page_id(page_number)?;
         py.detach(|| {
-            // lopdf の get_page_fonts はページ属性の継承を解決しないため、先に焼き込む
+            // lopdf get_page_fonts ignores inheritance, so materialize it first.
             self.bake_page_attrs(page_id)?;
             self.doc
                 .replace_partial_text(page_number, search, replacement, default_char.as_deref())

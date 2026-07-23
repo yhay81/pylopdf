@@ -1,4 +1,4 @@
-# ドキュメントサイト（Zensical、EN/JA/zh-CN/KO）を GitHub Pages へデプロイする
+# Deploy the Zensical documentation site (EN/JA/zh-CN/KO) to GitHub Pages.
 name: Docs
 
 on:

@@ -1,4 +1,4 @@
-"""高レベル API pylopdf.Document の動作テスト。"""
+"""Behavioral tests for the high-level ``pylopdf.Document`` API."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def test_insert_pdf(tmp_path: Path, one_page_pdf: bytes, three_page_pdf: bytes) 
 
 
 def test_split_workflow(three_page_pdf: bytes) -> None:
-    # split: 元 PDF から特定ページだけの新 PDF を作る
+    # Split: create a new PDF containing selected source pages.
     part = pylopdf.Document(stream=three_page_pdf)
     part.delete_pages([0, 1])
     assert part.page_count == 1
@@ -131,14 +131,14 @@ def test_select_reorder(three_page_pdf: bytes) -> None:
     assert doc.page_count == 2
     assert "Page three" in doc.get_page_text(0)
     assert "Page one" in doc.get_page_text(1)
-    # 保存 → 再読込しても構造が壊れていないこと
+    # The structure survives save and reload.
     reloaded = pylopdf.Document(stream=doc.tobytes())
     assert reloaded.page_count == 2
     assert "Page three" in reloaded.get_page_text(0)
 
 
 def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
-    """同一ページの重複指定は複製になる。"""
+    """Repeating a page in select duplicates it."""
     doc = pylopdf.Document(stream=three_page_pdf)
     doc.select([0, 0, 1])
     assert doc.page_count == 3
@@ -171,7 +171,7 @@ def test_tobytes(one_page_pdf: bytes) -> None:
 
 
 def test_exception_hierarchy(one_page_pdf: bytes) -> None:
-    """新設の例外は既存の ValueError 捕捉と後方互換。"""
+    """New exceptions remain compatible with existing ValueError handlers."""
     assert issubclass(pylopdf.PdfError, ValueError)
     assert issubclass(pylopdf.PasswordError, pylopdf.PdfError)
     assert issubclass(pylopdf.DocumentClosedError, pylopdf.PdfError)
@@ -233,7 +233,7 @@ def test_unicode_metadata(one_page_pdf: bytes) -> None:
 
 
 def _png_size(data: bytes) -> tuple[int, int]:
-    """PNG の IHDR チャンクから (幅, 高さ) を読み取る。"""
+    """Read ``(width, height)`` from a PNG IHDR chunk."""
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     width = int.from_bytes(data[16:20], "big")
     height = int.from_bytes(data[20:24], "big")
@@ -244,7 +244,7 @@ def test_render_page_png(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     data = doc.render_page(0)
     width, height = _png_size(data)
-    # fixture の MediaBox は 612x792（レターサイズ、72dpi 相当）
+    # Fixture MediaBox is 612×792 Letter at 72 dpi.
     assert (width, height) == (612, 792)
 
 
@@ -255,7 +255,7 @@ def test_render_page_png_scale(one_page_pdf: bytes) -> None:
 
 
 def test_render_page_reflects_edits(three_page_pdf: bytes) -> None:
-    # 編集（ページ削除）後の状態がレンダリングに反映されること
+    # Rendering reflects state after deleting a page.
     doc = pylopdf.Document(stream=three_page_pdf)
     doc.delete_pages([0, 1])
     assert doc.page_count == 1
@@ -299,12 +299,12 @@ def test_render_page_svg(one_page_pdf: bytes) -> None:
 
 
 def test_render_page_cache_reflects_edits(three_page_pdf: bytes) -> None:
-    """レンダリングキャッシュ導入後も、編集が確実に反映される（決定性の確認込み）。"""
+    """The render cache remains deterministic and reflects edits."""
     doc = pylopdf.Document(stream=three_page_pdf)
-    assert doc.render_page(0) == doc.render_page(0)  # 連続レンダリングは同一結果
+    assert doc.render_page(0) == doc.render_page(0)  # Consecutive renders match.
     page_two = doc.render_page(1)
     doc.delete_page(0)
-    # 削除後の 0 ページ目は、削除前の 1 ページ目と同じ描画結果になる
+    # New page 0 renders like old page 1 after deletion.
     assert doc.render_page(0) == page_two
 
 
@@ -325,7 +325,7 @@ def test_render_page_background(one_page_pdf: bytes) -> None:
     white = doc.render_page(0, background=(255, 255, 255))
     assert white.startswith(b"\x89PNG\r\n\x1a\n")
     assert white != transparent
-    # RGB 指定と不透明 RGBA 指定は同じ結果になる
+    # RGB and opaque RGBA backgrounds produce the same result.
     assert white == doc.render_page(0, background=(255, 255, 255, 255))
 
 
@@ -349,12 +349,12 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     reopened = pylopdf.Document(out)
     assert reopened.page_count == 3
     assert "Page two" in reopened.get_page_text(1)
-    # object streams は PDF 1.5+ 形式なのでバージョンが引き上げられる
+    # Object streams require PDF 1.5+, so the version is raised.
     assert reopened.metadata["format"] == "PDF 1.5"
 
 
 def test_tobytes_object_streams_render_consistent(three_page_pdf: bytes) -> None:
-    """object streams 保存でドキュメント状態が変わっても、レンダリングが壊れない。"""
+    """Rendering survives document mutation during object-stream saving."""
     doc = pylopdf.Document(stream=three_page_pdf)
     before = doc.render_page(0)
     data = doc.tobytes(object_streams=True)
@@ -363,7 +363,7 @@ def test_tobytes_object_streams_render_consistent(three_page_pdf: bytes) -> None
 
 
 def test_multi_document_merge() -> None:
-    # 3 つの PDF を順に結合する
+    # Merge three PDFs in order.
     merged = pylopdf.Document()
     for text in ["First", "Second", "Third"]:
         merged.insert_pdf(pylopdf.Document(stream=build_pdf([text])))
@@ -373,11 +373,11 @@ def test_multi_document_merge() -> None:
 
 
 def test_inherited_page_parent_cycle_does_not_hang(one_page_pdf: bytes) -> None:
-    """ページの Parent が循環する破損 PDF でも処理が停止しない。
+    """A damaged cyclic page Parent does not hang processing.
 
-    hayro 抽出エンジンは循環があってもハングせず完走する（Resources が辿れない
-    ため結果は空になり得る）。継承解決を自前で歩く経路（Page の mediabox 等）には
-    循環検出が残っており、そちらは明確なエラーになる。
+    Hayro extraction completes despite the cycle, though text may be empty when
+    Resources is unreachable. pylopdf's own inheritance paths, such as Page
+    mediabox, retain cycle detection and raise an explicit error.
     """
     raw = one_page_pdf.replace(b"/Parent 2 0 R", b"/Parent 4 0 R")
     doc = pylopdf.Document(stream=raw)

@@ -1,11 +1,12 @@
-"""暗号化テストフィクスチャの生成スクリプト。
+"""Generate encrypted test fixtures.
 
-このディレクトリの *.pdf を再生成する（生成物はリポジトリに同梱済み。
-再実行が必要なのはフィクスチャ構成を変えるときだけ）:
+This script regenerates the committed ``*.pdf`` files in this directory. Run
+it only when the fixture set needs to change:
 
     uv run --with pypdf --with cryptography python tests/assets/encrypted/generate.py
 
-パスワードはすべて user="userpw" / owner="ownerpw"（owneronly-* は user 空)。
+Passwords are user="userpw" and owner="ownerpw"; owneronly-* uses an empty
+user password.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ BASE = Path(__file__).parent
 
 
 def build_plain_pdf() -> bytes:
-    """テキスト抽出を検証できる 2 ページの最小 PDF を組み立てる。"""
+    """Build a minimal two-page PDF suitable for text-extraction checks."""
     page_texts = ["Encrypted page one", "Encrypted page two"]
     n = len(page_texts)
     objects: dict[int, str] = {}

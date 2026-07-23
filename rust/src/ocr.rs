@@ -1,10 +1,9 @@
-//! OCR 結果の不可視テキスト層（searchable PDF 化）の下請け。
+//! Invisible OCR text-layer primitives for searchable PDFs.
 //!
-//! ocrmypdf と同じ発想で、フォント実体を埋め込まない CID フォント
-//! （Identity-H + ToUnicode CMap）へ文書内の文字種ごとに CID を割り当て、
-//! 不可視レンダリングモード（Tr 3）でテキストを書き込む。見た目には何も
-//! 描かれず、抽出・検索（ToUnicode 経由）だけに現れる。フォントを
-//! 埋め込まないため、どの言語でもファイルサイズをほぼ増やさない。
+//! Following ocrmypdf's approach, assign a CID to each character in a
+//! non-embedded Identity-H font with a ToUnicode CMap, then write text in
+//! invisible rendering mode (`Tr 3`). It appears only through extraction and
+//! search, and adds almost no file size in any language.
 
 use std::collections::BTreeMap;
 
@@ -12,10 +11,10 @@ use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 
 use crate::draw;
 
-/// OCR 層の 1 語（表示座標の bbox + テキスト）。
+/// One OCR word: display-coordinate bbox plus text.
 pub type OcrWord = (f64, f64, f64, f64, String);
 
-/// words の全文字へ CID を割り当てる（0 は notdef のため 1 始まり）。
+/// Assign one-based CIDs to all characters; CID 0 is `.notdef`.
 pub fn assign_cids(words: &[OcrWord]) -> BTreeMap<char, u16> {
     let mut map = BTreeMap::new();
     let mut next: u16 = 1;
@@ -31,9 +30,9 @@ pub fn assign_cids(words: &[OcrWord]) -> BTreeMap<char, u16> {
     map
 }
 
-/// CID → Unicode（UTF-16BE）の ToUnicode CMap を組み立てる。
+/// Build a CID-to-Unicode UTF-16BE ToUnicode CMap.
 ///
-/// bfchar は仕様どおり 100 エントリずつのブロックに分ける。
+/// Split `bfchar` into specification-compliant blocks of 100 entries.
 fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
     let mut entries: Vec<(u16, char)> = cid_map.iter().map(|(&ch, &cid)| (cid, ch)).collect();
     entries.sort_unstable();
@@ -59,11 +58,10 @@ fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// OCR 層用のフォント一式（Type0 / CIDFontType2 / FontDescriptor / ToUnicode）を
-/// ドキュメントへ追加し、Type0 フォントの ObjectId を返す。
+/// Add the Type0/CIDFontType2/FontDescriptor/ToUnicode set for the OCR layer.
 ///
-/// FontFile は持たない（非埋め込み）。全 CID の送り幅は DW=1000（1 em）で、
-/// 語ごとの実幅はテキスト行列の横スケールで合わせる。
+/// No FontFile is embedded. Every CID uses DW=1000 (1 em); a horizontal text
+/// matrix scale fits each word to its actual width.
 pub fn add_ocr_font(doc: &mut Document, cid_map: &BTreeMap<char, u16>) -> ObjectId {
     let to_unicode = doc.add_object(
         Stream::new(Dictionary::new(), build_to_unicode(cid_map)).with_compression(false),
@@ -102,10 +100,10 @@ pub fn add_ocr_font(doc: &mut Document, cid_map: &BTreeMap<char, u16>) -> Object
     })
 }
 
-/// 不可視テキスト（Tr 3）の描画オペレータ列を組み立てる。
+/// Build drawing operators for invisible text (`Tr 3`).
 ///
-/// 語ごとに: フォントサイズ = bbox 高さ、ベースライン = bbox 下端から
-/// Descent 比（0.2）だけ上、横方向はテキスト行列のスケールで bbox 幅に合わせる。
+/// For each word, font size equals bbox height; the baseline sits one 0.2
+/// descent ratio above the bottom; horizontal scale fits the bbox width.
 pub fn ocr_ops(
     crop: [f64; 4],
     rotation: i64,
@@ -128,7 +126,7 @@ pub fn ocr_ops(
             let p = draw::display_to_pdf(crop, rotation, *x0, base_y - 1.0);
             (p.0 - ox, p.1 - oy)
         };
-        // 1 文字 = 1 em（= フォントサイズ h）の自然幅を bbox 幅へ合わせる横スケール
+        // Scale the natural width of one em per character to the bbox width.
         let sx = w / (chars * h);
         out.extend_from_slice(
             format!(

@@ -1,7 +1,7 @@
-"""Rust 製の PDF 編集・レンダリングライブラリ。
+"""PDF editing and rendering backed by Rust.
 
-pymupdf に似た操作感の :class:`Document` を提供する。編集は lopdf、
-レンダリングは hayro が担い、どちらも純 Rust・MIT/Apache ライセンス。
+The :class:`Document` API follows pymupdf conventions. lopdf handles editing
+and hayro handles rendering; both are pure Rust under permissive licenses.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ if TYPE_CHECKING:
     from types import TracebackType
     from typing import Any, Literal, Self
 
-    #: get_text("words") の 1 要素: (x0, y0, x1, y1, 語, ブロック番号, 行番号, 語番号)
+    #: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
     WordEntry = tuple[float, float, float, float, str, int, int, int]
-    #: get_text("blocks") の 1 要素: (x0, y0, x1, y1, テキスト, ブロック番号, 種別=0)
+    #: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
     BlockEntry = tuple[float, float, float, float, str, int, int]
 
 __version__ = "0.9.0"
@@ -50,7 +50,7 @@ __all__ = [
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
 
-# リンク種別（pymupdf 互換の値）
+# Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
 LINK_GOTO = 1
 LINK_URI = 2
@@ -60,13 +60,13 @@ LINK_GOTOR = 5
 
 
 class PylopdfWarning(UserWarning):
-    """レンダリング・抽出中に hayro が報告した警告（フォント未解決・画像デコード失敗）。"""
+    """A hayro rendering or extraction warning, such as an unresolved font."""
 
 
 class Permissions(enum.IntFlag):
-    """暗号化 PDF の許可フラグ（save の permissions 引数へ ``|`` で組み合わせて渡す）。
+    """Encrypted-PDF permission flags combined with ``|`` for ``save``.
 
-    値は PDF 仕様の /P ビット位置に対応する。
+    Values correspond to the ``/P`` bit positions in the PDF specification.
     """
 
     PRINT = 1 << 2
@@ -81,29 +81,29 @@ class Permissions(enum.IntFlag):
 
 
 class DocumentClosedError(PdfError):
-    """閉じた Document への操作。"""
+    """An operation on a closed :class:`Document`."""
 
 
 class EncryptedDocumentError(PdfError):
-    """未復号の暗号化 PDF への操作。password 引数か authenticate() で復号する。"""
+    """An operation on an undecrypted PDF; provide a password or authenticate."""
 
 
 class StalePageError(PdfError):
-    """文書構造の変更（ページの追加・削除・並べ替え）後に古い Page を使った。
+    """Use of a stale :class:`Page` after a structural document change.
 
-    ``doc[i]`` で取得し直すこと。
+    Fetch the page again with ``doc[i]``.
     """
 
 
 class Point(NamedTuple):
-    """表示座標の点（x, y）。get_links の宛先 to などで使う。"""
+    """A point ``(x, y)`` in display coordinates, such as a link destination."""
 
     x: float
     y: float
 
 
 class Rect(NamedTuple):
-    """PDF 座標の矩形（x0, y0, x1, y1）。"""
+    """A rectangle ``(x0, y0, x1, y1)`` in display coordinates."""
 
     x0: float
     y0: float
@@ -112,24 +112,24 @@ class Rect(NamedTuple):
 
     @property
     def width(self) -> float:
-        """幅（x1 - x0）。"""
+        """Return the width, ``x1 - x0``."""
         return self.x1 - self.x0
 
     @property
     def height(self) -> float:
-        """高さ（y1 - y0）。"""
+        """Return the height, ``y1 - y0``."""
         return self.y1 - self.y0
 
 
-#: A4 縦（PDF 単位）。MediaBox の無い壊れた PDF での既定値（hayro のレンダリングと同じ想定）。
+#: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
 _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 
 @functools.cache
 def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
-    """pylopdf-fonts-cjk（``pip install pylopdf[cjk]``）があれば同梱フォントを読み込む。"""
+    """Load bundled fonts when ``pylopdf[cjk]`` is installed."""
     try:
-        import pylopdf_fonts_cjk  # noqa: PLC0415  # optional 依存の遅延 import
+        import pylopdf_fonts_cjk  # noqa: PLC0415  # Lazy optional dependency.
     except ImportError:
         return ()
     return (
@@ -138,17 +138,17 @@ def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
     )
 
 
-#: 色成分（R/G/B/A）の最大値。
+#: Maximum R/G/B/A component value.
 _COLOR_MAX = 255
 
-#: lopdf の PDF 実数（f32）で有限のまま表現できる絶対値上限。
+#: Largest absolute value representable as a finite lopdf PDF real (f32).
 _FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
 
 
 def _normalize_background(
     background: tuple[int, int, int] | tuple[int, int, int, int] | None,
 ) -> tuple[int, int, int, int] | None:
-    """render_page の background 引数を検証し、RGBA の 4 タプルへ正規化する。"""
+    """Validate ``render_page`` background and normalize it to an RGBA tuple."""
     if background is None:
         return None
     match background:
@@ -167,7 +167,7 @@ def _normalize_background(
 
 
 def _validate_rect(rect: Sequence[float], *, name: str = "rect") -> tuple[float, float, float, float]:
-    """(x0, y0, x1, y1) の矩形引数を検証して float タプルにする。"""
+    """Validate an ``(x0, y0, x1, y1)`` rectangle and return float values."""
     try:
         x0, y0, x1, y1 = (float(v) for v in rect)
     except (TypeError, ValueError) as exc:
@@ -180,7 +180,7 @@ def _validate_rect(rect: Sequence[float], *, name: str = "rect") -> tuple[float,
 
 
 def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
-    """0〜1 の (r, g, b) を検証して float タプルにする。"""
+    """Validate an ``(r, g, b)`` color in the range 0–1."""
     try:
         red, green, blue = (float(c) for c in color)
     except (TypeError, ValueError) as exc:
@@ -193,7 +193,7 @@ def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
 
 
 def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | None) -> bytes:
-    """filename / stream のどちらか一方から画像バイト列を得る。"""
+    """Read image bytes from exactly one of ``filename`` and ``stream``."""
     if filename is not None:
         if stream is not None:
             msg = "filename and stream cannot both be specified"
@@ -205,7 +205,7 @@ def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | 
     return bytes(stream)
 
 
-#: insert_text の fontname 略名 → PDF 標準 14 フォントの正式名（pymupdf と同じ略名）
+#: Map pymupdf-style insert_text aliases to Standard 14 font names.
 _BASE14_FONTS: dict[str, str] = {
     "helv": "Helvetica",
     "hebo": "Helvetica-Bold",
@@ -223,16 +223,16 @@ _BASE14_FONTS: dict[str, str] = {
     "zadb": "ZapfDingbats",
 }
 
-#: 組み込みエンコーディングを使うべき標準フォント（WinAnsi を指定しない）
+#: Standard fonts that use built-in encoding rather than WinAnsi.
 _SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
 
 
-#: ページラベルの番号スタイル（PDF 仕様の /S 値。空文字列は「番号なし = prefix のみ」）
+#: Page-label numbering styles (`/S`); an empty value means prefix only.
 _PAGE_LABEL_STYLES = frozenset({"", "D", "R", "r", "A", "a"})
 
 
 def _int_to_roman(n: int) -> str:
-    """1 以上の整数をローマ数字（大文字）にする。"""
+    """Convert a positive integer to uppercase Roman numerals."""
     pairs = (
         (1000, "M"),
         (900, "CM"),
@@ -256,13 +256,13 @@ def _int_to_roman(n: int) -> str:
 
 
 def _int_to_letters(n: int) -> str:
-    """1 以上の整数を A..Z, AA..ZZ, AAA... 形式（PDF 仕様の反復式）にする。"""
+    """Convert a positive integer to PDF's A..Z, AA..ZZ, AAA... form."""
     letter = chr(ord("A") + (n - 1) % 26)
     return letter * ((n - 1) // 26 + 1)
 
 
 def _format_page_label(style: str, prefix: str, number: int) -> str:
-    """ページラベル 1 件分の表示文字列を組み立てる。"""
+    """Build the display label for one page-label rule."""
     match style:
         case "D":
             digits = str(number)
@@ -279,7 +279,7 @@ def _format_page_label(style: str, prefix: str, number: int) -> str:
     return prefix + digits
 
 
-#: Python 側メタデータキー → PDF Info 辞書キーの対応（pymupdf と同じキー名）
+#: Map pymupdf-style Python metadata keys to PDF Info keys.
 _METADATA_KEYS: dict[str, str] = {
     "title": "Title",
     "author": "Author",
@@ -293,47 +293,47 @@ _METADATA_KEYS: dict[str, str] = {
 
 
 class Page:
-    """ドキュメント内の 1 ページへのビュー。``doc[i]`` で取得する。
+    """A view of one page in a document, obtained through ``doc[i]``.
 
-    ページの追加・削除・並べ替えを行うと、それ以前に取得した Page は無効になり、
-    使うと :class:`StalePageError` になる。``doc[i]`` で取得し直すこと。
+    Adding, deleting, or reordering pages invalidates existing views. Using an
+    invalidated view raises :class:`StalePageError`; fetch it again with
+    ``doc[i]``.
     """
 
     def __init__(self, document: Document, pno: int) -> None:
-        """``Document.__getitem__`` から呼ばれる。直接構築しない。"""
+        """Initialize a view for ``Document.__getitem__``; do not call directly."""
         self._document = document
         self._pno = pno
         self._generation = document._generation
 
     @property
     def number(self) -> int:
-        """0 始まりのページ番号。"""
+        """Return the zero-based page number."""
         return self._pno
 
     @property
     def parent(self) -> Document:
-        """このページが属する Document。"""
+        """Return the parent document."""
         return self._document
 
     def _page_number(self) -> int:
-        """有効性を検証し、lopdf の 1 始まりページ番号を返す。"""
+        """Validate the view and return lopdf's one-based page number."""
         doc = self._document
         doc._ensure_open()
         if self._generation != doc._generation:
             msg = (
-                f"page {self._pno} was invalidated by a document structure change; "
-                f"fetch it again via doc[{self._pno}]"
+                f"page {self._pno} was invalidated by a document structure change; fetch it again via doc[{self._pno}]"
             )
             raise StalePageError(msg)
         return self._pno + 1
 
     @property
     def rotation(self) -> int:
-        """ページの表示回転角（0 / 90 / 180 / 270。継承解決済み）。"""
+        """Return the resolved display rotation: 0, 90, 180, or 270."""
         return self._document._doc.get_page_rotation(self._page_number())
 
     def set_rotation(self, rotation: int) -> None:
-        """表示回転角を設定する（90 の倍数。負値・360 以上は 0..360 に正規化）。"""
+        """Set rotation in multiples of 90, normalized to the range 0–359."""
         if rotation % 90 != 0:
             msg = f"rotation must be a multiple of 90: {rotation!r}"
             raise ValueError(msg)
@@ -341,34 +341,34 @@ class Page:
 
     @property
     def mediabox(self) -> Rect:
-        """MediaBox（継承解決済み。無い場合は A4 相当）。"""
+        """Return the resolved MediaBox, or A4 when absent."""
         box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
         return Rect(*(box if box is not None else _DEFAULT_MEDIABOX))
 
     @property
     def cropbox(self) -> Rect:
-        """CropBox（無い場合は MediaBox と同じ値）。"""
+        """Return the CropBox, falling back to the MediaBox."""
         box = self._document._doc.get_page_box(self._page_number(), "CropBox")
         return Rect(*box) if box is not None else self.mediabox
 
     @property
     def rect(self) -> Rect:
-        """表示上のページ矩形（原点 0,0。回転 90/270 で幅と高さが入れ替わる）。"""
+        """Return the display rectangle with origin 0,0 and rotation resolved."""
         box = self.cropbox
         if self.rotation in (90, 270):
             return Rect(0.0, 0.0, box.height, box.width)
         return Rect(0.0, 0.0, box.width, box.height)
 
     def set_mediabox(self, rect: Sequence[float]) -> None:
-        """MediaBox を (x0, y0, x1, y1) で設定する。"""
+        """Set the MediaBox as ``(x0, y0, x1, y1)``."""
         self._set_box("MediaBox", rect)
 
     def set_cropbox(self, rect: Sequence[float]) -> None:
-        """CropBox を (x0, y0, x1, y1) で設定する。"""
+        """Set the CropBox as ``(x0, y0, x1, y1)``."""
         self._set_box("CropBox", rect)
 
     def _set_box(self, key: str, rect: Sequence[float]) -> None:
-        """ボックス引数を検証して設定する。"""
+        """Validate and set a page box."""
         x0, y0, x1, y1 = _validate_rect(rect, name=key)
         self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
 
@@ -381,26 +381,28 @@ class Page:
     @overload
     def get_text(self, option: Literal["dict"]) -> dict[str, Any]: ...
     def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
-        """ページのテキスト（または位置付きレイアウト）を抽出する。
+        """Extract page text or positioned layout data.
 
-        option は :meth:`Document.get_page_text` と同じ（"text" / "words" / "blocks" / "dict"）。
+        ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
+        ``"words"``, ``"blocks"``, or ``"dict"``.
         """
         self._page_number()
         return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
 
     def to_markdown(self) -> str:
-        """このページを Markdown へ変換する（:meth:`Document.to_markdown` の 1 ページ版）。
+        """Convert this page to Markdown.
 
-        見出しサイズの推定もこのページ内だけで行う。
+        This is the single-page form of :meth:`Document.to_markdown`; heading
+        sizes are inferred from this page alone.
         """
         self._page_number()
         return self._document.to_markdown(pages=[self._pno])
 
     def search_for(self, needle: str) -> list[Rect]:
-        """ページ内のテキスト検索（大文字小文字を区別しない）。
+        """Search page text case-insensitively.
 
-        ヒットごとの :class:`Rect` を返す。行単位で検索するため、
-        行をまたぐ一致は検出しない。
+        Return one :class:`Rect` per match. Search is line-based and does not
+        detect matches spanning lines.
         """
         if not needle:
             msg = "needle must be at least 1 character"
@@ -410,12 +412,13 @@ class Page:
         return [Rect(*hit) for hit in hits]
 
     def get_images(self) -> list[dict[str, Any]]:
-        """ページ上に描画される画像を抽出する。
+        """Extract images drawn on the page.
 
-        各要素は ``{"width", "height", "bbox", "ext", "image"}`` の辞書。
-        DCTDecode 単独の画像は元の JPEG バイト列をそのまま返し（``ext="jpeg"``）、
-        それ以外（CCITT / JBIG2 / Flate 等）はデコードして PNG 化する（``ext="png"``）。
-        bbox はページ上の描画位置（左上原点の :class:`Rect`）。
+        Each item is a ``{"width", "height", "bbox", "ext", "image"}`` dict.
+        A DCTDecode-only image returns its original JPEG bytes with
+        ``ext="jpeg"``. Other formats, including CCITT, JBIG2, and Flate, are
+        decoded to PNG with ``ext="png"``. ``bbox`` is the drawn location as a
+        top-left-origin :class:`Rect`.
         """
         raw = self._document._doc.extract_images(self._page_number())
         self._document._emit_warnings()
@@ -433,14 +436,15 @@ class Page:
         keep_proportion: bool = True,
         overlay: bool = True,
     ) -> None:
-        """rect（表示座標、左上原点）へ画像を描き込む。
+        """Draw an image into ``rect`` in top-left-origin display coordinates.
 
-        JPEG は再圧縮せずそのまま埋め込み（DCTDecode パススルー）、PNG は展開して
-        埋め込む（透過はソフトマスクとして保持）。他形式は Pillow 等で JPEG / PNG に
-        変換してから渡すこと。rect は :meth:`search_for` / :meth:`get_text` と同じ
-        表示座標系なので、検索結果の位置へそのまま描ける。keep_proportion なら
-        縦横比を保って rect 内へ中央合わせで収める。overlay=False で既存コンテンツの
-        下に描く。既存のページコンテンツには一切手を入れない（追記のみ）。
+        JPEG is embedded unchanged through DCTDecode passthrough. PNG is decoded
+        and embedded, preserving transparency as a soft mask. Convert other
+        formats to JPEG or PNG with Pillow or a similar library. ``rect`` uses
+        the same coordinate space as :meth:`search_for` and :meth:`get_text`, so
+        search results can be used directly. ``keep_proportion`` centers the
+        image while preserving its aspect ratio. ``overlay=False`` draws below
+        existing content. Existing page content is never rewritten.
         """
         data = _read_image_source(filename, stream)
         x0, y0, x1, y1 = _validate_rect(rect)
@@ -455,15 +459,15 @@ class Page:
         keep_proportion: bool = True,
         overlay: bool = True,
     ) -> None:
-        """別ドキュメント src のページ pno（0 始まり、負数可）をベクタのまま rect へ重ねる。
+        """Overlay page ``pno`` from ``src`` into ``rect`` as vector content.
 
-        透かし・スタンプ・レターヘッドの焼き込みに使う（pymupdf の show_pdf_page 相当）。
-        取り込み元ページは Form XObject として埋め込まれるため、テキストやベクタは
-        劣化せず、フォント埋め込みも保たれる。typst 等で組んだ 1 ページ PDF を
-        全ページへ重ねれば、日本語の透かしやヘッダ / フッタも描ける
-        （README のエコシステム連携を参照）。src の回転・CropBox は表示上の見た目で
-        rect へ収まるよう解決される。src が self と同じドキュメントの場合は未対応
-        （``pylopdf.open(stream=doc.tobytes())`` で複製してから渡すこと）。
+        ``pno`` is zero-based and may be negative. This is the pymupdf-style
+        primitive for watermarks, stamps, and letterheads. The source page is
+        embedded as a Form XObject, preserving text, vectors, and embedded
+        fonts. Overlaying a one-page typst PDF enables CJK watermarks, headers,
+        and footers; see the README ecosystem recipe. Source rotation and
+        CropBox are resolved visually to fit ``rect``. A document cannot overlay
+        itself; clone it first with ``pylopdf.open(stream=doc.tobytes())``.
         """
         if src is self._document:
             msg = "cannot overlay pages from the same document (duplicate it first via open(stream=doc.tobytes()))"
@@ -483,15 +487,16 @@ class Page:
         fontname: str = "helv",
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
     ) -> None:
-        r"""point（表示座標。1 行目のベースライン左端）へテキストを印字する。
+        r"""Draw text at ``point``, the first line's baseline-left display point.
 
-        fontname は PDF 標準 14 フォントの略名（pymupdf と同じ: "helv" / "tiro" /
-        "cour" 系 + 太字 bo / 斜体 it、"symb"、"zadb"）。フォントは埋め込まず、
-        ビューア側の標準書体で表示される。文字は WinAnsi（Latin-1 相当）の範囲のみで、
-        日本語などの CJK は印字できない — typst で組んで :meth:`show_pdf_page` で
-        焼くレシピを使うこと（README のエコシステム連携）。``\n`` で複数行になり、
-        行送りは fontsize の 1.2 倍。回転ページでも表示上で正立する。
-        ヘッダ / フッタ / ページ番号 / Bates 番号はこれをループで印字する。
+        ``fontname`` is a pymupdf-style Standard 14 alias: the ``"helv"``,
+        ``"tiro"``, and ``"cour"`` families with ``bo``/``it`` variants, plus
+        ``"symb"`` and ``"zadb"``. Fonts are not embedded and viewers provide
+        the standard typeface. Text is limited to WinAnsi, roughly Latin-1; use
+        the typst plus :meth:`show_pdf_page` ecosystem recipe for CJK. ``\n``
+        starts a new line at 1.2 times ``fontsize``. Text remains visually
+        upright on rotated pages. Loop over pages for headers, footers, page
+        numbers, or Bates numbers.
         """
         try:
             x, y = (float(v) for v in point)
@@ -533,15 +538,16 @@ class Page:
         )
 
     def insert_ocr_text_layer(self, words: Iterable[Sequence[Any]]) -> None:
-        """OCR 結果を不可視テキスト層として書き込む（searchable PDF 化）。
+        """Insert OCR output as an invisible, searchable text layer.
 
-        words の各要素は ``(x0, y0, x1, y1, テキスト, ...)`` — 先頭 5 要素だけを
-        使うので、:meth:`get_text` の "words" 形式や一般的な OCR API の出力を
-        そのまま渡せる。座標は表示空間（左上原点）。テキストは描画されず、
-        抽出・検索にだけ現れる。フォント実体は埋め込まない（Identity-H +
-        ToUnicode の参照フォント）ため、日本語を含むどの言語でもファイル
-        サイズをほぼ増やさない。どの OCR エンジン（クラウド API / Tesseract 等）の
-        結果とも組める中立プリミティブ。
+        Each item in ``words`` begins with ``(x0, y0, x1, y1, text, ...)``;
+        only the first five values are used. This accepts :meth:`get_text`
+        ``"words"`` output and common OCR API results directly. Coordinates use
+        top-left-origin display space. Text is not drawn and appears only in
+        extraction and search. An Identity-H reference font with ToUnicode is
+        used without embedding font data, so any language, including CJK, adds
+        almost no file size. The primitive is engine-neutral and accepts cloud
+        APIs, Tesseract, or any equivalent source.
         """
         payload: list[tuple[float, float, float, float, str]] = []
         for entry in words:
@@ -555,13 +561,13 @@ class Page:
         self._document._doc.insert_ocr_layer(self._page_number(), payload)
 
     def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:
-        """ページ内のテキストを置換し、置換した箇所数を返す。
+        """Replace text on the page and return the number of replacements.
 
-        lopdf の部分置換（replace_partial_text）の薄い公開で、制約が多い:
-        単純エンコーディング（WinAnsi 等）のフォントだけが対象で、CID フォント
-        （日本語等の CJK）には効かない。置換後の文字がフォントに無い場合は
-        default_char（既定 "?"）へ落ちる。文字幅は再計算しないため、長さの違う
-        置換ではレイアウトがずれることがある。
+        This is a thin wrapper over lopdf's constrained ``replace_partial_text``.
+        It works only with simply encoded fonts such as WinAnsi, not CID/CJK
+        fonts. Characters absent from the font become ``default_char`` (``"?"``
+        by default). Widths are not recalculated, so differing text lengths may
+        shift layout.
         """
         if not search:
             msg = "search must be at least 1 character"
@@ -569,7 +575,7 @@ class Page:
         return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
 
     def get_label(self) -> str:
-        """このページの表示ラベル（"iv" や "A-2" など）を返す。定義が無ければ空文字列。"""
+        """Return the display label, such as ``"iv"`` or ``"A-2"``, or empty."""
         pno = self._page_number() - 1
         applicable: dict[str, Any] | None = None
         for label in self._document.get_page_labels():
@@ -583,11 +589,13 @@ class Page:
         return _format_page_label(applicable["style"], applicable["prefix"], number)
 
     def annots(self) -> list[dict[str, Any]]:
-        """ページの注釈を読み取る。
+        """Read annotations on the page.
 
-        各要素は ``{"type", "rect", "contents", "uri"}`` の辞書。type は PDF の
-        Subtype 名（"Highlight" / "Link" など）、rect は表示座標の :class:`Rect`、
-        contents は注釈本文、uri は URI アクションのリンク先（無ければ None）。
+        Each item is a ``{"type", "rect", "contents", "uri"}`` dict.
+        ``type`` is the PDF Subtype name, such as ``"Highlight"`` or
+        ``"Link"``; ``rect`` is a display-coordinate :class:`Rect`;
+        ``contents`` is annotation text; and ``uri`` is the URI action target or
+        ``None``.
         """
         raw = self._document._doc.read_annotations(self._page_number())
         return [
@@ -596,19 +604,20 @@ class Page:
         ]
 
     def get_links(self) -> list[dict[str, Any]]:
-        """ページのリンク注釈を宛先解決付きで読み取る。
+        """Read link annotations and resolve their destinations.
 
-        各要素は pymupdf 風の辞書で、共通キーは ``kind``（:data:`LINK_GOTO` などの
-        定数）と ``from``（表示座標の :class:`Rect`）。kind に応じて追加キーを持つ:
+        Each item is a pymupdf-style dict with ``kind`` (for example
+        :data:`LINK_GOTO`) and ``from`` (a display-coordinate :class:`Rect`).
+        Additional keys depend on ``kind``:
 
-        - ``LINK_URI``: ``uri``
-        - ``LINK_GOTO``: ``page``（0 始まり。解決できなければ -1）、あれば
-          ``to``（宛先ページ表示座標の :class:`Point`）/ ``zoom`` / ``nameddest``
-        - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file``（あれば ``nameddest`` も）
-        - ``LINK_NAMED``: ``name``（NextPage などのアクション名）
+        - ``LINK_URI``: ``uri``.
+        - ``LINK_GOTO``: zero-based ``page`` or -1 when unresolved, plus
+          optional ``to`` (:class:`Point`), ``zoom``, and ``nameddest``.
+        - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file`` and optional ``nameddest``.
+        - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
 
-        GoTo の named destination は /Names の名前ツリーと旧式の /Dests 辞書の
-        両方から解決する。
+        GoTo named destinations resolve from both the ``/Names`` name tree and
+        the legacy ``/Dests`` dictionary.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {
@@ -651,12 +660,13 @@ class Page:
         opacity: float = 0.4,
         content: str | None = None,
     ) -> None:
-        """rects（表示座標。単一の矩形か矩形のリスト）へハイライト注釈を付ける。
+        """Add one highlight annotation over one or more display rectangles.
 
-        :meth:`search_for` の結果をそのまま渡せば「検索してマーカー」になる。
-        QuadPoints に加えて外観ストリーム（AP、Multiply ブレンド）も生成するため、
-        pylopdf 自身のレンダリングを含むどのビューアでも同じ見た目で表示される。
-        複数の矩形は 1 つの注釈にまとまる。content は注釈本文（ポップアップ）。
+        Pass :meth:`search_for` output directly to highlight search results.
+        The annotation includes QuadPoints and an appearance stream using
+        Multiply blending, so it looks consistent in pylopdf's renderer and
+        other viewers. Multiple rectangles form one annotation. ``content`` is
+        the popup annotation text.
         """
         seq = list(rects)
         if not seq:
@@ -671,10 +681,11 @@ class Page:
         self._document._doc.add_highlight_annotation(self._page_number(), validated, rgb, float(opacity), content)
 
     def add_link_annot(self, rect: Sequence[float], uri: str) -> None:
-        """rect（表示座標）へ URI リンク注釈を付ける（枠線なし）。
+        """Add a borderless URI link annotation over a display rectangle.
 
-        :meth:`search_for` の結果へ「検索してリンク」する用途を想定。
-        新規文書のリンクは typst 側で組む方が自然（README のエコシステム連携）。
+        This supports search-then-link workflows using :meth:`search_for`.
+        For new documents, links are usually better created in typst; see the
+        README ecosystem recipe.
         """
         if not uri:
             msg = "uri must be at least 1 character"
@@ -689,12 +700,12 @@ class Page:
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     ) -> Pixmap:
-        """ページを :class:`Pixmap`（ストレートアルファ RGBA8）にレンダリングする。
+        """Render the page to a straight-alpha RGBA8 :class:`Pixmap`.
 
-        引数は :meth:`Document.render_page` と同じ。得られる Pixmap は
-        ``width`` / ``height`` / ``stride`` / ``n`` / ``samples``（bytes）と
-        ``tobytes()``（PNG）を持ち、``np.frombuffer(pix.samples, np.uint8)``
-        ``.reshape(pix.height, pix.width, 4)`` で NumPy 配列にできる。
+        Arguments match :meth:`Document.render_page`. The pixmap exposes
+        ``width``, ``height``, ``stride``, ``n``, ``samples`` as bytes, and
+        ``tobytes()`` as PNG. Convert it to NumPy with
+        ``np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 4)``.
         """
         if dpi is not None:
             if scale != 1.0:
@@ -716,26 +727,26 @@ class Page:
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     ) -> bytes:
-        """ページを PNG にレンダリングする。引数は :meth:`Document.render_page` と同じ。"""
+        """Render the page to PNG with :meth:`Document.render_page` arguments."""
         self._page_number()
         return self._document.render_page(self._pno, scale, dpi=dpi, background=background)
 
     def render_svg(self) -> str:
-        """ページを SVG 文字列にレンダリングする。"""
+        """Render the page to an SVG string."""
         self._page_number()
         return self._document.render_page_svg(self._pno)
 
     def __repr__(self) -> str:
-        """ページ番号と所属ドキュメントを含む表現を返す。"""
+        """Return a representation containing the page number and document."""
         return f"<Page {self._pno} of {self._document!r}>"
 
 
 class Document:
-    """PDF ドキュメント。
+    """A PDF document.
 
-    ファイルパスかバイト列から開くか、引数なしで空ドキュメントを作る。
-    コンテキストマネージャとしても使え、``doc[i]`` / イテレーションで
-    :class:`Page` を取得できる。
+    Open from a path or byte string, or create an empty document without
+    arguments. Documents are context managers and expose :class:`Page` objects
+    through ``doc[i]`` and iteration.
     """
 
     def __init__(
@@ -745,14 +756,14 @@ class Document:
         password: str | None = None,
         max_decompressed_size: int | None = None,
     ) -> None:
-        """filename（パス）か stream（バイト列)のどちらか一方から開く。両方 None なら空ドキュメント。
+        """Open from exactly one of a file path and byte stream, or create empty.
 
-        暗号化 PDF は user password 空なら自動復号される。それ以外は password を
-        指定するか、開いた後に :meth:`authenticate` を呼ぶ。
-        max_decompressed_size は 1 ストリームあたりの展開上限バイト数
-        （信頼できない PDF の解凍爆弾対策。None で無制限）。ページ内容など
-        遅延展開されるストリームもロード時に検証し、安全に上限を判定できない
-        フィルタ構成は拒否する。
+        PDFs with an empty user password decrypt automatically. Otherwise pass
+        ``password`` or call :meth:`authenticate` after opening.
+        ``max_decompressed_size`` limits decompressed bytes per stream to defend
+        against decompression bombs in untrusted PDFs; ``None`` is unlimited.
+        Lazily decoded streams such as page content are validated during load,
+        and filter chains that cannot be bounded safely are rejected.
         """
         if filename is not None and stream is not None:
             msg = "filename and stream cannot both be specified"
@@ -778,31 +789,32 @@ class Document:
         self._doc = doc
         self._closed = False
         self._fallback_configured = False
-        # ページ構造の世代番号。構造変更で増え、古い Page ビューを無効化する
+        # Structural generation; changes invalidate existing Page views.
         self._generation = 0
-        # password なしでは復号できなかったかを保持する（認証後も True のまま）
+        # Whether opening initially required a password; remains true after auth.
         self._needs_pass = needs_pass
-        # authenticate() で開き直す必要がある未復号ドキュメントだけ、開いた元を保持する
+        # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
         self._source_bytes = stream if self._doc.is_encrypted() else None
 
     @property
     def needs_pass(self) -> bool:
-        """この PDF を開くのにパスワードが必要か（認証後も True のまま）。"""
+        """Return whether opening required a password; remains true after auth."""
         self._ensure_not_closed()
         return self._needs_pass
 
     @property
     def is_encrypted(self) -> bool:
-        """まだ復号されていない（認証が必要な）状態か。認証に成功すると False になる。"""
+        """Return whether the document still requires authentication."""
         self._ensure_not_closed()
         return self._doc.is_encrypted()
 
     def authenticate(self, password: str) -> int:
-        """パスワードで認証して復号する。
+        """Authenticate and decrypt with a password.
 
-        戻り値は pymupdf 互換: 0 = 失敗、1 = 認証不要、2 = user password が一致、
-        4 = owner password が一致、6 = 両方に一致。
+        Return pymupdf-compatible codes: 0 for failure, 1 when authentication is
+        unnecessary, 2 for a matching user password, 4 for a matching owner
+        password, and 6 when both match.
         """
         self._ensure_not_closed()
         if not self._doc.is_encrypted():
@@ -814,7 +826,7 @@ class Document:
             code |= 4
         if code == 0:
             return 0
-        # オブジェクトストリーム内のオブジェクトも読めるよう、パスワード付きで開き直す
+        # Reopen with the password so objects inside object streams are readable.
         if self._source_path is not None:
             self._doc = _Document.load(self._source_path, password, self._max_decompressed_size)
         elif self._source_bytes is not None:
@@ -825,34 +837,34 @@ class Document:
 
     @property
     def page_count(self) -> int:
-        """ページ数。"""
+        """Return the number of pages."""
         self._ensure_open()
         return self._doc.page_count()
 
     def __len__(self) -> int:
-        """ページ数を返す。"""
+        """Return the number of pages."""
         return self.page_count
 
     def __getitem__(self, pno: int) -> Page:
-        """0 始まり（負数は末尾から）のページ番号で :class:`Page` を取得する。"""
+        """Return a page by zero-based index; negative values count from the end."""
         return Page(self, self._normalize_pno(pno))
 
     def load_page(self, pno: int) -> Page:
-        """``doc[pno]`` と同じ（pymupdf 互換名）。"""
+        """Return ``doc[pno]`` through the pymupdf-compatible name."""
         return self[pno]
 
     def __iter__(self) -> Iterator[Page]:
-        """全ページを先頭から順に返す。"""
+        """Iterate over every page in order."""
         for pno in range(self.page_count):
             yield self[pno]
 
     def _bump_generation(self) -> None:
-        """ページ構造の変更を記録し、取得済みの Page ビューを無効化する。"""
+        """Record a structural change and invalidate existing page views."""
         self._generation += 1
 
     @property
     def metadata(self) -> dict[str, str]:
-        """メタデータ辞書（title, author, subject, keywords, creator, producer, creationDate, modDate, format）。"""
+        """Return title, author, subject, keywords, dates, producer, and format."""
         self._ensure_open()
         raw = self._doc.get_metadata()
         result = {key: raw.get(pdf_key, "") for key, pdf_key in _METADATA_KEYS.items()}
@@ -860,9 +872,9 @@ class Document:
         return result
 
     def set_metadata(self, metadata: dict[str, str]) -> None:
-        """メタデータを設定する。値が空文字列の項目は削除する。
+        """Set metadata, deleting entries whose values are empty strings.
 
-        キーは :attr:`metadata` と同じ（format は読み取り専用のため不可）。
+        Keys match :attr:`metadata`, except the read-only ``format`` key.
         """
         self._ensure_open()
         updates: list[tuple[str, str]] = []
@@ -879,15 +891,16 @@ class Document:
             self._doc.set_metadata(pdf_key, value)
 
     def to_markdown(self, pages: Iterable[int] | None = None) -> str:
-        """文書を Markdown へ変換する（RAG / LLM 前処理向けの初版）。
+        """Convert the document to Markdown for RAG or LLM preprocessing.
 
-        見出しはフォントサイズから推定する（文字量最頻のサイズ = 本文、
-        それより大きいサイズを大きい順に ``#``..``####`` へ）。日本語の
-        行折り返しは空白を入れずに連結し、行頭の箇条書き記号（・• など）と
-        「1.」「1)」はリストへ正規化する。スキャン PDF も
-        :meth:`Page.insert_ocr_text_layer` で層を書いてあれば変換できる。
-        未対応: 太字・斜体（フォント名情報なし）、表、多段組の読み順、縦書き。
-        pages は 0 始まりのページ番号列（None で全ページ。指定順に出力）。
+        Headings are inferred from font sizes: the size containing the most text
+        is body text, and larger sizes map in descending order to
+        ``#`` through ``####``. Wrapped CJK lines join without spaces. Leading
+        bullets and ``1.``/``1)`` forms normalize to Markdown lists. Scanned PDFs
+        work after adding a layer with :meth:`Page.insert_ocr_text_layer`.
+        Tables, multicolumn reading order, and vertical writing are unsupported.
+        ``pages`` is a sequence of zero-based page numbers emitted in the given
+        order; ``None`` means every page.
         """
         self._ensure_open()
         page_numbers = range(self.page_count) if pages is None else pages
@@ -897,25 +910,25 @@ class Document:
         return "\n\n".join(md for md in rendered if md)
 
     def get_form_fields(self) -> list[dict[str, Any]]:
-        """AcroForm フィールドの一覧を返す。
+        """Return AcroForm fields.
 
-        各要素は ``{"name", "type", "value"}``。name はネストを ``.`` で
-        連結した完全名、type は text / checkbox / radio / button / combobox /
-        listbox / signature、value は現在値（チェックボックスは "Yes"/"Off" 等の
-        状態名。未設定なら None）。
+        Each item is ``{"name", "type", "value"}``. ``name`` is the fully
+        qualified dotted name; ``type`` is text, checkbox, radio, button,
+        combobox, listbox, or signature; and ``value`` is the current value.
+        Button values are appearance state names such as ``"Yes"`` or ``"Off"``.
         """
         self._ensure_open()
         return [{"name": name, "type": kind, "value": value} for name, kind, value in self._doc.get_form_fields()]
 
-    def set_form_field(self, name: str, value: str | bool) -> None:  # noqa: FBT001  # pymupdf 同様に bool 値を受ける
-        """AcroForm フィールドに値を設定する（記入）。
+    def set_form_field(self, name: str, value: str | bool) -> None:  # noqa: FBT001  # Match pymupdf's bool API.
+        """Set an AcroForm field value.
 
-        テキスト / 選択フィールドは文字列を、チェックボックス / ラジオは状態名
-        （多くは "Yes" / "Off"）か bool を渡す（True はウィジェットの外観から
-        on 状態名を自動解決、False は "Off"）。外観ストリームは再生成せず
-        NeedAppearances を立てるので、値の見た目はビューア側が描画する
-        （pylopdf 自身のレンダリングには現れない点に注意）。
-        署名フィールドへの記入は未対応（電子署名は pyHanko 連携を参照）。
+        Pass strings for text/choice fields. For checkboxes and radio buttons,
+        pass an appearance state such as ``"Yes"``/``"Off"`` or a bool. ``True``
+        resolves the on state from widget appearances; ``False`` becomes
+        ``"Off"``. pylopdf sets ``NeedAppearances`` without regenerating
+        appearance streams, so viewers draw values but pylopdf's renderer does
+        not. Signature fields are unsupported; use the pyHanko integration.
         """
         self._ensure_open()
         if not name:
@@ -933,11 +946,12 @@ class Document:
         self._doc.set_form_field(name, value)
 
     def get_page_labels(self) -> list[dict[str, Any]]:
-        """ページラベル定義を読む。
+        """Read page-label definitions.
 
-        各要素は ``{"startpage", "style", "prefix", "firstpagenum"}``（startpage は
-        0 始まり、style は "D"/"R"/"r"/"A"/"a" か空文字列 = prefix のみ）。
-        個々のページの表示ラベルは :meth:`Page.get_label` で得る。
+        Each item has ``startpage``, ``style``, ``prefix``, and
+        ``firstpagenum``. ``startpage`` is zero-based; ``style`` is
+        ``"D"``, ``"R"``, ``"r"``, ``"A"``, ``"a"``, or empty for prefix only.
+        Use :meth:`Page.get_label` for a page's rendered label.
         """
         self._ensure_open()
         return [
@@ -951,10 +965,10 @@ class Document:
         ]
 
     def set_page_labels(self, labels: Sequence[dict[str, Any]]) -> None:
-        """ページラベルを設定する（:meth:`get_page_labels` と同じ形式。空リストで削除）。
+        """Set page labels in :meth:`get_page_labels` format; empty removes all.
 
-        最初の範囲は startpage 0 から始まる必要がある（PDF 仕様）。
-        firstpagenum は各範囲の開始番号（既定 1）。
+        The PDF specification requires the first range to start at page 0.
+        ``firstpagenum`` defaults to 1 for each range.
         """
         self._ensure_open()
         payload: list[tuple[int, str | None, str | None, int]] = []
@@ -989,12 +1003,12 @@ class Document:
         filename: str | None = None,
         desc: str | None = None,
     ) -> None:
-        """添付ファイル（EmbeddedFiles）を追加する。
+        """Add an EmbeddedFiles attachment.
 
-        name は一覧・取得に使うキー（同名が既にあればエラー）。filename は
-        ビューアに表示されるファイル名（省略時は name）、desc は説明文。
-        どちらも日本語可（UF / Desc へ UTF-16BE で入る)。請求書 PDF への
-        XML 添付（ZUGFeRD / Factur-X 風の構成）などに使える。
+        ``name`` is the unique key used for listing and retrieval. ``filename``
+        is the viewer-facing file name and defaults to ``name``; ``desc`` is a
+        description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
+        This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
         """
         self._ensure_open()
         if not name:
@@ -1003,27 +1017,27 @@ class Document:
         self._doc.embfile_add(name, bytes(data), filename, desc)
 
     def embfile_names(self) -> list[str]:
-        """添付ファイル名の一覧を返す（ソート済み）。"""
+        """Return sorted attachment names."""
         self._ensure_open()
         return self._doc.embfile_names()
 
     def embfile_get(self, name: str) -> bytes:
-        """添付ファイルの中身（bytes）を取り出す。"""
+        """Return attachment contents as bytes."""
         self._ensure_open()
         return self._doc.embfile_get(name)
 
     def embfile_del(self, name: str) -> None:
-        """添付ファイルを削除する（無ければエラー）。"""
+        """Delete an attachment, raising an error when absent."""
         self._ensure_open()
         self._doc.embfile_del(name)
 
     def get_pdfa_claim(self) -> tuple[int, str] | None:
-        """XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
+        """Read the XMP PDF/A claim from ``pdfaid:part`` and conformance.
 
-        戻り値は ``(part, conformance)``（例: ``(2, "B")`` = PDF/A-2b の宣言。
-        conformance を持たない PDF/A-4 は空文字列）。宣言が無ければ None。
-        これは自己申告の**読み取り**であって準拠の検証ではない — 本検証は
-        veraPDF などの外部ツールへ（README のエコシステム連携を参照）。
+        Return ``(part, conformance)``, for example ``(2, "B")`` for a
+        PDF/A-2b claim. PDF/A-4 without conformance uses an empty string. Return
+        ``None`` when absent. This reads a self-declaration; it does not validate
+        compliance. Use veraPDF or another external validator.
         """
         self._ensure_open()
         claim = self._doc.pdfa_claim()
@@ -1040,17 +1054,17 @@ class Document:
     def get_page_text(
         self, pno: int, option: str = "text"
     ) -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
-        """ページ pno（0 始まり）のテキスト（または位置付きレイアウト）を抽出する。
+        """Extract text or positioned layout from zero-based page ``pno``.
 
-        option は pymupdf 互換:
+        ``option`` follows pymupdf:
 
-        - "text": プレーンテキスト（既定）
-        - "words": (x0, y0, x1, y1, 語, ブロック番号, 行番号, 語番号) のリスト
-        - "blocks": (x0, y0, x1, y1, テキスト, ブロック番号, 0) のリスト
-        - "dict": width / height / blocks（lines → spans）の入れ子辞書
+        - ``"text"``: plain text, the default.
+        - ``"words"``: ``(x0, y0, x1, y1, word, block, line, word index)``.
+        - ``"blocks"``: ``(x0, y0, x1, y1, text, block, 0)``.
+        - ``"dict"``: nested width, height, and blocks with lines and spans.
 
-        座標は左上原点・下向き y。bbox の縦方向はベースライン ± フォントサイズ比の
-        近似（実フォントメトリクスではない）。
+        Coordinates have a top-left origin and downward y. Vertical bbox extents
+        approximate baseline ± a font-size ratio rather than real metrics.
         """
         if option == "text":
             text = self._doc.extract_text([self._lopdf_page_number(pno)])
@@ -1115,23 +1129,23 @@ class Document:
         raise ValueError(msg)
 
     def delete_page(self, pno: int) -> None:
-        """ページ pno（0 始まり、負数可）を削除する。"""
+        """Delete zero-based page ``pno``; negative values count from the end."""
         page_number = self._lopdf_page_number(pno)
         self._bump_generation()
         self._doc.delete_pages([page_number])
 
     def delete_pages(self, page_numbers: Iterable[int]) -> None:
-        """複数ページ（0 始まり、負数可）をまとめて削除する。"""
+        """Delete multiple zero-based pages; negative values count from the end."""
         self._ensure_open()
         numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
         self._bump_generation()
         self._doc.delete_pages(numbers)
 
     def select(self, page_numbers: Iterable[int]) -> None:
-        """指定した 0 始まりのページ番号だけを、指定順で残す。
+        """Keep only the given zero-based pages in the given order.
 
-        並べ替えにも使える。同一ページを複数回指定するとそのページを複製する
-        （複製ページの Contents / Resources は元とオブジェクトを共有する）。
+        This also reorders pages. Repeating an index duplicates that page; the
+        duplicate shares Contents and Resources objects with the original.
         """
         self._ensure_open()
         numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
@@ -1145,11 +1159,11 @@ class Document:
         to_page: int = -1,
         start_at: int = -1,
     ) -> None:
-        """別ドキュメントのページ範囲を取り込む。
+        """Insert a page range from another document.
 
-        from_page..to_page（0 始まり・両端含む・負数は末尾から）を、
-        start_at（0 始まりの挿入位置。-1 で末尾に追加）へ挿入する。
-        from_page > to_page なら逆順で取り込む。
+        Insert the inclusive, zero-based ``from_page..to_page`` range at
+        zero-based ``start_at``; negative source indices count from the end and
+        ``start_at=-1`` appends. A descending range imports in reverse order.
         """
         self._ensure_open()
         if other is self:
@@ -1167,10 +1181,10 @@ class Document:
         self._doc.merge_pages(other._doc, [n + 1 for n in numbers], position)
 
     def new_page(self, pno: int = -1, width: float = 595.0, height: float = 842.0) -> Page:
-        """空ページを挿入して、その :class:`Page` を返す。
+        """Insert a blank page and return its :class:`Page`.
 
-        pno は挿入位置（0 始まり。-1 で末尾に追加）。width / height は
-        ページサイズ（PDF 単位。既定は A4 縦 595x842）。
+        ``pno`` is the zero-based insertion position; -1 appends. ``width`` and
+        ``height`` are PDF units and default to 595×842 portrait A4.
         """
         self._ensure_open()
         if (
@@ -1191,9 +1205,9 @@ class Document:
         return self[index]
 
     def copy_page(self, pno: int, to: int = -1) -> None:
-        """ページ pno（0 始まり、負数可）の複製を挿入位置 to（-1 で末尾）に追加する。
+        """Copy page ``pno`` to insertion position ``to``; -1 appends.
 
-        複製ページの Contents / Resources は元ページとオブジェクトを共有する。
+        The copied page shares Contents and Resources objects with the original.
         """
         self._ensure_open()
         page_number = self._lopdf_page_number(pno)
@@ -1202,7 +1216,7 @@ class Document:
         self._doc.copy_page(page_number, position)
 
     def _insert_position(self, value: int, name: str) -> int:
-        """挿入位置（0..page_count。page_count は末尾追加と同義）を検証して返す。"""
+        """Validate an insertion position from 0 through ``page_count``."""
         count = self.page_count
         if not 0 <= value <= count:
             msg = f"{name} {value} is out of range (0..{count} or -1)"
@@ -1210,19 +1224,20 @@ class Document:
         return value
 
     def get_toc(self) -> list[list[int | str]]:
-        """目次（しおり／アウトライン）を ``[[レベル, タイトル, ページ番号], ...]`` で返す。
+        """Return bookmarks as ``[[level, title, page number], ...]``.
 
-        レベルは 1 始まりの階層。ページ番号は **1 始まり**（pymupdf 互換。
-        0 始まりの他 API と異なるので注意）。目次が無ければ空リスト。
+        Levels and page numbers are one-based for pymupdf compatibility, unlike
+        other page APIs. Return an empty list when no TOC exists.
         """
         self._ensure_open()
         return [[level, title, page] for level, title, page in self._doc.get_toc()]
 
     def set_toc(self, toc: Sequence[Sequence[int | str]]) -> None:
-        """目次を ``[[レベル, タイトル, ページ番号], ...]`` で置き換える。空で削除。
+        """Replace bookmarks from ``[[level, title, page number], ...]``.
 
-        レベルは 1 から始まり、直前の項目のレベル +1 までしか深くできない。
-        ページ番号は 1 始まり（:meth:`get_toc` と対称）。
+        An empty sequence removes them. Levels start at 1 and can increase by at
+        most one from the previous entry. Page numbers are one-based, matching
+        :meth:`get_toc`.
         """
         self._ensure_open()
         count = self.page_count
@@ -1252,12 +1267,11 @@ class Document:
         kind: str = "sans",
         index: int = 0,
     ) -> None:
-        """非埋め込み CJK フォントのレンダリングに使う代替フォントを設定する。
+        """Set a fallback font for rendering non-embedded CJK fonts.
 
-        font はフォントファイル（TTF/OTF/TTC）のパスかバイト列。None を渡すと
-        設定を解除し、pylopdf[cjk] 同梱フォントの自動検出も無効化する。
-        kind は "sans"（ゴシック系・既定）か "serif"（明朝系）、
-        index は TTC 内の face 番号。
+        ``font`` is a TTF/OTF/TTC path or bytes. ``None`` clears the setting and
+        disables automatic discovery from ``pylopdf[cjk]``. ``kind`` is
+        ``"sans"`` (default) or ``"serif"``; ``index`` selects a TTC face.
         """
         self._ensure_open()
         self._fallback_configured = True
@@ -1268,7 +1282,7 @@ class Document:
         self._doc.set_fallback_font(kind, data, index)
 
     def _ensure_fallback_fonts(self) -> None:
-        """set_fallback_font 未使用なら、pylopdf[cjk] の同梱フォントを自動設定する。"""
+        """Auto-configure ``pylopdf[cjk]`` fonts unless explicitly configured."""
         if self._fallback_configured:
             return
         self._fallback_configured = True
@@ -1283,12 +1297,13 @@ class Document:
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     ) -> bytes:
-        """ページ pno（0 始まり）を PNG 画像にレンダリングする。
+        """Render zero-based page ``pno`` to PNG.
 
-        scale は有限の正の拡大率（1.0 = 72dpi 相当）。dpi を指定すると解像度で
-        指定できる（dpi=144 は scale=2.0 と同じ。scale との併用は不可）。
-        background は背景色の (R, G, B) か (R, G, B, A)（各 0〜255）。
-        省略時は透明背景。出力は1辺65,535ピクセル、総64,000,000画素まで。
+        ``scale`` is a positive finite factor where 1.0 equals 72 dpi. ``dpi``
+        may be used instead (144 equals scale 2.0) but not together with a
+        nondefault scale. ``background`` is an RGB or RGBA tuple with components
+        from 0 to 255; the default is transparent. Output is limited to 65,535
+        pixels per side and 64,000,000 total pixels.
         """
         if dpi is not None:
             if scale != 1.0:
@@ -1303,7 +1318,7 @@ class Document:
         return result
 
     def render_page_svg(self, pno: int) -> str:
-        """ページ pno（0 始まり）を SVG 文字列にレンダリングする。"""
+        """Render zero-based page ``pno`` to an SVG string."""
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
         result = self._doc.render_page_svg(page_number)
@@ -1311,11 +1326,11 @@ class Document:
         return result
 
     def _emit_warnings(self) -> None:
-        """直近の操作で hayro が出した警告を :class:`PylopdfWarning` として発行する。"""
+        """Emit hayro warnings from the latest operation as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=3)
 
-    def save(  # noqa: PLR0913  # 保存オプションはすべてキーワード専用（pymupdf 互換の形）
+    def save(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
         self,
         filename: str | os.PathLike[str],
         *,
@@ -1326,19 +1341,19 @@ class Document:
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
     ) -> None:
-        """ファイルへ保存する。
+        """Save to a file.
 
-        garbage=True は未参照オブジェクトの削除、deflate=True はストリームの
-        Flate 圧縮を保存前に適用する（どちらもドキュメント自体に作用する）。
-        object_streams=True は object stream + xref stream（PDF 1.5+ 形式）で
-        書き出し、多くの PDF でファイルサイズを削減する（バージョンは必要に
-        応じて 1.5 へ引き上げられる）。
+        ``garbage=True`` removes unreferenced objects and ``deflate=True``
+        applies Flate compression before saving; both mutate the document.
+        ``object_streams=True`` writes PDF 1.5+ object and xref streams, often
+        reducing size and raising the version to 1.5 when necessary.
 
-        user_pw / owner_pw のどちらかを与えると AES-256（PDF 2.0）で暗号化して
-        書き出す（このドキュメント自体は平文のまま）。owner_pw 省略時は user_pw と
-        同じ。user_pw を空にして owner_pw だけ与えると「閲覧自由・権限制限のみ」の
-        PDF になる。permissions は :class:`Permissions` の組み合わせ（既定は全許可）。
-        暗号化と object_streams の併用は未対応。
+        Providing ``user_pw`` or ``owner_pw`` writes AES-256 PDF 2.0 encryption
+        while the in-memory document stays plaintext. ``owner_pw`` defaults to
+        ``user_pw``. An empty user password plus an owner password permits
+        unrestricted opening with permission controls. ``permissions`` combines
+        :class:`Permissions` and defaults to all. Encryption cannot be combined
+        with object streams.
         """
         self._ensure_open()
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
@@ -1351,7 +1366,7 @@ class Document:
         else:
             self._doc.save(str(filename))
 
-    def tobytes(  # noqa: PLR0913  # 保存オプションはすべてキーワード専用（pymupdf 互換の形）
+    def tobytes(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
         self,
         *,
         garbage: bool = False,
@@ -1361,7 +1376,7 @@ class Document:
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
     ) -> bytes:
-        """PDF をバイト列で返す。オプションの意味は :meth:`save` と同じ。"""
+        """Return PDF bytes; options have the same meaning as :meth:`save`."""
         self._ensure_open()
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
         self._apply_save_options(garbage=garbage, deflate=deflate)
@@ -1373,7 +1388,7 @@ class Document:
         return self._doc.save_bytes()
 
     def _apply_save_options(self, *, garbage: bool, deflate: bool) -> None:
-        """保存前の最適化（未参照オブジェクト削除・ストリーム圧縮）を適用する。"""
+        """Apply object pruning and stream compression before saving."""
         if garbage:
             self._doc.prune_objects()
         if deflate:
@@ -1387,7 +1402,7 @@ class Document:
         *,
         object_streams: bool,
     ) -> tuple[str, str, int] | None:
-        """暗号化保存の引数を検証・正規化する。暗号化しないなら None。"""
+        """Validate encryption arguments, returning ``None`` when disabled."""
         if user_pw is None and owner_pw is None:
             return None
         if object_streams:
@@ -1398,20 +1413,20 @@ class Document:
         return (user, owner, int(permissions))
 
     def close(self) -> None:
-        """ドキュメントを閉じる。以後の操作は ValueError になる。"""
+        """Close the document; subsequent operations raise an error."""
         self._closed = True
 
     def _ensure_not_closed(self) -> None:
-        """閉じたドキュメントへの操作を防ぐ。"""
+        """Reject operations on a closed document."""
         if self._closed:
             msg = "document closed"
             raise DocumentClosedError(msg)
 
     def _ensure_open(self) -> None:
-        """閉じた・未復号のドキュメントへの操作を防ぐ。
+        """Reject operations on a closed or undecrypted document.
 
-        未復号のまま操作すると「0 ページの空文書」に見えてしまうため、
-        暗号化が解けていない場合は明確なエラーにする。
+        lopdf makes undecrypted files look like empty zero-page documents, so
+        report the encrypted state explicitly.
         """
         self._ensure_not_closed()
         if self._doc.is_encrypted():
@@ -1419,7 +1434,7 @@ class Document:
             raise EncryptedDocumentError(msg)
 
     def _normalize_pno(self, pno: int) -> int:
-        """負数（末尾から数える）を解決した 0 始まりのページ番号を返す。範囲外は IndexError。"""
+        """Resolve negative indexing and return a valid zero-based page number."""
         self._ensure_open()
         count = self._doc.page_count()
         normalized = pno + count if pno < 0 else pno
@@ -1429,11 +1444,11 @@ class Document:
         return normalized
 
     def _lopdf_page_number(self, pno: int) -> int:
-        """0 始まり（負数可）のページ番号を検証し、lopdf の 1 始まりへ変換する。"""
+        """Validate a Python page index and convert it to one-based lopdf form."""
         return self._normalize_pno(pno) + 1
 
     def __enter__(self) -> Self:
-        """コンテキストマネージャの開始。自身を返す。"""
+        """Enter a context manager and return this document."""
         return self
 
     def __exit__(
@@ -1442,11 +1457,11 @@ class Document:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """コンテキストマネージャの終了時にドキュメントを閉じる。"""
+        """Close the document when leaving a context manager."""
         self.close()
 
     def __repr__(self) -> str:
-        """開閉状態を含む表現を返す。"""
+        """Return a representation containing the open or closed state."""
         state = "closed " if self._closed else ""
         return f"<{state}pylopdf.Document>"
 
@@ -1457,7 +1472,7 @@ def open(  # noqa: A001
     password: str | None = None,
     max_decompressed_size: int | None = None,
 ) -> Document:
-    """:class:`Document` を開く。``pylopdf.open(...)`` は ``Document(...)`` と同じ。"""
+    """Open a :class:`Document`; equivalent to ``Document(...)``."""
     return Document(
         filename=filename,
         stream=stream,
@@ -1471,11 +1486,10 @@ def peek_metadata(
     stream: bytes | None = None,
     password: str | None = None,
 ) -> dict[str, str | int | bool]:
-    """文書全体をパースせずに、メタデータとページ数だけを高速に読み取る。
+    """Read metadata and page count without parsing the entire document.
 
-    戻り値は :attr:`Document.metadata` と同じキー（title, author, subject,
-    keywords, creator, producer, creationDate, modDate, format）に、
-    page_count（int）と encrypted（bool）を加えた辞書。大量の PDF の走査に向く。
+    Return the keys from :attr:`Document.metadata` plus integer ``page_count``
+    and boolean ``encrypted``. This is suitable for scanning many PDFs.
     """
     if (filename is None) == (stream is None):
         msg = "specify exactly one of filename or stream"

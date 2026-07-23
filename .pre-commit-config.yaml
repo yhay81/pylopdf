@@ -1,8 +1,16 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
-# python/ と lambda_test/ は本ライブラリの対象外（別作業の同居ファイル）
+# python/ and lambda_test/ are unrelated colocated work.
 exclude: ^(python/|lambda_test/|openai_layer\.zip|rust/src/lopdf/)
 repos:
+  - repo: local
+    hooks:
+      - id: repository-language
+        name: repository language
+        entry: python -X utf8 tools/check_repository_language.py
+        language: system
+        pass_filenames: false
+        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0 # Use the ref you want to point at
     hooks:
@@ -24,6 +32,7 @@ repos:
       - id: debug-statements
       - id: destroyed-symlinks
       - id: detect-aws-credentials
+        args: ["--allow-missing-credentials"]
       - id: detect-private-key
       # - id: double-quote-string-fixer
       - id: end-of-file-fixer
@@ -35,6 +44,7 @@ repos:
       - id: mixed-line-ending
       - id: name-tests-test
         args: ["--pytest-test-first"]
+        exclude: ^tests/assets/
       # - id: no-commit-to-branch
       - id: pretty-format-json
       - id: requirements-txt-fixer
@@ -44,11 +54,11 @@ repos:
     rev: v0.24.1
     hooks:
       - id: validate-pyproject
-        # Windows の既定コードページに依存せず、日本語コメントを UTF-8 で読み込む
+        # Read UTF-8 independently of the default Windows code page.
         entry: python -X utf8 -m validate_pyproject
         files: (^|/)pyproject\.toml$
-        # trove-classifiers を入れると classifier の実在チェックまで行う
-        # (schema-store は内部エラーを起こすため外し、[project] 検証に絞る)
+        # trove-classifiers also validates that classifiers actually exist.
+        # schema-store is excluded because it raises an internal error.
         additional_dependencies: ["packaging>=24.2", "trove-classifiers"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
@@ -63,3 +73,4 @@ repos:
     rev: v2.3.0
     hooks:
       - id: mypy
+        files: ^(src|tests)/.*\.pyi?$

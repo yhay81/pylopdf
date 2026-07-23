@@ -1,117 +1,154 @@
 # AGENTS.md
 
-このファイルがエージェント向け開発コンテキストの正本
-（CLAUDE.md は @import でここを参照するだけ。更新はこのファイルへ）。
+This file is the canonical development context for coding agents.
+`CLAUDE.md` only imports this file; update this file instead.
 
-pylopdf: Rust 製 PDF 編集・レンダリングの Python ライブラリ（PyPI 公開中）。
-編集 = [lopdf](https://github.com/J-F-Liu/lopdf)、レンダリング = [hayro](https://github.com/LaurenzV/hayro)。
-API は pymupdf 風。コンセプトと API 一覧は [README.ja.md](README.ja.md) を参照。
+pylopdf is a published Python library for PDF editing and rendering, implemented
+in Rust. Editing is powered by [lopdf](https://github.com/J-F-Liu/lopdf) and
+rendering by [hayro](https://github.com/LaurenzV/hayro). Its API is inspired by
+pymupdf. See [README.md](README.md) for the concept and API overview.
 
-## 運用ルール
+## Working conventions
 
-- main へ直コミットし、作業の区切りごとに即 push する（ブランチ運用はしない）
-- コミットメッセージ・コード内コメント・docstring は日本語
-- PDF 処理と無関係な実験ファイルはこのリポジトリに置かない
+- Commit directly to `main` and push after each coherent unit of work. Do not use
+  feature branches.
+- Write commit messages, code comments, docstrings, repository documentation,
+  configuration comments, and user-facing messages in English.
+- Non-English text is allowed only in localized documentation and data required
+  to test Unicode or CJK behavior.
+- Do not place experiments unrelated to PDF processing in this repository.
 
-## 開発コマンド
+## Development commands
 
-- `uv sync` — ビルド + 依存インストール（Rust 変更も cache-keys で自動再ビルド）
+- `uv sync` — build the extension and install dependencies. Rust changes are
+  included in uv's rebuild cache keys.
 - `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests`
-- `uv sync --group bench && uv run python bench/run.py` — 再現可能ベンチマーク
-  （結果は bench/results/latest.md。勝ち負け両方掲載の方針）
-- `uv sync --group docs && uv run zensical serve -f mkdocs.yml` — 英語ドキュメントを
-  Zensical でプレビュー。言語別設定は `mkdocs.ja.yml` / `mkdocs.zh-cn.yml` /
-  `mkdocs.ko.yml`。本番と同じ検証は 4 設定を EN → JA → zh-CN → KO の順で
-  `uv run --no-sync zensical build -f <config> -c -s` し、main へ push すると
-  docs.yml が GitHub Pages へ自動デプロイ
-- `cargo clippy --manifest-path rust/Cargo.toml --all-targets` / `cargo fmt --manifest-path rust/Cargo.toml`
-- Rust の単体テストは書かない方針。挙動はすべて Python テスト（tests/）で検証する
-- 実世界 PDF の回帰テストは tests/test_real_world.py。コーパスの出典・ライセンス・既知の限界は
-  tests/assets/real_world/README.md に記録し、追加時も再配布可能なものだけを同梱する
+- `uv sync --group bench && uv run python bench/run.py` — run reproducible
+  benchmarks. Results are written to `bench/results/latest.md`; publish wins and
+  losses together.
+- `uv sync --group docs && uv run zensical serve -f mkdocs.yml` — preview the
+  English documentation with Zensical. Locale configurations are
+  `mkdocs.ja.yml`, `mkdocs.zh-cn.yml`, and `mkdocs.ko.yml`. To reproduce the
+  production validation, build all four configurations in EN → JA → zh-CN → KO
+  order with `uv run --no-sync zensical build -f <config> -c -s`. A push to
+  `main` deploys the site through `docs.yml`.
+- `cargo clippy --manifest-path rust/Cargo.toml --all-targets` /
+  `cargo fmt --manifest-path rust/Cargo.toml`
+- Do not add Rust unit tests. Verify all behavior through Python tests in
+  `tests/`.
+- Real-world PDF regressions belong in `tests/test_real_world.py`. Record corpus
+  sources, licenses, and known limitations in
+  `tests/assets/real_world/README.md`, and bundle only redistributable files.
 
-## アーキテクチャと不変条件
+## Architecture and invariants
 
-- `_Document`（rust/src/document.rs）は型変換とエラー変換のみの薄い層。
-  使い勝手（検証・0/1 始まり変換・close 管理）は Python 側 `Document`（src/pylopdf/__init__.py）が担う
-- ページ番号は Python API が 0 始まり、Rust/lopdf 層が 1 始まり。変換は `_lopdf_page_number` に集約
-- merge / select は「継承属性（Resources, MediaBox, CropBox, Rotate）を
-  ページ辞書へ焼き込む」パターンが前提（lopdf はページ属性の継承を解決しないため）
-- テキスト抽出は hayro Device 実装（rust/src/extract.rs）。グリフの Unicode + 位置を
-  収集し、行（LINE_TOLERANCE）→ 語（WORD_GAP）→ ブロック（BLOCK_GAP）へ組み立てる。
-  get_text("words"/"blocks"/"dict") と search_for も同じグリフ収集の上に載る。
-  CJK 代替フォント設定は抽出にも反映され、不可視テキスト（OCR レイヤー）も対象。
-  注意: hayro のグリフ空間は 1000 upem 正規化のため、フォントサイズは変換係数 × 1000。
-  bbox の縦方向はベースライン ± サイズ比の近似。抽出座標はレンダリングと同じ表示空間
-  （Context にレンダラと同じ initial_transform(true) を渡す = ページ回転・CropBox
-  オフセット解決済み）。縦書きの読み順は未対応
-- レンダリングは save_bytes → hayro 再パースの結果を `_Document.hayro_pdf` にキャッシュし、
-  編集メソッドが `invalidate_hayro_pdf` で破棄する。「編集後の状態が常に反映される」が
-  不変条件（編集系メソッドを足すときは必ず invalidate を呼ぶこと）
-- 重い処理（load / save / render / 抽出 / merge / 圧縮）は `Python::detach` で GIL を解放している
-- `Page` は Document への軽量ビュー + 世代番号（`_generation`）。ページ構造を変える
-  Python メソッドを足したら必ず `_bump_generation()` を呼ぶ（忘れると古い Page が
-  黙って別のページを指す）。構造変更後の古い Page は StalePageError
-- 例外は Rust 定義の `PdfError`（ValueError 互換の基底）/ `PasswordError` と、
-  Python 定義の `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError`。
-  新しいエラーは PdfError 系に載せる（素の ValueError を増やさない）
-- 暗号化保存（save の user_pw/owner_pw）は clone に対して encrypt するため、
-  メモリ上のドキュメントは常に平文。鍵は Python 側 os.urandom(32) で生成する
-- TOC（get_toc/set_toc）のページ番号だけは pymupdf 互換の 1 始まり（他 API は 0 始まり）
-- 暗号化 PDF: user password 空は lopdf がロード時に自動復号。それ以外は password 引数か
-  authenticate()（内部はパスワード付き開き直し）。未復号のまま操作すると 0 ページに
-  見えるため、_ensure_open が is_encrypted を検査して明確なエラーにする
-- CJK fallback: hayro の font_resolver を差し替え（rust/src/document.rs の
-  pick_cjk_fallback）。CIDSystemInfo か BaseFont 名で CJK 判定し、明朝系名は serif、
-  それ以外は sans スロットを使う。フォント実体は fonts/pylopdf-fonts-cjk/
-  （uv workspace メンバー、[cjk] extra、レンダリング時に自動検出）
-- 描き込み（rust/src/draw.rs）: 既存コンテンツは再エンコードせず /Contents への
-  ストリーム追記のみ（既存列は一度だけ q/Q で挟む）。座標は表示空間（左上原点・
-  回転考慮）で受けて cm/Tm に変換する。注釈は AP /N を必ず生成する
-  （hayro は AP の無い注釈を描画しないため。render_annotations は既定 true）
-- メタデータ文字列は ASCII 以外を UTF-16BE（BOM 付き）でエンコードする
-- wheel は abi3-py310 の単一ビルド（Python 3.10–3.14）。サイズを増やす依存追加は慎重に（現在約 3.5MB）
-- hayro の警告は interpreter_settings の sink が pending_warnings に集め、
-  Python 側 _emit_warnings が PylopdfWarning として発行する（操作ごとにドレイン）
-- buffer protocol は abi3-py310 では使えない（Py_buffer の安定 ABI 入りは 3.11 から）。
-  Pixmap.samples は 1 コピーの bytes
+- `_Document` (`rust/src/document.rs`) is a thin conversion and error-mapping
+  layer. The Python `Document` (`src/pylopdf/__init__.py`) owns validation,
+  zero-/one-based conversion, and closed-state handling.
+- Python API page numbers are zero-based; Rust/lopdf page numbers are one-based.
+  Keep the conversion centralized in `_lopdf_page_number`.
+- `merge` and `select` must materialize inherited page attributes (`Resources`,
+  `MediaBox`, `CropBox`, `Rotate`) into page dictionaries because lopdf does not
+  resolve page attribute inheritance.
+- Text extraction is implemented as a hayro `Device` in `rust/src/extract.rs`.
+  It collects glyph Unicode and positions, then assembles lines
+  (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
+  `get_text("words"/"blocks"/"dict")` and `search_for` share the same glyph
+  collection. CJK fallback configuration also applies to extraction, including
+  invisible OCR text. Hayro normalizes glyph space to 1000 upem, so font size is
+  the transform factor × 1000. Vertical bboxes approximate baseline ± a size
+  ratio. Extraction coordinates use the same display space as rendering by
+  passing `initial_transform(true)` to the context, resolving page rotation and
+  CropBox offsets. Vertical reading order is not supported.
+- Rendering caches the hayro parse of `save_bytes` in `_Document.hayro_pdf`.
+  Editing methods must call `invalidate_hayro_pdf`; edited state must always be
+  reflected in rendering.
+- Release the GIL with `Python::detach` for heavy operations: load, save, render,
+  extraction, merge, and compression.
+- `Page` is a lightweight view of a `Document` plus a generation number.
+  Python methods that change page structure must call `_bump_generation()`.
+  Otherwise an old `Page` could silently refer to a different page. Old pages
+  must raise `StalePageError` after structural changes.
+- Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
+  Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
+  `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
+  introducing plain `ValueError` exceptions.
+- Encryption during `save` operates on a clone, so the in-memory document always
+  remains plaintext. Python generates the key with `os.urandom(32)`.
+- TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
+  compatibility. All other page APIs are zero-based.
+- lopdf automatically decrypts PDFs with an empty user password. Other encrypted
+  PDFs require the `password` argument or `authenticate()`, which reopens the
+  document with a password. `_ensure_open` must check `is_encrypted` because an
+  undecrypted document otherwise appears to have zero pages.
+- CJK fallback replaces hayro's `font_resolver`
+  (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
+  `CIDSystemInfo` or the `BaseFont` name. Serif-like names use the serif slot;
+  other names use sans. Font files come from
+  `fonts/pylopdf-fonts-cjk/`, an uv workspace member exposed through the `[cjk]`
+  extra and auto-detected during rendering.
+- Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
+  re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
+  Inputs use display coordinates with a top-left origin and page rotation
+  resolved, then convert to `cm`/`Tm`. Annotations must always include an
+  appearance stream at `AP /N`, because hayro does not render annotations
+  without one. `render_annotations` defaults to true.
+- Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- Wheels use a single `abi3-py310` build for Python 3.10–3.14. Add size-increasing
+  dependencies cautiously; the wheel is currently about 3.5 MB.
+- Hayro warnings are collected by the interpreter settings sink in
+  `pending_warnings`; Python's `_emit_warnings` drains them as
+  `PylopdfWarning` after each operation.
+- The buffer protocol is unavailable under `abi3-py310` because `Py_buffer`
+  entered the stable ABI in Python 3.11. `Pixmap.samples` is a one-copy `bytes`
+  value.
 
-## 既知の罠
+## Known pitfalls
 
-- lopdf の `time` feature は 0.43.0 で入った `From<time::Time>` impl が最初から
-  コンパイル不能（上流 #527 で修正済み・未リリース）→ `chrono` に固定している（rust/Cargo.toml）
-- lopdf の content パーサは「コメント行 + 直後のインデント行」で以降の全演算を落とす
-  （lopdf#535 として報告済み）。pylopdf は v0.7 で抽出を hayro エンジン
-  （rust/src/extract.rs）へ置き換えたため影響を受けない
-- classifier の実在チェックは pre-commit の validate-pyproject（trove-classifiers 付き）が担う
-  （v0.4.0 は無効 classifier `Topic :: Text Processing :: Markup :: PDF` で PyPI に拒否された実績）
-  ※ validate-pyproject-schema-store は UnboundLocalError を起こすため入れない
-- バージョンは 3 箇所を手動同期: pyproject.toml / rust/Cargo.toml / src/pylopdf/`__init__.py`
-- リリース CI の macOS x86_64 は arm64 ランナーでクロスビルドする（Intel ランナーはキュー待ちが長い）
+- lopdf's `time` feature contains an uncompilable `From<time::Time>`
+  implementation introduced in 0.43.0. Upstream #527 is fixed but unreleased,
+  so this project uses `chrono`.
+- lopdf's content parser drops all operations after a comment line followed by
+  an indented line, reported as lopdf#535. pylopdf is unaffected since v0.7
+  because extraction moved to hayro (`rust/src/extract.rs`).
+- The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
+  classifier existence. v0.4.0 was rejected by PyPI because of the invalid
+  classifier `Topic :: Text Processing :: Markup :: PDF`.
+  Do not add `validate-pyproject-schema-store`; it raises `UnboundLocalError`.
+- Synchronize the version manually in three places: `pyproject.toml`,
+  `rust/Cargo.toml`, and `src/pylopdf/__init__.py`.
+- Release CI cross-compiles macOS x86_64 on an arm64 runner because Intel runner
+  queues are slow.
 
-## リリース手順
+## Release procedure
 
-1. バージョン 3 箇所を上げ、CHANGELOG.md に追記してコミット & push
-2. `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`
-3. GitHub Actions（release.yml）が 5 プラットフォームの wheel + sdist をビルドし、
-   PyPI Trusted Publishing で自動公開する（PyPI 側設定は登録済み）
+1. Update the version in all three locations, add the changelog entry, commit,
+   and push.
+2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
+3. GitHub Actions (`release.yml`) builds wheels and the sdist for five platforms
+   and publishes through PyPI Trusted Publishing.
 
-フォント wheel（pylopdf-fonts-cjk）は別リリース: fonts/pylopdf-fonts-cjk/pyproject.toml の
-バージョンを上げて `fonts-vX.Y.Z` タグを push すると release-fonts.yml が公開する。
-※初回は PyPI 側で pylopdf-fonts-cjk の Trusted Publisher 登録が必要
-（workflow: release-fonts.yml / environment: pypi）。本体の [cjk] extra が参照するため、
-本体リリースより先にフォント wheel を公開すること
+The font wheel has a separate release process. Update the version in
+`fonts/pylopdf-fonts-cjk/pyproject.toml`, then push a `fonts-vX.Y.Z` tag to run
+`release-fonts.yml`. The first release requires registering the
+`pylopdf-fonts-cjk` Trusted Publisher on PyPI with workflow
+`release-fonts.yml` and environment `pypi`. Publish the font wheel before the
+main package because the main `[cjk]` extra references it.
 
-## ロードマップ
+## Roadmap
 
-中期計画の正本は [ROADMAP.md](ROADMAP.md)（2026-07-22 の市場・upstream 調査と
-2026-07-23 のスコープ外領域深掘り再調査に基づく。戦略・リリース計画 v0.6〜v1.0・
-エコシステム連携・ウォッチリスト・スコープ外の宣言を含む）。
+[ROADMAP.md](ROADMAP.md) is the canonical medium-term plan, based on the
+2026-07-22 market and upstream survey plus the 2026-07-23 deeper review of
+out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
+integrations, a watchlist, and explicit non-goals.
 
-- 現在のフェーズ: v0.9.0 リリース済み（2026-07-23、PyPI 公開・E2E 検証済み。
-  OCR 不可視層・to_markdown・AcroForm 記入・添付・ページラベル・PDF/A 宣言読み取り。
-  インクリメンタル保存は OSS 分析で見送り → ウォッチリスト）。
-  次: v1.0「信頼の宣言」準備（SECURITY / 監査 CI・公開ベンチマーク・
-  ドキュメントサイト・cp314t wheel）と v0.10 候補 [ocr] の精度実測
-- lopdf#535（コメント + インデント行で抽出が空になる）は v0.7 の hayro エンジン
-  置き換えで pylopdf 側は解消済み（上流の修正 PR 自作は並走候補として残る）
-- 完了済みの履歴は CHANGELOG.md を参照
+- Current phase: v0.9.0 was released on 2026-07-23 and verified end to end on
+  PyPI. It includes an invisible OCR layer, `to_markdown`, AcroForm filling,
+  attachments, page labels, and PDF/A claim reading. Incremental save was
+  rejected after OSS analysis and moved to the watchlist. Next work is the v1.0
+  “declaration of trust” (security/audit CI, public benchmarks, documentation
+  site, cp314t wheel) and an accuracy spike for the possible v0.10 `[ocr]`
+  extra.
+- lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
+  An upstream fix remains a parallel contribution candidate.
+- See [CHANGELOG.md](CHANGELOG.md) for completed history.

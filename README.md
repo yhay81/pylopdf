@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[日本語版 README はこちら](README.ja.md) /
+[Japanese README](README.ja.md) /
 **Documentation: <https://yhay81.github.io/pylopdf/>** (with a
 [pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/))
 

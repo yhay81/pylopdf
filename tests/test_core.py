@@ -1,4 +1,4 @@
-"""Rust バインディング pylopdf_core._Document の低レベル動作テスト。"""
+"""Low-level behavior tests for the pylopdf_core._Document Rust binding."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def test_metadata_set_and_get(one_page_pdf: bytes) -> None:
     doc.set_metadata("Title", "My Title")
     doc.set_metadata("Author", "Alice")
     assert doc.get_metadata() == {"Title": "My Title", "Author": "Alice"}
-    # 空文字列で削除
+    # An empty value removes the metadata key.
     doc.set_metadata("Author", "")
     assert doc.get_metadata() == {"Title": "My Title"}
 
@@ -69,19 +69,19 @@ def test_metadata_set_and_get(one_page_pdf: bytes) -> None:
 def test_metadata_unicode_roundtrip(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     doc.set_metadata("Title", "日本語のタイトル")
-    # 保存 → 再読込しても UTF-16BE 経由で戻ること
+    # Save and reload through UTF-16BE.
     reloaded = _Document.load_bytes(doc.save_bytes())
     assert reloaded.get_metadata()["Title"] == "日本語のタイトル"
 
 
 def test_metadata_pdfdocencoding(one_page_pdf: bytes) -> None:
-    """BOM なしの PDF 文字列を PDFDocEncoding としてデコードする。"""
+    """Decode a BOM-less PDF string as PDFDocEncoding."""
     raw = one_page_pdf.replace(
         b"trailer\n<< /Size 6 /Root 1 0 R >>",
         b"trailer\n<< /Size 6 /Root 1 0 R /Info << /Title <80> >> >>",
     )
     doc = _Document.load_bytes(raw)
-    # PDFDocEncoding の 0x80 は bullet（U+2022）
+    # PDFDocEncoding byte 0x80 is bullet (U+2022).
     assert doc.get_metadata()["Title"] == "•"
 
 
@@ -90,7 +90,7 @@ def test_merge(one_page_pdf: bytes, three_page_pdf: bytes) -> None:
     other = _Document.load_bytes(three_page_pdf)
     doc.merge(other)
     assert doc.page_count() == 4
-    # merge 結果は保存 → 再読込しても壊れていないこと
+    # Preserve a merged document through save and reload.
     reloaded = _Document.load_bytes(doc.save_bytes())
     assert reloaded.page_count() == 4
     all_text = reloaded.extract_text([1, 2, 3, 4])
@@ -107,7 +107,7 @@ def test_merge_into_empty(three_page_pdf: bytes) -> None:
 
 
 def test_merge_empty_then_nonempty(three_page_pdf: bytes) -> None:
-    """空文書の挿入後も max_id とページツリーが壊れない。"""
+    """Preserve max_id and the page tree after merging an empty document."""
     doc = _Document()
     doc.merge(_Document())
     doc.merge(_Document.load_bytes(three_page_pdf))
@@ -116,7 +116,7 @@ def test_merge_empty_then_nonempty(three_page_pdf: bytes) -> None:
 
 
 def test_merge_repairs_incorrect_page_count(one_page_pdf: bytes) -> None:
-    """入力の Count が不正でも、結合後は実ページ数へ正規化する。"""
+    """Normalize an invalid input Count to the actual merged page count."""
     broken_count = one_page_pdf.replace(b"/Count 1", b"/Count 9")
     doc = _Document.load_bytes(broken_count)
     assert doc.page_count() == 1

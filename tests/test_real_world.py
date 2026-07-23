@@ -1,9 +1,8 @@
-"""実世界 PDF に対する回帰テスト。
+"""Regression tests over real-world PDFs.
 
-tests/assets/real_world/ に同梱した「実際のツールチェーンが生成した PDF」全種に対して
-open / metadata / テキスト抽出 / 編集 / 保存 / レンダリングを一括で回し、
-lopdf / hayro の限界を早期発見する。各ファイルの出典・ライセンス・既知の限界は
-同ディレクトリの README.md を参照。
+Run open, metadata, extraction, editing, saving, and rendering over every PDF
+produced by real toolchains in ``tests/assets/real_world``. This catches lopdf
+and hayro limitations early. The adjacent README records sources and licenses.
 """
 
 from __future__ import annotations
@@ -22,12 +21,12 @@ ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 @dataclass(frozen=True)
 class Case:
-    """1 ファイル分の期待値。"""
+    """Expected values for one corpus file."""
 
     name: str
     pages: int
     version: str
-    #: 0 ページ目の抽出テキストに含まれるべき文字列（None = 既知の限界として別テストで追跡）
+    #: Text expected on page 0; None means tracked separately as a known limit.
     snippet: str | None
 
 
@@ -60,14 +59,14 @@ def test_metadata_format(case: Case) -> None:
 
 @ALL
 def test_peek_metadata_matches_full_load(case: Case) -> None:
-    """高速パス peek_metadata がフルロードと同じページ数を返す。"""
+    """peek_metadata returns the same page count as a full load."""
     meta = pylopdf.peek_metadata(ASSETS / case.name)
     assert meta["page_count"] == case.pages
     assert meta["encrypted"] is False
 
 
 def test_max_decompressed_size_guards_against_bombs() -> None:
-    """object stream を含む PDF は、極端に小さい展開上限だとロードを拒否する。"""
+    """A tiny decompression limit rejects PDFs containing object streams."""
     path = ASSETS / "f1040.pdf"
     with pytest.raises(pylopdf.PdfError, match="limit"):
         pylopdf.open(path, max_decompressed_size=100)
@@ -76,7 +75,7 @@ def test_max_decompressed_size_guards_against_bombs() -> None:
 
 @pytest.mark.parametrize("filter_name", ["FlateDecode", "Fl"])
 def test_max_decompressed_size_guards_page_content_streams(filter_name: str) -> None:
-    """hayro が遅延展開するページ Contents にもロード時の上限を適用する。"""
+    """Load-time limits cover page Contents that hayro decodes lazily."""
     expanded = b" " * 200_000
     compressed = zlib.compress(expanded)
     pdf = build_raw_pdf(
@@ -105,10 +104,10 @@ def test_extract_text_page0(case: Case) -> None:
 
 
 def test_pdf20_comment_streams_extract() -> None:
-    """コメント + インデント入り content stream の抽出（lopdf#535 の回帰検知）。
+    """Protect extraction from comment-plus-indentation regression lopdf#535.
 
-    v0.7 で抽出を hayro エンジンへ置き換えたことで解消した。lopdf の
-    extract_text には未修正のまま残っているが、pylopdf はもう影響を受けない。
+    v0.7 fixed pylopdf by moving extraction to hayro. lopdf ``extract_text``
+    remains affected, but pylopdf no longer uses it.
     """
     doc = pylopdf.open(ASSETS / "pdf20-simple.pdf")
     assert "Hello World" in doc.get_page_text(0)
@@ -120,7 +119,7 @@ def test_f1040_metadata_title() -> None:
 
 
 def test_manuscript_scan_has_no_text_layer() -> None:
-    """テキストレイヤーの無い純スキャン PDF は、抽出が空になるのが正しい挙動。"""
+    """A pure scan without a text layer correctly extracts as empty."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
     assert doc.get_page_text(0).strip() == ""
 
@@ -136,14 +135,14 @@ def test_select_first_page_and_roundtrip(case: Case) -> None:
 
 @ALL
 def test_insert_subset_with_position_roundtrip(case: Case) -> None:
-    """先頭 1 ページだけを先頭位置へ挿入し、prune 後も内容が壊れないこと。"""
+    """Importing page 0 at the front survives pruning without content loss."""
     doc = pylopdf.open(ASSETS / case.name)
     src = pylopdf.open(ASSETS / case.name)
     doc.insert_pdf(src, from_page=0, to_page=0, start_at=0)
     assert doc.page_count == case.pages + 1
     reopened = pylopdf.open(stream=doc.tobytes())
     assert reopened.page_count == case.pages + 1
-    # 挿入ページが参照する資産（フォント・画像）が prune で失われていないこと
+    # Pruning preserves fonts/images referenced by the inserted page.
     assert reopened.render_page(0).startswith(b"\x89PNG")
 
 
@@ -159,7 +158,7 @@ def test_merge_self_and_roundtrip(case: Case) -> None:
 
 @ALL
 def test_merge_into_empty_and_roundtrip(case: Case) -> None:
-    """実世界 PDF を空文書へ挿入しても Catalog / Pages の ID が衝突しない。"""
+    """Importing a real PDF into an empty document avoids Catalog/Pages ID collisions."""
     source = pylopdf.open(ASSETS / case.name)
     doc = pylopdf.Document()
     doc.insert_pdf(source)
@@ -171,7 +170,7 @@ def test_merge_into_empty_and_roundtrip(case: Case) -> None:
 @ALL
 def test_delete_page_and_roundtrip(case: Case) -> None:
     if case.pages < 2:
-        pytest.skip("1 ページ文書の全ページ削除は対象外")
+        pytest.skip("deleting every page from a one-page document is out of scope")
     doc = pylopdf.open(ASSETS / case.name)
     doc.delete_page(0)
     assert doc.page_count == case.pages - 1
@@ -181,7 +180,7 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
 
 @ALL
 def test_save_optimized_roundtrip(case: Case) -> None:
-    """garbage + deflate + object_streams 保存後も開けて内容が保たれる。"""
+    """Garbage, deflate, and object-stream saves preserve readable content."""
     doc = pylopdf.open(ASSETS / case.name)
     data = doc.tobytes(garbage=True, deflate=True, object_streams=True)
     reopened = pylopdf.open(stream=data)
@@ -189,7 +188,7 @@ def test_save_optimized_roundtrip(case: Case) -> None:
 
 
 def test_object_streams_reduce_size() -> None:
-    """object stream 保存が中規模文書のサイズを削減する。"""
+    """Object-stream saving reduces a medium-size document."""
     doc = pylopdf.open(ASSETS / "bill-hr815.pdf")
     plain = doc.tobytes()
     optimized = doc.tobytes(garbage=True, deflate=True, object_streams=True)
@@ -222,7 +221,7 @@ def test_render_page_svg(case: Case) -> None:
 
 @WITH_TEXT
 def test_extract_text_survives_edit(case: Case) -> None:
-    """編集（select）後もテキスト抽出が壊れないこと（継承属性の焼き込み回帰検知）。"""
+    """Text extraction survives select with inherited attributes materialized."""
     assert case.snippet is not None
     doc = pylopdf.open(ASSETS / case.name)
     doc.select([0])

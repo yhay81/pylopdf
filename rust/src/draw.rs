@@ -1,32 +1,32 @@
-//! ページへの描き込み（画像挿入・別 PDF ページの重ね合わせ）の下請け。
+//! Drawing primitives for image insertion and overlaying pages from another PDF.
 //!
-//! 方針: 既存コンテンツストリームはデコードも再エンコードもしない（lopdf の
-//! content パーサ経由の往復は #535 系の癖に巻き込まれるため）。描き込みは
-//! `/Contents` 配列への「新しいストリームの追加」だけで行い、既存コンテンツの
-//! グラフィックス状態の漏れは、既存列を一度だけ q / Q ストリームで挟んで遮断する。
+//! Existing content streams are never decoded or re-encoded because a round trip
+//! through lopdf's content parser can trigger #535-class edge cases. Drawing only
+//! appends streams to `/Contents`. Existing graphics state is isolated by wrapping
+//! the original sequence in q/Q streams once.
 
 use std::io::Write;
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 
-/// 挿入画像のデコード結果（PDF Image XObject の材料）。
+/// Decoded image data used to build a PDF Image XObject.
 pub struct ImageParts {
     pub width: u32,
     pub height: u32,
-    /// XObject 辞書に入れる ColorSpace 名。
+    /// ColorSpace name for the XObject dictionary.
     pub color_space: &'static str,
-    /// Filter 名（DCTDecode = JPEG パススルー / FlateDecode = 生サンプル圧縮）。
+    /// Filter name: DCTDecode passes JPEG through; FlateDecode compresses samples.
     pub filter: &'static str,
-    /// フィルタ適用済みのストリームデータ。
+    /// Stream data after applying the filter.
     pub data: Vec<u8>,
-    /// アルファチャンネル（存在すれば SMask 用の生グレースケール。Flate 圧縮前）。
+    /// Raw grayscale alpha for an SMask, before Flate compression.
     pub alpha: Option<Vec<u8>>,
 }
 
-/// 画像データの形式を magic bytes で判定して XObject の材料に変換する。
+/// Detect image format from magic bytes and convert it to XObject data.
 ///
-/// 対応形式は JPEG（DCTDecode パススルー）と PNG（デコードして Flate 圧縮）。
-/// それ以外は None（呼び出し側でエラーメッセージにする）。
+/// JPEG passes through with DCTDecode; PNG is decoded and Flate-compressed.
+/// Return None for unsupported formats so the caller can report an error.
 pub fn parse_image(data: &[u8]) -> Result<Option<ImageParts>, String> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return jpeg_parts(data).map(Some);
@@ -37,7 +37,7 @@ pub fn parse_image(data: &[u8]) -> Result<Option<ImageParts>, String> {
     Ok(None)
 }
 
-/// JPEG の SOF マーカーから寸法と色成分数を読み、バイト列ごとパススルーする。
+/// Read dimensions/components from a JPEG SOF marker and pass bytes through.
 fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
     let mut pos = 2usize;
     while pos + 4 <= data.len() {
@@ -46,13 +46,13 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
             continue;
         }
         let marker = data[pos + 1];
-        // スタンドアロンマーカー（RST/TEM）と 0xFF フィルはスキップ
+        // Skip standalone RST/TEM markers and 0xFF fill bytes.
         if marker == 0xFF || (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
             pos += 2;
             continue;
         }
         let length = usize::from(u16::from_be_bytes([data[pos + 2], data[pos + 3]]));
-        // SOF0-15（C4=DHT, C8=JPG, CC=DAC を除く）が寸法を持つ
+        // SOF0-15 carry dimensions, excluding C4=DHT, C8=JPG, and CC=DAC.
         if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
             if length < 8
                 || pos
@@ -61,7 +61,7 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
             {
                 return Err("corrupt JPEG SOF segment length".to_owned());
             }
-            // components（pos + 9）まで読むため、最低 10 バイト必要。
+            // Reading components at pos+9 requires at least 10 bytes.
             if pos.checked_add(10).is_none_or(|end| end > data.len()) {
                 return Err("corrupt JPEG SOF segment".to_owned());
             }
@@ -91,10 +91,10 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
     Err("no JPEG SOF marker found".to_owned())
 }
 
-/// PNG をデコードし、8bit Gray/RGB（+ 別立てのアルファ）へ正規化して Flate 圧縮する。
+/// Decode PNG to 8-bit Gray/RGB plus separate alpha, then Flate-compress it.
 fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
-    // パレット展開・tRNS→アルファ・16bit→8bit をデコーダに任せる
+    // Let the decoder expand palettes/tRNS and reduce 16-bit data to 8-bit.
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
@@ -133,7 +133,7 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
             }
             ("DeviceRGB", rgb, Some(a))
         }
-        // normalize_to_color8 で Indexed は展開済みのため到達しない
+        // Indexed data was already expanded by normalize_to_color8.
         png::ColorType::Indexed => return Err("failed to expand palette PNG".to_owned()),
     };
 
@@ -147,7 +147,7 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     })
 }
 
-/// zlib（PDF の FlateDecode）で圧縮する。
+/// Compress with zlib for PDF FlateDecode.
 pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
     encoder
@@ -156,7 +156,7 @@ pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Flate compression failed: {e}"))
 }
 
-/// 画像 XObject（と必要なら SMask）をドキュメントへ追加し、ObjectId を返す。
+/// Add an Image XObject and optional SMask, returning its ObjectId.
 pub fn add_image_xobject(doc: &mut Document, parts: ImageParts) -> Result<ObjectId, String> {
     let smask_id = match &parts.alpha {
         Some(alpha) => {
@@ -189,10 +189,10 @@ pub fn add_image_xobject(doc: &mut Document, parts: ImageParts) -> Result<Object
     Ok(doc.add_object(Stream::new(dict, parts.data).with_compression(false)))
 }
 
-/// 表示空間（左上原点・y 下向き）の点を、非回転の PDF ユーザー空間の点へ写す。
+/// Map a top-left-origin, downward-y display point to unrotated PDF user space.
 ///
-/// crop は対象ページの CropBox、rotation は正規化済みの表示回転（0/90/180/270）。
-/// 導出はページを時計回りに rotation 度回して表示する PDF の規約に従う。
+/// `crop` is the page CropBox; `rotation` is normalized to 0/90/180/270.
+/// The mapping follows PDF's convention of displaying clockwise rotation.
 pub(crate) fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     let [cx0, cy0, cx1, cy1] = crop;
     match rotation {
@@ -203,9 +203,9 @@ pub(crate) fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (
     }
 }
 
-/// 非回転の PDF ユーザー空間の点を、表示空間（左上原点・y 下向き）の点へ写す。
+/// Map an unrotated PDF user-space point to top-left-origin display space.
 ///
-/// display_to_pdf の逆写像。
+/// This is the inverse of `display_to_pdf`.
 pub(crate) fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     let [cx0, cy0, cx1, cy1] = crop;
     match rotation {
@@ -216,16 +216,16 @@ pub(crate) fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (
     }
 }
 
-/// PDF 空間の矩形を、表示空間の正規化済み矩形 (x0, y0, x1, y1) へ写す。
+/// Map a PDF-space rectangle to normalized display `(x0, y0, x1, y1)`.
 pub fn pdf_rect_to_display(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [f64; 4] {
     let (ax, ay) = pdf_to_display(crop, rotation, rect[0], rect[1]);
     let (bx, by) = pdf_to_display(crop, rotation, rect[2], rect[3]);
     [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
 }
 
-/// 表示空間の矩形の四隅（表示上の 左上・右上・左下・右下 の順）を PDF 空間の点列で返す。
+/// Return display-rectangle corners in PDF space: TL, TR, BL, BR.
 ///
-/// QuadPoints（Acrobat 互換のジグザグ順）と外接矩形の計算に使う。
+/// Used for Acrobat-compatible zigzag QuadPoints and bounding rectangles.
 pub fn display_rect_quad_pdf(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [(f64, f64); 4] {
     let [x0, y0, x1, y1] = rect;
     [
@@ -236,7 +236,7 @@ pub fn display_rect_quad_pdf(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [
     ]
 }
 
-/// PDF 空間の点列の外接矩形（正規化済み）を返す。
+/// Return the normalized bounding rectangle of PDF-space points.
 pub fn bounding_rect(points: &[(f64, f64)]) -> [f64; 4] {
     let mut out = [
         f64::INFINITY,
@@ -253,10 +253,10 @@ pub fn bounding_rect(points: &[(f64, f64)]) -> [f64; 4] {
     out
 }
 
-/// ハイライト注釈の外観ストリーム（AP /N）の描画オペレータ列を組み立てる。
+/// Build drawing operators for a highlight annotation appearance stream (`AP /N`).
 ///
-/// quads は display_rect_quad_pdf の返す四隅（左上・右上・左下・右下）。
-/// ExtGState 名 /PyloGS（ブレンド Multiply + 透明度）は呼び出し側が Resources へ登録する。
+/// `quads` are TL, TR, BL, BR corners returned by `display_rect_quad_pdf`.
+/// The caller registers `/PyloGS` with Multiply blending and opacity in Resources.
 pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Vec<u8> {
     let mut out = format!(
         "/PyloGS gs\n{} {} {} rg\n",
@@ -285,16 +285,16 @@ pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Ve
     out
 }
 
-/// 配置対象の中身（cm 行列の作り方が異なる 2 種類）。
+/// Content variants that require different `cm` matrix construction.
 pub enum PlacedContent {
-    /// 画像 XObject（単位正方形に描かれる）。アスペクト比は width/height。
+    /// Image XObject drawn in a unit square; aspect ratio is width/height.
     Image { width: u32, height: u32 },
-    /// Form XObject（中身は取り込み元ページの座標系。BBox = 元 CropBox）。
+    /// Form XObject in source-page coordinates, with BBox equal to source CropBox.
     Form { crop: [f64; 4], rotation: i64 },
 }
 
 impl PlacedContent {
-    /// 表示空間でのアスペクト比（幅 / 高さ）。
+    /// Aspect ratio in display space.
     fn display_aspect(&self) -> f64 {
         match self {
             Self::Image { width, height } => f64::from(*width) / f64::from(*height),
@@ -310,10 +310,10 @@ impl PlacedContent {
     }
 }
 
-/// 表示空間の矩形 rect へ content を配置する cm 行列 [a b c d e f] を計算する。
+/// Compute `[a b c d e f]` placing content into display-space `rect`.
 ///
-/// rect は対象ページの表示座標（左上原点、page.rect と同じ系）。
-/// keep_proportion なら content のアスペクト比を保って rect 内へ中央合わせで収める。
+/// `rect` uses the target page's top-left-origin display coordinates.
+/// `keep_proportion` preserves aspect ratio and centers content within `rect`.
 pub fn placement_matrix(
     target_crop: [f64; 4],
     target_rotation: i64,
@@ -336,7 +336,7 @@ pub fn placement_matrix(
         y1 = y0 + fit_h;
     }
 
-    // 配置先の四隅（PDF 空間）: O = 表示上の左下、U = 表示右向き辺、V = 表示上向き辺
+    // Target PDF corners: O=display bottom-left, U=right edge, V=up edge.
     let (ox, oy) = display_to_pdf(target_crop, target_rotation, x0, y1);
     let (ux, uy) = {
         let (px, py) = display_to_pdf(target_crop, target_rotation, x1, y1);
@@ -348,10 +348,10 @@ pub fn placement_matrix(
     };
 
     match content {
-        // 画像は単位正方形 → [U V O] がそのまま行列になる
+        // Images use a unit square, so [U V O] is the matrix directly.
         PlacedContent::Image { .. } => [ux, uy, vx, vy, ox, oy],
-        // Form は元ページ座標系の点 Q を「元ページの表示座標 → 正規化 → 配置先」へ合成する。
-        // Q の表示座標 (dx, dy) は Q の一次式なので、全体も一次式に畳める。
+        // Forms compose Q through source display coordinates, normalization,
+        // and the target. Since (dx, dy) is affine in Q, the result is affine.
         PlacedContent::Form { crop, rotation } => {
             let [sx0, sy0, sx1, sy1] = *crop;
             let (sw, sh) = (sx1 - sx0, sy1 - sy0);
@@ -367,7 +367,7 @@ pub fn placement_matrix(
                 270 => (0.0, -1.0, sy1, -1.0, 0.0, sx1),
                 _ => (1.0, 0.0, -sx0, 0.0, -1.0, sy1),
             };
-            // P(Q) = O + (dx/sdw)・U + (1 - dy/sdh)・V
+            // P(Q) = O + (dx/sdw)*U + (1 - dy/sdh)*V.
             let a = ux * ax / sdw - vx * bx / sdh;
             let b = uy * ax / sdw - vy * bx / sdh;
             let c = ux * ay / sdw - vx * by / sdh;
@@ -379,7 +379,7 @@ pub fn placement_matrix(
     }
 }
 
-/// cm 行列と XObject 名から描画オペレータ列を組み立てる。
+/// Build drawing operators from a `cm` matrix and XObject name.
 pub fn draw_ops(matrix: [f64; 6], name: &str) -> Vec<u8> {
     let [a, b, c, d, e, f] = matrix;
     format!(
@@ -394,7 +394,7 @@ pub fn draw_ops(matrix: [f64; 6], name: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-/// PDF コンテンツ向けの数値表記（小数 4 桁、末尾ゼロ削除）。
+/// Format PDF content numbers with four decimals and no trailing zeros.
 pub(crate) fn fmt(v: f64) -> String {
     let s = format!("{v:.4}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
@@ -405,11 +405,10 @@ pub(crate) fn fmt(v: f64) -> String {
     }
 }
 
-/// ページの Resources/Font へフォントオブジェクトの参照を登録する。
+/// Register a font object reference in page Resources/Font.
 ///
-/// 呼び出し前に継承属性の焼き込みと get_or_create_resources 済みで、
-/// ページ辞書に /Resources が存在することが前提。Resources / Font どちらも
-/// 間接参照の可能性があるため、可変借用の前に参照先 id を解決する 2 段構えにする。
+/// Inherited attributes must already be materialized and Resources created.
+/// Resources and Font may both be indirect, so resolve IDs before mutable borrows.
 pub fn add_page_font(
     doc: &mut Document,
     page_id: ObjectId,
@@ -457,11 +456,11 @@ pub fn add_page_font(
     Ok(())
 }
 
-/// 表示座標 point をベースライン起点とするテキスト描画オペレータ列を組み立てる。
+/// Build text operators with display-space `point` as the baseline origin.
 ///
-/// lines は WinAnsi（cp1252）エンコード済みのバイト列（1 要素 = 1 行）。
-/// Tm に表示空間の基底ベクトルを入れるため、回転ページでも表示上で正立する。
-/// 行送りは fontsize の 1.2 倍。
+/// `lines` contains WinAnsi/cp1252 bytes, one item per line. `Tm` receives
+/// display-space basis vectors so text remains upright on rotated pages.
+/// Leading is 1.2 times the font size.
 pub fn text_ops(
     crop: [f64; 4],
     rotation: i64,
@@ -516,9 +515,9 @@ pub fn text_ops(
     out
 }
 
-/// 既存の /Contents 列を一度だけ q / Q ストリームで挟む（グラフィックス状態の遮断）。
+/// Wrap existing `/Contents` in q/Q streams once to isolate graphics state.
 ///
-/// 既に本関数で挟んだ形（先頭が b"q\n"、末尾が b"Q\n" の単独ストリーム）なら何もしない。
+/// Do nothing when already wrapped by standalone `b"q\n"` and `b"Q\n"` streams.
 fn ensure_contents_wrapped(doc: &mut Document, page_id: ObjectId) -> Result<(), lopdf::Error> {
     let contents = doc.get_page_contents(page_id);
     if contents.is_empty() {
@@ -547,10 +546,10 @@ fn ensure_contents_wrapped(doc: &mut Document, page_id: ObjectId) -> Result<(), 
     Ok(())
 }
 
-/// 描画オペレータ列を新しいコンテンツストリームとしてページへ足す。
+/// Add drawing operators to the page as a new content stream.
 ///
-/// overlay なら既存コンテンツの後（上に描画）、そうでなければ先頭（下に描画）。
-/// 既存コンテンツはラップするだけで中身には触れない。
+/// Overlay appends above existing content; otherwise prepend below it.
+/// Existing content is only wrapped and never modified internally.
 pub fn push_content(
     doc: &mut Document,
     page_id: ObjectId,

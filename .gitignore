@@ -11,5 +11,5 @@
 /dist
 __pycache__
 
-# mkdocs のビルド出力
+# Documentation build output
 site/

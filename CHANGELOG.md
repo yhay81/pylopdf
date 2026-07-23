@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Defined English as the canonical language and Japanese, Simplified Chinese
   and Korean as first-class translations, with shared anchors and strict builds
   for every locale
+- Standardized repository-facing documentation, configuration comments,
+  docstrings, test descriptions, and benchmark reports on English, with an
+  automated check that preserves localized documentation and multilingual test
+  fixtures
 
 ### Performance
 - `render_page` and `Pixmap.tobytes()` now encode PNG with

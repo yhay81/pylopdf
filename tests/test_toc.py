@@ -1,4 +1,4 @@
-"""目次（get_toc / set_toc）のテスト。"""
+"""Tests for get_toc and set_toc."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def test_toc_roundtrip(three_page_pdf: bytes) -> None:
     toc: list[list[int | str]] = [[1, "第 1 章", 1], [2, "1.1 節", 2], [1, "第 2 章", 3]]
     doc.set_toc(toc)
     assert doc.get_toc() == toc
-    # 保存 → 再読込しても維持される（CJK タイトルは UTF-16BE で書かれる）
+    # Preserve entries after save/reload; CJK titles use UTF-16BE.
     reloaded = pylopdf.Document(stream=doc.tobytes())
     assert reloaded.get_toc() == toc
 
@@ -49,9 +49,9 @@ def test_set_toc_empty_removes(three_page_pdf: bytes) -> None:
 @pytest.mark.parametrize(
     ("toc", "match"),
     [
-        ([[2, "A", 1]], "level"),  # 最初のレベルは 1 から
-        ([[1, "A", 1], [3, "B", 1]], "level"),  # +2 のジャンプは不可
-        ([[1, "A", 0]], "out of range"),  # ページ番号は 1 始まり
+        ([[2, "A", 1]], "level"),  # The first level must be 1.
+        ([[1, "A", 1], [3, "B", 1]], "level"),  # Level jumps greater than 1 are invalid.
+        ([[1, "A", 0]], "out of range"),  # TOC page numbers are one-based.
         ([[1, "A", 4]], "out of range"),
         ([[1, "A"]], "3 elements"),
     ],
@@ -63,17 +63,17 @@ def test_set_toc_invalid(three_page_pdf: bytes, toc: list[list[int | str]], matc
 
 
 def test_toc_survives_page_ops(three_page_pdf: bytes) -> None:
-    """しおりの付いたページが残っている限り、select 後も目次が読める。"""
+    """Keep TOC entries readable after select while target pages remain."""
     doc = pylopdf.Document(stream=three_page_pdf)
     doc.set_toc([[1, "first", 1], [1, "third", 3]])
     doc.select([0, 2])
     toc = doc.get_toc()
     assert [entry[1] for entry in toc] == ["first", "third"]
-    assert [entry[2] for entry in toc] == [1, 2]  # ページ番号は詰め直される
+    assert [entry[2] for entry in toc] == [1, 2]  # Page numbers are compacted.
 
 
 def test_real_world_toc_readable() -> None:
-    """実世界 PDF の既存アウトラインを（あれば）整合的に読める。"""
+    """Read consistent existing outlines from real-world PDFs."""
     for name in ["usrguide.pdf", "bill-hr815.pdf", "f1040.pdf"]:
         doc = pylopdf.open(REAL_WORLD / name)
         for level, title, page in doc.get_toc():

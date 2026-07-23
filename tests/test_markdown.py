@@ -1,4 +1,4 @@
-"""to_markdown（Document / Page）のテスト。"""
+"""Tests for Document.to_markdown and Page.to_markdown."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import pylopdf
 
 
 def _layout_pdf(pages: list[list[tuple]]) -> bytes:
-    """(サイズ, ベースライン y[PDF 座標], テキスト[, フォント]) の列からページを組み立てる。
+    """Build pages from ``(size, baseline_y, text[, font])`` tuples.
 
-    フォントは F1 = Helvetica（既定）、F2 = Helvetica-Bold、F3 = Helvetica-Oblique。
+    Fonts are F1 = Helvetica (default), F2 = Helvetica-Bold, and
+    F3 = Helvetica-Oblique.
     """
     n = len(pages)
     kids = " ".join(f"{10 + 2 * i} 0 R" for i in range(n))
@@ -63,7 +64,7 @@ def test_heading_detected_by_size() -> None:
     )
     md = doc.to_markdown()
     assert md.startswith("# Big Title")
-    # 本文 2 行は 1 段落に空白連結される
+    # Join two body lines with a space inside one paragraph.
     assert "Body line one body line two" in md
 
 
@@ -105,13 +106,14 @@ def test_bullets_and_numbers_normalize() -> None:
         )
     )
     md = doc.to_markdown()
-    assert "- first item\n- second item" in md  # 連続項目は 1 つのリスト
+    assert "- first item\n- second item" in md  # Adjacent items form one list.
     assert "1. numbered" in md
 
 
 def test_dict_spans_have_font_and_flags_keys() -> None:
-    # 太字・斜体の実検出は埋め込みフォントが対象（tests/test_interop.py の typst テスト）。
-    # 標準 14（Type1 代替）は hayro がメタデータを公開しないため flags 0 / font 空が現状仕様
+    # Embedded fonts exercise real bold/italic detection in test_interop.py.
+    # Hayro exposes no metadata for Standard 14 Type1 substitutes, so the
+    # current contract is flags=0 and an empty font name.
     doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Standard font words", "F2")]]))
     span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][0]
     assert span["flags"] == 0
@@ -119,7 +121,7 @@ def test_dict_spans_have_font_and_flags_keys() -> None:
 
 
 def test_cjk_lines_join_without_space() -> None:
-    # CJK フォントのフィクスチャを作らず、OCR 層で日本語の 2 行を用意する
+    # Use two Japanese OCR-layer fixture lines without building a CJK font PDF.
     doc = pylopdf.Document()
     doc.new_page(width=300, height=200)
     page = doc[0]

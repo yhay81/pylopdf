@@ -1,4 +1,4 @@
-# テスト CI: 3 OS で lint・型チェック・テストを実行する
+# Test CI: run linting, type checking, and tests on three operating systems
 name: CI
 
 on:
@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Rust 依存ツリーの脆弱性監査（RustSec advisory DB）
+  # Audit the Rust dependency tree against the RustSec advisory database.
   audit:
     name: audit (RustSec)
     runs-on: ubuntu-latest
@@ -20,7 +20,7 @@ jobs:
       - name: Rust dependency audit
         run: cargo audit --file rust/Cargo.lock
 
-  # abi3-py310 の下限検証（最古のサポート対象 Python で全テストを回す）
+  # Validate the abi3-py310 floor with the oldest supported Python version.
   test-py310:
     name: test (Python 3.10 lower bound)
     runs-on: ubuntu-latest
@@ -57,12 +57,14 @@ jobs:
       - name: Rust lint
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Build and install
-        # interop グループはエコシステム連携レシピ（README 記載）の統合テスト用
+        # The interop group tests the ecosystem recipes documented in the README.
         run: uv sync --all-extras --group interop
       - name: Validate project metadata
         run: uv run pre-commit run validate-pyproject --all-files
       - name: Python lint
         run: uv run ruff check .
+      - name: Repository language
+        run: uv run python tools/check_repository_language.py
       - name: Python format check
         run: uv run ruff format --check .
       - name: Type check

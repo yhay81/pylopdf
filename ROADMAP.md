@@ -1,419 +1,498 @@
-# pylopdf ロードマップ
+# pylopdf roadmap
 
-2026-07-22 実施の市場・upstream 調査（lopdf 0.44 全 API / hayro 0.7 全クレート /
-Python PDF エコシステム）と、2026-07-23 実施のスコープ外領域の深掘り再調査
-（krilla / typst / 純 Rust OCR / 電子署名 / HTML→PDF。確定事実は文末の調査メモ）に基づく中期計画の正本。
-日々の開発コンテキストは [AGENTS.md](AGENTS.md)、確定した変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照。
+This is the canonical medium-term plan. It is based on a 2026-07-22 survey of
+the market and upstream projects (all APIs in lopdf 0.44, all hayro 0.7 crates,
+and the Python PDF ecosystem), followed by a 2026-07-23 deeper review of areas
+outside the intended core: krilla, typst, pure-Rust OCR, digital signatures, and
+HTML-to-PDF. Confirmed findings are recorded at the end.
 
-## 戦略
+See [AGENTS.md](AGENTS.md) for day-to-day development context and
+[CHANGELOG.md](CHANGELOG.md) for completed changes.
 
-**「permissive ライセンスで、レンダリング + 位置付きテキスト抽出 + 編集が 1 つで完結する、
-検証可能に正確なライブラリ」** を目指す。
+## Strategy
 
-- 2026-07 時点、この 3 拍子が揃った permissive な成熟ライブラリは存在しない
-  （pymupdf = AGPL、pypdfium2 = 編集が弱く bus factor 1 を公式宣言、
-  pikepdf = 抽出/描画を明示的にスコープ外、pypdf = 抽出が遅く描画なし）
-- pymupdf の構造的弱点（AGPL、スレッド非対応の公式明言、free-threaded wheel 無し、
-  20MB 超 wheel）は追随されにくい差別化軸。さらに 2026-06 の pymupdf-layout
-  （pymupdf4llm の精度を裏で支えるレイアウト解析）は Polyform Noncommercial + 商用で、
-  商用制限は AGPL より強まる方向 = MIT の商用優位は拡大している
-- 同ポジションの Rust 製競合 pdf_oxide（2025-11 開始）は週次リリース・月 14.5 万 DL と
-  実稼働だがレンダリング無し・ベンチは自己申告のまま第三者検証ゼロ（2026-07-23 確認）。
-  「実世界コーパス + 再現可能な検証 + 上流貢献」の信頼で差別化する
-- pdf_oxide とは別に **oxidize-pdf**（bzsanti/oxidizePdf, MIT, crates.io `oxidize-pdf`）が
-  もう一つの直接競合。パース/生成/抽出/暗号化/分割結合回転を pure Rust で一体提供し
-  「AI/RAG 向け構造認識チャンキング」を前面に押す。2026-07-22 時点で 91 リリース・
-  直近も同月更新と開発速度が速く、要ウォッチ（pdf_oxide とは別作者・別リポジトリなので混同注意）
-- 需要が最も大きいのは位置付きテキスト抽出とその先の Markdown 変換
-  （RAG/LLM 用途。pymupdf4llm は月 2,400 万 DL、docling は月 2,000 万 DL）
-- CJK（縦書き・CID フォント・日本語帳票）は既存の fallback 実装と
-  コーパスを活かせる、グローバル競合が再現しにくい固有の堀
+Build **a verifiably accurate, permissively licensed library that combines
+rendering, positioned text extraction, and editing in one package**.
 
-## 基本方針
+- As of 2026-07, no mature permissive library combines all three. pymupdf is
+  AGPL; pypdfium2 has limited editing and explicitly documents a bus factor of
+  one; pikepdf deliberately excludes extraction and rendering; pypdf has slow
+  extraction and no renderer.
+- pymupdf's structural weaknesses are difficult to erase: AGPL licensing,
+  officially unsupported threading, no free-threaded wheel, and wheels above
+  20 MB. pymupdf-layout, introduced in 2026-06 to power pymupdf4llm's layout
+  analysis, uses PolyForm Noncommercial plus commercial licensing. MIT's
+  commercial advantage is therefore increasing.
+- Rust competitor pdf_oxide, started in 2025-11, releases weekly and records
+  about 145,000 monthly downloads, but has no renderer and publishes
+  self-reported benchmarks without third-party verification as of 2026-07-23.
+  Differentiate through a real-world corpus, reproducible evidence, and upstream
+  contributions.
+- **oxidize-pdf** (`bzsanti/oxidizePdf`, MIT, crates.io `oxidize-pdf`) is a
+  separate direct competitor. It combines parsing, generation, extraction,
+  encryption, splitting, merging, and rotation in pure Rust while promoting
+  structure-aware chunking for AI/RAG. It had 91 releases and an update in the
+  same month as of 2026-07-22. Do not confuse it with pdf_oxide.
+- The largest demand is positioned text extraction followed by Markdown
+  conversion for RAG/LLM workloads. pymupdf4llm records about 24 million monthly
+  downloads and docling about 20 million.
+- CJK handling—vertical writing, CID fonts, and Japanese business forms—is a
+  defensible advantage built on the existing fallback implementation and
+  corpus, and is difficult for global competitors to reproduce.
 
-- pymupdf「互換」ではなく「風」。ただし words タプル順・dict 構造・
-  `search_for → list[Rect]` など移行コストを決めるデータ形状は pymupdf に合わせる
-- アーキテクチャ原則は**単方向データフロー**: lopdf の Document が唯一の真実で、
-  hayro はそのシリアライズ結果に対する純関数ビュー（描画・抽出。hayro_pdf キャッシュ +
-  編集時 invalidate で同期）。hayro が見るのは lopdf 正規化済みバイト列なので、
-  壊れた PDF の解釈差が編集と描画で割れず、描画結果 = 保存結果が常に成立する。
-  エンジンを増やすときもこの形を崩さない（krilla も「バイト列を返す純関数 →
-  lopdf へ移植」の一方向で入れる。エンジン同士が状態を持ち合う形は採らない）
-- lopdf / hayro を使い切る: lopdf の保存時暗号化・SaveOptions・画像挿入/抽出・TOC・
-  テキスト置換・インクリメンタル保存、hayro の Device（抽出エンジン化）・
-  RenderSettings・warning_sink・hayro-write（ページ→XObject）
-- lopdf に存在しない領域（AcroForm・注釈作成・添付・ページラベル）は
-  生辞書操作で pylopdf 自身が実装し、付加価値にする
-- 自前実装とエコシステム連携を使い分けてコア wheel を軽く保つ:
-  組版・新規文書の PDF/A 出力 = typst（typst-py）、電子署名 = pyHanko、
-  PDF/A 検証 = veraPDF。連携レシピは統合テストで保証する（v0.7.x 参照）
-- krilla（hayro と同一作者の生成クレート、MIT/Apache-2.0）は
-  「編集 = lopdf / レンダリング = hayro / 生成 = krilla」の 3 エンジン分担で**導入する**
-  （2026-07-23 監査で決定）。確定事実: **krilla コアは hayro 非依存**
-  （hayro-write を引くのは `pdf` feature のみ。ページ埋め込みは lopdf 移植で足りるため
-  不要）→ hayro-syntax 単一バージョン制約は krilla 導入には効かない。導入形は
-  `default-features = false, features = ["simple-text"]`（rustybuzz シェーピング内蔵。
-  raster-images は自前実装があるため不要）。skrifa / flate2 / png は hayro 経由で
-  ツリー内共有のためサイズ増は +0.5〜1MB 見込み（導入前に実測）。解放される機能の順:
-  ① CJK 含む任意フォントの insert_text（サブセット埋め込み）② AcroForm 第 2 段階の
-  外観ストリーム生成 ③ 新規文書 PDF/A 出力の内製化（typst 委譲の部分回収）
-  ④ タグ付き PDF/UA（将来）
+## Principles
 
-## リリース計画
+- Be pymupdf-*style*, not pymupdf-compatible. Match migration-critical data
+  shapes such as word tuple ordering, dict layout, and
+  `search_for → list[Rect]`.
+- Preserve **one-way data flow**. lopdf's `Document` is the sole source of truth;
+  hayro is a pure view over serialized bytes for rendering and extraction. A
+  cached `hayro_pdf` is invalidated on edits. Because hayro sees normalized
+  lopdf output, damaged PDFs cannot be interpreted differently by editing and
+  rendering, and rendered output always matches saved output. New engines must
+  preserve this shape. krilla, for example, should return bytes that are then
+  imported into lopdf; engines must not share mutable state.
+- Use lopdf and hayro fully: lopdf encryption, `SaveOptions`, image insertion
+  and extraction, TOC, text replacement, and incremental save primitives;
+  hayro `Device`, `RenderSettings`, `warning_sink`, and hayro-write page-to-XObject
+  support.
+- Implement areas absent from lopdf through pylopdf's own dictionary operations:
+  AcroForm, annotation creation, attachments, and page labels.
+- Keep the core wheel small by choosing between native implementation and
+  ecosystem integration. Use typst/typst-py for typesetting and new-document
+  PDF/A, pyHanko for signatures, and veraPDF for PDF/A validation. Protect
+  integration recipes with tests.
+- Introduce krilla, the MIT/Apache-2.0 generation crate by hayro's author, under
+  a three-engine split: editing = lopdf, rendering = hayro, generation = krilla.
+  A 2026-07-23 audit confirmed that krilla core does not depend on hayro; only
+  the `pdf` feature pulls hayro-write, which is unnecessary for lopdf object
+  import. The intended configuration is
+  `default-features = false, features = ["simple-text"]`, with built-in
+  rustybuzz shaping and without redundant raster image support. skrifa, flate2,
+  and png are already shared through hayro, so the estimated wheel increase is
+  0.5–1 MB and must be measured. This unlocks, in order: arbitrary embedded
+  fonts including CJK in `insert_text`; AcroForm appearance generation;
+  in-house new-document PDF/A; and eventually tagged PDF/UA.
 
-各リリースは 1 テーマ。順序は依存関係（Page オブジェクト → 抽出 → 描き込み）で決めている。
+## Release plan
 
-### 直近（0.5.x の基盤強化）
+Each release has one theme. Ordering follows dependencies: Page object, then
+extraction, then drawing.
 
-- [x] レンダリングキャッシュ（編集で無効化される hayro Pdf の保持。
-      毎レンダリングの再シリアライズ + 再パースを解消）
-- [x] 重い処理（load / save / render / 抽出 / merge）での GIL 解放
-- [x] `render_page` の `dpi=` / `background=`
-- [x] `save` / `tobytes` の `garbage=` / `deflate=` / `object_streams=`
-      （lopdf SaveOptions。圧縮済みの bill-hr815.pdf でも実測 13% 削減）
-- [x] リポジトリ public 化（2026-07-22。説明文とトピックも設定済み）
-- [x] README 比較表への暗号化/CJK 行追加（2026-07-23）
-- [ ] 発見可能性の続き: py-pdf/benchmarks への参加検討、Zenn/Qiita 等での発信
+### Near term: 0.5.x foundations
 
-### v0.6 — ページ操作と保存の完成（v0.6.0 として 2026-07-23 リリース済み）
+- [x] Cache the hayro PDF and invalidate it after edits, eliminating repeated
+      serialization and parsing for every render.
+- [x] Release the GIL for load, save, render, extraction, and merge.
+- [x] Add `dpi=` and `background=` to `render_page`.
+- [x] Add `garbage=`, `deflate=`, and `object_streams=` to `save` and `tobytes`
+      through lopdf `SaveOptions`. The measured reduction on already-compressed
+      `bill-hr815.pdf` is 13%.
+- [x] Make the repository public and configure its description and topics
+      (2026-07-22).
+- [x] Add encryption and CJK rows to the README comparison table (2026-07-23).
+- [ ] Improve discovery through possible participation in py-pdf/benchmarks and
+      articles on relevant developer platforms.
 
-- [x] Page オブジェクト（`doc[i]` / 負数インデックス / イテレーション。世代管理で
-      構造変更後の古い Page を StalePageError に）
-- [x] ページ回転・MediaBox/CropBox の取得/設定（継承・間接参照解決付き）
-- [x] `insert_pdf` の範囲指定（from_page / to_page / start_at、逆順可）、`new_page`、
-      `copy_page`、select の重複指定によるページ複製
-- [x] TOC 読み書き（`get_toc` / `set_toc`。ページ番号は pymupdf 互換の 1 始まり）
-- [x] 保存時暗号化（AES-256 V5/R6 + Permissions。元ドキュメントは平文のまま）
-- [x] 例外階層（PdfError 基底 = ValueError 互換、PasswordError / DocumentClosedError /
-      EncryptedDocumentError / StalePageError）
-- [x] `peek_metadata`（全体パース無しの高速メタデータ）、
-      `max_decompressed_size`（解凍爆弾対策）の公開
+### v0.6 — complete page operations and saving
 
-### v0.7 — 位置付きテキスト抽出（v0.7.0 として 2026-07-23 リリース済み）
+Released as v0.6.0 on 2026-07-23.
 
-- [x] hayro-interpret の Device 実装による抽出エンジン（lopdf extract_text から置き換え。
-      `get_text("text"/"words"/"blocks"/"dict")`、`search_for → list[Rect]`、
-      不可視テキスト対応。lopdf#535 と非埋め込み CJK 抽出はこれで解消。
-      ※MCID の保持は未実装（v0.9 の to_markdown で必要になったら対応）
-- [x] 画像抽出（Page.get_images。DCT で終わるフィルタ列は JPEG パススルー）
-- [x] hayro の warning_sink → Python warnings 連携（PylopdfWarning）
-- [x] Pixmap オブジェクト（※buffer protocol は断念: Py_buffer が安定 ABI に入るのは
-      Python 3.11 からで abi3-py310 と両立しない。samples は 1 コピー。
-      abi3 下限引き上げ時か cp314t 別ビルド時に再検討）
-- 注意: hayro 0.8 で Device API の破壊的変更（DrawProps 化）が予定されており、
-  追従が 1 回必要（詳細はウォッチリスト）
+- [x] Add `Page` objects with `doc[i]`, negative indices, iteration, and
+      generation tracking that raises `StalePageError` after structural changes.
+- [x] Read and write page rotation and `MediaBox`/`CropBox`, resolving
+      inheritance and indirect references.
+- [x] Support ranged `insert_pdf` (`from_page`, `to_page`, `start_at`, including
+      reverse order), `new_page`, `copy_page`, and page duplication through
+      repeated indices in `select`.
+- [x] Read and write TOC with `get_toc` and `set_toc`; page numbers are one-based
+      for pymupdf compatibility.
+- [x] Encrypt on save with AES-256 V5/R6 and permissions while leaving the
+      in-memory document plaintext.
+- [x] Add the `PdfError`/`PasswordError`/`DocumentClosedError`/
+      `EncryptedDocumentError`/`StalePageError` hierarchy.
+- [x] Publish `peek_metadata` for fast metadata without full parsing and
+      `max_decompressed_size` for decompression-bomb protection.
 
-### v0.7.x — エコシステム連携の文書化（自前実装しない領域を「連携で解決済み」にする）
+### v0.7 — positioned text extraction
 
-- [x] README（両言語）にエコシステム連携節: 組版・新規文書の PDF/A = typst-py、
-      電子署名 = pyHanko、PDF/A 検証 = veraPDF 外部委譲の案内
-- [x] 連携レシピの統合テスト（tests/test_interop.py。interop dependency-group で
-      typst / pyHanko を入れ、`typst.compile → pylopdf.open(stream=)` と
-      「pylopdf 出力 → pyHanko 増分署名で元バイトが無加工で保たれる」ことを検証。
-      CI にも interop グループを追加済み）
+Released as v0.7.0 on 2026-07-23.
 
-### v0.8 — 描き込み（v0.8.0 として 2026-07-23 リリース済み）
+- [x] Replace lopdf extraction with a hayro-interpret `Device` implementing
+      `get_text("text"/"words"/"blocks"/"dict")`,
+      `search_for → list[Rect]`, and invisible text. This fixed lopdf#535 and
+      non-embedded CJK extraction. MCID retention remains unimplemented and can
+      be added when `to_markdown` requires it.
+- [x] Add `Page.get_images`, passing through filter chains ending in DCT as JPEG.
+- [x] Route hayro's `warning_sink` through Python warnings as `PylopdfWarning`.
+- [x] Add `Pixmap`. The buffer protocol was deferred because `Py_buffer` entered
+      the stable ABI in Python 3.11 and conflicts with `abi3-py310`; `samples`
+      performs one copy. Reconsider when raising the abi3 floor or adding cp314t.
+- Note: hayro 0.8 is expected to change the `Device` API to `DrawProps`, requiring
+  one migration. See the watchlist.
 
-- [x] `insert_image`（JPEG は SOF 解析でパススルー埋め込み・PNG は png crate で展開し
-      透過をソフトマスク化。lopdf の embed_image feature（image crate）は使わず自前実装で
-      wheel を軽く保った。既存コンテンツは再エンコードせず追記のみ + 一度だけの q/Q ラップ）
-- [x] 透かし・スタンプ = `show_pdf_page`（lopdf ネイティブの ページ→Form XObject 変換。
-      hayro-write は不要だった: merge と同じオブジェクト移植で Resources ごと取り込み、
-      コンテンツはバイト列のまま Form に包む。元ページの回転・CropBox も表示どおり解決）
-- [x] 日本語テキストの描き込み（透かし・ヘッダ/フッタの CJK）は **typst 連携で解決**:
-      typst で 1 ページ組んで show_pdf_page で焼く（フォントは typst がサブセット埋め込み、
-      pylopdf-fonts-cjk の Noto を font_paths で再利用）。統合テストで保証済み。
-      krilla 導入は「連携なしで完結する insert_text の CJK 対応」が要るときの
-      将来オプションへ格下げ（制約は旧記載どおり: hayro-syntax の単一バージョン解決が必須）
-- [x] テキスト置換（lopdf replace_partial_text）の公開（Page.replace_text。
-      単純エンコーディングのみ・CJK 非対応と明記）
-- [x] ヘッダ / フッタ / ページ番号 / Bates 番号 = `Page.insert_text`（標準 14 フォント・
-      WinAnsi の範囲。CJK 入力は typst レシピへ誘導するエラー。回転ページは表示空間の
-      Tm で正立。ページ番号等はループで印字するレシピを README に記載）
-- [x] 注釈の読み取り（annots）+ highlight / link 注釈の作成（search_for の結果を
-      そのまま渡す「検索してマーカー」が完成）。ハイライトは外観ストリーム（AP /N、
-      Multiply ブレンド）を必ず生成する — **hayro は AP 付き注釈を描画する**
-      （render_annotations 既定 true、12.5.5 実装をソース確認）ため、pylopdf 自身の
-      レンダリングで画素検証できる。AP の無い注釈は hayro が描画しない点に注意
+### v0.7.x — ecosystem integrations
 
-### v0.9 — 文書の仕上げ（v0.9.0 として 2026-07-23 リリース済み）
+Make intentionally external features “solved through integration.”
 
-- [x] AcroForm 読み取り → 記入の第 1 段階 = `get_form_fields / set_form_field`
-      （継承 FT/Ff/V 解決・ドット連結の完全名・チェックボックスの bool → on 状態自動解決・
-      /AS 同期・NeedAppearances 方式。外観ストリームの自前生成は第 2 段階として残す =
-      pylopdf 自身のレンダリングには記入値が現れない）
-- [x] 添付ファイル（EmbeddedFiles）= `embfile_add / names / get / del`（Kids 分割
-      ツリーの再帰読み + 平坦書き戻し、/Names の他ツリーは保存。日本語ファイル名は
-      UF へ。garbage/deflate/object_streams 保存でも生存することをテストで保証）
-- [x] ページラベル = `get_page_labels / set_page_labels` + `Page.get_label`
-      （番号ツリーの再帰読み + 平坦書き戻し、R/r/A/a/D の表示ラベル計算付き）
-- [x] `to_markdown` 初版（Document / Page。サイズ最頻値 = 本文、大きいサイズを # 階層へ。
-      CJK の行折り返しは空白なし連結・箇条書き正規化・OCR 層とも連動。
-      未対応と明記: 太字/斜体（スパンにフォント名が無い → 抽出エンジンの拡張課題）、
-      表、多段組の読み順、縦書き。実世界コーパス 6 本でスモーク確認済み）
-- 見送り: インクリメンタル保存（2026-07-23 の OSS 分析で判断）。qpdf/pikepdf は増分更新の
-  生成を持たない「正規化して書き直す」設計で成功しており、pypdf は 5.0（2024-09）での追加
-  直後から不具合が続いた（pypdf#3118 等）= 実装が壊れやすい割に、生成の本命ユースケース
-  「署名の維持」は pyHanko 連携（増分署名・バイト無加工保証済み）が既に担っている。
-  需要が issue として実在したら再評価（ウォッチリスト参照）
-- [x] OCR 結果の不可視テキスト層書き込み = `Page.insert_ocr_text_layer`（ocrmypdf 方式:
-      非埋め込み CID フォント + Identity-H + ToUnicode + Tr 3。日本語含め fallback
-      フォント非依存で抽出・検索でき、サイズ増ほぼゼロ。get_text("words") 形式を
-      そのまま受ける。v0.10 [ocr] の土台）
-- [x] XMP の PDF/A 宣言の読み取り = `Document.get_pdfa_claim`（(part, conformance)。
-      typst の krilla 検証付き出力から (2, "B") を読めることを連携テストで保証。
-      検証ではないことを docstring で明示）
+- [x] Document typst-py for typesetting and new-document PDF/A, pyHanko for
+      signatures, and veraPDF for validation.
+- [x] Add integration tests in `tests/test_interop.py` under the `interop`
+      dependency group. Verify `typst.compile → pylopdf.open(stream=)` and that a
+      pyHanko incremental signature preserves the entire pylopdf output as an
+      unchanged prefix. Include the group in CI.
 
-### v0.10 候補 — `pylopdf[ocr]`（日本語 OCR、公開判断は精度実測後）
+### v0.8 — drawing
 
-「pip だけで完結・共有ライブラリゼロ・寛容ライセンスの日本語 OCR」は Python エコシステムの
-空白（pymupdf は Tesseract 外部インストール必須、pponnxcr は AGPL、rapidocr は
-onnxruntime の C++ ランタイム依存）。CJK の堀と一致するため段階導入を検討する:
+Released as v0.8.0 on 2026-07-23.
 
-- ランタイム = rten（純 Rust ONNX、MIT/Apache-2.0）を静的リンク。本体 wheel +1.5〜2.5MB 見込み
-- モデル = PP-OCRv5_mobile（det 4.6MB + rec 15.8MB、Apache-2.0。標準認識モデルが
-  日本語込みのため日本語専用モデル不要）
-- 配布 = `pylopdf-ocr-models` 別 wheel（fonts-cjk と同じパターン。モデル世代を本体と
-  独立に更新できる）
-- [x] 前提条件 1: 日本語精度の実測（2026-07-23 スパイク完了 → **go**）。
-      PP-OCRv5 mobile（ch モデルが日中英を単体カバー、日本語専用 rec は v5 に存在しない）
-      を 300dpi で実測: 厳密 CER 4.0% / NFKC 正規化後 1.3%（合成 5 種 + mhlw 実文書、
-      GT 計 2,428 字）。漢字・かな・数字はほぼ完璧で、残存誤りは全半角折り畳みと記号
-      （丸数字・〒・※）。v4 日本語専用モデルより実質精度で優り、server 版との差も 0.5pt
-- 前提条件 2（残り）: rten が PP-OCRv5 mobile の ONNX を実行できるかの実行スパイク
-- 設計注意（スパイクからの引き継ぎ）: OCR 入力は白背景指定必須（render_page 既定は透明）・
-  既定 300dpi（200dpi は 9pt 以下の行を det が取りこぼす）・パイプラインに内部縮小を
-  入れない・配布は det+rec+cls+辞書 ≈ 22MB を別 wheel で
-- 参考実装 ocrs-cjk（MIT/Apache）は依存にせずコード参考に留める
+- [x] Add `insert_image`: JPEG SOF parsing and passthrough; PNG decoding through
+      the png crate with soft-mask transparency. Avoid lopdf's image-crate
+      feature to keep the wheel small. Append content without re-encoding and
+      wrap existing content in `q/Q` once.
+- [x] Add `show_pdf_page` for watermarks and stamps through native lopdf
+      page-to-Form-XObject import. hayro-write proved unnecessary: import the
+      object graph and resources like merge, keep content bytes unchanged, and
+      resolve rotation and CropBox visually.
+- [x] Solve CJK watermarks and headers through typst integration: typeset a
+      one-page PDF, then apply it with `show_pdf_page`. typst subset-embeds fonts
+      and can reuse `pylopdf-fonts-cjk` through `font_paths`. Integration tests
+      cover the recipe. krilla remains the future option for self-contained CJK
+      `insert_text`.
+- [x] Publish lopdf's simple-encoding partial text replacement as
+      `Page.replace_text`, explicitly excluding CJK.
+- [x] Add `Page.insert_text` for headers, footers, page numbers, and Bates
+      numbers using Standard 14 fonts and WinAnsi. CJK input points to the typst
+      recipe. Rotated pages remain upright through display-space `Tm`.
+- [x] Read annotations and create highlight/link annotations. Search results can
+      be passed directly for “search and mark.” Highlights always include an
+      `AP /N` appearance stream with Multiply blending. hayro renders
+      annotations with appearances when `render_annotations` is true by default,
+      enabling pixel-level tests. It does not render annotations without `AP`.
 
-### v1.0 — 信頼の宣言
+### v0.9 — document finishing
 
-- API 凍結・semver 宣言・deprecation ポリシー
-- [x] ドキュメントサイト（EN / JA / zh-CN / KO）+ pymupdf 移行ガイド
-      （2026-07-24 に Zensical
-      0.0.51 + 独自 Living Document テーマへ刷新。https://yhay81.github.io/pylopdf/ 。
-      言語別の厳格ビルド、検索・ダークモード・同一ページ言語切替・llms.txt・OG カードに
-      対応。英語を意味上の正本、日本語・簡体字中国語・韓国語を第一級翻訳とする
-      LANGUAGES.md を追加。docs.yml が main push で自動デプロイ、CI は Rust ビルド無しの
-      --only-group docs）
-- [x] 公開ベンチマーク基盤（bench/run.py。同一コーパス・同一タスク・中央値、
-      勝ち負け両方掲載 + pymupdf との抽出類似度を正確さの代理指標に。初回実測 2026-07-23:
-      抽出 7 本中 4 本で pymupdf より速い・merge 4.1 倍速・2x レンダリングは 7 本すべてで
-      pylopdf が高速）。
-      py-pdf/benchmarks への掲載申請は別途
-- cp314t（free-threaded）wheel（abi3 は free-threaded に入らないため別ビルド。
-  pymupdf はスレッド非対応明言のため追随困難 = 差別化）。このレーンでは
-  **buffer protocol も有効化**する（abi3-py310 制約が消えるため。Pixmap の
-  ゼロコピー numpy 連携が解禁され「並列 + ゼロコピー」の二本看板になる）
-- 実行時エラーメッセージの英語化（現状は日本語。EN/JA ドキュメントで世界配布する以上、
-  例外メッセージは英語に揃える。**API 凍結前に実施**。コメント・docstring・コミット
-  メッセージ日本語の方針は変えない。規模実測 2026-07-23: rust 51 箇所 +
-  python 49 箇所 ≈ 100 箇所。メッセージを断言するテストの追随込みで 1 セッション仕事）
-- [x] SECURITY.md（私的報告の導線 + 信頼できない PDF の扱い + max_decompressed_size 案内）と
-      cargo-audit の CI 組み込み（2026-07-23。pip-audit は実行時依存ゼロのため対象が無く見送り）
+Released as v0.9.0 on 2026-07-23.
 
-### v1.x — パリティと性能の穴埋め（2026-07-23 の使い切り監査より）
+- [x] Implement first-stage AcroForm reading and filling through
+      `get_form_fields` and `set_form_field`: inherited `FT`/`Ff`/`V`, fully
+      qualified dotted names, checkbox bool-to-on-state resolution, `/AS`
+      synchronization, and `NeedAppearances`. Native appearance generation
+      remains stage two, so pylopdf's renderer does not yet display filled values.
+- [x] Add EmbeddedFiles through `embfile_add`, `names`, `get`, and `del`, with
+      recursive Kids reading, flat rewriting, preservation of other `/Names`
+      trees, Unicode names in `UF`, and survival across
+      garbage/deflate/object-stream saves.
+- [x] Add page labels through `get_page_labels`, `set_page_labels`, and
+      `Page.get_label`, including recursive number-tree reading, flat rewriting,
+      and R/r/A/a/D label calculation.
+- [x] Add initial `Document.to_markdown` and `Page.to_markdown`. The most common
+      size is body text; larger sizes become heading levels. CJK wrapped lines
+      join without spaces, lists normalize, and OCR layers participate.
+      Documented limitations: tables, multicolumn order, vertical writing, and
+      some emphasis metadata. Smoke-tested on six real-world files.
+- Deferred: incremental save. A 2026-07-23 OSS review found that qpdf and pikepdf
+  succeed with normalization-and-rewrite designs, while pypdf's implementation
+  accumulated bugs immediately after its 5.0 debut in 2024-09 (for example
+  pypdf#3118). The main need—signature preservation—is already covered by
+  pyHanko with byte-prefix guarantees. Reconsider when real issue demand appears.
+- [x] Add `Page.insert_ocr_text_layer`, following the ocrmypdf approach:
+      non-embedded CID font, Identity-H, ToUnicode, and `Tr 3`. It extracts and
+      searches CJK independently of fallback fonts with nearly zero size growth,
+      and accepts `get_text("words")`-shaped data.
+- [x] Read XMP PDF/A claims with `Document.get_pdfa_claim`, returning
+      `(part, conformance)`. Integration tests read `(2, "B")` from typst's
+      krilla-validated output. The docstring states that this is not validation.
 
-lopdf / hayro / krilla の残在庫・インターフェース穴・性能余地の監査で確定した候補。
-優先順は「即効小粒 → krilla スパイク → 上流サイクル → 穴埋め → cp314t」。
+### Possible v0.10 — `pylopdf[ocr]`
 
-- [x] zlib-rs（flate2 の backend feature 切替のみ。2026-07-23 実装・実測済み: 全コーパス
-      3 周 merge（554 ページ）の garbage=3+deflate+object_streams 保存で median 74→66ms
-      （13% 高速、出力サイズは +0.01% とほぼ同一）。調査時の「3.3 倍」は圧縮単体の
-      マイクロベンチで、save 全体では GC・シリアライズが支配的なため実効はこの値）
-- [x] save の `compression_level` / `linearize` は 2026-07-23 のソース確認で**公開見送り**:
-      linearize は lopdf 0.44 では writer が一切参照しない死にフラグ（定義のみ。
-      is_linearized は既存線形化文書の検出用）。compression_level は object streams
-      専用かつ 0/1-3/4-6/7+ の 4 段階バケットで、deflate=True の通常ストリームは
-      Object::compress が Compression::best() 固定 = 半分しか効かない紛らわしい
-      ノブになる。→ lopdf へ「compression_level を通常ストリーム圧縮へも一貫適用」の
-      上流貢献をしてから公開する（下の上流貢献候補に追加）
-- [x] `Page.get_links`（2026-07-23 実装。リンク注釈の /A アクション
-      （URI/GoTo/GoToR/Launch/Named）と直接 /Dest の両方に対応。GoTo の named
-      destination は /Names 名前ツリー（多段 Kids・循環対策付き）と旧式 /Dests 辞書から
-      解決し、宛先は 0 始まりページ番号 + 表示座標の to 点 + zoom へ変換。pymupdf 風の
-      辞書 + LINK_GOTO 等の種別定数 + Point 型で返す。usrguide.pdf の GoTo 40 件全件解決で検証）
-- [x] krilla 導入スパイク（2026-07-23 完了 → **go**）: krilla 0.8.2 を
-      `default-features = false, features = ["simple-text"]` で単離ビルドし問題なし。
-      Noto Sans JP 4.5MB からサブセット埋め込みで **8KB** の日本語 1 ページ PDF を生成し、
-      pylopdf 自身で「開く → get_text が原文完全一致（ToUnicode も正しい）→
-      レンダリング正常」を確認。スパイク exe は 3.3MB だが skrifa などは hayro と
-      共有のため pyd への実増はこれを大きく下回る見込み（統合時に実測）。
-      次の段: `insert_text` の任意フォント対応 API 設計 →「krilla で 1 ページ生成 →
-      lopdf へ Form XObject 移植」の単方向パターンで統合
-- [ ] `get_pixmap(clip=)`（hayro RenderSettings は原点固定 viewport のみで任意 clip
-      不可 → 上流へ RenderSettings の offset/transform 公開を提案するか、全面レンダ +
-      切り出しの先行実装かを判断）
-- [ ] 抽出結果の世代キャッシュ（search → annotate ループの再解釈をゼロに。
-      hayro_pdf と同じ generation キーで 1 層。TextPage 風の明示オブジェクトも検討）
-- [ ] `Document.render_pages(workers=)`（GIL 解放済み 1.93 倍/2T の薄い公式 API 化。
-      cp314t で真価）
-- Annot/Widget のオブジェクトモデル化は更新系 API が増えるまで dict/タプル維持
-  （pymupdf の重厚な Annot は追わない）
+Decision depends on measured accuracy. “pip-only, no shared libraries,
+permissively licensed Japanese OCR” remains a gap: pymupdf requires an external
+Tesseract install, pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime.
+This aligns with the CJK moat and merits staged exploration.
 
-### 並走（リリースに紐づけない）
+- Runtime: statically link rten, a pure-Rust ONNX runtime under MIT/Apache-2.0.
+  Estimated main-wheel increase: 1.5–2.5 MB.
+- Model: PP-OCRv5_mobile, with 4.6 MB detection plus 15.8 MB recognition under
+  Apache-2.0. Its standard model already includes Japanese.
+- Distribution: a separate `pylopdf-ocr-models` wheel, following the font-wheel
+  pattern so model generations can update independently.
+- [x] Prerequisite 1, Japanese accuracy measurement, completed 2026-07-23:
+      **go**. At 300 dpi, the PP-OCRv5 mobile Chinese model, which covers Chinese,
+      Japanese, and English and has no separate v5 Japanese recognizer, measured
+      4.0% strict CER and 1.3% after NFKC on five synthetic cases plus one MHLW
+      document with 2,428 ground-truth characters. Kanji, kana, and digits were
+      nearly perfect. Remaining differences were width folding and symbols such
+      as circled numbers, postal marks, and reference marks. It beat the v4
+      Japanese-specific model in practical accuracy and trailed the server model
+      by only 0.5 points.
+- [ ] Prerequisite 2: prove rten can execute the PP-OCRv5 mobile ONNX models.
+- Design constraints from the spike: render OCR input on white, not the default
+  transparent background; default to 300 dpi because 200 dpi misses lines at
+  9 pt and below; do not downscale internally; distribute
+  detection/recognition/classifier/dictionary, about 22 MB, in a separate wheel.
+- Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
 
-- コーパス拡充: 壊れた PDF（切断 xref など）、Type3 フォント、JPX、透明グループ、注釈/リンクもの
-- [x] 回転ページの抽出を表示空間へ正規化（2026-07-23。抽出 Context へレンダラと同じ
-      `initial_transform(true)` を渡す方式で解消。読み順・検索・words・画像 bbox・OCR 層が
-      回転ページでも表示座標になり、CropBox 原点が 0 でないページのオフセットも正しくなった）
-- [x] レンダリング速度の改善（2026-07-23 プロファイル: 主因はラスタライズではなく
-      PNG エンコード（最悪 85%。png crate 既定の Balanced+Adaptive が写真系で ~11MB/s）。
-      Fast(fdeflate) + GIL 解放へ変更し、コーパス全 7 本でレンダリングも pymupdf 超え
-      （wdl6812 278→43ms）。残る候補: RenderCache の hayro_pdf 同寿命再利用（連続レンダで
-      -27〜35%、自己参照設計が必要）/ flate2 の zlib-rs feature（高圧縮系 3.3 倍速）/
-      hayro 上流: ステンシルマスク画像経路の最適化と num_threads 公開（issue ドラフト準備済み））
-- [x] 抽出スパンへのフォント名 + pymupdf 互換 flags の追加（2026-07-23。埋め込みフォントの
-      weight / italic メタデータ由来。to_markdown が本文の太字・斜体を強調マーカー化）。
-      残: 標準 14（Type1）は hayro が font_data を返さないため flags 0 —
-      Type1 のメタデータ公開は hayro への上流貢献候補
-- 上流貢献（2026-07-23 に着手、2026-07-24 時点で 4 件中 3 件マージ済み）:
-  lopdf#535 の修正 PR [lopdf#537](https://github.com/J-F-Liu/lopdf/pull/537)
-  （コメント直後の空白で content パーサが以降を全部落とすバグの 1 行修正 + 回帰テスト）は
-  **MERGED**（lopdf 最新リリース v0.44.0 は 2026-07-10 でこの修正より前 = 次回リリース待ち）。
-  hayro へは性能 issue [#1315](https://github.com/LaurenzV/hayro/issues/1315)
-  （ステンシルマスク画像が約 5 倍遅）と機能提案
-  [#1316](https://github.com/LaurenzV/hayro/issues/1316)（RenderSettings への
-  num_threads 公開）を提出。num_threads の修正 PR
-  [#1317](https://github.com/LaurenzV/hayro/pull/1317) は**まだ OPEN**
-  （cargo hack --each-feature 全 8 通過・clippy 1.92/fmt クリーン・6 PDF・147 ページ
-  ピクセルビット一致で提出。メンテナ「interpretation がボトルネックでは」に A/B 実測
-  （threads 0/4/8・median of 7）で応答済み: scale 4–6（300–430dpi 相当）で 1.35–1.55 倍、
-  scale 2 で 10–20%、スキャン支配ファイルは効果ゼロ。ボールはメンテナ側）。
-  ステンシルマスクの修正 PR [#1318](https://github.com/LaurenzV/hayro/pull/1318)
-  （寸法不一致マスクをネスト描画でなく共通グリッドへ合成する方式。wdl6812 の
-  マスク画像描画 11.4→4.2ms・ページ全体 ~30→~21ms。マスク合成順序が変わるため
-  上流テスト 26 件に低振幅の描画差分あり＝目視確認済み・PR 本文に開示）は**MERGED**。
-  packed 1-bit マスク展開の LUT 化（issue
-  [#1319](https://github.com/LaurenzV/hayro/issues/1319) + 修正 PR
-  [#1320](https://github.com/LaurenzV/hayro/pull/1320)。
-  当初 JBIG2 起因と誤帰属 → 深掘りで JBIG2 フィルタは 8-bit 展開済みと判明し
-  issue を公開訂正。実際の対象は Flate 等の packed 1-bit ImageMask で、合成
-  2400x3150 マスクの decode_mask_data 48–60ms → 1.5–1.6ms（約 33 倍）・出力は
-  スイート全体でピクセル同一。wdl6812 の残り ~4.4ms は hayro-jbig2 算術復号
-  そのもの = 別テーマとして残る）も**MERGED**。
-  注意: hayro の crates.io 最新版は 0.7.1（2026-06-05）のままで上記マージ分は全て未リリース。
-  ウォッチリストの hayro 0.8（DrawProps 化 #1245）も main マージ済み・未リリースなので、
-  次回 hayro リリースで Device API 移行と #1318/#1320 の性能改善が同時に降ってくる見込み。
-  ほか候補: hayro #452（公式テキスト抽出 Device）、Type1 フォントメタデータの公開、
-  RenderSettings への clip/offset 公開、
-  RenderCache の 'static 化（同寿命再利用 -27〜35% を全 embedder に解放）。
-  lopdf 側の候補: SaveOptions.compression_level の通常ストリームへの一貫適用
-  （Object::compress の Compression::best() 固定解消）、死にフラグ linearize の
-  実装または削除（2026-07-23 ソース確認）
-- [x] CI への Python 3.10 ジョブ追加（abi3 下限の検証。2026-07-23）
-- Pyodide / emscripten wheel の実験（pymupdf の wasm wheel は micropip 不可という弱点あり）
-- テーブル抽出の研究（v1.0 後の主要テーマ候補）
+### v1.0 — declaration of trust
 
-## ウォッチリスト（再評価トリガー付き）
+- Freeze the API and publish semantic-versioning and deprecation policies.
+- [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
+      Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document
+      theme at <https://yhay81.github.io/pylopdf/>. Includes per-locale strict
+      builds, search, dark mode, same-page switching, `llms.txt`, and an Open
+      Graph card. English is canonical; Japanese, Simplified Chinese, and Korean
+      are first-class translations defined in `LANGUAGES.md`. `docs.yml`
+      deploys on pushes to main without building Rust.
+- [x] Publish reproducible benchmarks from `bench/run.py` using one corpus, one
+      task definition, medians, wins and losses, and pymupdf similarity as a
+      fidelity proxy. The first 2026-07-23 run found pylopdf faster on four of
+      seven extraction files, 4.1× faster for merge, and faster on all seven 2×
+      renders. Apply separately to py-pdf/benchmarks.
+- [ ] Add a cp314t free-threaded wheel because abi3 does not apply to
+      free-threaded Python. pymupdf explicitly does not support threads, making
+      this a differentiator. Enable the buffer protocol in this lane because the
+      abi3-py310 restriction disappears, yielding parallelism plus zero-copy
+      NumPy access.
+- [x] Translate runtime errors and warnings to English before API freeze
+      (2026-07-24, about 100 Rust/Python messages plus tests).
+- [x] Make English canonical for repository documentation, comments, docstrings,
+      automation, and future commit messages. Localized docs and CJK fixtures are
+      the only exceptions (2026-07-24).
+- [x] Add `SECURITY.md` with a private-reporting path, untrusted-PDF guidance,
+      and `max_decompressed_size`, plus cargo-audit in CI. pip-audit is omitted
+      because the package has no runtime Python dependencies.
 
-- **hayro 0.8**: Device API の DrawProps 化（#1245）は main マージ済み・未リリース。
-  同じく main マージ済みの性能改善 PR（hayro#1318 ステンシルマスク・#1320 1-bit マスク
-  LUT 化）も未リリースで足並みを揃えている。リリースされたら extract.rs の 2 impl を追従
-  （paint をほぼ無視しているため機械的な書き換えで済む見込み）しつつ性能改善も同時に
-  享受できる。krilla 導入とは別コミットに分ける
-- **fulgur**（Blitz + krilla の HTML→PDF、MIT/Apache-2.0）: @page・改ページ・running
-  headers/footers・タグ付き PDF/UA-1 まで実装済みだが、生後 4 か月・単独作者・
-  css-page WPT 24.1%・API 激動中。2027-01 頃に生存・API 安定・Blitz 0.3 正式版を確認して
-  統合を判断（pyfulgur が非 abi3・cp39–cp312 止まりなのは pylopdf 側の隙）
-- **underskrift**（lopdf ベースの PAdES 署名、BSD-2-Clause、kushaldas 作）: 2026-03 出現、
-  B-B〜LTA を謳い活発。成熟と lopdf 版数整合を確認できたら署名の optional バックエンド候補
-- **PP-OCRv6**（2026-06 リリース）: ONNX 変換エコシステムの追随を待って [ocr] の
-  モデル世代を判断
-- **parley**（linebender のテキストレイアウト。krilla の dev-deps でも使用実績）:
-  insert_textbox（矩形流し込み = 自前組版の宣言済み上限）を作る段になったら
-  行分割エンジンとして評価
-- **zune-jpeg**: 「PDF 軽量化」（compress_images(dpi=, quality=) — 日本のメール添付
-  文化で実需の割に pypdf/pikepdf に無い）を作る場合の JPEG 再圧縮部品候補
-- **PP-DocLayout**（Apache-2.0）: pymupdf-layout（Polyform Noncommercial）対抗の
-  [layout] extra 候補。rten ランタイムを [ocr] と共有できる。[ocr] 成立後に評価
-- **インクリメンタル保存**: 需要の実在（issue）か pypdf 実装の安定化を確認したら再評価。
-  実装経路は「ロード時の元バイトを保持 + 保存時に元を再パースして差分オブジェクトだけを
-  lopdf IncrementalDocument で追記」の diff 方式（暗号化文書は対象外から始める）
+### v1.x — parity and performance gaps
 
-## やらないこと（明示的スコープ外）
+Candidates from the 2026-07-23 lopdf/hayro/krilla inventory, ordered as quick
+wins, krilla spike, upstream cycle, interface gaps, then cp314t.
 
-集中のために宣言する（2026-07-23 の深掘り調査で根拠を更新。OCR 内蔵は条件付きで
-v0.10 候補へ昇格したためこの一覧から外した）:
+- [x] Switch flate2 to zlib-rs. Three merge rounds over the corpus
+      (554 pages) with garbage=3, deflate, and object streams improved median
+      save time from 74 to 66 ms, or 13%, with only a 0.01% output-size increase.
+      The earlier 3.3× result measured compression alone; GC and serialization
+      dominate complete saves.
+- [x] Do not expose `SaveOptions.compression_level` or `linearize` yet.
+      In lopdf 0.44, linearize is a dead writer flag; `is_linearized` only
+      detects existing files. `compression_level` affects only object streams
+      through four buckets, while normal streams always use
+      `Compression::best()`. Contribute consistent normal-stream support
+      upstream before exposing the option.
+- [x] Add `Page.get_links` for `/A` actions (URI, GoTo, GoToR, Launch, Named) and
+      direct `/Dest`. Resolve GoTo named destinations through multilevel,
+      cycle-safe `/Names` trees and legacy `/Dests`; convert destinations to
+      zero-based page numbers, display-coordinate points, and zoom. Return
+      pymupdf-style dicts with `LINK_GOTO` constants and `Point`. Verified by
+      resolving all 40 GoTo links in `usrguide.pdf`.
+- [x] Complete a krilla integration spike on 2026-07-23: **go**. krilla 0.8.2
+      builds in isolation with `default-features = false` and `simple-text`.
+      It subset-embedded a 4.5 MB Noto Sans JP font into an 8 KB one-page PDF,
+      which pylopdf opened, extracted with exact Unicode through ToUnicode, and
+      rendered. The spike executable is 3.3 MB, but skrifa and related
+      dependencies are shared with hayro, so actual extension growth should be
+      much smaller and must be measured. Next: design arbitrary-font
+      `insert_text`, generate one page with krilla, and import it as a Form
+      XObject into lopdf.
+- [ ] Add `get_pixmap(clip=)`. hayro `RenderSettings` supports only an
+      origin-fixed viewport. Decide between proposing offset/transform upstream
+      and initially rendering the full page then cropping.
+- [ ] Cache extraction results by generation to eliminate repeated
+      interpretation in search-then-annotate loops. Consider one layer keyed like
+      `hayro_pdf` and an explicit TextPage-style object.
+- [ ] Add `Document.render_pages(workers=)` as a thin supported API over existing
+      GIL-free rendering, measured at 1.93× with two threads. Its full value
+      arrives with cp314t.
+- Keep annotation/widget dict and tuple APIs until mutation grows enough to
+  justify objects. Do not copy pymupdf's heavyweight `Annot`.
 
-- **pymupdf ドロップイン互換**: 「風」に留める（基本方針参照）
-- **任意 PDF の PDF/A 変換・検証**: krilla の validated export は新規生成専用で、
-  既存 PDF ページの埋め込みは `ValidationError::EmbeddedPDF` として明示的に禁止 =
-  「lopdf 編集済み PDF の PDF/A 化」は現行エコシステムでは組めない。検証は
-  veraPDF（Java・数百ルール）の再発明になる。新規文書の PDF/A は typst 連携で解決し、
-  XMP 宣言の読み取りだけを v0.9 で提供する
-- **電子署名の自前実装**: lopdf IncrementalDocument で技術的には組める（元バイトの
-  無加工保存を writer.rs で確認済み）が、pyHanko（MIT、PAdES B-LTA + 検証まで、現役）
-  連携で解決する。国内需要は認定タイムスタンプ・LTV まで要求する SaaS 開発層に偏り、
-  B-B 止まりの中途参入が最悪手。underskrift の成熟はウォッチリストで追う
-- **XFA / JavaScript フォーム**: XFA は PDF 2.0 で deprecated・Rust 実装ゼロ・
-  主要ビューア非対応。PDF 内 JS の実需はフォーム計算程度で、JS エンジン同梱は
-  軽量方針にもセキュリティ面積にも反する
-- **HTML→PDF の自前実装**: ページ分割レイヤーの自作は fulgur が 2,800 コミットを
-  費やしている作業の再発明。fulgur をウォッチリストで追う
-- **typst / 組版エンジンの組み込み**: typst は wheel +25〜33MB（typst-py 実測）で
-  軽量の軸を破壊するため typst-py 連携で解決。自前の組版は「矩形へのテキスト流し込み」
-  （pymupdf insert_htmlbox 相当の最小 API）を将来検討の上限とする
+### Parallel work, not tied to releases
 
-## 調査メモ（2026-07-22 時点の確定事実）
+- Expand the corpus with damaged PDFs such as truncated xrefs, Type 3 fonts,
+  JPX, transparency groups, and annotations/links.
+- [x] Normalize rotated-page extraction into display space (2026-07-23) by
+      passing the renderer's `initial_transform(true)` to extraction. Reading
+      order, search, words, image bboxes, and OCR layers now use display
+      coordinates on rotated pages and correctly handle nonzero CropBox origins.
+- [x] Improve rendering speed (2026-07-23). Profiling found PNG encoding, not
+      rasterization, responsible for up to 85%; png's default
+      Balanced+Adaptive managed about 11 MB/s on photos. Switching to
+      Fast/fdeflate and releasing the GIL made pylopdf faster than pymupdf on all
+      seven corpus renders, including `wdl6812` from 278 to 43 ms. Remaining
+      candidates: reuse `RenderCache` for the hayro PDF lifetime, worth 27–35%
+      but requiring a self-reference design; zlib-rs for high compression; and
+      upstream hayro stencil-mask and `num_threads` improvements.
+- [x] Add font names and pymupdf-compatible flags to extraction spans from
+      embedded font weight/italic metadata. `to_markdown` now emits emphasis.
+      Standard 14 Type 1 fonts still produce flags 0 because hayro exposes no
+      font data; upstream Type 1 metadata remains a contribution candidate.
+- Upstream contributions, started 2026-07-23; three of four merged by 2026-07-24:
+  - [lopdf#537](https://github.com/J-F-Liu/lopdf/pull/537), a one-line fix plus
+    regression test for lopdf#535, is **merged** but newer than lopdf 0.44.0 and
+    awaits a release.
+  - [hayro#1315](https://github.com/LaurenzV/hayro/issues/1315) reports stencil
+    masks about 5× slower.
+  - [hayro#1316](https://github.com/LaurenzV/hayro/issues/1316) proposes exposing
+    `num_threads`. PR [#1317](https://github.com/LaurenzV/hayro/pull/1317)
+    remains **open** after all eight cargo-hack feature combinations, clippy,
+    fmt, and pixel-identical validation over 147 pages. A/B medians over seven
+    runs show 1.35–1.55× at scale 4–6, 10–20% at scale 2, and no benefit on
+    scan-dominated files.
+  - [hayro#1318](https://github.com/LaurenzV/hayro/pull/1318) is **merged**. It
+    composites mismatched masks onto a common grid instead of nested drawing,
+    reducing `wdl6812` mask drawing from 11.4 to 4.2 ms and the page from about
+    30 to 21 ms. The PR discloses visually reviewed low-amplitude differences in
+    26 upstream tests caused by compositing order.
+  - [hayro#1320](https://github.com/LaurenzV/hayro/pull/1320), following issue
+    [#1319](https://github.com/LaurenzV/hayro/issues/1319), is **merged**. It
+    replaces packed 1-bit mask expansion with a LUT. The original issue
+    incorrectly attributed the cost to JBIG2 and was publicly corrected after
+    confirming that JBIG2 filters already produce 8-bit data. A synthetic
+    2400×3150 mask improved from 48–60 ms to 1.5–1.6 ms, about 33×, with
+    pixel-identical output. The remaining 4.4 ms in `wdl6812` is hayro-jbig2
+    arithmetic decoding.
+  - crates.io still has hayro 0.7.1 from 2026-06-05, so these merges are
+    unreleased. hayro 0.8's DrawProps change is also merged and unreleased; the
+    next release will likely combine the Device migration with #1318/#1320.
+  - Other candidates: hayro #452 for an official text extraction `Device`, Type
+    1 font metadata, clip/offset in `RenderSettings`, a `'static` `RenderCache`,
+    consistent normal-stream `compression_level` in lopdf, and implementing or
+    removing lopdf's dead `linearize` flag.
+- [x] Add a Python 3.10 CI job to validate the abi3 floor (2026-07-23).
+- Experiment with a Pyodide/emscripten wheel; pymupdf's wasm wheel cannot be
+  installed through micropip.
+- Research table extraction as a major post-v1.0 theme.
 
-- lopdf 0.44.0 が最新リリース。`time` feature は 0.44 でもコンパイル不能
-  （上流 #527 の修正はマージ済み・未リリース）→ default-features 無効を維持
-- lopdf の save_with_options（object streams）は PDF バージョン 1.5 への引き上げと
-  xref stream への切り替えを自動で行う。ObjectStreamConfig の既定は 100 obj / 圧縮レベル 6
-- hayro 0.7 系は Device トレイト + 公式抽出サンプルを同梱済み。全クレート MIT/Apache-2.0 デュアル。
-  typst 0.14 が PDF 埋め込みの実体として採用
-- 月間 DL（pypistats、2026-07-22）: pymupdf 1.06 億 / pypdf 1.16 億 / pdfplumber 5,400 万 /
-  pypdfium2 6,800 万 / pikepdf 930 万 / pymupdf4llm 2,400 万 / docling 2,000 万
-- AGPL 回避の実例: doctr#486（pymupdf 除去）、browser-use#2610（推移的依存でも問題化）、
-  marker の pdftext 自作（「without the AGPL license」を明記）
+## Watchlist
 
-## 調査メモ（2026-07-23: Rust 製 PDF crate エコシステム）
+- **hayro 0.8**: the DrawProps `Device` API change (#1245) is merged but
+  unreleased, as are #1318 and #1320. When released, update the two `extract.rs`
+  implementations—likely mechanically because paint is mostly ignored—and gain
+  the performance improvements. Keep this separate from krilla integration.
+- **fulgur**, Blitz plus krilla for HTML-to-PDF under MIT/Apache-2.0, already
+  supports `@page`, page breaks, running headers/footers, and tagged PDF/UA-1,
+  but is four months old, single-maintainer, at 24.1% css-page WPT, and changing
+  APIs rapidly. Reassess around 2027-01 for survival, API stability, and a stable
+  Blitz 0.3. pyfulgur currently stops at cp312 and is not abi3, leaving an
+  opportunity.
+- **underskrift**, BSD-2-Clause PAdES signing over lopdf by kushaldas, appeared
+  in 2026-03 and claims B-B through LTA. Reconsider as an optional signature
+  backend after maturity and lopdf-version alignment.
+- **PP-OCRv6**, released in 2026-06: wait for ONNX conversion support before
+  selecting the `[ocr]` model generation.
+- **parley**, linebender's text layout engine and a krilla dev dependency:
+  evaluate for line breaking when implementing `insert_textbox`, the declared
+  upper limit for native typesetting.
+- **zune-jpeg**: candidate JPEG recompressor for a future
+  `compress_images(dpi=, quality=)`, useful for email attachments and missing
+  from pypdf/pikepdf.
+- **PP-DocLayout**, Apache-2.0: possible `[layout]` alternative to the
+  PolyForm-Noncommercial pymupdf-layout. It could share rten with `[ocr]`;
+  evaluate after OCR succeeds.
+- **Incremental save**: reconsider after real issue demand or stabilization in
+  pypdf. The implementation path would retain original bytes at load, reparse
+  them at save, and append only changed objects through lopdf
+  `IncrementalDocument`, initially excluding encrypted documents.
 
-- **krilla**（LaurenzV/typst エコシステム、pdf-writer 上の高レベル生成 API）は hayro の
-  「兄弟プロジェクト」。同作者ゆえ API 思想が近く、v0.8 以降で描き込み機能を強化する際の
-  最有力参考実装候補
-- 抽出専業の新興 Rust 実装が 2026 年に集中して登場している: **kreuzberg**（多言語バインディング付き
-  汎用ドキュメント抽出、star 8.7k・活発）、**pdf-extract**（lopdf 依存、crates.io 総 DL 319 万と
-  地味に定着済み）、unpdf、pdfsink-rs。v0.7 の抽出機能は空白市場ではなく既に競合が多い前提で臨む
-- mupdf-rs（AGPL）・poppler-rs（GPL 系）はライセンス上 pylopdf が直接依存する対象にはならない
-  （参考実装止まり）。pdfium-render（MIT、PDFium は BSD 系だがネイティブバイナリ依存）はレンダリングを
-  既に hayro が担うため競合しない
-- pdf-rs/pdf（低レベルパーサ、MIT）は書き込みが実験的で、lopdf（DL 1287 万・star 2.2k）に対し
-  規模が小さく乗り換え動機は薄い
+## Explicit non-goals
 
-## 調査メモ（2026-07-23: スコープ外領域の深掘り再調査）
+These boundaries preserve focus. The 2026-07-23 deeper review updated the
+evidence; built-in OCR moved out of this list into a conditional v0.10 candidate.
 
-krilla / typst / 純 Rust OCR / 電子署名 / HTML→PDF の 5 領域を並列調査した確定事実:
+- **Drop-in pymupdf compatibility**: remain pymupdf-style.
+- **Converting or validating arbitrary PDFs as PDF/A**: krilla's validated
+  export is for new content and explicitly rejects embedded PDF pages as
+  `ValidationError::EmbeddedPDF`. Converting lopdf-edited PDFs therefore cannot
+  be assembled from the current ecosystem. Validation would duplicate
+  veraPDF's hundreds of Java rules. Use typst for new-document PDF/A and expose
+  only XMP claim reading in v0.9.
+- **Native digital signatures**: technically possible with lopdf
+  `IncrementalDocument`, whose writer preserves original bytes, but pyHanko
+  already provides active MIT-licensed PAdES B-LTA and validation. Domestic
+  demand tends to require certified timestamps and LTV; a B-B-only
+  implementation would be a poor entry. Watch underskrift.
+- **XFA or JavaScript forms**: XFA is deprecated in PDF 2.0, has no Rust
+  implementation, and lacks major-viewer support. PDF JavaScript demand is
+  mostly form calculation; bundling an engine conflicts with both wheel-size
+  and security goals.
+- **Native HTML-to-PDF**: recreating pagination would duplicate the work behind
+  fulgur's roughly 2,800 commits. Keep fulgur on the watchlist.
+- **Bundling typst or another typesetter**: typst-py adds 25–33 MB and breaks the
+  lightweight goal. Integrate externally. The maximum future native typesetting
+  scope is text flow into a rectangle, similar to pymupdf `insert_htmlbox`.
 
-- **krilla 0.8.2**（MIT OR Apache-2.0、hayro と同一作者）: PDF/A-1〜4 の全 conformance
-  （a/b/u、A-4/F/E）+ PDF/UA-1 の validated export。CI で veraPDF + Arlington 検証、
-  typst 0.14 から PDF バックエンド採用。`pdf` feature（hayro-write 0.7.0 経由）で既存 PDF
-  ページを XObject / ページとして取り込めるが、validated export 中は EmbeddedPDF エラーで
-  禁止。NOTICE.md に resvg（MPL）由来コードの開示あり（同梱時は wheel のライセンス表記へ追加）
-- **hayro-write 0.7.0**: docs に「internal crate, not meant for external use」と明記。
-  直接依存するより krilla の `pdf` feature をラッパーとして使う方が安定面
-- **typst-py**: wheel 実測 25.7〜36.5MB、月 43.7 万 DL、上流リリース翌日追従、
-  cp38-abi3 + cp314t + emscripten wheel あり。PDF standard 指定で PDF/A-1b〜4・UA-1 出力可。
-  typst 本体は縦書き（#5908）・ルビ（#1489）とも未対応で「日本語組版」は名乗れない
-- **純 Rust OCR**: ocrs 本家は Latin 専用 + モデルが CC-BY-SA-4.0 で不適合。
-  PP-OCRv5_mobile（Apache-2.0、det 4.6MB + rec 15.8MB）は標準認識モデルが日本語込み。
-  ランタイムは rten（純 Rust ONNX、累計 97 万 DL、活発）が本命、tract-onnx が次点。
-  Apache-2.0 モデルの wheel 再配布は rapidocr が長年実践（LICENSE/NOTICE 同梱で可）
-- **電子署名**: RustCrypto cms 0.2.3 世代（der 0.7 / x509-cert 0.2）で PAdES B-B は構築
-  可能だが、ESS signing-certificate-v2 型が cms に無く自前 DER 定義が要る。lopdf
-  IncrementalDocument は元バイト列を無加工で書き出す（writer.rs で確認）。Python 側は
-  pyHanko 0.35.2（MIT）が現役の決定版
-- **PDF/A 検証**: OSS は veraPDF（Java、GPLv3+/MPLv2+ デュアル）が事実上唯一。
-  Rust の pdf-compliance は商用（本番有償）。Python ネイティブ実装は存在しない
-- **HTML→PDF**: Blitz は pre-alpha でページ分割（fragmentation）は 1.0 バックログ、
-  hyper-render は活動 2 日で死亡。fulgur（Blitz + krilla、MIT/Apache、2026-03 開始・
-  55 リリース・2,814 commits）が paged media 一式を実装済み。pyfulgur 0.37.0 が
-  PyPI 公開済（cp39–cp312、非 abi3）。weasyprint は月 3,313 万 DL で性能不満が
-  公式文書に明記 = Rust 製代替の需要は実在
-- **XFA / JS**: XFA は PDF 2.0 で deprecated・Rust 実装ゼロ。pdf.js は QuickJS
-  サンドボックスでフォーム計算のみ既定有効 = 抽出・編集ライブラリに JS 実行は不要
-- **pymupdf 1.28**: AGPL 維持。pymupdf-layout（GNN レイアウト解析、pymupdf4llm を裏で
-  強化）を Polyform Noncommercial + 商用で投入
-- **pdf_oxide**: 週次リリース・月 14.5 万 DL・899 stars と実稼働。ただしレンダリング無し、
-  ベンチは自己申告のまま第三者検証なし
+## Survey notes: confirmed 2026-07-22
+
+- lopdf 0.44.0 was current. Its `time` feature still did not compile; upstream
+  #527 was merged but unreleased. Keep default features disabled.
+- `save_with_options` automatically raises output to PDF 1.5 and switches to an
+  xref stream when using object streams. `ObjectStreamConfig` defaults to
+  100 objects and compression level 6.
+- hayro 0.7 includes the `Device` trait and an official extraction example. All
+  crates are dual MIT/Apache-2.0. typst 0.14 uses it for embedded PDFs.
+- Monthly PyPI downloads from pypistats: pymupdf 106M, pypdf 116M, pdfplumber
+  54M, pypdfium2 68M, pikepdf 9.3M, pymupdf4llm 24M, docling 20M.
+- Concrete AGPL avoidance: doctr#486 removed pymupdf, browser-use#2610 treated a
+  transitive dependency as a problem, and marker created pdftext explicitly
+  “without the AGPL license.”
+
+## Survey notes: Rust PDF crates, 2026-07-23
+
+- **krilla**, a high-level pdf-writer-based generation API in the
+  LaurenzV/typst ecosystem, is hayro's sibling project and the strongest
+  reference for future drawing.
+- Several extraction-focused Rust projects appeared in 2026:
+  **kreuzberg**, an active multilingual document extractor with 8.7k stars;
+  **pdf-extract**, based on lopdf with 3.19M total crates.io downloads; unpdf;
+  and pdfsink-rs. v0.7 extraction enters a competitive market, not an empty one.
+- mupdf-rs (AGPL) and poppler-rs (GPL-family) can only be references.
+  pdfium-render is MIT over BSD-family PDFium but is unnecessary because hayro
+  already renders.
+- pdf-rs/pdf is an MIT low-level parser with experimental writing. It is much
+  smaller than lopdf, which has 12.87M downloads and 2.2k stars, so switching has
+  little motivation.
+
+## Survey notes: deeper out-of-scope review, 2026-07-23
+
+Confirmed findings across krilla, typst, pure-Rust OCR, signatures, and
+HTML-to-PDF:
+
+- **krilla 0.8.2**, MIT OR Apache-2.0 by hayro's author, supports validated
+  PDF/A-1 through PDF/A-4 conformance and PDF/UA-1. CI validates with veraPDF and
+  Arlington; typst 0.14 uses it as the PDF backend. Its `pdf` feature imports
+  existing pages through hayro-write 0.7.0, but validated output rejects them as
+  EmbeddedPDF. `NOTICE.md` discloses resvg-derived MPL code, which would require
+  wheel license attribution.
+- **hayro-write 0.7.0** explicitly calls itself an internal crate not meant for
+  external use. krilla's `pdf` feature is a more stable wrapper when needed.
+- **typst-py** wheels measure 25.7–36.5 MB, record 437,000 monthly downloads,
+  follow upstream releases within a day, and ship cp38-abi3, cp314t, and
+  emscripten wheels. It exports PDF/A-1b through 4 and UA-1. typst still lacks
+  vertical writing (#5908) and ruby (#1489), so it cannot claim complete
+  Japanese typesetting.
+- **Pure-Rust OCR**: upstream ocrs is Latin-only and its model is
+  CC-BY-SA-4.0. PP-OCRv5_mobile is Apache-2.0 and its 4.6 MB detector plus
+  15.8 MB recognizer include Japanese. rten, with 970,000 total downloads and
+  active MIT/Apache development, is the preferred pure-Rust runtime; tract-onnx
+  is second. rapidocr demonstrates long-term redistribution of Apache-2.0
+  models with LICENSE/NOTICE.
+- **Digital signatures**: RustCrypto cms 0.2.3 can build PAdES B-B but lacks an
+  ESS signing-certificate-v2 type, requiring custom DER. lopdf
+  `IncrementalDocument` preserves original bytes. pyHanko 0.35.2 remains the
+  active MIT-licensed Python reference.
+- **PDF/A validation**: veraPDF, dual GPLv3+/MPLv2+ in Java, is effectively the
+  only OSS implementation. Rust pdf-compliance requires a commercial production
+  license; no native Python validator exists.
+- **HTML-to-PDF**: Blitz is pre-alpha and schedules fragmentation for 1.0.
+  hyper-render died after two days. fulgur, Blitz plus krilla under
+  MIT/Apache and started in 2026-03, has 55 releases and about 2,814 commits
+  implementing paged media. pyfulgur 0.37.0 ships cp39–cp312 non-abi3 wheels.
+  weasyprint records 33.13M monthly downloads and documents performance
+  limitations, proving demand for a Rust alternative.
+- **XFA and JavaScript**: XFA is deprecated in PDF 2.0 and has no Rust
+  implementation. pdf.js enables QuickJS form calculation in a sandbox by
+  default; an extraction/editing library does not need general JavaScript.
+- **pymupdf 1.28** remains AGPL and introduced pymupdf-layout, a GNN layout
+  analyzer behind pymupdf4llm, under PolyForm Noncommercial plus commercial
+  licensing.
+- **pdf_oxide** records weekly releases, about 145,000 monthly downloads, and
+  899 stars, but no renderer and no third-party benchmark verification.

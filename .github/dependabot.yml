@@ -1,4 +1,4 @@
-# 依存更新の自動 PR
+# Automated dependency update pull requests
 version: 2
 updates:
   - package-ecosystem: cargo

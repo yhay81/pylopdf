@@ -1,50 +1,73 @@
-# ドキュメント言語ポリシー
+# Documentation language policy
 
-最終見直し: 2026-07-24
+Last reviewed: 2026-07-24
 
-## 重要言語
+## Important languages
 
-| 優先度 | 言語 | URL | 位置づけ |
+| Priority | Language | URL | Role |
 |---|---|---|---|
-| P0 | English (`en`) | `/` | 正本。新しい仕様・API・セキュリティ情報は最初に英語へ反映する |
-| P1 | 日本語 (`ja`) | `/ja/` | メンテナの第一言語。英語と同じリリースで全ページを更新する |
-| P1 | 简体中文 (`zh-cn`) | `/zh-cn/` | CJK PDF、フォントfallback、OCR用途と適合。全ページを更新する |
-| P1 | 한국어 (`ko`) | `/ko/` | CJK PDFとPython利用者への到達に重要。全ページを更新する |
+| P0 | English (`en`) | `/` | Canonical meaning; specifications, APIs, and security information are updated here first |
+| P1 | Japanese (`ja`) | `/ja/` | The maintainer's primary language and a core CJK workload; every page ships with English |
+| P1 | Simplified Chinese (`zh-cn`) | `/zh-cn/` | Directly relevant to CJK PDFs, font fallback, and OCR; every page is maintained |
+| P1 | Korean (`ko`) | `/ko/` | Important to both CJK PDF users and the Python community; every page is maintained |
 
-英語・日本語・簡体字中国語・韓国語だけを言語スイッチャーへ公開する。部分翻訳や
-ビルド警告が残る言語は公開対象にしない。
+Only English, Japanese, Simplified Chinese, and Korean appear in the language
+switcher. A locale is not published while its translation is incomplete or its
+strict build produces warnings.
 
-## 選定基準
+## Selection criteria
 
-1. Python公式ドキュメントに、継続的な調整チームと公開翻訳があること
-2. pylopdfの差別化要素（CJK、OCR、軽量wheel、PDF業務処理）と利用場面が重なること
-3. API・セキュリティ・ベンチマークを含む全ページを同じリリースで保守できること
-4. IETF言語タグを小文字にしたURLを使い、英語だけはルートURLを維持すること
+1. Python's official documentation has an active coordination team and a
+   published translation for the language.
+2. The language overlaps with pylopdf's differentiators: CJK handling, OCR,
+   lightweight wheels, and production PDF workflows.
+3. Every page, including API, security, and benchmark content, can be maintained
+   in the same release.
+4. URLs use lowercase IETF-style language tags; English remains at the root URL.
 
-Python公式の翻訳ダッシュボードでは、2026-07-22時点で簡体字中国語は全体
-91.26%、韓国語は45.67%、日本語は39.17%が翻訳済みで、3言語すべてに調整チームが
-ある。Pythonの翻訳手順も「最新の非alphaブランチを優先し、意味を自然に翻訳する」
-ことを求めている。
+As of 2026-07-22, Python's official translation dashboard reported 91.26%
+overall completion for Simplified Chinese, 45.67% for Korean, and 39.17% for
+Japanese, with coordination teams for all three. Python's translation guidance
+also prioritizes the latest non-alpha branch and natural translation of meaning.
 
 - [Python Docs Translation Dashboard](https://translations.python.org/)
-- [Python Developer’s Guide: Translating](https://devguide.python.org/documentation/translations/translating/)
+- [Python Developer's Guide: Translating](https://devguide.python.org/documentation/translations/translating/)
 - [PEP 545 – Python Documentation Translations](https://peps.python.org/pep-0545/)
 
-## 翻訳ルール
+## Repository language
 
-- 英語を意味上の正本とし、API名・クラス名・引数名・コードは翻訳しない
-- 逐語訳より技術的な意味と、その言語での自然な読みやすさを優先する
-- 見出しIDは全言語で共通にし、同一ページへの言語切替と外部リンクを安定させる
-- 数値、対応Pythonバージョン、セキュリティ方針、ベンチマーク環境を全言語で同期する
-- すべてのP1言語をZensicalのstrictモードでビルドし、内部リンクを検査する
-- 翻訳だけの修正も歓迎する。意味の変更が必要な場合は先に英語正本を直す
+English is canonical for all repository-facing prose:
 
-## 次の候補
+- project documentation and policies;
+- source comments, docstrings, type stubs, and user-facing messages;
+- tests, fixture descriptions, benchmark output, configuration comments, and
+  automation;
+- new commit messages, issues, and pull requests.
 
-スペイン語 (`es`)、ブラジルポルトガル語 (`pt-br`)、フランス語 (`fr`)、
-繁体字中国語 (`zh-tw`) をウォッチリストとする。次のいずれかを満たし、全ページの
-継続保守担当が決まった場合にP1へ昇格する。
+Non-English text is allowed only in localized documentation and data required to
+test Unicode or CJK behavior. Language self-names may be used in a language
+switcher. Existing Git history is not rewritten.
 
-- プライバシーに配慮したアクセス計測で、2か月連続して全セッションの5%以上
-- その言語でのIssue・Discussion・導入要望が継続的に発生
-- 2名以上の継続コントリビューターが翻訳保守を表明
+## Translation rules
+
+- English is the semantic source of truth. Do not translate API names, class
+  names, parameter names, file names, commands, or code.
+- Prefer technical meaning and natural expression over literal translation.
+- Keep heading IDs identical across languages so same-page switching and
+  external links remain stable.
+- Synchronize numbers, supported Python versions, security guidance, and
+  benchmark environments across all languages.
+- Build every P1 locale in Zensical strict mode and validate internal links.
+- Translation-only fixes are welcome. When meaning must change, update English
+  first and then synchronize P1 locales.
+
+## Candidates
+
+Spanish (`es`), Brazilian Portuguese (`pt-br`), French (`fr`), and Traditional
+Chinese (`zh-tw`) are on the watchlist. Promote a language to P1 when ongoing
+full-page maintenance has an owner and at least one of these conditions is met:
+
+- privacy-conscious analytics show at least 5% of sessions for two consecutive
+  months;
+- issues, discussions, or adoption requests in the language recur;
+- at least two recurring contributors volunteer to maintain the translation.

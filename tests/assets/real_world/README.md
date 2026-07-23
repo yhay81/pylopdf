@@ -1,33 +1,39 @@
-# 実世界 PDF テストコーパス
+# Real-world PDF test corpus
 
-実際のツールチェーンが生成した PDF に対する回帰テスト（tests/test_real_world.py）用のアセット。
-lopdf / hayro の限界を早期発見することが目的。すべて再配布可能なライセンスの文書のみを同梱する。
+These assets support regressions in `tests/test_real_world.py` against PDFs
+produced by real toolchains. Their purpose is to expose lopdf and hayro
+limitations early. Every bundled document has a redistributable license.
 
-取得日: 2026-07-22
+## Files
 
-| ファイル | 出典 | ライセンス | 検証している軸 |
+| File | Source | License | Coverage |
 |---|---|---|---|
-| f1040.pdf | [irs.gov](https://www.irs.gov/pub/irs-pdf/f1040.pdf) | 米国政府著作物（パブリックドメイン） | PDF 1.7、AcroForm、タグ付き PDF、オブジェクトストリーム（Adobe Designer 生成） |
-| pdf20-simple.pdf | [pdf-association/pdf20examples](https://github.com/pdf-association/pdf20examples)（"Simple PDF 2.0 file.pdf"） | CC-BY 4.0 | PDF 2.0 ヘッダ、非圧縮の最小構成、/Encoding 指定のない Type1 フォント |
-| usrguide.pdf | [latex-project.org](https://www.latex-project.org/help/documentation/usrguide.pdf) | LPPL（自由に再配布可） | PDF 1.5、pdfTeX 生成、Type1 サブセットフォント、数式・合字 |
-| bill-hr815.pdf | [govinfo.gov](https://www.govinfo.gov/content/pkg/BILLS-118hr815enr/pdf/BILLS-118hr815enr.pdf)（H.R.815, 118th Congress） | 米国政府著作物（パブリックドメイン） | PDF 1.5、GPO 組版、110 ページの中規模文書 |
-| mhlw-doc.pdf | [mhlw.go.jp](https://www.mhlw.go.jp/content/11201250/001526113.pdf)（労働基準法における「労働者」に関する研究会 資料2-1） | [政府標準利用規約 2.0](https://www.digital.go.jp/resources/open_data/)（CC-BY 4.0 互換） | PDF 1.7、CJK 埋め込み CID フォント、縦横混在レイアウト |
-| patent-us223898.pdf | [Google Patents](https://patents.google.com/patent/US223898A)（エジソンの電球特許、1880 年） | パブリックドメイン（米国特許） | PDF 1.3、スキャン画像（CCITTFaxDecode）、OCR テキストレイヤー（取得日: 2026-07-22） |
-| wdl6812-manuscript.pdf | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Illuminated_Panel_and_Qur%27anic_Chapter_WDL6812.pdf)（World Digital Library の彩飾写本） | パブリックドメイン | PDF 1.4、カラースキャン（DCTDecode + JBIG2Decode）、テキストレイヤー無し（取得日: 2026-07-22） |
+| `f1040.pdf` | [irs.gov](https://www.irs.gov/pub/irs-pdf/f1040.pdf) | US government work, public domain | PDF 1.7, AcroForm, tagged PDF, object streams, Adobe Designer output |
+| `pdf20-simple.pdf` | [pdf-association/pdf20examples](https://github.com/pdf-association/pdf20examples), “Simple PDF 2.0 file.pdf” | CC BY 4.0 | PDF 2.0 header, minimal uncompressed structure, Type 1 font without `/Encoding` |
+| `usrguide.pdf` | [latex-project.org](https://www.latex-project.org/help/documentation/usrguide.pdf) | LPPL, freely redistributable | PDF 1.5, pdfTeX output, subset Type 1 fonts, formulas and ligatures |
+| `bill-hr815.pdf` | [govinfo.gov](https://www.govinfo.gov/content/pkg/BILLS-118hr815enr/pdf/BILLS-118hr815enr.pdf), H.R. 815, 118th Congress | US government work, public domain | PDF 1.5, GPO typesetting, medium-size 110-page document |
+| `mhlw-doc.pdf` | [mhlw.go.jp](https://www.mhlw.go.jp/content/11201250/001526113.pdf), Study Group on “Workers” under the Labor Standards Act, material 2-1 | [Government Standard Terms of Use 2.0](https://www.digital.go.jp/resources/open_data/), CC BY 4.0 compatible | PDF 1.7, embedded CJK CID fonts, mixed vertical/horizontal layout |
+| `patent-us223898.pdf` | [Google Patents](https://patents.google.com/patent/US223898A), Edison's 1880 light-bulb patent | Public-domain US patent | PDF 1.3, scanned CCITTFaxDecode image, OCR text layer; retrieved 2026-07-22 |
+| `wdl6812-manuscript.pdf` | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Illuminated_Panel_and_Qur%27anic_Chapter_WDL6812.pdf), illuminated World Digital Library manuscript | Public domain | PDF 1.4, color scan using DCTDecode and JBIG2Decode, no text layer; retrieved 2026-07-22 |
 
-## 過去に記録していた既知の限界（解消済み）
+## Previously known limitations, now fixed
 
-- **pdf20-simple.pdf のテキスト抽出が空になる**（lopdf の content パーサが
-  「`%` コメント行 + 直後のインデント行」で以降の全演算を落とす。
-  [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535) として上流報告済み）
-  → v0.7 で抽出を hayro エンジンへ置き換えて解消。test_pdf20_comment_streams_extract が
-  回帰検知を担う。非埋め込み CJK（90ms-RKSJ-H）の抽出も同時に可能になった。
+- **Text extraction from `pdf20-simple.pdf` returned nothing.** lopdf's content
+  parser dropped every operation after a `%` comment followed by an indented
+  line, reported upstream as
+  [lopdf#535](https://github.com/J-F-Liu/lopdf/issues/535). pylopdf v0.7 replaced
+  extraction with the hayro engine. `test_pdf20_comment_streams_extract`
+  protects the regression and the same engine also extracts non-embedded CJK
+  text using `90ms-RKSJ-H`.
 
-## カバー済みの軸
+## Covered dimensions
 
-- 暗号化 PDF（tests/assets/encrypted/: RC4-40/128・AES-128・AES-256）
-- 非埋め込み CJK フォント（tests/test_cjk.py の合成 PDF + pylopdf[cjk]）
-- スキャン画像: CCITTFaxDecode + OCR レイヤー（patent-us223898.pdf）、
-  DCTDecode + JBIG2Decode + テキストレイヤー無し（wdl6812-manuscript.pdf）
+- Encrypted PDFs in `tests/assets/encrypted/`: RC4-40/128, AES-128, and AES-256.
+- Non-embedded CJK fonts through synthetic PDFs in `tests/test_cjk.py` and
+  `pylopdf[cjk]`.
+- Scans using CCITTFaxDecode plus an OCR layer (`patent-us223898.pdf`), and
+  DCTDecode plus JBIG2Decode without a text layer
+  (`wdl6812-manuscript.pdf`).
 
-追加候補が出たら「再配布可能なライセンス・1MB 未満・既存にない軸」を基準に選ぶ。
+Choose additions using three criteria: a redistributable license, a size below
+1 MB, and coverage not already represented in the corpus.

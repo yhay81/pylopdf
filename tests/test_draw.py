@@ -1,7 +1,7 @@
-"""描き込み API（Page.insert_image / show_pdf_page / replace_text）のテスト。
+"""Tests for Page.insert_image, show_pdf_page, and replace_text.
 
-配置の正しさは「レンダリングした画素の色」で end-to-end に検証する
-（座標変換・回転・XObject 登録のどこが壊れても画素で露見する）。
+Placement is verified end to end through rendered pixel colors, exposing any
+failure in coordinate transforms, rotation, or XObject registration.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ WHITE = (255, 255, 255)
 
 
 def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | None = None) -> bytes:
-    """単色 PNG を組み立てる（alpha 指定で RGBA、None で RGB）。"""
+    """Build a solid PNG, using RGBA with alpha and RGB when alpha is None."""
     if alpha is None:
         color_type, px = 2, bytes(rgb)
     else:
@@ -39,7 +39,7 @@ def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | 
 
 
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
-    """白背景でレンダリングした表示座標 (x, y) の RGB を返す。"""
+    """Return RGB at display point ``(x, y)`` after rendering on white."""
     pix = page.get_pixmap(background=WHITE)
     offset = y * pix.stride + x * 4
     r, g, b = pix.samples[offset : offset + 3]
@@ -56,15 +56,15 @@ def test_insert_png_draws_at_rect() -> None:
     doc = _new_page_doc()
     page = doc[0]
     page.insert_image((20, 30, 60, 70), stream=_solid_png(4, 4, RED))
-    assert _pixel(page, 40, 50) == RED  # rect の中心
-    assert _pixel(page, 10, 50) == WHITE  # rect の外
+    assert _pixel(page, 40, 50) == RED  # Center of rect.
+    assert _pixel(page, 10, 50) == WHITE  # Outside rect.
     assert _pixel(page, 40, 20) == WHITE
 
 
 def test_insert_png_alpha_is_preserved() -> None:
     doc = _new_page_doc()
     page = doc[0]
-    # 完全透明の緑 → 背景（白）のまま。完全不透明の緑 → 緑
+    # Fully transparent green leaves white; fully opaque green renders green.
     page.insert_image((10, 10, 50, 50), stream=_solid_png(2, 2, GREEN, alpha=0))
     page.insert_image((60, 10, 100, 50), stream=_solid_png(2, 2, GREEN, alpha=255))
     assert _pixel(page, 30, 30) == WHITE
@@ -74,10 +74,10 @@ def test_insert_png_alpha_is_preserved() -> None:
 def test_insert_image_keep_proportion_centers() -> None:
     doc = _new_page_doc()
     page = doc[0]
-    # 正方形画像を横長 rect（40x20 の比率 2:1）へ → 中央の 20x20 に収まる
+    # A square in a 40×20 rect fits as a centered 20×20 image.
     page.insert_image((100, 40, 140, 60), stream=_solid_png(2, 2, RED))
-    assert _pixel(page, 120, 50) == RED  # 中央
-    assert _pixel(page, 103, 50) == WHITE  # 左右の余白
+    assert _pixel(page, 120, 50) == RED  # Center.
+    assert _pixel(page, 103, 50) == WHITE  # Side margin.
     assert _pixel(page, 137, 50) == WHITE
 
 
@@ -91,12 +91,12 @@ def test_insert_image_fills_rect_without_keep_proportion() -> None:
 
 def test_insert_image_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=100, height=200)  # 縦長ページ
+    doc.new_page(width=100, height=200)  # Portrait page.
     page = doc[0]
-    page.set_rotation(90)  # 表示は 200x100 の横長
+    page.set_rotation(90)  # Display is 200×100 landscape.
     assert page.rect.width == 200
     page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED))
-    # レンダリングも表示空間なので、指定した表示座標にそのまま現れる
+    # Rendering uses display space, so the image appears at the specified point.
     assert _pixel(page, 170, 50) == RED
     assert _pixel(page, 50, 50) == WHITE
 
@@ -113,7 +113,7 @@ def test_insert_jpeg_roundtrips_bytes_exactly() -> None:
     extracted = page.get_images()
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "jpeg"
-    assert extracted[0]["image"] == original  # DCTDecode パススルーの往復
+    assert extracted[0]["image"] == original  # DCTDecode passthrough round trip.
 
 
 def test_insert_image_survives_save_roundtrip() -> None:
@@ -140,35 +140,35 @@ def test_insert_image_rejects_bad_input() -> None:
 def test_show_pdf_page_overlays_vector_text() -> None:
     stamp = pylopdf.open(stream=build_pdf(["STAMPTEXT"]))
     doc = pylopdf.Document()
-    doc.new_page()  # A4 相当
+    doc.new_page()  # A4-sized default page.
     page = doc[0]
     page.show_pdf_page((50, 50, 550, 700), stamp)
-    # Form XObject 化してもテキストはベクタのまま = 抽出できる
+    # Text remains vector/extractable after conversion to a Form XObject.
     assert "STAMPTEXT" in page.get_text()
 
 
 def test_show_pdf_page_draws_at_rect() -> None:
-    # スタンプ側: 100x100 ページ全面に赤画像
+    # Stamp source: a red image covering a 100×100 page.
     stamp = _new_page_doc(100, 100)
     stamp[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
 
     doc = _new_page_doc(200, 100)
     page = doc[0]
     page.show_pdf_page((120, 20, 180, 80), stamp)
-    assert _pixel(page, 150, 50) == RED  # rect の中心
-    assert _pixel(page, 60, 50) == WHITE  # rect の外
+    assert _pixel(page, 150, 50) == RED  # Center of rect.
+    assert _pixel(page, 60, 50) == WHITE  # Outside rect.
 
 
 def test_show_pdf_page_scales_source_crop_into_rect() -> None:
-    # 縦長スタンプ（50x100）を keep_proportion で 100x100 rect へ → 中央 50 幅に収まる
+    # A 50×100 portrait stamp fits centered at width 50 in a 100×100 rect.
     stamp = _new_page_doc(50, 100)
     stamp[0].insert_image((0, 0, 50, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
 
     doc = _new_page_doc(200, 120)
     page = doc[0]
     page.show_pdf_page((50, 10, 150, 110), stamp)
-    assert _pixel(page, 100, 60) == RED  # 中央帯は赤
-    assert _pixel(page, 60, 60) == WHITE  # 左右は余白
+    assert _pixel(page, 100, 60) == RED  # Center band is red.
+    assert _pixel(page, 60, 60) == WHITE  # Sides are margins.
     assert _pixel(page, 140, 60) == WHITE
 
 
@@ -179,7 +179,7 @@ def test_show_pdf_page_rejects_same_document() -> None:
 
 
 def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
-    """Formから到達しない添付データを取り込み先へ漏らさない。"""
+    """Do not leak attachments unreachable from the imported Form."""
     secret = b"SECRET-UNREFERENCED-STAMP-ATTACHMENT-91af"
     source = pylopdf.Document()
     source.new_page(width=100, height=100)
@@ -204,7 +204,7 @@ def test_show_pdf_page_accepts_negative_pno() -> None:
 
 
 def test_show_pdf_page_underlay_draws_below() -> None:
-    # 下敷き（underlay）に赤、上に不透明の緑を重ねると緑が勝つ
+    # Opaque green overlay wins over a red underlay.
     red_stamp = _new_page_doc(100, 100)
     red_stamp[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
 
@@ -217,14 +217,14 @@ def test_show_pdf_page_underlay_draws_below() -> None:
 
 def test_insert_text_is_extractable_at_position() -> None:
     doc = pylopdf.Document()
-    doc.new_page()  # A4 相当（Resources の無いページに印字できることも兼ねて検証）
+    doc.new_page()  # A4-like page also verifies drawing without Resources.
     page = doc[0]
     page.insert_text((50, 100), "Confidential", fontsize=12)
     words = page.get_text("words")
     assert [w[4] for w in words] == ["Confidential"]
     x0, y0, _, y1 = words[0][:4]
-    assert abs(x0 - 50) < 2  # ベースライン左端 = 指定 x
-    assert y0 < 100 < y1  # 指定 y はベースラインとして bbox の縦範囲内
+    assert abs(x0 - 50) < 2  # Baseline left equals the requested x.
+    assert y0 < 100 < y1  # Requested baseline y lies inside the bbox.
 
 
 def test_insert_text_multiline_stacks_downward() -> None:
@@ -233,7 +233,7 @@ def test_insert_text_multiline_stacks_downward() -> None:
     page = doc[0]
     page.insert_text((50, 100), "First\nSecond", fontsize=10)
     words = {w[4]: w for w in page.get_text("words")}
-    assert words["Second"][1] > words["First"][1]  # 2 行目は下
+    assert words["Second"][1] > words["First"][1]  # Second line is lower.
 
 
 def test_insert_text_on_rotated_page_reads_upright() -> None:
@@ -243,12 +243,12 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     page.set_rotation(90)
     page.insert_text((20, 50), "Rotated")
     pix = page.get_pixmap(background=WHITE)
-    assert (pix.width, pix.height) == (200, 100)  # レンダリングは表示空間
-    # 抽出・検索もレンダリングと同じ表示空間（回転解決済み）で返る
+    assert (pix.width, pix.height) == (200, 100)  # Rendering uses display space.
+    # Extraction/search share rendering's rotation-resolved display space.
     words = page.get_text("words")
     assert [w[4] for w in words] == ["Rotated"]
-    assert abs(words[0][0] - 20) < 2  # 指定した表示 x
-    assert words[0][1] < 50 < words[0][3]  # 指定した表示 y はベースラインとして縦範囲内
+    assert abs(words[0][0] - 20) < 2  # Requested display x.
+    assert words[0][1] < 50 < words[0][3]  # Baseline display y lies in bbox.
     assert page.search_for("Rotated")
 
 
@@ -274,7 +274,7 @@ def test_insert_text_survives_save_roundtrip() -> None:
 
 
 def test_insert_text_page_numbering_recipe() -> None:
-    # README に載せる「ページ番号の印字」レシピそのもの
+    # Exact page-number recipe published in the README.
     doc = pylopdf.Document()
     for _ in range(3):
         doc.new_page()

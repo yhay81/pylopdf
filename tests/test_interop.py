@@ -1,8 +1,8 @@
-"""エコシステム連携レシピ（README 記載）の統合テスト。
+"""Integration tests for the ecosystem recipes documented in the README.
 
-組版・新規文書の PDF/A 出力 = typst（typst-py）、電子署名 = pyHanko という
-「自前実装せず連携で解決する」方針（ROADMAP）のレシピが実際に動くことを保証する。
-interop dependency-group（`uv sync --group interop`）が無い環境では skip される。
+Verify the roadmap policy of integrating rather than reimplementing: typst-py
+for typesetting/new-document PDF/A and pyHanko for signatures. Tests skip when
+the interop dependency group is absent.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import pytest
 
 import pylopdf
 
-typst = pytest.importorskip("typst", reason="interop グループ（typst）が未インストール")
-pytest.importorskip("pyhanko", reason="interop グループ（pyhanko）が未インストール")
+typst = pytest.importorskip("typst", reason="interop group (typst) is not installed")
+pytest.importorskip("pyhanko", reason="interop group (pyhanko) is not installed")
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -33,7 +33,7 @@ Interop recipe test document.
 
 
 def test_typst_compile_to_pylopdf() -> None:
-    # README レシピ: typst.compile() が返す PDF bytes を pylopdf.open(stream=) へ直結する
+    # README recipe: pass typst.compile() PDF bytes directly to open(stream=).
     pdf_bytes = typst.compile(TYP_SOURCE)
     assert isinstance(pdf_bytes, bytes)
     with pylopdf.open(stream=pdf_bytes) as doc:
@@ -42,8 +42,8 @@ def test_typst_compile_to_pylopdf() -> None:
 
 
 def test_typst_pdfa_output_opens() -> None:
-    # 新規文書の PDF/A は typst 側（krilla の検証付き出力）に任せる。
-    # PDF/A は XMP メタデータの非圧縮格納が必須なので、識別子が生バイトに現れる
+    # Let typst/krilla produce validated new-document PDF/A. PDF/A requires
+    # uncompressed XMP metadata, so the identifier appears in raw bytes.
     pdf_bytes = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
     assert b"pdfaid" in pdf_bytes
     with pylopdf.open(stream=pdf_bytes) as doc:
@@ -52,11 +52,11 @@ def test_typst_pdfa_output_opens() -> None:
 
 
 def test_typst_bold_italic_flow_into_markdown() -> None:
-    # 埋め込みフォントの weight / italic メタデータが span flags → to_markdown の強調になる
+    # Embedded font weight/italic metadata flows through span flags to emphasis.
     pdf = typst.compile(b'#set document(title: "t")\nNormal and *bold emphasis* and _italic part_ here.')
     with pylopdf.open(stream=pdf) as doc:
         span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][1]
-        assert span["flags"] & 16  # bold（pymupdf 互換ビット）
+        assert span["flags"] & 16  # Bold, using the pymupdf-compatible bit.
         assert "Bold" in span["font"]
         md = doc.to_markdown()
     assert "**bold emphasis**" in md
@@ -64,7 +64,7 @@ def test_typst_bold_italic_flow_into_markdown() -> None:
 
 
 def test_pdfa_claim_reads_typst_output() -> None:
-    # typst の検証付き PDF/A 出力（krilla）の宣言を get_pdfa_claim で読み取れる
+    # get_pdfa_claim reads typst/krilla's validated PDF/A declaration.
     pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")
     with pylopdf.open(stream=pdf_a) as doc:
         assert doc.get_pdfa_claim() == (2, "B")
@@ -74,12 +74,12 @@ def test_pdfa_claim_reads_typst_output() -> None:
 
 
 def test_typst_japanese_watermark_via_show_pdf_page() -> None:
-    """README レシピ: typst + fonts-cjk で日本語透かしを組み、show_pdf_page で全ページへ焼く。
+    """Apply a CJK watermark built with typst and fonts-cjk to every page.
 
-    typst がフォントをサブセット埋め込みするため、透かしの日本語は
-    pylopdf[cjk] の代替フォント無しでも抽出・レンダリングできる。
+    typst subset-embeds the font, so watermark text extracts and renders without
+    pylopdf's CJK fallback.
     """
-    fonts = pytest.importorskip("pylopdf_fonts_cjk", reason="cjk extra が未インストール")
+    fonts = pytest.importorskip("pylopdf_fonts_cjk", reason="cjk extra is not installed")
     stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
 #set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
@@ -89,19 +89,19 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     stamp = pylopdf.open(stream=stamp_pdf)
 
     doc = pylopdf.Document()
-    doc.new_page()  # A4 相当
+    doc.new_page()  # A4-sized default page.
     page = doc[0]
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 
-    # ベクタのまま焼かれているので、透かしの日本語がそのまま抽出できる
+    # Vector overlay leaves the CJK watermark directly extractable.
     assert "社外秘" in page.get_text()
-    # ページ背景は fill: none で透明のまま（白背景レンダリングで四隅が白）
+    # fill:none keeps the page transparent; corners stay white on a white render.
     pix = page.get_pixmap(background=(255, 255, 255))
     assert tuple(pix.samples[0:3]) == (255, 255, 255)
 
 
 def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
-    """テスト専用の自己署名証明書と秘密鍵を PEM で書き出す（cryptography は pyhanko の依存）。"""
+    """Write a test-only self-signed certificate and private key as PEM."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "pylopdf interop test")])
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -143,8 +143,8 @@ def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
-    # README レシピ: pylopdf で作成・編集した PDF に pyHanko が増分更新で署名する。
-    # 増分更新は既存バイト列に追記するだけなので、pylopdf の出力は署名後も無加工で残る
+    # README recipe: pyHanko incrementally signs pylopdf output. Incremental
+    # updates append bytes, preserving pylopdf's complete output unchanged.
     doc = pylopdf.Document()
     doc.new_page()
     doc.set_metadata({"title": "pylopdf interop test"})

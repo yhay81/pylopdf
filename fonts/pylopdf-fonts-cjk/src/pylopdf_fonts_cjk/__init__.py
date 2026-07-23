@@ -1,8 +1,8 @@
-"""pylopdf 用の CJK（日本語）fallback フォント。
+"""CJK fallback fonts for pylopdf.
 
-Noto Sans JP / Noto Serif JP（SIL OFL 1.1、https://github.com/notofonts/noto-cjk）を
-同梱するデータ専用パッケージ。pylopdf がインストール時に自動検出して、
-フォント非埋め込みの日本語 PDF のレンダリングに使う。
+This data-only package bundles Noto Sans JP and Noto Serif JP under SIL OFL 1.1
+from https://github.com/notofonts/noto-cjk. pylopdf discovers it automatically
+to render PDFs that reference Japanese fonts without embedding them.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ _BASE = Path(__file__).parent
 
 
 def sans_path() -> Path:
-    """Noto Sans JP（ゴシック体）のフォントファイルパスを返す。"""
+    """Return the path to Noto Sans JP."""
     return _BASE / "NotoSansJP-Regular.otf"
 
 
 def serif_path() -> Path:
-    """Noto Serif JP（明朝体）のフォントファイルパスを返す。"""
+    """Return the path to Noto Serif JP."""
     return _BASE / "NotoSerifJP-Regular.otf"

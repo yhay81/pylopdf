@@ -1,4 +1,4 @@
-"""位置付きテキスト抽出（words / blocks / dict）と search_for のテスト。"""
+"""Tests for positioned text extraction and search_for."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def test_words_have_positions_and_numbering(usrguide: pylopdf.Page) -> None:
 
 
 def test_words_numbering_is_consistent(usrguide: pylopdf.Page) -> None:
-    """語番号は行内で 0 から連番、行番号はブロック内で単調。"""
+    """Keep word numbers consecutive per line and line numbers monotonic."""
     words = usrguide.get_text("words")
     seen: dict[tuple[int, int], int] = {}
     for *_, block_no, line_no, word_no in words:
@@ -98,7 +98,7 @@ def test_search_for_is_case_insensitive(usrguide: pylopdf.Page) -> None:
 
 
 def test_search_for_multiword(usrguide: pylopdf.Page) -> None:
-    """語をまたぐ検索（合成空白を挟んだ一致）。"""
+    """Search across words joined by a synthesized space."""
     hits = usrguide.search_for("for authors")
     assert len(hits) == 1
     only_for = usrguide.search_for("for")[0]
@@ -124,14 +124,14 @@ def test_search_for_cjk() -> None:
 
 
 def test_search_for_nonembedded_cjk() -> None:
-    """非埋め込み CJK でも検索できる（Unicode は CMap 由来のため）。"""
+    """Search non-embedded CJK text whose Unicode comes from the CMap."""
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
     assert len(doc[0].search_for("日本語")) == 1
 
 
 def test_layout_reflects_edits() -> None:
-    """編集（select）後のレイアウト抽出が新しい状態を反映する。"""
+    """Reflect the new document state in layout extraction after select."""
     doc = pylopdf.open(stream=build_pdf(["First page", "Second page"]))
     doc.select([1])
     words = doc.get_page_text(0, "words")

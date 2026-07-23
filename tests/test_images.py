@@ -1,4 +1,4 @@
-"""ページ上の画像抽出（Page.get_images）のテスト。"""
+"""Tests for extracting page images with Page.get_images."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def test_text_only_page_has_no_images() -> None:
 
 
 def test_scanned_page_yields_png() -> None:
-    """CCITT スキャン（特許）はデコードされて PNG になる。"""
+    """Decode a CCITT-scanned patent page as PNG."""
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
     images = doc[0].get_images()
     assert len(images) >= 1
@@ -29,11 +29,11 @@ def test_scanned_page_yields_png() -> None:
 
 
 def test_jpeg_passthrough() -> None:
-    """DCTDecode 単独の画像は元の JPEG バイト列がそのまま得られる。"""
+    """Return original JPEG bytes for an image using only DCTDecode."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
     images = doc[0].get_images()
     jpegs = [i for i in images if i["ext"] == "jpeg"]
-    assert jpegs, "DCT 画像が JPEG として取れていない"
+    assert jpegs, "DCT image was not returned as JPEG"
     for image in jpegs:
         assert image["image"].startswith(b"\xff\xd8\xff")
 

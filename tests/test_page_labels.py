@@ -1,4 +1,4 @@
-"""ページラベル（Document.get/set_page_labels・Page.get_label）のテスト。"""
+"""Tests for page-label APIs on Document and Page."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def test_empty_labels() -> None:
     assert doc.get_page_labels() == []
     assert doc[0].get_label() == ""
     doc.set_page_labels([{"startpage": 0, "style": "D"}])
-    doc.set_page_labels([])  # 空リストで削除
+    doc.set_page_labels([])  # An empty list removes labels.
     assert doc.get_page_labels() == []
     assert doc[0].get_label() == ""
 

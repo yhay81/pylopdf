@@ -1,4 +1,4 @@
-"""添付ファイル（Document.embfile_*）のテスト。"""
+"""Tests for Document.embfile_* attachment APIs."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_embfile_multiple_names_sorted() -> None:
 
 
 def test_inline_filespec_reads_do_not_mutate_document() -> None:
-    """合法なインライン FileSpec を読むだけで孤立オブジェクトを増やさない。"""
+    """Read a valid inline FileSpec without creating orphan objects."""
     pdf = build_raw_pdf(
         {
             1: (

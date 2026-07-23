@@ -1,7 +1,7 @@
-"""Page.get_links（リンク注釈の読み取りと宛先解決）のテスト。
+"""Tests for Page.get_links annotation reads and destination resolution.
 
-named destination の解決（/Names 名前ツリー）は実世界 PDF（usrguide.pdf =
-pdfTeX/hyperref 製）で、直接 /Dest 配列は手組みの最小 PDF で検証する。
+Resolve named destinations through a /Names tree in the real-world
+pdfTeX/hyperref usrguide.pdf, and direct /Dest arrays in a minimal fixture.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 
 def _build_direct_dest_fixture() -> bytes:
-    """直接 /Dest 配列のリンクを 1 つ持つ最小 2 ページ PDF を組み立てる。"""
+    """Build a minimal two-page PDF with one direct /Dest array link."""
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
@@ -39,24 +39,24 @@ def _build_direct_dest_fixture() -> bytes:
 
 
 def test_direct_dest_array() -> None:
-    """/A を介さない直接 /Dest 配列のリンクをページ番号と to 点に解決する。"""
+    """Resolve a direct /Dest array to a page number and target point."""
     doc = pylopdf.open(stream=_build_direct_dest_fixture())
     links = doc[0].get_links()
     assert len(links) == 1
     link = links[0]
     assert link["kind"] == pylopdf.LINK_GOTO
     assert link["page"] == 1
-    # 表示座標: crop [0,0,200,200]・回転なし → (x, 200 - y)
+    # Display coordinates for crop [0,0,200,200] without rotation: (x, 200-y).
     assert link["from"] == pylopdf.Rect(10.0, 170.0, 100.0, 190.0)
     assert link["to"] == pylopdf.Point(5.0, 5.0)
-    assert "zoom" not in link  # null は zoom なし
+    assert "zoom" not in link  # A null value means no zoom.
     assert "nameddest" not in link
     assert doc[1].get_links() == []
     doc.close()
 
 
 def test_uri_link_roundtrip() -> None:
-    """add_link_annot で作った URI リンクが get_links で読み戻せる。"""
+    """Read back a URI link created with add_link_annot."""
     doc = pylopdf.open(stream=build_pdf(["Hello link"]))
     page = doc[0]
     rect = (10.0, 20.0, 110.0, 40.0)
@@ -72,7 +72,7 @@ def test_uri_link_roundtrip() -> None:
 
 
 def test_usrguide_named_destinations() -> None:
-    """pdfTeX/hyperref 製 PDF の named destination を全件ページ解決できる。"""
+    """Resolve every named destination in a pdfTeX/hyperref PDF."""
     doc = pylopdf.open(ASSETS / "usrguide.pdf")
     goto = []
     uri = []
@@ -84,7 +84,7 @@ def test_usrguide_named_destinations() -> None:
                 uri.append(link)
     assert len(goto) == 40
     assert len(uri) == 2
-    # /Names 名前ツリー（2 段 Kids）経由で全件解決できている
+    # Resolve all entries through the two-level /Names tree.
     assert all(link["page"] >= 0 for link in goto)
     assert all(link["nameddest"] for link in goto)
     assert all(isinstance(link.get("to"), pylopdf.Point) for link in goto)

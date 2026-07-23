@@ -1,64 +1,63 @@
-//! レンダリング結果のピクセルマップ（ストレートアルファの RGBA8）。
+//! Rendered straight-alpha RGBA8 pixel map.
 //!
 //! `np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, 4)`
-//! のように NumPy / PIL から利用できる。
+//! can be consumed by NumPy or PIL.
 //!
-//! 注意: buffer protocol（ゼロコピー）は実装していない。`Py_buffer` が
-//! Python の安定 ABI に入ったのは 3.11 からで、abi3-py310 ビルドでは
-//! 使えないため（samples は 1 回のコピーになる）。abi3 の下限を 3.11 へ
-//! 上げるか cp314t 別ビルドを行う際に再検討する。
+//! The buffer protocol is intentionally absent. `Py_buffer` entered the stable
+//! ABI in Python 3.11 and is unavailable to abi3-py310, so `samples` performs
+//! one copy. Reconsider after raising the abi3 floor or adding cp314t builds.
 
 use pyo3::prelude::*;
 
 use crate::document::PdfError;
 
-/// レンダリング済みページのピクセルマップ。
+/// Pixel map for a rendered page.
 ///
-/// データはストレート（非プリマルチプライド）アルファの RGBA8、行優先。
+/// Data is row-major RGBA8 with straight, non-premultiplied alpha.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct Pixmap {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    /// RGBA8（straight alpha）の行優先データ。
+    /// Row-major straight-alpha RGBA8 data.
     pub(crate) data: Vec<u8>,
 }
 
 #[pymethods]
 impl Pixmap {
-    /// 幅（ピクセル）。
+    /// Width in pixels.
     #[getter]
     fn width(&self) -> u32 {
         self.width
     }
 
-    /// 高さ（ピクセル）。
+    /// Height in pixels.
     #[getter]
     fn height(&self) -> u32 {
         self.height
     }
 
-    /// 1 ピクセルあたりの成分数（常に 4 = RGBA）。
+    /// Components per pixel, always 4 for RGBA.
     #[getter]
     fn n(&self) -> u32 {
         4
     }
 
-    /// 1 行あたりのバイト数（幅 × 4）。
+    /// Bytes per row: width × 4.
     #[getter]
     fn stride(&self) -> u32 {
         self.width * 4
     }
 
-    /// ピクセルデータ（RGBA8・行優先）を bytes で返す。
+    /// Return row-major RGBA8 pixel data as bytes.
     #[getter]
     fn samples<'py>(&self, py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
         pyo3::types::PyBytes::new(py, &self.data)
     }
 
-    /// PNG バイト列にエンコードして返す。
+    /// Encode and return PNG bytes.
     ///
-    /// 圧縮は Fast（render_page と同じ方針。サイズより速度を優先し、
-    /// 高圧縮が必要なら得られた PNG を外部ツールで再圧縮する）。
+    /// Fast compression matches `render_page` and prioritizes speed over size.
+    /// Recompress externally when a smaller PNG is required.
     fn tobytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
         py.detach(|| {
             crate::extract::encode_png(

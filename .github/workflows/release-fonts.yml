@@ -1,7 +1,7 @@
-# フォントデータ wheel のリリース CI: fonts-v* タグの push で pylopdf-fonts-cjk を PyPI へ公開する
+# Font wheel release CI: publish pylopdf-fonts-cjk to PyPI on a fonts-v* tag.
 #
-# 公開には PyPI 側で Trusted Publisher の登録が必要:
-#   PyPI → プロジェクト pylopdf-fonts-cjk → Publishing → GitHub
+# Publishing requires a Trusted Publisher configured on PyPI:
+#   PyPI → project pylopdf-fonts-cjk → Publishing → GitHub
 #   owner: yhay81 / repository: pylopdf / workflow: release-fonts.yml / environment: pypi
 name: Release fonts
 
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      # job レベルの permissions はトップレベルを置き換えるため contents: read も明記する
-      # （無いと actions/checkout が "Repository not found" で失敗する）
+      # Job-level permissions replace the top-level block, so contents: read
+      # must be repeated or actions/checkout fails with "Repository not found".
       id-token: write
       contents: read
     steps:

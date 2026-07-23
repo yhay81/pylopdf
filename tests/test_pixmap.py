@@ -1,4 +1,4 @@
-"""Pixmap レンダリング（Page.get_pixmap）と警告連携のテスト。"""
+"""Tests for Page.get_pixmap rendering and warning integration."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def test_pixmap_tobytes_is_png(one_page_pdf: bytes) -> None:
 
 
 def test_pixmap_background(one_page_pdf: bytes) -> None:
-    """背景色を指定すると不透明ピクセルになる（既定は透明背景）。"""
+    """Use opaque pixels with a background and transparency by default."""
     doc = pylopdf.open(stream=one_page_pdf)
     transparent = doc[0].get_pixmap()
     white = doc[0].get_pixmap(background=(255, 255, 255))
@@ -48,15 +48,15 @@ def test_pixmap_background(one_page_pdf: bytes) -> None:
 
 
 def test_pixmap_matches_png_rendering(one_page_pdf: bytes) -> None:
-    """Pixmap と render_page の PNG は同じ画素になる。"""
+    """Produce identical PNG pixels through Pixmap and render_page."""
     doc = pylopdf.open(stream=one_page_pdf)
     assert doc[0].get_pixmap().tobytes() == doc.render_page(0)
 
 
 def build_broken_image_pdf() -> bytes:
-    """壊れた DCT 画像を描画する 1 ページ PDF（ImageDecodeFailure を誘発する）。"""
+    """Build a one-page PDF that triggers ImageDecodeFailure on a broken DCT."""
     stream = "q 100 0 0 100 100 600 cm /Im0 Do Q"
-    broken_jpeg = "\xff\xd8\xff"  # SOI だけの壊れた JPEG（latin-1 エンコードで実バイトになる）
+    broken_jpeg = "\xff\xd8\xff"  # A truncated JPEG containing only SOI bytes.
     objects: dict[int, str] = {
         1: "<< /Type /Catalog /Pages 2 0 R >>",
         2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
@@ -95,7 +95,7 @@ def test_clean_render_emits_no_warning(one_page_pdf: bytes) -> None:
 
 
 def test_warnings_do_not_leak_between_operations() -> None:
-    """壊れた PDF の警告が、次のクリーンな操作に持ち越されない。"""
+    """Do not leak a broken-PDF warning into the next clean operation."""
     broken = pylopdf.open(stream=build_broken_image_pdf())
     with pytest.warns(pylopdf.PylopdfWarning):
         broken.render_page(0)
@@ -105,7 +105,7 @@ def test_warnings_do_not_leak_between_operations() -> None:
 
 
 def test_corpus_render_has_no_warnings() -> None:
-    """コーパスの通常 PDF はレンダリングしても警告を出さない。"""
+    """Render a regular corpus PDF without warnings."""
     doc = pylopdf.open(ASSETS / "usrguide.pdf")
     with warnings.catch_warnings():
         warnings.simplefilter("error", pylopdf.PylopdfWarning)

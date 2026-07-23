@@ -1,4 +1,4 @@
-"""テスト用の最小 PDF を組み立てるヘルパーとフィクスチャ。"""
+"""Helpers and fixtures for building minimal test PDFs."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import pytest
 
 
 def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> bytes:
-    """連続したオブジェクト辞書から xref table 形式の最小 PDF を組み立てる。"""
+    """Build a minimal xref-table PDF from consecutive objects."""
     expected = list(range(1, len(objects) + 1))
     if sorted(objects) != expected:
-        msg = f"objects の番号は 1..{len(objects)} の連番で指定してください"
+        msg = f"object numbers must be consecutive from 1 through {len(objects)}"
         raise ValueError(msg)
     out = bytearray(f"%PDF-{version}\n".encode())
     offsets: dict[int, int] = {}
@@ -30,10 +30,10 @@ def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> b
 
 
 def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:
-    """1 テキスト = 1 ページの最小 PDF を組み立てる。
+    """Build a minimal PDF with one text value per page.
 
-    MediaBox / Resources はあえて親の Pages 側に置き、
-    ページ属性の継承が絡む実在レイアウトを再現する。
+    MediaBox and Resources intentionally live on the Pages parent to exercise
+    inherited page attributes found in real documents.
     """
     n = len(page_texts)
     objects: dict[int, str] = {}
@@ -66,10 +66,10 @@ def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) ->
 
 
 def build_nonembedded_cjk_pdf() -> bytes:
-    """MS-Mincho を 90ms-RKSJ-H で参照するだけ（非埋め込み）の 1 ページ PDF を組み立てる。
+    """Build a one-page PDF referencing non-embedded MS-Mincho via 90ms-RKSJ-H.
 
-    「こんにちは日本語」を Shift-JIS バイト列で描画する。CJK 代替フォントを
-    設定しない限り、レンダリングしても文字は描画されない。
+    The Japanese fixture is drawn as Shift-JIS bytes and remains invisible
+    unless a CJK fallback font is configured.
     """
     sjis = "こんにちは日本語".encode("cp932")
     text_octal = "".join(f"\\{b:03o}" for b in sjis)
@@ -102,7 +102,7 @@ def build_nonembedded_cjk_pdf() -> bytes:
 
 
 def png_size(data: bytes) -> tuple[int, int]:
-    """PNG の IHDR チャンクから (幅, 高さ) を読み取る。"""
+    """Read ``(width, height)`` from a PNG IHDR chunk."""
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
     width = int.from_bytes(data[16:20], "big")
     height = int.from_bytes(data[20:24], "big")

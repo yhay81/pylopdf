@@ -1,4 +1,4 @@
-"""AcroForm（Document.get_form_fields / set_form_field）のテスト。"""
+"""Tests for AcroForm field reading and writing."""
 
 from __future__ import annotations
 
@@ -8,22 +8,22 @@ import pylopdf
 
 
 def _build_form_pdf() -> bytes:
-    """テキスト・チェックボックス・ネストしたテキストを持つ最小 AcroForm PDF。"""
+    """Build a minimal AcroForm with text, checkbox, and nested text fields."""
     objects: dict[int, str] = {
         1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 8 0 R >>",
         2: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
         3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         4: "<< /Type /Page /Parent 2 0 R /Annots [9 0 R 10 0 R 14 0 R] >>",
         8: "<< /Fields [9 0 R 10 0 R 13 0 R] /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 3 0 R >> >> >>",
-        # テキストフィールド（初期値付き）
+        # Text field with an initial value.
         9: "<< /FT /Tx /T (customer) /V (initial) /Type /Annot /Subtype /Widget"
         " /Rect [50 700 250 720] /P 4 0 R /F 4 >>",
-        # チェックボックス（Yes/Off の外観を持つ）
+        # Checkbox with Yes and Off appearances.
         10: "<< /FT /Btn /T (agree) /V /Off /AS /Off /Type /Annot /Subtype /Widget"
         " /Rect [50 660 70 680] /P 4 0 R /F 4 /AP << /N << /Yes 11 0 R /Off 12 0 R >> >> >>",
         11: "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\nstream\n\nendstream",
         12: "<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\nstream\n\nendstream",
-        # ネスト: person.first（FT は親から継承）
+        # Nested person.first field inheriting FT from its parent.
         13: "<< /T (person) /FT /Tx /Kids [14 0 R] >>",
         14: "<< /T (first) /Parent 13 0 R /Type /Annot /Subtype /Widget /Rect [50 620 250 640] /P 4 0 R /F 4 >>",
     }
@@ -53,7 +53,7 @@ def test_get_form_fields_lists_all() -> None:
     assert fields["customer"]["value"] == "initial"
     assert fields["agree"]["type"] == "checkbox"
     assert fields["agree"]["value"] == "Off"
-    assert fields["person.first"]["type"] == "text"  # FT は親から継承
+    assert fields["person.first"]["type"] == "text"  # FT is inherited from the parent.
     assert fields["person.first"]["value"] is None
 
 
@@ -73,7 +73,7 @@ def test_fill_checkbox_with_bool() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     doc.set_form_field("agree", True)
     fields = {f["name"]: f["value"] for f in doc.get_form_fields()}
-    assert fields["agree"] == "Yes"  # AP の on 状態名を自動解決
+    assert fields["agree"] == "Yes"  # Resolve the AP on-state name automatically.
     reopened = pylopdf.open(stream=doc.tobytes())
     assert {f["name"]: f["value"] for f in reopened.get_form_fields()}["agree"] == "Yes"
 

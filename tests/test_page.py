@@ -1,4 +1,4 @@
-"""Page オブジェクト（doc[i]）と回転・ページボックスのテスト。"""
+"""Tests for Page objects, rotation, and page boxes."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:
     doc.delete_page(0)
     with pytest.raises(pylopdf.StalePageError, match="fetch it again"):
         _ = page.get_text()
-    # 取り直せば使える（旧 2 ページ目は削除で 1 ページ目に繰り上がる）
+    # A freshly fetched page works after the old page shifts to index 1.
     assert "Page three" in doc[1].get_text()
 
 
@@ -53,10 +53,10 @@ def test_page_on_closed_document(one_page_pdf: bytes) -> None:
 
 
 def test_mediabox_inherited_from_parent(one_page_pdf: bytes) -> None:
-    # conftest の build_pdf は MediaBox を親 Pages 側に置いている（継承解決の検証）
+    # build_pdf places MediaBox on the Pages parent to exercise inheritance.
     doc = pylopdf.Document(stream=one_page_pdf)
     assert doc[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)
-    assert doc[0].cropbox == doc[0].mediabox  # CropBox 無し → MediaBox と同値
+    assert doc[0].cropbox == doc[0].mediabox  # Missing CropBox falls back to MediaBox.
     assert doc[0].rect.width == 612.0
     assert doc[0].rect.height == 792.0
 
@@ -65,7 +65,7 @@ def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     doc[0].set_mediabox((0, 0, 300, 400))
     assert doc[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
-    # 保存後も維持され、レンダリングサイズにも反映される
+    # Persist the box through save and apply it to rendering dimensions.
     reopened = pylopdf.Document(stream=doc.tobytes())
     assert reopened[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
     assert png_size(reopened.render_page(0)) == (300, 400)
@@ -75,8 +75,8 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     doc[0].set_cropbox((10, 10, 310, 410))
     assert doc[0].cropbox == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
-    assert doc[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox は不変
-    # レンダリングは CropBox サイズになる
+    assert doc[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
+    # Rendering uses the CropBox dimensions.
     assert png_size(doc.render_page(0)) == (300, 400)
 
 
@@ -103,7 +103,7 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
     assert page.rotation == 0
     page.set_rotation(90)
     assert page.rotation == 90
-    # 回転はレンダリングの縦横に反映される（612x792 → 792x612）
+    # Rotation swaps rendered dimensions from 612 x 792 to 792 x 612.
     assert png_size(doc.render_page(0)) == (792, 612)
     page.set_rotation(-90)
     assert page.rotation == 270
@@ -122,14 +122,14 @@ def test_rect_swaps_for_rotation(one_page_pdf: bytes) -> None:
     doc[0].set_rotation(90)
     r = doc[0].rect
     assert (r.width, r.height) == (792.0, 612.0)
-    assert doc[0].mediabox.width == 612.0  # mediabox 自体は回転の影響を受けない
+    assert doc[0].mediabox.width == 612.0  # Rotation does not alter MediaBox itself.
 
 
 def test_rect_helpers() -> None:
     r = pylopdf.Rect(10.0, 20.0, 110.0, 220.0)
     assert r.width == 100.0
     assert r.height == 200.0
-    x0, y0, x1, y1 = r  # タプルとして展開できる
+    x0, y0, x1, y1 = r  # Rect supports tuple unpacking.
     assert (x0, y0, x1, y1) == (10.0, 20.0, 110.0, 220.0)
 
 

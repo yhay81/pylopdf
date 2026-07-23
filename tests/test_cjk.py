@@ -1,8 +1,8 @@
-"""非埋め込み CJK フォントの fallback レンダリングのテスト。
+"""Tests for fallback rendering with non-embedded CJK fonts.
 
-フォント実体はリポジトリ同梱の fonts/pylopdf-fonts-cjk/（Noto Sans/Serif JP）を使う。
-自動検出のテストだけは pylopdf_fonts_cjk がインストール済みのときに実行される
-（`uv sync --all-extras` で入る。CI は常に実行）。
+The tests use the bundled Noto Sans/Serif JP fonts under
+fonts/pylopdf-fonts-cjk/. Auto-discovery runs only when pylopdf_fonts_cjk is
+installed, as it is under ``uv sync --all-extras`` and in CI.
 """
 
 from __future__ import annotations
@@ -20,14 +20,14 @@ SERIF = FONTS_DIR / "NotoSerifJP-Regular.otf"
 
 
 def render_blank_baseline() -> bytes:
-    """代替フォントなし（自動検出も無効）の描画結果 = 文字が出ない基準画像。"""
+    """Render the blank baseline with fallback and auto-discovery disabled."""
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
     return doc.render_page(0, 1.0)
 
 
 def test_without_fallback_renders_blank() -> None:
-    """代替フォントがなければ文字は描画されない（従来挙動の確認）。"""
+    """Render without text when no fallback font is available."""
     png = render_blank_baseline()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
 
@@ -37,7 +37,7 @@ def test_fallback_font_from_path_renders_text() -> None:
     doc.set_fallback_font(SANS)
     png = doc.render_page(0, 1.0)
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
-    # 文字が描画されればピクセルが増えて PNG は blank と一致しなくなる
+    # Rendered glyphs add pixels, so the PNG differs from the blank baseline.
     assert png != render_blank_baseline()
     assert len(png) > len(render_blank_baseline())
 
@@ -49,7 +49,7 @@ def test_fallback_font_from_bytes_renders_text() -> None:
 
 
 def test_serif_slot_used_for_mincho() -> None:
-    """MS-Mincho（明朝系）の PDF は serif スロットのフォントで描画される。"""
+    """Use the serif slot for PDFs whose BaseFont is MS-Mincho."""
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     doc.set_fallback_font(SERIF, kind="serif")
     assert doc.render_page(0, 1.0) != render_blank_baseline()
@@ -74,7 +74,7 @@ def test_invalid_kind_raises() -> None:
 
 
 def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
-    """代替フォントを設定してもラテン文字 PDF の描画は変わらない。"""
+    """Keep Latin rendering unchanged when a fallback font is configured."""
     plain = pylopdf.open(stream=one_page_pdf)
     plain.set_fallback_font(None)
     baseline = plain.render_page(0, 1.0)
@@ -85,7 +85,7 @@ def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
 
 
 def test_auto_discovery_via_extra() -> None:
-    """pylopdf[cjk] が入っていれば、何も設定しなくても CJK が描画される。"""
+    """Auto-render CJK when pylopdf[cjk] is installed."""
     pytest.importorskip("pylopdf_fonts_cjk")
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     png = doc.render_page(0, 1.0)
@@ -93,10 +93,10 @@ def test_auto_discovery_via_extra() -> None:
 
 
 def test_nonembedded_cjk_extract_text() -> None:
-    """非埋め込み CJK（90ms-RKSJ-H）のテキスト抽出。
+    """Extract text from non-embedded CJK using 90ms-RKSJ-H.
 
-    hayro エンジンが定義済み CMap を解決するため、v0.7 から抽出できる。
-    Unicode は CMap 由来なので、代替フォントが無くても抽出は成立する。
+    Hayro resolves the predefined CMap, and Unicode comes from that map, so
+    extraction does not require a fallback font.
     """
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
