@@ -212,8 +212,13 @@ lopdf / hayro / krilla の残在庫・インターフェース穴・性能余地
 優先順は「即効小粒 → krilla スパイク → 上流サイクル → 穴埋め → cp314t」。
 
 - [ ] zlib-rs（flate2 の backend feature 切替のみ。高圧縮系 3.3 倍の調査済み）
-- [ ] save/tobytes の `compression_level`（lopdf SaveOptions の未公開在庫）。
-      `linearize` も SaveOptions にあるが、lopdf 側実装の実効性を確認してから公開する
+- [x] save の `compression_level` / `linearize` は 2026-07-23 のソース確認で**公開見送り**:
+      linearize は lopdf 0.44 では writer が一切参照しない死にフラグ（定義のみ。
+      is_linearized は既存線形化文書の検出用）。compression_level は object streams
+      専用かつ 0/1-3/4-6/7+ の 4 段階バケットで、deflate=True の通常ストリームは
+      Object::compress が Compression::best() 固定 = 半分しか効かない紛らわしい
+      ノブになる。→ lopdf へ「compression_level を通常ストリーム圧縮へも一貫適用」の
+      上流貢献をしてから公開する（下の上流貢献候補に追加）
 - [ ] `Page.get_links`（リンク注釈 + /Dest・/A GoTo・named destination の解決。
       annots() はあるがリンク先ページ解決が無い = pymupdf 移行需要の高い穴）
 - [ ] krilla 導入スパイク（wheel 増の実測 → insert_text CJK を最初のユースケースに。
@@ -263,7 +268,10 @@ lopdf / hayro / krilla の残在庫・インターフェース穴・性能余地
   **JBIG2 1-bit ステンシルマスク展開の高速化**（2026-07-23 の #1315 プロファイルで
   wdl6812 の 21ms 中 ~7ms がデコード側と実測。unpack_samples の u16 Vec + f32 補間
   経路をビット→u8 直接展開へ。issue 提出候補）、RenderSettings への clip/offset 公開、
-  RenderCache の 'static 化（同寿命再利用 -27〜35% を全 embedder に解放）
+  RenderCache の 'static 化（同寿命再利用 -27〜35% を全 embedder に解放）。
+  lopdf 側の候補: SaveOptions.compression_level の通常ストリームへの一貫適用
+  （Object::compress の Compression::best() 固定解消）、死にフラグ linearize の
+  実装または削除（2026-07-23 ソース確認）
 - [x] CI への Python 3.10 ジョブ追加（abi3 下限の検証。2026-07-23）
 - Pyodide / emscripten wheel の実験（pymupdf の wasm wheel は micropip 不可という弱点あり）
 - テーブル抽出の研究（v1.0 後の主要テーマ候補）
