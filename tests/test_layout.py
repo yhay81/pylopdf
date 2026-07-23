@@ -66,7 +66,7 @@ def test_dict_structure(usrguide: pylopdf.Page) -> None:
     line = block["lines"][0]
     assert line["wmode"] == 0
     span = line["spans"][0]
-    assert set(span) == {"bbox", "origin", "size", "font", "text"}
+    assert set(span) == {"bbox", "origin", "size", "font", "flags", "text"}
     assert span["size"] > 1.0
     all_text = "".join(span["text"] for b in d["blocks"] for line in b["lines"] for span in line["spans"])
     assert "authors" in all_text
