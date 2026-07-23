@@ -271,10 +271,16 @@ lopdf / hayro / krilla の残在庫・インターフェース穴・性能余地
   マスク画像描画 11.4→4.2ms・ページ全体 ~30→~21ms。マスク合成順序が変わるため
   上流テスト 26 件に低振幅の描画差分あり＝目視確認済み・PR 本文に開示。
   レビュー待ち）。
+  packed 1-bit マスク展開の LUT 化も issue
+  [#1319](https://github.com/LaurenzV/hayro/issues/1319) + 修正 PR
+  [#1320](https://github.com/LaurenzV/hayro/pull/1320) を提出済み（2026-07-23 夕。
+  当初 JBIG2 起因と誤帰属 → 深掘りで JBIG2 フィルタは 8-bit 展開済みと判明し
+  issue を公開訂正。実際の対象は Flate 等の packed 1-bit ImageMask で、合成
+  2400x3150 マスクの decode_mask_data 48–60ms → 1.5–1.6ms（約 33 倍）・出力は
+  スイート全体でピクセル同一。wdl6812 の残り ~4.4ms は hayro-jbig2 算術復号
+  そのもの = 別テーマとして残る）。
   ほか候補: hayro #452（公式テキスト抽出 Device）、Type1 フォントメタデータの公開、
-  **JBIG2 1-bit ステンシルマスク展開の高速化**（2026-07-23 の #1315 プロファイルで
-  wdl6812 の 21ms 中 ~7ms がデコード側と実測。unpack_samples の u16 Vec + f32 補間
-  経路をビット→u8 直接展開へ。issue 提出候補）、RenderSettings への clip/offset 公開、
+  RenderSettings への clip/offset 公開、
   RenderCache の 'static 化（同寿命再利用 -27〜35% を全 embedder に解放）。
   lopdf 側の候補: SaveOptions.compression_level の通常ストリームへの一貫適用
   （Object::compress の Compression::best() 固定解消）、死にフラグ linearize の
