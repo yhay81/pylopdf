@@ -10,3 +10,6 @@
 /target
 /dist
 __pycache__
+
+# mkdocs のビルド出力
+site/

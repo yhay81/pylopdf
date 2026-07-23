@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on rotated scans as well
 
 ### Added
+- Documentation site (EN/JA) at <https://yhay81.github.io/pylopdf/> —
+  mkdocs-material with static-i18n, deployed from CI on every push to main.
+  Includes a hand-written **pymupdf migration guide** (API mapping table,
+  behavioral differences, ecosystem answers for the deliberately-unimplemented
+  parts) plus getting-started, ecosystem-recipe and API-overview pages
 - Extraction spans now carry the font's PostScript name (`"font"`) and
   pymupdf-compatible `"flags"` (italic=2, serif=4, monospace=8, bold=16),
   sourced from embedded-font metadata (weight / italic bits, with name-based

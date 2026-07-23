@@ -5,7 +5,8 @@
 [![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[English README is here](README.md)
+[English README is here](README.md) /
+**ドキュメントサイト: <https://yhay81.github.io/pylopdf/ja/>**（[移行ガイド](https://yhay81.github.io/pylopdf/ja/migration/)あり）
 
 Rust 製の PDF 編集・レンダリングライブラリ。編集は [lopdf](https://github.com/J-F-Liu/lopdf)、
 レンダリングは [hayro](https://github.com/LaurenzV/hayro)（typst が採用する純 Rust PDF レンダラ）が担います。

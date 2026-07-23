@@ -5,7 +5,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[日本語版 README はこちら](README.ja.md)
+[日本語版 README はこちら](README.ja.md) /
+**Documentation: <https://yhay81.github.io/pylopdf/>** (with a
+[pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/))
 
 PDF editing and rendering for Python, powered by Rust — [lopdf](https://github.com/J-F-Liu/lopdf) for editing and [hayro](https://github.com/LaurenzV/hayro) (the pure-Rust PDF renderer adopted by typst) for rendering.
 

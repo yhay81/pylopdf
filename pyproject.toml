@@ -55,6 +55,11 @@ bench = [
     "pypdf>=5",
     "pdfplumber>=0.11",
 ]
+# ドキュメントサイト（mkdocs）。CI は --only-group docs --no-install-project で使う
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocs-static-i18n>=1.2",
+]
 
 [tool.uv]
 # Rust ソース変更時に uv が拡張モジュールを再ビルドするためのキャッシュキー

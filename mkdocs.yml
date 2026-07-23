@@ -1,0 +1,57 @@
+site_name: pylopdf
+site_url: https://yhay81.github.io/pylopdf/
+site_description: PDF editing, extraction and rendering for Python, powered by Rust (lopdf + hayro). MIT, zero runtime dependencies, lightweight wheels.
+repo_url: https://github.com/yhay81/pylopdf
+repo_name: yhay81/pylopdf
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Ecosystem recipes: ecosystem.md
+  - Migrating from pymupdf: migration.md
+  - API overview: api.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - tables
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: ja
+          name: 日本語
+          build: true
+          nav_translations:
+            Home: ホーム
+            Getting started: はじめる
+            Ecosystem recipes: エコシステム連携
+            Migrating from pymupdf: pymupdf からの移行
+            API overview: API 一覧
