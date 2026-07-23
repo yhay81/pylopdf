@@ -1026,10 +1026,11 @@ class Document:
                                         "bbox": span_bbox,
                                         "origin": origin,
                                         "size": size,
-                                        "font": "",
+                                        "font": font,
+                                        "flags": flags,
                                         "text": text,
                                     }
-                                    for span_bbox, text, size, origin in spans
+                                    for span_bbox, text, size, origin, font, flags in spans
                                 ],
                             }
                             for line_bbox, spans, _ in lines

@@ -5,36 +5,46 @@ from __future__ import annotations
 import pylopdf
 
 
-def _layout_pdf(pages: list[list[tuple[float, float, str]]]) -> bytes:
-    """(サイズ, ベースライン y[PDF 座標], テキスト) の列からページを組み立てる。"""
+def _layout_pdf(pages: list[list[tuple]]) -> bytes:
+    """(サイズ, ベースライン y[PDF 座標], テキスト[, フォント]) の列からページを組み立てる。
+
+    フォントは F1 = Helvetica（既定）、F2 = Helvetica-Bold、F3 = Helvetica-Oblique。
+    """
     n = len(pages)
+    kids = " ".join(f"{10 + 2 * i} 0 R" for i in range(n))
     objects: dict[int, str] = {
         1: "<< /Type /Catalog /Pages 2 0 R >>",
         2: (
-            f"<< /Type /Pages /Kids [{' '.join(f'{4 + 2 * i} 0 R' for i in range(n))}] /Count {n}"
-            " /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> >>"
+            f"<< /Type /Pages /Kids [{kids}] /Count {n} /MediaBox [0 0 612 792]"
+            " /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> >>"
         ),
         3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        4: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>",
     }
     for i, items in enumerate(pages):
-        ops = "".join(
-            f"BT /F1 {size} Tf 72 {y} Td"
-            f" ({text.replace(chr(92), chr(92) * 2).replace('(', chr(92) + '(').replace(')', chr(92) + ')')}) Tj ET\n"
-            for size, y, text in items
-        )
-        objects[4 + 2 * i] = f"<< /Type /Page /Parent 2 0 R /Contents {5 + 2 * i} 0 R >>"
-        objects[5 + 2 * i] = f"<< /Length {len(ops)} >>\nstream\n{ops}endstream"
+        ops = ""
+        for item in items:
+            size, y, text = item[0], item[1], item[2]
+            font = item[3] if len(item) > 3 else "F1"
+            escaped = text.replace(chr(92), chr(92) * 2).replace("(", chr(92) + "(").replace(")", chr(92) + ")")
+            ops += f"BT /{font} {size} Tf 72 {y} Td ({escaped}) Tj ET\n"
+        objects[10 + 2 * i] = f"<< /Type /Page /Parent 2 0 R /Contents {11 + 2 * i} 0 R >>"
+        objects[11 + 2 * i] = f"<< /Length {len(ops)} >>\nstream\n{ops}endstream"
     out = bytearray(b"%PDF-1.4\n")
     offsets: dict[int, int] = {}
     for num in sorted(objects):
         offsets[num] = len(out)
         out += f"{num} 0 obj\n{objects[num]}\nendobj\n".encode("latin-1")
     xref_pos = len(out)
-    size = len(objects) + 1
+    size = max(objects) + 1
     out += f"xref\n0 {size}\n".encode("ascii")
     out += b"0000000000 65535 f \n"
-    for num in sorted(objects):
-        out += f"{offsets[num]:010d} 00000 n \n".encode("ascii")
+    for num in range(1, size):
+        if num in offsets:
+            out += f"{offsets[num]:010d} 00000 n \n".encode("ascii")
+        else:
+            out += b"0000000000 65535 f \n"
     out += f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode("ascii")
     return bytes(out)
 
@@ -97,6 +107,15 @@ def test_bullets_and_numbers_normalize() -> None:
     md = doc.to_markdown()
     assert "- first item\n- second item" in md  # 連続項目は 1 つのリスト
     assert "1. numbered" in md
+
+
+def test_dict_spans_have_font_and_flags_keys() -> None:
+    # 太字・斜体の実検出は埋め込みフォントが対象（tests/test_interop.py の typst テスト）。
+    # 標準 14（Type1 代替）は hayro がメタデータを公開しないため flags 0 / font 空が現状仕様
+    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Standard font words", "F2")]]))
+    span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][0]
+    assert span["flags"] == 0
+    assert span["font"] == ""
 
 
 def test_cjk_lines_join_without_space() -> None:

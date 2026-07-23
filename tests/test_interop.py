@@ -51,6 +51,18 @@ def test_typst_pdfa_output_opens() -> None:
         assert "Hello pylopdf" in doc.get_page_text(0)
 
 
+def test_typst_bold_italic_flow_into_markdown() -> None:
+    # 埋め込みフォントの weight / italic メタデータが span flags → to_markdown の強調になる
+    pdf = typst.compile(b'#set document(title: "t")\nNormal and *bold emphasis* and _italic part_ here.')
+    with pylopdf.open(stream=pdf) as doc:
+        span = doc.get_page_text(0, "dict")["blocks"][0]["lines"][0]["spans"][1]
+        assert span["flags"] & 16  # bold（pymupdf 互換ビット）
+        assert "Bold" in span["font"]
+        md = doc.to_markdown()
+    assert "**bold emphasis**" in md
+    assert "*italic part*" in md
+
+
 def test_pdfa_claim_reads_typst_output() -> None:
     # typst の検証付き PDF/A 出力（krilla）の宣言を get_pdfa_claim で読み取れる
     pdf_a = typst.compile(TYP_SOURCE, pdf_standards="a-2b")

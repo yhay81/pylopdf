@@ -6,8 +6,10 @@
   それより十分大きいサイズを、大きい順に見出しレベル 1..4 へ割り当てる
 - 行の連結は「CJK 文字同士なら空白を入れない」（日本語の折り返しを壊さない）
 - 行頭の箇条書き記号（・ • ● など）と「1.」「1)」を Markdown のリストへ正規化
-- スパンにフォント名情報が無いため太字・斜体は検出しない。
-  表・多段組の読み順・縦書きも未対応（ROADMAP の将来テーマ）
+- スパンの flags（埋め込みフォントの weight / italic メタデータ由来）から本文の
+  太字・斜体を強調マーカーへ変換する（見出し行は # と二重にしないためプレーンのまま）。
+  標準 14 フォント（Type1）は hayro がメタデータを公開しないため対象外
+- 表・多段組の読み順・縦書きは未対応（ROADMAP の将来テーマ）
 """
 
 from __future__ import annotations
@@ -77,8 +79,33 @@ def _join_lines(lines: list[str]) -> str:
     return out
 
 
+#: スパン flags のビット（pymupdf 互換: italic=2, serif=4, monospace=8, bold=16）
+_ITALIC = 2
+_BOLD = 16
+
+
 def _line_text(line: dict[str, Any]) -> str:
     return "".join(span["text"] for span in line["spans"]).strip()
+
+
+def _span_markdown(span: dict[str, Any]) -> str:
+    """スパンを太字・斜体マーカー付きの Markdown 片にする（前後の空白は外に出す）。"""
+    text: str = span["text"]
+    flags = int(span.get("flags", 0))
+    bold = bool(flags & _BOLD)
+    italic = bool(flags & _ITALIC)
+    core = text.strip()
+    if not core or not (bold or italic):
+        return text
+    marker = "***" if bold and italic else ("**" if bold else "*")
+    lead = text[: len(text) - len(text.lstrip())]
+    trail = text[len(text.rstrip()) :]
+    return f"{lead}{marker}{core}{marker}{trail}"
+
+
+def _line_markdown(line: dict[str, Any]) -> str:
+    """行を太字・斜体マーカー付きで組み立てる（段落本文用）。"""
+    return "".join(_span_markdown(span) for span in line["spans"]).strip()
 
 
 def _line_size(line: dict[str, Any]) -> float:
@@ -119,6 +146,7 @@ def page_to_markdown(layout: dict[str, Any], levels: dict[float, int]) -> str:
                 continue
             level = levels.get(_line_size(line))
             if level is not None:
+                # 見出しはプレーンテキスト（# と強調マーカーの二重化を避ける）
                 flush()
                 entries.append(("h", "#" * level + " " + text))
                 continue
@@ -127,7 +155,7 @@ def page_to_markdown(layout: dict[str, Any], levels: dict[float, int]) -> str:
                 flush()
                 entries.append(("li", item))
                 continue
-            paragraph.append(text)
+            paragraph.append(_line_markdown(line))
         flush()
 
     # 連続するリスト項目は 1 つのリストにまとめる（間に空行を入れない）

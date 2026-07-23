@@ -11,9 +11,44 @@ use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
     InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Point, Rect};
+
+/// フォント単位の表示属性（スパンへ引き渡す。pymupdf 互換の flags ビット）。
+#[derive(Clone, Default)]
+struct FontInfo {
+    /// PostScript 名（取れなければ空）
+    name: Arc<str>,
+    /// pymupdf 互換フラグ: italic=2, serif=4, monospace=8, bold=16
+    flags: i64,
+}
+
+/// OutlineGlyph からフォント名とフラグを求める（フォントごとに 1 回だけ呼ぶ）。
+fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo {
+    let Some(data) = glyph.font_data() else {
+        return FontInfo::default();
+    };
+    let name: Arc<str> = Arc::from(data.postscript_name.unwrap_or_default());
+    let lower = name.to_ascii_lowercase();
+    let mut flags = 0i64;
+    if data.is_italic || lower.contains("italic") || lower.contains("oblique") {
+        flags |= 2;
+    }
+    if data.is_serif {
+        flags |= 4;
+    }
+    if data.is_monospace {
+        flags |= 8;
+    }
+    if data.weight.is_some_and(|w| w >= 600) || lower.contains("bold") {
+        flags |= 16;
+    }
+    FontInfo { name, flags }
+}
 
 /// 収集した 1 グリフ分の情報。座標は「左上原点・下向き y」の表示座標
 /// （レンダリングと同じ initial_transform 適用後の空間。ページ回転も解決済み）。
@@ -30,11 +65,15 @@ struct GlyphRecord {
     advance: f64,
     /// フォントの識別キー（スパン分割に使う。Type3 は 0）
     font_key: u128,
+    /// フォントの表示属性（名前 + pymupdf 互換 flags）
+    font: FontInfo,
 }
 
 /// グリフを収集するだけの Device 実装。描画系の命令はすべて無視する。
 struct TextCollector {
     glyphs: Vec<GlyphRecord>,
+    /// font_key → FontInfo のキャッシュ（font_data の解決はフォントごとに 1 回で済ます）
+    font_infos: HashMap<u128, FontInfo>,
 }
 
 impl Device<'_> for TextCollector {
@@ -76,9 +115,17 @@ impl Device<'_> for TextCollector {
         }
         // 送り幅: グリフ座標系の advance を x 基底で変換した長さ。
         // 取れないフォント（Type3 等）はサイズの半分で近似する
-        let (advance_width, font_key) = match glyph {
-            Glyph::Outline(g) => (g.advance_width().map(f64::from), g.font_cache_key()),
-            Glyph::Type3(_) => (None, 0),
+        let (advance_width, font_key, font) = match glyph {
+            Glyph::Outline(g) => {
+                let key = g.font_cache_key();
+                let info = self
+                    .font_infos
+                    .entry(key)
+                    .or_insert_with(|| font_info_of(g))
+                    .clone();
+                (g.advance_width().map(f64::from), key, info)
+            }
+            Glyph::Type3(_) => (None, 0, FontInfo::default()),
         };
         let advance = advance_width
             .map(|adv| {
@@ -99,6 +146,7 @@ impl Device<'_> for TextCollector {
             size,
             advance,
             font_key,
+            font,
         });
     }
 }
@@ -169,8 +217,8 @@ fn assemble_text(glyphs: Vec<GlyphRecord>) -> String {
 
 /// bbox（x0, y0, x1, y1。左上原点・下向き y）。
 type BBox = (f64, f64, f64, f64);
-/// スパン: (bbox, text, size, origin)。
-type SpanTuple = (BBox, String, f64, (f64, f64));
+/// スパン: (bbox, text, size, origin, フォント名, flags)。
+type SpanTuple = (BBox, String, f64, (f64, f64), String, i64);
 /// 語: (bbox, text)。
 type WordTuple = (BBox, String);
 /// 行: (bbox, spans, words)。
@@ -218,6 +266,8 @@ fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
                 text,
                 glyphs.iter().map(|g| g.size).fold(0.0, f64::max),
                 (glyphs[0].x, glyphs[0].y),
+                glyphs[0].font.name.to_string(),
+                glyphs[0].font.flags,
             ));
             start = i;
         }
@@ -580,7 +630,10 @@ pub(crate) fn extract_page_images(
 fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Vec<GlyphRecord> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
-    let mut collector = TextCollector { glyphs: Vec::new() };
+    let mut collector = TextCollector {
+        glyphs: Vec::new(),
+        font_infos: HashMap::new(),
+    };
     interpret_page(page, &mut context, &mut collector);
     collector.glyphs
 }

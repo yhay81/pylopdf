@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on rotated scans as well
 
 ### Added
+- Extraction spans now carry the font's PostScript name (`"font"`) and
+  pymupdf-compatible `"flags"` (italic=2, serif=4, monospace=8, bold=16),
+  sourced from embedded-font metadata (weight / italic bits, with name-based
+  fallback). `to_markdown` turns bold / italic body spans into `**` / `*`
+  emphasis (headings stay plain). Standard-14 (Type1) fonts report empty
+  name / zero flags because hayro does not expose Type1 metadata yet
+  (upstream candidate)
 - Reproducible benchmark harness (`bench/run.py`, optional `bench` dependency
   group): same corpus / same tasks / medians against pymupdf, pypdf and
   pdfplumber, with extraction similarity vs pymupdf as a correctness proxy.
