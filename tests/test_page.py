@@ -82,7 +82,14 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
 
 @pytest.mark.parametrize(
     "rect",
-    [(0, 0, -10, 400), (0, 0, 612, 0), (0, 0, float("nan"), 400), (0, 0, 612), "abcd"],
+    [
+        (0, 0, -10, 400),
+        (0, 0, 612, 0),
+        (0, 0, float("nan"), 400),
+        (0, 0, 1e39, 400),
+        (0, 0, 612),
+        "abcd",
+    ],
 )
 def test_set_box_invalid(one_page_pdf: bytes, rect: object) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)

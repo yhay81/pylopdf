@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_images()` keeps the higher-compression encoder for stored artifacts
 
 ### Fixed
+- `max_decompressed_size=` now validates page content and other streams that
+  hayro would otherwise decompress lazily. Image streams are bounded by decoded
+  RGBA size, and filter chains that cannot be bounded safely are rejected while
+  the limit is enabled
+- `insert_pdf()` and `show_pdf_page()` now prune source objects that are not
+  reachable from the imported page or Form XObject, preventing hidden
+  attachments and metadata from leaking into saved output
+- Adding an annotation to a page made by `copy_page()` / `select()` now
+  clone-on-writes a shared indirect `/Annots` array instead of modifying every
+  duplicate
+- Reading an embedded-file name tree containing inline FileSpec dictionaries no
+  longer mutates the document or grows its serialized output
+- Malformed, truncated JPEG SOF segments now raise `PdfError` instead of
+  panicking in Rust
+- Page boxes and new-page dimensions outside PDF's finite real-number range are
+  rejected instead of becoming infinities during the Python-to-Rust conversion
+- The repository's documented strict Clippy and default mypy commands now pass:
+  the complex destination result has a named alias, and optional interoperability
+  imports are covered when that dependency group is absent
 - Extraction, search, positioned layout (words/blocks/dict) and image bboxes on
   **rotated pages** now come out in display space with the rotation resolved,
   matching rendering: the extraction Context receives the same

@@ -90,8 +90,9 @@ module = "pylopdf_fonts_cjk"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# interop グループ（連携テスト用）未インストール環境でも型チェックが通るようにする
-module = ["typst", "pyhanko.*"]
+# interop グループ（連携テスト用）未インストール環境でも型チェックが通るようにする。
+# cryptography は pyHanko の推移依存だが、通常の dev グループだけでは入らない。
+module = ["typst", "pyhanko.*", "cryptography", "cryptography.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

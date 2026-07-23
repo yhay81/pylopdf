@@ -54,7 +54,15 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
         let length = usize::from(u16::from_be_bytes([data[pos + 2], data[pos + 3]]));
         // SOF0-15（C4=DHT, C8=JPG, CC=DAC を除く）が寸法を持つ
         if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
-            if pos + 9 > data.len() {
+            if length < 8
+                || pos
+                    .checked_add(2 + length)
+                    .is_none_or(|end| end > data.len())
+            {
+                return Err("JPEG の SOF セグメント長が壊れています".to_owned());
+            }
+            // components（pos + 9）まで読むため、最低 10 バイト必要。
+            if pos.checked_add(10).is_none_or(|end| end > data.len()) {
                 return Err("JPEG の SOF セグメントが壊れています".to_owned());
             }
             let height = u32::from(u16::from_be_bytes([data[pos + 5], data[pos + 6]]));

@@ -250,7 +250,7 @@ signed_pdf: bytes = out.getvalue()
 
 | メソッド / プロパティ | 説明 |
 |---|---|
-| `Document(filename=None, stream=None, password=None, max_decompressed_size=None)` | パスかバイト列から開く。両方 None で空ドキュメント。max_decompressed_size は解凍爆弾対策の展開上限 |
+| `Document(filename=None, stream=None, password=None, max_decompressed_size=None)` | パスかバイト列から開く。両方 None で空ドキュメント。max_decompressed_size は各ストリームをロード時検証する展開上限 |
 | `doc[i]` / `load_page(pno)` / `for page in doc` | Page ビューを取得（負数は末尾から。ページ構造の変更後は取得し直す） |
 | `needs_pass` / `is_encrypted` | 暗号化状態（pymupdf 互換の意味論） |
 | `authenticate(password)` | パスワードで復号（戻り値 0/1/2/4/6、pymupdf 互換） |

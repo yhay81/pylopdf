@@ -8,10 +8,12 @@ lopdf / hayro の限界を早期発見する。各ファイルの出典・ライ
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from conftest import build_raw_pdf
 
 import pylopdf
 
@@ -70,6 +72,29 @@ def test_max_decompressed_size_guards_against_bombs() -> None:
     with pytest.raises(pylopdf.PdfError, match="limit"):
         pylopdf.open(path, max_decompressed_size=100)
     assert pylopdf.open(path, max_decompressed_size=50_000_000).page_count == 2
+
+
+@pytest.mark.parametrize("filter_name", ["FlateDecode", "Fl"])
+def test_max_decompressed_size_guards_page_content_streams(filter_name: str) -> None:
+    """hayro が遅延展開するページ Contents にもロード時の上限を適用する。"""
+    expanded = b" " * 200_000
+    compressed = zlib.compress(expanded)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+            4: (
+                f"<< /Length {len(compressed)} /Filter /{filter_name} >>\nstream\n".encode()
+                + compressed
+                + b"\nendstream"
+            ),
+        }
+    )
+    with pytest.raises(pylopdf.PdfError, match="100-byte limit"):
+        pylopdf.open(stream=pdf, max_decompressed_size=100)
+    doc = pylopdf.open(stream=pdf, max_decompressed_size=len(expanded))
+    assert doc.get_page_text(0) == ""
 
 
 @WITH_TEXT

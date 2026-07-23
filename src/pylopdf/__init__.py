@@ -141,6 +141,9 @@ def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
 #: 色成分（R/G/B/A）の最大値。
 _COLOR_MAX = 255
 
+#: lopdf の PDF 実数（f32）で有限のまま表現できる絶対値上限。
+_FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
+
 
 def _normalize_background(
     background: tuple[int, int, int] | tuple[int, int, int, int] | None,
@@ -163,15 +166,15 @@ def _normalize_background(
     return rgba
 
 
-def _validate_rect(rect: Sequence[float]) -> tuple[float, float, float, float]:
+def _validate_rect(rect: Sequence[float], *, name: str = "rect") -> tuple[float, float, float, float]:
     """(x0, y0, x1, y1) の矩形引数を検証して float タプルにする。"""
     try:
         x0, y0, x1, y1 = (float(v) for v in rect)
     except (TypeError, ValueError) as exc:
-        msg = f"rect は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
+        msg = f"{name} は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
         raise ValueError(msg) from exc
-    if not all(map(math.isfinite, (x0, y0, x1, y1))) or x0 >= x1 or y0 >= y1:
-        msg = f"rect は x0 < x1, y0 < y1 の有限な矩形で指定してください: {rect!r}"
+    if not all(math.isfinite(v) and abs(v) <= _FLOAT32_MAX for v in (x0, y0, x1, y1)) or x0 >= x1 or y0 >= y1:
+        msg = f"{name} は x0 < x1, y0 < y1 で PDF 実数の範囲内にある有限な矩形で指定してください: {rect!r}"
         raise ValueError(msg)
     return x0, y0, x1, y1
 
@@ -363,14 +366,7 @@ class Page:
 
     def _set_box(self, key: str, rect: Sequence[float]) -> None:
         """ボックス引数を検証して設定する。"""
-        try:
-            x0, y0, x1, y1 = (float(v) for v in rect)
-        except (TypeError, ValueError) as exc:
-            msg = f"{key} は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
-            raise ValueError(msg) from exc
-        if not all(map(math.isfinite, (x0, y0, x1, y1))) or x0 >= x1 or y0 >= y1:
-            msg = f"{key} は x0 < x1, y0 < y1 の有限な矩形で指定してください: {rect!r}"
-            raise ValueError(msg)
+        x0, y0, x1, y1 = _validate_rect(rect, name=key)
         self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
 
     @overload
@@ -750,7 +746,9 @@ class Document:
         暗号化 PDF は user password 空なら自動復号される。それ以外は password を
         指定するか、開いた後に :meth:`authenticate` を呼ぶ。
         max_decompressed_size は 1 ストリームあたりの展開上限バイト数
-        （信頼できない PDF の解凍爆弾対策。None で無制限）。
+        （信頼できない PDF の解凍爆弾対策。None で無制限）。ページ内容など
+        遅延展開されるストリームもロード時に検証し、安全に上限を判定できない
+        フィルタ構成は拒否する。
         """
         if filename is not None and stream is not None:
             msg = "filename と stream は同時に指定できません"
@@ -1171,8 +1169,12 @@ class Document:
         ページサイズ（PDF 単位。既定は A4 縦 595x842）。
         """
         self._ensure_open()
-        if not (math.isfinite(width) and math.isfinite(height)) or width <= 0 or height <= 0:
-            msg = f"width / height は正の有限値で指定してください: ({width!r}, {height!r})"
+        if (
+            not (math.isfinite(width) and math.isfinite(height))
+            or not (0 < width <= _FLOAT32_MAX)
+            or not (0 < height <= _FLOAT32_MAX)
+        ):
+            msg = f"width / height は PDF 実数の範囲内にある正の有限値で指定してください: ({width!r}, {height!r})"
             raise ValueError(msg)
         if pno == -1:
             position = None

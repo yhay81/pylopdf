@@ -5,6 +5,30 @@ from __future__ import annotations
 import pytest
 
 
+def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> bytes:
+    """連続したオブジェクト辞書から xref table 形式の最小 PDF を組み立てる。"""
+    expected = list(range(1, len(objects) + 1))
+    if sorted(objects) != expected:
+        msg = f"objects の番号は 1..{len(objects)} の連番で指定してください"
+        raise ValueError(msg)
+    out = bytearray(f"%PDF-{version}\n".encode())
+    offsets: dict[int, int] = {}
+    for number in expected:
+        value = objects[number]
+        body = value.encode("latin-1") if isinstance(value, str) else value
+        offsets[number] = len(out)
+        out.extend(f"{number} 0 obj\n".encode())
+        out.extend(body)
+        out.extend(b"\nendobj\n")
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    out.extend(b"0000000000 65535 f \n")
+    for number in expected:
+        out.extend(f"{offsets[number]:010d} 00000 n \n".encode())
+    out.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode())
+    return bytes(out)
+
+
 def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:
     """1 テキスト = 1 ページの最小 PDF を組み立てる。
 

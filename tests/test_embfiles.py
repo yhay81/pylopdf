@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
 
@@ -37,6 +37,34 @@ def test_embfile_multiple_names_sorted() -> None:
     assert doc.embfile_names() == ["a.txt", "b.txt"]
     assert doc.embfile_get("a.txt") == b"A"
     assert doc.embfile_get("b.txt") == b"B"
+
+
+def test_inline_filespec_reads_do_not_mutate_document() -> None:
+    """合法なインライン FileSpec を読むだけで孤立オブジェクトを増やさない。"""
+    pdf = build_raw_pdf(
+        {
+            1: (
+                "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << "
+                "/Names [(x.txt) << /Type /Filespec /F (x.txt) /EF << /F 4 0 R >> >>] >> >> >>"
+            ),
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: b"<< /Type /EmbeddedFile /Length 3 >>\nstream\nabc\nendstream",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = len(doc.tobytes())
+
+    for _ in range(4):
+        assert doc.embfile_names() == ["x.txt"]
+        assert doc.embfile_get("x.txt") == b"abc"
+
+    assert len(doc.tobytes()) == before
+    doc.embfile_add("y.txt", b"def")
+    assert doc.embfile_names() == ["x.txt", "y.txt"]
+    assert doc.embfile_get("x.txt") == b"abc"
+    doc.embfile_del("x.txt")
+    assert doc.embfile_names() == ["y.txt"]
 
 
 def test_embfile_del_removes() -> None:

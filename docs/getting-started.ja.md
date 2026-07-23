@@ -32,7 +32,8 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。
 `pylopdf.peek_metadata(path)` は全体をパースせずメタデータとページ数だけを高速に
 読みます（大量走査向け）。信頼できないファイルには `max_decompressed_size=` を
-（解凍爆弾対策）。
+指定してください（解凍爆弾対策）。ページ内容や画像の展開後サイズもストリームごとに
+ロード時検証し、安全に上限を判定できないフィルタ構成は上限指定中に拒否します。
 
 ## ページ・テキスト・検索
 

@@ -252,7 +252,7 @@ signed_pdf: bytes = out.getvalue()
 
 | Method / property | Description |
 |---|---|
-| `Document(filename=None, stream=None, password=None, max_decompressed_size=None)` | Open from a path or bytes; empty document if both are None. `max_decompressed_size` guards against decompression bombs |
+| `Document(filename=None, stream=None, password=None, max_decompressed_size=None)` | Open from a path or bytes; empty document if both are None. `max_decompressed_size` validates each stream's decoded size at open time |
 | `doc[i]` / `load_page(pno)` / `for page in doc` | Get a Page view (negative indices count from the end; re-fetch after structural changes) |
 | `needs_pass` / `is_encrypted` | Encryption status (pymupdf-compatible semantics) |
 | `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |

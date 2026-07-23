@@ -65,6 +65,20 @@ def test_insert_pdf_empty_source_noop(three_page_pdf: bytes) -> None:
     assert doc.page_count == 3
 
 
+def test_insert_pdf_does_not_keep_unreachable_source_data() -> None:
+    """ページから到達しない添付データを取り込み先へ漏らさない。"""
+    secret = b"SECRET-UNREFERENCED-ATTACHMENT-7c3f"
+    source = pylopdf.Document()
+    source.new_page(width=100, height=100)
+    source.embfile_add("secret.txt", secret)
+
+    target = pylopdf.Document()
+    target.insert_pdf(source)
+
+    assert target.embfile_names() == []
+    assert secret not in target.tobytes()
+
+
 def test_new_page_appends_blank(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     page = doc.new_page()
@@ -91,6 +105,8 @@ def test_new_page_invalid_size(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="width"):
         doc.new_page(width=0)
+    with pytest.raises(ValueError, match="PDF 実数"):
+        doc.new_page(width=1e39)
 
 
 def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:

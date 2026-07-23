@@ -33,7 +33,9 @@ Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
 `pylopdf.peek_metadata(path)` reads metadata and page count without parsing the
 whole file — useful when scanning large collections. Pass
 `max_decompressed_size=` when processing untrusted files (decompression-bomb
-protection).
+protection). The limit is checked per stream at open time, including page
+content and decoded image size; streams whose filter chain cannot be bounded
+safely are rejected while the limit is enabled.
 
 ## Pages, text, search
 

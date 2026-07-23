@@ -132,6 +132,9 @@ def test_insert_image_rejects_bad_input() -> None:
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
     with pytest.raises(pylopdf.PdfError, match="画像形式"):
         page.insert_image((0, 0, 10, 10), stream=b"not an image")
+    truncated_jpeg = bytes([0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 1, 0, 1])
+    with pytest.raises(pylopdf.PdfError, match="JPEG"):
+        page.insert_image((0, 0, 10, 10), stream=truncated_jpeg)
 
 
 def test_show_pdf_page_overlays_vector_text() -> None:
@@ -173,6 +176,21 @@ def test_show_pdf_page_rejects_same_document() -> None:
     doc = _new_page_doc()
     with pytest.raises(ValueError, match="同一ドキュメント"):
         doc[0].show_pdf_page((0, 0, 50, 50), doc)
+
+
+def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
+    """Formから到達しない添付データを取り込み先へ漏らさない。"""
+    secret = b"SECRET-UNREFERENCED-STAMP-ATTACHMENT-91af"
+    source = pylopdf.Document()
+    source.new_page(width=100, height=100)
+    source.embfile_add("secret.txt", secret)
+    target = pylopdf.Document()
+    page = target.new_page(width=100, height=100)
+
+    page.show_pdf_page((0, 0, 100, 100), source)
+
+    assert target.embfile_names() == []
+    assert secret not in target.tobytes()
 
 
 def test_show_pdf_page_accepts_negative_pno() -> None:

@@ -41,6 +41,14 @@ type LinkTuple = (
     Option<String>,
 );
 
+/// リンク宛先の解決結果（ページ番号、表示座標、ズーム、named destination）。
+type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
+
+/// EmbeddedFiles 名前ツリーの 1 要素（表示名、FileSpec オブジェクト）。
+///
+/// FileSpec は仕様上、間接参照とインライン辞書のどちらも取り得る。
+type EmbeddedFileEntry = (String, Object);
+
 /// 参照なら 1 段だけ実体へ解決する（解決できなければ元のオブジェクトを返す）。
 fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     match obj {
@@ -161,6 +169,17 @@ fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
 /// lopdf のエラーを Python 例外に変換する。
 fn to_py_err(e: lopdf::Error) -> PyErr {
     lopdf_err(None, &e)
+}
+
+/// f64 を PDF の実数表現（lopdf::Object::Real = f32）へ安全に変換する。
+fn checked_pdf_real(value: f64, name: &str) -> PyResult<f32> {
+    let converted = value as f32;
+    if !value.is_finite() || !converted.is_finite() {
+        return Err(PdfError::new_err(format!(
+            "{name} は PDF 実数の範囲内にある有限値で指定してください: {value:?}"
+        )));
+    }
+    Ok(converted)
 }
 
 /// PdfMetadata を Python へ渡すタプル（Info 文字列辞書, ページ数, バージョン, 暗号化有無）に変換する。
@@ -294,6 +313,202 @@ fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
         Object::Reference(id) => doc.get_object(*id).ok()?.as_i64().ok(),
         other => other.as_i64().ok(),
     }
+}
+
+/// RunLengthDecode の展開後サイズを、出力を確保せずに検証する。
+fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
+    let mut pos = 0usize;
+    let mut output_len = 0usize;
+    while pos < data.len() {
+        let length = data[pos];
+        pos += 1;
+        match length {
+            0..=127 => {
+                let count = usize::from(length) + 1;
+                if pos.checked_add(count).is_none_or(|end| end > data.len()) {
+                    return Err(PdfError::new_err(
+                        "RunLengthDecode ストリームが途中で切れています",
+                    ));
+                }
+                pos += count;
+                output_len = output_len.checked_add(count).ok_or_else(|| {
+                    PdfError::new_err("RunLengthDecode の展開サイズが上限を超えています")
+                })?;
+            }
+            128 => break,
+            129..=255 => {
+                if pos >= data.len() {
+                    return Err(PdfError::new_err(
+                        "RunLengthDecode ストリームが途中で切れています",
+                    ));
+                }
+                pos += 1;
+                output_len = output_len
+                    .checked_add(257 - usize::from(length))
+                    .ok_or_else(|| {
+                        PdfError::new_err("RunLengthDecode の展開サイズが上限を超えています")
+                    })?;
+            }
+        }
+        if output_len > max_output {
+            return Err(PdfError::new_err(format!(
+                "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// ASCIIHexDecode の展開後サイズを、出力を確保せずに検証する。
+fn validate_ascii_hex_size(data: &[u8], max_output: usize) -> PyResult<()> {
+    let digits = data
+        .iter()
+        .take_while(|&&byte| byte != b'>')
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .count();
+    let output_len = digits.div_ceil(2);
+    if output_len > max_output {
+        return Err(PdfError::new_err(format!(
+            "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
+        )));
+    }
+    Ok(())
+}
+
+/// PDF 仕様で許可されるフィルタ名の短縮形を正規名へそろえる。
+fn canonical_filter_name(filter: &[u8]) -> &[u8] {
+    match filter {
+        b"Fl" => b"FlateDecode",
+        b"LZW" => b"LZWDecode",
+        b"A85" => b"ASCII85Decode",
+        b"AHx" => b"ASCIIHexDecode",
+        b"RL" => b"RunLengthDecode",
+        b"CCF" => b"CCITTFaxDecode",
+        b"DCT" => b"DCTDecode",
+        _ => filter,
+    }
+}
+
+/// hayro が遅延展開するストリームも含め、ロード時に展開上限を先行検証する。
+///
+/// lopdf が上限付きで扱える Flate/LZW/ASCII85 は実際に上限付き展開し、
+/// RunLength/ASCIIHex は出力サイズだけを走査する。画像デコーダが展開する
+/// DCT/JPX/JBIG2/CCITT は、RGBA 化時の画素バッファを Width×Height×4 で制限する。
+/// 安全に上限を検証できないフィルタ鎖は、上限指定時には明示的に拒否する。
+fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<()> {
+    const LOPDF_FILTERS: [&[u8]; 3] = [b"FlateDecode", b"LZWDecode", b"ASCII85Decode"];
+    const IMAGE_FILTERS: [&[u8]; 4] = [
+        b"DCTDecode",
+        b"JPXDecode",
+        b"JBIG2Decode",
+        b"CCITTFaxDecode",
+    ];
+
+    for object in doc.objects.values() {
+        let Object::Stream(stream) = object else {
+            continue;
+        };
+        if !stream.dict.has(b"Filter") {
+            stream
+                .get_plain_content_with_limit(max_output)
+                .map_err(to_py_err)?;
+            continue;
+        }
+        let raw_filters = stream.filters().map_err(to_py_err)?;
+        let filters: Vec<&[u8]> = raw_filters
+            .iter()
+            .map(|filter| canonical_filter_name(filter))
+            .collect();
+        if filters.is_empty() {
+            stream
+                .get_plain_content_with_limit(max_output)
+                .map_err(to_py_err)?;
+            continue;
+        }
+        // lopdf のデコーダは正規名だけを受け付けるため、短縮形を clone 側で正規化する。
+        let mut checked_stream = stream.clone();
+        let normalized_filter = if filters.len() == 1 {
+            Object::Name(filters[0].to_vec())
+        } else {
+            Object::Array(
+                filters
+                    .iter()
+                    .map(|filter| Object::Name(filter.to_vec()))
+                    .collect(),
+            )
+        };
+        checked_stream.dict.set("Filter", normalized_filter);
+
+        let first_unsupported = filters
+            .iter()
+            .position(|filter| !LOPDF_FILTERS.contains(filter));
+        match first_unsupported {
+            None => {
+                checked_stream
+                    .get_plain_content_with_limit(max_output)
+                    .map_err(to_py_err)?;
+            }
+            Some(index)
+                if IMAGE_FILTERS.contains(&filters[index])
+                    && index + 1 == filters.len()
+                    && filters[..index]
+                        .iter()
+                        .all(|filter| LOPDF_FILTERS.contains(filter)) =>
+            {
+                // 画像フィルタより前の圧縮層は lopdf で上限付き展開する。
+                if index > 0 {
+                    match checked_stream.get_plain_content_with_limit(max_output) {
+                        Err(lopdf::Error::Unimplemented(_)) => {}
+                        result => {
+                            result.map_err(to_py_err)?;
+                        }
+                    }
+                }
+                let width = stream
+                    .dict
+                    .get(b"Width")
+                    .ok()
+                    .and_then(|value| resolve_i64(doc, value));
+                let height = stream
+                    .dict
+                    .get(b"Height")
+                    .ok()
+                    .and_then(|value| resolve_i64(doc, value));
+                let (Some(width), Some(height)) = (width, height) else {
+                    return Err(PdfError::new_err(
+                        "画像ストリームの Width / Height を解決できず、展開上限を検証できません",
+                    ));
+                };
+                let decoded_size = u64::try_from(width)
+                    .ok()
+                    .and_then(|width| {
+                        u64::try_from(height)
+                            .ok()
+                            .and_then(|height| width.checked_mul(height))
+                    })
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .ok_or_else(|| PdfError::new_err("画像の展開サイズが上限を超えています"))?;
+                if decoded_size > max_output as u64 {
+                    return Err(PdfError::new_err(format!(
+                        "decompressed image output exceeded the {max_output}-byte limit (possible decompression bomb)"
+                    )));
+                }
+            }
+            Some(index) if filters.len() == 1 && filters[index] == b"RunLengthDecode" => {
+                validate_run_length_size(&stream.content, max_output)?;
+            }
+            Some(index) if filters.len() == 1 && filters[index] == b"ASCIIHexDecode" => {
+                validate_ascii_hex_size(&stream.content, max_output)?;
+            }
+            Some(index) => {
+                return Err(PdfError::new_err(format!(
+                    "フィルタ {:?} を含むストリームの展開上限を安全に検証できません",
+                    String::from_utf8_lossy(filters[index])
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// レンダリング時に非埋め込み CJK フォントへ充てる代替フォント。
@@ -598,12 +813,41 @@ impl _Document {
         };
         match array_ref {
             Some(arr_id) => {
-                let arr = self
-                    .doc
-                    .get_object_mut(arr_id)
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
-                arr.push(Object::Reference(annot_id));
+                // copy_page / select の複製ページは間接 Annots 配列を共有し得る。
+                // 共有中だけ clone-on-write し、片方への追加が他方へ漏れないようにする。
+                let shared = self.doc.get_pages().into_values().any(|other_page_id| {
+                    other_page_id != page_id
+                        && self
+                            .doc
+                            .get_object(other_page_id)
+                            .and_then(Object::as_dict)
+                            .ok()
+                            .and_then(|page| page.get(b"Annots").ok())
+                            .and_then(|annots| annots.as_reference().ok())
+                            == Some(arr_id)
+                });
+                if shared {
+                    let mut arr = self
+                        .doc
+                        .get_object(arr_id)
+                        .and_then(Object::as_array)
+                        .map_err(to_py_err)?
+                        .clone();
+                    arr.push(Object::Reference(annot_id));
+                    let page = self
+                        .doc
+                        .get_object_mut(page_id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    page.set("Annots", arr);
+                } else {
+                    let arr = self
+                        .doc
+                        .get_object_mut(arr_id)
+                        .and_then(Object::as_array_mut)
+                        .map_err(to_py_err)?;
+                    arr.push(Object::Reference(annot_id));
+                }
             }
             None => {
                 let page = self
@@ -906,7 +1150,7 @@ impl _Document {
         &self,
         dest: &Object,
         page_map: &BTreeMap<ObjectId, u32>,
-    ) -> (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>) {
+    ) -> ResolvedDestination {
         let doc = &self.doc;
         let mut nameddest = None;
         let mut resolved = deref_object(doc, dest);
@@ -969,6 +1213,97 @@ impl _Document {
     }
 }
 
+/// 添付ファイル（EmbeddedFiles 名前ツリー）の (名前, FileSpec) を集める。
+///
+/// /Kids 分割された名前ツリーも再帰的に辿る（深さ・循環はガード）。
+/// 読み取り操作で文書を変えないよう、インライン辞書はそのまま保持する。
+fn collect_embedded_files(doc: &Document) -> Vec<EmbeddedFileEntry> {
+    fn node_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
+        match obj {
+            Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
+            Object::Dictionary(d) => Some(d.clone()),
+            _ => None,
+        }
+    }
+    let Some(root) = doc
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(b"Names").ok().cloned())
+        .and_then(|names| node_dict(doc, &names))
+        .and_then(|names| names.get(b"EmbeddedFiles").ok().cloned())
+        .and_then(|ef| node_dict(doc, &ef))
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut stack = vec![(root, 0usize)];
+    while let Some((node, depth)) = stack.pop() {
+        if depth > 32 {
+            continue;
+        }
+        if let Ok(pairs) = node.get(b"Names").and_then(Object::as_array) {
+            for pair in pairs.chunks(2) {
+                let [key, value] = pair else { continue };
+                let Ok(name) = decode_text_string(key) else {
+                    continue;
+                };
+                let filespec = match value {
+                    Object::Reference(id) => Object::Reference(*id),
+                    Object::Dictionary(d) => Object::Dictionary(d.clone()),
+                    _ => continue,
+                };
+                out.push((name, filespec));
+            }
+        }
+        if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
+            for kid in kids.clone() {
+                if let Some(dict) = node_dict(doc, &kid) {
+                    stack.push((dict, depth + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// EmbeddedFiles 名前ツリーを平坦な 1 ノードで書き戻す（他の名前ツリーは保存）。
+fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>) -> PyResult<()> {
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut flat = Vec::with_capacity(entries.len() * 2);
+    for (name, filespec) in entries {
+        flat.push(text_string(&name));
+        flat.push(filespec);
+    }
+    let tree = Object::Dictionary(dictionary! { "Names" => Object::Array(flat) });
+    // /Names が間接参照ならその実体を、インラインなら Catalog 内をその場で書き換える
+    let names_ref = doc
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(b"Names").ok())
+        .and_then(|n| n.as_reference().ok());
+    match names_ref {
+        Some(id) => {
+            let names = doc
+                .get_object_mut(id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            names.set("EmbeddedFiles", tree);
+        }
+        None => {
+            let catalog = doc.catalog_mut().map_err(to_py_err)?;
+            if !catalog.has(b"Names") {
+                catalog.set("Names", Dictionary::new());
+            }
+            let names = catalog
+                .get_mut(b"Names")
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            names.set("EmbeddedFiles", tree);
+        }
+    }
+    Ok(())
+}
+
 #[pymethods]
 impl _Document {
     /// 空の PDF ドキュメントを作る。
@@ -997,9 +1332,14 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            Document::load_with_options(path, options)
-                .map(Self::from_doc)
-                .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))
+            let doc = Document::load_with_options(path, options)
+                .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))?;
+            if !doc.is_encrypted()
+                && let Some(limit) = max_decompressed_size
+            {
+                validate_decompression_limits(&doc, limit)?;
+            }
+            Ok(Self::from_doc(doc))
         })
     }
 
@@ -1018,9 +1358,13 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            Document::load_mem_with_options(data, options)
-                .map(Self::from_doc)
-                .map_err(to_py_err)
+            let doc = Document::load_mem_with_options(data, options).map_err(to_py_err)?;
+            if !doc.is_encrypted()
+                && let Some(limit) = max_decompressed_size
+            {
+                validate_decompression_limits(&doc, limit)?;
+            }
+            Ok(Self::from_doc(doc))
         })
     }
 
@@ -1332,7 +1676,6 @@ impl _Document {
         py.detach(|| {
             // 空ドキュメントでは先に Pages / Catalog の ID を確保し、取り込み元との衝突を防ぐ
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
-            let subset = page_numbers.len() < other.doc.get_pages().len();
             let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
             match position {
                 None => self.append_pages(pages_id, new_ids)?,
@@ -1341,10 +1684,10 @@ impl _Document {
                     self.rebuild_page_tree(pages_id, order)?;
                 }
             }
-            if subset || position.is_some() {
-                // 対象外ページの資産や旧中間ノードを掃除する
-                self.doc.prune_objects();
-            }
+            // transplant_pages は取り込み元の全非ページオブジェクトを一度移すため、
+            // 選択ページから到達できない添付・メタデータ等を必ず掃除する。
+            // 省略すると完全範囲の末尾追加でも非表示データが保存結果へ残る。
+            self.doc.prune_objects();
             Ok(())
         })
     }
@@ -1352,6 +1695,11 @@ impl _Document {
     /// 空ページを position（0 始まり、None で末尾）に挿入する。
     fn new_page(&mut self, position: Option<usize>, width: f32, height: f32) -> PyResult<()> {
         self.invalidate_hayro_pdf();
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err(PdfError::new_err(format!(
+                "width / height は PDF 実数の範囲内にある正の有限値で指定してください: ({width:?}, {height:?})"
+            )));
+        }
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let page_id = self.doc.add_object(dictionary! {
             "Type" => "Page",
@@ -1677,6 +2025,10 @@ impl _Document {
         y1: f64,
     ) -> PyResult<()> {
         self.invalidate_hayro_pdf();
+        let x0 = checked_pdf_real(x0, "x0")?;
+        let y0 = checked_pdf_real(y0, "y0")?;
+        let x1 = checked_pdf_real(x1, "x1")?;
+        let y1 = checked_pdf_real(y1, "y1")?;
         let page_id = self.page_id(page_number)?;
         let dict = self
             .doc
@@ -1686,10 +2038,10 @@ impl _Document {
         dict.set(
             key,
             Object::Array(vec![
-                Object::Real(x0 as f32),
-                Object::Real(y0 as f32),
-                Object::Real(x1 as f32),
-                Object::Real(y1 as f32),
+                Object::Real(x0),
+                Object::Real(y0),
+                Object::Real(x1),
+                Object::Real(y1),
             ]),
         );
         Ok(())
@@ -1856,7 +2208,11 @@ impl _Document {
                 draw::draw_ops(matrix, &name),
                 overlay,
             )
-            .map_err(to_py_err)
+            .map_err(to_py_err)?;
+            // 取り込み元の非ページオブジェクトを一度すべて移しているため、
+            // Form XObject から到達できない別ページ資産・添付等を残さない。
+            self.doc.prune_objects();
+            Ok(())
         })
     }
 
@@ -2198,100 +2554,6 @@ impl _Document {
         self.push_page_annotation(page_id, annot_id)
     }
 
-    /// 添付ファイル（EmbeddedFiles 名前ツリー）の (名前, FileSpec の ObjectId) を集める。
-    ///
-    /// /Kids 分割された名前ツリーも再帰的に辿る（深さ・循環はガード）。
-    /// FileSpec がインライン辞書の場合はオブジェクト化して id を返す。
-    fn collect_embedded_files(&mut self) -> Vec<(String, ObjectId)> {
-        fn node_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
-            match obj {
-                Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
-                Object::Dictionary(d) => Some(d.clone()),
-                _ => None,
-            }
-        }
-        let Some(root) = self
-            .doc
-            .catalog()
-            .ok()
-            .and_then(|c| c.get(b"Names").ok().cloned())
-            .and_then(|names| node_dict(&self.doc, &names))
-            .and_then(|names| names.get(b"EmbeddedFiles").ok().cloned())
-            .and_then(|ef| node_dict(&self.doc, &ef))
-        else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut stack = vec![(root, 0usize)];
-        while let Some((node, depth)) = stack.pop() {
-            if depth > 32 {
-                continue;
-            }
-            if let Ok(pairs) = node.get(b"Names").and_then(Object::as_array) {
-                for pair in pairs.chunks(2) {
-                    let [key, value] = pair else { continue };
-                    let Ok(name) = decode_text_string(key) else {
-                        continue;
-                    };
-                    let id = match value {
-                        Object::Reference(id) => *id,
-                        Object::Dictionary(d) => self.doc.add_object(Object::Dictionary(d.clone())),
-                        _ => continue,
-                    };
-                    out.push((name, id));
-                }
-            }
-            if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
-                for kid in kids.clone() {
-                    if let Some(dict) = node_dict(&self.doc, &kid) {
-                        stack.push((dict, depth + 1));
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// EmbeddedFiles 名前ツリーを平坦な 1 ノードで書き戻す（他の名前ツリーは保存）。
-    fn write_embedded_files(&mut self, mut entries: Vec<(String, ObjectId)>) -> PyResult<()> {
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut flat = Vec::with_capacity(entries.len() * 2);
-        for (name, id) in entries {
-            flat.push(text_string(&name));
-            flat.push(Object::Reference(id));
-        }
-        let tree = Object::Dictionary(dictionary! { "Names" => Object::Array(flat) });
-        // /Names が間接参照ならその実体を、インラインなら Catalog 内をその場で書き換える
-        let names_ref = self
-            .doc
-            .catalog()
-            .ok()
-            .and_then(|c| c.get(b"Names").ok())
-            .and_then(|n| n.as_reference().ok());
-        match names_ref {
-            Some(id) => {
-                let names = self
-                    .doc
-                    .get_object_mut(id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                names.set("EmbeddedFiles", tree);
-            }
-            None => {
-                let catalog = self.doc.catalog_mut().map_err(to_py_err)?;
-                if !catalog.has(b"Names") {
-                    catalog.set("Names", Dictionary::new());
-                }
-                let names = catalog
-                    .get_mut(b"Names")
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                names.set("EmbeddedFiles", tree);
-            }
-        }
-        Ok(())
-    }
-
     /// XMP メタデータの PDF/A 宣言（pdfaid:part / conformance）を読み取る。
     ///
     /// 自己申告の読み取りであり、準拠の検証ではない（検証は veraPDF の領分）。
@@ -2553,9 +2815,8 @@ impl _Document {
     }
 
     /// 添付ファイル名の一覧を返す（名前ツリーの順序に依らずソート済み）。
-    fn embfile_names(&mut self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .collect_embedded_files()
+    fn embfile_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = collect_embedded_files(&self.doc)
             .into_iter()
             .map(|(n, _)| n)
             .collect();
@@ -2564,17 +2825,21 @@ impl _Document {
     }
 
     /// 添付ファイルの中身を取り出す。
-    fn embfile_get(&mut self, name: &str) -> PyResult<Vec<u8>> {
-        let entries = self.collect_embedded_files();
-        let (_, filespec_id) = entries
+    fn embfile_get(&self, name: &str) -> PyResult<Vec<u8>> {
+        let entries = collect_embedded_files(&self.doc);
+        let (_, filespec_obj) = entries
             .into_iter()
             .find(|(n, _)| n == name)
             .ok_or_else(|| PdfError::new_err(format!("添付ファイルが見つかりません: {name:?}")))?;
-        let filespec = self
-            .doc
-            .get_object(filespec_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
+        let filespec = match &filespec_obj {
+            Object::Reference(id) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?,
+            Object::Dictionary(dict) => dict,
+            _ => return Err(PdfError::new_err("添付ファイルの FileSpec が壊れています")),
+        };
         let ef = match filespec.get(b"EF").map_err(to_py_err)? {
             Object::Reference(id) => self
                 .doc
@@ -2610,7 +2875,7 @@ impl _Document {
     ) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         py.detach(|| {
-            let entries = self.collect_embedded_files();
+            let entries = collect_embedded_files(&self.doc);
             if entries.iter().any(|(n, _)| *n == name) {
                 return Err(PdfError::new_err(format!(
                     "同名の添付ファイルが既にあります: {name:?}（先に embfile_del すること）"
@@ -2637,24 +2902,24 @@ impl _Document {
             }
             let filespec_id = self.doc.add_object(filespec);
             let mut entries = entries;
-            entries.push((name, filespec_id));
-            self.write_embedded_files(entries)
+            entries.push((name, Object::Reference(filespec_id)));
+            write_embedded_files(&mut self.doc, entries)
         })
     }
 
     /// 添付ファイルを削除する（無ければエラー）。
     fn embfile_del(&mut self, name: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        let entries = self.collect_embedded_files();
+        let entries = collect_embedded_files(&self.doc);
         let before = entries.len();
-        let remaining: Vec<(String, ObjectId)> =
+        let remaining: Vec<EmbeddedFileEntry> =
             entries.into_iter().filter(|(n, _)| n != name).collect();
         if remaining.len() == before {
             return Err(PdfError::new_err(format!(
                 "添付ファイルが見つかりません: {name:?}"
             )));
         }
-        self.write_embedded_files(remaining)
+        write_embedded_files(&mut self.doc, remaining)
     }
 
     /// OCR 結果（表示座標の語 + テキスト）を不可視テキスト層として書き込む。

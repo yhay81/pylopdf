@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
 
@@ -115,6 +115,29 @@ def test_add_link_annot_reads_back() -> None:
     assert len(annots) == 1
     assert annots[0]["type"] == "Link"
     assert annots[0]["uri"] == "https://example.com/"
+
+
+def test_copy_page_detaches_shared_indirect_annots_array() -> None:
+    """複製ページへの注釈追加が、共有元ページの Annots 配列へ漏れない。"""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots 4 0 R >>",
+            4: "[5 0 R]",
+            5: (
+                "<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /Border [0 0 0] "
+                "/A << /S /URI /URI (https://a.example) >> >>"
+            ),
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    doc.copy_page(0)
+
+    doc[1].add_link_annot((20, 20, 30, 30), "https://b.example")
+
+    assert [len(page.annots()) for page in doc] == [1, 2]
+    assert [annot["uri"] for annot in doc[0].annots()] == ["https://a.example"]
 
 
 def test_annots_empty_on_fresh_page() -> None:

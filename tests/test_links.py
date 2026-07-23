@@ -22,8 +22,7 @@ def _build_direct_dest_fixture() -> bytes:
         b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-        b"<< /Type /Annot /Subtype /Link /Rect [10 10 100 30]"
-        b" /Dest [4 0 R /XYZ 5 195 null] >>",
+        b"<< /Type /Annot /Subtype /Link /Rect [10 10 100 30] /Dest [4 0 R /XYZ 5 195 null] >>",
     ]
     out = bytearray(b"%PDF-1.4\n")
     offsets = []
@@ -35,10 +34,7 @@ def _build_direct_dest_fixture() -> bytes:
     out += b"0000000000 65535 f \n"
     for offset in offsets:
         out += f"{offset:010d} 00000 n \n".encode()
-    out += (
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-        f"startxref\n{xref_pos}\n%%EOF\n"
-    ).encode()
+    out += (f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n").encode()
     return bytes(out)
 
 
