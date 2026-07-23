@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (previously 0/7 wins on the larger files). PNG output grows ~10-15% but stays
   smaller than pymupdf's; re-compress externally if size matters.
   `get_images()` keeps the higher-compression encoder for stored artifacts
+- `save()` / `tobytes()` now compile `flate2` against the `zlib-rs` backend
+  instead of the default Rust `miniz_oxide` implementation. Measured on a 3x
+  merge of the full real-world corpus (554 pages) saved with `garbage=3` +
+  `deflate` + `object_streams`: median 74ms → 66ms (13% faster), output size
+  within 0.01%
 
 ### Fixed
 - `max_decompressed_size=` now validates page content and other streams that
@@ -75,6 +80,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cargo audit` job in CI
 - CI job exercising the abi3 lower bound: the full test suite now also runs on
   Python 3.10
+- `Page.get_links()` reads link annotations: both `/A` actions (URI, GoTo,
+  GoToR, Launch, Named) and direct `/Dest` entries. GoTo named destinations
+  resolve through the `/Names` name tree (nested `Kids`, cycle-guarded) and the
+  legacy `/Dests` dictionary; destinations report a 0-based page number plus
+  the target's display-space point (`/XYZ`, `/FitH`, `/FitV`) and zoom.
+  Returns pymupdf-style dicts with `LINK_GOTO` and related type constants and a
+  `Point` type
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`
