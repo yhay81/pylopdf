@@ -467,17 +467,23 @@ fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
 }
 
 /// ピクセルデータを PNG にエンコードする。
+///
+/// compression の使い分け: レンダリング経路は Fast（fdeflate。既定の Balanced は
+/// サイズ 1 割減のために数十倍遅く、render_page の主コストが PNG になる — bench 実測）、
+/// 画像抽出（get_images）は保存物なので Balanced のまま。
 pub(crate) fn encode_png(
     width: u32,
     height: u32,
     color: png::ColorType,
     data: &[u8],
+    compression: png::Compression,
 ) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut out, width, height);
         encoder.set_color(color);
         encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(compression);
         let mut writer = encoder.write_header().ok()?;
         writer.write_image_data(data).ok()?;
         writer.finish().ok()?;
@@ -503,13 +509,20 @@ fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, 
                         luma.height,
                         png::ColorType::GrayscaleAlpha,
                         &interleaved,
+                        png::Compression::Balanced,
                     )
                     .map(|png| (luma.width, luma.height, png));
                 }
                 _ => luma.data,
             };
-            return encode_png(luma.width, luma.height, png::ColorType::Grayscale, &data)
-                .map(|png| (luma.width, luma.height, png));
+            return encode_png(
+                luma.width,
+                luma.height,
+                png::ColorType::Grayscale,
+                &data,
+                png::Compression::Balanced,
+            )
+            .map(|png| (luma.width, luma.height, png));
         }
     };
     match alpha {
@@ -519,10 +532,23 @@ fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, 
                 .zip(&a.data)
                 .flat_map(|(rgb, a)| [rgb[0], rgb[1], rgb[2], *a])
                 .collect();
-            encode_png(width, height, png::ColorType::Rgba, &interleaved)
-                .map(|png| (width, height, png))
+            encode_png(
+                width,
+                height,
+                png::ColorType::Rgba,
+                &interleaved,
+                png::Compression::Balanced,
+            )
+            .map(|png| (width, height, png))
         }
-        _ => encode_png(width, height, png::ColorType::Rgb, &rgb).map(|png| (width, height, png)),
+        _ => encode_png(
+            width,
+            height,
+            png::ColorType::Rgb,
+            &rgb,
+            png::Compression::Balanced,
+        )
+        .map(|png| (width, height, png)),
     }
 }
 
@@ -582,6 +608,7 @@ impl Device<'_> for ImageCollector {
                             luma.height,
                             png::ColorType::Grayscale,
                             &luma.data,
+                            png::Compression::Balanced,
                         ) {
                             images.push((luma.width, luma.height, bbox, "png".to_owned(), data));
                         }

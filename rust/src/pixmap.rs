@@ -56,9 +56,20 @@ impl Pixmap {
     }
 
     /// PNG バイト列にエンコードして返す。
-    fn tobytes(&self) -> PyResult<Vec<u8>> {
-        crate::extract::encode_png(self.width, self.height, png::ColorType::Rgba, &self.data)
+    ///
+    /// 圧縮は Fast（render_page と同じ方針。サイズより速度を優先し、
+    /// 高圧縮が必要なら得られた PNG を外部ツールで再圧縮する）。
+    fn tobytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            crate::extract::encode_png(
+                self.width,
+                self.height,
+                png::ColorType::Rgba,
+                &self.data,
+                png::Compression::Fast,
+            )
             .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+        })
     }
 
     fn __repr__(&self) -> String {

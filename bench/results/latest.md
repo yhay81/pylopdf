@@ -1,6 +1,6 @@
 # pylopdf ベンチマーク結果
 
-- 実行日時: 2026-07-23 03:47 UTC
+- 実行日時: 2026-07-23 04:47 UTC
 - 環境: Windows-11-10.0.26200-SP0 / Python 3.14.6 / CPU AMD64 Family 23 Model 113 Stepping 0, AuthenticAMD
 - バージョン: pylopdf 0.9.0, pymupdf 1.28.0, pypdf 6.14.2, pdfplumber 0.11.10
 - 反復: 各タスク ウォームアップ 1 回 + 5 回の中央値（ミリ秒。小さいほど速い）
@@ -11,13 +11,13 @@
 
 | ファイル | pylopdf | pymupdf | pypdf | pdfplumber |
 |---|---|---|---|---|
-| bill-hr815.pdf | 123.6 | 161.8 | 651.7 | 9132.5 |
-| f1040.pdf | 17.0 | 33.3 | 180.5 | 588.7 |
-| mhlw-doc.pdf | 12.8 | 11.3 | 84.2 | 180.7 |
-| patent-us223898.pdf | 25.0 | 7.1 | 84.5 | 413.8 |
-| pdf20-simple.pdf | 0.3 | 0.8 | 1.2 | 2.1 |
-| usrguide.pdf | 111.0 | 45.2 | 655.2 | 1745.2 |
-| wdl6812-manuscript.pdf | 0.4 | 0.8 | 1.6 | 2.3 |
+| bill-hr815.pdf | 131.6 | 150.7 | 631.4 | 8652.7 |
+| f1040.pdf | 16.0 | 32.9 | 155.6 | 506.2 |
+| mhlw-doc.pdf | 11.8 | 10.3 | 84.2 | 175.7 |
+| patent-us223898.pdf | 26.3 | 6.0 | 83.4 | 390.2 |
+| pdf20-simple.pdf | 0.3 | 0.8 | 1.2 | 1.9 |
+| usrguide.pdf | 108.2 | 42.7 | 579.3 | 1673.5 |
+| wdl6812-manuscript.pdf | 0.4 | 1.0 | 1.4 | 2.6 |
 
 ## 抽出内容の突き合わせ（正確さの代理指標）
 
@@ -40,19 +40,19 @@
 
 | タスク | pylopdf | pymupdf | pypdf |
 |---|---|---|---|
-| merge x7 | 31.8 | 131.8 | 358.7 |
+| merge x7 | 30.1 | 122.2 | 325.3 |
 
 ## レンダリング（1 ページ目 → 2x PNG、ms）
 
 | ファイル | pylopdf | pymupdf |
 |---|---|---|
-| bill-hr815.pdf | 103.4 | 85.9 |
-| f1040.pdf | 120.3 | 96.6 |
-| mhlw-doc.pdf | 106.2 | 74.1 |
-| patent-us223898.pdf | 63.1 | 66.2 |
-| pdf20-simple.pdf | 17.1 | 19.7 |
-| usrguide.pdf | 70.3 | 56.0 |
-| wdl6812-manuscript.pdf | 240.6 | 91.3 |
+| bill-hr815.pdf | 40.8 | 84.0 |
+| f1040.pdf | 49.9 | 92.1 |
+| mhlw-doc.pdf | 33.8 | 68.7 |
+| patent-us223898.pdf | 34.7 | 64.1 |
+| pdf20-simple.pdf | 9.0 | 18.9 |
+| usrguide.pdf | 30.7 | 54.6 |
+| wdl6812-manuscript.pdf | 43.4 | 83.8 |
 
 速い・遅いの両方をそのまま掲載する方針です。数値は環境依存のため、
 引用時は必ず上記の環境情報とセットで扱ってください。

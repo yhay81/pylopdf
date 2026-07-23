@@ -179,6 +179,16 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     None
 }
 
+/// hayro の Pixmap をストレートアルファの RGBA8 バイト列へ変換する。
+fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
+    let pixels = pixmap.take_unpremultiplied();
+    let mut out = Vec::with_capacity(pixels.len() * 4);
+    for px in pixels {
+        out.extend_from_slice(&[px.r, px.g, px.b, px.a]);
+    }
+    out
+}
+
 /// 間接参照を許容して辞書を取り出す（クローン）。
 fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
     match obj {
@@ -1267,9 +1277,22 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<Vec<u8>> {
         let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
-        pixmap
-            .into_png()
-            .map_err(|e| PdfError::new_err(format!("failed to encode PNG: {e:?}")))
+        // PNG エンコードはページによってはラスタライズより高コストなので GIL を解放し、
+        // 圧縮は Fast（fdeflate）を使う。既定の Balanced はサイズ約 1 割減のために
+        // 数十倍遅く、render_page の主コストが PNG になってしまう（bench で実測）
+        py.detach(|| {
+            let width = u32::from(pixmap.width());
+            let height = u32::from(pixmap.height());
+            let data = rgba_bytes(pixmap);
+            crate::extract::encode_png(
+                width,
+                height,
+                png::ColorType::Rgba,
+                &data,
+                png::Compression::Fast,
+            )
+            .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+        })
     }
 
     /// 指定ページ（1 始まり）をレンダリングして Pixmap（ストレート RGBA8）を返す。
@@ -1283,11 +1306,8 @@ impl _Document {
         let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
         let width = u32::from(pixmap.width());
         let height = u32::from(pixmap.height());
-        let data = pixmap
-            .take_unpremultiplied()
-            .into_iter()
-            .flat_map(|pixel| [pixel.r, pixel.g, pixel.b, pixel.a])
-            .collect();
+        // アルファ非乗算化 + バイト列化も大画像では重いので GIL を解放する
+        let data = py.detach(|| rgba_bytes(pixmap));
         Ok(crate::pixmap::Pixmap {
             width,
             height,

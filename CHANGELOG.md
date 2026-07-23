@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+- `render_page` and `Pixmap.tobytes()` now encode PNG with
+  `Compression::Fast` (fdeflate) and release the GIL during encoding and
+  alpha-unpremultiply. Profiling showed the previous default (Balanced +
+  adaptive filtering, ~11 MB/s on photographic RGBA) accounted for up to 85% of
+  render time. Measured on the real-world corpus (2x scale, medians): worst
+  case 278→43 ms; **rendering now beats pymupdf on all 7 corpus files**
+  (previously 0/7 wins on the larger files). PNG output grows ~10-15% but stays
+  smaller than pymupdf's; re-compress externally if size matters.
+  `get_images()` keeps the higher-compression encoder for stored artifacts
+
 ### Fixed
 - Extraction, search, positioned layout (words/blocks/dict) and image bboxes on
   **rotated pages** now come out in display space with the rotation resolved,
