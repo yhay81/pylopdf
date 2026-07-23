@@ -83,7 +83,7 @@ def test_fill_checkbox_with_bool() -> None:
 
 def test_form_errors() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
-    with pytest.raises(pylopdf.PdfError, match="見つかりません"):
+    with pytest.raises(pylopdf.PdfError, match="not found"):
         doc.set_form_field("nosuch", "x")
     with pytest.raises(ValueError, match="name"):
         doc.set_form_field("", "x")

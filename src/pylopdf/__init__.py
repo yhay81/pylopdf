@@ -157,11 +157,11 @@ def _normalize_background(
         case (r, g, b, a):
             rgba = (r, g, b, a)
         case _:
-            msg = f"background は (R, G, B) か (R, G, B, A) のタプルで指定してください: {background!r}"
+            msg = f"background must be an (R, G, B) or (R, G, B, A) tuple: {background!r}"
             raise ValueError(msg)
     for value in rgba:
         if not isinstance(value, int) or not 0 <= value <= _COLOR_MAX:
-            msg = f"background の各成分は 0〜{_COLOR_MAX} の整数で指定してください: {background!r}"
+            msg = f"each background component must be an integer in 0-{_COLOR_MAX}: {background!r}"
             raise ValueError(msg)
     return rgba
 
@@ -171,10 +171,10 @@ def _validate_rect(rect: Sequence[float], *, name: str = "rect") -> tuple[float,
     try:
         x0, y0, x1, y1 = (float(v) for v in rect)
     except (TypeError, ValueError) as exc:
-        msg = f"{name} は 4 つの数値 (x0, y0, x1, y1) で指定してください: {rect!r}"
+        msg = f"{name} must be 4 numbers (x0, y0, x1, y1): {rect!r}"
         raise ValueError(msg) from exc
     if not all(math.isfinite(v) and abs(v) <= _FLOAT32_MAX for v in (x0, y0, x1, y1)) or x0 >= x1 or y0 >= y1:
-        msg = f"{name} は x0 < x1, y0 < y1 で PDF 実数の範囲内にある有限な矩形で指定してください: {rect!r}"
+        msg = f"{name} must be a finite rect within PDF real-number range with x0 < x1 and y0 < y1: {rect!r}"
         raise ValueError(msg)
     return x0, y0, x1, y1
 
@@ -184,10 +184,10 @@ def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
     try:
         red, green, blue = (float(c) for c in color)
     except (TypeError, ValueError) as exc:
-        msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+        msg = f"color must be (r, g, b) in the range 0-1: {color!r}"
         raise ValueError(msg) from exc
     if not all(0.0 <= c <= 1.0 for c in (red, green, blue)):
-        msg = f"color は 0〜1 の (r, g, b) で指定してください: {color!r}"
+        msg = f"color must be (r, g, b) in the range 0-1: {color!r}"
         raise ValueError(msg)
     return red, green, blue
 
@@ -196,11 +196,11 @@ def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | 
     """filename / stream のどちらか一方から画像バイト列を得る。"""
     if filename is not None:
         if stream is not None:
-            msg = "filename と stream は同時に指定できません"
+            msg = "filename and stream cannot both be specified"
             raise ValueError(msg)
         return Path(filename).read_bytes()
     if stream is None:
-        msg = "filename か stream のどちらかを指定してください"
+        msg = "specify either filename or stream"
         raise ValueError(msg)
     return bytes(stream)
 
@@ -320,7 +320,10 @@ class Page:
         doc = self._document
         doc._ensure_open()
         if self._generation != doc._generation:
-            msg = f"ページ {self._pno} は文書構造の変更で無効になりました。doc[{self._pno}] で取得し直してください"
+            msg = (
+                f"page {self._pno} was invalidated by a document structure change; "
+                f"fetch it again via doc[{self._pno}]"
+            )
             raise StalePageError(msg)
         return self._pno + 1
 
@@ -332,7 +335,7 @@ class Page:
     def set_rotation(self, rotation: int) -> None:
         """表示回転角を設定する（90 の倍数。負値・360 以上は 0..360 に正規化）。"""
         if rotation % 90 != 0:
-            msg = f"rotation は 90 の倍数で指定してください: {rotation!r}"
+            msg = f"rotation must be a multiple of 90: {rotation!r}"
             raise ValueError(msg)
         self._document._doc.set_page_rotation(self._page_number(), rotation % 360)
 
@@ -400,7 +403,7 @@ class Page:
         行をまたぐ一致は検出しない。
         """
         if not needle:
-            msg = "needle は 1 文字以上で指定してください"
+            msg = "needle must be at least 1 character"
             raise ValueError(msg)
         hits = self._document._doc.search_page(self._page_number(), needle)
         self._document._emit_warnings()
@@ -463,7 +466,7 @@ class Page:
         （``pylopdf.open(stream=doc.tobytes())`` で複製してから渡すこと）。
         """
         if src is self._document:
-            msg = "同一ドキュメントのページは重ねられません（open(stream=doc.tobytes()) で複製してから渡してください）"
+            msg = "cannot overlay pages from the same document (duplicate it first via open(stream=doc.tobytes()))"
             raise ValueError(msg)
         x0, y0, x1, y1 = _validate_rect(rect)
         src_number = src[pno]._page_number()
@@ -493,29 +496,30 @@ class Page:
         try:
             x, y = (float(v) for v in point)
         except (TypeError, ValueError) as exc:
-            msg = f"point は (x, y) の 2 つの数値で指定してください: {point!r}"
+            msg = f"point must be 2 numbers (x, y): {point!r}"
             raise ValueError(msg) from exc
         if not (math.isfinite(x) and math.isfinite(y)):
-            msg = f"point は有限の座標で指定してください: {point!r}"
+            msg = f"point must have finite coordinates: {point!r}"
             raise ValueError(msg)
         if not (math.isfinite(fontsize) and fontsize > 0):
-            msg = f"fontsize は正の数値で指定してください: {fontsize!r}"
+            msg = f"fontsize must be a positive number: {fontsize!r}"
             raise ValueError(msg)
         base_font = _BASE14_FONTS.get(fontname)
         if base_font is None:
-            msg = f"fontname は標準 14 フォントの略名で指定してください（{sorted(_BASE14_FONTS)}）: {fontname!r}"
+            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
             raise ValueError(msg)
         red, green, blue = _validate_unit_rgb(color)
         if not text:
-            msg = "text は 1 文字以上で指定してください"
+            msg = "text must be at least 1 character"
             raise ValueError(msg)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         try:
             lines = [line.encode("cp1252") for line in normalized.split("\n")]
         except UnicodeEncodeError as exc:
             msg = (
-                "insert_text は WinAnsi（Latin-1 相当）の文字だけ印字できます。"
-                "日本語などの CJK は typst + show_pdf_page のレシピを使ってください（README のエコシステム連携）"
+                "insert_text can only print WinAnsi (Latin-1-equivalent) characters. "
+                "For CJK text such as Japanese, use the typst + show_pdf_page recipe "
+                "(see the README's ecosystem integrations)"
             )
             raise ValueError(msg) from exc
         self._document._doc.insert_page_text(
@@ -546,7 +550,7 @@ class Page:
             if text:
                 payload.append((x0, y0, x1, y1, text))
         if not payload:
-            msg = "words には少なくとも 1 つのテキスト付きの語が必要です"
+            msg = "words must contain at least one word with text"
             raise ValueError(msg)
         self._document._doc.insert_ocr_layer(self._page_number(), payload)
 
@@ -560,7 +564,7 @@ class Page:
         置換ではレイアウトがずれることがある。
         """
         if not search:
-            msg = "search は 1 文字以上で指定してください"
+            msg = "search must be at least 1 character"
             raise ValueError(msg)
         return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
 
@@ -656,13 +660,13 @@ class Page:
         """
         seq = list(rects)
         if not seq:
-            msg = "rects は 1 つ以上の矩形で指定してください"
+            msg = "rects must contain at least one rect"
             raise ValueError(msg)
         rect_list = [seq] if isinstance(seq[0], (int, float)) else seq
         validated = [_validate_rect(r) for r in rect_list]  # type: ignore[arg-type]
         rgb = _validate_unit_rgb(color)
         if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
-            msg = f"opacity は 0 より大きく 1 以下で指定してください: {opacity!r}"
+            msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
             raise ValueError(msg)
         self._document._doc.add_highlight_annotation(self._page_number(), validated, rgb, float(opacity), content)
 
@@ -673,7 +677,7 @@ class Page:
         新規文書のリンクは typst 側で組む方が自然（README のエコシステム連携）。
         """
         if not uri:
-            msg = "uri は 1 文字以上で指定してください"
+            msg = "uri must be at least 1 character"
             raise ValueError(msg)
         x0, y0, x1, y1 = _validate_rect(rect)
         self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
@@ -694,7 +698,7 @@ class Page:
         """
         if dpi is not None:
             if scale != 1.0:
-                msg = "scale と dpi は同時に指定できません"
+                msg = "scale and dpi cannot both be specified"
                 raise ValueError(msg)
             scale = dpi / 72.0
         rgba = _normalize_background(background)
@@ -751,10 +755,10 @@ class Document:
         フィルタ構成は拒否する。
         """
         if filename is not None and stream is not None:
-            msg = "filename と stream は同時に指定できません"
+            msg = "filename and stream cannot both be specified"
             raise ValueError(msg)
         if max_decompressed_size is not None and max_decompressed_size <= 0:
-            msg = f"max_decompressed_size は正の整数で指定してください: {max_decompressed_size!r}"
+            msg = f"max_decompressed_size must be a positive integer: {max_decompressed_size!r}"
             raise ValueError(msg)
         path = None if filename is None else str(filename)
         self._max_decompressed_size = max_decompressed_size
@@ -865,10 +869,10 @@ class Document:
         for key, value in metadata.items():
             pdf_key = _METADATA_KEYS.get(key)
             if pdf_key is None:
-                msg = f"不明なメタデータキー: {key!r}（有効: {sorted(_METADATA_KEYS)}）"
+                msg = f"unknown metadata key: {key!r} (valid: {sorted(_METADATA_KEYS)})"
                 raise ValueError(msg)
             if not isinstance(value, str):
-                msg = f"メタデータ値は文字列で指定してください: {key!r}={value!r}"
+                msg = f"metadata value must be a string: {key!r}={value!r}"
                 raise TypeError(msg)
             updates.append((pdf_key, value))
         for pdf_key, value in updates:
@@ -915,7 +919,7 @@ class Document:
         """
         self._ensure_open()
         if not name:
-            msg = "name は 1 文字以上で指定してください"
+            msg = "name must be at least 1 character"
             raise ValueError(msg)
         if isinstance(value, bool):
             if value:
@@ -961,18 +965,18 @@ class Document:
             prefix = str(label.get("prefix", ""))
             first = int(label.get("firstpagenum", 1))
             if start < 0 or start in seen:
-                msg = f"startpage は 0 以上で重複なく指定してください: {label!r}"
+                msg = f"startpage must be >= 0 and unique: {label!r}"
                 raise ValueError(msg)
             if style not in _PAGE_LABEL_STYLES:
-                msg = f"style は {sorted(_PAGE_LABEL_STYLES)} のいずれかで指定してください: {style!r}"
+                msg = f"style must be one of {sorted(_PAGE_LABEL_STYLES)}: {style!r}"
                 raise ValueError(msg)
             if first < 1:
-                msg = f"firstpagenum は 1 以上で指定してください: {label!r}"
+                msg = f"firstpagenum must be >= 1: {label!r}"
                 raise ValueError(msg)
             seen.add(start)
             payload.append((start, style or None, prefix or None, first))
         if payload and min(seen) != 0:
-            msg = "最初のページラベル範囲は startpage 0 から始まる必要があります（PDF 仕様）"
+            msg = "the first page label range must start at startpage 0 (PDF spec requirement)"
             raise ValueError(msg)
         payload.sort(key=lambda item: item[0])
         self._doc.set_page_labels(payload)
@@ -994,7 +998,7 @@ class Document:
         """
         self._ensure_open()
         if not name:
-            msg = "name は 1 文字以上で指定してください"
+            msg = "name must be at least 1 character"
             raise ValueError(msg)
         self._doc.embfile_add(name, bytes(data), filename, desc)
 
@@ -1107,7 +1111,7 @@ class Document:
                     for bno, (bbox, lines) in enumerate(blocks)
                 ],
             }
-        msg = f"option は 'text' / 'words' / 'blocks' / 'dict' のいずれかで指定してください: {option!r}"
+        msg = f"option must be one of 'text' / 'words' / 'blocks' / 'dict': {option!r}"
         raise ValueError(msg)
 
     def delete_page(self, pno: int) -> None:
@@ -1149,7 +1153,7 @@ class Document:
         """
         self._ensure_open()
         if other is self:
-            msg = "自分自身は挿入できません"
+            msg = "cannot insert a document into itself"
             raise ValueError(msg)
         other._ensure_open()
         if other.page_count == 0:
@@ -1174,7 +1178,7 @@ class Document:
             or not (0 < width <= _FLOAT32_MAX)
             or not (0 < height <= _FLOAT32_MAX)
         ):
-            msg = f"width / height は PDF 実数の範囲内にある正の有限値で指定してください: ({width!r}, {height!r})"
+            msg = f"width / height must be positive finite values within PDF real-number range: ({width!r}, {height!r})"
             raise ValueError(msg)
         if pno == -1:
             position = None
@@ -1201,7 +1205,7 @@ class Document:
         """挿入位置（0..page_count。page_count は末尾追加と同義）を検証して返す。"""
         count = self.page_count
         if not 0 <= value <= count:
-            msg = f"{name} {value} は範囲外です（0..{count} か -1）"
+            msg = f"{name} {value} is out of range (0..{count} or -1)"
             raise IndexError(msg)
         return value
 
@@ -1230,13 +1234,13 @@ class Document:
                 level = int(level_raw)
                 page = int(page_raw)
             except (TypeError, ValueError) as exc:
-                msg = f"toc[{i}] は [レベル, タイトル, ページ番号] の 3 要素で指定してください: {item!r}"
+                msg = f"toc[{i}] must be 3 elements [level, title, page number]: {item!r}"
                 raise ValueError(msg) from exc
             if level < 1 or level > previous_level + 1:
-                msg = f"toc[{i}] のレベル {level} が不正です（1 以上かつ直前のレベル +1 まで）"
+                msg = f"toc[{i}] has an invalid level {level} (must be >= 1 and at most the previous level + 1)"
                 raise ValueError(msg)
             if not 1 <= page <= count:
-                msg = f"toc[{i}] のページ番号 {page} は範囲外です（1..{count}）"
+                msg = f"toc[{i}] page number {page} is out of range (1..{count})"
                 raise ValueError(msg)
             entries.append((level, str(title), page))
             previous_level = level
@@ -1288,7 +1292,7 @@ class Document:
         """
         if dpi is not None:
             if scale != 1.0:
-                msg = "scale と dpi は同時に指定できません"
+                msg = "scale and dpi cannot both be specified"
                 raise ValueError(msg)
             scale = dpi / 72.0
         rgba = _normalize_background(background)
@@ -1387,7 +1391,7 @@ class Document:
         if user_pw is None and owner_pw is None:
             return None
         if object_streams:
-            msg = "暗号化（user_pw / owner_pw）と object_streams は同時に指定できません"
+            msg = "encryption (user_pw / owner_pw) and object_streams cannot both be specified"
             raise ValueError(msg)
         user = user_pw if user_pw is not None else ""
         owner = owner_pw if owner_pw is not None else user
@@ -1411,7 +1415,7 @@ class Document:
         """
         self._ensure_not_closed()
         if self._doc.is_encrypted():
-            msg = "暗号化された PDF です。password 引数を付けて開くか authenticate() を呼んでください"
+            msg = "this PDF is encrypted; open it with the password argument or call authenticate()"
             raise EncryptedDocumentError(msg)
 
     def _normalize_pno(self, pno: int) -> int:
@@ -1420,7 +1424,7 @@ class Document:
         count = self._doc.page_count()
         normalized = pno + count if pno < 0 else pno
         if not 0 <= normalized < count:
-            msg = f"ページ番号 {pno} は範囲外です（0..{count - 1}）"
+            msg = f"page number {pno} is out of range (0..{count - 1})"
             raise IndexError(msg)
         return normalized
 
@@ -1474,7 +1478,7 @@ def peek_metadata(
     page_count（int）と encrypted（bool）を加えた辞書。大量の PDF の走査に向く。
     """
     if (filename is None) == (stream is None):
-        msg = "filename と stream はどちらか一方だけを指定してください"
+        msg = "specify exactly one of filename or stream"
         raise ValueError(msg)
     if stream is not None:
         raw, page_count, version, encrypted = _Document.load_metadata_bytes(stream, password)

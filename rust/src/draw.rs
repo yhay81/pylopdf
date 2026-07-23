@@ -59,11 +59,11 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
                     .checked_add(2 + length)
                     .is_none_or(|end| end > data.len())
             {
-                return Err("JPEG の SOF セグメント長が壊れています".to_owned());
+                return Err("corrupt JPEG SOF segment length".to_owned());
             }
             // components（pos + 9）まで読むため、最低 10 バイト必要。
             if pos.checked_add(10).is_none_or(|end| end > data.len()) {
-                return Err("JPEG の SOF セグメントが壊れています".to_owned());
+                return Err("corrupt JPEG SOF segment".to_owned());
             }
             let height = u32::from(u16::from_be_bytes([data[pos + 5], data[pos + 6]]));
             let width = u32::from(u16::from_be_bytes([data[pos + 7], data[pos + 8]]));
@@ -72,10 +72,10 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
                 1 => "DeviceGray",
                 3 => "DeviceRGB",
                 4 => "DeviceCMYK",
-                other => return Err(format!("JPEG の色成分数 {other} には対応していません")),
+                other => return Err(format!("unsupported JPEG color component count: {other}")),
             };
             if width == 0 || height == 0 {
-                return Err("JPEG の寸法が 0 です".to_owned());
+                return Err("JPEG dimensions are zero".to_owned());
             }
             return Ok(ImageParts {
                 width,
@@ -88,7 +88,7 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
         }
         pos += 2 + length;
     }
-    Err("JPEG に SOF マーカーが見つかりません".to_owned())
+    Err("no JPEG SOF marker found".to_owned())
 }
 
 /// PNG をデコードし、8bit Gray/RGB（+ 別立てのアルファ）へ正規化して Flate 圧縮する。
@@ -98,18 +98,18 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
-        .map_err(|e| format!("PNG の読み取りに失敗しました: {e}"))?;
+        .map_err(|e| format!("failed to read PNG: {e}"))?;
     let buf_size = reader
         .output_buffer_size()
-        .ok_or_else(|| "PNG が大きすぎます".to_owned())?;
+        .ok_or_else(|| "PNG is too large".to_owned())?;
     let mut buf = vec![0u8; buf_size];
     let info = reader
         .next_frame(&mut buf)
-        .map_err(|e| format!("PNG のデコードに失敗しました: {e}"))?;
+        .map_err(|e| format!("failed to decode PNG: {e}"))?;
     buf.truncate(info.buffer_size());
     let (width, height) = (info.width, info.height);
     if width == 0 || height == 0 {
-        return Err("PNG の寸法が 0 です".to_owned());
+        return Err("PNG dimensions are zero".to_owned());
     }
 
     let (color_space, samples, alpha) = match info.color_type {
@@ -134,7 +134,7 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
             ("DeviceRGB", rgb, Some(a))
         }
         // normalize_to_color8 で Indexed は展開済みのため到達しない
-        png::ColorType::Indexed => return Err("パレット PNG を展開できませんでした".to_owned()),
+        png::ColorType::Indexed => return Err("failed to expand palette PNG".to_owned()),
     };
 
     Ok(ImageParts {
@@ -153,7 +153,7 @@ pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
     encoder
         .write_all(data)
         .and_then(|()| encoder.finish())
-        .map_err(|e| format!("Flate 圧縮に失敗しました: {e}"))
+        .map_err(|e| format!("Flate compression failed: {e}"))
 }
 
 /// 画像 XObject（と必要なら SMask）をドキュメントへ追加し、ObjectId を返す。

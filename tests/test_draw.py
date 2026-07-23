@@ -126,11 +126,11 @@ def test_insert_image_survives_save_roundtrip() -> None:
 def test_insert_image_rejects_bad_input() -> None:
     doc = _new_page_doc()
     page = doc[0]
-    with pytest.raises(ValueError, match="filename か stream"):
+    with pytest.raises(ValueError, match="filename or stream"):
         page.insert_image((0, 0, 10, 10))
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
-    with pytest.raises(pylopdf.PdfError, match="画像形式"):
+    with pytest.raises(pylopdf.PdfError, match="image format"):
         page.insert_image((0, 0, 10, 10), stream=b"not an image")
     truncated_jpeg = bytes([0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 1, 0, 1])
     with pytest.raises(pylopdf.PdfError, match="JPEG"):
@@ -174,7 +174,7 @@ def test_show_pdf_page_scales_source_crop_into_rect() -> None:
 
 def test_show_pdf_page_rejects_same_document() -> None:
     doc = _new_page_doc()
-    with pytest.raises(ValueError, match="同一ドキュメント"):
+    with pytest.raises(ValueError, match="same document"):
         doc[0].show_pdf_page((0, 0, 50, 50), doc)
 
 

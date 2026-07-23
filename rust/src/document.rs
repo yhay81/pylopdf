@@ -176,7 +176,7 @@ fn checked_pdf_real(value: f64, name: &str) -> PyResult<f32> {
     let converted = value as f32;
     if !value.is_finite() || !converted.is_finite() {
         return Err(PdfError::new_err(format!(
-            "{name} は PDF 実数の範囲内にある有限値で指定してください: {value:?}"
+            "{name} must be a finite value within PDF real-number range: {value:?}"
         )));
     }
     Ok(converted)
@@ -327,26 +327,26 @@ fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
                 let count = usize::from(length) + 1;
                 if pos.checked_add(count).is_none_or(|end| end > data.len()) {
                     return Err(PdfError::new_err(
-                        "RunLengthDecode ストリームが途中で切れています",
+                        "RunLengthDecode stream ends unexpectedly",
                     ));
                 }
                 pos += count;
                 output_len = output_len.checked_add(count).ok_or_else(|| {
-                    PdfError::new_err("RunLengthDecode の展開サイズが上限を超えています")
+                    PdfError::new_err("RunLengthDecode decompressed size exceeds the limit")
                 })?;
             }
             128 => break,
             129..=255 => {
                 if pos >= data.len() {
                     return Err(PdfError::new_err(
-                        "RunLengthDecode ストリームが途中で切れています",
+                        "RunLengthDecode stream ends unexpectedly",
                     ));
                 }
                 pos += 1;
                 output_len = output_len
                     .checked_add(257 - usize::from(length))
                     .ok_or_else(|| {
-                        PdfError::new_err("RunLengthDecode の展開サイズが上限を超えています")
+                        PdfError::new_err("RunLengthDecode decompressed size exceeds the limit")
                     })?;
             }
         }
@@ -476,7 +476,7 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
                     .and_then(|value| resolve_i64(doc, value));
                 let (Some(width), Some(height)) = (width, height) else {
                     return Err(PdfError::new_err(
-                        "画像ストリームの Width / Height を解決できず、展開上限を検証できません",
+                        "cannot resolve the image stream's Width/Height, so the decompression limit cannot be verified",
                     ));
                 };
                 let decoded_size = u64::try_from(width)
@@ -487,7 +487,9 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
                             .and_then(|height| width.checked_mul(height))
                     })
                     .and_then(|pixels| pixels.checked_mul(4))
-                    .ok_or_else(|| PdfError::new_err("画像の展開サイズが上限を超えています"))?;
+                    .ok_or_else(|| {
+                        PdfError::new_err("image decompressed size exceeds the limit")
+                    })?;
                 if decoded_size > max_output as u64 {
                     return Err(PdfError::new_err(format!(
                         "decompressed image output exceeded the {max_output}-byte limit (possible decompression bomb)"
@@ -502,7 +504,7 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
             }
             Some(index) => {
                 return Err(PdfError::new_err(format!(
-                    "フィルタ {:?} を含むストリームの展開上限を安全に検証できません",
+                    "cannot safely verify the decompression limit for a stream with filter {:?}",
                     String::from_utf8_lossy(filters[index])
                 )));
             }
@@ -617,7 +619,7 @@ impl _Document {
             .get_pages()
             .get(&page_number)
             .copied()
-            .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))
+            .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
     }
 
     /// ページ辞書の属性を、親ツリーの継承と間接参照を解決しつつ取得する。
@@ -902,9 +904,9 @@ impl _Document {
         settings.warning_sink = Arc::new(move |warning| {
             let message = match warning {
                 InterpreterWarning::UnsupportedFont => {
-                    "未対応のフォント形式があり、一部のグリフを処理できませんでした"
+                    "encountered an unsupported font format; some glyphs could not be processed"
                 }
-                InterpreterWarning::ImageDecodeFailure => "画像のデコードに失敗しました",
+                InterpreterWarning::ImageDecodeFailure => "failed to decode an image",
             };
             if let Ok(mut pending) = sink.lock()
                 && !pending.iter().any(|m| m == message)
@@ -925,7 +927,7 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         if !scale.is_finite() || scale <= 0.0 {
-            return Err(PdfError::new_err("scale は有限の正の値で指定してください"));
+            return Err(PdfError::new_err("scale must be a finite, positive value"));
         }
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
@@ -935,7 +937,7 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| {
-                    PdfError::new_err(format!("ページ {page_number} は存在しません"))
+                    PdfError::new_err(format!("page {page_number} does not exist"))
                 })?;
             let (page_width, page_height) = page.render_dimensions();
             let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
@@ -946,18 +948,18 @@ impl _Document {
                 || pixel_height < 1.0
             {
                 return Err(PdfError::new_err(
-                    "scale が小さすぎるか、PDF のページサイズが不正です",
+                    "scale is too small, or the PDF page size is invalid",
                 ));
             }
             if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
                 return Err(PdfError::new_err(format!(
-                    "描画サイズ {pixel_width:.0}x{pixel_height:.0} は1辺65535ピクセルの上限を超えています"
+                    "render size {pixel_width:.0}x{pixel_height:.0} exceeds the 65535-pixel limit per side"
                 )));
             }
             let total_pixels = (pixel_width as u64) * (pixel_height as u64);
             if total_pixels > MAX_RENDER_PIXELS {
                 return Err(PdfError::new_err(format!(
-                    "描画サイズ {pixel_width:.0}x{pixel_height:.0}（{total_pixels}画素）は{MAX_RENDER_PIXELS}画素の上限を超えています"
+                    "render size {pixel_width:.0}x{pixel_height:.0} ({total_pixels} pixels) exceeds the {MAX_RENDER_PIXELS}-pixel limit"
                 )));
             }
             let mut render_settings = RenderSettings {
@@ -1010,7 +1012,7 @@ impl _Document {
             .doc
             .max_id
             .checked_add(1)
-            .ok_or_else(|| PdfError::new_err("PDF オブジェクト ID が上限に達しています"))?;
+            .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
         let mut other_doc = other.doc.clone();
         other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
@@ -1020,7 +1022,7 @@ impl _Document {
         for number in page_numbers {
             let id = *other_pages
                 .get(number)
-                .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
             ordered_ids.push(id);
         }
 
@@ -1058,7 +1060,7 @@ impl _Document {
             .get_pages()
             .len()
             .checked_add(new_ids.len())
-            .ok_or_else(|| PdfError::new_err("ページ数が上限に達しています"))?;
+            .ok_or_else(|| PdfError::new_err("page count limit reached"))?;
         let count = i64::try_from(total_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let pages_dict = self
             .doc
@@ -1097,7 +1099,7 @@ impl _Document {
     ) -> PyResult<Document> {
         if file_encryption_key.len() != 32 {
             return Err(PdfError::new_err(format!(
-                "file_encryption_key は 32 バイトである必要があります（{} バイト）",
+                "file_encryption_key must be 32 bytes ({} bytes given)",
                 file_encryption_key.len()
             )));
         }
@@ -1416,7 +1418,7 @@ impl _Document {
             "serif" => &mut self.fallback_fonts.serif,
             _ => {
                 return Err(PdfError::new_err(format!(
-                    "kind は 'sans' か 'serif' で指定してください: {kind:?}"
+                    "kind must be 'sans' or 'serif': {kind:?}"
                 )));
             }
         };
@@ -1581,7 +1583,7 @@ impl _Document {
                 let page = number
                     .checked_sub(1)
                     .and_then(|index| pages.get(index as usize))
-                    .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
+                    .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
                 out.push_str(&crate::extract::extract_page_text(
                     pdf,
                     page,
@@ -1609,7 +1611,7 @@ impl _Document {
             let page = page_number
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             Ok(crate::extract::extract_page_layout(pdf, page, settings))
         })
     }
@@ -1629,7 +1631,7 @@ impl _Document {
             let page = page_number
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             Ok(crate::extract::extract_page_images(pdf, page, settings))
         })
     }
@@ -1648,7 +1650,7 @@ impl _Document {
             let page = page_number
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             Ok(crate::extract::search_page(pdf, page, settings, needle))
         })
     }
@@ -1697,7 +1699,7 @@ impl _Document {
         self.invalidate_hayro_pdf();
         if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
             return Err(PdfError::new_err(format!(
-                "width / height は PDF 実数の範囲内にある正の有限値で指定してください: ({width:?}, {height:?})"
+                "width / height must be positive finite values within PDF real-number range: ({width:?}, {height:?})"
             )));
         }
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
@@ -1760,7 +1762,7 @@ impl _Document {
         for number in &page_numbers {
             let page_id = *pages
                 .get(number)
-                .ok_or_else(|| PdfError::new_err(format!("ページ {number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
             let use_id = if seen.insert(page_id) {
                 page_id
             } else {
@@ -1842,7 +1844,7 @@ impl _Document {
             let page = page_number
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("ページ {page_number} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             let cache = hayro_svg::RenderCache::new();
             let settings = hayro_svg::SvgRenderSettings::default();
             Ok(hayro_svg::convert(
@@ -1895,7 +1897,7 @@ impl _Document {
         for (level, title, page) in entries {
             let page_id = *pages
                 .get(&page)
-                .ok_or_else(|| PdfError::new_err(format!("ページ {page} は存在しません")))?;
+                .ok_or_else(|| PdfError::new_err(format!("page {page} does not exist")))?;
             let level = level as usize;
             let parent = if level >= 2 {
                 parents.get(level - 2).copied()
@@ -1999,7 +2001,7 @@ impl _Document {
         let arr = obj.as_array().map_err(to_py_err)?;
         if arr.len() != 4 {
             return Err(PdfError::new_err(format!(
-                "{key} は 4 要素の配列である必要があります（{} 要素）",
+                "{key} must be a 4-element array ({} elements given)",
                 arr.len()
             )));
         }
@@ -2084,7 +2086,7 @@ impl _Document {
         py.detach(|| {
             let parts = draw::parse_image(&data).map_err(PdfError::new_err)?.ok_or_else(|| {
                 PdfError::new_err(
-                    "対応していない画像形式です（JPEG か PNG を渡してください。他形式は Pillow 等で変換できます）",
+                    "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
                 )
             })?;
             let content = draw::PlacedContent::Image {
@@ -2132,13 +2134,11 @@ impl _Document {
                 .doc
                 .max_id
                 .checked_add(1)
-                .ok_or_else(|| PdfError::new_err("PDF オブジェクト ID が上限に達しています"))?;
+                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
             let mut other_doc = other.doc.clone();
             other_doc.renumber_objects_with(starting_id);
             let src_id = *other_doc.get_pages().get(&src_page_number).ok_or_else(|| {
-                PdfError::new_err(format!(
-                    "取り込み元のページ {src_page_number} は存在しません"
-                ))
+                PdfError::new_err(format!("source page {src_page_number} does not exist"))
             })?;
             let src_dict = resolve_inherited_page_dict(&other_doc, src_id).map_err(to_py_err)?;
 
@@ -2717,9 +2717,7 @@ impl _Document {
             .into_iter()
             .find(|(n, ..)| n == name)
             .map(|(_, id, ft, ..)| (id, ft))
-            .ok_or_else(|| {
-                PdfError::new_err(format!("フォームフィールドが見つかりません: {name:?}"))
-            })?;
+            .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
         if ft != "Btn" {
             return Ok(Vec::new());
         }
@@ -2759,9 +2757,7 @@ impl _Document {
             .into_iter()
             .find(|(n, ..)| n == name)
             .map(|(_, id, ft, ..)| (id, ft))
-            .ok_or_else(|| {
-                PdfError::new_err(format!("フォームフィールドが見つかりません: {name:?}"))
-            })?;
+            .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
         match ft.as_str() {
             "Tx" | "Ch" => {
                 let dict = self
@@ -2802,12 +2798,12 @@ impl _Document {
             }
             "Sig" => {
                 return Err(PdfError::new_err(
-                    "署名フィールドへの記入は未対応です（電子署名は pyHanko 連携を参照）",
+                    "filling signature fields is not supported (see the pyHanko integration for digital signatures)",
                 ));
             }
             other => {
                 return Err(PdfError::new_err(format!(
-                    "未対応のフィールド型です: {other:?}"
+                    "unsupported field type: {other:?}"
                 )));
             }
         }
@@ -2830,7 +2826,7 @@ impl _Document {
         let (_, filespec_obj) = entries
             .into_iter()
             .find(|(n, _)| n == name)
-            .ok_or_else(|| PdfError::new_err(format!("添付ファイルが見つかりません: {name:?}")))?;
+            .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
         let filespec = match &filespec_obj {
             Object::Reference(id) => self
                 .doc
@@ -2838,7 +2834,7 @@ impl _Document {
                 .and_then(Object::as_dict)
                 .map_err(to_py_err)?,
             Object::Dictionary(dict) => dict,
-            _ => return Err(PdfError::new_err("添付ファイルの FileSpec が壊れています")),
+            _ => return Err(PdfError::new_err("attachment's FileSpec is corrupt")),
         };
         let ef = match filespec.get(b"EF").map_err(to_py_err)? {
             Object::Reference(id) => self
@@ -2847,7 +2843,7 @@ impl _Document {
                 .and_then(Object::as_dict)
                 .map_err(to_py_err)?,
             Object::Dictionary(d) => d,
-            _ => return Err(PdfError::new_err("添付ファイルの EF 辞書が壊れています")),
+            _ => return Err(PdfError::new_err("attachment's EF dictionary is corrupt")),
         };
         let stream_ref = ef
             .get(b"F")
@@ -2878,7 +2874,7 @@ impl _Document {
             let entries = collect_embedded_files(&self.doc);
             if entries.iter().any(|(n, _)| *n == name) {
                 return Err(PdfError::new_err(format!(
-                    "同名の添付ファイルが既にあります: {name:?}（先に embfile_del すること）"
+                    "an attachment with this name already exists: {name:?} (call embfile_del first)"
                 )));
             }
             let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
@@ -2915,9 +2911,7 @@ impl _Document {
         let remaining: Vec<EmbeddedFileEntry> =
             entries.into_iter().filter(|(n, _)| n != name).collect();
         if remaining.len() == before {
-            return Err(PdfError::new_err(format!(
-                "添付ファイルが見つかりません: {name:?}"
-            )));
+            return Err(PdfError::new_err(format!("attachment not found: {name:?}")));
         }
         write_embedded_files(&mut self.doc, remaining)
     }
@@ -2939,7 +2933,7 @@ impl _Document {
             let cid_map = ocr::assign_cids(&words);
             if cid_map.len() >= usize::from(u16::MAX) {
                 return Err(PdfError::new_err(
-                    "OCR 層の文字種が多すぎます（1 回の呼び出しで 65,534 種まで）",
+                    "too many distinct characters for the OCR layer (max 65,534 per call)",
                 ));
             }
             let font_id = ocr::add_ocr_font(&mut self.doc, &cid_map);
@@ -3015,7 +3009,7 @@ impl _Document {
             self.bake_page_attrs(page_id)?;
             self.doc
                 .replace_partial_text(page_number, search, replacement, default_char.as_deref())
-                .map_err(|e| lopdf_err(Some("テキスト置換に失敗しました"), &e))
+                .map_err(|e| lopdf_err(Some("text replacement failed"), &e))
         })
     }
 }

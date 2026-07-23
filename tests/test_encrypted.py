@@ -23,9 +23,9 @@ def test_open_without_password_raises_on_use(name: str) -> None:
     doc = pylopdf.open(ASSETS / name)
     assert doc.needs_pass
     assert doc.is_encrypted
-    with pytest.raises(ValueError, match="暗号化された PDF"):
+    with pytest.raises(ValueError, match="encrypted"):
         _ = doc.page_count
-    with pytest.raises(ValueError, match="暗号化された PDF"):
+    with pytest.raises(ValueError, match="encrypted"):
         doc.tobytes()
 
 
@@ -109,9 +109,9 @@ def test_owner_only_opens_transparently(password: str | None) -> None:
 
 def test_empty_page_lists_reject_unauthenticated_pdf() -> None:
     doc = pylopdf.open(ASSETS / "user-aes-256.pdf")
-    with pytest.raises(ValueError, match="暗号化された PDF"):
+    with pytest.raises(ValueError, match="encrypted"):
         doc.delete_pages([])
-    with pytest.raises(ValueError, match="暗号化された PDF"):
+    with pytest.raises(ValueError, match="encrypted"):
         doc.select([])
 
 
@@ -176,7 +176,7 @@ def test_save_encrypted_owner_only_restricts(three_page_pdf: bytes) -> None:
 
 def test_save_encrypted_rejects_object_streams(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
-    with pytest.raises(ValueError, match="同時に指定できません"):
+    with pytest.raises(ValueError, match="cannot both be specified"):
         doc.tobytes(user_pw="x", object_streams=True)
 
 

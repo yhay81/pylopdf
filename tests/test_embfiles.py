@@ -82,11 +82,11 @@ def test_embfile_errors() -> None:
     doc = pylopdf.Document()
     doc.new_page()
     doc.embfile_add("a.txt", b"A")
-    with pytest.raises(pylopdf.PdfError, match="既にあります"):
+    with pytest.raises(pylopdf.PdfError, match="already exists"):
         doc.embfile_add("a.txt", b"other")
-    with pytest.raises(pylopdf.PdfError, match="見つかりません"):
+    with pytest.raises(pylopdf.PdfError, match="not found"):
         doc.embfile_get("missing.txt")
-    with pytest.raises(pylopdf.PdfError, match="見つかりません"):
+    with pytest.raises(pylopdf.PdfError, match="not found"):
         doc.embfile_del("missing.txt")
     with pytest.raises(ValueError, match="name"):
         doc.embfile_add("", b"x")

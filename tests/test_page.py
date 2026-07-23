@@ -38,7 +38,7 @@ def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     page = doc[2]
     doc.delete_page(0)
-    with pytest.raises(pylopdf.StalePageError, match="取得し直して"):
+    with pytest.raises(pylopdf.StalePageError, match="fetch it again"):
         _ = page.get_text()
     # 取り直せば使える（旧 2 ページ目は削除で 1 ページ目に繰り上がる）
     assert "Page three" in doc[1].get_text()
@@ -113,7 +113,7 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
 
 def test_rotation_invalid(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
-    with pytest.raises(ValueError, match="90 の倍数"):
+    with pytest.raises(ValueError, match="multiple of 90"):
         doc[0].set_rotation(45)
 
 

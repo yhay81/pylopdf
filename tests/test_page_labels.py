@@ -73,5 +73,5 @@ def test_set_labels_validation() -> None:
         doc.set_page_labels([{"startpage": 0, "style": "X"}])
     with pytest.raises(ValueError, match="firstpagenum"):
         doc.set_page_labels([{"startpage": 0, "style": "D", "firstpagenum": 0}])
-    with pytest.raises(ValueError, match="重複"):
+    with pytest.raises(ValueError, match="unique"):
         doc.set_page_labels([{"startpage": 0}, {"startpage": 0, "style": "D"}])

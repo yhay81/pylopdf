@@ -28,7 +28,7 @@ def test_pixmap_scale_and_dpi(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(stream=one_page_pdf)
     assert doc[0].get_pixmap(scale=2.0).width == 612 * 2
     assert doc[0].get_pixmap(dpi=144).width == 612 * 2
-    with pytest.raises(ValueError, match="同時に指定"):
+    with pytest.raises(ValueError, match="cannot both be specified"):
         doc[0].get_pixmap(scale=2.0, dpi=144)
 
 
@@ -82,7 +82,7 @@ def build_broken_image_pdf() -> bytes:
 
 def test_broken_image_emits_warning() -> None:
     doc = pylopdf.open(stream=build_broken_image_pdf())
-    with pytest.warns(pylopdf.PylopdfWarning, match="デコード"):
+    with pytest.warns(pylopdf.PylopdfWarning, match="decode"):
         doc.render_page(0)
 
 

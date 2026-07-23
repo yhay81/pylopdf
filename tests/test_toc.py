@@ -49,11 +49,11 @@ def test_set_toc_empty_removes(three_page_pdf: bytes) -> None:
 @pytest.mark.parametrize(
     ("toc", "match"),
     [
-        ([[2, "A", 1]], "レベル"),  # 最初のレベルは 1 から
-        ([[1, "A", 1], [3, "B", 1]], "レベル"),  # +2 のジャンプは不可
-        ([[1, "A", 0]], "範囲外"),  # ページ番号は 1 始まり
-        ([[1, "A", 4]], "範囲外"),
-        ([[1, "A"]], "3 要素"),
+        ([[2, "A", 1]], "level"),  # 最初のレベルは 1 から
+        ([[1, "A", 1], [3, "B", 1]], "level"),  # +2 のジャンプは不可
+        ([[1, "A", 0]], "out of range"),  # ページ番号は 1 始まり
+        ([[1, "A", 4]], "out of range"),
+        ([[1, "A"]], "3 elements"),
     ],
 )
 def test_set_toc_invalid(three_page_pdf: bytes, toc: list[list[int | str]], match: str) -> None:

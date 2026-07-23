@@ -105,7 +105,7 @@ def test_new_page_invalid_size(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="width"):
         doc.new_page(width=0)
-    with pytest.raises(ValueError, match="PDF 実数"):
+    with pytest.raises(ValueError, match="PDF real-number"):
         doc.new_page(width=1e39)
 
 
