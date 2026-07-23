@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  {% if page.meta and page.meta.title %}
+    {% set social_title = page.meta.title %}
+  {% elif page.title %}
+    {% set social_title = page.title %}
+  {% else %}
+    {% set social_title = config.site_name %}
+  {% endif %}
+  {% if page.meta and page.meta.description %}
+    {% set social_description = page.meta.description %}
+  {% else %}
+    {% set social_description = config.site_description %}
+  {% endif %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ social_title }}">
+  <meta property="og:description" content="{{ social_description }}">
+  <meta property="og:image" content="{{ config.extra.social_image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ config.extra.social_image }}">
+  <meta name="theme-color" content="#f5f0e6">
+  <style>{% include "partials/living-document.css" %}</style>
+{% endblock %}
+
+{% block announce %}
+  <a class="living-announce" href="{{ config.extra.announcement_url }}">
+    <span class="living-announce__mark" aria-hidden="true"></span>
+    {{ config.extra.announcement }}
+    <span aria-hidden="true">→</span>
+  </a>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script>
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-copy-command]");
+      if (!button) return;
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyCommand);
+        copied = true;
+      } catch {
+        const fallback = document.createElement("textarea");
+        fallback.value = button.dataset.copyCommand;
+        fallback.setAttribute("readonly", "");
+        fallback.style.position = "fixed";
+        fallback.style.opacity = "0";
+        document.body.appendChild(fallback);
+        fallback.select();
+        copied = document.execCommand("copy");
+        fallback.remove();
+      }
+      if (copied) {
+        const label = button.querySelector("[data-copy-label]");
+        const previous = label.textContent;
+        label.textContent = button.dataset.copiedLabel;
+        window.setTimeout(() => { label.textContent = previous; }, 1600);
+      } else {
+        button.closest(".living-install")?.querySelector("code")?.focus();
+      }
+    });
+  </script>
+{% endblock %}

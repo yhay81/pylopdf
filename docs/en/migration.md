@@ -1,3 +1,8 @@
+---
+title: Migrating from pymupdf
+description: Map pymupdf workflows to pylopdf and understand deliberate differences in types, behavior and scope.
+---
+
 # Migrating from pymupdf
 
 pylopdf is pymupdf-*style*, not a drop-in replacement. The data shapes that
@@ -11,7 +16,7 @@ deliberately does not implement.
     pylopdf handles **PDF files only**. pymupdf's ability to open XPS / EPUB /
     images does not carry over.
 
-## Quick mapping
+## Quick mapping { #mapping }
 
 | pymupdf | pylopdf | Notes |
 |---|---|---|
@@ -40,7 +45,7 @@ deliberately does not implement.
 | `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value)` | document-level; NeedAppearances |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
-## Behavioral differences
+## Behavioral differences { #behavioral-differences }
 
 - **Coordinates** are top-left-origin display space in both libraries, and in
   pylopdf this includes rotated pages consistently across extraction, search,
@@ -61,7 +66,7 @@ deliberately does not implement.
   pylopdf's own renderer does not regenerate widget appearances.
 - **Vertical writing** reading order is not reconstructed yet.
 
-## Deliberately not implemented — use the ecosystem
+## Deliberately not implemented — use the ecosystem { #deliberate-scope }
 
 | pymupdf feature | pylopdf answer |
 |---|---|
@@ -71,7 +76,7 @@ deliberately does not implement.
 | Incremental save | not planned (qpdf/pikepdf-style rewrite philosophy); pyHanko covers the signature use case |
 | Opening XPS / EPUB / CBZ / images | out of scope — PDF only |
 
-## Worked example
+## Worked example { #worked-example }
 
 ```python
 # pymupdf

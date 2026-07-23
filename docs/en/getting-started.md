@@ -1,6 +1,11 @@
+---
+title: Getting started
+description: Install pylopdf and learn its core editing, rendering, extraction and drawing workflows.
+---
+
 # Getting started
 
-## Install
+## Install { #installation }
 
 ```bash
 pip install pylopdf
@@ -13,7 +18,7 @@ Noto CJK fonts (auto-detected at render time):
 pip install pylopdf[cjk]
 ```
 
-## Open, inspect, save
+## Open, inspect, save { #open-inspect-save }
 
 ```python
 import pylopdf
@@ -37,7 +42,7 @@ protection). The limit is checked per stream at open time, including page
 content and decoded image size; streams whose filter chain cannot be bounded
 safely are rejected while the limit is enabled.
 
-## Pages, text, search
+## Pages, text, search { #pages-text-search }
 
 ```python
 page = doc[0]                             # 0-based; negative indices from the end
@@ -54,7 +59,7 @@ All coordinates are top-left origin **display space** — search results, layout
 drawing and rendering all share the same coordinate system, including rotated
 pages.
 
-## Render
+## Render { #rendering }
 
 ```python
 png = doc.render_page(0, dpi=300)                    # bytes (PNG)
@@ -62,7 +67,7 @@ pix = page.get_pixmap(scale=2)                       # RGBA8 pixels for NumPy / 
 svg = doc.render_page_svg(0)
 ```
 
-## Edit
+## Edit { #editing }
 
 ```python
 doc.delete_pages([1, 2])
@@ -77,7 +82,7 @@ doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
 page.set_rotation(90)
 ```
 
-## Draw & annotate
+## Draw & annotate { #drawing-annotations }
 
 ```python
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough / PNG alpha
@@ -88,7 +93,7 @@ page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
 
-## Scanned PDFs, forms, Markdown
+## Scanned PDFs, forms, Markdown { #scans-forms-markdown }
 
 ```python
 page.insert_ocr_text_layer(ocr_words)     # searchable PDFs from any OCR output

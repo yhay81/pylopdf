@@ -55,10 +55,9 @@ bench = [
     "pypdf>=5",
     "pdfplumber>=0.11",
 ]
-# ドキュメントサイト（mkdocs）。CI は --only-group docs --no-install-project で使う
+# ドキュメントサイト（Zensical）。CI は --only-group docs --no-install-project で使う
 docs = [
-    "mkdocs-material>=9.5",
-    "mkdocs-static-i18n>=1.2",
+    "zensical>=0.0.51,<0.1",
 ]
 
 [tool.uv]

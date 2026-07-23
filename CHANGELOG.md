@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Rebuilt the English/Japanese documentation with Zensical 0.0.51 and a custom
+  responsive Living Document theme, including instant navigation, search,
+  same-page language switching, light/dark palettes, reproducible benchmark and
+  security pages, `llms.txt`, and an Open Graph social card
+
 ### Performance
 - `render_page` and `Pixmap.tobytes()` now encode PNG with
   `Compression::Fast` (fdeflate) and release the GIL during encoding and

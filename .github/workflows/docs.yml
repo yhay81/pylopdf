@@ -1,4 +1,4 @@
-# ドキュメントサイト（mkdocs-material、EN/JA）を GitHub Pages へデプロイする
+# ドキュメントサイト（Zensical、EN/JA）を GitHub Pages へデプロイする
 name: Docs
 
 on:
@@ -7,6 +7,9 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "mkdocs.ja.yml"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -27,8 +30,10 @@ jobs:
       - uses: astral-sh/setup-uv@v9.0.0
       - name: Install docs toolchain (no Rust build)
         run: uv sync --only-group docs --no-install-project
-      - name: Build site (strict)
-        run: uv run --no-sync mkdocs build --strict
+      - name: Build English site (strict)
+        run: uv run --no-sync zensical build -f mkdocs.yml -c -s
+      - name: Build Japanese site (strict)
+        run: uv run --no-sync zensical build -f mkdocs.ja.yml -c -s
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site

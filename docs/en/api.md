@@ -1,10 +1,15 @@
+---
+title: API overview
+description: A compact map of pylopdf Document, Page, Pixmap, Rect, permissions, warnings and exceptions.
+---
+
 # API overview
 
 Full docstrings live in the package (`help(pylopdf.Document)`); this page is a
 map. All page numbers are 0-based except `get_toc` / `set_toc` (1-based,
 pymupdf-compatible). All coordinates are top-left-origin display space.
 
-## Document
+## Document { #document }
 
 `pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None)` —
 `pylopdf.open()` is an alias constructor. Context-manager support included.
@@ -28,7 +33,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | also via `with` |
 
-## Page
+## Page { #page }
 
 | Member | Purpose |
 |---|---|
@@ -46,7 +51,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
 
-## Module level
+## Module level { #module-level }
 
 | Name | Purpose |
 |---|---|

@@ -1,0 +1,24 @@
+# pylopdf
+
+> Python-native PDF editing, extraction and rendering powered by Rust.
+
+Canonical documentation: https://yhay81.github.io/pylopdf/
+Japanese documentation: https://yhay81.github.io/pylopdf/ja/
+Source: https://github.com/yhay81/pylopdf
+PyPI: https://pypi.org/project/pylopdf/
+
+Core pages:
+- Getting started: https://yhay81.github.io/pylopdf/getting-started/
+- API overview: https://yhay81.github.io/pylopdf/api/
+- Ecosystem recipes: https://yhay81.github.io/pylopdf/ecosystem/
+- Migrating from pymupdf: https://yhay81.github.io/pylopdf/migration/
+- Benchmarks: https://yhay81.github.io/pylopdf/benchmarks/
+- Security: https://yhay81.github.io/pylopdf/security/
+
+Key facts:
+- MIT licensed.
+- Zero runtime dependencies.
+- Approximately 3.5 MB abi3 wheels for Python 3.10 through 3.14.
+- 0-based pages except get_toc/set_toc, which are 1-based for pymupdf compatibility.
+- Top-left-origin display coordinates across extraction, drawing and rendering.
+- PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.

@@ -1,18 +1,18 @@
 site_name: pylopdf
-site_url: https://yhay81.github.io/pylopdf/
-site_description: Python-native PDF editing, extraction and rendering, powered by Rust. MIT licensed, zero runtime dependencies, lightweight wheels.
+site_url: https://yhay81.github.io/pylopdf/ja/
+site_description: Rustを核にしたPythonネイティブなPDF編集・抽出・レンダリング。MITライセンス、実行時依存ゼロ、軽量wheel。
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
 repo_name: yhay81/pylopdf
-edit_uri: edit/main/docs/en/
-docs_dir: docs/en
-site_dir: site
+edit_uri: edit/main/docs/ja/
+docs_dir: docs/ja
+site_dir: site/ja
 
 theme:
   name: material
   variant: modern
-  language: en
+  language: ja
   custom_dir: docs/overrides
   font: false
   icon:
@@ -44,26 +44,26 @@ theme:
       accent: custom
       toggle:
         icon: material/weather-night
-        name: Switch to dark mode
+        name: ダークモードへ切り替え
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: custom
       accent: custom
       toggle:
         icon: material/weather-sunny
-        name: Switch to light mode
+        name: ライトモードへ切り替え
 
 nav:
-  - Home: index.md
-  - Guide:
-      - Getting started: getting-started.md
-      - Ecosystem recipes: ecosystem.md
-      - Migrating from pymupdf: migration.md
+  - ホーム: index.md
+  - ガイド:
+      - はじめる: getting-started.md
+      - エコシステム連携: ecosystem.md
+      - pymupdfからの移行: migration.md
   - API: api.md
-  - Project:
-      - Benchmarks: benchmarks.md
-      - Security: security.md
-  - Changelog: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
+  - プロジェクト:
+      - ベンチマーク: benchmarks.md
+      - セキュリティ: security.md
+  - 変更履歴: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition
@@ -84,7 +84,7 @@ plugins:
   - search
 
 extra:
-  announcement: "pylopdf 0.9.0 · OCR layers, Markdown conversion, forms and PDF/A claim reading"
+  announcement: "pylopdf 0.9.0 · OCR不可視層、Markdown変換、フォーム記入、PDF/A宣言読み取り"
   announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.9.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
   alternate:
@@ -97,7 +97,7 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/yhay81/pylopdf
-      name: pylopdf on GitHub
+      name: GitHubのpylopdf
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/pylopdf/
-      name: pylopdf on PyPI
+      name: PyPIのpylopdf

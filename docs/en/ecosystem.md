@@ -1,3 +1,8 @@
+---
+title: Ecosystem recipes
+description: Tested recipes connecting pylopdf with Typst, pyHanko, veraPDF and OCR engines.
+---
+
 # Ecosystem recipes
 
 pylopdf deliberately does **not** reimplement typesetting, PDF/A generation or
@@ -5,7 +10,7 @@ digital signatures. Each is solved by pairing with an established library, and
 every recipe below is guarded by integration tests in
 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py).
 
-## Typesetting & new documents — typst
+## Typesetting & new documents — typst { #typesetting }
 
 Typeset reports with [typst](https://typst.app/) (via
 [typst-py](https://pypi.org/project/typst/)) and feed the bytes straight into
@@ -19,7 +24,7 @@ pdf_bytes = typst.compile("report.typ")   # typesetting: typst
 doc = pylopdf.open(stream=pdf_bytes)      # editing / extraction / merging: pylopdf
 ```
 
-## PDF/A for new documents — typst
+## PDF/A for new documents — typst { #new-pdfa }
 
 typst's PDF backend (krilla) supports validated PDF/A-1b…4 and PDF/UA-1
 export:
@@ -33,7 +38,7 @@ Converting or validating *existing* PDFs is a different problem —
 [veraPDF](https://verapdf.org/) (Java) is the de-facto validator.
 `Document.get_pdfa_claim()` reads the self-declaration only.
 
-## CJK watermarks & headers — typst × show_pdf_page
+## CJK watermarks & headers — typst × show_pdf_page { #cjk-watermarks }
 
 Standard-14 fonts cannot draw Japanese. Instead, typeset a one-page stamp with
 typst (fonts get subset-embedded) and burn it onto every page as vectors:
@@ -53,7 +58,7 @@ for page in doc:
 
 The stamp stays extractable text afterwards — `page.get_text()` finds 社外秘.
 
-## Digital signatures (PAdES) — pyHanko
+## Digital signatures (PAdES) — pyHanko { #signatures }
 
 [pyHanko](https://pypi.org/project/pyHanko/) (MIT) signs with an incremental
 update, so the bytes produced by pylopdf remain untouched as a prefix of the
@@ -76,7 +81,7 @@ signed_pdf: bytes = out.getvalue()
 pylopdf's own signature-field API intentionally refuses to fill signature
 fields and points here instead.
 
-## OCR — bring your own engine
+## OCR — bring your own engine { #ocr }
 
 `Page.insert_ocr_text_layer(words)` writes any OCR output — cloud APIs,
 Tesseract, anything that yields `(x0, y0, x1, y1, text)` — as an invisible text

@@ -1,10 +1,15 @@
+---
+title: API一覧
+description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例外を俯瞰するAPIマップ。
+---
+
 # API 一覧
 
 詳細な docstring はパッケージ内にあります（`help(pylopdf.Document)`）。この
 ページは地図です。ページ番号は `get_toc` / `set_toc`（pymupdf 互換の 1 始まり）を
 除きすべて 0 始まり。座標はすべて左上原点の表示空間です。
 
-## Document
+## Document { #document }
 
 `pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None)` —
 `pylopdf.open()` は別名コンストラクタ。with 文に対応。
@@ -28,7 +33,7 @@
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | with 文でも |
 
-## Page
+## Page { #page }
 
 | メンバ | 用途 |
 |---|---|
@@ -46,7 +51,7 @@
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |
 
-## モジュールレベル
+## モジュールレベル { #module-level }
 
 | 名前 | 用途 |
 |---|---|
