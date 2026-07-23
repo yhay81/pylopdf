@@ -49,6 +49,12 @@ interop = [
     "typst>=0.15",
     "pyhanko>=0.35",
 ]
+# 再現可能ベンチマーク（bench/run.py）の比較対象。手動実行のみで CI には入れない
+bench = [
+    "pymupdf>=1.26",
+    "pypdf>=5",
+    "pdfplumber>=0.11",
+]
 
 [tool.uv]
 # Rust ソース変更時に uv が拡張モジュールを再ビルドするためのキャッシュキー
@@ -119,3 +125,6 @@ ignore = [
 "tests/assets/encrypted/generate.py" = ["T201"]
 # importorskip の後に連携ライブラリを import する必要があるため先頭以外の import を許可
 "tests/test_interop.py" = ["E402"]
+# 手動実行のベンチマークスクリプト（進捗と結果を print で出す。比較対象の失敗は握って
+# 続行し、レポート生成の逐次処理はステートメント数・ループ内 try を許容する）
+"bench/**" = ["INP001", "T201", "BLE001", "PLR0915", "PERF203"]

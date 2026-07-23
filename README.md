@@ -336,6 +336,17 @@ uv build --wheel           # build a wheel
 
 `uv sync` detects Rust source changes and rebuilds automatically (via `tool.uv.cache-keys`).
 
+## Benchmarks
+
+A reproducible benchmark ships with the repo (same corpus, same tasks, medians —
+wins and losses are published as-is). See
+[bench/results/latest.md](bench/results/latest.md) for the latest numbers with
+environment details:
+
+```bash
+uv sync --all-extras --group bench && uv run python bench/run.py
+```
+
 ## License
 
 MIT (lopdf is MIT; hayro is MIT/Apache-2.0)

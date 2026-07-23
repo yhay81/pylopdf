@@ -335,6 +335,16 @@ uv build --wheel           # wheel ビルド
 
 Rust ソース変更は `uv sync` が検知して自動再ビルドします（`tool.uv.cache-keys` 設定済み）。
 
+## ベンチマーク
+
+再現可能なベンチマークを同梱しています（同一コーパス・同一タスク・中央値で、
+速い結果も遅い結果もそのまま掲載する方針）。最新の実測値と環境情報は
+[bench/results/latest.md](bench/results/latest.md) を参照:
+
+```bash
+uv sync --all-extras --group bench && uv run python bench/run.py
+```
+
 ## ライセンス
 
 MIT（依存する lopdf は MIT、hayro は MIT/Apache-2.0）

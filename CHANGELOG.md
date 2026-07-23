@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Reproducible benchmark harness (`bench/run.py`, optional `bench` dependency
+  group): same corpus / same tasks / medians against pymupdf, pypdf and
+  pdfplumber, with extraction similarity vs pymupdf as a correctness proxy.
+  Wins and losses are published as-is to `bench/results/latest.md` together
+  with environment details
 - SECURITY.md (private reporting via GitHub Security Advisories, guidance for
   handling untrusted PDFs with `max_decompressed_size=`) and a RustSec
   `cargo audit` job in CI
