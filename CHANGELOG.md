@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   docstrings, test descriptions, and benchmark reports on English, with an
   automated check that preserves localized documentation and multilingual test
   fixtures
+- Updated the GitHub Pages upload and deployment actions to their Node.js
+  24-native v5 releases
 
 ### Performance
 - `render_page` and `Pixmap.tobytes()` now encode PNG with
