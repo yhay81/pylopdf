@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NON_ENGLISH_CJK = re.compile(r"[\u3041-\u3096\u30a1-\u30fa\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3]")
 INLINE_CODE = re.compile(r"`[^`]*`")
+FENCED_CODE_BLOCK = re.compile(r" {0,3}(?P<marker>`{3,}|~{3,})(?P<rest>.*)")
 TEXT_SUFFIXES = {
     ".md",
     ".py",
@@ -69,14 +70,24 @@ def _matching_lines(text: str) -> list[tuple[int, str]]:
 def _markdown_prose(text: str) -> list[tuple[int, str]]:
     """Return CJK prose outside fenced and inline code."""
     matches: list[tuple[int, str]] = []
-    fence: str | None = None
+    fence: tuple[str, int] | None = None
     for number, line in enumerate(text.splitlines(), start=1):
-        marker = line.lstrip()[:3]
-        if marker in {"```", "~~~"}:
-            fence = None if fence == marker else marker
+        fence_match = FENCED_CODE_BLOCK.fullmatch(line)
+        if fence is not None:
+            if fence_match is not None:
+                marker = fence_match.group("marker")
+                rest = fence_match.group("rest")
+                if marker[0] == fence[0] and len(marker) >= fence[1] and not rest.strip():
+                    fence = None
             continue
+        if fence_match is not None:
+            marker = fence_match.group("marker")
+            rest = fence_match.group("rest")
+            if marker[0] == "~" or "`" not in rest:
+                fence = (marker[0], len(marker))
+                continue
         prose = INLINE_CODE.sub("", line)
-        if fence is None and NON_ENGLISH_CJK.search(prose):
+        if NON_ENGLISH_CJK.search(prose):
             matches.append((number, line.strip()))
     return matches
 

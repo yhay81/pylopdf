@@ -103,7 +103,7 @@ class Point(NamedTuple):
 
 
 class Rect(NamedTuple):
-    """A rectangle ``(x0, y0, x1, y1)`` in display coordinates."""
+    """A rectangle ``(x0, y0, x1, y1)`` in the coordinate space of its API."""
 
     x0: float
     y0: float
@@ -341,13 +341,13 @@ class Page:
 
     @property
     def mediabox(self) -> Rect:
-        """Return the resolved MediaBox, or A4 when absent."""
+        """Return the resolved MediaBox in PDF page-box coordinates, or A4 when absent."""
         box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
         return Rect(*(box if box is not None else _DEFAULT_MEDIABOX))
 
     @property
     def cropbox(self) -> Rect:
-        """Return the CropBox, falling back to the MediaBox."""
+        """Return the CropBox in PDF page-box coordinates, falling back to the MediaBox."""
         box = self._document._doc.get_page_box(self._page_number(), "CropBox")
         return Rect(*box) if box is not None else self.mediabox
 
@@ -415,10 +415,11 @@ class Page:
         """Extract images drawn on the page.
 
         Each item is a ``{"width", "height", "bbox", "ext", "image"}`` dict.
-        A DCTDecode-only image returns its original JPEG bytes with
-        ``ext="jpeg"``. Other formats, including CCITT, JBIG2, and Flate, are
-        decoded to PNG with ``ext="png"``. ``bbox`` is the drawn location as a
-        top-left-origin :class:`Rect`.
+        An image filtered by DCTDecode alone, or by FlateDecode followed by
+        DCTDecode, returns its JPEG payload with ``ext="jpeg"``. Other formats,
+        including CCITT, JBIG2, and Flate, are decoded to PNG with
+        ``ext="png"``. ``bbox`` is the drawn location as a top-left-origin
+        :class:`Rect`.
         """
         raw = self._document._doc.extract_images(self._page_number())
         self._document._emit_warnings()
