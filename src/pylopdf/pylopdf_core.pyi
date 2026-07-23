@@ -110,6 +110,20 @@ class _Document:
     def read_annotations(
         self, page_number: int
     ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...
+    def read_links(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            str,
+            tuple[float, float, float, float],
+            str | None,
+            int | None,
+            tuple[float, float] | None,
+            float | None,
+            str | None,
+            str | None,
+        ]
+    ]: ...
     def add_highlight_annotation(
         self,
         page_number: int,

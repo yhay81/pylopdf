@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 
 __version__ = "0.9.0"
 __all__ = [
+    "LINK_GOTO",
+    "LINK_GOTOR",
+    "LINK_LAUNCH",
+    "LINK_NAMED",
+    "LINK_NONE",
+    "LINK_URI",
     "Document",
     "DocumentClosedError",
     "EncryptedDocumentError",
@@ -36,12 +42,21 @@ __all__ = [
     "PasswordError",
     "PdfError",
     "Permissions",
+    "Point",
     "Rect",
     "StalePageError",
     "open",
     "peek_metadata",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
+
+# リンク種別（pymupdf 互換の値）
+LINK_NONE = 0
+LINK_GOTO = 1
+LINK_URI = 2
+LINK_LAUNCH = 3
+LINK_NAMED = 4
+LINK_GOTOR = 5
 
 
 class PylopdfWarning(UserWarning):
@@ -78,6 +93,13 @@ class StalePageError(PdfError):
 
     ``doc[i]`` で取得し直すこと。
     """
+
+
+class Point(NamedTuple):
+    """表示座標の点（x, y）。get_links の宛先 to などで使う。"""
+
+    x: float
+    y: float
 
 
 class Rect(NamedTuple):
@@ -572,6 +594,54 @@ class Page:
             {"type": subtype, "rect": Rect(*rect), "contents": contents, "uri": uri}
             for subtype, rect, contents, uri in raw
         ]
+
+    def get_links(self) -> list[dict[str, Any]]:
+        """ページのリンク注釈を宛先解決付きで読み取る。
+
+        各要素は pymupdf 風の辞書で、共通キーは ``kind``（:data:`LINK_GOTO` などの
+        定数）と ``from``（表示座標の :class:`Rect`）。kind に応じて追加キーを持つ:
+
+        - ``LINK_URI``: ``uri``
+        - ``LINK_GOTO``: ``page``（0 始まり。解決できなければ -1）、あれば
+          ``to``（宛先ページ表示座標の :class:`Point`）/ ``zoom`` / ``nameddest``
+        - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file``（あれば ``nameddest`` も）
+        - ``LINK_NAMED``: ``name``（NextPage などのアクション名）
+
+        GoTo の named destination は /Names の名前ツリーと旧式の /Dests 辞書の
+        両方から解決する。
+        """
+        raw = self._document._doc.read_links(self._page_number())
+        kind_map = {
+            "uri": LINK_URI,
+            "goto": LINK_GOTO,
+            "gotor": LINK_GOTOR,
+            "launch": LINK_LAUNCH,
+            "named": LINK_NAMED,
+        }
+        links: list[dict[str, Any]] = []
+        for kind, rect, uri, page, to, zoom, file, name in raw:
+            link: dict[str, Any] = {
+                "kind": kind_map.get(kind, LINK_NONE),
+                "from": Rect(*rect),
+            }
+            if kind == "uri":
+                link["uri"] = uri
+            elif kind == "goto":
+                link["page"] = page - 1 if page is not None else -1
+                if to is not None:
+                    link["to"] = Point(*to)
+                if zoom is not None:
+                    link["zoom"] = zoom
+                if name is not None:
+                    link["nameddest"] = name
+            elif kind in ("gotor", "launch"):
+                link["file"] = file
+                if name is not None:
+                    link["nameddest"] = name
+            elif kind == "named":
+                link["name"] = name
+            links.append(link)
+        return links
 
     def add_highlight_annot(
         self,

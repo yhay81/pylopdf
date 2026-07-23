@@ -27,6 +27,96 @@ use crate::ocr;
 /// read_annotations が返す 1 注釈分のタプル（Subtype, 表示座標 Rect, Contents, URI）。
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
 
+/// read_links が返す 1 リンク分のタプル
+/// (種別, 表示座標 Rect, uri, 宛先ページ番号（lopdf 1 始まり）, 宛先ページ表示座標の to 点,
+///  zoom, 外部ファイル名, named destination 名または Named アクション名)。
+type LinkTuple = (
+    String,
+    (f64, f64, f64, f64),
+    Option<String>,
+    Option<u32>,
+    Option<(f64, f64)>,
+    Option<f64>,
+    Option<String>,
+    Option<String>,
+);
+
+/// 参照なら 1 段だけ実体へ解決する（解決できなければ元のオブジェクトを返す）。
+fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
+    match obj {
+        Object::Reference(id) => doc.get_object(*id).unwrap_or(obj),
+        other => other,
+    }
+}
+
+/// 名前ツリー（/Names + /Kids 構造）から name を線形探索する。
+/// depth は循環参照対策の再帰上限。
+fn search_name_tree<'a>(
+    doc: &'a Document,
+    node: &'a Object,
+    name: &[u8],
+    depth: u8,
+) -> Option<&'a Object> {
+    if depth > 16 {
+        return None;
+    }
+    let dict = deref_object(doc, node).as_dict().ok()?;
+    if let Ok(names) = dict.get(b"Names")
+        && let Ok(arr) = deref_object(doc, names).as_array()
+    {
+        for pair in arr.chunks(2) {
+            if pair.len() == 2
+                && let Ok(key) = deref_object(doc, &pair[0]).as_str()
+                && key == name
+            {
+                return Some(deref_object(doc, &pair[1]));
+            }
+        }
+    }
+    if let Ok(kids) = dict.get(b"Kids")
+        && let Ok(arr) = deref_object(doc, kids).as_array()
+    {
+        for kid in arr {
+            if let Some(found) = search_name_tree(doc, kid, name, depth + 1) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// 名前付き宛先を catalog から解決する。
+/// PDF 1.2+ の /Names → /Dests 名前ツリーと、旧式（PDF 1.1）の /Dests 辞書の両方を探す。
+fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Object> {
+    let catalog = doc.catalog().ok()?;
+    if let Ok(names) = catalog.get(b"Names")
+        && let Ok(names) = deref_object(doc, names).as_dict()
+        && let Ok(dests) = names.get(b"Dests")
+        && let Some(found) = search_name_tree(doc, dests, name, 0)
+    {
+        return Some(found);
+    }
+    if let Ok(dests) = catalog.get(b"Dests")
+        && let Ok(dests) = deref_object(doc, dests).as_dict()
+        && let Ok(found) = dests.get(name)
+    {
+        return Some(deref_object(doc, found));
+    }
+    None
+}
+
+/// PDF のファイル指定（プレーン文字列 or /UF・/F を持つ filespec 辞書）から表示名を取り出す。
+fn filespec_name(doc: &Document, obj: &Object) -> Option<String> {
+    match deref_object(doc, obj) {
+        Object::Dictionary(d) => d
+            .get(b"UF")
+            .or_else(|_| d.get(b"F"))
+            .ok()
+            .and_then(|o| decode_text_string(deref_object(doc, o)).ok()),
+        other => decode_text_string(other).ok(),
+    }
+}
+
 /// フィールド木の走査 1 ノード分（ObjectId, 接頭名, 継承 FT, 継承 Ff, 継承 V）。
 type FieldNode = (ObjectId, String, Option<String>, i64, Option<Object>);
 
@@ -804,6 +894,78 @@ impl _Document {
         pages_dict.set("Kids", kids);
         pages_dict.set("Count", count);
         Ok(())
+    }
+
+    /// 宛先オブジェクト（配列 / 名前 / 文字列 / /D 付き辞書）を
+    /// (宛先ページ番号（lopdf 1 始まり）, 宛先ページ表示座標の to 点, zoom, named dest 名) へ解決する。
+    ///
+    /// to 点は /XYZ の (left, top)・/FitH の top・/FitV の left を宛先ページの
+    /// 表示空間（左上原点・回転考慮）へ変換したもの。/Fit や /FitR など点を持たない
+    /// フィット種別では None。
+    fn resolve_dest(
+        &self,
+        dest: &Object,
+        page_map: &BTreeMap<ObjectId, u32>,
+    ) -> (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>) {
+        let doc = &self.doc;
+        let mut nameddest = None;
+        let mut resolved = deref_object(doc, dest);
+        if let Object::Name(name) | Object::String(name, _) = resolved {
+            nameddest = Some(String::from_utf8_lossy(name).into_owned());
+            match lookup_named_dest(doc, name) {
+                Some(found) => resolved = found,
+                None => return (None, None, None, nameddest),
+            }
+        }
+        // named dest の値は「/D を持つ辞書」の形もある
+        if let Object::Dictionary(d) = resolved {
+            match d.get(b"D") {
+                Ok(inner) => resolved = deref_object(doc, inner),
+                Err(_) => return (None, None, None, nameddest),
+            }
+        }
+        let Object::Array(arr) = resolved else {
+            return (None, None, None, nameddest);
+        };
+        // 要素 0 はページへの間接参照が正だが、整数（0 始まりインデックス）を書く生成系もある。
+        // 参照はページ番号の逆引きに使うため実体へ解決してはいけない
+        let page = match arr.first() {
+            Some(Object::Reference(id)) => page_map.get(id).copied(),
+            Some(Object::Integer(i)) if *i >= 0 => Some(*i as u32 + 1),
+            _ => None,
+        };
+        let mut to = None;
+        let mut zoom = None;
+        if let Some(page_number) = page
+            && let Ok((crop, rotation)) = self.page_display_geometry(page_number)
+        {
+            let num = |index: usize| {
+                arr.get(index).and_then(|o| match deref_object(doc, o) {
+                    Object::Integer(v) => Some(*v as f64),
+                    Object::Real(v) => Some(f64::from(*v)),
+                    _ => None,
+                })
+            };
+            match arr.get(1).and_then(|o| deref_object(doc, o).as_name().ok()) {
+                Some(b"XYZ") => {
+                    // left / top は Null のことがある → クロップの左端 / 上端を既定にする
+                    let left = num(2).unwrap_or(crop[0]);
+                    let top = num(3).unwrap_or(crop[3]);
+                    zoom = num(4).filter(|z| *z != 0.0);
+                    to = Some(draw::pdf_to_display(crop, rotation, left, top));
+                }
+                Some(b"FitH") | Some(b"FitBH") => {
+                    let top = num(2).unwrap_or(crop[3]);
+                    to = Some(draw::pdf_to_display(crop, rotation, crop[0], top));
+                }
+                Some(b"FitV") | Some(b"FitBV") => {
+                    let left = num(2).unwrap_or(crop[0]);
+                    to = Some(draw::pdf_to_display(crop, rotation, left, crop[3]));
+                }
+                _ => {}
+            }
+        }
+        (page, to, zoom, nameddest)
     }
 }
 
@@ -1766,6 +1928,172 @@ impl _Document {
                 contents,
                 uri,
             ));
+        }
+        Ok(out)
+    }
+
+    /// 指定ページ（1 始まり）のリンク注釈を宛先解決付きで読み取る。
+    ///
+    /// /A アクション（URI / GoTo / GoToR / Launch / Named）と直接 /Dest の両方に対応し、
+    /// GoTo の named destination は /Names 名前ツリーと旧式 /Dests 辞書から解決する。
+    fn read_links(&self, page_number: u32) -> PyResult<Vec<LinkTuple>> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        let page = self
+            .doc
+            .get_object(page_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let annots = match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => {
+                match self.doc.get_object(*id).and_then(Object::as_array) {
+                    Ok(arr) => arr.clone(),
+                    Err(_) => return Ok(Vec::new()),
+                }
+            }
+            Ok(Object::Array(arr)) => arr.clone(),
+            _ => return Ok(Vec::new()),
+        };
+        // 宛先解決用に ObjectId → lopdf ページ番号の逆引きを作る
+        let page_map: BTreeMap<ObjectId, u32> = self
+            .doc
+            .get_pages()
+            .into_iter()
+            .map(|(number, id)| (id, number))
+            .collect();
+        let mut out = Vec::new();
+        for item in annots {
+            let dict = match &item {
+                Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                },
+                Object::Dictionary(d) => d,
+                _ => continue,
+            };
+            if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
+                continue;
+            }
+            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+                continue;
+            };
+            let display = draw::pdf_rect_to_display(crop, rotation, rect);
+            let rect_tuple = (display[0], display[1], display[2], display[3]);
+
+            let action = dict.get(b"A").ok().and_then(|a| match a {
+                Object::Reference(id) => self.doc.get_object(*id).and_then(Object::as_dict).ok(),
+                Object::Dictionary(d) => Some(d),
+                _ => None,
+            });
+            if let Some(action) = action {
+                match action.get(b"S").and_then(Object::as_name) {
+                    Ok(b"URI") => {
+                        let uri = action
+                            .get(b"URI")
+                            .ok()
+                            .and_then(|o| deref_object(&self.doc, o).as_str().ok())
+                            .map(|s| String::from_utf8_lossy(s).into_owned());
+                        out.push((
+                            "uri".to_string(),
+                            rect_tuple,
+                            uri,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ));
+                    }
+                    Ok(b"GoTo") => {
+                        if let Ok(dest) = action.get(b"D") {
+                            let (page, to, zoom, name) = self.resolve_dest(dest, &page_map);
+                            out.push((
+                                "goto".to_string(),
+                                rect_tuple,
+                                None,
+                                page,
+                                to,
+                                zoom,
+                                None,
+                                name,
+                            ));
+                        }
+                    }
+                    Ok(b"GoToR") => {
+                        let file = action
+                            .get(b"F")
+                            .ok()
+                            .and_then(|o| filespec_name(&self.doc, o));
+                        // 宛先は別文書のためページ解決はしない。名前だけ保持する
+                        let name =
+                            action
+                                .get(b"D")
+                                .ok()
+                                .and_then(|d| match deref_object(&self.doc, d) {
+                                    Object::Name(n) | Object::String(n, _) => {
+                                        Some(String::from_utf8_lossy(n).into_owned())
+                                    }
+                                    _ => None,
+                                });
+                        out.push((
+                            "gotor".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            file,
+                            name,
+                        ));
+                    }
+                    Ok(b"Launch") => {
+                        let file = action
+                            .get(b"F")
+                            .ok()
+                            .and_then(|o| filespec_name(&self.doc, o));
+                        out.push((
+                            "launch".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            file,
+                            None,
+                        ));
+                    }
+                    Ok(b"Named") => {
+                        let name = action
+                            .get(b"N")
+                            .ok()
+                            .and_then(|o| deref_object(&self.doc, o).as_name().ok())
+                            .map(|n| String::from_utf8_lossy(n).into_owned());
+                        out.push((
+                            "named".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            name,
+                        ));
+                    }
+                    _ => {}
+                }
+            } else if let Ok(dest) = dict.get(b"Dest") {
+                let (page, to, zoom, name) = self.resolve_dest(dest, &page_map);
+                out.push((
+                    "goto".to_string(),
+                    rect_tuple,
+                    None,
+                    page,
+                    to,
+                    zoom,
+                    None,
+                    name,
+                ));
+            }
         }
         Ok(out)
     }

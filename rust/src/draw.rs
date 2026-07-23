@@ -198,7 +198,7 @@ pub(crate) fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (
 /// 非回転の PDF ユーザー空間の点を、表示空間（左上原点・y 下向き）の点へ写す。
 ///
 /// display_to_pdf の逆写像。
-fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
+pub(crate) fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     let [cx0, cy0, cx1, cy1] = crop;
     match rotation {
         90 => (y - cy0, x - cx0),
