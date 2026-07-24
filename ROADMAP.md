@@ -227,8 +227,10 @@ pre-1.0 APIs.
 - Add an initial fuzzing lane for open, extract, render, edit, and save, seeded
   by the redistributable corpus. Expand damaged-input coverage for truncated
   xrefs, Type 3 fonts, JPX, transparency groups, annotations, and links.
-- Add wheel smoke tests that install each built artifact and exercise import,
-  open, extraction, rendering, and save before publication.
+- [x] Add artifact smoke tests that install every natively runnable wheel plus
+  the sdist and exercise import, open, extraction, rendering, and save before
+  publication. Cross-compiled Linux aarch64 and macOS x86_64 wheels remain
+  build-only because their release runners cannot execute the target binary.
 - Migrate to hayro 0.8 when released before building extensive new layout logic
   on the old `Device` interface.
 

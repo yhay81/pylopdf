@@ -100,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`
+- Release CI now installs and smoke-tests every natively runnable wheel plus the
+  sdist, exercising PDF creation, extraction, rendering, and saving before
+  uploading artifacts
 
 ## [0.9.0] - 2026-07-23
 
