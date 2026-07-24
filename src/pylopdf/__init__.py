@@ -1076,7 +1076,7 @@ class Document:
         if option == "words":
             words: list[WordEntry] = []
             for bno, (_, lines) in enumerate(blocks):
-                for lno, (_, _, line_words) in enumerate(lines):
+                for lno, (_, _, line_words, _, _) in enumerate(lines):
                     words.extend(
                         (x0, y0, x1, y1, text, bno, lno, wno) for wno, ((x0, y0, x1, y1), text) in enumerate(line_words)
                     )
@@ -1088,7 +1088,7 @@ class Document:
                     y0,
                     x1,
                     y1,
-                    "\n".join(" ".join(text for _, text in line_words) for _, _, line_words in lines),
+                    "\n".join(" ".join(text for _, text in line_words) for _, _, line_words, _, _ in lines),
                     bno,
                     0,
                 )
@@ -1106,8 +1106,8 @@ class Document:
                         "lines": [
                             {
                                 "bbox": line_bbox,
-                                "wmode": 0,
-                                "dir": (1.0, 0.0),
+                                "wmode": writing_mode,
+                                "dir": direction,
                                 "spans": [
                                     {
                                         "bbox": span_bbox,
@@ -1120,7 +1120,7 @@ class Document:
                                     for span_bbox, text, size, origin, font, flags in spans
                                 ],
                             }
-                            for line_bbox, spans, _ in lines
+                            for line_bbox, spans, _, direction, writing_mode in lines
                         ],
                     }
                     for bno, (bbox, lines) in enumerate(blocks)

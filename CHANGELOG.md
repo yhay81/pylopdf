@@ -100,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Weekly coverage-guided public-API fuzzing exercises bounded open, positioned
   extraction, search, rendering, editing, object-stream saving, and reopening
   over the redistributable real-world corpus
+- Text extraction, positioned layout, and search now share a bounded
+  generation-invalidated `TextPage` interpretation cache. Line dictionaries
+  report the transformed baseline direction instead of a hard-coded value,
+  laying the geometry foundation for multicolumn and vertical text
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

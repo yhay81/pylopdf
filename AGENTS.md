@@ -54,12 +54,14 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   It collects glyph Unicode and positions, then assembles lines
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
   `get_text("words"/"blocks"/"dict")` and `search_for` share the same glyph
-  collection. CJK fallback configuration also applies to extraction, including
-  invisible OCR text. Hayro normalizes glyph space to 1000 upem, so font size is
-  the transform factor × 1000. Vertical bboxes approximate baseline ± a size
-  ratio. Extraction coordinates use the same display space as rendering by
-  passing `initial_transform(true)` to the context, resolving page rotation and
-  CropBox offsets. Vertical reading order is not supported.
+  collection through a bounded, generation-invalidated `TextPage` cache. CJK
+  fallback configuration also applies to extraction, including invisible OCR
+  text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
+  factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
+  Extraction coordinates use the same display space as rendering by passing
+  `initial_transform(true)` to the context, resolving page rotation and CropBox
+  offsets. Baseline direction is retained and exposed in line dicts; vertical
+  reading-order assembly is not supported yet.
 - Rendering caches the hayro parse of `save_bytes` in `_Document.hayro_pdf`.
   Editing methods must call `invalidate_hayro_pdf`; edited state must always be
   reflected in rendering.

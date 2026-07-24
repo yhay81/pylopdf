@@ -218,12 +218,13 @@ pre-1.0 APIs.
 - Synchronize PyPI tags and GitHub Releases, enable public issue reporting, and
   add contributor guidance plus issue and pull-request templates. Require a
   redistributable minimal PDF for parser, renderer, and extraction regressions.
-- Introduce an internal generation-keyed `TextPage` that interprets a page once
-  and serves `get_text`, `search_for`, and `to_markdown`. Preserve glyph-level
-  geometry, baseline direction, font metadata, and writing-mode evidence so
-  later layout work does not need another extraction rewrite.
-- Cache page interpretation without weakening the one-way lopdf-to-hayro data
-  flow. Every edit must invalidate both the hayro parse and derived text pages.
+- [x] Introduce an internal bounded, generation-invalidated `TextPage` that
+  interprets and clusters a page once, then serves `get_text`, `search_for`, and
+  `to_markdown`. It owns glyph geometry, transformed baseline direction, and
+  font metadata without retaining references into hayro.
+- [x] Cache page interpretation without weakening the one-way lopdf-to-hayro
+  data flow. Every edit invalidates both the hayro parse and derived text pages;
+  fallback-font changes invalidate derived text pages while retaining the parse.
 - [x] Add an initial coverage-guided public-API fuzzing lane for bounded open,
   positioned extraction, search, rendering, editing, object-stream saving, and
   reopening, seeded by the redistributable corpus. Continue expanding

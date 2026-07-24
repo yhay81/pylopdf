@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import build_nonembedded_cjk_pdf, build_pdf
+from conftest import build_nonembedded_cjk_pdf, build_pdf, build_raw_pdf
 
 import pylopdf
 
@@ -65,6 +65,7 @@ def test_dict_structure(usrguide: pylopdf.Page) -> None:
     assert len(block["bbox"]) == 4
     line = block["lines"][0]
     assert line["wmode"] == 0
+    assert line["dir"] == pytest.approx((1.0, 0.0))
     span = line["spans"][0]
     assert set(span) == {"bbox", "origin", "size", "font", "flags", "text"}
     assert span["size"] > 1.0
@@ -136,3 +137,38 @@ def test_layout_reflects_edits() -> None:
     doc.select([1])
     words = doc.get_page_text(0, "words")
     assert [w[4] for w in words] == ["Second", "page"]
+
+
+def test_cached_text_page_reflects_drawing_edit() -> None:
+    """Invalidate reusable interpretation after a non-structural page edit."""
+    doc = pylopdf.open(stream=build_pdf(["Before"]))
+    page = doc[0]
+    assert "Before" in page.get_text("text")
+    assert page.search_for("After") == []
+
+    page.insert_text((72, 120), "After")
+
+    assert "After" in page.get_text("text")
+    assert len(page.search_for("After")) == 1
+
+
+def test_dict_reports_transformed_baseline_direction() -> None:
+    """Preserve baseline geometry without mistaking rotation for vertical WMode."""
+    stream = "BT /F1 24 Tf 0 1 -1 0 100 200 Tm (Up) Tj ET"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 300 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+    line = pylopdf.open(stream=pdf)[0].get_text("dict")["blocks"][0]["lines"][0]
+    direction_x, direction_y = line["dir"]
+    assert direction_x == pytest.approx(0.0, abs=1e-9)
+    assert abs(direction_y) == pytest.approx(1.0)
+    assert line["wmode"] == 0

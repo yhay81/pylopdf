@@ -3,7 +3,7 @@
 //! This is a thin type- and error-conversion layer. Python's
 //! `pylopdf.Document` provides the ergonomic API.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
@@ -23,6 +23,10 @@ use pyo3::prelude::*;
 
 use crate::draw;
 use crate::ocr;
+
+/// Bound interpreted text-page memory on long documents while retaining the
+/// common search/extract/annotate working set.
+const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
 
 /// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
@@ -572,6 +576,10 @@ pub struct _Document {
     fallback_fonts: FallbackFonts,
     /// Parsed hayro snapshot of current edit state, rebuilt after invalidation.
     hayro_pdf: Option<Pdf>,
+    /// Recently interpreted pages, keyed by one-based page number.
+    text_pages: HashMap<u32, crate::extract::TextPage>,
+    /// Least-recently-used to most-recently-used text-page keys.
+    text_page_order: VecDeque<u32>,
     /// Hayro warnings from the latest render/extraction, written by the
     /// interpreter-settings sink and drained by `take_warnings`.
     pending_warnings: Arc<Mutex<Vec<String>>>,
@@ -584,6 +592,8 @@ impl _Document {
             doc,
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
+            text_pages: HashMap::new(),
+            text_page_order: VecDeque::new(),
             pending_warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -606,9 +616,16 @@ impl _Document {
         Ok(buffer)
     }
 
-    /// Drop the cached render view; call at the start of every editing method.
+    /// Drop cached views; call at the start of every editing method.
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
+        self.invalidate_text_pages();
+    }
+
+    /// Drop derived text pages while retaining the parse-only hayro snapshot.
+    fn invalidate_text_pages(&mut self) {
+        self.text_pages.clear();
+        self.text_page_order.clear();
     }
 
     /// Return the ObjectId of a one-based page.
@@ -882,6 +899,44 @@ impl _Document {
             .hayro_pdf
             .as_ref()
             .expect("constructed immediately before"))
+    }
+
+    /// Return a cached, owned interpretation of a one-based page.
+    fn text_page(
+        &mut self,
+        page_number: u32,
+        settings: InterpreterSettings,
+    ) -> PyResult<&crate::extract::TextPage> {
+        if self.text_pages.contains_key(&page_number) {
+            self.text_page_order.retain(|number| *number != page_number);
+            self.text_page_order.push_back(page_number);
+            return Ok(self
+                .text_pages
+                .get(&page_number)
+                .expect("cache key was checked immediately before"));
+        }
+
+        let text_page = {
+            let pdf = self.hayro_view()?;
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+            crate::extract::TextPage::new(pdf, page, settings)
+        };
+
+        if self.text_pages.len() >= TEXT_PAGE_CACHE_CAPACITY
+            && let Some(evicted) = self.text_page_order.pop_front()
+        {
+            self.text_pages.remove(&evicted);
+        }
+        self.text_pages.insert(page_number, text_page);
+        self.text_page_order.push_back(page_number);
+        Ok(self
+            .text_pages
+            .get(&page_number)
+            .expect("text page was inserted immediately before"))
     }
 
     /// Build InterpreterSettings with fallbacks and the warning sink.
@@ -1422,12 +1477,14 @@ impl _Document {
             }
         };
         *slot = Some((Arc::new(data), index));
+        self.invalidate_text_pages();
         Ok(())
     }
 
     /// Clear all CJK fallback-font configuration.
     fn clear_fallback_fonts(&mut self) {
         self.fallback_fonts = FallbackFonts::default();
+        self.invalidate_text_pages();
     }
 
     /// Return whether the document remains encrypted.
@@ -1574,20 +1631,10 @@ impl _Document {
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
         py.detach(|| {
-            let pages = pdf.pages();
             let mut out = String::new();
             for number in &page_numbers {
-                let page = number
-                    .checked_sub(1)
-                    .and_then(|index| pages.get(index as usize))
-                    .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
-                out.push_str(&crate::extract::extract_page_text(
-                    pdf,
-                    page,
-                    settings.clone(),
-                ));
+                out.push_str(&self.text_page(*number, settings.clone())?.text());
             }
             Ok(out)
         })
@@ -1596,8 +1643,8 @@ impl _Document {
     /// Return layout for a one-based page.
     ///
     /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
-    /// line=`(bbox, spans, words)`, span=`(bbox, text, size, origin)`, and
-    /// word=`(bbox, text)`.
+    /// line=`(bbox, spans, words, direction, writing mode)`,
+    /// span=`(bbox, text, size, origin, font, flags)`, and word=`(bbox, text)`.
     #[allow(clippy::type_complexity)]
     fn extract_layout(
         &mut self,
@@ -1605,15 +1652,7 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
-        py.detach(|| {
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            Ok(crate::extract::extract_page_layout(pdf, page, settings))
-        })
+        py.detach(|| Ok(self.text_page(page_number, settings)?.layout()))
     }
 
     /// Extract images drawn on a one-based page.
@@ -1644,15 +1683,7 @@ impl _Document {
         needle: &str,
     ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
-        py.detach(|| {
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            Ok(crate::extract::search_page(pdf, page, settings, needle))
-        })
+        py.detach(|| Ok(self.text_page(page_number, settings)?.search(needle)))
     }
 
     /// Append every page from another document.

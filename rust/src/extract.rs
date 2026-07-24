@@ -63,6 +63,8 @@ struct GlyphRecord {
     size: f64,
     /// Device-space advance, estimated from size for unknown fonts.
     advance: f64,
+    /// Unit baseline direction in display space.
+    direction: (f64, f64),
     /// Font identity key for span splitting; Type 3 uses 0.
     font_key: u128,
     /// Font display attributes: name plus pymupdf-compatible flags.
@@ -108,11 +110,17 @@ impl Device<'_> for TextCollector {
         let origin = combined * Point::ZERO;
         // Font size is the transformed y-basis length × 1000. Hayro normalizes
         // glyph space to 1000 upem, so the transform factor is actual size / 1000.
-        let [_, _, c, d, _, _] = combined.as_coeffs();
+        let [a, b, c, d, _, _] = combined.as_coeffs();
         let mut size = (c * c + d * d).sqrt() * 1000.0;
         if !size.is_finite() || size <= 0.0 {
             size = 12.0;
         }
+        let direction_length = (a * a + b * b).sqrt();
+        let direction = if direction_length.is_finite() && direction_length > f64::EPSILON {
+            normalize_direction((a / direction_length, b / direction_length))
+        } else {
+            (1.0, 0.0)
+        };
         // Advance is the glyph-space advance transformed by the x basis.
         // Approximate missing fonts such as Type 3 as half the font size.
         let (advance_width, font_key, font) = match glyph {
@@ -145,6 +153,7 @@ impl Device<'_> for TextCollector {
             y: origin.y,
             size,
             advance,
+            direction,
             font_key,
             font,
         });
@@ -165,6 +174,15 @@ const BLOCK_GAP: f64 = 1.5;
 /// Approximate top/bottom from the baseline without real font metrics.
 const ASCENT: f64 = 0.8;
 const DESCENT: f64 = 0.2;
+
+/// Snap near-axis direction components so common horizontal text stays exact.
+fn normalize_direction((x, y): (f64, f64)) -> (f64, f64) {
+    const AXIS_EPSILON: f64 = 1e-9;
+    (
+        if x.abs() < AXIS_EPSILON { 0.0 } else { x },
+        if y.abs() < AXIS_EPSILON { 0.0 } else { y },
+    )
+}
 
 /// Group glyphs into reading-order lines, each sorted by ascending x.
 fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
@@ -189,17 +207,51 @@ fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
     lines
 }
 
+/// Reusable interpretation of one page.
+///
+/// Glyph collection and line clustering are the expensive hayro operations.
+/// The owned result can serve text, positioned layout, and search repeatedly
+/// without retaining references into the parsed PDF.
+pub(crate) struct TextPage {
+    width: f64,
+    height: f64,
+    lines: Vec<Vec<GlyphRecord>>,
+}
+
+impl TextPage {
+    pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
+        let (width, height) = page.render_dimensions();
+        Self {
+            width: f64::from(width),
+            height: f64::from(height),
+            lines: cluster_lines(collect_glyphs(pdf, page, settings)),
+        }
+    }
+
+    pub(crate) fn text(&self) -> String {
+        assemble_text(&self.lines)
+    }
+
+    pub(crate) fn layout(&self) -> (f64, f64, Vec<BlockTuple>) {
+        (self.width, self.height, assemble_layout(&self.lines))
+    }
+
+    pub(crate) fn search(&self, needle: &str) -> Vec<BBox> {
+        search_lines(&self.lines, needle)
+    }
+}
+
 /// Decide whether to insert a space from the gap between adjacent glyphs.
 fn needs_gap(prev_end: Option<f64>, glyph: &GlyphRecord) -> bool {
     prev_end.is_some_and(|end| glyph.x - end > glyph.size.max(1.0) * WORD_GAP)
 }
 
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
-fn assemble_text(glyphs: Vec<GlyphRecord>) -> String {
+fn assemble_text(lines: &[Vec<GlyphRecord>]) -> String {
     let mut out = String::new();
-    for line in cluster_lines(glyphs) {
+    for line in lines {
         let mut prev_end: Option<f64> = None;
-        for glyph in &line {
+        for glyph in line {
             if needs_gap(prev_end, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
                 out.push(' ');
             }
@@ -221,8 +273,8 @@ type BBox = (f64, f64, f64, f64);
 type SpanTuple = (BBox, String, f64, (f64, f64), String, i64);
 /// Word: `(bbox, text)`.
 type WordTuple = (BBox, String);
-/// Line: `(bbox, spans, words)`.
-type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>);
+/// Line: `(bbox, spans, words, baseline direction, writing mode)`.
+type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
 
@@ -312,10 +364,19 @@ fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
     words
 }
 
+/// Representative baseline direction and PDF writing mode for a line.
+fn line_direction(line: &[GlyphRecord]) -> ((f64, f64), u8) {
+    let direction = line.first().map_or((1.0, 0.0), |glyph| glyph.direction);
+    // A rotated horizontal line can have a vertical baseline direction while
+    // remaining writing mode 0. Hayro does not expose the font's WMode yet, so
+    // do not infer it from geometry. TextPage retains direction for the future
+    // vertical-writing assembler.
+    (direction, 0)
+}
+
 /// Assemble collected glyphs into blocks, lines, spans, and words.
-fn assemble_layout(glyphs: Vec<GlyphRecord>) -> Vec<BlockTuple> {
-    let lines = cluster_lines(glyphs);
-    let mut blocks: Vec<Vec<Vec<GlyphRecord>>> = Vec::new();
+fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Vec<BlockTuple> {
+    let mut blocks: Vec<Vec<&[GlyphRecord]>> = Vec::new();
     let mut prev_baseline: Option<f64> = None;
     let mut prev_size = 0.0_f64;
     for line in lines {
@@ -341,13 +402,22 @@ fn assemble_layout(glyphs: Vec<GlyphRecord>) -> Vec<BlockTuple> {
         .map(|block_lines| {
             let line_tuples: Vec<LineTuple> = block_lines
                 .iter()
-                .map(|line| (glyphs_bbox(line), split_spans(line), split_words(line)))
+                .map(|line| {
+                    let (direction, writing_mode) = line_direction(line);
+                    (
+                        glyphs_bbox(line),
+                        split_spans(line),
+                        split_words(line),
+                        direction,
+                        writing_mode,
+                    )
+                })
                 .collect();
             let mut x0 = f64::INFINITY;
             let mut y0 = f64::INFINITY;
             let mut x1 = f64::NEG_INFINITY;
             let mut y1 = f64::NEG_INFINITY;
-            for ((lx0, ly0, lx1, ly1), _, _) in &line_tuples {
+            for ((lx0, ly0, lx1, ly1), _, _, _, _) in &line_tuples {
                 x0 = x0.min(*lx0);
                 y0 = y0.min(*ly0);
                 x1 = x1.max(*lx1);
@@ -385,14 +455,14 @@ fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
 /// Search page text case-insensitively and return one bbox per match.
 ///
 /// Search is line-based and does not detect matches across lines.
-fn search_glyphs(glyphs: Vec<GlyphRecord>, needle: &str) -> Vec<BBox> {
+fn search_lines(lines: &[Vec<GlyphRecord>], needle: &str) -> Vec<BBox> {
     let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
     if needle_lower.is_empty() {
         return Vec::new();
     }
     let mut hits = Vec::new();
-    for line in cluster_lines(glyphs) {
-        let (haystack, map) = line_search_index(&line);
+    for line in lines {
+        let (haystack, map) = line_search_index(line);
         let mut from = 0;
         while let Some(found) = haystack[from..].find(&needle_lower) {
             let start = from + found;
@@ -666,34 +736,4 @@ fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> 
     };
     interpret_page(page, &mut context, &mut collector);
     collector.glyphs
-}
-
-/// Extract text from the given page.
-pub(crate) fn extract_page_text(
-    pdf: &Pdf,
-    page: &Page<'_>,
-    settings: InterpreterSettings,
-) -> String {
-    assemble_text(collect_glyphs(pdf, page, settings))
-}
-
-/// Return page display size and block/line/span/word layout.
-pub(crate) fn extract_page_layout(
-    pdf: &Pdf,
-    page: &Page<'_>,
-    settings: InterpreterSettings,
-) -> (f64, f64, Vec<BlockTuple>) {
-    let (width, height) = page.render_dimensions();
-    let blocks = assemble_layout(collect_glyphs(pdf, page, settings));
-    (f64::from(width), f64::from(height), blocks)
-}
-
-/// Search a page case-insensitively and return matching rectangles.
-pub(crate) fn search_page(
-    pdf: &Pdf,
-    page: &Page<'_>,
-    settings: InterpreterSettings,
-    needle: &str,
-) -> Vec<BBox> {
-    search_glyphs(collect_glyphs(pdf, page, settings), needle)
 }

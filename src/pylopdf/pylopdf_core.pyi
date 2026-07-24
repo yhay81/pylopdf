@@ -77,6 +77,8 @@ class _Document:
                         tuple[float, float, float, float],
                         list[tuple[tuple[float, float, float, float], str, float, tuple[float, float], str, int]],
                         list[tuple[tuple[float, float, float, float], str]],
+                        tuple[float, float],
+                        int,
                     ]
                 ],
             ]
