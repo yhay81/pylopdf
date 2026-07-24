@@ -145,10 +145,11 @@ integrations, a watchlist, and explicit non-goals.
 - Current phase: v0.9.0 was released on 2026-07-23 and verified end to end on
   PyPI. It includes an invisible OCR layer, `to_markdown`, AcroForm filling,
   attachments, page labels, and PDF/A claim reading. Incremental save was
-  rejected after OSS analysis and moved to the watchlist. Next work is the v1.0
-  “declaration of trust” (security/audit CI, public benchmarks, documentation
-  site, cp314t wheel) and an accuracy spike for the possible v0.10 `[ocr]`
-  extra.
+  rejected after OSS analysis and moved to the watchlist. v0.10 is now the
+  hardening and reusable-page-interpretation release; v0.11 deepens layout,
+  arbitrary-font creation, concurrency, and the gated `[ocr]` track. v1.0 is
+  targeted no earlier than 2026-08, after product-level refinement and field
+  feedback rather than as a deadline-driven API freeze.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

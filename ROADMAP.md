@@ -204,7 +204,62 @@ Released as v0.9.0 on 2026-07-23.
       `(part, conformance)`. Integration tests read `(2, "B")` from typst's
       krilla-validated output. The docstring states that this is not validation.
 
-### Possible v0.10 — `pylopdf[ocr]`
+### v0.10 — hardening and reusable page interpretation
+
+v0.10 is the pre-1.0 stabilization release, not the OCR release. It publishes
+the substantial safety, performance, documentation, and link-reading work
+completed after v0.9, then establishes the reusable interpretation layer needed
+for deeper extraction accuracy. The release is intentionally allowed to refine
+pre-1.0 APIs.
+
+- Publish the unreleased decompression-limit, object-import isolation, malformed
+  input, rotated extraction, rendering, compression, documentation, benchmark,
+  and `Page.get_links` changes as one coherent minor release.
+- Synchronize PyPI tags and GitHub Releases, enable public issue reporting, and
+  add contributor guidance plus issue and pull-request templates. Require a
+  redistributable minimal PDF for parser, renderer, and extraction regressions.
+- Introduce an internal generation-keyed `TextPage` that interprets a page once
+  and serves `get_text`, `search_for`, and `to_markdown`. Preserve glyph-level
+  geometry, baseline direction, font metadata, and writing-mode evidence so
+  later layout work does not need another extraction rewrite.
+- Cache page interpretation without weakening the one-way lopdf-to-hayro data
+  flow. Every edit must invalidate both the hayro parse and derived text pages.
+- Add an initial fuzzing lane for open, extract, render, edit, and save, seeded
+  by the redistributable corpus. Expand damaged-input coverage for truncated
+  xrefs, Type 3 fonts, JPX, transparency groups, annotations, and links.
+- Add wheel smoke tests that install each built artifact and exercise import,
+  open, extraction, rendering, and save before publication.
+- Migrate to hayro 0.8 when released before building extensive new layout logic
+  on the old `Device` interface.
+
+### v0.11 — layout, creation, and concurrency depth
+
+v0.11 is the main capability-expansion release before v1.0. It has no arbitrary
+feature-count deadline: work continues until the new capabilities are accurate,
+measurable, and coherent rather than stopping at a nominal parity checklist.
+
+- Build deterministic multicolumn reading order on `TextPage`, followed by
+  geometry-based table detection and extraction. Keep the rule-based core
+  inspectable before considering an optional layout model.
+- Add vertical CJK extraction by retaining the transformed baseline vector and
+  assembling vertical lines and reading order explicitly. Cover Japanese
+  business documents in the real-world corpus.
+- Turn the successful krilla spike into arbitrary embedded-font text insertion,
+  then `insert_textbox`, and finally native AcroForm appearance generation.
+  Measure wheel size and rendering fidelity at every stage.
+- Add `Document.render_pages(workers=)`, define same-document concurrency
+  semantics, and evaluate `get_pixmap(clip=)` together with upstream hayro
+  viewport support.
+- Build and test cp314t wheels only after the mutable `Document` concurrency
+  audit. Enable the Pixmap buffer protocol in the version-specific lane and
+  verify real parallel scaling rather than treating wheel availability alone as
+  free-threading support.
+- Replace public `dict[str, Any]` shapes with documented `TypedDict` contracts
+  where doing so remains compatible with pymupdf-style data.
+- Continue the optional OCR track below if rten execution, model packaging,
+  memory use, and end-to-end accuracy all pass their gates.
+
+#### Optional OCR track for v0.11 — `pylopdf[ocr]`
 
 Decision depends on measured accuracy. “pip-only, no shared libraries,
 permissively licensed Japanese OCR” remains a gap: pymupdf requires an external
@@ -233,7 +288,12 @@ This aligns with the CJK moat and merits staged exploration.
   detection/recognition/classifier/dictionary, about 22 MB, in a separate wheel.
 - Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
 
-### v1.0 — declaration of trust
+### v1.0 — product-quality declaration of trust
+
+Target no earlier than 2026-08. v1.0 is not a calendar-driven promotion of the
+current API. It follows v0.10 and v0.11 field use and ships only after the
+library's product experience, error recovery, documentation, performance, and
+known-limit behavior are polished together.
 
 - Freeze the API and publish semantic-versioning and deprecation policies.
 - [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
@@ -248,11 +308,12 @@ This aligns with the CJK moat and merits staged exploration.
       fidelity proxy. The first 2026-07-23 run found pylopdf faster on four of
       seven extraction files, 4.1× faster for merge, and faster on all seven 2×
       renders. Apply separately to py-pdf/benchmarks.
-- [ ] Add a cp314t free-threaded wheel because abi3 does not apply to
-      free-threaded Python. pymupdf explicitly does not support threads, making
-      this a differentiator. Enable the buffer protocol in this lane because the
-      abi3-py310 restriction disappears, yielding parallelism plus zero-copy
-      NumPy access.
+- Publish an explicit support and concurrency contract covering GIL-enabled,
+  free-threaded, single-document, and multi-document use.
+- Validate installation and core workflows from every published wheel and the
+  sdist, and publish release provenance alongside the artifacts.
+- Review every documented limitation. Improve high-value limits before release;
+  keep only those backed by a clear architectural or ecosystem boundary.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,
@@ -262,10 +323,11 @@ This aligns with the CJK moat and merits staged exploration.
       and `max_decompressed_size`, plus cargo-audit in CI. pip-audit is omitted
       because the package has no runtime Python dependencies.
 
-### v1.x — parity and performance gaps
+### Continuing engineering inventory — v0.10 through v1.x
 
-Candidates from the 2026-07-23 lopdf/hayro/krilla inventory, ordered as quick
-wins, krilla spike, upstream cycle, interface gaps, then cp314t.
+Candidates from the 2026-07-23 lopdf/hayro/krilla inventory. Completed items
+remain as evidence; unfinished items feed v0.10 and v0.11 in dependency order
+rather than waiting automatically for v1.x.
 
 - [x] Switch flate2 to zlib-rs. Three merge rounds over the corpus
       (554 pages) with garbage=3, deflate, and object streams improved median
