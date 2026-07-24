@@ -23,12 +23,26 @@ jobs:
       - name: Build fuzz environment
         run: uv sync --group fuzz --python 3.13
       - name: Fuzz public workflows
+        id: fuzz
+        continue-on-error: true
         run: |
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-corpus"
+          mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-artifacts"
           uv run python fuzz/fuzz_api.py \
             -max_total_time=600 \
             -timeout=15 \
             -rss_limit_mb=2048 \
             -max_len=1048576 \
+            -artifact_prefix="${RUNNER_TEMP}/pylopdf-fuzz-artifacts/" \
             "${RUNNER_TEMP}/pylopdf-fuzz-corpus" \
             tests/assets/real_world
+      - name: Upload failure reproducer
+        if: steps.fuzz.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pylopdf-fuzz-reproducer
+          path: ${{ runner.temp }}/pylopdf-fuzz-artifacts
+          if-no-files-found: error
+      - name: Fail after preserving reproducer
+        if: steps.fuzz.outcome == 'failure'
+        run: exit 1
