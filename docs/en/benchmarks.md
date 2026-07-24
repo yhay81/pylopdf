@@ -89,6 +89,20 @@ The batch preserves input order and uses one immutable document snapshot.
 Actual concurrency is bounded by both the requested worker count and an
 estimated 512 MB of live rendering memory.
 
+## Free-threaded extraction { #free-threaded-extraction }
+
+Two independent copies of `bill-hr815.pdf`, all-page text extraction on
+CPython 3.14.6 free-threaded for Windows 11. One warmup plus the median of seven
+paired runs, alternating which mode runs first:
+
+| Mode | Workers | Time | Speedup |
+|---|---:|---:|---:|
+| Sequential | 1 | 341.8 ms | 1.00× |
+| Parallel | 2 | 195.9 ms | 1.74× |
+
+Both copies produced exactly the same output in every run, and the interpreter
+reported that the GIL remained disabled after import.
+
 ## Reproduce it { #reproduce }
 
 The corpus lives in `tests/assets/real_world`; its sources and licenses are
@@ -97,6 +111,8 @@ recorded alongside the files.
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+# With a free-threaded CPython 3.14 interpreter:
+python3.14t bench/free_threaded.py
 ```
 
 The generated source report is committed at

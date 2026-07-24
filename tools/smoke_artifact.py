@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -16,6 +18,25 @@ def _require(*, condition: bool, message: str) -> None:
     """Raise a useful smoke-test failure instead of relying on optimized asserts."""
     if not condition:
         raise RuntimeError(message)
+
+
+def _check_free_threaded_pixmap(pixmap: object, expected: bytes) -> None:
+    """Verify the cp314t wheel's no-GIL declaration and zero-copy buffer."""
+    if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
+        return
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    _require(
+        condition=is_gil_enabled is not None and not is_gil_enabled(),
+        message="importing pylopdf unexpectedly enabled the GIL",
+    )
+    view = memoryview(pixmap)
+    _require(condition=view.readonly, message="Pixmap buffer must be read-only")
+    _require(condition=view.format == "B", message=f"unexpected Pixmap buffer format: {view.format!r}")
+    _require(condition=view.ndim == 1, message=f"unexpected Pixmap buffer dimensions: {view.ndim}")
+    _require(condition=bytes(view) == expected, message="Pixmap buffer differs from samples")
+    del pixmap
+    gc.collect()
+    _require(condition=bytes(view) == expected, message="Pixmap buffer did not retain its owner")
 
 
 def _run_smoke() -> None:
@@ -37,10 +58,10 @@ def _run_smoke() -> None:
             condition=_SMOKE_TEXT in reopened[0].get_text(),
             message="text extraction lost inserted text",
         )
-        _require(
-            condition=reopened[0].get_pixmap().tobytes().startswith(_PNG_SIGNATURE),
-            message="rendering did not return PNG data",
-        )
+        pixmap = reopened[0].get_pixmap()
+        samples = pixmap.samples
+        _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
+        _check_free_threaded_pixmap(pixmap, samples)
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "smoke.pdf"

@@ -62,6 +62,7 @@ nav:
   - API: api.md
   - 项目:
       - 性能基准: benchmarks.md
+      - 并发: concurrency.md
       - 安全: security.md
       - 语言政策: languages.md
   - 更新日志: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md

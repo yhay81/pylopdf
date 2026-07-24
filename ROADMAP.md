@@ -281,10 +281,13 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
   errors. hayro 0.7 lacks an offset viewport, so this initially crops the
   full-page raster and retains the full-page size/cost limits; pursue an
   upstream offset viewport before claiming true region-only rendering.
-- Build and test cp314t wheels only after the mutable `Document` concurrency
-  audit. Enable the Pixmap buffer protocol in the version-specific lane and
-  verify real parallel scaling rather than treating wheel availability alone as
-  free-threading support.
+- [x] Build and test version-specific cp314t wheels after the mutable `Document`
+      concurrency audit. Import keeps the GIL disabled; immutable Pixmaps expose
+      a read-only zero-copy buffer; distinct-document extraction is tested for
+      correctness and measured at 1.74x with two threads on Windows 11 /
+      CPython 3.14.6t. CI runs the full suite on 3.14t, and release CI builds
+      cp314t alongside abi3 on all five targets. Local Windows artifacts are
+      4.43 MB for cp314t and 4.44 MB for abi3.
 - Replace public `dict[str, Any]` shapes with documented `TypedDict` contracts
   where doing so remains compatible with pymupdf-style data.
 - Continue the optional OCR track below if rten execution, model packaging,
@@ -339,8 +342,9 @@ known-limit behavior are polished together.
       fidelity proxy. The first 2026-07-23 run found pylopdf faster on four of
       seven extraction files, 4.1× faster for merge, and faster on all seven 2×
       renders. Apply separately to py-pdf/benchmarks.
-- Publish an explicit support and concurrency contract covering GIL-enabled,
-  free-threaded, single-document, and multi-document use.
+- [x] Publish an explicit support and concurrency contract covering GIL-enabled,
+      free-threaded, single-document, and multi-document use, plus the supported
+      `render_pages` boundary and immutable Pixmap buffer behavior.
 - Validate installation and core workflows from every published wheel and the
   sdist, and publish release provenance alongside the artifacts.
 - Review every documented limitation. Improve high-value limits before release;

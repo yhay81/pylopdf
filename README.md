@@ -18,7 +18,7 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 | | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
 |---|---|---|---|---|---|---|
 | License | **MIT** | AGPL / commercial | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
-| Wheel size | **~3.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB | ~10–11 MB | ~2–5 MB |
+| Wheel size | **~3.5–4.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB | ~10–11 MB | ~2–5 MB |
 | Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited | ✅ | ✅ (structure-focused) |
 | Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
 | Text extraction | ✅ (basic) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
@@ -29,6 +29,7 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - Fits size-constrained environments such as AWS Lambda
 - Safe for commercial projects that need to avoid the AGPL
 - abi3: one wheel covers Python 3.10–3.14
+- v0.10 adds native `cp314t` wheels for free-threaded Python 3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
 **Limitations**: multicolumn text follows deterministic whitespace gutters, and
@@ -62,6 +63,19 @@ Building from source (requires a Rust toolchain):
 ```bash
 uv sync
 ```
+
+### Concurrency and free-threaded Python
+
+Starting with v0.10, pylopdf supports concurrent work on distinct `Document`
+objects. Heavy native operations release the GIL, and the `cp314-cp314t` wheel
+keeps the GIL disabled on free-threaded Python 3.14. Calls or edits on the same
+`Document` must be serialized; use `Document.render_pages(workers=...)` for
+supported parallel rendering within one document.
+
+`Pixmap` is immutable. The cp314t wheel supports read-only, zero-copy
+`memoryview(pixmap)`; the Python 3.10-compatible abi3 wheel uses the one-copy
+`pixmap.samples` fallback. See the
+[full concurrency contract](https://yhay81.github.io/pylopdf/concurrency/).
 
 ## Usage
 
@@ -300,7 +314,7 @@ signed_pdf: bytes = out.getvalue()
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines")` | Detect bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
-| `get_pixmap(scale, dpi=, background=, clip=None)` | Render to a `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
+| `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |

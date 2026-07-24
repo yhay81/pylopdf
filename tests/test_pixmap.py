@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gc
+import sysconfig
 import warnings
 from pathlib import Path
 
@@ -22,6 +24,27 @@ def test_pixmap_dimensions_and_samples(one_page_pdf: bytes) -> None:
     assert pix.n == 4
     assert pix.stride == pix.width * 4
     assert len(pix.samples) == pix.width * pix.height * 4
+
+
+def test_pixmap_buffer_protocol_matches_build_abi(one_page_pdf: bytes) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
+        with pytest.raises(TypeError, match="bytes-like object"):
+            memoryview(pix)  # type: ignore[arg-type]  # Buffer exists only in version-specific builds.
+        return
+
+    expected = pix.samples
+    view = memoryview(pix)  # type: ignore[arg-type]  # Buffer exists only in version-specific builds.
+    assert view.readonly
+    assert view.format == "B"
+    assert view.ndim == 1
+    assert view.nbytes == len(expected)
+    assert bytes(view) == expected
+    with pytest.raises(TypeError, match="cannot modify read-only memory"):
+        view[0] = 0
+    del pix
+    gc.collect()
+    assert bytes(view) == expected
 
 
 def test_pixmap_scale_and_dpi(one_page_pdf: bytes) -> None:

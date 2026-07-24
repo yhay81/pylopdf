@@ -15,13 +15,15 @@ Core pages:
 - Ecosystem recipes: https://yhay81.github.io/pylopdf/ecosystem/
 - Migrating from pymupdf: https://yhay81.github.io/pylopdf/migration/
 - Benchmarks: https://yhay81.github.io/pylopdf/benchmarks/
+- Concurrency: https://yhay81.github.io/pylopdf/concurrency/
 - Security: https://yhay81.github.io/pylopdf/security/
 - Language policy: https://yhay81.github.io/pylopdf/languages/
 
 Key facts:
 - MIT licensed.
 - Zero runtime dependencies.
-- Approximately 3.5 MB abi3 wheels for Python 3.10 through 3.14.
+- Approximately 3.5–4.5 MB abi3 wheels for Python 3.10 through 3.14, plus
+  cp314t wheels for free-threaded Python 3.14.
 - 0-based pages except get_toc/set_toc, which are 1-based for pymupdf compatibility.
 - Top-left-origin display coordinates across extraction, drawing and rendering.
 - PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.

@@ -127,14 +127,22 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   appearance stream at `AP /N`, because hayro does not render annotations
   without one. `render_annotations` defaults to true.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
-- Wheels use a single `abi3-py310` build for Python 3.10–3.14. Add size-increasing
-  dependencies cautiously; the wheel is currently about 3.5 MB.
+- GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
+  Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel;
+  `abi3t-py315` is enabled for the future 3.15+ free-threaded stable ABI. Add
+  size-increasing dependencies cautiously; wheels are about 3.5–4.5 MB
+  depending on platform.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.
-- The buffer protocol is unavailable under `abi3-py310` because `Py_buffer`
-  entered the stable ABI in Python 3.11. `Pixmap.samples` is a one-copy `bytes`
-  value.
+- `Pixmap` is immutable. Version-specific builds expose its RGBA8 storage
+  through a read-only zero-copy buffer. The buffer protocol remains unavailable
+  under `abi3-py310` because `Py_buffer` entered the stable ABI in Python 3.11;
+  `Pixmap.samples` is the one-copy portable fallback.
+- Concurrent operations on distinct `Document` objects are supported.
+  Concurrent external calls or edits on the same `Document` are not; `Page`
+  shares its parent's restriction. `Document.render_pages` is the supported
+  bounded same-document parallel read boundary.
 
 ## Known pitfalls
 
@@ -158,8 +166,8 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
 1. Update the version in all three locations, add the changelog entry, commit,
    and push.
 2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
-3. GitHub Actions (`release.yml`) builds wheels and the sdist for five platforms
-   and publishes through PyPI Trusted Publishing.
+3. GitHub Actions (`release.yml`) builds abi3 and cp314t wheels plus the sdist
+   for five platforms and publishes through PyPI Trusted Publishing.
 
 The font wheel has a separate release process. Update the version in
 `fonts/pylopdf-fonts-cjk/pyproject.toml`, then push a `fonts-vX.Y.Z` tag to run

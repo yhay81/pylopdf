@@ -88,6 +88,20 @@ pylopdf는 **빠른 결과와 느린 결과를 함께** 공개합니다. 이 측
 
 실제 동시성은 요청한 worker 수와 약 512 MB의 추정 실시간 렌더링 메모리로 제한됩니다.
 
+## free-threaded 추출 { #free-threaded-extraction }
+
+Windows 11의 free-threaded CPython 3.14.6에서 서로 독립된 `bill-hr815.pdf`
+두 개의 전체 페이지 텍스트를 추출했습니다. 한 번의 warmup 후 먼저 실행할 모드를
+번갈아 바꾼 일곱 쌍 실행의 중앙값입니다.
+
+| 모드 | Workers | 시간 | 속도 향상 |
+|---|---:|---:|---:|
+| 순차 | 1 | 341.8 ms | 1.00배 |
+| 병렬 | 2 | 195.9 ms | 1.74배 |
+
+모든 실행에서 두 문서의 출력이 정확히 일치했고, interpreter는 import 후에도
+GIL이 비활성 상태임을 확인했습니다.
+
 ## 재현 방법 { #reproduce }
 
 코퍼스는 `tests/assets/real_world`에 있으며, 출처와 라이선스도 같은 위치에
@@ -96,6 +110,8 @@ pylopdf는 **빠른 결과와 느린 결과를 함께** 공개합니다. 이 측
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+# free-threaded CPython 3.14 interpreter에서:
+python3.14t bench/free_threaded.py
 ```
 
 생성된 원본 보고서는

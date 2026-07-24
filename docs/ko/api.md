@@ -61,5 +61,5 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TableFinder` / `Table` | 독립 보관되는 테두리 표 좌표와 셀 텍스트（병합 연속 위치는 `None`） |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
-| `Pixmap` | RGBA8 픽셀:`samples` / `width` / `height` / `stride` / `n` / `tobytes()` |
+| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |

@@ -65,5 +65,19 @@ A zero-character row is image-only with no text layer, so zero is correct for bo
 
 `render_pages()` preserves input order, releases the GIL, and uses a dedicated worker pool bounded by both worker count and estimated live rendering memory.
 
+## Free-threaded extraction (two independent documents, ms)
+
+- Environment: Windows-11-10.0.26200-SP0 / Python 3.14.6 free-threaded
+- Input: `bill-hr815.pdf`, all-page text extraction
+- Repetitions: one warmup + median of 7 paired, alternating-order runs
+
+| Mode | Workers | Time | Speedup |
+|---|---:|---:|---:|
+| Sequential | 1 | 341.8 | 1.00x |
+| Parallel | 2 | 195.9 | 1.74x |
+
+Reproduce with a free-threaded interpreter:
+`python3.14t bench/free_threaded.py`.
+
 This report publishes both wins and losses. Results depend on the environment,
 so cite them together with the environment details above.

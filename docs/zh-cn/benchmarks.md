@@ -86,6 +86,19 @@ pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语
 
 实际并发度同时受指定worker数和约512 MB的估算实时渲染内存限制。
 
+## free-threaded提取 { #free-threaded-extraction }
+
+在Windows 11的free-threaded CPython 3.14.6上，对两个互相独立的
+`bill-hr815.pdf`执行全页文本提取。预热一次后，交替先运行的模式，取七组配对运行的
+中位数：
+
+| 模式 | Workers | 时间 | 加速比 |
+|---|---:|---:|---:|
+| 串行 | 1 | 341.8 ms | 1.00倍 |
+| 并行 | 2 | 195.9 ms | 1.74倍 |
+
+每次运行中两个副本的输出都完全一致，并且解释器确认导入后GIL仍保持禁用。
+
 ## 复现 { #reproduce }
 
 语料库位于`tests/assets/real_world`，文件来源与许可证记录在同一目录。
@@ -93,6 +106,8 @@ pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+# 使用free-threaded CPython 3.14解释器：
+python3.14t bench/free_threaded.py
 ```
 
 生成的原始报告提交在

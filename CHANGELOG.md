@@ -81,6 +81,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on rotated scans as well
 
 ### Added
+- Native `cp314-cp314t` wheels for free-threaded Python 3.14 now keep the GIL
+  disabled, run the full suite in CI, and are built for all five release
+  targets alongside the existing Python 3.10–3.14 abi3 wheels. Distinct
+  documents support concurrent operations; same-document external calls must
+  be serialized, with `render_pages()` as the supported parallel rendering
+  boundary. Two independent full-document extractions measured 1.74x at two
+  threads on CPython 3.14.6t
+- `Pixmap` is now immutable. Version-specific wheels expose its RGBA8 storage
+  through a read-only, one-dimensional, zero-copy buffer suitable for
+  `memoryview()` and NumPy. The `abi3-py310` wheel retains the portable
+  one-copy `samples` fallback because `Py_buffer` is not in its stable ABI.
+  Local Windows wheels measured 4.43 MB for cp314t and 4.44 MB for abi3
 - `Page.get_pixmap(clip=)` crops a render in rotation-resolved display
   coordinates, clamps clips to the page, rounds fractional edges outward to
   pixel boundaries, and rejects non-intersecting rectangles. hayro 0.7 cannot

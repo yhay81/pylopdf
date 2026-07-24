@@ -61,5 +61,5 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TableFinder` / `Table` | owned bordered-table geometry and cell text (`None` for merged continuations) |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
-| `Pixmap` | RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` |
+| `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | interpreter warnings (font resolution, image decode) |

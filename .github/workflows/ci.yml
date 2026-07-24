@@ -36,6 +36,33 @@ jobs:
       - name: Test
         run: uv run pytest
 
+  # Test the version-specific ABI without silently falling back to the GIL.
+  test-free-threaded:
+    name: test (Python 3.14t free-threaded)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14t"
+      - uses: astral-sh/setup-uv@v9.0.0
+      - name: Build and install (Python 3.14t)
+        # Keep this lane focused on pylopdf: optional interop extensions may not
+        # publish cp314t wheels on the same schedule.
+        run: uv sync --all-extras --python 3.14t
+      - name: Verify free-threaded import
+        run: >-
+          uv run python -c
+          "import sys, sysconfig, pylopdf;
+          assert sysconfig.get_config_var('Py_GIL_DISABLED') == 1;
+          assert not sys._is_gil_enabled()"
+      - name: Test
+        run: uv run pytest
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

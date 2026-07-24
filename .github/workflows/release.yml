@@ -46,6 +46,37 @@ jobs:
           name: wheels-${{ matrix.platform.target }}
           path: dist
 
+  build-free-threaded-wheels:
+    name: free-threaded wheel (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, smoke: true }
+          - { runner: ubuntu-latest, target: aarch64-unknown-linux-gnu, smoke: false }
+          - { runner: macos-latest, target: aarch64-apple-darwin, smoke: true }
+          # Cross-compile x86_64 on arm64 because Intel runner queues are slow.
+          - { runner: macos-latest, target: x86_64-apple-darwin, smoke: false }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, smoke: true }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14t"
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist -i python3.14t
+          manylinux: auto
+      - name: Smoke-test installed free-threaded wheel
+        if: matrix.platform.smoke
+        run: python tools/smoke_artifact.py dist --pattern "*cp314t*.whl"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: free-threaded-wheels-${{ matrix.platform.target }}
+          path: dist
+
   build-sdist:
     name: sdist
     runs-on: ubuntu-latest
@@ -68,7 +99,7 @@ jobs:
   publish:
     name: Publish to PyPI
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-wheels, build-sdist]
+    needs: [build-wheels, build-free-threaded-wheels, build-sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

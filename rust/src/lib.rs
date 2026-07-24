@@ -7,7 +7,7 @@ mod pixmap;
 use document::{_Document, PasswordError, PdfError};
 use pixmap::Pixmap;
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_Document>()?;
     m.add_class::<Pixmap>()?;

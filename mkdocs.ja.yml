@@ -62,6 +62,7 @@ nav:
   - API: api.md
   - プロジェクト:
       - ベンチマーク: benchmarks.md
+      - 並行実行: concurrency.md
       - セキュリティ: security.md
       - 言語ポリシー: languages.md
   - 変更履歴: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md

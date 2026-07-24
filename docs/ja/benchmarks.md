@@ -88,6 +88,20 @@ pylopdfは**速い結果も遅い結果も同時に公開**します。以下は
 
 実際の並列度は、指定worker数と推定512 MBの描画作業メモリの両方で制限されます。
 
+## free-threadedでの抽出 { #free-threaded-extraction }
+
+Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部の
+全ページテキストを抽出しました。1回warmup後、先行モードを交互にした7組の実行の
+中央値です。
+
+| モード | Workers | 時間 | 高速化 |
+|---|---:|---:|---:|
+| 逐次 | 1 | 341.8 ms | 1.00倍 |
+| 並行 | 2 | 195.9 ms | 1.74倍 |
+
+すべての実行で2部の出力は完全に一致し、import後もGILが無効であることを
+インタープリタから確認しています。
+
 ## 再現する { #reproduce }
 
 コーパスは`tests/assets/real_world`にあり、出典とライセンスも同じ場所へ記録しています。
@@ -95,6 +109,8 @@ pylopdfは**速い結果も遅い結果も同時に公開**します。以下は
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+# free-threaded CPython 3.14インタープリタで:
+python3.14t bench/free_threaded.py
 ```
 
 生成元レポートは
