@@ -820,6 +820,7 @@ class Page:
         *,
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        clip: Sequence[float] | None = None,
     ) -> Pixmap:
         """Render the page to a straight-alpha RGBA8 :class:`Pixmap`.
 
@@ -827,6 +828,12 @@ class Page:
         ``width``, ``height``, ``stride``, ``n``, ``samples`` as bytes, and
         ``tobytes()`` as PNG. Convert it to NumPy with
         ``np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 4)``.
+
+        ``clip`` is an optional display-coordinate rectangle. It is intersected
+        with the page and rounded outward to pixel boundaries. A clip that does
+        not intersect the page raises :class:`PdfError`. hayro currently lacks
+        an offset viewport, so clipping reduces the returned pixel data but not
+        the full-page rasterization cost or render-size limits.
         """
         if dpi is not None:
             if scale != 1.0:
@@ -834,10 +841,11 @@ class Page:
                 raise ValueError(msg)
             scale = dpi / 72.0
         rgba = _normalize_background(background)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, rgba)
+        result = document._doc.render_page_pixmap(page_number, scale, rgba, clip_rect)
         document._emit_warnings()
         return result
 

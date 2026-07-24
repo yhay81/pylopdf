@@ -99,7 +99,11 @@ class _Document:
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...
     def render_page_pixmap(
-        self, page_number: int, scale: float, background: tuple[int, int, int, int] | None
+        self,
+        page_number: int,
+        scale: float,
+        background: tuple[int, int, int, int] | None,
+        clip: tuple[float, float, float, float] | None,
     ) -> Pixmap: ...
     def take_warnings(self) -> list[str]: ...
     def insert_image(

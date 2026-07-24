@@ -42,7 +42,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `find_tables(strategy="lines")` | 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표 감지 |
 | `to_markdown()` | 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
-| `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | 렌더링 |
+| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG 그리기 |

@@ -276,7 +276,11 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
   Document mutation/other same-document calls from external threads remain
   outside the contract. Published scaling on 12 usrguide pages at 2x:
   1/2/4/8 workers = 400.8/200.5/118.5/83.6 ms.
-- Evaluate `get_pixmap(clip=)` together with upstream hayro viewport support.
+- [x] Add `get_pixmap(clip=)` in rotation-resolved display coordinates with
+  outward pixel rounding, page intersection, and explicit non-intersection
+  errors. hayro 0.7 lacks an offset viewport, so this initially crops the
+  full-page raster and retains the full-page size/cost limits; pursue an
+  upstream offset viewport before claiming true region-only rendering.
 - Build and test cp314t wheels only after the mutable `Document` concurrency
   audit. Enable the Pixmap buffer protocol in the version-specific lane and
   verify real parallel scaling rather than treating wheel availability alone as
@@ -382,9 +386,10 @@ rather than waiting automatically for v1.x.
       much smaller and must be measured. Next: design arbitrary-font
       `insert_text`, generate one page with krilla, and import it as a Form
       XObject into lopdf.
-- [ ] Add `get_pixmap(clip=)`. hayro `RenderSettings` supports only an
-      origin-fixed viewport. Decide between proposing offset/transform upstream
-      and initially rendering the full page then cropping.
+- [x] Add `get_pixmap(clip=)` by cropping the full-page raster with exact
+      rotation-resolved display-coordinate semantics. hayro `RenderSettings`
+      still supports only an origin-fixed viewport, so true region-only
+      rendering remains an upstream contribution candidate.
 - [x] Cache extraction results by generation in bounded TextPage and TablePage
       caches, eliminating repeated interpretation in search/extract and
       repeated table workflows while keeping table-only geometry off the common

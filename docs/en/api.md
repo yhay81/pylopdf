@@ -42,7 +42,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `find_tables(strategy="lines")` | vector-bordered grids and merged cells; `"text"` opts into borderless detection |
 | `to_markdown()` | single-page Markdown |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
-| `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | rendering |
+| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | draw JPEG/PNG |

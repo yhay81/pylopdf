@@ -92,6 +92,10 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
   Other simultaneous calls or edits on the same `Document` are outside the
   contract.
+- `Page.get_pixmap(clip=)` accepts rotation-resolved display coordinates,
+  intersects them with the page, and rounds outward to pixel boundaries.
+  hayro 0.7 lacks an offset viewport, so clipping crops a full-page raster and
+  does not relax the full-page render-size limits.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.

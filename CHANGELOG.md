@@ -81,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on rotated scans as well
 
 ### Added
+- `Page.get_pixmap(clip=)` crops a render in rotation-resolved display
+  coordinates, clamps clips to the page, rounds fractional edges outward to
+  pixel boundaries, and rejects non-intersecting rectangles. hayro 0.7 cannot
+  offset its viewport, so the first implementation still rasterizes the full
+  page and keeps the existing full-page size limits
 - Documentation site (EN/JA) at <https://yhay81.github.io/pylopdf/> —
   mkdocs-material with static-i18n, deployed from CI on every push to main.
   Includes a hand-written **pymupdf migration guide** (API mapping table,

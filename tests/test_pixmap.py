@@ -53,6 +53,45 @@ def test_pixmap_matches_png_rendering(one_page_pdf: bytes) -> None:
     assert doc[0].get_pixmap().tobytes() == doc.render_page(0)
 
 
+def test_pixmap_clip_matches_full_render_region(one_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=one_page_pdf)
+    full = doc[0].get_pixmap()
+    clipped = doc[0].get_pixmap(clip=(10, 20, 110, 70))
+
+    assert (clipped.width, clipped.height) == (100, 50)
+    expected = b"".join(full.samples[y * full.stride + 10 * 4 : y * full.stride + 110 * 4] for y in range(20, 70))
+    assert clipped.samples == expected
+
+
+def test_pixmap_clip_rounds_outward_and_intersects_page(one_page_pdf: bytes) -> None:
+    page = pylopdf.open(stream=one_page_pdf)[0]
+
+    fractional = page.get_pixmap(scale=2, clip=(0.25, 0.25, 1.25, 1.25))
+    assert (fractional.width, fractional.height) == (3, 3)
+
+    clamped = page.get_pixmap(clip=(-10, -20, 50, 30))
+    assert (clamped.width, clamped.height) == (50, 30)
+
+
+def test_pixmap_clip_rejects_invalid_or_non_intersecting_rect(one_page_pdf: bytes) -> None:
+    page = pylopdf.open(stream=one_page_pdf)[0]
+    with pytest.raises(ValueError, match="clip must be a finite rect"):
+        page.get_pixmap(clip=(10, 10, 10, 20))
+    with pytest.raises(pylopdf.PdfError, match="does not intersect"):
+        page.get_pixmap(clip=(700, 800, 710, 810))
+
+
+def test_pixmap_clip_uses_rotated_display_coordinates(one_page_pdf: bytes) -> None:
+    page = pylopdf.open(stream=one_page_pdf)[0]
+    page.set_rotation(90)
+    full = page.get_pixmap()
+    clipped = page.get_pixmap(clip=(0, 0, 100, 50))
+
+    assert (full.width, full.height) == (792, 612)
+    assert (clipped.width, clipped.height) == (100, 50)
+    assert clipped.samples == b"".join(full.samples[y * full.stride : y * full.stride + 400] for y in range(50))
+
+
 def build_broken_image_pdf() -> bytes:
     """Build a one-page PDF that triggers ImageDecodeFailure on a broken DCT."""
     stream = "q 100 0 0 100 100 600 cm /Im0 Do Q"

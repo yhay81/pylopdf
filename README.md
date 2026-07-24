@@ -89,7 +89,7 @@ rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
 tables = doc[0].find_tables()        # bordered grids; tables[0].extract()
 text_tables = doc[0].find_tables(strategy="text")  # opt-in borderless tables
 images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
-pix = doc[0].get_pixmap(dpi=144)     # RGBA8 pixels for NumPy / PIL (pix.samples)
+pix = doc[0].get_pixmap(dpi=144, clip=(0, 0, 300, 200))  # cropped RGBA8 pixels for NumPy / PIL
 
 # Rendering
 png: bytes = doc.render_page(0)             # 72 dpi
@@ -300,7 +300,7 @@ signed_pdf: bytes = out.getvalue()
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines")` | Detect bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
-| `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
+| `get_pixmap(scale, dpi=, background=, clip=None)` | Render to a `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
