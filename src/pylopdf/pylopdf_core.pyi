@@ -85,7 +85,7 @@ class _Document:
         ],
     ]: ...
     def find_tables(
-        self, page_number: int
+        self, page_number: int, strategy: str
     ) -> list[
         tuple[
             tuple[float, float, float, float],

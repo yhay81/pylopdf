@@ -39,7 +39,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
-| `find_tables()` | vector-bordered grids and rectangular merged cells (`Table.extract()` / `to_markdown()`) |
+| `find_tables(strategy="lines")` | vector-bordered grids and merged cells; `"text"` opts into borderless detection |
 | `to_markdown()` | single-page Markdown |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
 | `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | rendering |

@@ -152,6 +152,14 @@ def test_f1040_bordered_table() -> None:
     assert "Child tax\ncredit" in text
 
 
+def test_f1040_borderless_text_table() -> None:
+    """Extract aligned form rows that have no complete surrounding grid."""
+    tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables(strategy="text")
+    extracted = [table.extract() for table in tables]
+
+    assert any(any(cell == "Filing Status" for row in table for cell in row) for table in extracted)
+
+
 def test_manuscript_scan_has_no_text_layer() -> None:
     """A pure scan without a text layer correctly extracts as empty."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")

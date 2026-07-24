@@ -121,8 +121,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   row/column spans are reconstructed from missing internal dividers;
   continuation slots are `None`, and Markdown can fill them from above or the
   left. The intentionally high-confidence detector still rejects broken outer
-  grids and compact filled decorations; borderless inference remains future
-  work
+  grids and compact filled decorations
+- `Page.find_tables(strategy="text")` adds an explicit borderless-table path.
+  It requires at least three consecutive rows with the same segment count,
+  aligned left or right column edges, compatible leading, and clear
+  inter-column gaps. The default remains the stricter vector-rule strategy;
+  text strategy documents its unavoidable ambiguity with aligned multicolumn
+  prose
 - Text extraction now assembles transformed vertical baselines as one
   searchable line and conservatively recognizes CJK vertical writing from
   glyph geometry when the font's WMode is hidden by hayro. Vertical columns

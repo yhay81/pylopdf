@@ -39,7 +39,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `get_text(option)` / `search_for(needle)` | 추출과 대소문자 구분 없는 검색 |
-| `find_tables()` | 벡터 테두리 격자와 직사각형 병합 셀（`Table.extract()` / `to_markdown()`） |
+| `find_tables(strategy="lines")` | 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표 감지 |
 | `to_markdown()` | 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
 | `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | 렌더링 |

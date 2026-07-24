@@ -65,8 +65,9 @@ deliberately does not implement.
 - **Multicolumn text** follows deterministic whitespace gutters, reading
   top-to-bottom within each column and columns from left to right.
 - **`Page.find_tables()`** reconstructs axis-aligned bordered grids from strokes
-  or thin filled rectangles, including rectangular merged cells. Borderless
-  inference is not implemented yet.
+  or thin filled rectangles, including rectangular merged cells. Opt in to
+  high-confidence borderless detection with `strategy="text"`; aligned
+  multicolumn prose remains geometrically ambiguous.
 - **Form filling** sets values + `NeedAppearances`; viewers draw the values.
   pylopdf's own renderer does not regenerate widget appearances.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,

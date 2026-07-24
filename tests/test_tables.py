@@ -68,6 +68,27 @@ def _filled_rule_table_pdf() -> bytes:
     )
 
 
+def _borderless_table_pdf(*, rows: int = 3) -> bytes:
+    """Build aligned, independently positioned text cells without borders."""
+    values = [("Name", "Value"), ("Alpha", "42"), ("Beta", "7")][:rows]
+    stream = "\n".join(
+        (f"BT /F1 12 Tf 40 {240 - row * 30} Td ({left}) Tj ET\nBT /F1 12 Tf 180 {240 - row * 30} Td ({right}) Tj ET")
+        for row, (left, right) in enumerate(values)
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 340 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+
 def test_find_bordered_table() -> None:
     page = pylopdf.open(stream=_bordered_table_pdf())[0]
 
@@ -146,3 +167,25 @@ def test_compact_filled_decorations_are_not_table_rules() -> None:
         }
     )
     assert pylopdf.open(stream=pdf)[0].find_tables().tables == []
+
+
+def test_opt_in_text_strategy_finds_borderless_table() -> None:
+    """Require explicit text strategy for sustained aligned rows."""
+    page = pylopdf.open(stream=_borderless_table_pdf())[0]
+
+    assert page.find_tables().tables == []
+    table = page.find_tables(strategy="text")[0]
+    assert (table.row_count, table.col_count) == (3, 2)
+    assert table.extract() == [["Name", "Value"], ["Alpha", "42"], ["Beta", "7"]]
+
+
+def test_text_strategy_requires_three_rows() -> None:
+    """Reject short aligned pairs that are likely ordinary page layout."""
+    page = pylopdf.open(stream=_borderless_table_pdf(rows=2))[0]
+    assert page.find_tables(strategy="text").tables == []
+
+
+def test_find_tables_rejects_unknown_strategy() -> None:
+    page = pylopdf.open(stream=_borderless_table_pdf())[0]
+    with pytest.raises(ValueError, match="strategy"):
+        page.find_tables(strategy="guess")  # type: ignore[arg-type]

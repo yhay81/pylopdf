@@ -66,8 +66,11 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   requires a connected outer grid with at least two rows and columns.
   Rectangular merged cells are tiled from missing internal dividers; covered
   row-major slots are `None`. Materialization is capped at 4096 slots and
-  merged-span searches at 65,536 candidates. Borderless tables are not inferred
-  yet.
+  merged-span searches at 65,536 candidates. The opt-in borderless
+  `strategy="text"` requires at least three consecutive physical rows with the
+  same segment count, aligned left or right edges, compatible leading, and
+  clear gaps. It intentionally does not run as the default because aligned
+  multicolumn prose is geometrically ambiguous.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated

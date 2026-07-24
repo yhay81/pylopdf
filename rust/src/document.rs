@@ -1683,9 +1683,17 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        strategy: &str,
     ) -> PyResult<Vec<crate::extract::TableTuple>> {
+        let text_strategy = match strategy {
+            "lines" => false,
+            "text" => true,
+            _ => {
+                return Err(PyValueError::new_err("strategy must be 'lines' or 'text'"));
+            }
+        };
         let settings = self.interpreter_settings();
-        py.detach(|| Ok(self.text_page(page_number, settings)?.tables()))
+        py.detach(|| Ok(self.text_page(page_number, settings)?.tables(text_strategy)))
     }
 
     /// Extract images drawn on a one-based page.

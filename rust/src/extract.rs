@@ -278,6 +278,18 @@ const MAX_TABLE_CELLS: usize = 4096;
 /// Bound merged-cell rectangle searches on damaged or adversarial grids.
 const MAX_TABLE_SPAN_CANDIDATES: usize = 65_536;
 
+/// Minimum aligned rows required by the opt-in borderless-text strategy.
+const MIN_TEXT_TABLE_ROWS: usize = 3;
+
+/// Bound the number of inferred text columns.
+const MAX_TEXT_TABLE_COLUMNS: usize = 32;
+
+/// Column edges this close relative to font size count as aligned.
+const TEXT_TABLE_ALIGNMENT_TOLERANCE: f64 = 1.0;
+
+/// Maximum gap between consecutive borderless table rows.
+const TEXT_TABLE_ROW_GAP: f64 = 2.5;
+
 /// Treat transformed path segments this close to an axis as horizontal/vertical.
 const TABLE_AXIS_TOLERANCE: f64 = 0.5;
 
@@ -588,6 +600,22 @@ fn split_line_segments(line: &[GlyphRecord]) -> Vec<Vec<GlyphRecord>> {
     segments
 }
 
+/// Count widely separated segments without cloning their glyphs.
+fn line_segment_count(line: &[GlyphRecord]) -> usize {
+    let mut count = usize::from(!line.is_empty());
+    let mut previous_end: Option<f64> = None;
+    let mut previous_size = 0.0_f64;
+    for glyph in line {
+        let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
+        if previous_end.is_some_and(|end| glyph.x - end > threshold) {
+            count += 1;
+        }
+        previous_end = Some(glyph.x + glyph.advance);
+        previous_size = glyph.size;
+    }
+    count
+}
+
 /// Split baseline bands only when a sustained page-level column gutter exists.
 fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
     if clustered
@@ -825,6 +853,7 @@ pub(crate) struct TextPage {
     height: f64,
     lines: Vec<Vec<GlyphRecord>>,
     tables: Vec<TableTuple>,
+    text_tables: Vec<TableTuple>,
 }
 
 impl TextPage {
@@ -833,12 +862,14 @@ impl TextPage {
         let (glyphs, rules) = collect_page_marks(pdf, page, settings);
         let physical_lines = cluster_lines(glyphs);
         let tables = detect_grid_tables(&physical_lines, &rules);
+        let text_tables = detect_text_tables(&physical_lines);
         let lines = order_page_lines(physical_lines);
         Self {
             width: f64::from(width),
             height: f64::from(height),
             lines,
             tables,
+            text_tables,
         }
     }
 
@@ -854,8 +885,12 @@ impl TextPage {
         search_lines(&self.lines, needle)
     }
 
-    pub(crate) fn tables(&self) -> Vec<TableTuple> {
-        self.tables.clone()
+    pub(crate) fn tables(&self, text_strategy: bool) -> Vec<TableTuple> {
+        if text_strategy {
+            self.text_tables.clone()
+        } else {
+            self.tables.clone()
+        }
     }
 }
 
@@ -1226,6 +1261,179 @@ fn cell_text(lines: &[Vec<WordTuple>], (x0, y0, x1, y1): BBox) -> String {
         }
     }
     rows.join("\n")
+}
+
+/// Return one cell's text from an already-separated line segment.
+fn text_segment_value(segment: &[GlyphRecord]) -> String {
+    split_words(segment)
+        .into_iter()
+        .map(|(_, text)| text)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Bounding box around all segments in one inferred text-table row.
+fn segmented_row_bbox(row: &[Vec<GlyphRecord>]) -> BBox {
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for segment in row {
+        let (segment_x0, segment_y0, segment_x1, segment_y1) = line_bbox(segment);
+        x0 = x0.min(segment_x0);
+        y0 = y0.min(segment_y0);
+        x1 = x1.max(segment_x1);
+        y1 = y1.max(segment_y1);
+    }
+    (x0, y0, x1, y1)
+}
+
+/// Representative font size for one inferred text-table row.
+fn segmented_row_size(row: &[Vec<GlyphRecord>]) -> f64 {
+    row.iter()
+        .flat_map(|segment| segment.iter())
+        .map(|glyph| glyph.size)
+        .fold(0.0, f64::max)
+}
+
+/// Return whether two physical rows can belong to one borderless table.
+fn text_rows_compatible(
+    first: &[Vec<GlyphRecord>],
+    previous: &[Vec<GlyphRecord>],
+    current: &[Vec<GlyphRecord>],
+) -> bool {
+    if first.len() != current.len() || previous.len() != current.len() {
+        return false;
+    }
+    let scale = segmented_row_size(previous)
+        .max(segmented_row_size(current))
+        .max(1.0);
+    let (_, _, _, previous_y1) = segmented_row_bbox(previous);
+    let (_, current_y0, _, _) = segmented_row_bbox(current);
+    let row_gap = current_y0 - previous_y1;
+    if row_gap < -scale * LINE_TOLERANCE || row_gap > scale * TEXT_TABLE_ROW_GAP {
+        return false;
+    }
+
+    first.iter().zip(current).all(|(anchor, candidate)| {
+        let (anchor_x0, _, anchor_x1, _) = line_bbox(anchor);
+        let (candidate_x0, _, candidate_x1, _) = line_bbox(candidate);
+        (anchor_x0 - candidate_x0).abs() <= scale * TEXT_TABLE_ALIGNMENT_TOLERANCE
+            || (anchor_x1 - candidate_x1).abs() <= scale * TEXT_TABLE_ALIGNMENT_TOLERANCE
+    })
+}
+
+/// Materialize one run of aligned borderless rows.
+fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
+    if rows.len() < MIN_TEXT_TABLE_ROWS {
+        return None;
+    }
+    let row_count_usize = rows.len();
+    let column_count_usize = rows[0].len();
+    if !(2..=MAX_TEXT_TABLE_COLUMNS).contains(&column_count_usize) {
+        return None;
+    }
+
+    let mut x_bounds = Vec::with_capacity(column_count_usize + 1);
+    x_bounds.push(
+        rows.iter()
+            .map(|row| line_bbox(&row[0]).0)
+            .reduce(f64::min)?,
+    );
+    for column in 1..column_count_usize {
+        let left_end = rows
+            .iter()
+            .map(|row| line_bbox(&row[column - 1]).2)
+            .reduce(f64::max)?;
+        let right_start = rows
+            .iter()
+            .map(|row| line_bbox(&row[column]).0)
+            .reduce(f64::min)?;
+        if right_start <= left_end {
+            return None;
+        }
+        x_bounds.push((left_end + right_start) * 0.5);
+    }
+    x_bounds.push(
+        rows.iter()
+            .map(|row| line_bbox(&row[column_count_usize - 1]).2)
+            .reduce(f64::max)?,
+    );
+
+    let row_bboxes: Vec<BBox> = rows.iter().map(|row| segmented_row_bbox(row)).collect();
+    let mut y_bounds = Vec::with_capacity(row_count_usize + 1);
+    y_bounds.push(row_bboxes[0].1);
+    for pair in row_bboxes.windows(2) {
+        y_bounds.push((pair[0].3 + pair[1].1) * 0.5);
+    }
+    y_bounds.push(row_bboxes[row_count_usize - 1].3);
+
+    let mut cells = Vec::with_capacity(row_count_usize * column_count_usize);
+    for (row_index, row) in rows.iter().enumerate() {
+        for (column_index, segment) in row.iter().enumerate() {
+            cells.push(Some((
+                (
+                    x_bounds[column_index],
+                    y_bounds[row_index],
+                    x_bounds[column_index + 1],
+                    y_bounds[row_index + 1],
+                ),
+                text_segment_value(segment),
+            )));
+        }
+    }
+    let row_count = u32::try_from(row_count_usize).ok()?;
+    let column_count = u32::try_from(column_count_usize).ok()?;
+    Some((
+        (
+            x_bounds[0],
+            y_bounds[0],
+            x_bounds[column_count_usize],
+            y_bounds[row_count_usize],
+        ),
+        row_count,
+        column_count,
+        cells,
+    ))
+}
+
+/// Detect opt-in borderless tables from sustained aligned text segments.
+fn detect_text_tables(physical_lines: &[Vec<GlyphRecord>]) -> Vec<TableTuple> {
+    let mut tables = Vec::new();
+    let mut run: Vec<Vec<Vec<GlyphRecord>>> = Vec::new();
+    let flush = |run: &mut Vec<Vec<Vec<GlyphRecord>>>, tables: &mut Vec<TableTuple>| {
+        if let Some(table) = text_table_from_rows(run) {
+            tables.push(table);
+        }
+        run.clear();
+    };
+
+    for line in physical_lines {
+        let segment_count = line_segment_count(line);
+        let segments = (!line.is_empty()
+            && !has_vertical_baseline(&line[0])
+            && (2..=MAX_TEXT_TABLE_COLUMNS).contains(&segment_count))
+        .then(|| split_line_segments(line))
+        .filter(|segments| segments.len() == segment_count);
+        let Some(segments) = segments else {
+            flush(&mut run, &mut tables);
+            continue;
+        };
+        if run.is_empty()
+            || text_rows_compatible(
+                run.first().expect("the run was checked as non-empty"),
+                run.last().expect("the run was checked as non-empty"),
+                &segments,
+            )
+        {
+            run.push(segments);
+        } else {
+            flush(&mut run, &mut tables);
+            run.push(segments);
+        }
+    }
+    flush(&mut run, &mut tables);
+    tables
 }
 
 /// Detect high-confidence rectangular tables from connected vector-rule grids.

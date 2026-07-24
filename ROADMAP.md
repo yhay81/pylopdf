@@ -253,8 +253,13 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
 - [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
   rectangular merged cells. Keep adversarial search bounded and reject broken
   outer grids and compact filled decorations.
-- Add an explicit, opt-in borderless-text strategy with confidence diagnostics
-  before considering an optional layout model.
+- [x] Add an explicit, opt-in `strategy="text"` for borderless tables. Require
+  at least three consecutive rows, stable segment counts, aligned left/right
+  edges, compatible leading, and clear gutters; keep the vector-rule strategy
+  as the default and document aligned multicolumn prose as an unavoidable
+  ambiguity.
+- Add confidence diagnostics and region clipping before considering an optional
+  layout model.
 - [x] Add vertical CJK extraction by assembling transformed vertical baselines
   directly and conservatively inferring hidden font WMode from CJK glyph
   geometry. Vertical columns read top-to-bottom and right-to-left between

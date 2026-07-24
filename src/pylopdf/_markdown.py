@@ -13,8 +13,8 @@ Initial rules:
 - Multicolumn text follows deterministic whitespace gutters.
 - Conservative vertical CJK columns follow extracted top-to-bottom,
   right-to-left order. Ruby and mixed-orientation typography are not interpreted.
-- ``Page.find_tables`` can export bordered grids, including rectangular merged
-  cells, separately; automatic table conversion is unsupported here.
+- ``Page.find_tables`` can export bordered or opt-in borderless tables
+  separately; automatic table conversion is unsupported here.
 """
 
 from __future__ import annotations

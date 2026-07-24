@@ -502,15 +502,21 @@ class Page:
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
-    def find_tables(self) -> TableFinder:
-        """Find high-confidence tables built from axis-aligned vector borders.
+    def find_tables(self, strategy: Literal["lines", "text"] = "lines") -> TableFinder:
+        """Find high-confidence tables from vector borders or aligned text.
 
-        The detector is deterministic and does not rasterize the page. It
-        accepts stroked rules and thin filled rectangles, requires an outer grid
-        with at least two rows and two columns, and reconstructs rectangular
-        merged cells. Borderless tables are not inferred.
+        The default ``"lines"`` strategy is deterministic and does not rasterize
+        the page. It accepts stroked rules and thin filled rectangles, requires
+        an outer grid with at least two rows and two columns, and reconstructs
+        rectangular merged cells.
+
+        The opt-in ``"text"`` strategy detects borderless tables only when at
+        least three consecutive rows have the same segment count, aligned
+        column edges, compatible leading, and clear inter-column gaps. It may
+        interpret aligned multicolumn prose as a table, so use it when the page
+        region is known to contain tabular data.
         """
-        raw = self._document._doc.find_tables(self._page_number())
+        raw = self._document._doc.find_tables(self._page_number(), strategy)
         self._document._emit_warnings()
         tables = [
             Table(
@@ -1016,8 +1022,8 @@ class Document:
         Conservatively detected vertical CJK columns follow top-to-bottom,
         right-to-left reading order; ruby and mixed-orientation typography are
         not interpreted.
-        :meth:`Page.find_tables` handles bordered grids and rectangular merged
-        cells, but automatic table conversion is unsupported.
+        :meth:`Page.find_tables` handles bordered and opt-in borderless tables,
+        but automatic table conversion is unsupported.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """
