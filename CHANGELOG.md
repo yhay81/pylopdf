@@ -104,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation-invalidated `TextPage` interpretation cache. Line dictionaries
   report the transformed baseline direction instead of a hard-coded value,
   laying the geometry foundation for multicolumn and vertical text
+- Text extraction now detects sustained whitespace gutters and orders
+  multicolumn pages top-to-bottom within each column, then left-to-right across
+  columns. Full-width headings and footers retain their page-level position,
+  while isolated wide gaps such as a header plus page number stay on one line
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

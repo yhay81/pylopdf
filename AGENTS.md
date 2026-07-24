@@ -58,6 +58,9 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   fallback configuration also applies to extraction, including invisible OCR
   text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
+  Sustained whitespace gutters split same-baseline segments into recursive
+  left-to-right columns; full-width headings and footers remain outside the
+  column regions, and isolated wide gaps stay on one line.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts; vertical

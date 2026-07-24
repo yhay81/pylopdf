@@ -10,7 +10,8 @@ Initial rules:
   emphasis markers in body text. Heading text remains plain to avoid combining
   heading markers with emphasis. Standard 14 Type 1 fonts are excluded because
   hayro does not expose their metadata.
-- Tables, multicolumn reading order, and vertical writing are unsupported.
+- Multicolumn text follows deterministic whitespace gutters.
+- Tables and vertical-writing order are unsupported.
 """
 
 from __future__ import annotations

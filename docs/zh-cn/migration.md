@@ -56,6 +56,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 - **`get_text`选项**仅有`text` / `words` / `blocks` / `dict`，没有`html` /
   `rawdict` / `xml`。对嵌入字体，span字典包含`font`和兼容pymupdf的`flags`
   （bold/italic/serif/mono）。
+- **多栏文本**通过确定性的栏间空白检测排序：先在每栏内从上到下，再按栏从左到右。
+  目前尚不重建表格。
 - **表单填写**会设置值与`NeedAppearances`，外观由查看器绘制。pylopdf的渲染器不会
   重新生成widget appearance。
 - **竖排文字**的阅读顺序尚未重建。

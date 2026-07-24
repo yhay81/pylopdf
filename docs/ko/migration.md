@@ -60,6 +60,9 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 - **`get_text` 옵션**은 `text` / `words` / `blocks` / `dict`로 제한됩니다
   (`html` / `rawdict` / `xml` 없음). 포함 글꼴의 span dict에는 `font`와
   pymupdf 방식의 `flags`(bold/italic/serif/mono)가 들어갑니다.
+- **다단 텍스트**는 결정적인 단 사이 여백 감지로 정렬합니다. 각 단 안에서는
+  위에서 아래로, 단 사이는 왼쪽에서 오른쪽으로 읽습니다. 표 재구성은 아직
+  지원하지 않습니다.
 - **폼 입력**은 값과 `NeedAppearances`를 설정하고, 뷰어가 값을 그립니다.
   pylopdf의 렌더러 자체는 widget appearance를 다시 생성하지 않습니다.
 - **세로쓰기**의 읽기 순서는 아직 재구성하지 않습니다.

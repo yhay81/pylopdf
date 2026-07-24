@@ -62,6 +62,9 @@ deliberately does not implement.
 - **`get_text` options** are limited to `text` / `words` / `blocks` / `dict`
   (no `html` / `rawdict` / `xml`). Span dicts carry `font` and pymupdf-style
   `flags` (bold/italic/serif/mono) for embedded fonts.
+- **Multicolumn text** follows deterministic whitespace gutters, reading
+  top-to-bottom within each column and columns from left to right. Table
+  reconstruction is not implemented yet.
 - **Form filling** sets values + `NeedAppearances`; viewers draw the values.
   pylopdf's own renderer does not regenerate widget appearances.
 - **Vertical writing** reading order is not reconstructed yet.

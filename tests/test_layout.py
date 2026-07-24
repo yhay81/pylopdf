@@ -172,3 +172,61 @@ def test_dict_reports_transformed_baseline_direction() -> None:
     assert direction_x == pytest.approx(0.0, abs=1e-9)
     assert abs(direction_y) == pytest.approx(1.0)
     assert line["wmode"] == 0
+
+
+def test_multicolumn_reading_order_follows_columns() -> None:
+    """Read sustained columns top-to-bottom before moving left-to-right."""
+    stream = (
+        "BT /F1 18 Tf 20 270 Td (A heading spanning both columns) Tj ET\n"
+        "BT /F1 12 Tf 40 230 Td (Left one) Tj ET\n"
+        "BT /F1 12 Tf 40 210 Td (Left two) Tj ET\n"
+        "BT /F1 12 Tf 200 230 Td (Right one) Tj ET\n"
+        "BT /F1 12 Tf 200 210 Td (Right two) Tj ET\n"
+        "BT /F1 18 Tf 20 30 Td (A footer spanning both columns) Tj ET"
+    )
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 360 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    expected = [
+        "A heading spanning both columns",
+        "Left one",
+        "Left two",
+        "Right one",
+        "Right two",
+        "A footer spanning both columns",
+    ]
+    assert page.get_text().splitlines() == expected
+    assert [word[4] for word in page.get_text("words")] == [word for line in expected for word in line.split()]
+
+
+def test_isolated_wide_gap_stays_on_one_line() -> None:
+    """Do not mistake an isolated header and page number for two columns."""
+    stream = "BT /F1 12 Tf 40 260 Td (Header) Tj ET\nBT /F1 12 Tf 300 260 Td (1) Tj ET"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 360 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    assert page.get_text() == "Header 1\n"
+    layout = page.get_text("dict")
+    assert len(layout["blocks"][0]["lines"]) == 1

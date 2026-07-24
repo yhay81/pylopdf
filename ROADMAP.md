@@ -243,9 +243,12 @@ v0.11 is the main capability-expansion release before v1.0. It has no arbitrary
 feature-count deadline: work continues until the new capabilities are accurate,
 measurable, and coherent rather than stopping at a nominal parity checklist.
 
-- Build deterministic multicolumn reading order on `TextPage`, followed by
-  geometry-based table detection and extraction. Keep the rule-based core
-  inspectable before considering an optional layout model.
+- [x] Build deterministic multicolumn reading order on `TextPage`: sustained
+  whitespace gutters split line segments into recursive left-to-right columns,
+  with full-width headings and footers preserved and isolated wide gaps
+  rejected.
+- Follow with geometry-based table detection and extraction. Keep the
+  rule-based core inspectable before considering an optional layout model.
 - Add vertical CJK extraction by retaining the transformed baseline vector and
   assembling vertical lines and reading order explicitly. Cover Japanese
   business documents in the real-world corpus.

@@ -899,7 +899,8 @@ class Document:
         ``#`` through ``####``. Wrapped CJK lines join without spaces. Leading
         bullets and ``1.``/``1)`` forms normalize to Markdown lists. Scanned PDFs
         work after adding a layer with :meth:`Page.insert_ocr_text_layer`.
-        Tables, multicolumn reading order, and vertical writing are unsupported.
+        Multicolumn text follows deterministic whitespace gutters. Tables and
+        vertical-writing order are unsupported.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """
