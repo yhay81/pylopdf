@@ -64,8 +64,9 @@ deliberately does not implement.
   `flags` (bold/italic/serif/mono) for embedded fonts.
 - **Multicolumn text** follows deterministic whitespace gutters, reading
   top-to-bottom within each column and columns from left to right.
-- **`Page.find_tables()`** reconstructs complete axis-aligned bordered grids.
-  Borderless and merged-cell inference are not implemented yet.
+- **`Page.find_tables()`** reconstructs axis-aligned bordered grids from strokes
+  or thin filled rectangles, including rectangular merged cells. Borderless
+  inference is not implemented yet.
 - **Form filling** sets values + `NeedAppearances`; viewers draw the values.
   pylopdf's own renderer does not regenerate widget appearances.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,

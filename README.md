@@ -32,14 +32,15 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
 **Limitations**: multicolumn text follows deterministic whitespace gutters, and
-`find_tables()` reconstructs complete bordered grids. Borderless / merged-cell
-tables and automatic table conversion in `Document.to_markdown()` are not
-implemented. Vertical CJK columns are reconstructed conservatively and ordered
-right-to-left; ruby, warichu, and mixed-orientation Japanese typography are not
-interpreted semantically. There is also no appearance-stream regeneration for
-forms and annotations (form filling uses NeedAppearances — viewers draw the
-values). Use pymupdf if you need those. Typesetting, PDF/A output, and digital
-signatures are covered by the ecosystem recipes below.
+`find_tables()` reconstructs bordered grids from strokes or thin filled rules,
+including rectangular merged cells. Borderless tables and automatic table
+conversion in `Document.to_markdown()` are not implemented. Vertical CJK
+columns are reconstructed conservatively and ordered right-to-left; ruby,
+warichu, and mixed-orientation Japanese typography are not interpreted
+semantically. There is also no appearance-stream regeneration for forms and
+annotations (form filling uses NeedAppearances — viewers draw the values). Use
+pymupdf if you need those. Typesetting, PDF/A output, and digital signatures are
+covered by the ecosystem recipes below.
 
 ## Install
 
@@ -292,7 +293,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
-| `find_tables()` | Detect complete bordered grids; returns `TableFinder` with `Table.extract()` / `to_markdown()` |
+| `find_tables()` | Detect stroked / thin-filled bordered grids and rectangular merged cells; returns `TableFinder` with `Table.extract()` / `to_markdown()` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |

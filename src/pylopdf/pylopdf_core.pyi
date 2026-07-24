@@ -91,7 +91,7 @@ class _Document:
             tuple[float, float, float, float],
             int,
             int,
-            list[tuple[tuple[float, float, float, float], str]],
+            list[tuple[tuple[float, float, float, float], str] | None],
         ]
     ]: ...
     def search_page(self, page_number: int, needle: str) -> list[tuple[float, float, float, float]]: ...

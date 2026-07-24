@@ -1678,7 +1678,7 @@ impl _Document {
         py.detach(|| Ok(self.text_page(page_number, settings)?.layout()))
     }
 
-    /// Detect high-confidence bordered tables on a one-based page.
+    /// Detect high-confidence vector-bordered tables on a one-based page.
     fn find_tables(
         &mut self,
         py: Python<'_>,

@@ -39,7 +39,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `get_text(option)` / `search_for(needle)` | 추출과 대소문자 구분 없는 검색 |
-| `find_tables()` | 완전한 테두리 격자（`Table.extract()` / `to_markdown()`） |
+| `find_tables()` | 벡터 테두리 격자와 직사각형 병합 셀（`Table.extract()` / `to_markdown()`） |
 | `to_markdown()` | 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
 | `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | 렌더링 |
@@ -59,7 +59,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `peek_metadata(path_or_stream, password=)` | 전체 파싱 없이 메타데이터와 페이지 수를 빠르게 조회 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
-| `TableFinder` / `Table` | 독립 보관되는 테두리 표 좌표와 셀 텍스트 |
+| `TableFinder` / `Table` | 독립 보관되는 테두리 표 좌표와 셀 텍스트（병합 연속 위치는 `None`） |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
 | `Pixmap` | RGBA8 픽셀:`samples` / `width` / `height` / `stride` / `n` / `tobytes()` |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |

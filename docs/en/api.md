@@ -39,7 +39,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
-| `find_tables()` | complete bordered grids (`Table.extract()` / `to_markdown()`) |
+| `find_tables()` | vector-bordered grids and rectangular merged cells (`Table.extract()` / `to_markdown()`) |
 | `to_markdown()` | single-page Markdown |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
 | `get_pixmap(scale=, dpi=, background=)` / `render(...)` / `render_svg()` | rendering |
@@ -59,7 +59,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe without full parsing |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
-| `TableFinder` / `Table` | owned bordered-table geometry and cell text |
+| `TableFinder` / `Table` | owned bordered-table geometry and cell text (`None` for merged continuations) |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
 | `Pixmap` | RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` |
 | `PylopdfWarning` | interpreter warnings (font resolution, image decode) |

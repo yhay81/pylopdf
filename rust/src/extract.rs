@@ -106,7 +106,13 @@ impl Device<'_> for TextCollector {
         _: &Paint<'_>,
         mode: &PathDrawMode,
     ) {
-        if !matches!(mode, PathDrawMode::Stroke(_)) || self.rules.len() >= MAX_TABLE_RULES {
+        if self.rules.len() >= MAX_TABLE_RULES {
+            return;
+        }
+        if matches!(mode, PathDrawMode::Fill(_)) {
+            if let Some(rule) = filled_rule(path, transform) {
+                self.rules.push(rule);
+            }
             return;
         }
         for segment in path.segments() {
@@ -269,11 +275,20 @@ const MAX_TABLE_RULES: usize = 4096;
 /// Maximum cells materialized from one connected grid.
 const MAX_TABLE_CELLS: usize = 4096;
 
+/// Bound merged-cell rectangle searches on damaged or adversarial grids.
+const MAX_TABLE_SPAN_CANDIDATES: usize = 65_536;
+
 /// Treat transformed path segments this close to an axis as horizontal/vertical.
 const TABLE_AXIS_TOLERANCE: f64 = 0.5;
 
 /// Ignore tiny decorations and glyph-like path segments.
 const MIN_TABLE_RULE_LENGTH: f64 = 3.0;
+
+/// Maximum short axis accepted as a filled table rule.
+const MAX_FILLED_RULE_THICKNESS: f64 = 4.0;
+
+/// Reject compact filled decorations even when one axis is slightly longer.
+const MIN_FILLED_RULE_ASPECT: f64 = 4.0;
 
 /// Snap rule coordinates and intersections within this distance.
 const TABLE_SNAP_TOLERANCE: f64 = 1.0;
@@ -289,6 +304,64 @@ fn normalize_direction((x, y): (f64, f64)) -> (f64, f64) {
         if x.abs() < AXIS_EPSILON { 0.0 } else { x },
         if y.abs() < AXIS_EPSILON { 0.0 } else { y },
     )
+}
+
+/// Convert a thin, axis-aligned filled polygon into its centerline.
+///
+/// PDF generators often paint table rules as narrow filled rectangles instead
+/// of stroking paths. Curves and compact shapes are excluded so glyph outlines
+/// and ordinary decorations do not become table candidates.
+fn filled_rule(path: &kurbo::BezPath, transform: Affine) -> Option<RuleSegment> {
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    let mut line_count = 0;
+    for segment in path.segments() {
+        let PathSeg::Line(line) = segment else {
+            return None;
+        };
+        for point in [transform * line.p0, transform * line.p1] {
+            if !point.x.is_finite() || !point.y.is_finite() {
+                return None;
+            }
+            x0 = x0.min(point.x);
+            y0 = y0.min(point.y);
+            x1 = x1.max(point.x);
+            y1 = y1.max(point.y);
+        }
+        line_count += 1;
+    }
+    if line_count < 4 {
+        return None;
+    }
+    let width = x1 - x0;
+    let height = y1 - y0;
+    if height <= MAX_FILLED_RULE_THICKNESS
+        && width >= MIN_TABLE_RULE_LENGTH
+        && width >= height.max(f64::EPSILON) * MIN_FILLED_RULE_ASPECT
+    {
+        Some(RuleSegment {
+            x0,
+            y0: (y0 + y1) * 0.5,
+            x1,
+            y1: (y0 + y1) * 0.5,
+            horizontal: true,
+        })
+    } else if width <= MAX_FILLED_RULE_THICKNESS
+        && height >= MIN_TABLE_RULE_LENGTH
+        && height >= width.max(f64::EPSILON) * MIN_FILLED_RULE_ASPECT
+    {
+        Some(RuleSegment {
+            x0: (x0 + x1) * 0.5,
+            y0,
+            x1: (x0 + x1) * 0.5,
+            y1,
+            horizontal: false,
+        })
+    } else {
+        None
+    }
 }
 
 /// Return whether a baseline direction is predominantly vertical.
@@ -840,7 +913,10 @@ type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
 /// Table: `(bbox, row count, column count, row-major cells)`.
-pub(crate) type TableTuple = (BBox, u32, u32, Vec<(BBox, String)>);
+///
+/// Continuation slots covered by a merged cell are `None`; the merged cell's
+/// top-left slot contains its spanning bbox and text.
+pub(crate) type TableTuple = (BBox, u32, u32, Vec<Option<(BBox, String)>>);
 
 /// Glyph bounding box with vertical extents approximated from baseline and size.
 fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
@@ -1019,6 +1095,116 @@ fn rule_covers(rules: &[RuleSegment], horizontal: bool, fixed: f64, start: f64, 
     false
 }
 
+/// Return whether a candidate cell has all four outer borders.
+fn cell_is_bounded(rules: &[RuleSegment], (x0, y0, x1, y1): BBox) -> bool {
+    rule_covers(rules, true, y0, x0, x1)
+        && rule_covers(rules, true, y1, x0, x1)
+        && rule_covers(rules, false, x0, y0, y1)
+        && rule_covers(rules, false, x1, y0, y1)
+}
+
+/// Reject a spanning candidate if a complete internal rule splits it.
+fn cell_has_internal_split(
+    rules: &[RuleSegment],
+    xs: &[f64],
+    ys: &[f64],
+    row_start: usize,
+    row_end: usize,
+    column_start: usize,
+    column_end: usize,
+) -> bool {
+    let (x0, x1) = (xs[column_start], xs[column_end]);
+    let (y0, y1) = (ys[row_start], ys[row_end]);
+    xs[column_start + 1..column_end]
+        .iter()
+        .any(|&x| rule_covers(rules, false, x, y0, y1))
+        || ys[row_start + 1..row_end]
+            .iter()
+            .any(|&y| rule_covers(rules, true, y, x0, x1))
+}
+
+/// Tile a detected grid with the smallest bounded cells, allowing rectangular
+/// row/column spans where an internal rule is absent.
+fn materialize_grid_cells(
+    rules: &[RuleSegment],
+    xs: &[f64],
+    ys: &[f64],
+    word_lines: &[Vec<WordTuple>],
+) -> Option<Vec<Option<(BBox, String)>>> {
+    let row_count = ys.len() - 1;
+    let column_count = xs.len() - 1;
+    let slot_count = row_count.checked_mul(column_count)?;
+    if slot_count > MAX_TABLE_CELLS {
+        return None;
+    }
+
+    let mut cells = vec![None; slot_count];
+    let mut covered = vec![false; slot_count];
+    let mut span_candidates = 0;
+    for row_start in 0..row_count {
+        for column_start in 0..column_count {
+            let slot = row_start * column_count + column_start;
+            if covered[slot] {
+                continue;
+            }
+
+            let base_bbox = (
+                xs[column_start],
+                ys[row_start],
+                xs[column_start + 1],
+                ys[row_start + 1],
+            );
+            let mut best =
+                cell_is_bounded(rules, base_bbox).then_some((1, row_start + 1, column_start + 1));
+            if best.is_none() {
+                for row_end in row_start + 1..=row_count {
+                    for column_end in column_start + 1..=column_count {
+                        span_candidates += 1;
+                        if span_candidates > MAX_TABLE_SPAN_CANDIDATES {
+                            return None;
+                        }
+                        let overlaps = (row_start..row_end).any(|row| {
+                            (column_start..column_end)
+                                .any(|column| covered[row * column_count + column])
+                        });
+                        if overlaps {
+                            continue;
+                        }
+                        let bbox = (xs[column_start], ys[row_start], xs[column_end], ys[row_end]);
+                        if !cell_is_bounded(rules, bbox)
+                            || cell_has_internal_split(
+                                rules,
+                                xs,
+                                ys,
+                                row_start,
+                                row_end,
+                                column_start,
+                                column_end,
+                            )
+                        {
+                            continue;
+                        }
+                        let area = (row_end - row_start) * (column_end - column_start);
+                        if best.is_none_or(|(best_area, _, _)| area < best_area) {
+                            best = Some((area, row_end, column_end));
+                        }
+                    }
+                }
+            }
+
+            let (_, row_end, column_end) = best?;
+            let bbox = (xs[column_start], ys[row_start], xs[column_end], ys[row_end]);
+            cells[slot] = Some((bbox, cell_text(word_lines, bbox)));
+            for row in row_start..row_end {
+                for column in column_start..column_end {
+                    covered[row * column_count + column] = true;
+                }
+            }
+        }
+    }
+    covered.into_iter().all(|slot| slot).then_some(cells)
+}
+
 /// Extract physical-order text whose word centers fall inside a cell.
 fn cell_text(lines: &[Vec<WordTuple>], (x0, y0, x1, y1): BBox) -> String {
     let mut rows = Vec::new();
@@ -1042,7 +1228,7 @@ fn cell_text(lines: &[Vec<WordTuple>], (x0, y0, x1, y1): BBox) -> String {
     rows.join("\n")
 }
 
-/// Detect high-confidence rectangular tables from connected stroked rule grids.
+/// Detect high-confidence rectangular tables from connected vector-rule grids.
 fn detect_grid_tables(
     physical_lines: &[Vec<GlyphRecord>],
     rules: &[RuleSegment],
@@ -1095,37 +1281,9 @@ fn detect_grid_tables(
         }
         let row_count_usize = ys.len() - 1;
         let column_count_usize = xs.len() - 1;
-        if row_count_usize
-            .checked_mul(column_count_usize)
-            .is_none_or(|count| count > MAX_TABLE_CELLS)
-        {
+        let Some(cells) = materialize_grid_cells(&component_rules, &xs, &ys, &word_lines) else {
             continue;
-        }
-
-        let mut cells = Vec::new();
-        let mut complete = true;
-        for y_pair in ys.windows(2) {
-            for x_pair in xs.windows(2) {
-                let (x0, x1) = (x_pair[0], x_pair[1]);
-                let (y0, y1) = (y_pair[0], y_pair[1]);
-                let bounded = rule_covers(&component_rules, true, y0, x0, x1)
-                    && rule_covers(&component_rules, true, y1, x0, x1)
-                    && rule_covers(&component_rules, false, x0, y0, y1)
-                    && rule_covers(&component_rules, false, x1, y0, y1);
-                if !bounded {
-                    complete = false;
-                    break;
-                }
-                let bbox = (x0, y0, x1, y1);
-                cells.push((bbox, cell_text(&word_lines, bbox)));
-            }
-            if !complete {
-                break;
-            }
-        }
-        if !complete {
-            continue;
-        }
+        };
         let Ok(row_count) = u32::try_from(row_count_usize) else {
             continue;
         };

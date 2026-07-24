@@ -117,8 +117,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Page.find_tables()` detects complete, axis-aligned bordered grids without
   rasterization and returns pymupdf-style `TableFinder` / `Table` objects.
   Tables expose display-space bboxes, row-major cells, `extract()`, and
-  `to_markdown()`. The intentionally high-confidence first stage rejects
-  broken grids; borderless and merged-cell inference remain future work
+  `to_markdown()`. Rules may be strokes or thin filled rectangles. Rectangular
+  row/column spans are reconstructed from missing internal dividers;
+  continuation slots are `None`, and Markdown can fill them from above or the
+  left. The intentionally high-confidence detector still rejects broken outer
+  grids and compact filled decorations; borderless inference remains future
+  work
 - Text extraction now assembles transformed vertical baselines as one
   searchable line and conservatively recognizes CJK vertical writing from
   glyph geometry when the font's WMode is hidden by hayro. Vertical columns

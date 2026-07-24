@@ -250,9 +250,11 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
 - [x] Add high-confidence geometry-based table extraction for complete
   axis-aligned stroked grids, with owned `TableFinder` / `Table` results,
   display-space cell bboxes, text matrices, and Markdown export.
-- Extend table detection to filled-rule grids, merged cells, and an explicit
-  borderless-text strategy. Keep the rule-based core inspectable before
-  considering an optional layout model.
+- [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
+  rectangular merged cells. Keep adversarial search bounded and reject broken
+  outer grids and compact filled decorations.
+- Add an explicit, opt-in borderless-text strategy with confidence diagnostics
+  before considering an optional layout model.
 - [x] Add vertical CJK extraction by assembling transformed vertical baselines
   directly and conservatively inferring hidden font WMode from CJK glyph
   geometry. Vertical columns read top-to-bottom and right-to-left between

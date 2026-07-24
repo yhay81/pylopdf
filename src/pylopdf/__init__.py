@@ -124,7 +124,10 @@ class Rect(NamedTuple):
 
 
 class Table:
-    """An extracted bordered table with row-major cells and owned text."""
+    """An extracted bordered table with row-major cells and owned text.
+
+    A merged cell occupies its top-left slot. Continuation slots are ``None``.
+    """
 
     def __init__(
         self,
@@ -132,30 +135,49 @@ class Table:
         bbox: Rect,
         row_count: int,
         col_count: int,
-        cells: list[tuple[Rect, str]],
+        cells: list[tuple[Rect, str] | None],
     ) -> None:
         """Build a table from the internal geometry detector."""
         self.page = page
         self.bbox = bbox
         self.row_count = row_count
         self.col_count = col_count
-        self.cells = [cell_bbox for cell_bbox, _ in cells]
-        self._values = [text for _, text in cells]
+        self.cells = [cell[0] if cell is not None else None for cell in cells]
+        self._values = [cell[1] if cell is not None else None for cell in cells]
 
-    def extract(self) -> list[list[str]]:
-        """Return copied cell text as rows, preserving embedded line breaks."""
+    def extract(self) -> list[list[str | None]]:
+        """Return copied cell text as rows.
+
+        Embedded line breaks are preserved. Slots covered by a merged cell are
+        ``None``.
+        """
         return [
             self._values[offset : offset + self.col_count].copy()
             for offset in range(0, len(self._values), self.col_count)
         ]
 
-    def to_markdown(self) -> str:
-        """Render the table as Markdown, treating the first row as the header."""
+    def to_markdown(self, *, fill_empty: bool = True) -> str:
+        """Render the table as Markdown, treating the first row as the header.
+
+        When ``fill_empty`` is true, merged-cell continuation slots inherit the
+        value above or to the left because Markdown has no row/column spans.
+        """
         rows = self.extract()
         if not rows:
             return ""
 
-        def escape(value: str) -> str:
+        if fill_empty:
+            for row_index, row in enumerate(rows):
+                for column_index, value in enumerate(row):
+                    if value is not None:
+                        continue
+                    above = rows[row_index - 1][column_index] if row_index else None
+                    left = row[column_index - 1] if column_index else None
+                    row[column_index] = above if above is not None else left
+
+        def escape(value: str | None) -> str:
+            if value is None:
+                return ""
             return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
         rendered = ["| " + " | ".join(escape(value) for value in rows[0]) + " |"]
@@ -481,11 +503,12 @@ class Page:
         return [Rect(*hit) for hit in hits]
 
     def find_tables(self) -> TableFinder:
-        """Find high-confidence tables built from axis-aligned stroked borders.
+        """Find high-confidence tables built from axis-aligned vector borders.
 
         The detector is deterministic and does not rasterize the page. It
-        currently requires a complete rectangular grid with at least two rows
-        and two columns; borderless and merged-cell tables are not inferred.
+        accepts stroked rules and thin filled rectangles, requires an outer grid
+        with at least two rows and two columns, and reconstructs rectangular
+        merged cells. Borderless tables are not inferred.
         """
         raw = self._document._doc.find_tables(self._page_number())
         self._document._emit_warnings()
@@ -495,7 +518,7 @@ class Page:
                 Rect(*bbox),
                 row_count,
                 col_count,
-                [(Rect(*cell_bbox), text) for cell_bbox, text in cells],
+                [None if cell is None else (Rect(*cell[0]), cell[1]) for cell in cells],
             )
             for bbox, row_count, col_count, cells in raw
         ]
@@ -993,8 +1016,8 @@ class Document:
         Conservatively detected vertical CJK columns follow top-to-bottom,
         right-to-left reading order; ruby and mixed-orientation typography are
         not interpreted.
-        :meth:`Page.find_tables` handles complete bordered grids, but automatic
-        table conversion is unsupported.
+        :meth:`Page.find_tables` handles bordered grids and rectangular merged
+        cells, but automatic table conversion is unsupported.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """

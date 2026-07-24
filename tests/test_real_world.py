@@ -147,7 +147,7 @@ def test_f1040_bordered_table() -> None:
     assert len(tables) >= 1
     table = tables[0]
     assert (table.row_count, table.col_count) == (2, 7)
-    text = "\n".join(cell for row in table.extract() for cell in row)
+    text = "\n".join(cell for row in table.extract() for cell in row if cell is not None)
     assert "Full-time\nstudent" in text
     assert "Child tax\ncredit" in text
 
