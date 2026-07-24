@@ -31,12 +31,13 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - abi3: one wheel covers Python 3.10–3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**Limitations**: multicolumn text follows deterministic whitespace gutters, but
-table reconstruction and vertical-writing order are not implemented. There is
-also no appearance-stream regeneration for forms and annotations (form filling
-uses NeedAppearances — viewers draw the values). Use pymupdf if you need those.
-Typesetting, PDF/A output, and digital signatures are covered by the ecosystem
-recipes below.
+**Limitations**: multicolumn text follows deterministic whitespace gutters, and
+`find_tables()` reconstructs complete bordered grids. Borderless / merged-cell
+tables, automatic table conversion in `Document.to_markdown()`, and
+vertical-writing order are not implemented. There is also no appearance-stream
+regeneration for forms and annotations (form filling uses NeedAppearances —
+viewers draw the values). Use pymupdf if you need those. Typesetting, PDF/A
+output, and digital signatures are covered by the ecosystem recipes below.
 
 ## Install
 
@@ -80,6 +81,7 @@ text = doc.get_page_text(0)
 words = doc[0].get_text("words")     # (x0, y0, x1, y1, word, block, line, word_no)
 layout = doc[0].get_text("dict")     # blocks -> lines -> spans with bboxes
 rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
+tables = doc[0].find_tables()        # bordered grids; tables[0].extract()
 images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
 pix = doc[0].get_pixmap(dpi=144)     # RGBA8 pixels for NumPy / PIL (pix.samples)
 
@@ -288,6 +290,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
+| `find_tables()` | Detect complete bordered grids; returns `TableFinder` with `Table.extract()` / `to_markdown()` |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=)` | Render to a `Pixmap` (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |

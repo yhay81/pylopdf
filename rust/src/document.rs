@@ -1678,6 +1678,16 @@ impl _Document {
         py.detach(|| Ok(self.text_page(page_number, settings)?.layout()))
     }
 
+    /// Detect high-confidence bordered tables on a one-based page.
+    fn find_tables(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<crate::extract::TableTuple>> {
+        let settings = self.interpreter_settings();
+        py.detach(|| Ok(self.text_page(page_number, settings)?.tables()))
+    }
+
     /// Extract images drawn on a one-based page.
     ///
     /// Return `(width, height, bbox, "jpeg"/"png", bytes)` items.

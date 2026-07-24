@@ -84,6 +84,16 @@ class _Document:
             ]
         ],
     ]: ...
+    def find_tables(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            tuple[float, float, float, float],
+            int,
+            int,
+            list[tuple[tuple[float, float, float, float], str]],
+        ]
+    ]: ...
     def search_page(self, page_number: int, needle: str) -> list[tuple[float, float, float, float]]: ...
     def extract_images(
         self, page_number: int

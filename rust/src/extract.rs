@@ -11,12 +11,12 @@ use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
     InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
-use kurbo::{Affine, Point, Rect};
+use kurbo::{Affine, PathSeg, Point, Rect};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
@@ -72,9 +72,20 @@ struct GlyphRecord {
     font: FontInfo,
 }
 
-/// A Device that only collects glyphs and ignores all drawing commands.
+/// One axis-aligned stroked path segment in display coordinates.
+#[derive(Clone, Copy)]
+struct RuleSegment {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    horizontal: bool,
+}
+
+/// A Device that collects glyphs and table-rule candidates.
 struct TextCollector {
     glyphs: Vec<GlyphRecord>,
+    rules: Vec<RuleSegment>,
     /// font_key → FontInfo cache, resolving font_data only once per font.
     font_infos: HashMap<u128, FontInfo>,
 }
@@ -82,7 +93,56 @@ struct TextCollector {
 impl Device<'_> for TextCollector {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(&mut self, _: &kurbo::BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+    fn draw_path(
+        &mut self,
+        path: &kurbo::BezPath,
+        transform: Affine,
+        _: &Paint<'_>,
+        mode: &PathDrawMode,
+    ) {
+        if !matches!(mode, PathDrawMode::Stroke(_)) || self.rules.len() >= MAX_TABLE_RULES {
+            return;
+        }
+        for segment in path.segments() {
+            let PathSeg::Line(line) = segment else {
+                continue;
+            };
+            let start = transform * line.p0;
+            let end = transform * line.p1;
+            if !start.x.is_finite()
+                || !start.y.is_finite()
+                || !end.x.is_finite()
+                || !end.y.is_finite()
+            {
+                continue;
+            }
+            let dx = (end.x - start.x).abs();
+            let dy = (end.y - start.y).abs();
+            let rule = if dy <= TABLE_AXIS_TOLERANCE && dx >= MIN_TABLE_RULE_LENGTH {
+                RuleSegment {
+                    x0: start.x.min(end.x),
+                    y0: (start.y + end.y) * 0.5,
+                    x1: start.x.max(end.x),
+                    y1: (start.y + end.y) * 0.5,
+                    horizontal: true,
+                }
+            } else if dx <= TABLE_AXIS_TOLERANCE && dy >= MIN_TABLE_RULE_LENGTH {
+                RuleSegment {
+                    x0: (start.x + end.x) * 0.5,
+                    y0: start.y.min(end.y),
+                    x1: (start.x + end.x) * 0.5,
+                    y1: start.y.max(end.y),
+                    horizontal: false,
+                }
+            } else {
+                continue;
+            };
+            self.rules.push(rule);
+            if self.rules.len() >= MAX_TABLE_RULES {
+                break;
+            }
+        }
+    }
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
     fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
@@ -186,6 +246,21 @@ const MIN_COLUMN_LINES: usize = 2;
 
 /// Require column candidates to coexist vertically over this fraction.
 const MIN_COLUMN_VERTICAL_OVERLAP: f64 = 0.25;
+
+/// Maximum rule count considered for table detection on one page.
+const MAX_TABLE_RULES: usize = 4096;
+
+/// Maximum cells materialized from one connected grid.
+const MAX_TABLE_CELLS: usize = 4096;
+
+/// Treat transformed path segments this close to an axis as horizontal/vertical.
+const TABLE_AXIS_TOLERANCE: f64 = 0.5;
+
+/// Ignore tiny decorations and glyph-like path segments.
+const MIN_TABLE_RULE_LENGTH: f64 = 3.0;
+
+/// Snap rule coordinates and intersections within this distance.
+const TABLE_SNAP_TOLERANCE: f64 = 1.0;
 
 /// Approximate top/bottom from the baseline without real font metrics.
 const ASCENT: f64 = 0.8;
@@ -429,16 +504,21 @@ pub(crate) struct TextPage {
     width: f64,
     height: f64,
     lines: Vec<Vec<GlyphRecord>>,
+    tables: Vec<TableTuple>,
 }
 
 impl TextPage {
     pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
         let (width, height) = page.render_dimensions();
-        let lines = order_page_lines(cluster_lines(collect_glyphs(pdf, page, settings)));
+        let (glyphs, rules) = collect_page_marks(pdf, page, settings);
+        let physical_lines = cluster_lines(glyphs);
+        let tables = detect_grid_tables(&physical_lines, &rules);
+        let lines = order_page_lines(physical_lines);
         Self {
             width: f64::from(width),
             height: f64::from(height),
             lines,
+            tables,
         }
     }
 
@@ -452,6 +532,10 @@ impl TextPage {
 
     pub(crate) fn search(&self, needle: &str) -> Vec<BBox> {
         search_lines(&self.lines, needle)
+    }
+
+    pub(crate) fn tables(&self) -> Vec<TableTuple> {
+        self.tables.clone()
     }
 }
 
@@ -491,6 +575,8 @@ type WordTuple = (BBox, String);
 type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
+/// Table: `(bbox, row count, column count, row-major cells)`.
+pub(crate) type TableTuple = (BBox, u32, u32, Vec<(BBox, String)>);
 
 /// Glyph bounding box with vertical extents approximated from baseline and size.
 fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
@@ -576,6 +662,231 @@ fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
     }
     flush(&mut current);
     words
+}
+
+/// Small union-find used to split independent rule networks into tables.
+struct RuleComponents {
+    parent: Vec<usize>,
+}
+
+impl RuleComponents {
+    fn new(len: usize) -> Self {
+        Self {
+            parent: (0..len).collect(),
+        }
+    }
+
+    fn find(&mut self, index: usize) -> usize {
+        let parent = self.parent[index];
+        if parent != index {
+            self.parent[index] = self.find(parent);
+        }
+        self.parent[index]
+    }
+
+    fn union(&mut self, left: usize, right: usize) {
+        let left_root = self.find(left);
+        let right_root = self.find(right);
+        if left_root != right_root {
+            self.parent[right_root] = left_root;
+        }
+    }
+}
+
+/// Return whether perpendicular rule segments meet within snap tolerance.
+fn rules_intersect(horizontal: RuleSegment, vertical: RuleSegment) -> bool {
+    vertical.x0 >= horizontal.x0 - TABLE_SNAP_TOLERANCE
+        && vertical.x0 <= horizontal.x1 + TABLE_SNAP_TOLERANCE
+        && horizontal.y0 >= vertical.y0 - TABLE_SNAP_TOLERANCE
+        && horizontal.y0 <= vertical.y1 + TABLE_SNAP_TOLERANCE
+}
+
+/// Snap nearby line coordinates to one stable grid coordinate.
+fn clustered_coordinates(mut values: Vec<f64>) -> Vec<f64> {
+    values.sort_by(f64::total_cmp);
+    let mut clusters: Vec<(f64, usize)> = Vec::new();
+    for value in values {
+        if let Some((sum, count)) = clusters.last_mut()
+            && (value - *sum / *count as f64).abs() <= TABLE_SNAP_TOLERANCE
+        {
+            *sum += value;
+            *count += 1;
+        } else {
+            clusters.push((value, 1));
+        }
+    }
+    clusters
+        .into_iter()
+        .map(|(sum, count)| sum / count as f64)
+        .collect()
+}
+
+/// Return whether collinear rule fragments cover an entire cell edge.
+fn rule_covers(rules: &[RuleSegment], horizontal: bool, fixed: f64, start: f64, end: f64) -> bool {
+    let mut intervals: Vec<(f64, f64)> = rules
+        .iter()
+        .filter(|rule| rule.horizontal == horizontal)
+        .filter_map(|rule| {
+            let rule_fixed = if horizontal { rule.y0 } else { rule.x0 };
+            if (rule_fixed - fixed).abs() > TABLE_SNAP_TOLERANCE {
+                return None;
+            }
+            let (rule_start, rule_end) = if horizontal {
+                (rule.x0, rule.x1)
+            } else {
+                (rule.y0, rule.y1)
+            };
+            (rule_end >= start - TABLE_SNAP_TOLERANCE && rule_start <= end + TABLE_SNAP_TOLERANCE)
+                .then_some((rule_start, rule_end))
+        })
+        .collect();
+    intervals.sort_by(|left, right| left.0.total_cmp(&right.0));
+
+    let mut covered = start;
+    for (interval_start, interval_end) in intervals {
+        if interval_start > covered + TABLE_SNAP_TOLERANCE {
+            break;
+        }
+        covered = covered.max(interval_end);
+        if covered >= end - TABLE_SNAP_TOLERANCE {
+            return true;
+        }
+    }
+    false
+}
+
+/// Extract physical-order text whose word centers fall inside a cell.
+fn cell_text(lines: &[Vec<WordTuple>], (x0, y0, x1, y1): BBox) -> String {
+    let mut rows = Vec::new();
+    for line in lines {
+        let selected: Vec<&str> = line
+            .iter()
+            .filter_map(|((word_x0, word_y0, word_x1, word_y1), text)| {
+                let center_x = (word_x0 + word_x1) * 0.5;
+                let center_y = (word_y0 + word_y1) * 0.5;
+                (center_x >= x0 - TABLE_SNAP_TOLERANCE
+                    && center_x <= x1 + TABLE_SNAP_TOLERANCE
+                    && center_y >= y0 - TABLE_SNAP_TOLERANCE
+                    && center_y <= y1 + TABLE_SNAP_TOLERANCE)
+                    .then_some(text.as_str())
+            })
+            .collect();
+        if !selected.is_empty() {
+            rows.push(selected.join(" "));
+        }
+    }
+    rows.join("\n")
+}
+
+/// Detect high-confidence rectangular tables from connected stroked rule grids.
+fn detect_grid_tables(
+    physical_lines: &[Vec<GlyphRecord>],
+    rules: &[RuleSegment],
+) -> Vec<TableTuple> {
+    let word_lines: Vec<Vec<WordTuple>> = physical_lines
+        .iter()
+        .map(|line| split_words(line))
+        .collect();
+    let horizontal_indices: Vec<usize> = rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| rule.horizontal.then_some(index))
+        .collect();
+    let vertical_indices: Vec<usize> = rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| (!rule.horizontal).then_some(index))
+        .collect();
+    let mut components = RuleComponents::new(rules.len());
+    for &horizontal_index in &horizontal_indices {
+        for &vertical_index in &vertical_indices {
+            if rules_intersect(rules[horizontal_index], rules[vertical_index]) {
+                components.union(horizontal_index, vertical_index);
+            }
+        }
+    }
+
+    let mut groups: BTreeMap<usize, Vec<RuleSegment>> = BTreeMap::new();
+    for (index, &rule) in rules.iter().enumerate() {
+        let root = components.find(index);
+        groups.entry(root).or_default().push(rule);
+    }
+
+    let mut tables = Vec::new();
+    for component_rules in groups.into_values() {
+        let xs = clustered_coordinates(
+            component_rules
+                .iter()
+                .filter_map(|rule| (!rule.horizontal).then_some(rule.x0))
+                .collect(),
+        );
+        let ys = clustered_coordinates(
+            component_rules
+                .iter()
+                .filter_map(|rule| rule.horizontal.then_some(rule.y0))
+                .collect(),
+        );
+        if xs.len() < 3 || ys.len() < 3 {
+            continue;
+        }
+        let row_count_usize = ys.len() - 1;
+        let column_count_usize = xs.len() - 1;
+        if row_count_usize
+            .checked_mul(column_count_usize)
+            .is_none_or(|count| count > MAX_TABLE_CELLS)
+        {
+            continue;
+        }
+
+        let mut cells = Vec::new();
+        let mut complete = true;
+        for y_pair in ys.windows(2) {
+            for x_pair in xs.windows(2) {
+                let (x0, x1) = (x_pair[0], x_pair[1]);
+                let (y0, y1) = (y_pair[0], y_pair[1]);
+                let bounded = rule_covers(&component_rules, true, y0, x0, x1)
+                    && rule_covers(&component_rules, true, y1, x0, x1)
+                    && rule_covers(&component_rules, false, x0, y0, y1)
+                    && rule_covers(&component_rules, false, x1, y0, y1);
+                if !bounded {
+                    complete = false;
+                    break;
+                }
+                let bbox = (x0, y0, x1, y1);
+                cells.push((bbox, cell_text(&word_lines, bbox)));
+            }
+            if !complete {
+                break;
+            }
+        }
+        if !complete {
+            continue;
+        }
+        let Ok(row_count) = u32::try_from(row_count_usize) else {
+            continue;
+        };
+        let Ok(column_count) = u32::try_from(column_count_usize) else {
+            continue;
+        };
+        tables.push((
+            (
+                xs[0],
+                ys[0],
+                *xs.last().expect("three coordinates were checked above"),
+                *ys.last().expect("three coordinates were checked above"),
+            ),
+            row_count,
+            column_count,
+            cells,
+        ));
+    }
+    tables.sort_by(|left, right| {
+        left.0
+            .1
+            .total_cmp(&right.0.1)
+            .then(left.0.0.total_cmp(&right.0.0))
+    });
+    tables
 }
 
 /// Representative baseline direction and PDF writing mode for a line.
@@ -943,14 +1254,19 @@ pub(crate) fn extract_page_images(
     collector.images
 }
 
-/// Interpret a page and collect glyphs.
-fn collect_glyphs(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Vec<GlyphRecord> {
+/// Interpret a page once and collect glyphs plus stroked table rules.
+fn collect_page_marks(
+    pdf: &Pdf,
+    page: &Page<'_>,
+    settings: InterpreterSettings,
+) -> (Vec<GlyphRecord>, Vec<RuleSegment>) {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = TextCollector {
         glyphs: Vec::new(),
+        rules: Vec::new(),
         font_infos: HashMap::new(),
     };
     interpret_page(page, &mut context, &mut collector);
-    collector.glyphs
+    (collector.glyphs, collector.rules)
 }

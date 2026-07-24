@@ -141,6 +141,17 @@ def test_f1040_metadata_title() -> None:
     assert doc.metadata["title"] == "2025 Form 1040"
 
 
+def test_f1040_bordered_table() -> None:
+    """Extract a real stroked dependency grid without rasterization."""
+    tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables()
+    assert len(tables) >= 1
+    table = tables[0]
+    assert (table.row_count, table.col_count) == (2, 7)
+    text = "\n".join(cell for row in table.extract() for cell in row)
+    assert "Full-time\nstudent" in text
+    assert "Child tax\ncredit" in text
+
+
 def test_manuscript_scan_has_no_text_layer() -> None:
     """A pure scan without a text layer correctly extracts as empty."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")

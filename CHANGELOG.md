@@ -114,6 +114,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multicolumn pages top-to-bottom within each column, then left-to-right across
   columns. Full-width headings and footers retain their page-level position,
   while isolated wide gaps such as a header plus page number stay on one line
+- `Page.find_tables()` detects complete, axis-aligned bordered grids without
+  rasterization and returns pymupdf-style `TableFinder` / `Table` objects.
+  Tables expose display-space bboxes, row-major cells, `extract()`, and
+  `to_markdown()`. The intentionally high-confidence first stage rejects
+  broken grids; borderless and merged-cell inference remain future work
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

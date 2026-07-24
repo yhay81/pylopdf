@@ -45,6 +45,8 @@ __all__ = [
     "Point",
     "Rect",
     "StalePageError",
+    "Table",
+    "TableFinder",
     "open",
     "peek_metadata",
 ]
@@ -119,6 +121,73 @@ class Rect(NamedTuple):
     def height(self) -> float:
         """Return the height, ``y1 - y0``."""
         return self.y1 - self.y0
+
+
+class Table:
+    """An extracted bordered table with row-major cells and owned text."""
+
+    def __init__(
+        self,
+        page: Page,
+        bbox: Rect,
+        row_count: int,
+        col_count: int,
+        cells: list[tuple[Rect, str]],
+    ) -> None:
+        """Build a table from the internal geometry detector."""
+        self.page = page
+        self.bbox = bbox
+        self.row_count = row_count
+        self.col_count = col_count
+        self.cells = [cell_bbox for cell_bbox, _ in cells]
+        self._values = [text for _, text in cells]
+
+    def extract(self) -> list[list[str]]:
+        """Return copied cell text as rows, preserving embedded line breaks."""
+        return [
+            self._values[offset : offset + self.col_count].copy()
+            for offset in range(0, len(self._values), self.col_count)
+        ]
+
+    def to_markdown(self) -> str:
+        """Render the table as Markdown, treating the first row as the header."""
+        rows = self.extract()
+        if not rows:
+            return ""
+
+        def escape(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+        rendered = ["| " + " | ".join(escape(value) for value in rows[0]) + " |"]
+        rendered.append("| " + " | ".join("---" for _ in range(self.col_count)) + " |")
+        rendered.extend("| " + " | ".join(escape(value) for value in row) + " |" for row in rows[1:])
+        return "\n".join(rendered)
+
+
+class TableFinder:
+    """Sequence-like result returned by :meth:`Page.find_tables`."""
+
+    def __init__(self, page: Page, tables: list[Table]) -> None:
+        """Store table results independently of the Rust interpretation cache."""
+        self.page = page
+        self.tables = tables
+        self.cells = [cell for table in tables for cell in table.cells]
+
+    def __len__(self) -> int:
+        """Return the number of detected tables."""
+        return len(self.tables)
+
+    @overload
+    def __getitem__(self, index: int) -> Table: ...
+    @overload
+    def __getitem__(self, index: slice) -> list[Table]: ...
+    def __getitem__(self, index: int | slice) -> Table | list[Table]:
+        """Return one table or a sliced list."""
+        return self.tables[index]
+
+    def __iter__(self) -> Iterator[Table]:
+        """Iterate over detected tables in page order."""
+        return iter(self.tables)
 
 
 #: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
@@ -410,6 +479,27 @@ class Page:
         hits = self._document._doc.search_page(self._page_number(), needle)
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
+
+    def find_tables(self) -> TableFinder:
+        """Find high-confidence tables built from axis-aligned stroked borders.
+
+        The detector is deterministic and does not rasterize the page. It
+        currently requires a complete rectangular grid with at least two rows
+        and two columns; borderless and merged-cell tables are not inferred.
+        """
+        raw = self._document._doc.find_tables(self._page_number())
+        self._document._emit_warnings()
+        tables = [
+            Table(
+                self,
+                Rect(*bbox),
+                row_count,
+                col_count,
+                [(Rect(*cell_bbox), text) for cell_bbox, text in cells],
+            )
+            for bbox, row_count, col_count, cells in raw
+        ]
+        return TableFinder(self, tables)
 
     def get_images(self) -> list[dict[str, Any]]:
         """Extract images drawn on the page.
@@ -899,8 +989,9 @@ class Document:
         ``#`` through ``####``. Wrapped CJK lines join without spaces. Leading
         bullets and ``1.``/``1)`` forms normalize to Markdown lists. Scanned PDFs
         work after adding a layer with :meth:`Page.insert_ocr_text_layer`.
-        Multicolumn text follows deterministic whitespace gutters. Tables and
-        vertical-writing order are unsupported.
+        Multicolumn text follows deterministic whitespace gutters.
+        :meth:`Page.find_tables` handles complete bordered grids, but automatic
+        table conversion and vertical-writing order are unsupported.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """

@@ -247,8 +247,12 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
   whitespace gutters split line segments into recursive left-to-right columns,
   with full-width headings and footers preserved and isolated wide gaps
   rejected.
-- Follow with geometry-based table detection and extraction. Keep the
-  rule-based core inspectable before considering an optional layout model.
+- [x] Add high-confidence geometry-based table extraction for complete
+  axis-aligned stroked grids, with owned `TableFinder` / `Table` results,
+  display-space cell bboxes, text matrices, and Markdown export.
+- Extend table detection to filled-rule grids, merged cells, and an explicit
+  borderless-text strategy. Keep the rule-based core inspectable before
+  considering an optional layout model.
 - Add vertical CJK extraction by retaining the transformed baseline vector and
   assembling vertical lines and reading order explicitly. Cover Japanese
   business documents in the real-world corpus.
