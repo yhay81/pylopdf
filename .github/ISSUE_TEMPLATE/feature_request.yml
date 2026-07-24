@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a focused API, accuracy, performance, or interoperability improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the workflow or limitation, not only the proposed API.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include an example Python API when applicable.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention existing pylopdf recipes or other libraries that partly solve the problem.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Example documents or measurements
+      description: Provide redistributable examples, expected output, or benchmark methodology.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and the roadmap.
+          required: true
+        - label: I removed private data and may legally redistribute any attached PDF.
+          required: true

@@ -338,6 +338,14 @@ uv build --wheel           # build a wheel
 
 `uv sync` detects Rust source changes and rebuilds automatically (via `tool.uv.cache-keys`).
 
+## Contributing
+
+Bug reports and focused contributions are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development commands, test expectations,
+and the rules for sharing PDF regression files. Report security vulnerabilities
+privately through [GitHub Security
+Advisories](https://github.com/yhay81/pylopdf/security/advisories/new).
+
 ## Benchmarks
 
 A reproducible benchmark ships with the repo (same corpus, same tasks, medians —

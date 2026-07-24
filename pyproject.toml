@@ -22,6 +22,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.urls]
+Homepage = "https://github.com/yhay81/pylopdf"
+Documentation = "https://yhay81.github.io/pylopdf/"
+Changelog = "https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md"
+Issues = "https://github.com/yhay81/pylopdf/issues"
+Source = "https://github.com/yhay81/pylopdf"
+
 [project.optional-dependencies]
 # Fonts for PDFs that reference non-embedded CJK fonts; auto-detect Noto Sans/Serif JP.
 cjk = ["pylopdf-fonts-cjk>=0.1.0"]
