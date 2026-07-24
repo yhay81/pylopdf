@@ -576,6 +576,12 @@ pub struct _Document {
     fallback_fonts: FallbackFonts,
     /// Parsed hayro snapshot of current edit state, rebuilt after invalidation.
     hayro_pdf: Option<Pdf>,
+    /// Original unencrypted input, consumed by the first hayro parse.
+    ///
+    /// This avoids a potentially expensive lopdf serialization before the
+    /// first render or extraction. Any edit discards it together with the
+    /// parsed hayro view.
+    hayro_source: Option<Vec<u8>>,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
@@ -587,11 +593,12 @@ pub struct _Document {
 
 impl _Document {
     /// Construct from lopdf with no fallback fonts configured.
-    fn from_doc(doc: Document) -> Self {
+    fn from_doc(doc: Document, hayro_source: Option<Vec<u8>>) -> Self {
         Self {
             doc,
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
+            hayro_source,
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
             pending_warnings: Arc::new(Mutex::new(Vec::new())),
@@ -619,6 +626,7 @@ impl _Document {
     /// Drop cached views; call at the start of every editing method.
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
+        self.hayro_source = None;
         self.invalidate_text_pages();
     }
 
@@ -883,16 +891,27 @@ impl _Document {
         Ok(())
     }
 
-    /// Return the hayro view of current state, serializing/parsing when absent.
+    /// Return the hayro view, preferring original bytes before normalization.
     ///
     /// Editing methods invalidate the cache, preserving the invariant that
     /// rendered state always reflects edits. Consecutive renders rebuild once.
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
-            let data = self.current_bytes()?;
-            let pdf = Pdf::new(data).map_err(|e| {
-                PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
-            })?;
+            let expected_pages = self.doc.get_pages().len();
+            let source_pdf = self
+                .hayro_source
+                .take()
+                .and_then(|data| Pdf::new(data).ok())
+                .filter(|pdf| pdf.pages().len() == expected_pages);
+            let pdf = match source_pdf {
+                Some(pdf) => pdf,
+                None => {
+                    let data = self.current_bytes()?;
+                    Pdf::new(data).map_err(|e| {
+                        PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
+                    })?
+                }
+            };
             self.hayro_pdf = Some(pdf);
         }
         Ok(self
@@ -1365,7 +1384,7 @@ impl _Document {
     /// Create an empty PDF document.
     #[new]
     fn new() -> PyResult<Self> {
-        let mut document = Self::from_doc(Document::with_version("1.7"));
+        let mut document = Self::from_doc(Document::with_version("1.7"), None);
         document.ensure_page_tree().map_err(to_py_err)?;
         Ok(document)
     }
@@ -1388,14 +1407,17 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            let doc = Document::load_with_options(path, options)
+            let data = std::fs::read(path)
+                .map_err(|e| PdfError::new_err(format!("failed to load {path}: {e}")))?;
+            let doc = Document::load_mem_with_options(&data, options)
                 .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))?;
             if !doc.is_encrypted()
                 && let Some(limit) = max_decompressed_size
             {
                 validate_decompression_limits(&doc, limit)?;
             }
-            Ok(Self::from_doc(doc))
+            let hayro_source = (!doc.was_encrypted()).then_some(data);
+            Ok(Self::from_doc(doc, hayro_source))
         })
     }
 
@@ -1420,7 +1442,8 @@ impl _Document {
             {
                 validate_decompression_limits(&doc, limit)?;
             }
-            Ok(Self::from_doc(doc))
+            let hayro_source = (!doc.was_encrypted()).then(|| data.to_vec());
+            Ok(Self::from_doc(doc, hayro_source))
         })
     }
 

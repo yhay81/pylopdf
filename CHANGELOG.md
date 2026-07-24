@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   24-native v5 releases
 
 ### Performance
+- The first render or text extraction of an unedited, unencrypted document now
+  parses the original input directly instead of serializing the recovered
+  lopdf object graph first. Hayro-incompatible inputs still fall back to the
+  normalized representation, and edits discard the original-byte fast path.
+  A minimized damaged-input fuzz case improved from 9.3s to 0.06s; the original
+  15-second timeout reproducer improved from 23.1s to 0.04s
 - `render_page` and `Pixmap.tobytes()` now encode PNG with
   `Compression::Fast` (fdeflate) and release the GIL during encoding and
   alpha-unpremultiply. Profiling showed the previous default (Balanced +

@@ -65,9 +65,12 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts; vertical
   reading-order assembly is not supported yet.
-- Rendering caches the hayro parse of `save_bytes` in `_Document.hayro_pdf`.
-  Editing methods must call `invalidate_hayro_pdf`; edited state must always be
-  reflected in rendering.
+- Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
+  unencrypted load first consumes its original input bytes and falls back to a
+  lopdf serialization only when hayro rejects them or reports a different page
+  count. Editing methods must call `invalidate_hayro_pdf`, which also discards
+  the original-byte fast path; edited state must always be reflected in
+  rendering.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.

@@ -7,6 +7,7 @@ and hayro limitations early. The adjacent README records sources and licenses.
 
 from __future__ import annotations
 
+import time
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,6 +72,28 @@ def test_max_decompressed_size_guards_against_bombs() -> None:
     with pytest.raises(pylopdf.PdfError, match="limit"):
         pylopdf.open(path, max_decompressed_size=100)
     assert pylopdf.open(path, max_decompressed_size=50_000_000).page_count == 2
+
+
+def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
+    """Use original bytes before normalizing a damaged but readable PDF.
+
+    This five-byte f1040 mutation is a minimized Atheris slow unit. Serializing
+    the recovered lopdf object graph used to take about 9 seconds before hayro
+    could start, while hayro can parse the original bytes directly.
+    """
+    data = bytearray((ASSETS / "f1040.pdf").read_bytes())
+    data[29_909] = 244
+    data[186_564:186_568] = bytes(4)
+
+    start = time.perf_counter()
+    text = pylopdf.open(
+        stream=bytes(data),
+        max_decompressed_size=16 * 1024 * 1024,
+    ).get_page_text(0)
+    elapsed = time.perf_counter() - start
+
+    assert "U.S. Individual Income Tax Return" in text
+    assert elapsed < 5.0, f"initial extraction took {elapsed:.2f}s"
 
 
 @pytest.mark.parametrize("filter_name", ["FlateDecode", "Fl"])
