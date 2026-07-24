@@ -85,13 +85,17 @@ class _Document:
         ],
     ]: ...
     def find_tables(
-        self, page_number: int, strategy: str
+        self,
+        page_number: int,
+        strategy: str,
+        clip: tuple[float, float, float, float] | None = None,
     ) -> list[
         tuple[
             tuple[float, float, float, float],
             int,
             int,
             list[tuple[tuple[float, float, float, float], str] | None],
+            tuple[float, float | None, float | None, float | None],
         ]
     ]: ...
     def search_page(self, page_number: int, needle: str) -> list[tuple[float, float, float, float]]: ...

@@ -1826,12 +1826,14 @@ impl _Document {
         py.detach(|| Ok(self.text_page(page_number, settings)?.layout()))
     }
 
-    /// Detect high-confidence vector-bordered tables on a one-based page.
+    /// Detect high-confidence tables on a one-based page.
+    #[pyo3(signature = (page_number, strategy, clip=None))]
     fn find_tables(
         &mut self,
         py: Python<'_>,
         page_number: u32,
         strategy: &str,
+        clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<Vec<crate::extract::TableTuple>> {
         let text_strategy = match strategy {
             "lines" => false,
@@ -1844,7 +1846,7 @@ impl _Document {
         py.detach(|| {
             Ok(self
                 .table_page(page_number, settings)?
-                .tables(text_strategy))
+                .tables(text_strategy, clip))
         })
     }
 

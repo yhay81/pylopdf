@@ -12,7 +12,7 @@ import math
 import os
 import warnings as _warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, overload
+from typing import TYPE_CHECKING, Literal, NamedTuple, overload
 
 from pylopdf import _markdown
 from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
@@ -20,7 +20,7 @@ from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
     from types import TracebackType
-    from typing import Any, Literal, Self
+    from typing import Any, Self
 
     #: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
     WordEntry = tuple[float, float, float, float, str, int, int, int]
@@ -46,6 +46,7 @@ __all__ = [
     "Rect",
     "StalePageError",
     "Table",
+    "TableDiagnostics",
     "TableFinder",
     "open",
     "peek_metadata",
@@ -123,19 +124,35 @@ class Rect(NamedTuple):
         return self.y1 - self.y0
 
 
+class TableDiagnostics(NamedTuple):
+    """Inspectable geometric evidence for one detected table.
+
+    ``confidence`` is a deterministic ranking heuristic in the range 0–1, not
+    a calibrated probability. The em-normalized metrics are present for the
+    ``"text"`` strategy and ``None`` for complete vector grids.
+    """
+
+    strategy: Literal["lines", "text"]
+    confidence: float
+    alignment_error_em: float | None
+    minimum_gutter_em: float | None
+    row_gap_variation_em: float | None
+
+
 class Table:
-    """An extracted bordered table with row-major cells and owned text.
+    """A detected table with row-major cells, owned text, and diagnostics.
 
     A merged cell occupies its top-left slot. Continuation slots are ``None``.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - internal owned result constructor
         self,
         page: Page,
         bbox: Rect,
         row_count: int,
         col_count: int,
         cells: list[tuple[Rect, str] | None],
+        diagnostics: TableDiagnostics,
     ) -> None:
         """Build a table from the internal geometry detector."""
         self.page = page
@@ -144,6 +161,9 @@ class Table:
         self.col_count = col_count
         self.cells = [cell[0] if cell is not None else None for cell in cells]
         self._values = [cell[1] if cell is not None else None for cell in cells]
+        self.diagnostics = diagnostics
+        self.strategy = diagnostics.strategy
+        self.confidence = diagnostics.confidence
 
     def extract(self) -> list[list[str | None]]:
         """Return copied cell text as rows.
@@ -187,13 +207,21 @@ class Table:
 
 
 class TableFinder:
-    """Sequence-like result returned by :meth:`Page.find_tables`."""
+    """Sequence-like result with the strategy and optional clip used."""
 
-    def __init__(self, page: Page, tables: list[Table]) -> None:
+    def __init__(
+        self,
+        page: Page,
+        tables: list[Table],
+        strategy: Literal["lines", "text"],
+        clip: Rect | None,
+    ) -> None:
         """Store table results independently of the Rust interpretation cache."""
         self.page = page
         self.tables = tables
         self.cells = [cell for table in tables for cell in table.cells]
+        self.strategy = strategy
+        self.clip = clip
 
     def __len__(self) -> int:
         """Return the number of detected tables."""
@@ -503,7 +531,12 @@ class Page:
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
-    def find_tables(self, strategy: Literal["lines", "text"] = "lines") -> TableFinder:
+    def find_tables(
+        self,
+        strategy: Literal["lines", "text"] = "lines",
+        *,
+        clip: Sequence[float] | None = None,
+    ) -> TableFinder:
         """Find high-confidence tables from vector borders or aligned text.
 
         The default ``"lines"`` strategy is deterministic and does not rasterize
@@ -516,20 +549,38 @@ class Page:
         column edges, compatible leading, and clear inter-column gaps. It may
         interpret aligned multicolumn prose as a table, so use it when the page
         region is known to contain tabular data.
+
+        ``clip`` is an optional display-coordinate rectangle. Only tables whose
+        complete bounding box lies inside it are returned; partial tables are
+        not synthesized. Each result exposes ``confidence`` plus inspectable
+        em-normalized alignment, gutter, and row-spacing evidence through
+        :class:`TableDiagnostics`. Confidence ranks this deterministic
+        detector's results and is not a statistical probability.
         """
-        raw = self._document._doc.find_tables(self._page_number(), strategy)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
+        raw = self._document._doc.find_tables(self._page_number(), strategy, clip_rect)
         self._document._emit_warnings()
-        tables = [
-            Table(
-                self,
-                Rect(*bbox),
-                row_count,
-                col_count,
-                [None if cell is None else (Rect(*cell[0]), cell[1]) for cell in cells],
+        tables = []
+        for bbox, row_count, col_count, cells, diagnostic_values in raw:
+            confidence, alignment_error, minimum_gutter, row_gap_variation = diagnostic_values
+            diagnostics = TableDiagnostics(
+                strategy,
+                confidence,
+                alignment_error,
+                minimum_gutter,
+                row_gap_variation,
             )
-            for bbox, row_count, col_count, cells in raw
-        ]
-        return TableFinder(self, tables)
+            tables.append(
+                Table(
+                    self,
+                    Rect(*bbox),
+                    row_count,
+                    col_count,
+                    [None if cell is None else (Rect(*cell[0]), cell[1]) for cell in cells],
+                    diagnostics,
+                )
+            )
+        return TableFinder(self, tables, strategy, None if clip_rect is None else Rect(*clip_rect))
 
     def get_images(self) -> list[dict[str, Any]]:
         """Extract images drawn on the page.

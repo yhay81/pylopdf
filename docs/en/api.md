@@ -39,7 +39,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
-| `find_tables(strategy="lines")` | vector-bordered grids and merged cells; `"text"` opts into borderless detection |
+| `find_tables(strategy="lines", clip=None)` | complete vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown()` | single-page Markdown |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
@@ -52,6 +52,13 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
 
+`Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
+probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the
+strategy and, for borderless text tables, em-normalized alignment error,
+minimum gutter and row-gap variation. Complete vector grids score 1.0 and have
+`None` for those text-only metrics. `TableFinder.strategy` and
+`TableFinder.clip` preserve the settings used.
+
 ## Module level { #module-level }
 
 | Name | Purpose |
@@ -59,7 +66,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe without full parsing |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
-| `TableFinder` / `Table` | owned bordered-table geometry and cell text (`None` for merged continuations) |
+| `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | interpreter warnings (font resolution, image decode) |

@@ -907,12 +907,17 @@ impl TablePage {
         }
     }
 
-    pub(crate) fn tables(&self, text_strategy: bool) -> Vec<TableTuple> {
-        if text_strategy {
-            self.text_tables.clone()
+    pub(crate) fn tables(&self, text_strategy: bool, clip: Option<BBox>) -> Vec<TableTuple> {
+        let tables = if text_strategy {
+            &self.text_tables
         } else {
-            self.tables.clone()
-        }
+            &self.tables
+        };
+        tables
+            .iter()
+            .filter(|table| clip.is_none_or(|clip| bbox_is_inside(table.0, clip)))
+            .cloned()
+            .collect()
     }
 }
 
@@ -973,7 +978,24 @@ pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
 ///
 /// Continuation slots covered by a merged cell are `None`; the merged cell's
 /// top-left slot contains its spanning bbox and text.
-pub(crate) type TableTuple = (BBox, u32, u32, Vec<Option<(BBox, String)>>);
+/// Diagnostics are `(confidence, alignment error in em, minimum gutter in em,
+/// row-gap variation in em)`. Vector-grid metrics are `None`.
+type TableDiagnosticsTuple = (f64, Option<f64>, Option<f64>, Option<f64>);
+pub(crate) type TableTuple = (
+    BBox,
+    u32,
+    u32,
+    Vec<Option<(BBox, String)>>,
+    TableDiagnosticsTuple,
+);
+
+/// Return whether a candidate bbox is fully contained by a display-space clip.
+fn bbox_is_inside((x0, y0, x1, y1): BBox, (clip_x0, clip_y0, clip_x1, clip_y1): BBox) -> bool {
+    x0 >= clip_x0 - TABLE_SNAP_TOLERANCE
+        && y0 >= clip_y0 - TABLE_SNAP_TOLERANCE
+        && x1 <= clip_x1 + TABLE_SNAP_TOLERANCE
+        && y1 <= clip_y1 + TABLE_SNAP_TOLERANCE
+}
 
 /// Glyph bounding box with vertical extents approximated from baseline and size.
 fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
@@ -1345,6 +1367,84 @@ fn text_rows_compatible(
     })
 }
 
+/// Summarize the geometric evidence behind one borderless-text table.
+///
+/// Confidence is a deterministic ranking heuristic, not a calibrated
+/// probability. The component metrics stay public so callers can apply their
+/// own thresholds.
+fn text_table_diagnostics(rows: &[Vec<Vec<GlyphRecord>>]) -> TableDiagnosticsTuple {
+    let anchor = &rows[0];
+    let mut alignment_error_em = 0.0_f64;
+    for row in rows.iter().skip(1) {
+        let scale = segmented_row_size(anchor)
+            .max(segmented_row_size(row))
+            .max(1.0);
+        for (anchor_segment, candidate_segment) in anchor.iter().zip(row) {
+            let (anchor_x0, _, anchor_x1, _) = line_bbox(anchor_segment);
+            let (candidate_x0, _, candidate_x1, _) = line_bbox(candidate_segment);
+            let error = (anchor_x0 - candidate_x0)
+                .abs()
+                .min((anchor_x1 - candidate_x1).abs())
+                / scale;
+            alignment_error_em = alignment_error_em.max(error);
+        }
+    }
+
+    let minimum_gutter_em = rows
+        .iter()
+        .flat_map(|row| {
+            let scale = segmented_row_size(row).max(1.0);
+            row.windows(2).map(move |pair| {
+                let (_, _, left_x1, _) = line_bbox(&pair[0]);
+                let (right_x0, _, _, _) = line_bbox(&pair[1]);
+                (right_x0 - left_x1) / scale
+            })
+        })
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+
+    let row_bboxes: Vec<BBox> = rows.iter().map(|row| segmented_row_bbox(row)).collect();
+    let normalized_row_gaps: Vec<f64> = rows
+        .windows(2)
+        .zip(row_bboxes.windows(2))
+        .map(|(row_pair, bbox_pair)| {
+            let scale = segmented_row_size(&row_pair[0])
+                .max(segmented_row_size(&row_pair[1]))
+                .max(1.0);
+            (bbox_pair[1].1 - bbox_pair[0].3) / scale
+        })
+        .collect();
+    let minimum_row_gap = normalized_row_gaps
+        .iter()
+        .copied()
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    let maximum_row_gap = normalized_row_gaps
+        .iter()
+        .copied()
+        .reduce(f64::max)
+        .unwrap_or(0.0);
+    let row_gap_variation_em = maximum_row_gap - minimum_row_gap;
+
+    let row_depth = (rows.len().saturating_sub(MIN_TEXT_TABLE_ROWS) as f64 + 1.0) / 3.0;
+    let alignment_quality =
+        (1.0 - alignment_error_em / TEXT_TABLE_ALIGNMENT_TOLERANCE).clamp(0.0, 1.0);
+    let spacing_quality = (1.0 - row_gap_variation_em / TEXT_TABLE_ROW_GAP).clamp(0.0, 1.0);
+    let gutter_quality = (minimum_gutter_em / (LINE_SEGMENT_GAP * 2.0)).clamp(0.0, 1.0);
+    let confidence = (0.65
+        + 0.10 * row_depth.clamp(0.0, 1.0)
+        + 0.10 * alignment_quality
+        + 0.10 * spacing_quality
+        + 0.05 * gutter_quality)
+        .clamp(0.0, 1.0);
+    (
+        confidence,
+        Some(alignment_error_em),
+        Some(minimum_gutter_em),
+        Some(row_gap_variation_em),
+    )
+}
+
 /// Materialize one run of aligned borderless rows.
 fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
     if rows.len() < MIN_TEXT_TABLE_ROWS {
@@ -1406,6 +1506,7 @@ fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
     }
     let row_count = u32::try_from(row_count_usize).ok()?;
     let column_count = u32::try_from(column_count_usize).ok()?;
+    let diagnostics = text_table_diagnostics(rows);
     Some((
         (
             x_bounds[0],
@@ -1416,6 +1517,7 @@ fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
         row_count,
         column_count,
         cells,
+        diagnostics,
     ))
 }
 
@@ -1530,6 +1632,7 @@ fn detect_grid_tables(
             row_count,
             column_count,
             cells,
+            (1.0, None, None, None),
         ));
     }
     tables.sort_by(|left, right| {

@@ -100,8 +100,9 @@ text = doc.get_page_text(0)
 words = doc[0].get_text("words")     # (x0, y0, x1, y1, word, block, line, word_no)
 layout = doc[0].get_text("dict")     # blocks -> lines -> spans with bboxes
 rects = doc[0].search_for("tax")     # case-insensitive, list[Rect]
-tables = doc[0].find_tables()        # bordered grids; tables[0].extract()
+tables = doc[0].find_tables(clip=(30, 30, 500, 700))  # complete bordered grids in a region
 text_tables = doc[0].find_tables(strategy="text")  # opt-in borderless tables
+confidence = text_tables[0].confidence if text_tables else None  # ranking heuristic, not probability
 images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "image"}]
 pix = doc[0].get_pixmap(dpi=144, clip=(0, 0, 300, 200))  # cropped RGBA8 pixels for NumPy / PIL
 
@@ -312,7 +313,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
-| `find_tables(strategy="lines")` | Detect bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection |
+| `find_tables(strategy="lines", clip=None)` | Detect complete bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |

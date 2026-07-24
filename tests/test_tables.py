@@ -107,8 +107,43 @@ def test_find_bordered_table() -> None:
     assert table.col_count == 2
     assert len(table.cells) == 4
     assert finder.cells == table.cells
+    assert finder.strategy == "lines"
+    assert finder.clip is None
+    assert table.strategy == "lines"
+    assert table.confidence == 1.0
+    assert table.diagnostics == pylopdf.TableDiagnostics("lines", 1.0, None, None, None)
     assert table.extract() == [["Name", "Value"], ["Alpha", "42"]]
     assert table.to_markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
+
+
+def test_find_tables_clip_is_conservative_and_uses_display_coordinates() -> None:
+    """Return complete tables inside a region without synthesizing partial grids."""
+    document = pylopdf.open(stream=_bordered_table_pdf())
+    page = document[0]
+    page.set_rotation(90)
+
+    table_bbox = pylopdf.Rect(180, 40, 260, 300)
+    finder = page.find_tables(clip=table_bbox)
+
+    assert finder.clip == table_bbox
+    assert len(finder) == 1
+    assert finder[0].bbox == pytest.approx(table_bbox)
+    assert page.find_tables(clip=(180, 40, 240, 300)).tables == []
+    assert page.find_tables(clip=(0, 0, 100, 100)).tables == []
+
+
+@pytest.mark.parametrize(
+    "clip",
+    [
+        (0, 0, 0, 10),
+        (0, 0, float("inf"), 10),
+        (0, 0, 10),
+    ],
+)
+def test_find_tables_rejects_invalid_clip(clip: tuple[float, ...]) -> None:
+    page = pylopdf.open(stream=_bordered_table_pdf())[0]
+    with pytest.raises(ValueError, match="clip"):
+        page.find_tables(clip=clip)
 
 
 def test_find_tables_returns_empty_for_plain_text() -> None:
@@ -186,13 +221,39 @@ def test_opt_in_text_strategy_finds_borderless_table() -> None:
     assert page.find_tables().tables == []
     table = page.find_tables(strategy="text")[0]
     assert (table.row_count, table.col_count) == (3, 2)
+    assert table.strategy == "text"
+    assert 0.0 <= table.confidence <= 1.0
+    assert table.confidence == pytest.approx(0.9333333333333333)
+    assert table.diagnostics.alignment_error_em == pytest.approx(0.0)
+    assert table.diagnostics.minimum_gutter_em is not None
+    assert table.diagnostics.minimum_gutter_em > 2.0
+    assert table.diagnostics.row_gap_variation_em == pytest.approx(0.0)
     assert table.extract() == [["Name", "Value"], ["Alpha", "42"], ["Beta", "7"]]
+
+    clipped = page.find_tables(strategy="text", clip=table.bbox)
+    assert clipped.strategy == "text"
+    assert clipped.clip == table.bbox
+    assert clipped[0].extract() == table.extract()
 
 
 def test_text_strategy_requires_three_rows() -> None:
     """Reject short aligned pairs that are likely ordinary page layout."""
     page = pylopdf.open(stream=_borderless_table_pdf(rows=2))[0]
     assert page.find_tables(strategy="text").tables == []
+
+
+def test_text_table_confidence_tracks_alignment_evidence() -> None:
+    """Lower the heuristic score when one accepted row aligns less precisely."""
+    perfect_pdf = _borderless_table_pdf()
+    shifted_pdf = perfect_pdf.replace(b"40 180 Td (Beta)", b"50 180 Td (Beta)")
+
+    perfect = pylopdf.open(stream=perfect_pdf)[0].find_tables(strategy="text")[0]
+    shifted = pylopdf.open(stream=shifted_pdf)[0].find_tables(strategy="text")[0]
+
+    assert shifted.diagnostics.alignment_error_em is not None
+    assert perfect.diagnostics.alignment_error_em is not None
+    assert shifted.diagnostics.alignment_error_em > perfect.diagnostics.alignment_error_em
+    assert shifted.confidence < perfect.confidence
 
 
 def test_find_tables_rejects_unknown_strategy() -> None:

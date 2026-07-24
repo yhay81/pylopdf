@@ -71,7 +71,12 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   `strategy="text"` requires at least three consecutive physical rows with the
   same segment count, aligned left or right edges, compatible leading, and
   clear gaps. It intentionally does not run as the default because aligned
-  multicolumn prose is geometrically ambiguous.
+  multicolumn prose is geometrically ambiguous. `find_tables(clip=)` returns
+  only complete candidate bboxes inside the display-coordinate region; it does
+  not synthesize partial tables or reduce the cached full-page interpretation
+  cost. `TableDiagnostics.confidence` is a deterministic ranking heuristic,
+  not a probability. Text diagnostics retain em-normalized alignment error,
+  minimum gutter, and row-gap variation; complete vector grids score 1.0.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated

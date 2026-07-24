@@ -39,7 +39,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `get_text(option)` / `search_for(needle)` | 추출과 대소문자 구분 없는 검색 |
-| `find_tables(strategy="lines")` | 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표 감지 |
+| `find_tables(strategy="lines", clip=None)` | 완전한 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown()` | 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |
@@ -52,6 +52,12 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 주석 |
 
+`Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
+`Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는
+em으로 정규화한 정렬 오차, 최소 gutter, 행 간격 변화를 보존합니다. 완전한 벡터
+grid는 1.0이고 이 텍스트 전용 metric은 `None`입니다. `TableFinder.strategy`와
+`TableFinder.clip`에는 사용한 설정이 남습니다.
+
 ## 모듈 수준 { #module-level }
 
 | 이름 | 용도 |
@@ -59,7 +65,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `peek_metadata(path_or_stream, password=)` | 전체 파싱 없이 메타데이터와 페이지 수를 빠르게 조회 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
-| `TableFinder` / `Table` | 독립 보관되는 테두리 표 좌표와 셀 텍스트（병합 연속 위치는 `None`） |
+| `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |

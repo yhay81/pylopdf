@@ -258,8 +258,12 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
   edges, compatible leading, and clear gutters; keep the vector-rule strategy
   as the default and document aligned multicolumn prose as an unavoidable
   ambiguity.
-- Add confidence diagnostics and region clipping before considering an optional
-  layout model.
+- [x] Add confidence diagnostics and conservative region clipping before
+      considering an optional layout model. `find_tables(clip=)` uses
+      rotation-resolved display coordinates and returns only complete candidate
+      bboxes. Text tables expose em-normalized alignment error, minimum gutter,
+      and row-gap variation plus a documented non-probabilistic ranking score;
+      complete vector grids score 1.0.
 - [x] Add vertical CJK extraction by assembling transformed vertical baselines
   directly and conservatively inferring hidden font WMode from CJK glyph
   geometry. Vertical columns read top-to-bottom and right-to-left between

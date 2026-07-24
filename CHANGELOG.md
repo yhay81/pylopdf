@@ -155,6 +155,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inter-column gaps. The default remains the stricter vector-rule strategy;
   text strategy documents its unavoidable ambiguity with aligned multicolumn
   prose
+- `Page.find_tables(clip=)` now filters complete table candidates inside a
+  rotation-resolved display-coordinate region without synthesizing partial
+  grids. Every `Table` exposes a deterministic 0–1 ranking heuristic through
+  `confidence` and `TableDiagnostics`; borderless results retain em-normalized
+  alignment error, minimum gutter, and row-gap variation. The score is
+  inspectable evidence for ranking, not a calibrated probability
 - Text extraction now assembles transformed vertical baselines as one
   searchable line and conservatively recognizes CJK vertical writing from
   glyph geometry when the font's WMode is hidden by hayro. Vertical columns

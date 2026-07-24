@@ -67,7 +67,9 @@ deliberately does not implement.
 - **`Page.find_tables()`** reconstructs axis-aligned bordered grids from strokes
   or thin filled rectangles, including rectangular merged cells. Opt in to
   high-confidence borderless detection with `strategy="text"`; aligned
-  multicolumn prose remains geometrically ambiguous.
+  multicolumn prose remains geometrically ambiguous. Use `clip=` to keep only
+  complete tables in a known display-coordinate region, and inspect
+  `Table.confidence` / `Table.diagnostics` when ranking borderless results.
 - **Form filling** sets values + `NeedAppearances`; viewers draw the values.
   pylopdf's own renderer does not regenerate widget appearances.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,
