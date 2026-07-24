@@ -9,6 +9,7 @@
 /src/pylopdf/*.pyd
 /target
 /dist
+/.tmp/
 __pycache__
 
 # Documentation build output

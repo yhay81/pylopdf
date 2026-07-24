@@ -61,6 +61,7 @@ hits = page.search_for("合计")             # 不区分大小写，返回 list[
 ```python
 png = doc.render_page(0, dpi=300)                    # bytes（PNG）
 pix = page.get_pixmap(scale=2)                       # 供NumPy/PIL使用的RGBA8像素
+batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
 svg = doc.render_page_svg(0)
 ```
 

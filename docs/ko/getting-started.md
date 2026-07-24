@@ -62,6 +62,7 @@ hits = page.search_for("합계")             # 대소문자 구분 없음, list[
 ```python
 png = doc.render_page(0, dpi=300)                    # bytes（PNG）
 pix = page.get_pixmap(scale=2)                       # NumPy/PIL용 RGBA8 픽셀
+batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
 svg = doc.render_page_svg(0)
 ```
 

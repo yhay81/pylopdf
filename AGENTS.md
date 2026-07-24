@@ -60,9 +60,10 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
-  column regions, and isolated wide gaps stay on one line. The same page
-  interpretation collects at most 4096 axis-aligned rule candidates from
-  strokes or thin filled polygons for high-confidence table detection. A table
+  column regions, and isolated wide gaps stay on one line. `find_tables` uses a
+  separate bounded, generation-invalidated `TablePage` cache so normal text
+  extraction does not collect or analyze vector rules. It collects at most
+  4096 axis-aligned candidates from strokes or thin filled polygons. A table
   requires a connected outer grid with at least two rows and columns.
   Rectangular merged cells are tiled from missing internal dividers; covered
   row-major slots are `None`. Materialization is capped at 4096 slots and
@@ -85,6 +86,12 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   count. Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path; edited state must always be reflected in
   rendering.
+- `Document.render_pages` is the supported same-document concurrency boundary:
+  it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
+  input order, releases the GIL, accepts 1–64 requested workers, and caps actual
+  concurrency to roughly 512 MB of estimated raster and conversion buffers.
+  Other simultaneous calls or edits on the same `Document` are outside the
+  contract.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.

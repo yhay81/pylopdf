@@ -92,6 +92,8 @@ struct RuleSegment {
 struct TextCollector {
     glyphs: Vec<GlyphRecord>,
     rules: Vec<RuleSegment>,
+    /// Skip vector-rule collection for ordinary text extraction.
+    collect_rules: bool,
     /// font_key → FontInfo cache, resolving font_data only once per font.
     font_infos: HashMap<u128, FontInfo>,
 }
@@ -106,7 +108,7 @@ impl Device<'_> for TextCollector {
         _: &Paint<'_>,
         mode: &PathDrawMode,
     ) {
-        if self.rules.len() >= MAX_TABLE_RULES {
+        if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES {
             return;
         }
         if matches!(mode, PathDrawMode::Fill(_)) {
@@ -624,6 +626,15 @@ fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
     {
         return order_vertical_page_lines(clustered);
     }
+    if clustered
+        .iter()
+        .filter(|line| line_segment_count(line) > 1)
+        .take(MIN_COLUMN_LINES)
+        .count()
+        < MIN_COLUMN_LINES
+    {
+        return clustered;
+    }
     let segments: Vec<Vec<GlyphRecord>> = clustered
         .iter()
         .flat_map(|line| split_line_segments(line))
@@ -852,24 +863,18 @@ pub(crate) struct TextPage {
     width: f64,
     height: f64,
     lines: Vec<Vec<GlyphRecord>>,
-    tables: Vec<TableTuple>,
-    text_tables: Vec<TableTuple>,
 }
 
 impl TextPage {
     pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
         let (width, height) = page.render_dimensions();
-        let (glyphs, rules) = collect_page_marks(pdf, page, settings);
+        let (glyphs, _) = collect_page_marks(pdf, page, settings, false);
         let physical_lines = cluster_lines(glyphs);
-        let tables = detect_grid_tables(&physical_lines, &rules);
-        let text_tables = detect_text_tables(&physical_lines);
         let lines = order_page_lines(physical_lines);
         Self {
             width: f64::from(width),
             height: f64::from(height),
             lines,
-            tables,
-            text_tables,
         }
     }
 
@@ -883,6 +888,23 @@ impl TextPage {
 
     pub(crate) fn search(&self, needle: &str) -> Vec<BBox> {
         search_lines(&self.lines, needle)
+    }
+}
+
+/// Reusable table interpretation kept separate from normal text extraction.
+pub(crate) struct TablePage {
+    tables: Vec<TableTuple>,
+    text_tables: Vec<TableTuple>,
+}
+
+impl TablePage {
+    pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
+        let (glyphs, rules) = collect_page_marks(pdf, page, settings, true);
+        let physical_lines = cluster_lines(glyphs);
+        Self {
+            tables: detect_grid_tables(&physical_lines, &rules),
+            text_tables: detect_text_tables(&physical_lines),
+        }
     }
 
     pub(crate) fn tables(&self, text_strategy: bool) -> Vec<TableTuple> {
@@ -1887,17 +1909,19 @@ pub(crate) fn extract_page_images(
     collector.images
 }
 
-/// Interpret a page once and collect glyphs plus stroked table rules.
+/// Interpret a page once and optionally collect vector table rules.
 fn collect_page_marks(
     pdf: &Pdf,
     page: &Page<'_>,
     settings: InterpreterSettings,
+    collect_rules: bool,
 ) -> (Vec<GlyphRecord>, Vec<RuleSegment>) {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = TextCollector {
         glyphs: Vec::new(),
         rules: Vec::new(),
+        collect_rules,
         font_infos: HashMap::new(),
     };
     interpret_page(page, &mut context, &mut collector);

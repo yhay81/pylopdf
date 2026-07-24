@@ -104,6 +104,13 @@ def _pylopdf_render(data: bytes) -> bytes:
         return doc.render_page(0, scale=2)
 
 
+def _pylopdf_render_batch(data: bytes, workers: int) -> int:
+    """Render up to twelve pages and return total PNG bytes."""
+    with pylopdf.open(stream=data) as doc:
+        pages = list(range(min(12, doc.page_count)))
+        return sum(len(png) for png in doc.render_pages(pages, scale=2, workers=workers))
+
+
 def _median_ms(func: Callable[[], object]) -> float | None:
     """Return median milliseconds after one warmup, or None on failure."""
     try:
@@ -124,6 +131,33 @@ def _fmt(value: float | None) -> str:
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _append_parallel_render_results(lines: list[str], corpus: dict[str, bytes]) -> None:
+    """Append same-document parallel rendering scaling when the fixture exists."""
+    batch_data = corpus.get("usrguide.pdf")
+    if batch_data is None:
+        return
+
+    lines.append("## Parallel rendering (first 12 usrguide pages to 2x PNG, ms)")
+    lines.append("")
+    lines.append("| Workers | Time | Speedup vs 1 worker |")
+    lines.append("|---:|---:|---:|")
+    batch_times = {
+        workers: _median_ms(lambda w=workers: _pylopdf_render_batch(batch_data, w)) for workers in (1, 2, 4, 8)
+    }
+    baseline = batch_times[1]
+    for workers, elapsed in batch_times.items():
+        speedup = "err/n-a" if baseline is None or elapsed is None or elapsed <= 0 else f"{baseline / elapsed:.2f}x"
+        lines.append(f"| {workers} | {_fmt(elapsed)} | {speedup} |")
+    lines.append("")
+    lines.append(
+        "`render_pages()` preserves input order, releases the GIL, and uses "
+        "a dedicated worker pool bounded by both worker count and estimated "
+        "live rendering memory."
+    )
+    lines.append("")
+    print("parallel render: done")
 
 
 def main() -> None:
@@ -221,6 +255,10 @@ def main() -> None:
         lines.append(f"| {name} | " + " | ".join(_fmt(v) for v in row) + " |")
         print(f"render {name}: done")
     lines.append("")
+
+    # --- Same-document parallel rendering scaling. ---
+    _append_parallel_render_results(lines, corpus)
+
     lines.append("This report publishes both wins and losses. Results depend on the environment,")
     lines.append("so cite them together with the environment details above.")
     lines.append("")

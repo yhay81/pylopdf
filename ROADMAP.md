@@ -270,9 +270,13 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
 - Turn the successful krilla spike into arbitrary embedded-font text insertion,
   then `insert_textbox`, and finally native AcroForm appearance generation.
   Measure wheel size and rendering fidelity at every stage.
-- Add `Document.render_pages(workers=)`, define same-document concurrency
-  semantics, and evaluate `get_pixmap(clip=)` together with upstream hayro
-  viewport support.
+- [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
+  with deterministic input order, a dedicated 1–64 worker pool, four-worker
+  default, GIL release, and a ~512 MB estimated working-memory concurrency cap.
+  Document mutation/other same-document calls from external threads remain
+  outside the contract. Published scaling on 12 usrguide pages at 2x:
+  1/2/4/8 workers = 400.8/200.5/118.5/83.6 ms.
+- Evaluate `get_pixmap(clip=)` together with upstream hayro viewport support.
 - Build and test cp314t wheels only after the mutable `Document` concurrency
   audit. Enable the Pixmap buffer protocol in the version-specific lane and
   verify real parallel scaling rather than treating wheel availability alone as
@@ -381,12 +385,14 @@ rather than waiting automatically for v1.x.
 - [ ] Add `get_pixmap(clip=)`. hayro `RenderSettings` supports only an
       origin-fixed viewport. Decide between proposing offset/transform upstream
       and initially rendering the full page then cropping.
-- [ ] Cache extraction results by generation to eliminate repeated
-      interpretation in search-then-annotate loops. Consider one layer keyed like
-      `hayro_pdf` and an explicit TextPage-style object.
-- [ ] Add `Document.render_pages(workers=)` as a thin supported API over existing
-      GIL-free rendering, measured at 1.93× with two threads. Its full value
-      arrives with cp314t.
+- [x] Cache extraction results by generation in bounded TextPage and TablePage
+      caches, eliminating repeated interpretation in search/extract and
+      repeated table workflows while keeping table-only geometry off the common
+      text path.
+- [x] Add `Document.render_pages(workers=)` as the supported same-document
+      parallel rendering boundary; measured at 2.00x / 3.38x / 4.80x for
+      two/four/eight workers in the published benchmark. Its
+      Python-orchestration value grows further with cp314t.
 - Keep annotation/widget dict and tuple APIs until mutation grows enough to
   justify objects. Do not copy pymupdf's heavyweight `Annot`.
 

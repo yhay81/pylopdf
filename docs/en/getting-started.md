@@ -64,6 +64,7 @@ pages.
 ```python
 png = doc.render_page(0, dpi=300)                    # bytes (PNG)
 pix = page.get_pixmap(scale=2)                       # RGBA8 pixels for NumPy / PIL
+batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
 svg = doc.render_page_svg(0)
 ```
 

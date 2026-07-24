@@ -22,7 +22,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `metadata` / `set_metadata(dict)` | Info dictionary (UTF-16BE aware) |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None)` | Markdown conversion (headings, CJK joining, emphasis, lists) |
-| `render_page(pno, scale=, dpi=, background=)` / `render_page_svg(pno)` | PNG bytes / SVG string |
+| `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |

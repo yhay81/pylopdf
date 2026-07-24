@@ -254,6 +254,64 @@ def test_render_page_png_scale(one_page_pdf: bytes) -> None:
     assert (width, height) == (1224, 1584)
 
 
+def test_render_pages_matches_sequential_and_preserves_order(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    pages = [2, 0, 2, 1]
+
+    expected = [doc.render_page(page) for page in pages]
+    assert doc.render_pages(pages, workers=2) == expected
+
+
+def test_render_pages_defaults_to_every_page(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    assert doc.render_pages(workers=1) == [doc.render_page(page) for page in range(doc.page_count)]
+
+
+def test_render_pages_supports_dpi_background_and_empty_input(
+    three_page_pdf: bytes,
+) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    expected = doc.render_page(1, dpi=144, background=(255, 255, 255))
+    assert doc.render_pages(
+        [1],
+        dpi=144,
+        background=(255, 255, 255),
+        workers=2,
+    ) == [expected]
+    assert doc.render_pages([], workers=2) == []
+
+
+@pytest.mark.parametrize("workers", [0, -1, 65])
+def test_render_pages_rejects_invalid_worker_count(three_page_pdf: bytes, workers: int) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(ValueError, match="workers"):
+        doc.render_pages(workers=workers)
+
+
+@pytest.mark.parametrize("workers", [True, 1.5])
+def test_render_pages_rejects_non_integer_workers(three_page_pdf: bytes, workers: object) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(TypeError, match="workers"):
+        doc.render_pages(workers=workers)  # type: ignore[arg-type]
+
+
+def test_render_pages_validates_all_page_numbers_before_rendering(
+    three_page_pdf: bytes,
+) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    with pytest.raises(IndexError):
+        doc.render_pages([0, 3, 1], workers=2)
+
+
+def test_render_pages_reflects_structural_edits(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    original_last_page = doc.render_page(2)
+
+    doc.select([2, 0])
+
+    assert doc.render_pages(workers=2) == [original_last_page, doc.render_page(1)]
+
+
 def test_render_page_reflects_edits(three_page_pdf: bytes) -> None:
     # Rendering reflects state after deleting a page.
     doc = pylopdf.Document(stream=three_page_pdf)

@@ -96,6 +96,7 @@ png: bytes = doc.render_page(0)             # 72 dpi
 png2x: bytes = doc.render_page(0, scale=2)  # 144 dpi
 png300 = doc.render_page(0, dpi=300)        # by resolution
 png_bg = doc.render_page(0, background=(255, 255, 255))  # white background (default: transparent)
+batch = doc.render_pages([0, 1, 2], scale=2, workers=4)  # ordered parallel PNGs
 svg: str = doc.render_page_svg(0)
 
 # Delete pages (split)
@@ -272,6 +273,7 @@ signed_pdf: bytes = out.getvalue()
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
+| `render_pages(pages=None, scale=1.0, workers=None, ...)` | Render ordered PNGs from one immutable snapshot; up to 4 workers by default, with a ~512 MB estimated working-memory concurrency cap |
 | `render_page_svg(pno)` | Render a page to an SVG string |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order (repeats duplicate the page) |

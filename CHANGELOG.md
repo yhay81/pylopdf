@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (previously 0/7 wins on the larger files). PNG output grows ~10-15% but stays
   smaller than pymupdf's; re-compress externally if size matters.
   `get_images()` keeps the higher-compression encoder for stored artifacts
+- `Document.render_pages()` renders an ordered page selection from one
+  immutable hayro snapshot on a dedicated rayon pool while the GIL is released.
+  It preserves duplicates and all `render_page` scale/DPI/background semantics,
+  defaults to at most four workers, accepts 1–64 explicitly, and further caps
+  estimated live raster and conversion buffers to roughly 512 MB. On the
+  published 12-page `usrguide.pdf` 2x workload, 1/2/4/8 workers measured
+  400.8/200.5/118.5/83.6 ms, reaching 4.80x at eight workers
 - `save()` / `tobytes()` now compile `flate2` against the `zlib-rs` backend
   instead of the default Rust `miniz_oxide` implementation. Measured on a 3x
   merge of the full real-world corpus (554 pages) saved with `garbage=3` +
@@ -110,6 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation-invalidated `TextPage` interpretation cache. Line dictionaries
   report the transformed baseline direction instead of a hard-coded value,
   laying the geometry foundation for multicolumn and vertical text
+- Table interpretation now has its own bounded page cache, so vector-rule and
+  borderless-table analysis is paid only by `find_tables()` and does not burden
+  ordinary text extraction or search
 - Text extraction now detects sustained whitespace gutters and orders
   multicolumn pages top-to-bottom within each column, then left-to-right across
   columns. Full-width headings and footers retain their page-level position,

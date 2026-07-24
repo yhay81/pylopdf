@@ -20,6 +20,7 @@ use lopdf::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use crate::draw;
 use crate::ocr;
@@ -27,6 +28,9 @@ use crate::ocr;
 /// Bound interpreted text-page memory on long documents while retaining the
 /// common search/extract/annotate working set.
 const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
+
+/// Keep table interpretations bounded independently from ordinary text pages.
+const TABLE_PAGE_CACHE_CAPACITY: usize = 8;
 
 /// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
@@ -151,6 +155,10 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 
 /// Maximum PNG render pixels, approximately a 256 MB RGBA bitmap.
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
+
+/// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
+const MAX_PARALLEL_RENDER_BYTES: u64 = 512_000_000;
+const ESTIMATED_RENDER_BYTES_PER_PIXEL: u64 = 8;
 
 /// Convert a lopdf error to a Python exception with a context prefix.
 ///
@@ -300,6 +308,81 @@ fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
         out.extend_from_slice(&[px.r, px.g, px.b, px.a]);
     }
     out
+}
+
+/// Validate one page and return its raster pixel count.
+fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Result<u64, String> {
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err("scale must be a finite, positive value".to_owned());
+    }
+    let pages = pdf.pages();
+    let page = page_number
+        .checked_sub(1)
+        .and_then(|index| pages.get(index as usize))
+        .ok_or_else(|| format!("page {page_number} does not exist"))?;
+    let (page_width, page_height) = page.render_dimensions();
+    let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
+    let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
+    if !pixel_width.is_finite()
+        || !pixel_height.is_finite()
+        || pixel_width < 1.0
+        || pixel_height < 1.0
+    {
+        return Err("scale is too small, or the PDF page size is invalid".to_owned());
+    }
+    if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
+        return Err(format!(
+            "render size {pixel_width:.0}x{pixel_height:.0} exceeds the 65535-pixel limit per side"
+        ));
+    }
+    let total_pixels = (pixel_width as u64) * (pixel_height as u64);
+    if total_pixels > MAX_RENDER_PIXELS {
+        return Err(format!(
+            "render size {pixel_width:.0}x{pixel_height:.0} ({total_pixels} pixels) exceeds the {MAX_RENDER_PIXELS}-pixel limit"
+        ));
+    }
+    Ok(total_pixels)
+}
+
+/// Render one page from an immutable hayro snapshot.
+fn render_pdf_page(
+    pdf: &Pdf,
+    interpreter_settings: &InterpreterSettings,
+    page_number: u32,
+    scale: f32,
+    background: Option<(u8, u8, u8, u8)>,
+) -> Result<hayro::vello_cpu::Pixmap, String> {
+    render_pixel_count(pdf, page_number, scale)?;
+    let pages = pdf.pages();
+    let page = page_number
+        .checked_sub(1)
+        .and_then(|index| pages.get(index as usize))
+        .ok_or_else(|| format!("page {page_number} does not exist"))?;
+    let mut render_settings = RenderSettings {
+        x_scale: scale,
+        y_scale: scale,
+        ..Default::default()
+    };
+    if let Some((r, g, b, a)) = background {
+        render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
+    }
+    let cache = RenderCache::new();
+    Ok(render(page, &cache, interpreter_settings, &render_settings))
+}
+
+/// Convert a rendered pixmap into the fast PNG representation used publicly.
+fn rendered_png(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
+    let width = u32::from(pixmap.width());
+    let height = u32::from(pixmap.height());
+    let data = rgba_bytes(pixmap);
+    crate::extract::encode_png(
+        width,
+        height,
+        png::ColorType::Rgba,
+        &data,
+        png::Compression::Fast,
+    )
+    .ok_or_else(|| "failed to encode PNG".to_owned())
 }
 
 /// Clone a dictionary while allowing an indirect reference.
@@ -586,6 +669,10 @@ pub struct _Document {
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
     text_page_order: VecDeque<u32>,
+    /// Recently interpreted table pages, keyed by one-based page number.
+    table_pages: HashMap<u32, crate::extract::TablePage>,
+    /// Least-recently-used to most-recently-used table-page keys.
+    table_page_order: VecDeque<u32>,
     /// Hayro warnings from the latest render/extraction, written by the
     /// interpreter-settings sink and drained by `take_warnings`.
     pending_warnings: Arc<Mutex<Vec<String>>>,
@@ -601,6 +688,8 @@ impl _Document {
             hayro_source,
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
+            table_pages: HashMap::new(),
+            table_page_order: VecDeque::new(),
             pending_warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -627,13 +716,15 @@ impl _Document {
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
         self.hayro_source = None;
-        self.invalidate_text_pages();
+        self.invalidate_interpreted_pages();
     }
 
-    /// Drop derived text pages while retaining the parse-only hayro snapshot.
-    fn invalidate_text_pages(&mut self) {
+    /// Drop derived text/table pages while retaining the hayro snapshot.
+    fn invalidate_interpreted_pages(&mut self) {
         self.text_pages.clear();
         self.text_page_order.clear();
+        self.table_pages.clear();
+        self.table_page_order.clear();
     }
 
     /// Return the ObjectId of a one-based page.
@@ -958,6 +1049,45 @@ impl _Document {
             .expect("text page was inserted immediately before"))
     }
 
+    /// Return a cached, owned table interpretation of a one-based page.
+    fn table_page(
+        &mut self,
+        page_number: u32,
+        settings: InterpreterSettings,
+    ) -> PyResult<&crate::extract::TablePage> {
+        if self.table_pages.contains_key(&page_number) {
+            self.table_page_order
+                .retain(|number| *number != page_number);
+            self.table_page_order.push_back(page_number);
+            return Ok(self
+                .table_pages
+                .get(&page_number)
+                .expect("cache key was checked immediately before"));
+        }
+
+        let table_page = {
+            let pdf = self.hayro_view()?;
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+            crate::extract::TablePage::new(pdf, page, settings)
+        };
+
+        if self.table_pages.len() >= TABLE_PAGE_CACHE_CAPACITY
+            && let Some(evicted) = self.table_page_order.pop_front()
+        {
+            self.table_pages.remove(&evicted);
+        }
+        self.table_pages.insert(page_number, table_page);
+        self.table_page_order.push_back(page_number);
+        Ok(self
+            .table_pages
+            .get(&page_number)
+            .expect("table page was inserted immediately before"))
+    }
+
     /// Build InterpreterSettings with fallbacks and the warning sink.
     fn interpreter_settings(&self) -> InterpreterSettings {
         let mut settings = InterpreterSettings::default();
@@ -999,52 +1129,11 @@ impl _Document {
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
-        if !scale.is_finite() || scale <= 0.0 {
-            return Err(PdfError::new_err("scale must be a finite, positive value"));
-        }
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| {
-                    PdfError::new_err(format!("page {page_number} does not exist"))
-                })?;
-            let (page_width, page_height) = page.render_dimensions();
-            let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
-            let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
-            if !pixel_width.is_finite()
-                || !pixel_height.is_finite()
-                || pixel_width < 1.0
-                || pixel_height < 1.0
-            {
-                return Err(PdfError::new_err(
-                    "scale is too small, or the PDF page size is invalid",
-                ));
-            }
-            if pixel_width > f64::from(u16::MAX) || pixel_height > f64::from(u16::MAX) {
-                return Err(PdfError::new_err(format!(
-                    "render size {pixel_width:.0}x{pixel_height:.0} exceeds the 65535-pixel limit per side"
-                )));
-            }
-            let total_pixels = (pixel_width as u64) * (pixel_height as u64);
-            if total_pixels > MAX_RENDER_PIXELS {
-                return Err(PdfError::new_err(format!(
-                    "render size {pixel_width:.0}x{pixel_height:.0} ({total_pixels} pixels) exceeds the {MAX_RENDER_PIXELS}-pixel limit"
-                )));
-            }
-            let mut render_settings = RenderSettings {
-                x_scale: scale,
-                y_scale: scale,
-                ..Default::default()
-            };
-            if let Some((r, g, b, a)) = background {
-                render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
-            }
-            let cache = RenderCache::new();
-            Ok(render(page, &cache, &interpreter_settings, &render_settings))
+            render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
+                .map_err(PdfError::new_err)
         })
     }
 
@@ -1500,14 +1589,14 @@ impl _Document {
             }
         };
         *slot = Some((Arc::new(data), index));
-        self.invalidate_text_pages();
+        self.invalidate_interpreted_pages();
         Ok(())
     }
 
     /// Clear all CJK fallback-font configuration.
     fn clear_fallback_fonts(&mut self) {
         self.fallback_fonts = FallbackFonts::default();
-        self.invalidate_text_pages();
+        self.invalidate_interpreted_pages();
     }
 
     /// Return whether the document remains encrypted.
@@ -1693,7 +1782,11 @@ impl _Document {
             }
         };
         let settings = self.interpreter_settings();
-        py.detach(|| Ok(self.text_page(page_number, settings)?.tables(text_strategy)))
+        py.detach(|| {
+            Ok(self
+                .table_page(page_number, settings)?
+                .tables(text_strategy))
+        })
     }
 
     /// Extract images drawn on a one-based page.
@@ -1863,18 +1956,57 @@ impl _Document {
         // PNG encoding can cost more than rasterization, so release the GIL and
         // use Fast/fdeflate. Balanced is tens of times slower for about 10%
         // smaller output and made PNG the dominant render cost in benchmarks.
+        py.detach(|| rendered_png(pixmap).map_err(PdfError::new_err))
+    }
+
+    /// Render one-based pages to PNG in input order on a bounded worker pool.
+    fn render_pages_png(
+        &mut self,
+        py: Python<'_>,
+        page_numbers: Vec<u32>,
+        scale: f32,
+        background: Option<(u8, u8, u8, u8)>,
+        workers: usize,
+    ) -> PyResult<Vec<Vec<u8>>> {
+        if workers == 0 || workers > 64 {
+            return Err(PyValueError::new_err("workers must be between 1 and 64"));
+        }
+        if page_numbers.is_empty() {
+            return Ok(Vec::new());
+        }
+        let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let width = u32::from(pixmap.width());
-            let height = u32::from(pixmap.height());
-            let data = rgba_bytes(pixmap);
-            crate::extract::encode_png(
-                width,
-                height,
-                png::ColorType::Rgba,
-                &data,
-                png::Compression::Fast,
-            )
-            .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+            let pdf = self.hayro_view()?;
+            let max_pixels = page_numbers
+                .iter()
+                .map(|&page_number| render_pixel_count(pdf, page_number, scale))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(PdfError::new_err)?
+                .into_iter()
+                .max()
+                .expect("empty page lists return before rendering");
+            let render_one = |&page_number: &u32| {
+                render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
+                    .and_then(rendered_png)
+            };
+            let estimated_page_bytes = max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
+            let memory_limited_workers =
+                usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
+                    .unwrap_or(usize::MAX);
+            let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
+            let rendered: Result<Vec<Vec<u8>>, String> = if worker_count == 1 {
+                page_numbers.iter().map(render_one).collect()
+            } else {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(worker_count)
+                    .thread_name(|index| format!("pylopdf-render-{index}"))
+                    .build()
+                    .map_err(|error| {
+                        PdfError::new_err(format!("failed to create render worker pool: {error}"))
+                    })?;
+                pool.install(|| page_numbers.par_iter().map(render_one).collect())
+            };
+            rendered.map_err(PdfError::new_err)
         })
     }
 

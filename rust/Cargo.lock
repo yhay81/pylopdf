@@ -851,6 +851,7 @@ dependencies = [
  "lopdf",
  "png",
  "pyo3",
+ "rayon",
 ]
 
 [[package]]

@@ -22,7 +22,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `metadata` / `set_metadata(dict)` | Info 딕셔너리（UTF-16BE 지원） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None)` | Markdown 변환（제목, CJK 연결, 강조, 목록） |
-| `render_page(pno, scale=, dpi=, background=)` / `render_page_svg(pno)` | PNG bytes / SVG 문자열 |
+| `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG, 순서 보장 병렬 PNG 묶음, SVG |
 | `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |
 | `get_toc()` / `set_toc(toc)` | 목차（페이지는 1부터） |

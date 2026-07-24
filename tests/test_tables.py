@@ -119,6 +119,16 @@ def test_find_tables_returns_empty_for_plain_text() -> None:
     assert finder.cells == []
 
 
+def test_table_cache_is_invalidated_after_page_insertion() -> None:
+    doc = pylopdf.open(stream=_bordered_table_pdf())
+    assert len(doc[0].find_tables()) == 1
+
+    doc.insert_pdf(pylopdf.open(stream=build_pdf(["Not a table"])), start_at=0)
+
+    assert doc[0].find_tables().tables == []
+    assert len(doc[1].find_tables()) == 1
+
+
 def test_rectangular_merged_cell_is_reconstructed() -> None:
     """Represent a missing internal divider as a merged header cell."""
     pdf = _bordered_table_pdf().replace(b"170 180 m 170 260 l", b"170 180 m 170 220 l")

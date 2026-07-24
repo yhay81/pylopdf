@@ -234,6 +234,7 @@ _COLOR_MAX = 255
 
 #: Largest absolute value representable as a finite lopdf PDF real (f32).
 _FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
+_MAX_RENDER_WORKERS = 64
 
 
 def _normalize_background(
@@ -1439,6 +1440,53 @@ class Document:
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
         result = self._doc.render_page_png(page_number, scale, rgba)
+        self._emit_warnings()
+        return result
+
+    def render_pages(
+        self,
+        pages: Iterable[int] | None = None,
+        scale: float = 1.0,
+        *,
+        dpi: float | None = None,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        workers: int | None = None,
+    ) -> list[bytes]:
+        """Render pages to PNG concurrently while preserving input order.
+
+        ``pages`` contains zero-based page numbers and defaults to every page.
+        Duplicates are allowed. ``workers=None`` uses up to four CPUs; explicit
+        values must be between 1 and 64. Actual concurrency is also capped to
+        roughly 512 MB of estimated live raster and conversion buffers. A
+        dedicated bounded worker pool renders one immutable snapshot of the
+        document while the GIL is released.
+
+        Do not edit or call other methods on this same :class:`Document` from
+        another thread during the operation. Such calls are not part of the
+        concurrency contract; use this method as the supported same-document
+        parallel rendering boundary.
+        """
+        self._ensure_open()
+        if dpi is not None:
+            if scale != 1.0:
+                msg = "scale and dpi cannot both be specified"
+                raise ValueError(msg)
+            scale = dpi / 72.0
+        if workers is None:
+            workers = min(4, os.cpu_count() or 1)
+        elif isinstance(workers, bool) or not isinstance(workers, int):
+            msg = f"workers must be an integer between 1 and {_MAX_RENDER_WORKERS}"
+            raise TypeError(msg)
+        if not 1 <= workers <= _MAX_RENDER_WORKERS:
+            msg = f"workers must be between 1 and {_MAX_RENDER_WORKERS}"
+            raise ValueError(msg)
+        page_indices = list(range(self.page_count)) if pages is None else list(pages)
+        page_numbers = [self._lopdf_page_number(pno) for pno in page_indices]
+        rgba = _normalize_background(background)
+        if not page_numbers:
+            return []
+        self._ensure_fallback_fonts()
+        result = self._doc.render_pages_png(page_numbers, scale, rgba, workers)
         self._emit_warnings()
         return result
 

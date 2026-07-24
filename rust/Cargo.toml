@@ -17,6 +17,8 @@ crate-type = ["cdylib"]
 [dependencies]
 # Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is sufficient.
 lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+# Expose the already-linked rayon runtime for supported batch rendering.
+rayon = "1"
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
