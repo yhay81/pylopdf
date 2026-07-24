@@ -67,8 +67,12 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   cells; borderless and merged cells are not inferred yet.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
-  offsets. Baseline direction is retained and exposed in line dicts; vertical
-  reading-order assembly is not supported yet.
+  offsets. Baseline direction is retained and exposed in line dicts. Rotated
+  baselines assemble along their direction while remaining writing mode 0.
+  Because hayro does not expose font WMode, mode-1 CJK lines are inferred only
+  from conservative single-glyph vertical chains: top-to-bottom within a line,
+  right-to-left across columns, with horizontal headings and footers preserved.
+  Ruby, warichu, and mixed-orientation typography are not interpreted.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page

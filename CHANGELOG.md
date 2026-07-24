@@ -119,6 +119,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tables expose display-space bboxes, row-major cells, `extract()`, and
   `to_markdown()`. The intentionally high-confidence first stage rejects
   broken grids; borderless and merged-cell inference remain future work
+- Text extraction now assembles transformed vertical baselines as one
+  searchable line and conservatively recognizes CJK vertical writing from
+  glyph geometry when the font's WMode is hidden by hayro. Vertical columns
+  read top-to-bottom and right-to-left between horizontal headings and footers;
+  line dictionaries report `wmode=1`. Ordinary CJK rows and rotated horizontal
+  text remain `wmode=0`
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

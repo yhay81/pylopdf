@@ -253,9 +253,13 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
 - Extend table detection to filled-rule grids, merged cells, and an explicit
   borderless-text strategy. Keep the rule-based core inspectable before
   considering an optional layout model.
-- Add vertical CJK extraction by retaining the transformed baseline vector and
-  assembling vertical lines and reading order explicitly. Cover Japanese
-  business documents in the real-world corpus.
+- [x] Add vertical CJK extraction by assembling transformed vertical baselines
+  directly and conservatively inferring hidden font WMode from CJK glyph
+  geometry. Vertical columns read top-to-bottom and right-to-left between
+  horizontal page furniture; synthetic Shift-JIS vertical fixtures cover the
+  positive path and the Japanese business-document corpus guards against false
+  classification. Ruby, warichu, and mixed-orientation typography remain
+  explicit follow-up depth.
 - Turn the successful krilla spike into arbitrary embedded-font text insertion,
   then `insert_textbox`, and finally native AcroForm appearance generation.
   Measure wheel size and rendering fidelity at every stage.

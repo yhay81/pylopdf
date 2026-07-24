@@ -66,6 +66,12 @@ struct GlyphRecord {
     advance: f64,
     /// Unit baseline direction in display space.
     direction: (f64, f64),
+    /// PDF writing mode: 0 for horizontal, 1 for vertical.
+    ///
+    /// Hayro currently does not expose WMode. This remains 0 for normal and
+    /// rotated horizontal text, and is set to 1 only for conservative CJK
+    /// vertical-layout detections during line assembly.
+    writing_mode: u8,
     /// Font identity key for span splitting; Type 3 uses 0.
     font_key: u128,
     /// Font display attributes: name plus pymupdf-compatible flags.
@@ -215,6 +221,7 @@ impl Device<'_> for TextCollector {
             size,
             advance,
             direction,
+            writing_mode: 0,
             font_key,
             font,
         });
@@ -224,6 +231,15 @@ impl Device<'_> for TextCollector {
 /// Line threshold: baselines within this factor × font size share a line.
 /// This absorbs super/subscripts while separating normal leading of 1.0 or more.
 const LINE_TOLERANCE: f64 = 0.5;
+
+/// Cross-axis tolerance when joining glyphs on one vertical baseline.
+const VERTICAL_LINE_TOLERANCE: f64 = 0.35;
+
+/// Minimum glyph count before inferring a CJK vertical writing mode.
+const MIN_VERTICAL_CJK_GLYPHS: usize = 3;
+
+/// Bound the conservative CJK geometry pass on pathological pages.
+const MAX_VERTICAL_CJK_CANDIDATES: usize = 4096;
 
 /// Word threshold: synthesize a space above this factor × font size.
 /// Typical word gaps are about 0.25 em and kerning about ±0.05 em.
@@ -275,12 +291,188 @@ fn normalize_direction((x, y): (f64, f64)) -> (f64, f64) {
     )
 }
 
-/// Group glyphs into reading-order lines, each sorted by ascending x.
-fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
-    glyphs.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
+/// Return whether a baseline direction is predominantly vertical.
+fn has_vertical_baseline(glyph: &GlyphRecord) -> bool {
+    glyph.direction.1.abs() > glyph.direction.0.abs()
+}
+
+/// Return whether all visible characters are CJK or full-width punctuation.
+fn is_cjk_text(text: &str) -> bool {
+    let mut saw_character = false;
+    for ch in text.chars().filter(|ch| !ch.is_whitespace()) {
+        saw_character = true;
+        if !matches!(
+            ch,
+            '\u{2E80}'..='\u{2FFF}'
+                | '\u{3000}'..='\u{30FF}'
+                | '\u{31F0}'..='\u{31FF}'
+                | '\u{3400}'..='\u{4DBF}'
+                | '\u{4E00}'..='\u{9FFF}'
+                | '\u{AC00}'..='\u{D7AF}'
+                | '\u{F900}'..='\u{FAFF}'
+                | '\u{FF00}'..='\u{FFEF}'
+                | '\u{20000}'..='\u{3134F}'
+        ) {
+            return false;
+        }
+    }
+    saw_character
+}
+
+/// Identify CJK glyphs that advance vertically even though hayro reports the
+/// font's transformed horizontal basis. Requiring a local vertical neighbour
+/// and no local horizontal neighbour avoids reclassifying normal CJK rows.
+fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Vec<usize> {
+    let cjk_indices: Vec<usize> = glyphs
+        .iter()
+        .enumerate()
+        .filter_map(|(index, glyph)| {
+            (!has_vertical_baseline(glyph) && is_cjk_text(&glyph.text)).then_some(index)
+        })
+        .collect();
+    if cjk_indices.len() < MIN_VERTICAL_CJK_GLYPHS
+        || cjk_indices.len() > MAX_VERTICAL_CJK_CANDIDATES
+    {
+        return Vec::new();
+    }
+
+    let mut eligible = Vec::new();
+    for &index in &cjk_indices {
+        let glyph = &glyphs[index];
+        let mut has_vertical_neighbour = false;
+        let mut has_horizontal_neighbour = false;
+        for &other_index in &cjk_indices {
+            if other_index == index {
+                continue;
+            }
+            let other = &glyphs[other_index];
+            if other.font_key != glyph.font_key {
+                continue;
+            }
+            let scale = glyph.size.max(other.size).max(1.0);
+            let dx = (other.x - glyph.x).abs();
+            let dy = (other.y - glyph.y).abs();
+            if dx <= scale * VERTICAL_LINE_TOLERANCE && dy >= scale * 0.35 && dy <= scale * 1.35 {
+                has_vertical_neighbour = true;
+            }
+            if dy <= scale * LINE_TOLERANCE && dx >= scale * 0.2 && dx <= scale * 1.8 {
+                has_horizontal_neighbour = true;
+            }
+            if has_vertical_neighbour && has_horizontal_neighbour {
+                break;
+            }
+        }
+        if has_vertical_neighbour && !has_horizontal_neighbour {
+            eligible.push(index);
+        }
+    }
+    eligible
+}
+
+/// Extract conservative CJK vertical chains from otherwise horizontal glyphs.
+fn extract_inferred_vertical_cjk(
+    glyphs: Vec<GlyphRecord>,
+) -> (Vec<GlyphRecord>, Vec<Vec<GlyphRecord>>) {
+    let eligible = inferred_vertical_cjk_indices(&glyphs);
+    if eligible.len() < MIN_VERTICAL_CJK_GLYPHS {
+        return (glyphs, Vec::new());
+    }
+
+    let mut selected = vec![false; glyphs.len()];
+    for index in eligible {
+        selected[index] = true;
+    }
+    let mut candidates = Vec::new();
+    let mut remaining = Vec::new();
+    for (index, glyph) in glyphs.into_iter().enumerate() {
+        if selected[index] {
+            candidates.push(glyph);
+        } else {
+            remaining.push(glyph);
+        }
+    }
+    candidates.sort_by(|left, right| {
+        left.x
+            .total_cmp(&right.x)
+            .then(left.font_key.cmp(&right.font_key))
+            .then(left.y.total_cmp(&right.y))
+    });
+
+    let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
+    for glyph in candidates {
+        let matching_line = lines.iter_mut().find(|line| {
+            let first = &line[0];
+            first.font_key == glyph.font_key
+                && (first.x - glyph.x).abs()
+                    <= first.size.max(glyph.size).max(1.0) * VERTICAL_LINE_TOLERANCE
+        });
+        if let Some(line) = matching_line {
+            line.push(glyph);
+        } else {
+            lines.push(vec![glyph]);
+        }
+    }
+
+    let mut accepted = Vec::new();
+    for mut line in lines {
+        line.sort_by(|left, right| left.y.total_cmp(&right.y));
+        let continuous = line.windows(2).all(|pair| {
+            let scale = pair[0].size.max(pair[1].size).max(1.0);
+            let gap = pair[1].y - pair[0].y;
+            gap >= scale * 0.35 && gap <= scale * 1.35
+        });
+        if line.len() >= MIN_VERTICAL_CJK_GLYPHS && continuous {
+            for glyph in &mut line {
+                glyph.direction = (0.0, 1.0);
+                glyph.writing_mode = 1;
+            }
+            accepted.push(line);
+        } else {
+            remaining.extend(line);
+        }
+    }
+    (remaining, accepted)
+}
+
+/// Group glyphs whose transformed baseline itself is vertical.
+fn cluster_explicit_vertical(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+    glyphs.sort_by(|left, right| right.x.total_cmp(&left.x).then(left.y.total_cmp(&right.y)));
+    let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
+    for glyph in glyphs {
+        let matching_line = lines.iter_mut().find(|line| {
+            let first = &line[0];
+            let scale = first.size.max(glyph.size).max(1.0);
+            (first.x - glyph.x).abs() <= scale * VERTICAL_LINE_TOLERANCE
+                && first.direction.0 * glyph.direction.0 + first.direction.1 * glyph.direction.1
+                    > 0.9
+        });
+        if let Some(line) = matching_line {
+            line.push(glyph);
+        } else {
+            lines.push(vec![glyph]);
+        }
+    }
+    for line in &mut lines {
+        let direction = line[0].direction;
+        line.sort_by(|left, right| {
+            let left_progress = left.x * direction.0 + left.y * direction.1;
+            let right_progress = right.x * direction.0 + right.y * direction.1;
+            left_progress.total_cmp(&right_progress)
+        });
+    }
+    lines
+}
+
+/// Group glyphs into physical text lines.
+fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+    let (explicit_vertical, horizontal): (Vec<_>, Vec<_>) =
+        glyphs.into_iter().partition(has_vertical_baseline);
+    let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal);
+
+    horizontal.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
     let mut current_baseline = f64::NEG_INFINITY;
-    for glyph in glyphs {
+    for glyph in horizontal {
         let tolerance = glyph.size.max(1.0) * LINE_TOLERANCE;
         if (glyph.y - current_baseline).abs() <= tolerance {
             lines
@@ -295,6 +487,8 @@ fn cluster_lines(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
     for line in &mut lines {
         line.sort_by(|a, b| a.x.total_cmp(&b.x));
     }
+    vertical_lines.extend(cluster_explicit_vertical(explicit_vertical));
+    lines.extend(vertical_lines);
     lines
 }
 
@@ -323,6 +517,12 @@ fn split_line_segments(line: &[GlyphRecord]) -> Vec<Vec<GlyphRecord>> {
 
 /// Split baseline bands only when a sustained page-level column gutter exists.
 fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
+    if clustered
+        .iter()
+        .any(|line| line.first().is_some_and(has_vertical_baseline))
+    {
+        return order_vertical_page_lines(clustered);
+    }
     let segments: Vec<Vec<GlyphRecord>> = clustered
         .iter()
         .flat_map(|line| split_line_segments(line))
@@ -332,6 +532,53 @@ fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
     } else {
         clustered
     }
+}
+
+/// Order vertical columns right-to-left, preserving horizontal headers and
+/// footers outside the vertical text region.
+fn order_vertical_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
+    let vertical_bounds: Vec<BBox> = clustered
+        .iter()
+        .filter(|line| line.first().is_some_and(has_vertical_baseline))
+        .map(|line| line_bbox(line))
+        .collect();
+    let vertical_y0 = vertical_bounds
+        .iter()
+        .map(|(_, y0, _, _)| *y0)
+        .reduce(f64::min)
+        .unwrap_or(f64::NEG_INFINITY);
+    let vertical_y1 = vertical_bounds
+        .iter()
+        .map(|(_, _, _, y1)| *y1)
+        .reduce(f64::max)
+        .unwrap_or(f64::INFINITY);
+
+    let mut top = Vec::new();
+    let mut vertical = Vec::new();
+    let mut middle = Vec::new();
+    let mut bottom = Vec::new();
+    for line in clustered {
+        if line.first().is_some_and(has_vertical_baseline) {
+            vertical.push(line);
+            continue;
+        }
+        let (_, y0, _, y1) = line_bbox(&line);
+        if y1 <= vertical_y0 {
+            top.push(line);
+        } else if y0 >= vertical_y1 {
+            bottom.push(line);
+        } else {
+            middle.push(line);
+        }
+    }
+    top.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
+    vertical.sort_by(|left, right| line_bbox(right).0.total_cmp(&line_bbox(left).0));
+    middle.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
+    bottom.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
+    top.extend(vertical);
+    top.extend(middle);
+    top.extend(bottom);
+    top
 }
 
 /// Return a line's bbox without exposing the internal glyph representation.
@@ -539,9 +786,26 @@ impl TextPage {
     }
 }
 
+/// Position along the line's baseline direction.
+fn glyph_progress(glyph: &GlyphRecord) -> f64 {
+    if has_vertical_baseline(glyph) {
+        glyph.x * glyph.direction.0 + glyph.y * glyph.direction.1
+    } else {
+        glyph.x
+    }
+}
+
 /// Decide whether to insert a space from the gap between adjacent glyphs.
 fn needs_gap(prev_end: Option<f64>, glyph: &GlyphRecord) -> bool {
-    prev_end.is_some_and(|end| glyph.x - end > glyph.size.max(1.0) * WORD_GAP)
+    if glyph.writing_mode == 1 {
+        return false;
+    }
+    prev_end.is_some_and(|end| glyph_progress(glyph) - end > glyph.size.max(1.0) * WORD_GAP)
+}
+
+/// End position of one glyph along its line's baseline.
+fn glyph_end(glyph: &GlyphRecord) -> f64 {
+    glyph_progress(glyph) + glyph.advance
 }
 
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
@@ -554,7 +818,7 @@ fn assemble_text(lines: &[Vec<GlyphRecord>]) -> String {
                 out.push(' ');
             }
             out.push_str(&glyph.text);
-            prev_end = Some(glyph.x + glyph.advance);
+            prev_end = Some(glyph_end(glyph));
         }
         // Drop extra whitespace glyphs at line ends.
         while out.ends_with(' ') {
@@ -611,7 +875,7 @@ fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
                     text.push(' ');
                 }
                 text.push_str(&glyph.text);
-                prev_end = Some(glyph.x + glyph.advance);
+                prev_end = Some(glyph_end(glyph));
             }
             spans.push((
                 glyphs_bbox(glyphs),
@@ -658,7 +922,7 @@ fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
         if !is_space {
             current.push(glyph);
         }
-        prev_end = Some(glyph.x + glyph.advance);
+        prev_end = Some(glyph_end(glyph));
     }
     flush(&mut current);
     words
@@ -891,12 +1155,9 @@ fn detect_grid_tables(
 
 /// Representative baseline direction and PDF writing mode for a line.
 fn line_direction(line: &[GlyphRecord]) -> ((f64, f64), u8) {
-    let direction = line.first().map_or((1.0, 0.0), |glyph| glyph.direction);
-    // A rotated horizontal line can have a vertical baseline direction while
-    // remaining writing mode 0. Hayro does not expose the font's WMode yet, so
-    // do not infer it from geometry. TextPage retains direction for the future
-    // vertical-writing assembler.
-    (direction, 0)
+    line.first().map_or(((1.0, 0.0), 0), |glyph| {
+        (glyph.direction, glyph.writing_mode)
+    })
 }
 
 /// Assemble collected glyphs into blocks, lines, spans, and words.
@@ -904,13 +1165,18 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Vec<BlockTuple> {
     let mut blocks: Vec<Vec<&[GlyphRecord]>> = Vec::new();
     let mut prev_baseline: Option<f64> = None;
     let mut prev_size = 0.0_f64;
+    let mut prev_vertical = false;
     for line in lines {
         let baseline = line[0].y;
         let line_size = line.iter().map(|g| g.size).fold(0.0, f64::max);
+        let vertical = has_vertical_baseline(&line[0]);
         let new_block = match prev_baseline {
             Some(prev) => {
                 let scale = prev_size.max(line_size).max(1.0);
-                baseline - prev > scale * BLOCK_GAP || prev - baseline > scale * LINE_TOLERANCE
+                vertical
+                    || prev_vertical != vertical
+                    || baseline - prev > scale * BLOCK_GAP
+                    || prev - baseline > scale * LINE_TOLERANCE
             }
             None => true,
         };
@@ -919,6 +1185,7 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Vec<BlockTuple> {
         }
         prev_baseline = Some(baseline);
         prev_size = line_size;
+        prev_vertical = vertical;
         blocks
             .last_mut()
             .expect("a block was created immediately before")
@@ -975,7 +1242,7 @@ fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
                 map.push(Some(index));
             }
         }
-        prev_end = Some(glyph.x + glyph.advance);
+        prev_end = Some(glyph_end(glyph));
     }
     (haystack, map)
 }

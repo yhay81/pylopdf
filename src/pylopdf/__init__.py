@@ -990,8 +990,11 @@ class Document:
         bullets and ``1.``/``1)`` forms normalize to Markdown lists. Scanned PDFs
         work after adding a layer with :meth:`Page.insert_ocr_text_layer`.
         Multicolumn text follows deterministic whitespace gutters.
+        Conservatively detected vertical CJK columns follow top-to-bottom,
+        right-to-left reading order; ruby and mixed-orientation typography are
+        not interpreted.
         :meth:`Page.find_tables` handles complete bordered grids, but automatic
-        table conversion and vertical-writing order are unsupported.
+        table conversion is unsupported.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """

@@ -11,8 +11,10 @@ Initial rules:
   heading markers with emphasis. Standard 14 Type 1 fonts are excluded because
   hayro does not expose their metadata.
 - Multicolumn text follows deterministic whitespace gutters.
+- Conservative vertical CJK columns follow extracted top-to-bottom,
+  right-to-left order. Ruby and mixed-orientation typography are not interpreted.
 - ``Page.find_tables`` can export complete bordered grids separately; automatic
-  table conversion and vertical-writing order are unsupported here.
+  table conversion is unsupported here.
 """
 
 from __future__ import annotations

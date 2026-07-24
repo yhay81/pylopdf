@@ -68,7 +68,9 @@ deliberately does not implement.
   Borderless and merged-cell inference are not implemented yet.
 - **Form filling** sets values + `NeedAppearances`; viewers draw the values.
   pylopdf's own renderer does not regenerate widget appearances.
-- **Vertical writing** reading order is not reconstructed yet.
+- **Vertical CJK writing** is detected conservatively and read top-to-bottom,
+  with columns ordered right-to-left. Ruby, warichu and mixed-orientation
+  typography are not interpreted.
 
 ## Deliberately not implemented — use the ecosystem { #deliberate-scope }
 

@@ -12,6 +12,45 @@ import pylopdf
 ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 
+def build_vertical_cjk_columns_pdf() -> bytes:
+    """Build two Japanese vertical columns with horizontal page furniture."""
+
+    def octal(text: str) -> str:
+        return "".join(f"\\{byte:03o}" for byte in text.encode("cp932"))
+
+    stream = (
+        "BT /F2 18 Tf 40 750 Td (Heading) Tj ET\n"
+        f"BT /F1 24 Tf 200 720 Td ({octal('右側列')}) Tj ET\n"
+        f"BT /F1 24 Tf 100 720 Td ({octal('左側列')}) Tj ET\n"
+        "BT /F2 18 Tf 40 20 Td (Footer) Tj ET"
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] "
+                "/Resources << /Font << /F1 3 0 R /F2 8 0 R >> >> >>"
+            ),
+            3: (
+                "<< /Type /Font /Subtype /Type0 /BaseFont /MS-Mincho /Encoding /90ms-RKSJ-V /DescendantFonts [6 0 R] >>"
+            ),
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            6: (
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /MS-Mincho "
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> "
+                "/FontDescriptor 7 0 R /DW 1000 >>"
+            ),
+            7: (
+                "<< /Type /FontDescriptor /FontName /MS-Mincho /Flags 6 "
+                "/FontBBox [0 -137 1000 859] /ItalicAngle 0 /Ascent 859 "
+                "/Descent -140 /CapHeight 769 /StemV 78 >>"
+            ),
+            8: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        }
+    )
+
+
 @pytest.fixture
 def usrguide() -> pylopdf.Page:
     return pylopdf.open(ASSETS / "usrguide.pdf")[0]
@@ -153,8 +192,8 @@ def test_cached_text_page_reflects_drawing_edit() -> None:
 
 
 def test_dict_reports_transformed_baseline_direction() -> None:
-    """Preserve baseline geometry without mistaking rotation for vertical WMode."""
-    stream = "BT /F1 24 Tf 0 1 -1 0 100 200 Tm (Up) Tj ET"
+    """Assemble a rotated baseline without mistaking it for vertical WMode."""
+    stream = "BT /F1 24 Tf 0 1 -1 0 100 250 Tm (Vertical) Tj ET"
     pdf = build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -167,11 +206,56 @@ def test_dict_reports_transformed_baseline_direction() -> None:
             5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
         }
     )
-    line = pylopdf.open(stream=pdf)[0].get_text("dict")["blocks"][0]["lines"][0]
+    page = pylopdf.open(stream=pdf)[0]
+    assert page.get_text() == "Vertical\n"
+    assert [word[4] for word in page.get_text("words")] == ["Vertical"]
+    assert len(page.search_for("Vertical")) == 1
+
+    line = page.get_text("dict")["blocks"][0]["lines"][0]
     direction_x, direction_y = line["dir"]
     assert direction_x == pytest.approx(0.0, abs=1e-9)
     assert abs(direction_y) == pytest.approx(1.0)
     assert line["wmode"] == 0
+    assert line["spans"][0]["text"] == "Vertical"
+
+
+def test_vertical_cjk_writing_mode_and_search() -> None:
+    """Infer vertical WMode from conservative CJK glyph geometry."""
+    pdf = build_nonembedded_cjk_pdf().replace(b"/90ms-RKSJ-H", b"/90ms-RKSJ-V")
+    page = pylopdf.open(stream=pdf)[0]
+
+    assert page.get_text() == "こんにちは日本語\n"
+    assert [word[4] for word in page.get_text("words")] == ["こんにちは日本語"]
+    assert len(page.search_for("日本語")) == 1
+
+    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    assert line["dir"] == pytest.approx((0.0, 1.0))
+    assert line["wmode"] == 1
+    assert line["spans"][0]["text"] == "こんにちは日本語"
+
+
+def test_horizontal_cjk_is_not_misclassified_as_vertical() -> None:
+    """Keep ordinary CJK rows in horizontal writing mode."""
+    page = pylopdf.open(stream=build_nonembedded_cjk_pdf())[0]
+    line = page.get_text("dict")["blocks"][0]["lines"][0]
+
+    assert page.get_text() == "こんにちは日本語\n"
+    assert line["dir"] == pytest.approx((1.0, 0.0))
+    assert line["wmode"] == 0
+
+
+def test_vertical_cjk_columns_read_right_to_left_between_page_furniture() -> None:
+    """Order vertical columns right-to-left between a heading and footer."""
+    page = pylopdf.open(stream=build_vertical_cjk_columns_pdf())[0]
+
+    assert page.get_text().splitlines() == ["Heading", "右側列", "左側列", "Footer"]
+    layout = page.get_text("dict")
+    lines = [line for block in layout["blocks"] for line in block["lines"]]
+    assert [line["wmode"] for line in lines] == [0, 1, 1, 0]
+    markdown = page.to_markdown()
+    assert markdown.index("Heading") < markdown.index("右側列")
+    assert markdown.index("右側列") < markdown.index("左側列")
+    assert markdown.index("左側列") < markdown.index("Footer")
 
 
 def test_multicolumn_reading_order_follows_columns() -> None:
