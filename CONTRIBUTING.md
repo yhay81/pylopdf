@@ -51,6 +51,9 @@ uv sync --all-extras --group interop
 uv run pytest tests/test_interop.py
 ```
 
+Coverage-guided fuzzing is documented in `fuzz/README.md`. It runs on a weekly
+scheduled workflow and can be reproduced locally with Python 3.13.
+
 ## Pull requests
 
 Keep each pull request focused on one coherent behavior. Before submitting:

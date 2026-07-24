@@ -66,6 +66,10 @@ bench = [
 docs = [
     "zensical>=0.0.51,<0.1",
 ]
+# Coverage-guided public-API fuzzing; Linux/macOS only.
+fuzz = [
+    "atheris>=2.3.0",
+]
 
 [tool.uv]
 # Cache keys that make uv rebuild the extension after Rust source changes.

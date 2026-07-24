@@ -97,6 +97,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the target's display-space point (`/XYZ`, `/FitH`, `/FitV`) and zoom.
   Returns pymupdf-style dicts with `LINK_GOTO` and related type constants and a
   `Point` type
+- Weekly coverage-guided public-API fuzzing exercises bounded open, positioned
+  extraction, search, rendering, editing, object-stream saving, and reopening
+  over the redistributable real-world corpus
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

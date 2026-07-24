@@ -224,9 +224,11 @@ pre-1.0 APIs.
   later layout work does not need another extraction rewrite.
 - Cache page interpretation without weakening the one-way lopdf-to-hayro data
   flow. Every edit must invalidate both the hayro parse and derived text pages.
-- Add an initial fuzzing lane for open, extract, render, edit, and save, seeded
-  by the redistributable corpus. Expand damaged-input coverage for truncated
-  xrefs, Type 3 fonts, JPX, transparency groups, annotations, and links.
+- [x] Add an initial coverage-guided public-API fuzzing lane for bounded open,
+  positioned extraction, search, rendering, editing, object-stream saving, and
+  reopening, seeded by the redistributable corpus. Continue expanding
+  damaged-input coverage for truncated xrefs, Type 3 fonts, JPX, transparency
+  groups, annotations, and links.
 - [x] Add artifact smoke tests that install every natively runnable wheel plus
   the sdist and exercise import, open, extraction, rendering, and save before
   publication. Cross-compiled Linux aarch64 and macOS x86_64 wheels remain
