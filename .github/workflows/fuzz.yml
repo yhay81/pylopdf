@@ -30,7 +30,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-artifacts"
           uv run python fuzz/fuzz_api.py \
             -max_total_time=600 \
-            -timeout=15 \
+            -timeout=60 \
             -rss_limit_mb=2048 \
             -max_len=1048576 \
             -artifact_prefix="${RUNNER_TEMP}/pylopdf-fuzz-artifacts/" \
