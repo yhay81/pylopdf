@@ -128,10 +128,11 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   without one. `render_annotations` defaults to true.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
-  Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel;
-  `abi3t-py315` is enabled for the future 3.15+ free-threaded stable ABI. Add
-  size-increasing dependencies cautiously; wheels are about 3.5–4.5 MB
-  depending on platform.
+  Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
+  Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
+  3.14t breaks maturin's cross-compilation config by raising the implied
+  minimum interpreter version. Add size-increasing dependencies cautiously;
+  wheels are about 3.5–4.5 MB depending on platform.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.

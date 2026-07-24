@@ -23,7 +23,7 @@ rayon = "1"
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
 # generate-import-lib enables Windows builds in Python-free containers/cross environments.
-pyo3 = { version = "0.29.0", features = ["abi3-py310", "abi3t-py315", "generate-import-lib"] }
+pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
 # Used for coordinate transforms in the hayro text-extraction Device; align versions.
 kurbo = "0.13"
 # Encode non-JPEG extracted images as PNG; match the version already used by hayro.
