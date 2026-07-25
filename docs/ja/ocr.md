@@ -30,7 +30,7 @@ with pylopdf.open("scan.pdf") as doc:
 ```python
 import pylopdf
 
-engine = pylopdf.OcrEngine(threads=4)
+engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
@@ -41,12 +41,12 @@ with pylopdf.open("scan.pdf") as doc:
 
 ## リソース制御
 
-既定値は300 dpi、1,408ピクセルの検出タイル、192ピクセルの重なり、最大4本のRTenワーカースレッドです。重なり付きタイルにより、ページ全体の検出メモリを制限しながら境界の重複検出を統合します。ある300 dpiのA4実測では既定構成のピークは約419 MiBでしたが、文書、プラットフォーム、アロケーター、並列数によって変化します。
+既定値は300 dpi、1,408ピクセルの検出タイル、192ピクセルの重なり、最大4本のRTenワーカースレッド、エンジンごとに同時実行する完全な認識呼び出し1件です。重なり付きタイルにより、ページ全体の検出メモリを制限しながら境界の重複検出を統合します。ある300 dpiのA4実測では既定構成のピークは約419 MiBでしたが、文書、プラットフォーム、アロケーターによって変化します。
 
-メモリを抑える場合は、`threads`と`tile_size`を下げます。
+メモリを抑える場合は、`threads`と`tile_size`を下げます。`max_concurrent`は、同時に存在するラスターデータと推論バッファーを測定した後にだけ引き上げてください。
 
 ```python
-engine = pylopdf.OcrEngine(threads=2)
+engine = pylopdf.OcrEngine(threads=2, max_concurrent=1)
 words = page.get_text_ocr(
     engine=engine,
     tile_size=1280,
@@ -57,7 +57,7 @@ words = page.get_text_ocr(
 
 `clip`はOCR検出器への入力と認識処理を減らしますが、hayro 0.7は切り出し前にページ全体を描画します。返される矩形はページ全体の表示座標のままです。
 
-`OcrEngine`は不変で、異なる文書間で再利用できます。ただし、並行する各認識呼び出しは個別のラスターデータと推論バッファーを持つため、外側の並列数を制限してください。同じ`Document`への外部スレッドからの同時呼び出しや編集は、pylopdfの並行処理契約の対象外です。
+`OcrEngine`は不変で、異なる文書間で再利用できます。既定の`max_concurrent=1`は、free-threaded Pythonからの呼び出しも含め、描画から認識完了までを直列化するため、共有したエンジンが実測済みの呼び出し単位メモリを意図せず倍増させません。最大16まで引き上げられますが、対象workloadを測定した場合に限ってください。許可された各呼び出しは個別のラスターデータと推論バッファーを持ちます。同じ`Document`への外部スレッドからの同時呼び出しや編集は、pylopdfの並行処理契約の対象外です。
 
 ## 実測した精度ゲート
 

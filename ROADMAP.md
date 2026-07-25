@@ -383,8 +383,11 @@ that gap without broadening the mandatory Python dependency set.
       4,096-candidate safety cap. The default 1,408-pixel tile with 192-pixel
       overlap uses six tiles for a 300-dpi A4 page and measured about 419 MiB
       peak child-process memory; 1,280 measured about 369 MiB and 1,536 about
-      475 MiB. Sustained whitespace gutters retain deterministic left-to-right
-      multicolumn reading order after edge-duplicate merging.
+      475 MiB. Each engine now admits one complete render-and-recognize call by
+      default, preventing accidental outer concurrency from multiplying that
+      measured peak; `max_concurrent` can be raised through 16 only after
+      workload measurement. Sustained whitespace gutters retain deterministic
+      left-to-right multicolumn reading order after edge-duplicate merging.
 - [x] Reject premature quantization. Full int8 Conv/MatMul quantization broke
       detection and recognition; recognizer MatMul-only quantization reduced
       size but worsened NFKC CER from 0.842% to 1.010%. The first release

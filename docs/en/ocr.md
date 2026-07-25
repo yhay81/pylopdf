@@ -37,7 +37,7 @@ Load one engine and reuse it across pages:
 ```python
 import pylopdf
 
-engine = pylopdf.OcrEngine(threads=4)
+engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
@@ -54,15 +54,18 @@ existing text intersecting that region triggers the skip. Use
 ## Resource controls
 
 The defaults are 300 dpi, 1,408-pixel detector tiles with 192-pixel overlap,
-and at most four RTen worker threads. Overlapping tiles bound detector memory
-on full pages while merging duplicate edge detections. In one measured
-300-dpi A4 workload, the default geometry peaked near 419 MiB; documents,
-platforms, allocators, and concurrency change that value.
+at most four RTen worker threads, and one complete recognition call at a time
+per engine. Overlapping tiles bound detector memory on full pages while merging
+duplicate edge detections. In one measured 300-dpi A4 workload, the default
+geometry peaked near 419 MiB; documents, platforms, and allocators change that
+value.
 
-Reduce `threads` and `tile_size` when memory is tighter:
+Reduce `threads` and `tile_size` when memory is tighter. Raise
+`max_concurrent` only after measuring the combined live raster and inference
+buffers:
 
 ```python
-engine = pylopdf.OcrEngine(threads=2)
+engine = pylopdf.OcrEngine(threads=2, max_concurrent=1)
 words = page.get_text_ocr(
     engine=engine,
     tile_size=1280,
@@ -75,10 +78,13 @@ words = page.get_text_ocr(
 renders the full page before cropping. Returned boxes remain in full-page
 display coordinates.
 
-An `OcrEngine` is immutable and reusable across distinct documents. Each
-concurrent recognition call still owns its raster and inference buffers, so
-bound outer concurrency. Simultaneous external calls or edits on the same
-`Document` remain outside pylopdf's concurrency contract.
+An `OcrEngine` is immutable and reusable across distinct documents. Its
+`max_concurrent=1` default serializes each complete render-and-recognize call,
+including calls made from free-threaded Python, so an accidentally shared
+engine does not multiply the measured per-call memory. Set a higher value,
+up to 16, only when the workload has been measured. Each admitted call still
+owns its raster and inference buffers. Simultaneous external calls or edits on
+the same `Document` remain outside pylopdf's concurrency contract.
 
 ## Measured accuracy gate
 
