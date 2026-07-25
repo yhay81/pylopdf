@@ -326,9 +326,7 @@ def test_insert_text_embedded_overlay_order() -> None:
     assert set(overlay_rgb) != {0, 128}
 
     standard_underlay = _new_page_doc(160, 80)
-    standard_underlay[0].insert_image(
-        (0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False
-    )
+    standard_underlay[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
     standard_underlay[0].insert_text(
         (10, 55),
         "TEXT",
