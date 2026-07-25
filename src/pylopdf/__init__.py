@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     #: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
     BlockEntry = tuple[float, float, float, float, str, int, int]
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __all__ = [
     "LINK_GOTO",
     "LINK_GOTOR",
