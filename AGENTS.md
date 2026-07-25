@@ -262,16 +262,22 @@ overview.
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;
   published v0.10.0 wheels are about 5.0–5.8 MiB depending on platform and ABI.
-- Pyodide 0.28.3 uses a static `cp310-abi3-pyodide_2025_0_wasm32` wheel built
-  by `tools/build_pyodide.sh` with exact Python 3.13.2, Emscripten 4.0.9 and its
-  Node.js 20.18.0, Rust 1.95.0, pyodide-build 0.30.7, maturin 1.14.1, and
-  hashed build dependencies. Rust v0 symbol mangling avoids invalid legacy
-  Emscripten exports. The wheel must import `env.__cpp_exception`, must not
-  require a wasm-bindgen shim, and measured 4.52 MiB. Emscripten excludes
-  lopdf's `chrono` and `rayon` features: browser clocks pull in js-sys imports,
-  and the global rayon pool cannot create workers there. `render_pages` keeps
-  its public contract but runs serially; native targets retain bounded rayon
-  execution.
+- Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
+  exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
+  pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
+  builder first verifies and smoke-tests the runtime-native
+  `cp310-abi3-pyodide_2025_0_wasm32` tag, then uses wheel 0.47.0 under the same
+  `SOURCE_DATE_EPOCH` to replace it with the PEP 783
+  `cp310-abi3-pyemscripten_2025_0_wasm32` publication tag. Only the latter may
+  remain in the release artifact directory because PyPI no longer accepts the
+  legacy tag. Rust v0 symbol mangling avoids invalid legacy Emscripten exports.
+  The wheel must import `env.__cpp_exception` and must not require a
+  wasm-bindgen shim. CI and release builds must also pass
+  `tools/smoke_cloudflare.py`, which pins workers-py 1.15.0 and Wrangler
+  4.114.0. Emscripten excludes lopdf's `chrono` and `rayon` features: browser
+  clocks pull in js-sys imports, and the global rayon pool cannot create
+  workers there. `render_pages` keeps its public contract but runs serially;
+  native targets retain bounded rayon execution.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.

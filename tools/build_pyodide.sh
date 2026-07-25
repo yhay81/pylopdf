@@ -8,6 +8,8 @@ readonly PYTHON_VERSION="3.13.2"
 readonly EMSCRIPTEN_VERSION="4.0.9"
 readonly NODE_VERSION="20.18.0"
 readonly PYODIDE_ABI="2025_0"
+readonly PYODIDE_PLATFORM="pyodide_${PYODIDE_ABI}_wasm32"
+readonly PYEMSCRIPTEN_PLATFORM="pyemscripten_${PYODIDE_ABI}_wasm32"
 readonly RUST_TOOLCHAIN="1.95.0"
 readonly PYODIDE_BUILD_VERSION="0.30.7"
 readonly MATURIN_VERSION="1.14.1"
@@ -66,6 +68,13 @@ read -r tool_requirements_sha _ < <(sha256sum "${TOOL_REQUIREMENTS}")
 readonly TOOL_VENV="${BUILD_ROOT}/tool-venv-${tool_requirements_sha:0:16}"
 
 mkdir -p -- "${BUILD_ROOT}" "${DOWNLOADS}" "${OUTPUT_DIR}"
+
+project_version="$("${PYTHON_BIN}" -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+runtime_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp310-abi3-${PYODIDE_PLATFORM}.whl"
+release_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp310-abi3-${PYEMSCRIPTEN_PLATFORM}.whl"
+# Remove only the two exact artifacts this invocation owns so repeated builds
+# cannot accidentally validate a wheel from an earlier source tree.
+rm -f -- "${runtime_wheel}" "${release_wheel}"
 
 if [[ ! -d "${EMSDK_ROOT}/.git" ]]; then
     [[ ! -e "${EMSDK_ROOT}" ]] || fail "${EMSDK_ROOT} exists but is not an emsdk checkout"
@@ -132,117 +141,33 @@ export SOURCE_DATE_EPOCH="${source_date_epoch}"
     --no-isolation \
     --skip-dependency-check
 
-project_version="$("${PYTHON_BIN}" -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
-mapfile -t wheels < <(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "pylopdf-${project_version}-*.whl" -print)
-[[ "${#wheels[@]}" -eq 1 ]] || fail "expected one pylopdf ${project_version} wheel in ${OUTPUT_DIR}, found ${#wheels[@]}"
-wheel="${wheels[0]}"
-
-"${PYTHON_BIN}" - "${wheel}" "${project_version}" "${PYODIDE_ABI}" <<'PY'
-from __future__ import annotations
-
-import hashlib
-import sys
-from pathlib import Path
-from zipfile import ZipFile
-
-wheel = Path(sys.argv[1])
-version = sys.argv[2]
-abi = sys.argv[3]
-expected_tag = f"cp310-abi3-pyodide_{abi}_wasm32"
-expected_suffix = f"-{expected_tag}.whl"
-if not wheel.name.startswith(f"pylopdf-{version}-") or not wheel.name.endswith(expected_suffix):
-    raise SystemExit(f"unexpected wheel filename: {wheel.name}; expected *{expected_suffix}")
-
-with ZipFile(wheel) as archive:
-    wheel_metadata_paths = [name for name in archive.namelist() if name.endswith(".dist-info/WHEEL")]
-    if len(wheel_metadata_paths) != 1:
-        raise SystemExit(f"expected one WHEEL metadata file, found {wheel_metadata_paths}")
-    wheel_metadata = archive.read(wheel_metadata_paths[0]).decode()
-    if f"Tag: {expected_tag}" not in wheel_metadata:
-        raise SystemExit(f"wheel metadata does not contain Tag: {expected_tag}")
-    extensions = [name for name in archive.namelist() if name.endswith(".so")]
-    if len(extensions) != 1:
-        raise SystemExit(f"expected one extension module, found {extensions}")
-    extension = archive.read(extensions[0])
-
-if extension[:8] != b"\0asm\x01\0\0\0":
-    raise SystemExit("extension module is not a WebAssembly 1 binary")
-
-
-def read_uleb(data: bytes, offset: int) -> tuple[int, int]:
-    value = 0
-    shift = 0
-    while True:
-        byte = data[offset]
-        offset += 1
-        value |= (byte & 0x7F) << shift
-        if byte < 0x80:
-            return value, offset
-        shift += 7
-
-
-def read_name(data: bytes, offset: int) -> tuple[str, int]:
-    length, offset = read_uleb(data, offset)
-    return data[offset : offset + length].decode(), offset + length
-
-
-def read_limits(data: bytes, offset: int) -> int:
-    flags, offset = read_uleb(data, offset)
-    _, offset = read_uleb(data, offset)
-    if flags & 1:
-        _, offset = read_uleb(data, offset)
-    return offset
-
-
-imports: list[tuple[str, str, int]] = []
-offset = 8
-while offset < len(extension):
-    section_id = extension[offset]
-    section_size, offset = read_uleb(extension, offset + 1)
-    section_end = offset + section_size
-    if section_id == 2:
-        count, offset = read_uleb(extension, offset)
-        for _ in range(count):
-            module, offset = read_name(extension, offset)
-            name, offset = read_name(extension, offset)
-            kind = extension[offset]
-            offset += 1
-            imports.append((module, name, kind))
-            if kind == 0:
-                _, offset = read_uleb(extension, offset)
-            elif kind == 1:
-                offset = read_limits(extension, offset + 1)
-            elif kind == 2:
-                offset = read_limits(extension, offset)
-            elif kind == 3:
-                offset += 2
-            elif kind == 4:
-                offset += 1
-                _, offset = read_uleb(extension, offset)
-            else:
-                raise SystemExit(f"unsupported WebAssembly import kind: {kind}")
-        break
-    offset = section_end
-
-if ("env", "__cpp_exception", 4) not in imports:
-    raise SystemExit("extension does not import the WebAssembly exception tag")
-if any(module == "__wbindgen_placeholder__" for module, _, _ in imports):
-    raise SystemExit("extension unexpectedly requires a wasm-bindgen JavaScript shim")
-
-digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-print(f"wheel={wheel}")
-print(f"tag={expected_tag}")
-print("exception_tag=env.__cpp_exception")
-print(f"size_bytes={wheel.stat().st_size}")
-print(f"sha256={digest}")
-PY
+[[ -f "${runtime_wheel}" ]] || fail "Pyodide build did not produce ${runtime_wheel}"
+"${PYTHON_BIN}" "${SCRIPT_DIR}/verify_pyodide_wheel.py" \
+    "${runtime_wheel}" \
+    --version "${project_version}" \
+    --platform "${PYODIDE_PLATFORM}"
 
 if [[ "${PYLOPDF_PYODIDE_SKIP_SMOKE:-0}" != "1" ]]; then
     "${EMSDK_NODE}" "${SCRIPT_DIR}/smoke_pyodide.mjs" \
         "${XBUILDENV_CACHE}/xbuildenv/xbuildenv/pyodide-root/dist" \
-        "${wheel}" \
+        "${runtime_wheel}" \
         "${REPOSITORY_ROOT}/tests/assets/real_world/pdf20-simple.pdf"
 fi
+
+"${TOOL_VENV}/bin/wheel" tags \
+    --platform-tag="${PYEMSCRIPTEN_PLATFORM}" \
+    --remove \
+    "${runtime_wheel}"
+[[ -f "${release_wheel}" ]] || fail "wheel retagging did not produce ${release_wheel}"
+"${PYTHON_BIN}" "${SCRIPT_DIR}/verify_pyodide_wheel.py" \
+    "${release_wheel}" \
+    --version "${project_version}" \
+    --platform "${PYEMSCRIPTEN_PLATFORM}"
+
+mapfile -t wheels < <(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name "pylopdf-${project_version}-*.whl" -print)
+[[ "${#wheels[@]}" -eq 1 ]] \
+    || fail "expected one publishable pylopdf ${project_version} wheel in ${OUTPUT_DIR}, found ${#wheels[@]}"
+[[ "${wheels[0]}" == "${release_wheel}" ]] || fail "unexpected publishable artifact: ${wheels[0]}"
 
 printf 'Pyodide %s build completed with Python %s, Emscripten %s, Node.js %s, Rust %s, pyodide-build %s, and maturin %s\n' \
     "${PYODIDE_VERSION}" \

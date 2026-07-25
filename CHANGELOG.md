@@ -13,16 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - A reproducible Pyodide 0.28.3 builder now produces a static,
-  `micropip.install()`-compatible WebAssembly wheel. It pins Python 3.13.2,
+  WebAssembly wheel. It pins Python 3.13.2,
   Emscripten 4.0.9 and its Node.js runtime, Rust 1.95.0, pyodide-build, maturin,
   the Pyodide cross-build environment checksum, and every Python build
-  dependency hash. The verifier checks the `pyodide_2025_0_wasm32` wheel tag,
-  WebAssembly exception import, and absence of wasm-bindgen shims; the runtime
-  smoke test covers byte-stream loading, text extraction, batch rendering,
-  Python exception recovery, and reuse after malformed input. Emscripten builds
-  omit lopdf's native clock and rayon features and execute `render_pages`
-  serially, while native builds retain their existing bounded worker pools.
-  Two identical builds produced the same 4.52 MiB wheel byte for byte.
+  dependency hash. The builder first checks the legacy
+  `pyodide_2025_0_wasm32` artifact in Pyodide 0.28.3, then deterministically
+  retags the same binary as the PEP 783
+  `pyemscripten_2025_0_wasm32` artifact accepted by PyPI. The verifier checks
+  filename and embedded metadata tags, the WebAssembly exception import, and
+  absence of wasm-bindgen shims; the runtime smoke test covers byte-stream
+  loading, text extraction, batch rendering, Python exception recovery, and
+  reuse after malformed input. Pull requests build and bundle the final wheel
+  with pinned Cloudflare `workers-py` and Wrangler versions. Tagged releases
+  attest and publish it with the native artifacts, then resolve it back from
+  PyPI and dry-run a Cloudflare Workers bundle before creating the immutable
+  GitHub release. Emscripten builds omit lopdf's native clock and rayon features
+  and execute `render_pages` serially, while native builds retain their existing
+  bounded worker pools.
 - `Document.compress_images(dpi=150, quality=75)` now downsamples and
   recompresses safe JPEG XObjects for smaller attachment-oriented PDFs. hayro
   measures every placement and preserves the pixels required by the largest
