@@ -114,8 +114,17 @@ jobs:
         env:
           PYLOPDF_PYODIDE_NATIVE_RESULTS: native-compat/results.json
           PYLOPDF_PYODIDE_BENCHMARK_OUTPUT: pyodide-compat/limits-benchmark.json
+          PYLOPDF_PYODIDE_METRICS_OUTPUT: pyodide-compat/runtime-metrics.json
+      - name: Record PyEmscripten artifact size
+        run: >-
+          python tools/wasm_artifact_metrics.py
+          dist/pyodide-0.28.3/*.whl
+          --output pyodide-compat/artifact-metrics.json
       - name: Dry-run Cloudflare Workers bundle
-        run: python tools/smoke_cloudflare.py --wheel dist/pyodide-0.28.3/*.whl
+        run: >-
+          python tools/smoke_cloudflare.py
+          --wheel dist/pyodide-0.28.3/*.whl
+          --metrics-output cloudflare-compat/bundle-metrics.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pyemscripten-wheel-pyodide-0.28.3
@@ -125,6 +134,14 @@ jobs:
         with:
           name: pyodide-limit-benchmark-${{ github.sha }}
           path: pyodide-compat/limits-benchmark.json
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pyodide-size-startup-${{ github.sha }}
+          path: |
+            pyodide-compat/artifact-metrics.json
+            pyodide-compat/runtime-metrics.json
+            cloudflare-compat/bundle-metrics.json
           retention-days: 7
 
   test:

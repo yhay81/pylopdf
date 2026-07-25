@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from pathlib import Path
 _PYEMSCRIPTEN_TAG = "cp310-abi3-pyemscripten_2025_0_wasm32"
 _WORKERS_PY_VERSION = "1.15.0"
 _WRANGLER_VERSION = "4.114.0"
+_COMPATIBILITY_DATE = "2026-07-26"
+_UPLOAD_RE = re.compile(r"Total Upload:\s+([0-9.]+)\s+KiB\s+/\s+gzip:\s+([0-9.]+)\s+KiB")
 
 
 def _require_command(name: str) -> str:
@@ -43,10 +46,10 @@ dependencies = {dependencies}
 {
   "name": "pylopdf-cloudflare-smoke",
   "main": "src/entry.py",
-  "compatibility_date": "2026-07-26",
+  "compatibility_date": "{_COMPATIBILITY_DATE}",
   "compatibility_flags": ["python_workers"]
 }
-""",
+""".replace("{_COMPATIBILITY_DATE}", _COMPATIBILITY_DATE),
         encoding="utf-8",
     )
     (source / "entry.py").write_text(
@@ -65,7 +68,12 @@ class Default(WorkerEntrypoint):
     )
 
 
-def _verify_vendored_wheel(root: Path) -> None:
+def _tree_size(root: Path) -> tuple[int, int]:
+    files = [path for path in root.rglob("*") if path.is_file()]
+    return sum(path.stat().st_size for path in files), len(files)
+
+
+def _verify_vendored_wheel(root: Path) -> Path:
     extensions = list((root / "python_modules" / "pylopdf").glob("pylopdf_core*.so"))
     if len(extensions) != 1:
         msg = f"expected one vendored pylopdf extension, found {extensions}"
@@ -78,9 +86,10 @@ def _verify_vendored_wheel(root: Path) -> None:
     if f"Tag: {_PYEMSCRIPTEN_TAG}" not in metadata:
         msg = f"vendored wheel metadata does not contain Tag: {_PYEMSCRIPTEN_TAG}"
         raise RuntimeError(msg)
+    return extensions[0]
 
 
-def _run_attempt(root: Path, requirement: str) -> None:
+def _run_attempt(root: Path, requirement: str) -> dict[str, object]:
     _write_project(root, requirement)
     uvx = _require_command("uvx")
     npx = _require_command("npx")
@@ -97,9 +106,10 @@ def _run_attempt(root: Path, requirement: str) -> None:
         cwd=root,
         check=True,
     )
-    _verify_vendored_wheel(root)
+    extension = _verify_vendored_wheel(root)
+    vendored_bytes, vendored_files = _tree_size(root / "python_modules")
     output = root / "cloudflare-dist"
-    subprocess.run(  # noqa: S603
+    completed = subprocess.run(  # noqa: S603
         [
             npx,
             "--yes",
@@ -110,20 +120,50 @@ def _run_attempt(root: Path, requirement: str) -> None:
             str(output),
         ],
         cwd=root,
-        check=True,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    sys.stdout.write(completed.stdout)
+    sys.stderr.write(completed.stderr)
+    completed.check_returncode()
     if not output.is_dir() or not any(output.iterdir()):
         msg = "Wrangler dry run did not produce a bundle"
         raise RuntimeError(msg)
+    match = _UPLOAD_RE.search(f"{completed.stdout}\n{completed.stderr}")
+    if match is None:
+        msg = "Wrangler output did not report total and gzip upload sizes"
+        raise RuntimeError(msg)
+    output_bytes, output_files = _tree_size(output)
+    return {
+        "schema": 1,
+        "workers_py": _WORKERS_PY_VERSION,
+        "wrangler": _WRANGLER_VERSION,
+        "compatibility_date": _COMPATIBILITY_DATE,
+        "vendored_bytes": vendored_bytes,
+        "vendored_files": vendored_files,
+        "extension_bytes": extension.stat().st_size,
+        "dry_run_output_bytes": output_bytes,
+        "dry_run_output_files": output_files,
+        "total_upload_bytes": round(float(match.group(1)) * 1024),
+        "gzip_upload_bytes": round(float(match.group(2)) * 1024),
+    }
 
 
-def smoke_cloudflare(requirement: str, *, attempts: int, retry_delay: float) -> None:
+def smoke_cloudflare(
+    requirement: str,
+    *,
+    attempts: int,
+    retry_delay: float,
+) -> dict[str, object]:
     """Resolve, vendor, and dry-run bundle a package requirement."""
     last_error: subprocess.CalledProcessError | RuntimeError | None = None
     for attempt in range(1, attempts + 1):
         with tempfile.TemporaryDirectory(prefix="pylopdf-cloudflare-") as directory:
             try:
-                _run_attempt(Path(directory), requirement)
+                metrics = _run_attempt(Path(directory), requirement)
             except (subprocess.CalledProcessError, RuntimeError) as error:
                 last_error = error
             else:
@@ -131,7 +171,7 @@ def smoke_cloudflare(requirement: str, *, attempts: int, retry_delay: float) -> 
                     "Cloudflare Workers smoke test passed "
                     f"with workers-py {_WORKERS_PY_VERSION} and Wrangler {_WRANGLER_VERSION}\n"
                 )
-                return
+                return metrics
         if attempt < attempts:
             sys.stdout.write(
                 f"Cloudflare smoke attempt {attempt}/{attempts} failed; retrying in {retry_delay:g} seconds\n"
@@ -151,6 +191,7 @@ def main() -> None:
     source.add_argument("--requirement")
     parser.add_argument("--attempts", type=int, default=1)
     parser.add_argument("--retry-delay", type=float, default=15.0)
+    parser.add_argument("--metrics-output", type=Path)
     args = parser.parse_args()
     if args.attempts < 1:
         parser.error("--attempts must be at least 1")
@@ -169,7 +210,18 @@ def main() -> None:
             msg = "a wheel or requirement is required"
             raise RuntimeError(msg)
         requirement = args.requirement
-    smoke_cloudflare(requirement, attempts=args.attempts, retry_delay=args.retry_delay)
+    metrics = smoke_cloudflare(
+        requirement,
+        attempts=args.attempts,
+        retry_delay=args.retry_delay,
+    )
+    sys.stdout.write(f"Cloudflare bundle metrics: {json.dumps(metrics, sort_keys=True)}\n")
+    if args.metrics_output is not None:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        args.metrics_output.write_text(
+            f"{json.dumps(metrics, sort_keys=True, separators=(',', ':'))}\n",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":
