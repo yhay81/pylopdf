@@ -703,6 +703,11 @@ fn encode_cp1252(text: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
+/// Return whether every character has a WinAnsi encoding.
+pub fn is_winansi(text: &str) -> bool {
+    encode_cp1252(text).is_ok()
+}
+
 fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) {
     out.push(b'(');
     for &byte in text {

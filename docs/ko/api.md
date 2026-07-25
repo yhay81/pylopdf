@@ -27,7 +27,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |
 | `get_toc()` / `set_toc(toc)` | 목차（페이지는 1부터） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위 |
-| `get_form_fields()` / `set_form_field(name, value)` | AcroForm 목록과 입력（NeedAppearances） |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 네이티브 widget appearance를 포함한 AcroForm 목록과 입력 |
 | `embfile_add / embfile_names / embfile_get / embfile_del` | 첨부 파일 |
 | `get_pdfa_claim()` | XMP PDF/A 선언 읽기（검증 아님） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
@@ -63,6 +63,14 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`,
 `TEXT_ALIGN_JUSTIFY`입니다. 반환값이 음수이면 세로 공간이 부족하며 페이지 내용이나
 글꼴 resource를 추가하지 않습니다.
+
+`set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
+생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
+또는 `fontbuffer`를 지정해 서브셋 내장합니다. `pylopdf[cjk]`가 설치되어 있으면
+WinAnsi 밖의 값에 sans 글꼴을 자동 사용합니다. 비어 있지 않은 기존 버튼 appearance는
+보존하고 누락된 상태만 벡터로 만듭니다. 다른 WinAnsi 필드의 누락된 appearance도
+함께 채우며, 입력 가능한 모든 widget이 자체 완결일 때만 `NeedAppearances`를
+해제합니다. rich text, comb layout, pushbutton action, 서명은 생성하지 않습니다.
 
 `Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
 `Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는

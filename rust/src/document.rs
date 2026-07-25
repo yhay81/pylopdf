@@ -16,13 +16,14 @@ use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
     Bookmark, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
-    Stream, decode_text_string, dictionary, text_string,
+    Stream, StringFormat, decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use crate::draw;
+use crate::form;
 use crate::generate;
 use crate::ocr;
 
@@ -284,6 +285,69 @@ fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]
     ])
 }
 
+/// Import a page as an unplaced Form XObject and return its display metadata.
+///
+/// This is shared by page placement and krilla-generated widget appearances.
+fn import_page_as_form(
+    target: &mut Document,
+    mut source: Document,
+    page_number: u32,
+) -> PyResult<(ObjectId, [f64; 4], i64)> {
+    let starting_id = target
+        .max_id
+        .checked_add(1)
+        .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+    source.renumber_objects_with(starting_id);
+    let source_id = *source
+        .get_pages()
+        .get(&page_number)
+        .ok_or_else(|| PdfError::new_err(format!("source page {page_number} does not exist")))?;
+    let source_dict = resolve_inherited_page_dict(&source, source_id).map_err(to_py_err)?;
+    let source_crop = resolve_box(&source, &source_dict, b"CropBox")
+        .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
+        .unwrap_or([0.0, 0.0, 595.0, 842.0]);
+    let source_rotation = source_dict
+        .get(b"Rotate")
+        .ok()
+        .and_then(|object| resolve_i64(&source, object))
+        .unwrap_or(0)
+        .rem_euclid(360);
+
+    let mut form_content = b"q\n".to_vec();
+    form_content.extend_from_slice(&source.get_page_content(source_id));
+    form_content.extend_from_slice(b"\nQ\n");
+    let mut form_dict = dictionary! {
+        "Type" => "XObject",
+        "Subtype" => "Form",
+        "FormType" => 1,
+        "BBox" => Object::Array(
+            source_crop
+                .iter()
+                .map(|&value| Object::Real(value as f32))
+                .collect(),
+        ),
+    };
+    if let Ok(resources) = source_dict.get(b"Resources") {
+        form_dict.set("Resources", resources.clone());
+    }
+    if let Ok(group) = source_dict.get(b"Group") {
+        form_dict.set("Group", group.clone());
+    }
+
+    let new_max_id = source.max_id;
+    for (id, object) in source.objects {
+        match object.type_name().unwrap_or(b"") {
+            b"Catalog" | b"Pages" | b"Page" => {}
+            _ => {
+                target.objects.insert(id, object);
+            }
+        }
+    }
+    target.max_id = new_max_id;
+    let form_id = target.add_object(Stream::new(form_dict, form_content).with_compression(false));
+    Ok((form_id, source_crop, source_rotation))
+}
+
 /// Extract an XMP value from `key="v"` attributes or `<key>v</key>` elements.
 fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     let idx = xmp.find(key)?;
@@ -452,6 +516,77 @@ fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
         Object::Dictionary(d) => Some(d.clone()),
         _ => None,
     }
+}
+
+/// Preserve control characters that PDFDocEncoding intentionally leaves unmapped.
+fn form_text_string(text: &str) -> Object {
+    if !text.chars().any(char::is_control) {
+        return text_string(text);
+    }
+    let mut encoded = vec![0xfe, 0xff];
+    for unit in text.encode_utf16() {
+        encoded.extend_from_slice(&unit.to_be_bytes());
+    }
+    Object::String(encoded, StringFormat::Hexadecimal)
+}
+
+/// Resolve annotation state dictionaries to their selected stream for hayro.
+///
+/// PDF permits `/AP /N` to be a state-name dictionary selected by `/AS`.
+/// hayro 0.7 only consumes a direct normal stream, so rendering uses a clone
+/// with the selected entry substituted while the editable PDF stays canonical.
+fn normalize_state_appearances_for_render(doc: &mut Document) -> bool {
+    let object_ids: Vec<ObjectId> = doc.objects.keys().copied().collect();
+    let mut updates = Vec::new();
+    for object_id in object_ids {
+        let Some((mut appearance, selected)) = doc
+            .get_object(object_id)
+            .ok()
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|annotation| {
+                let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
+                let appearance = deref_dict(doc, annotation.get(b"AP").ok()?).unwrap_or_default();
+                let normal = deref_dict(doc, appearance.get(b"N").ok()?)?;
+                let selected = normal.get(state).ok()?.clone();
+                let resolved = match &selected {
+                    Object::Reference(id) => doc.get_object(*id).ok()?,
+                    other => other,
+                };
+                resolved.as_stream().ok()?;
+                Some((appearance, selected))
+            })
+        else {
+            continue;
+        };
+        appearance.set("N", selected);
+        updates.push((object_id, appearance));
+    }
+    for (object_id, appearance) in &updates {
+        if let Ok(annotation) = doc.get_object_mut(*object_id).and_then(Object::as_dict_mut) {
+            annotation.set("AP", Object::Dictionary(appearance.clone()));
+        }
+    }
+    !updates.is_empty()
+}
+
+fn has_state_appearances(doc: &Document) -> bool {
+    doc.objects.values().any(|object| {
+        object
+            .as_dict()
+            .ok()
+            .and_then(|annotation| {
+                let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
+                let appearance = deref_dict(doc, annotation.get(b"AP").ok()?)?;
+                let normal = deref_dict(doc, appearance.get(b"N").ok()?)?;
+                let selected = normal.get(state).ok()?;
+                let resolved = match selected {
+                    Object::Reference(id) => doc.get_object(*id).ok()?,
+                    other => other,
+                };
+                resolved.as_stream().is_ok().then_some(())
+            })
+            .is_some()
+    })
 }
 
 /// Read an integer while allowing an indirect reference.
@@ -948,8 +1083,26 @@ impl _Document {
         }
     }
 
-    /// Set NeedAppearances=true in AcroForm, including indirect dictionaries.
-    fn set_need_appearances(&mut self) -> PyResult<()> {
+    fn visible_field_widgets(&self, field_id: ObjectId) -> Vec<ObjectId> {
+        self.field_widgets(field_id)
+            .into_iter()
+            .filter(|widget_id| {
+                self.doc
+                    .get_object(*widget_id)
+                    .and_then(Object::as_dict)
+                    .is_ok_and(|widget| {
+                        widget
+                            .get(b"Subtype")
+                            .and_then(Object::as_name)
+                            .is_ok_and(|name| name == b"Widget")
+                            || widget.has(b"Rect")
+                    })
+            })
+            .collect()
+    }
+
+    /// Set AcroForm NeedAppearances, including indirect dictionaries.
+    fn set_need_appearances(&mut self, value: bool) -> PyResult<()> {
         let acroform_ref = self
             .doc
             .catalog()
@@ -963,7 +1116,7 @@ impl _Document {
                     .get_object_mut(id)
                     .and_then(Object::as_dict_mut)
                     .map_err(to_py_err)?;
-                acroform.set("NeedAppearances", true);
+                acroform.set("NeedAppearances", value);
             }
             None => {
                 let catalog = self.doc.catalog_mut().map_err(to_py_err)?;
@@ -971,10 +1124,419 @@ impl _Document {
                     .get_mut(b"AcroForm")
                     .and_then(Object::as_dict_mut)
                     .map_err(to_py_err)?;
-                acroform.set("NeedAppearances", true);
+                acroform.set("NeedAppearances", value);
             }
         }
         Ok(())
+    }
+
+    /// Read an inheritable field attribute from a field/widget parent chain.
+    fn resolve_field_attr(&self, field_id: ObjectId, key: &[u8]) -> Option<Object> {
+        let mut current = Some(field_id);
+        let mut visited = HashSet::new();
+        while let Some(id) = current {
+            if !visited.insert(id) || visited.len() > 64 {
+                return None;
+            }
+            let dict = self.doc.get_object(id).ok()?.as_dict().ok()?;
+            if let Ok(value) = dict.get(key) {
+                return Some(value.clone());
+            }
+            current = dict.get(b"Parent").and_then(Object::as_reference).ok();
+        }
+        None
+    }
+
+    /// Clone a widget AP dictionary, update/remove `/N`, and write it locally.
+    fn set_widget_normal_appearance(
+        &mut self,
+        widget_id: ObjectId,
+        normal: Option<Object>,
+    ) -> PyResult<()> {
+        let mut appearance = self
+            .doc
+            .get_object(widget_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(|widget| widget.get(b"AP").ok())
+            .and_then(|object| deref_dict(&self.doc, object))
+            .unwrap_or_default();
+        if let Some(normal) = normal {
+            appearance.set("N", normal);
+        } else {
+            appearance.remove(b"N");
+        }
+        let widget = self
+            .doc
+            .get_object_mut(widget_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        if appearance.is_empty() {
+            widget.remove(b"AP");
+        } else {
+            widget.set("AP", Object::Dictionary(appearance));
+        }
+        Ok(())
+    }
+
+    /// Return the normal-appearance state dictionary for a button widget.
+    fn button_normal_appearance(&self, widget_id: ObjectId) -> Dictionary {
+        self.doc
+            .get_object(widget_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(|widget| widget.get(b"AP").ok())
+            .and_then(|object| deref_dict(&self.doc, object))
+            .and_then(|appearance| {
+                appearance
+                    .get(b"N")
+                    .ok()
+                    .and_then(|object| deref_dict(&self.doc, object))
+            })
+            .unwrap_or_default()
+    }
+
+    /// Treat a non-empty stream as an authored appearance worth preserving.
+    fn appearance_has_content(&self, appearance: &Object) -> bool {
+        let resolved = match appearance {
+            Object::Reference(id) => self.doc.get_object(*id).ok(),
+            other => Some(other),
+        };
+        resolved
+            .and_then(|object| object.as_stream().ok())
+            .is_some_and(|stream| !stream.content.is_empty())
+    }
+
+    fn widget_has_normal_stream(&self, widget_id: ObjectId) -> bool {
+        self.doc
+            .get_object(widget_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(|widget| widget.get(b"AP").ok())
+            .and_then(|appearance| deref_dict(&self.doc, appearance))
+            .and_then(|appearance| appearance.get(b"N").ok().cloned())
+            .is_some_and(|normal| self.appearance_has_content(&normal))
+    }
+
+    /// Ensure a widget has usable Off and selected-state vector appearances.
+    fn synthesize_button_appearance(
+        &mut self,
+        widget_id: ObjectId,
+        state: &str,
+        radio: bool,
+    ) -> PyResult<()> {
+        let widget = self
+            .doc
+            .get_object(widget_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?
+            .clone();
+        let style =
+            form::WidgetStyle::from_widget(&self.doc, &widget).map_err(PdfError::new_err)?;
+        let mut normal = self.button_normal_appearance(widget_id);
+        for (name, on) in [("Off", false), (state, state != "Off")] {
+            let keep_existing = normal
+                .get(name.as_bytes())
+                .ok()
+                .is_some_and(|appearance| self.appearance_has_content(appearance));
+            if !keep_existing {
+                let appearance_id = self.doc.add_object(style.button_stream(on, radio));
+                normal.set(name, Object::Reference(appearance_id));
+            }
+        }
+        self.set_widget_normal_appearance(widget_id, Some(Object::Dictionary(normal)))
+    }
+
+    fn sync_button_widget_appearances(
+        &mut self,
+        field_id: ObjectId,
+        flags: i64,
+        value: &str,
+    ) -> PyResult<()> {
+        let widgets = self.visible_field_widgets(field_id);
+        let known_states: Vec<Vec<Vec<u8>>> = widgets
+            .iter()
+            .map(|widget_id| {
+                self.button_normal_appearance(*widget_id)
+                    .iter()
+                    .map(|(state, _)| state.clone())
+                    .collect()
+            })
+            .collect();
+        let requested_is_known = known_states
+            .iter()
+            .any(|states| states.iter().any(|state| state == value.as_bytes()));
+        let radio = flags & (1 << 15) != 0;
+        for (index, (widget_id, states)) in widgets.into_iter().zip(known_states).enumerate() {
+            let selected = value != "Off"
+                && (states.iter().any(|state| state == value.as_bytes())
+                    || (!requested_is_known && index == 0));
+            let state = if selected { value } else { "Off" };
+            self.synthesize_button_appearance(widget_id, state, radio)?;
+            let widget = self
+                .doc
+                .get_object_mut(widget_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            widget.set("AS", Object::Name(state.as_bytes().to_vec()));
+        }
+        Ok(())
+    }
+
+    /// Generate a text/choice widget appearance, preserving AP down/rollover data.
+    fn synthesize_text_appearance(
+        &mut self,
+        widget_id: ObjectId,
+        value: &str,
+        multiline: bool,
+        align: u8,
+        font_data: Option<&Vec<u8>>,
+        font_index: u32,
+    ) -> PyResult<bool> {
+        let widget = self
+            .doc
+            .get_object(widget_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?
+            .clone();
+        let style =
+            form::WidgetStyle::from_widget(&self.doc, &widget).map_err(PdfError::new_err)?;
+
+        if font_data.is_none() && !draw::is_winansi(value) {
+            // Preserve the value and NeedAppearances compatibility behavior when
+            // no embeddable font is available, but never leave a stale value AP.
+            self.set_widget_normal_appearance(widget_id, None)?;
+            return Ok(false);
+        }
+
+        let (resources, text_ops) = match font_data {
+            Some(font_data) if !value.is_empty() => {
+                let generated = generate::embedded_widget_text_page(
+                    (style.layout_width, style.layout_height),
+                    style.content_rect(),
+                    value,
+                    font_data.clone(),
+                    font_index,
+                    multiline,
+                    align,
+                    (0.0, 0.0, 0.0),
+                )
+                .map_err(PdfError::new_err)?;
+                let generated_doc = Document::load_mem(&generated).map_err(|error| {
+                    lopdf_err(Some("failed to import generated form appearance"), &error)
+                })?;
+                let (form_id, crop, rotation) =
+                    import_page_as_form(&mut self.doc, generated_doc, 1)?;
+                let name = format!("PyloTx{}", form_id.0);
+                let content = draw::PlacedContent::Form { crop, rotation };
+                let matrix = draw::placement_matrix(
+                    [0.0, 0.0, style.layout_width, style.layout_height],
+                    0,
+                    [0.0, 0.0, style.layout_width, style.layout_height],
+                    &content,
+                    false,
+                );
+                let resources = dictionary! {
+                    "XObject" => dictionary! {
+                        name.as_bytes() => Object::Reference(form_id),
+                    },
+                };
+                (Some(resources), draw::draw_ops(matrix, &name))
+            }
+            Some(_) => (None, Vec::new()),
+            None => {
+                let text_ops = form::standard_text_ops(&style, value, multiline, align, "Helv")
+                    .map_err(PdfError::new_err)?;
+                if text_ops.is_empty() {
+                    (None, text_ops)
+                } else {
+                    let font_id = self.doc.add_object(dictionary! {
+                        "Type" => "Font",
+                        "Subtype" => "Type1",
+                        "BaseFont" => "Helvetica",
+                        "Encoding" => "WinAnsiEncoding",
+                    });
+                    let resources = dictionary! {
+                        "Font" => dictionary! {
+                            "Helv" => Object::Reference(font_id),
+                        },
+                    };
+                    (Some(resources), text_ops)
+                }
+            }
+        };
+        let content = style.decorated_text_ops(&text_ops);
+        let appearance_id = self.doc.add_object(style.stream(resources, content));
+        self.set_widget_normal_appearance(widget_id, Some(Object::Reference(appearance_id)))?;
+        Ok(true)
+    }
+
+    /// Fill missing appearances on untouched fields when their current values
+    /// can be represented without guessing a font.
+    fn synthesize_missing_form_appearances(&mut self, target_name: &str) -> PyResult<()> {
+        for (name, field_id, field_type, flags, value) in self.collect_form_fields() {
+            if name == target_name {
+                continue;
+            }
+            match field_type.as_str() {
+                "Tx" | "Ch" => {
+                    let value = value
+                        .as_ref()
+                        .and_then(|object| match object {
+                            Object::Name(name) => Some(String::from_utf8_lossy(name).into_owned()),
+                            Object::Array(items) => Some(
+                                items
+                                    .iter()
+                                    .filter_map(|item| decode_text_string(item).ok())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                            other => decode_text_string(other).ok(),
+                        })
+                        .unwrap_or_default();
+                    if !draw::is_winansi(&value) {
+                        continue;
+                    }
+                    let multiline = field_type == "Tx" && flags & (1 << 12) != 0;
+                    let align = self
+                        .resolve_field_attr(field_id, b"Q")
+                        .as_ref()
+                        .and_then(|object| resolve_i64(&self.doc, object))
+                        .and_then(|value| u8::try_from(value).ok())
+                        .filter(|value| *value <= 2)
+                        .unwrap_or(0);
+                    for widget_id in self.visible_field_widgets(field_id) {
+                        if !self.widget_has_normal_stream(widget_id)
+                            && self
+                                .synthesize_text_appearance(
+                                    widget_id, &value, multiline, align, None, 0,
+                                )
+                                .is_err()
+                        {
+                            continue;
+                        }
+                    }
+                }
+                "Btn" if flags & (1 << 16) == 0 => {
+                    let state = value
+                        .as_ref()
+                        .and_then(|object| match object {
+                            Object::Name(name) => Some(String::from_utf8_lossy(name).into_owned()),
+                            other => decode_text_string(other).ok(),
+                        })
+                        .unwrap_or_else(|| "Off".to_owned());
+                    if self
+                        .sync_button_widget_appearances(field_id, flags, &state)
+                        .is_err()
+                    {
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn form_appearances_complete(&self) -> bool {
+        self.collect_form_fields()
+            .into_iter()
+            .all(|(_, field_id, field_type, flags, _)| {
+                let widgets = self.visible_field_widgets(field_id);
+                match field_type.as_str() {
+                    "Tx" | "Ch" => widgets
+                        .into_iter()
+                        .all(|widget_id| self.widget_has_normal_stream(widget_id)),
+                    "Btn" if flags & (1 << 16) == 0 => widgets.into_iter().all(|widget_id| {
+                        let Ok(widget) = self.doc.get_object(widget_id).and_then(Object::as_dict)
+                        else {
+                            return false;
+                        };
+                        let Some(state) = widget.get(b"AS").and_then(Object::as_name).ok() else {
+                            return false;
+                        };
+                        self.button_normal_appearance(widget_id)
+                            .get(state)
+                            .ok()
+                            .is_some_and(|appearance| self.appearance_has_content(appearance))
+                    }),
+                    _ => true,
+                }
+            })
+    }
+
+    /// Mutating implementation kept behind an atomic clone in the Python method.
+    fn set_form_field_inner(
+        &mut self,
+        name: &str,
+        value: &str,
+        font_data: Option<Vec<u8>>,
+        font_index: u32,
+    ) -> PyResult<()> {
+        let (field_id, ft, ff) = self
+            .collect_form_fields()
+            .into_iter()
+            .find(|(field_name, ..)| field_name == name)
+            .map(|(_, id, ft, ff, _)| (id, ft, ff))
+            .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
+        match ft.as_str() {
+            "Tx" | "Ch" => {
+                {
+                    let field = self
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    field.set("V", form_text_string(value));
+                }
+                let multiline = ft == "Tx" && ff & (1 << 12) != 0;
+                let align = self
+                    .resolve_field_attr(field_id, b"Q")
+                    .as_ref()
+                    .and_then(|object| resolve_i64(&self.doc, object))
+                    .and_then(|value| u8::try_from(value).ok())
+                    .filter(|value| *value <= 2)
+                    .unwrap_or(0);
+                for widget_id in self.visible_field_widgets(field_id) {
+                    self.synthesize_text_appearance(
+                        widget_id,
+                        value,
+                        multiline,
+                        align,
+                        font_data.as_ref(),
+                        font_index,
+                    )?;
+                }
+            }
+            "Btn" if ff & (1 << 16) != 0 => {
+                return Err(PdfError::new_err(
+                    "pushbutton fields do not have fillable values",
+                ));
+            }
+            "Btn" => {
+                {
+                    let field = self
+                        .doc
+                        .get_object_mut(field_id)
+                        .and_then(Object::as_dict_mut)
+                        .map_err(to_py_err)?;
+                    field.set("V", Object::Name(value.as_bytes().to_vec()));
+                }
+                self.sync_button_widget_appearances(field_id, ff, value)?;
+            }
+            "Sig" => {
+                return Err(PdfError::new_err(
+                    "filling signature fields is not supported (see the pyHanko integration for digital signatures)",
+                ));
+            }
+            other => {
+                return Err(PdfError::new_err(format!(
+                    "unsupported field type: {other:?}"
+                )));
+            }
+        }
+        self.synthesize_missing_form_appearances(name)?;
+        self.set_need_appearances(!self.form_appearances_complete())
     }
 
     /// Add an annotation reference to page `/Annots`, including indirect arrays.
@@ -1049,15 +1611,29 @@ impl _Document {
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.get_pages().len();
-            let source_pdf = self
-                .hayro_source
-                .take()
+            let normalize_state_appearances = has_state_appearances(&self.doc);
+            let source_pdf = (!normalize_state_appearances)
+                .then(|| self.hayro_source.take())
+                .flatten()
                 .and_then(|data| Pdf::new(data).ok())
                 .filter(|pdf| pdf.pages().len() == expected_pages);
             let pdf = match source_pdf {
                 Some(pdf) => pdf,
                 None => {
-                    let data = self.current_bytes()?;
+                    let mut render_doc = normalize_state_appearances.then(|| {
+                        let mut doc = self.doc.clone();
+                        normalize_state_appearances_for_render(&mut doc);
+                        doc
+                    });
+                    let data = match render_doc.as_mut() {
+                        Some(doc) => {
+                            let mut data = Vec::new();
+                            doc.save_to(&mut data)
+                                .map_err(|error| PdfError::new_err(error.to_string()))?;
+                            data
+                        }
+                        None => self.current_bytes()?,
+                    };
                     Pdf::new(data).map_err(|e| {
                         PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
                     })?
@@ -2402,62 +2978,8 @@ impl _Document {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
         py.detach(|| {
-            let starting_id = self
-                .doc
-                .max_id
-                .checked_add(1)
-                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-            let mut other_doc = other.doc.clone();
-            other_doc.renumber_objects_with(starting_id);
-            let src_id = *other_doc.get_pages().get(&src_page_number).ok_or_else(|| {
-                PdfError::new_err(format!("source page {src_page_number} does not exist"))
-            })?;
-            let src_dict = resolve_inherited_page_dict(&other_doc, src_id).map_err(to_py_err)?;
-
-            // Source display geometry: CropBox, MediaBox, A4; rotation 0..360.
-            let src_crop = resolve_box(&other_doc, &src_dict, b"CropBox")
-                .or_else(|| resolve_box(&other_doc, &src_dict, b"MediaBox"))
-                .unwrap_or([0.0, 0.0, 595.0, 842.0]);
-            let src_rotation = src_dict
-                .get(b"Rotate")
-                .ok()
-                .and_then(|o| resolve_i64(&other_doc, o))
-                .unwrap_or(0)
-                .rem_euclid(360);
-
-            // Wrap in q/Q to contain imbalance without re-encoding source content.
-            let mut form_content = b"q\n".to_vec();
-            form_content.extend_from_slice(&other_doc.get_page_content(src_id));
-            form_content.extend_from_slice(b"\nQ\n");
-
-            let mut form_dict = dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Form",
-                "FormType" => 1,
-                "BBox" => Object::Array(src_crop.iter().map(|&v| Object::Real(v as f32)).collect()),
-            };
-            if let Ok(res) = src_dict.get(b"Resources") {
-                form_dict.set("Resources", res.clone());
-            }
-            if let Ok(group) = src_dict.get(b"Group") {
-                form_dict.set("Group", group.clone());
-            }
-
-            // Import non-page-tree objects referenced by Resources.
-            let new_max_id = other_doc.max_id;
-            for (id, object) in other_doc.objects {
-                match object.type_name().unwrap_or(b"") {
-                    b"Catalog" | b"Pages" | b"Page" => {}
-                    _ => {
-                        self.doc.objects.insert(id, object);
-                    }
-                }
-            }
-            self.doc.max_id = new_max_id;
-
-            let form_id = self
-                .doc
-                .add_object(Stream::new(form_dict, form_content).with_compression(false));
+            let (form_id, src_crop, src_rotation) =
+                import_page_as_form(&mut self.doc, other.doc.clone(), src_page_number)?;
             let content = draw::PlacedContent::Form {
                 crop: src_crop,
                 rotation: src_rotation,
@@ -3018,68 +3540,30 @@ impl _Document {
         Ok(states)
     }
 
-    /// Set a form-field value and enable NeedAppearances.
-    ///
-    /// Write Tx/Ch as text and Btn as a Name state. Update each Btn widget `/AS`,
-    /// falling back to Off when the requested state is absent from AP.
-    fn set_form_field(&mut self, name: &str, value: &str) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
-        let (field_id, ft) = self
-            .collect_form_fields()
-            .into_iter()
-            .find(|(n, ..)| n == name)
-            .map(|(_, id, ft, ..)| (id, ft))
-            .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
-        match ft.as_str() {
-            "Tx" | "Ch" => {
-                let dict = self
-                    .doc
-                    .get_object_mut(field_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                dict.set("V", text_string(value));
-            }
-            "Btn" => {
-                {
-                    let dict = self
-                        .doc
-                        .get_object_mut(field_id)
-                        .and_then(Object::as_dict_mut)
-                        .map_err(to_py_err)?;
-                    dict.set("V", Object::Name(value.as_bytes().to_vec()));
-                }
-                // Match each widget `/AS` to V; use Off when absent from AP.
-                for widget_id in self.field_widgets(field_id) {
-                    let has_state = self
-                        .doc
-                        .get_object(widget_id)
-                        .and_then(Object::as_dict)
-                        .ok()
-                        .and_then(|w| w.get(b"AP").ok().and_then(|o| deref_dict(&self.doc, o)))
-                        .and_then(|ap| ap.get(b"N").ok().and_then(|o| deref_dict(&self.doc, o)))
-                        .is_some_and(|normal| normal.has(value.as_bytes()));
-                    let state = if has_state { value } else { "Off" };
-                    if let Ok(widget) = self
-                        .doc
-                        .get_object_mut(widget_id)
-                        .and_then(Object::as_dict_mut)
-                    {
-                        widget.set("AS", Object::Name(state.as_bytes().to_vec()));
-                    }
+    /// Set a form-field value and generate native widget appearances.
+    #[pyo3(signature = (name, value, font_data=None, font_index=0))]
+    fn set_form_field(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        font_data: Option<Vec<u8>>,
+        font_index: u32,
+    ) -> PyResult<()> {
+        let result = py.detach(|| {
+            let original = self.doc.clone();
+            match self.set_form_field_inner(name, value, font_data, font_index) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    self.doc = original;
+                    Err(error)
                 }
             }
-            "Sig" => {
-                return Err(PdfError::new_err(
-                    "filling signature fields is not supported (see the pyHanko integration for digital signatures)",
-                ));
-            }
-            other => {
-                return Err(PdfError::new_err(format!(
-                    "unsupported field type: {other:?}"
-                )));
-            }
+        });
+        if result.is_ok() {
+            self.invalidate_hayro_pdf();
         }
-        self.set_need_appearances()
+        result
     }
 
     /// Return sorted attachment names independent of name-tree order.

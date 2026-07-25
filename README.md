@@ -40,10 +40,11 @@ can interpret aligned multicolumn prose as a table. Automatic table conversion
 in `Document.to_markdown()` is not implemented. Vertical CJK columns are
 reconstructed conservatively and ordered right-to-left; ruby, warichu, and
 mixed-orientation Japanese typography are not interpreted semantically. There
-is also no appearance-stream regeneration for forms and annotations (form
-filling uses NeedAppearances — viewers draw the values). Use pymupdf if you need
-those. Typesetting, PDF/A output, and digital signatures are covered by the
-ecosystem recipes below.
+is no general-purpose regeneration of arbitrary existing annotation
+appearances. AcroForm filling generates appearances for text, choice, checkbox,
+and radio fields, but rich-text/comb layout, pushbuttons, and signature fields
+remain out of scope. Typesetting, PDF/A output, and digital signatures are
+covered by the ecosystem recipes below.
 
 ## Install
 
@@ -172,6 +173,7 @@ print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 # Forms (AcroForm): read and fill
 print(doc.get_form_fields())        # [{"name", "type", "value"}]
 doc.set_form_field("customer", "Taro Yamada")
+doc.set_form_field("customer_ja", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
 doc.set_form_field("agree", True)   # checkboxes take bool or a state name
 
 # Page labels (display numbers: roman front matter + decimal body, etc.)
@@ -316,7 +318,7 @@ signed_pdf: bytes = out.getvalue()
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
 | `to_markdown(pages=None)` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; no automatic tables) |
-| `get_form_fields()` / `set_form_field(name, value)` | List and fill AcroForm fields (NeedAppearances approach; checkboxes take bool) |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; checkboxes take bool |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |

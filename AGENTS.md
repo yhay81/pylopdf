@@ -150,6 +150,16 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   justification. Keep page rotation resolved through display coordinates and
   preserve the no-mutation overflow boundary. The resulting Windows abi3 wheel
   is 5.58 MB, up 0.16 MB from the arbitrary-font baseline.
+- AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
+  widget `/AP /N`. Text and choice appearances auto-fit in widget-local
+  coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
+  14 or krilla generation paths. Preserve non-empty authored button states and
+  synthesize only missing/empty Off/on states. Widget `/MK /R`, `/BG`, `/BC`,
+  `/BS /W`, and legacy `/Border` feed the appearance. Keep updates atomic by
+  restoring the document clone on error. hayro 0.7 cannot select an `/AP /N`
+  state dictionary, so the rendering snapshot substitutes any resolvable
+  widget `/AS` stream; the editable/saved PDF remains canonical. Retain the
+  original-byte fast path when no selected state stream can be resolved.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.

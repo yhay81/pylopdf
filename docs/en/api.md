@@ -27,7 +27,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges |
-| `get_form_fields()` / `set_form_field(name, value)` | AcroForm list & fill (NeedAppearances) |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | AcroForm list & fill with native widget appearances |
 | `embfile_add / embfile_names / embfile_get / embfile_del` | file attachments |
 | `get_pdfa_claim()` | XMP PDF/A declaration (a read, not validation) |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
@@ -64,6 +64,16 @@ grapheme-safe emergency breaks for overlong words. Alignment constants are
 `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`, and
 `TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
 content or font resource is added in that case.
+
+`set_form_field` generates appearances for text, combo/list choice, checkbox,
+and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
+`fontfile` or `fontbuffer` for subset-embedded Unicode. With `pylopdf[cjk]`
+installed, non-WinAnsi values automatically use its sans font. Existing
+non-empty checkbox/radio appearances are preserved and missing states receive
+vector marks. Missing appearances on other WinAnsi fields are completed at the
+same time; `NeedAppearances` is cleared only when every fillable widget is
+self-contained. Rich text, comb layout, pushbutton actions, and signatures are
+not generated.
 
 `Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
 probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the

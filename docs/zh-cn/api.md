@@ -27,7 +27,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
 | `get_toc()` / `set_toc(toc)` | 书签（页码从1开始） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围 |
-| `get_form_fields()` / `set_form_field(name, value)` | AcroForm列出与填写（NeedAppearances） |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 列出与填写AcroForm，并生成原生widget外观 |
 | `embfile_add / embfile_names / embfile_get / embfile_del` | 文件附件 |
 | `get_pdfa_claim()` | 读取XMP中的PDF/A声明（不是验证） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
@@ -61,6 +61,13 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、
 `TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
 垂直空间不足，此时不会添加页面内容或字体resource。
+
+`set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
+使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
+安装`pylopdf[cjk]`后，非WinAnsi值会自动使用其中的sans字体。已有且非空的按钮外观
+会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
+所有可填写widget都自包含时才清除`NeedAppearances`。富文本、comb布局、pushbutton
+动作和签名不在生成范围内。
 
 `Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
 `Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的

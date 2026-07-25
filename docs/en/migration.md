@@ -43,7 +43,7 @@ deliberately does not implement.
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
 | `doc.embfile_add / names / get / del` | same | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
-| `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value)` | document-level; NeedAppearances |
+| `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | document-level; native text/choice/checkbox/radio appearances |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
 ## Behavioral differences { #behavioral-differences }
@@ -71,8 +71,10 @@ deliberately does not implement.
   multicolumn prose remains geometrically ambiguous. Use `clip=` to keep only
   complete tables in a known display-coordinate region, and inspect
   `Table.confidence` / `Table.diagnostics` when ranking borderless results.
-- **Form filling** sets values + `NeedAppearances`; viewers draw the values.
-  pylopdf's own renderer does not regenerate widget appearances.
+- **Form filling** writes values and native appearances that render in pylopdf
+  and external viewers. WinAnsi auto-fits in Helvetica; pass an OpenType font
+  for Unicode, or install `pylopdf[cjk]` for automatic CJK. Rich text, comb
+  layout, pushbuttons, and signatures remain outside the API.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,
   with columns ordered right-to-left. Ruby, warichu and mixed-orientation
   typography are not interpreted.

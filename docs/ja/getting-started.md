@@ -95,9 +95,9 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ## スキャン PDF・フォーム・Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)     # 外部 OCR の結果で searchable PDF 化
-doc.set_form_field("customer", "山田 太郎")  # AcroForm 記入（NeedAppearances）
-md = doc.to_markdown()                    # RAG 向け Markdown
+page.insert_ocr_text_layer(ocr_words)        # 外部 OCR の結果で searchable PDF 化
+doc.set_form_field("customer", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
+md = doc.to_markdown()                       # RAG 向け Markdown
 ```
 
 続きは、組版・PDF/A・電子署名の[エコシステム連携](ecosystem.md)、

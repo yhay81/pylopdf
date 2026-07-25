@@ -1284,19 +1284,45 @@ class Document:
         self._ensure_open()
         return [{"name": name, "type": kind, "value": value} for name, kind, value in self._doc.get_form_fields()]
 
-    def set_form_field(self, name: str, value: str | bool) -> None:  # noqa: FBT001  # Match pymupdf's bool API.
-        """Set an AcroForm field value.
+    def set_form_field(  # noqa: C901 - Keep validation adjacent to the public boundary.
+        self,
+        name: str,
+        value: str | bool,  # noqa: FBT001 - Match pymupdf's bool API.
+        *,
+        fontfile: str | os.PathLike[str] | None = None,
+        fontbuffer: bytes | None = None,
+        fontindex: int = 0,
+    ) -> None:
+        """Set an AcroForm field value and regenerate its widget appearance.
 
         Pass strings for text/choice fields. For checkboxes and radio buttons,
         pass an appearance state such as ``"Yes"``/``"Off"`` or a bool. ``True``
         resolves the on state from widget appearances; ``False`` becomes
-        ``"Off"``. pylopdf sets ``NeedAppearances`` without regenerating
-        appearance streams, so viewers draw values but pylopdf's renderer does
-        not. Signature fields are unsupported; use the pyHanko integration.
+        ``"Off"``. Text, choice, checkbox, and radio appearances render in
+        pylopdf as well as external viewers. Existing non-empty button
+        appearances are preserved; missing ones use native vector marks.
+        Missing appearances on other WinAnsi fields are completed in the same
+        operation, and ``NeedAppearances`` is cleared once every fillable widget
+        has a usable normal appearance.
+
+        WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
+        ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text
+        automatically uses the sans font from ``pylopdf[cjk]`` when installed;
+        otherwise the value is still stored with ``NeedAppearances`` for viewer
+        compatibility, but its appearance cannot be rendered by pylopdf.
+        Signature fields are unsupported; use the pyHanko integration.
         """
         self._ensure_open()
         if not name:
             msg = "name must be at least 1 character"
+            raise ValueError(msg)
+        font_data = _read_font_source(fontfile, fontbuffer)
+        if font_data is not None:
+            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
+                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
+                raise ValueError(msg)
+        elif fontindex != 0:
+            msg = "fontindex requires fontfile or fontbuffer"
             raise ValueError(msg)
         if isinstance(value, bool):
             if value:
@@ -1305,9 +1331,19 @@ class Document:
                 resolved = on_states[0] if on_states else "Yes"
             else:
                 resolved = "Off"
-            self._doc.set_form_field(name, resolved)
-            return
-        self._doc.set_form_field(name, value)
+        else:
+            if not isinstance(value, str):
+                msg = f"value must be a string or bool: {value!r}"
+                raise TypeError(msg)
+            resolved = value
+            if font_data is None:
+                try:
+                    resolved.encode("cp1252")
+                except UnicodeEncodeError:
+                    bundled = _bundled_cjk_fonts()
+                    if bundled:
+                        font_data = bundled[0][1]
+        self._doc.set_form_field(name, resolved, font_data, fontindex)
 
     def get_page_labels(self) -> list[dict[str, Any]]:
         """Read page-label definitions.

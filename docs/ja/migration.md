@@ -43,7 +43,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
-| `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value)` | ドキュメント単位。NeedAppearances 方式 |
+| `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | ドキュメント単位。テキスト／選択／checkbox／radioのネイティブ外観 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内蔵・MIT |
 
 ## 挙動の違い { #behavioral-differences }
@@ -69,8 +69,10 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   高信頼な罫線なし表を検出します（整列した複数カラム本文との幾何的な曖昧さは
   残ります）。既知の表示座標領域に完全に収まる表だけを返すには`clip=`を使い、
   罫線なし結果の順位付けには`Table.confidence` / `Table.diagnostics`を確認します。
-- **フォーム記入**は値 + `NeedAppearances` を設定し、見た目の描画はビューアが
-  行います（pylopdf 自身のレンダラは外観を再生成しません）。
+- **フォーム記入**は値とネイティブ外観を書き込み、pylopdfと外部ビューアの両方で
+  描画されます。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeフォントを
+  指定するか`pylopdf[cjk]`を導入します。リッチテキスト、comb配置、pushbutton、
+  署名は対象外です。
 - **CJK 縦書き**は保守的に検出し、列内を上から下、列間を右から左へ読みます。
   ルビ、割注、縦中横などの混在組版は解釈しません。
 
