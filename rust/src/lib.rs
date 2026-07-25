@@ -4,6 +4,7 @@ mod draw;
 mod extract;
 mod form;
 mod generate;
+mod image_compression;
 mod layout;
 mod ocr;
 mod ocr_engine;

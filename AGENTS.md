@@ -119,6 +119,24 @@ overview.
   outside this path API. Optional-content visibility is still applied. Reject
   output above 8,192 paths or 131,072 commands rather than returning a partial
   result.
+- `Document.compress_images` interprets indirect raster XObject placements
+  through a separate hayro Device and aggregates the minimum effective DPI per
+  source axis, so a reused image retains enough pixels for its largest
+  placement. It atomically edits a lopdf clone, releases the GIL, and rewrites
+  only direct, single-DCT, 8-bit DeviceGray or DeviceRGB streams without masks,
+  custom decode arrays, or decode parameters. Strict zune-jpeg decoding,
+  Lanczos3 resizing, and jpeg-encoder optimized Huffman coding are used, and a
+  candidate is committed only when its encoded payload becomes smaller. The
+  private `/PylopdfQuality` marker prevents repeat calls at the same or higher
+  quality from introducing generational loss when dimensions are unchanged.
+  Actual rewrites invalidate hayro and derived interpretation caches without
+  making existing `Page` views stale; no-op calls preserve all caches. Reject
+  more than 16,384 unique indirect raster objects or more than 250 million
+  eligible decoded source pixels in one operation, and skip an individual
+  source above 64 million pixels. The compact local separable Lanczos3
+  implementation avoids a general-purpose resizing dependency. On Windows
+  abi3, the wheel measured 6.86 MiB versus 6.78 MiB at the preceding v0.11
+  commit (+0.07 MiB).
 - Native OCR uses RTen 0.24 with only its `rten_format` feature. The core wheel
   contains the pure-Rust inference engine; PP-OCRv6 small detector,
   recognizer, and dictionary data come from the independently versioned

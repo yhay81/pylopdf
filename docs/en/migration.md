@@ -30,6 +30,7 @@ deliberately does not implement.
 | `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's `tobytes()` and `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
+| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf currently rewrites only safe unmasked DeviceGray/DeviceRGB JPEGs; `dpi` directly caps the largest placement and there is no lossless conversion |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |

@@ -350,6 +350,7 @@ signed_pdf: bytes = out.getvalue()
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
 | `render_pages(pages=None, scale=1.0, workers=None, ...)` | Render ordered PNGs from one immutable snapshot; up to 4 workers by default, with a ~512 MB estimated working-memory concurrency cap |
 | `render_page_svg(pno)` | Render a page to an SVG string |
+| `compress_images(dpi=150, quality=75)` | Lossily downsample and recompress safe unmasked DeviceGray/DeviceRGB JPEG XObjects; preserves the largest reuse, skips non-smaller output, and returns typed byte/count statistics |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order (repeats duplicate the page) |
 | `delete_page(pno)` / `delete_pages(iterable)` | Delete pages |
@@ -400,6 +401,7 @@ Module level:
 | `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe without parsing the whole file |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
+| `ImageCompressionResult` | Typed counts and changed-JPEG byte totals from `compress_images()` |
 | `DrawingInfo` / `DrawingItem` | Typed vector-path dictionary and its line/cubic command union |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
 | `OcrEngine` / `OcrWord` / `OcrRotation` | Reusable pure-Rust PP-OCR engine, its typed positioned-word result, and the `0 / 90 / 180 / 270` clockwise-correction contract |

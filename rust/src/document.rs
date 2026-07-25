@@ -25,6 +25,7 @@ use rayon::prelude::*;
 use crate::draw;
 use crate::form;
 use crate::generate;
+use crate::image_compression;
 use crate::ocr;
 use crate::pixmap::Pixmap;
 
@@ -2592,6 +2593,31 @@ impl _Document {
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             crate::extract::extract_page_drawings(pdf, page, settings).map_err(PdfError::new_err)
         })
+    }
+
+    /// Downsample and recompress safe JPEG XObjects atomically.
+    fn compress_images(
+        &mut self,
+        py: Python<'_>,
+        target_dpi: Option<f64>,
+        quality: u8,
+    ) -> PyResult<image_compression::CompressionResult> {
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
+        let usages = py
+            .detach(|| crate::extract::collect_image_usages(pdf, settings))
+            .map_err(PdfError::new_err)?;
+        let mut edited = self.doc.clone();
+        let result = py
+            .detach(|| {
+                image_compression::compress_images(&mut edited, &usages, target_dpi, quality)
+            })
+            .map_err(PdfError::new_err)?;
+        if result.1 > 0 {
+            self.doc = edited;
+            self.invalidate_hayro_pdf();
+        }
+        Ok(result)
     }
 
     /// Search a one-based page case-insensitively.

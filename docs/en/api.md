@@ -23,6 +23,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; bordered tables by default, `"text"` adds borderless tables, `None` disables tables) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |
+| `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and recompression of safe JPEG XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |
@@ -32,6 +33,14 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `get_pdfa_claim()` | XMP PDF/A declaration (a read, not validation) |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | also via `with` |
+
+`compress_images()` interprets every page to find each indirect raster object's
+largest placement, then edits a lopdf clone atomically. `dpi=None` disables
+downsampling but retains quality recompression. The conservative boundary is
+direct 8-bit DeviceGray/DeviceRGB DCT streams without masks, custom decode
+arrays, or decode parameters. Unsupported interpreted indirect images and
+encodings that would not be smaller are skipped; inline images are not
+considered. Repeating the same settings is idempotent.
 
 ## Page { #page }
 
@@ -103,7 +112,7 @@ metrics. `TableFinder.strategy` and
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
-| `ImageInfo` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page and form results |
+| `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |

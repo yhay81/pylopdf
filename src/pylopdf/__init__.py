@@ -45,6 +45,7 @@ __all__ = [
     "EncryptedDocumentError",
     "FormFieldInfo",
     "FormFieldType",
+    "ImageCompressionResult",
     "ImageInfo",
     "LinkInfo",
     "MetadataProbe",
@@ -96,6 +97,10 @@ _OCR_MAX_TILE_SIZE = 2048
 _OCR_TILE_MULTIPLE = 32
 _DRAWING_LINE_POINT_COUNT = 2
 _DRAWING_CUBIC_POINT_COUNT = 4
+_IMAGE_COMPRESSION_MIN_DPI = 36.0
+_IMAGE_COMPRESSION_MAX_DPI = 2400.0
+_IMAGE_COMPRESSION_MIN_QUALITY = 1
+_IMAGE_COMPRESSION_MAX_QUALITY = 100
 
 
 class PylopdfWarning(UserWarning):
@@ -215,6 +220,17 @@ class ImageInfo(TypedDict):
     bbox: Rect
     ext: Literal["jpeg", "png"]
     image: bytes
+
+
+class ImageCompressionResult(TypedDict):
+    """Summary returned by :meth:`Document.compress_images`."""
+
+    considered: int
+    rewritten: int
+    skipped: int
+    bytes_before: int
+    bytes_after: int
+    bytes_saved: int
 
 
 class DrawingInfo(TypedDict):
@@ -2505,6 +2521,60 @@ class Document:
         """Emit hayro warnings from the latest operation as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=3)
+
+    def compress_images(
+        self,
+        *,
+        dpi: float | None = 150,
+        quality: int = 75,
+    ) -> ImageCompressionResult:
+        """Downsample and recompress safe JPEG images in place.
+
+        ``dpi`` limits the effective resolution of each source-image axis.
+        Reused images retain the pixels required by their largest placement
+        across the document. Pass ``None`` to disable downsampling
+        while retaining JPEG quality recompression. ``quality`` is 1 through
+        100; both operations are lossy.
+
+        The conservative first version rewrites only indirect 8-bit
+        DeviceGray/DeviceRGB JPEG XObjects without masks, custom decode arrays,
+        or decode parameters. Unsupported interpreted indirect images and
+        outputs that would not be smaller are counted as ``skipped``; inline
+        images are not considered. The operation releases the GIL, is atomic
+        on decoding errors, rejects more than 16,384 unique image objects or
+        250 million eligible source pixels, and skips an individual source
+        above 64 million pixels.
+
+        Byte totals cover rewritten JPEG stream payloads, not complete PDF
+        serialization. Save to a new output and inspect it before replacing an
+        original document.
+        """
+        self._ensure_open()
+        if (
+            isinstance(quality, bool)
+            or not isinstance(quality, int)
+            or not _IMAGE_COMPRESSION_MIN_QUALITY <= quality <= _IMAGE_COMPRESSION_MAX_QUALITY
+        ):
+            msg = "quality must be an integer from 1 through 100"
+            raise PdfError(msg)
+        if dpi is not None:
+            if isinstance(dpi, bool) or not isinstance(dpi, (int, float)):
+                msg = "dpi must be a finite number from 36 through 2400, or None"
+                raise PdfError(msg)
+            dpi = float(dpi)
+            if not math.isfinite(dpi) or not _IMAGE_COMPRESSION_MIN_DPI <= dpi <= _IMAGE_COMPRESSION_MAX_DPI:
+                msg = "dpi must be a finite number from 36 through 2400, or None"
+                raise PdfError(msg)
+        considered, rewritten, skipped, bytes_before, bytes_after = self._doc.compress_images(dpi, quality)
+        self._emit_warnings()
+        return {
+            "considered": considered,
+            "rewritten": rewritten,
+            "skipped": skipped,
+            "bytes_before": bytes_before,
+            "bytes_after": bytes_after,
+            "bytes_saved": bytes_before - bytes_after,
+        }
 
     def save(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
         self,

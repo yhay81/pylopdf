@@ -35,6 +35,15 @@ def _timed_extract_pair(data: bytes, *, parallel: bool) -> tuple[float, tuple[st
     return time.perf_counter() - start, outputs
 
 
+def _compress_jpeg(data: bytes) -> tuple[pylopdf.ImageCompressionResult, tuple[int, int], bytes]:
+    doc = pylopdf.Document()
+    page = doc.new_page(width=100, height=100)
+    page.insert_image((0, 0, 72, 72), stream=data)
+    result = doc.compress_images(dpi=100, quality=65)
+    image = page.get_images()[0]
+    return result, (image["width"], image["height"]), image["image"]
+
+
 def test_import_keeps_gil_disabled() -> None:
     is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
     assert is_gil_enabled is not None
@@ -63,3 +72,16 @@ def test_distinct_documents_are_correct_and_scale_across_threads() -> None:
         assert sequential / parallel >= 1.05, (
             f"distinct-document extraction did not scale: sequential={sequential:.3f}s, parallel={parallel:.3f}s"
         )
+
+
+def test_distinct_documents_compress_images_concurrently() -> None:
+    source = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0].get_images()[0]["image"]
+    expected = _compress_jpeg(source)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outputs = list(executor.map(_compress_jpeg, (source, source)))
+
+    assert outputs == [expected, expected]
+    assert expected[0]["rewritten"] == 1
+    assert expected[1][0] < 675
+    assert expected[1][1] < 882

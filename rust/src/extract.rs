@@ -2104,6 +2104,139 @@ fn search_lines(lines: &[Vec<GlyphRecord>], needle: &str) -> Vec<BBox> {
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
 pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
 
+/// Maximum unique indirect raster images considered by one compression call.
+const MAX_IMAGE_USAGE_OBJECTS: usize = 16_384;
+
+/// One indirect raster image and the lowest effective DPI of all placements.
+///
+/// The lowest DPI represents the largest, most pixel-demanding placement.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ImageUsage {
+    pub object_id: (u32, u16),
+    pub width: u32,
+    pub height: u32,
+    pub min_dpi_x: Option<f64>,
+    pub min_dpi_y: Option<f64>,
+}
+
+/// A Device that aggregates raster placements by indirect object ID.
+struct ImageUsageCollector {
+    usages: HashMap<(u32, u16), ImageUsage>,
+    error: Option<&'static str>,
+}
+
+fn effective_dpi(transform: Affine) -> (Option<f64>, Option<f64>) {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    let dpi = |scale: f64| {
+        (scale.is_finite() && scale > 0.0)
+            .then_some(72.0 / scale)
+            .filter(|value| value.is_finite())
+    };
+    (dpi(a.hypot(b)), dpi(c.hypot(d)))
+}
+
+impl ImageUsageCollector {
+    fn collect(&mut self, image: Image<'_, '_>, transform: Affine) {
+        let Image::Raster(raster) = image else {
+            return;
+        };
+        let id = raster.stream().obj_id();
+        let (Ok(number), Ok(generation)) =
+            (u32::try_from(id.obj_number), u16::try_from(id.gen_number))
+        else {
+            return;
+        };
+        if number == 0 {
+            // Inline images do not have a mutable lopdf object.
+            return;
+        }
+        let (dpi_x, dpi_y) = effective_dpi(transform);
+        if let Some(usage) = self.usages.get_mut(&(number, generation)) {
+            if usage.width != raster.width() || usage.height != raster.height() {
+                usage.min_dpi_x = None;
+                usage.min_dpi_y = None;
+                return;
+            }
+            if let Some(value) = dpi_x {
+                usage.min_dpi_x = Some(
+                    usage
+                        .min_dpi_x
+                        .map_or(value, |previous| previous.min(value)),
+                );
+            }
+            if let Some(value) = dpi_y {
+                usage.min_dpi_y = Some(
+                    usage
+                        .min_dpi_y
+                        .map_or(value, |previous| previous.min(value)),
+                );
+            }
+            return;
+        }
+        if self.usages.len() >= MAX_IMAGE_USAGE_OBJECTS {
+            self.error = Some("image compression exceeds the 16384-object safety limit");
+            return;
+        }
+        self.usages.insert(
+            (number, generation),
+            ImageUsage {
+                object_id: (number, generation),
+                width: raster.width(),
+                height: raster.height(),
+                min_dpi_x: dpi_x,
+                min_dpi_y: dpi_y,
+            },
+        );
+    }
+}
+
+impl Device<'_> for ImageUsageCollector {
+    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+    fn set_blend_mode(&mut self, _: BlendMode) {}
+    fn draw_path(&mut self, _: &kurbo::BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+    fn push_clip_path(&mut self, _: &ClipPath) {}
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+    fn draw_glyph(
+        &mut self,
+        _: &Glyph<'_>,
+        _: Affine,
+        _: Affine,
+        _: &Paint<'_>,
+        _: &GlyphDrawMode,
+    ) {
+    }
+    fn pop_clip_path(&mut self) {}
+    fn pop_transparency_group(&mut self) {}
+
+    fn draw_image(&mut self, image: Image<'_, '_>, transform: Affine) {
+        if self.error.is_none() {
+            self.collect(image, transform);
+        }
+    }
+}
+
+/// Aggregate indirect raster placements across all pages.
+pub(crate) fn collect_image_usages(
+    pdf: &Pdf,
+    settings: InterpreterSettings,
+) -> Result<Vec<ImageUsage>, &'static str> {
+    let cache = InterpreterCache::new();
+    let mut collector = ImageUsageCollector {
+        usages: HashMap::new(),
+        error: None,
+    };
+    for page in pdf.pages().iter() {
+        let mut context = extraction_context(pdf, page, &cache, settings.clone());
+        interpret_page(page, &mut context, &mut collector);
+        if let Some(error) = collector.error {
+            return Err(error);
+        }
+    }
+    let mut usages = collector.usages.into_values().collect::<Vec<_>>();
+    usages.sort_unstable_by_key(|usage| usage.object_id);
+    Ok(usages)
+}
+
 /// A Device that only collects images.
 struct ImageCollector {
     images: Vec<ImageTuple>,

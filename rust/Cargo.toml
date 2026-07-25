@@ -40,6 +40,10 @@ pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
 kurbo = "0.13"
 # Encode non-JPEG extracted images as PNG; match the version already used by hayro.
 png = "0.18"
+# Reuse hayro's zune decoder and add a compact encoder for safe JPEG XObjects.
+# Lanczos3 resizing is implemented locally to keep wheel growth bounded.
+zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
+jpeg-encoder = "0.7.0"
 # Expand the prefix of [FlateDecode, DCTDecode] before JPEG passthrough.
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.
