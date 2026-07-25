@@ -29,6 +29,9 @@ overview.
 - `uv sync --group bench && uv run python bench/run.py` — run reproducible
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
   losses together.
+- `uv sync --all-extras && uv run python bench/ocr.py` — reproduce native OCR
+  strict/NFKC CER and elapsed time on the licensed MHLW fixture. Results are
+  written to `bench/results/ocr-latest.md`.
 - `uv sync --group docs && uv run zensical serve -f mkdocs.yml` — preview the
   English documentation with Zensical. Locale configurations are
   `mkdocs.ja.yml`, `mkdocs.zh-cn.yml`, and `mkdocs.ko.yml`. To reproduce the
@@ -88,6 +91,27 @@ overview.
   from conservative single-glyph vertical chains: top-to-bottom within a line,
   right-to-left across columns, with horizontal headings and footers preserved.
   Ruby, warichu, and mixed-orientation typography are not interpreted.
+- Native OCR uses RTen 0.24 with only its `rten_format` feature. The core wheel
+  contains the pure-Rust inference engine; PP-OCRv6 small detector,
+  recognizer, and dictionary data come from the independently versioned
+  `pylopdf-ocr-models` package through the `[ocr]` extra. `OcrEngine` loads one
+  immutable model set and owns a dedicated 1–16 thread pool. Loading and
+  inference release the GIL. OCR clones the Pixmap's `Arc<[u8]>`, composites
+  RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
+  pixels, a 4096-candidate cap, and deterministic edge deduplication. The
+  default 1408-pixel tile and 192-pixel overlap measured about 419 MiB peak on
+  a 300-dpi A4 page. Recognizer class count must match dictionary length + 2.
+  Results use rotation-resolved display coordinates and recursive sustained-
+  gutter column order. One immutable engine can serve concurrent calls on
+  distinct Documents, including CPython 3.14t, but every call owns raster and
+  inference buffers and outer concurrency must remain bounded. Same-Document
+  restrictions still apply. `Page.apply_ocr` skips pages with extractable text
+  by default so repeated runs are idempotent. With `clip=`, only intersecting
+  text triggers the skip and result boxes remain in full-page display
+  coordinates. Clipping reduces OCR detector input but not hayro's current
+  full-page rendering cost. The first engine returns axis-aligned boxes only;
+  arbitrary skew, automatic page orientation, ruby, warichu, and
+  mixed-orientation typography are not interpreted.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page
@@ -212,6 +236,17 @@ The font wheel has a separate release process. Update the version in
 `pylopdf-fonts-cjk` Trusted Publisher on PyPI with workflow
 `release-fonts.yml` and environment `pypi`. Publish the font wheel before the
 main package because the main `[cjk]` extra references it.
+
+The OCR model wheel also releases separately. Update the version in
+`models/pylopdf-ocr-models/pyproject.toml` and
+`models/pylopdf-ocr-models/src/pylopdf_ocr_models/__init__.py`, keep the
+artifact hashes synchronized in `SHA256SUMS` and its README, then push an
+`ocr-models-vX.Y.Z` tag. Tests and `release-ocr-models.yml` consume that
+manifest. The first
+release requires registering the `pylopdf-ocr-models` Trusted Publisher on
+PyPI with workflow `release-ocr-models.yml` and environment `pypi`. Publish the
+model wheel before the main package because the main `[ocr]` extra references
+it.
 
 ## Roadmap
 

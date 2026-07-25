@@ -55,7 +55,9 @@ is no general-purpose regeneration of arbitrary existing annotation
 appearances. AcroForm filling generates appearances for text, choice, checkbox,
 and radio fields, but rich-text/comb layout, pushbuttons, and signature fields
 remain out of scope. Typesetting, PDF/A output, and digital signatures are
-covered by the ecosystem recipes below.
+covered by the ecosystem recipes below. Native OCR returns axis-aligned word
+boxes; automatic page orientation, arbitrary deskew, ruby, warichu, and
+mixed-orientation typography remain explicit limits.
 
 ## Install
 
@@ -69,6 +71,17 @@ To render Japanese PDFs without embedded fonts, install the optional CJK fonts
 ```bash
 pip install pylopdf[cjk]
 ```
+
+For local PP-OCRv6 recognition without system executables, shared libraries,
+network requests, or an ONNX parser at runtime, install the optional model
+wheel:
+
+```bash
+pip install "pylopdf[ocr]"
+```
+
+See the [offline OCR guide](https://yhay81.github.io/pylopdf/ocr/) for memory
+controls, searchable-layer behavior, and current layout boundaries.
 
 Building from source (requires a Rust toolchain):
 
@@ -171,7 +184,12 @@ page.add_highlight_annot(page.search_for("important"))  # appearance stream incl
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 
-# Make scanned PDFs searchable (write external OCR results as an invisible text layer)
+# Native offline OCR: recognize and add an invisible searchable layer
+engine = pylopdf.OcrEngine(threads=4)  # pip install "pylopdf[ocr]"
+words = page.get_text_ocr(engine=engine)
+page.apply_ocr(engine=engine)  # skips existing searchable text by default
+
+# Or write external OCR results as an invisible text layer
 page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
 
 # Markdown conversion (RAG / LLM preprocessing; size-based headings, CJK-aware line joining)
@@ -345,6 +363,8 @@ signed_pdf: bytes = out.getvalue()
 | `number` / `parent` | 0-based page number and owning Document |
 | `get_label()` | Display label of the page ("iv", "A-2", …; empty string if undefined) |
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
+| `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `clip` uses display coordinates |
+| `apply_ocr(..., clip=None, skip_existing=True)` | Recognize and insert an invisible searchable layer; existing searchable text in the selected region is skipped by default |
 | `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
@@ -372,7 +392,8 @@ Module level:
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
-| Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
+| `OcrEngine` / `OcrWord` | Reusable pure-Rust PP-OCR engine and its typed positioned-word result |
+| Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `OcrError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
 
 For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.
 
@@ -422,6 +443,13 @@ environment details:
 
 ```bash
 uv sync --all-extras --group bench && uv run python bench/run.py
+```
+
+The separate [native OCR report](bench/results/ocr-latest.md) publishes strict
+and NFKC-normalized CER plus elapsed time on the licensed MHLW fixture:
+
+```bash
+uv sync --all-extras && uv run python bench/ocr.py
 ```
 
 ## License

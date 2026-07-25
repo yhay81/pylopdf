@@ -24,6 +24,20 @@ pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
 `unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
 grapheme-safe emergency breaks.
 
+pylopdf uses RTen 0.24 and its companion `rten-*` crates for local PP-OCR
+inference. RTen is available under MIT OR Apache-2.0. Its RTen model reader
+uses FlatBuffers 24.12.23, available under Apache-2.0. The Apache license is
+distributed in `LICENSES/Apache-2.0.txt`.
+
+- RTen source: <https://github.com/robertknight/rten>
+- RTen package: <https://crates.io/crates/rten/0.24.0>
+- FlatBuffers source: <https://github.com/google/flatbuffers>
+
+The optional `pylopdf-ocr-models` distribution contains PP-OCRv6 small model
+data separately from the core wheel. Model copyright is held by Baidu;
+provenance, source hashes, and Apache-2.0 notices are included in that
+distribution.
+
 The following acknowledgements are reproduced from krilla's `NOTICE.md`.
 
 ## krilla acknowledgements

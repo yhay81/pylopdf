@@ -1,0 +1,14 @@
+pylopdf-ocr-models
+Copyright 2026 Yusuke Hayashi
+
+This product bundles PP-OCRv6 small model artifacts from PaddleOCR.
+The model copyright is held by Baidu. The ONNX conversions and distribution
+metadata are provided by the RapidAI/RapidOCR project. The bundled RTen files
+were mechanically converted from those ONNX artifacts by the pylopdf project;
+the model graph and weights were not otherwise changed.
+
+Copyright (c) 2016 PaddlePaddle Authors. All Rights Reserved.
+Copyright (c) 2021 RapidOCR Authors. All rights reserved.
+
+PaddleOCR: https://github.com/PaddlePaddle/PaddleOCR
+RapidOCR: https://github.com/RapidAI/RapidOCR

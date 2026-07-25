@@ -39,6 +39,8 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 |---|---|
 | `number` / `parent` / `get_label()` | 标识与显示标签 |
 | `get_text(option)` / `search_for(needle)` | 提取与不区分大小写的搜索 |
+| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`clip`使用显示坐标 |
+| `apply_ocr(..., clip=, skip_existing=True)` | 插入不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown()` | 单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
@@ -85,9 +87,10 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | 页面与表单字典结果的TypedDict契约 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
+| `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
-| `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
+| `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()`；cp314t还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 解释器警告（字体解析、图像解码） |
 

@@ -39,6 +39,8 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `get_text(option)` / `search_for(needle)` | 추출과 대소문자 구분 없는 검색 |
+| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `clip`은 표시 좌표 |
+| `apply_ocr(..., clip=, skip_existing=True)` | 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
 | `find_tables(strategy="lines", clip=None)` | 완전한 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown()` | 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
@@ -89,9 +91,10 @@ grid는 1.0이고 이 텍스트 전용 metric은 `None`입니다. `TableFinder.s
 | `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page와 form의 사전 형식 결과를 위한 TypedDict 계약 |
 | `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
+| `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
-| `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
+| `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |
 

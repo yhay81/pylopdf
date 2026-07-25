@@ -57,6 +57,7 @@ nav:
   - 홈: index.md
   - 가이드:
       - 시작하기: getting-started.md
+      - 오프라인 OCR: ocr.md
       - 생태계 연동: ecosystem.md
       - pymupdf에서 이전: migration.md
   - API: api.md

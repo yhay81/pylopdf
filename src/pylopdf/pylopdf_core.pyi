@@ -1,6 +1,18 @@
 # Type stubs for the Rust extension module pylopdf_core.
 class PdfError(ValueError): ...
 class PasswordError(PdfError): ...
+class OcrError(PdfError): ...
+
+class _OcrEngine:
+    def __init__(self, detector_path: str, recognizer_path: str, dictionary_path: str, threads: int) -> None: ...
+    def recognize_pixmap(
+        self,
+        pixmap: Pixmap,
+        *,
+        tile_size: int = 1408,
+        overlap: int = 192,
+        min_confidence: float = 0.5,
+    ) -> list[tuple[float, float, float, float, str, float]]: ...
 
 class Pixmap:
     @property

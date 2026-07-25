@@ -44,6 +44,11 @@ png = "0.18"
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.
 flate2 = { version = "1", features = ["zlib-rs"] }
+# Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
+# ships independently through pylopdf[ocr], keeping the ONNX parser out of the
+# core wheel.
+rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
+rten-tensor = "0.24.0"
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"

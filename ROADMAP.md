@@ -339,24 +339,56 @@ measurable, coherent boundary.
   `TypedDict` contracts while preserving pymupdf-style dictionaries. This also
   covers metadata inputs/results and promotes word/block/form-kind aliases to
   public runtime types.
-- Continue the optional OCR track below if rten execution, model packaging,
-  memory use, and end-to-end accuracy all pass their gates.
+- [x] Adopt the optional OCR track below after RTen execution, model packaging,
+      memory use, multilingual accuracy, and distribution-size gates passed.
 
 #### Optional OCR track for v0.11 — `pylopdf[ocr]`
 
-Decision depends on measured accuracy. “pip-only, no shared libraries,
-permissively licensed Japanese OCR” remains a gap: pymupdf integrates the
-Tesseract engine but still requires
+The gate is **go** as of 2026-07-25. “pip-only, no shared libraries,
+permissively licensed Japanese OCR” remains an ecosystem gap: pymupdf integrates
+the Tesseract engine but still requires
 [external language data (`tessdata`) and configuration](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support),
-pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime. This aligns with
-the CJK moat and merits staged exploration.
+pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime. pylopdf now fills
+that gap without broadening the mandatory Python dependency set.
 
-- Runtime: statically link rten, a pure-Rust ONNX runtime under MIT/Apache-2.0.
-  Estimated main-wheel increase: 1.5–2.5 MB.
-- Model: PP-OCRv5_mobile, with 4.6 MB detection plus 15.8 MB recognition under
-  Apache-2.0. Its standard model already includes Japanese.
-- Distribution: a separate `pylopdf-ocr-models` wheel, following the font-wheel
-  pattern so model generations can update independently.
+- [x] Statically link RTen 0.24, a pure-Rust runtime under MIT/Apache-2.0, with
+      only its native RTen-format reader. The ONNX parser remains outside the
+      core wheel. Model loading and inference release the GIL, use a dedicated
+      bounded thread pool, and share immutable Pixmap storage without copying.
+      The Windows abi3 wheel is 7.06 MB versus 5.42 MB for v0.10.0, a 1.64 MB
+      increase for the offline inference engine.
+- [x] Select PP-OCRv6 small rather than the earlier v5 mobile candidate. The
+      unified detector and recognizer cover 50 languages including Japanese,
+      Simplified and Traditional Chinese, and English. RTen output matched ONNX
+      Runtime numerically (detector maximum difference 0; recognizer about
+      3e-6). On the tracked 1,188-character MHLW fixture, the native pipeline
+      measured 3.788% / 3.704% whitespace-stripped strict CER and 0.842% /
+      0.842% after NFKC at 150 / 300 dpi. The RapidOCR v6 reference measured
+      0.926% / 0.758% after NFKC, exposing both the 150-dpi win and 300-dpi loss.
+- [x] Publish model data through a separately versioned
+      `pylopdf-ocr-models` wheel, following the font-wheel pattern. It contains
+      deterministic RTen conversions plus the multilingual dictionary, with
+      pinned source URLs, source and artifact SHA-256 values, conversion
+      commands, Apache-2.0 licensing, wheel smoke tests, SBOM generation,
+      provenance attestations, and an immutable GitHub release workflow. The
+      wheel is 26.6 MB; the two uncompressed RTen models total about 31.2 MB.
+- [x] Add reusable `OcrEngine`, `Page.get_text_ocr`, and `Page.apply_ocr`.
+      Results are typed `OcrWord` mappings in rotation-resolved display
+      coordinates. Applying OCR retains visual pixels and inserts the existing
+      invisible searchable CID layer. Pages with extractable text are skipped
+      by default, making repeated application idempotent. Display-coordinate
+      region clips let mixed-content pages recognize scanned areas without
+      duplicating digital text; callers can still opt into appending.
+- [x] Keep full-page detector memory bounded with overlapping tiles and a
+      4,096-candidate safety cap. The default 1,408-pixel tile with 192-pixel
+      overlap uses six tiles for a 300-dpi A4 page and measured about 419 MiB
+      peak child-process memory; 1,280 measured about 369 MiB and 1,536 about
+      475 MiB. Sustained whitespace gutters retain deterministic left-to-right
+      multicolumn reading order after edge-duplicate merging.
+- [x] Reject premature quantization. Full int8 Conv/MatMul quantization broke
+      detection and recognition; recognizer MatMul-only quantization reduced
+      size but worsened NFKC CER from 0.842% to 1.010%. The first release
+      keeps the f32 models and prioritizes accuracy.
 - [x] Prerequisite 1, Japanese accuracy measurement, completed 2026-07-23:
       **go**. At 300 dpi, the PP-OCRv5 mobile Chinese model, which covers Chinese,
       Japanese, and English and has no separate v5 Japanese recognizer, measured
@@ -366,12 +398,17 @@ the CJK moat and merits staged exploration.
       as circled numbers, postal marks, and reference marks. It beat the v4
       Japanese-specific model in practical accuracy and trailed the server model
       by only 0.5 points.
-- [ ] Prerequisite 2: prove rten can execute the PP-OCRv5 mobile ONNX models.
-- Design constraints from the spike: render OCR input on white, not the default
-  transparent background; default to 300 dpi because 200 dpi misses lines at
-  9 pt and below; do not downscale internally; distribute
-  detection/recognition/classifier/dictionary, about 22 MB, in a separate wheel.
-- Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
+- [x] Prerequisite 2: prove RTen execution and choose the stronger PP-OCRv6
+      small models through numerical, synthetic, Japanese real-document,
+      memory, and artifact-size measurements.
+- The first native engine deliberately exposes axis-aligned boxes and no
+  automatic page-orientation classifier. Arbitrary skew, sideways-page
+  detection, ruby, warichu, and mixed-orientation typography remain explicit
+  depth. Sideways scans can set PDF page rotation before OCR. Use ocrs-cjk
+  (MIT/Apache) as a reference, not a dependency.
+- [ ] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher, publish
+      model v0.1.0 before the main v0.11 release, then run field validation over
+      additional licensed Japanese scans and bounded concurrent workloads.
 
 ### v1.0 — product-quality declaration of trust
 

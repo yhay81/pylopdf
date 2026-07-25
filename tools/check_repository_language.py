@@ -34,6 +34,9 @@ LOCALIZED_DIRECTORIES = {
     Path("docs/ko"),
     Path("docs/zh-cn"),
 }
+MULTILINGUAL_DATA_FILES = {
+    Path("models/pylopdf-ocr-models/src/pylopdf_ocr_models/ppocrv6_dict.txt"),
+}
 LANGUAGE_SELECTOR_NAMES = {
     "- name: \u65e5\u672c\u8a9e",
     "- name: \u7b80\u4f53\u4e2d\u6587",
@@ -114,7 +117,11 @@ def main() -> int:
     """Report CJK prose outside localized documentation and fixture data."""
     violations: list[tuple[Path, int, str]] = []
     for relative_path in _repository_files():
-        if _is_localized(relative_path) or relative_path.suffix.lower() not in TEXT_SUFFIXES:
+        if (
+            _is_localized(relative_path)
+            or relative_path in MULTILINGUAL_DATA_FILES
+            or relative_path.suffix.lower() not in TEXT_SUFFIXES
+        ):
             continue
         absolute_path = ROOT / relative_path
         try:

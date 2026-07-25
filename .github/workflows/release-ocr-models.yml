@@ -1,0 +1,122 @@
+# OCR model wheel release CI: publish pylopdf-ocr-models on an ocr-models-v* tag.
+#
+# Publishing requires a Trusted Publisher configured on PyPI:
+#   PyPI → project pylopdf-ocr-models → Publishing → GitHub
+#   owner: yhay81 / repository: pylopdf / workflow: release-ocr-models.yml / environment: pypi
+name: Release OCR models
+
+on:
+  push:
+    tags: ["ocr-models-v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and attest pylopdf-ocr-models
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+      - name: Verify package versions and release tag
+        run: |
+          package_version="$(python -c 'import tomllib; print(tomllib.load(open("models/pylopdf-ocr-models/pyproject.toml", "rb"))["project"]["version"])')"
+          module_version="$(PYTHONPATH=models/pylopdf-ocr-models/src python -c 'import pylopdf_ocr_models; print(pylopdf_ocr_models.__version__)')"
+          test "${package_version}" = "${module_version}"
+          if [[ "${GITHUB_REF_TYPE}" = "tag" ]]; then
+            test "ocr-models-v${package_version}" = "${GITHUB_REF_NAME}"
+          fi
+      - name: Verify bundled model artifacts
+        working-directory: models/pylopdf-ocr-models/src/pylopdf_ocr_models
+        run: sha256sum --check SHA256SUMS
+      - name: Build sdist and wheel
+        run: uv build --package pylopdf-ocr-models --out-dir dist
+      - name: Smoke-test installed wheel
+        run: |
+          uv venv .venv-smoke
+          uv pip install --python .venv-smoke/bin/python dist/*.whl
+          .venv-smoke/bin/python - <<'PY'
+          import hashlib
+          import pylopdf_ocr_models as models
+
+          paths = models.model_paths()
+          assert all(path.is_file() for path in paths)
+          root = paths.detector.parent
+          for entry in (root / "SHA256SUMS").read_text(encoding="ascii").splitlines():
+              expected, filename = entry.split("  ", maxsplit=1)
+              assert hashlib.sha256((root / filename).read_bytes()).hexdigest() == expected
+          PY
+      - run: mkdir -p release
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: dist/
+          format: spdx-json
+          output-file: release/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest build provenance
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+      - name: Attest SBOM
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+          sbom-path: release/sbom.spdx.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ocr-models-dist
+          path: dist/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ocr-models-sbom
+          path: release/sbom.spdx.json
+
+  publish:
+    name: Publish pylopdf-ocr-models
+    if: startsWith(github.ref, 'refs/tags/ocr-models-v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ocr-models-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
+
+  github-release:
+    name: Create immutable GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes release-assets/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

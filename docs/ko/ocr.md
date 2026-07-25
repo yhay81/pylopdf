@@ -1,0 +1,77 @@
+# 오프라인 OCR
+
+pylopdf는 스캔한 페이지를 로컬에서 인식하고 보이지 않는 검색 가능 텍스트 레이어를 추가할 수 있습니다. 선택적 모델 패키지를 설치합니다.
+
+```bash
+pip install "pylopdf[ocr]"
+```
+
+코어 확장은 순수 Rust RTen 런타임으로 PP-OCRv6 small을 실행합니다. 실행 시 시스템 실행 파일, 공유 라이브러리, 네트워크 요청 또는 ONNX 파서가 필요하지 않습니다. 별도로 버전이 관리되는 모델 wheel은 약 26.6 MB이며 일본어, 중국어 간체·번체, 영어를 포함한 50개 언어를 지원합니다.
+
+## 편집하지 않고 인식하기
+
+`Page.get_text_ocr()`은 문서를 변경하지 않고 위치가 포함된 단어를 반환합니다.
+
+```python
+import pylopdf
+
+with pylopdf.open("scan.pdf") as doc:
+    words = doc[0].get_text_ocr()
+    for word in words:
+        print(word["bbox"], word["text"], word["confidence"])
+```
+
+각 `OcrWord`의 `Rect`는 렌더링 및 추출과 동일하게 회전이 반영된 왼쪽 위 원점 표시 좌표를 사용합니다. `confidence`는 인식 결과 순위를 위한 결정론적 지표이며 보정된 확률은 아닙니다.
+
+## 스캔 문서를 검색 가능하게 만들기
+
+엔진 하나를 로드해 여러 페이지에서 재사용합니다.
+
+```python
+import pylopdf
+
+engine = pylopdf.OcrEngine(threads=4)
+with pylopdf.open("scan.pdf") as doc:
+    for page in doc:
+        page.apply_ocr(engine=engine)
+    doc.save("searchable.pdf", garbage=3, deflate=True, object_streams=True)
+```
+
+`apply_ocr()`은 렌더링 픽셀과 기존 페이지 내용을 유지합니다. 기본적으로 추출 가능한 텍스트가 이미 있는 페이지를 건너뛰므로 파이프라인을 다시 실행해도 보이지 않는 레이어가 중복되지 않습니다. 혼합 콘텐츠 페이지에서는 표시 좌표 `clip=(x0, y0, x1, y1)`로 스캔 영역을 선택할 수 있으며 그 영역과 교차하는 기존 텍스트만 건너뛰기 판단에 사용됩니다. 교차 텍스트가 있어도 추가해야 할 때만 `skip_existing=False`를 사용하십시오.
+
+## 리소스 제어
+
+기본값은 300 dpi, 1,408픽셀 감지 타일, 192픽셀 겹침, 최대 4개의 RTen 작업 스레드입니다. 겹치는 타일은 경계의 중복 감지를 병합하면서 전체 페이지 감지 메모리를 제한합니다. 한 300 dpi A4 측정에서 기본 구성의 최대치는 약 419 MiB였지만 문서, 플랫폼, 할당자 및 동시 실행 수에 따라 달라집니다.
+
+메모리가 부족하면 `threads`와 `tile_size`를 낮추십시오.
+
+```python
+engine = pylopdf.OcrEngine(threads=2)
+words = page.get_text_ocr(
+    engine=engine,
+    tile_size=1280,
+    overlap=192,
+    min_confidence=0.6,
+)
+```
+
+`clip`은 OCR 감지기 입력과 인식 작업을 줄이지만 hayro 0.7은 자르기 전에 여전히 전체 페이지를 렌더링합니다. 반환되는 상자는 전체 페이지 표시 좌표를 유지합니다.
+
+`OcrEngine`은 불변이며 서로 다른 문서에서 재사용할 수 있습니다. 동시에 실행되는 각 인식 호출은 자체 래스터 및 추론 버퍼를 사용하므로 바깥쪽 동시 실행 수를 제한해야 합니다. 동일한 `Document`에 대한 외부 스레드의 동시 호출이나 편집은 pylopdf의 동시성 계약 범위 밖입니다.
+
+## 측정된 정확도 기준
+
+추적되고 재배포 가능한 일본 후생노동성 fixture에서 1,188자의 정답 텍스트를 추출해 네이티브 pipeline을 측정했습니다.
+
+| DPI | 엄격 CER | NFKC CER | 경과 시간 |
+|---:|---:|---:|---:|
+| 150 | 3.788% | 0.842% | 5.71초 |
+| 300 | 3.704% | 0.842% | 11.93초 |
+
+RapidOCR v6 참조의 NFKC CER은 각각 0.926%와 0.758%이므로 보고서에는 pylopdf의 150 dpi 우세와 300 dpi 열세가 모두 남아 있습니다. 엄격 CER은 공백만 제거하고 NFKC CER은 전각 라틴 문자 같은 호환 형식도 정규화합니다. 시간은 하드웨어에 따라 달라집니다. 전체 보고서는 `uv run python bench/ocr.py`로 재현할 수 있습니다.
+
+## 모델과 레이아웃 경계
+
+경로를 생략하면 `OcrEngine`은 `pylopdf[ocr]`가 설치한 검증된 모델 세트를 찾습니다. 고급 사용자는 호환되는 RTen 형식 PP-OCR 감지기, 인식기 및 사전을 명시적으로 전달할 수 있습니다.
+
+첫 번째 네이티브 엔진은 축에 정렬된 단어 상자를 반환합니다. 아직 임의 각도 기울기 보정, 옆으로 놓인 페이지 자동 감지, 루비·와리추·혼합 방향 조판 해석은 지원하지 않습니다. 스캔이 옆으로 놓여 있으면 OCR 전에 페이지 회전을 명시적으로 설정하십시오. PP-OCRv6 모델의 출처, 원본 및 결과물 해시, 변환 명령과 Apache-2.0 고지는 `pylopdf-ocr-models` 배포물에 포함됩니다.
