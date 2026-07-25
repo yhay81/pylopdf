@@ -453,7 +453,9 @@ uv sync --all-extras --group bench && uv run python bench/run.py
 ```
 
 The separate [native OCR report](bench/results/ocr-latest.md) publishes strict
-and NFKC-normalized CER plus elapsed time on the licensed MHLW fixture:
+and NFKC-normalized CER plus elapsed time on two licensed Japanese fixtures,
+including an image-only archival scan. It also records a bounded shared-engine
+concurrency check:
 
 ```bash
 uv sync --all-extras && uv run python bench/ocr.py

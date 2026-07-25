@@ -105,18 +105,30 @@ the same `Document` remain outside pylopdf's concurrency contract.
 
 ## Measured accuracy gate
 
-The tracked, redistributable MHLW fixture supplies 1,188 extracted
-ground-truth characters. The native pipeline measured:
+Two tracked, redistributable Japanese fixtures cover different inputs. The
+digital MHLW document supplies 1,188 extracted ground-truth characters. An
+image-only Agency for Cultural Affairs archival scan supplies 384 manually
+verified characters; small ruby is excluded because ruby association is outside
+the OCR contract.
 
-| DPI | Strict CER | NFKC CER | Elapsed |
-|---:|---:|---:|---:|
-| 150 | 3.788% | 0.842% | 5.71s |
-| 300 | 3.704% | 0.842% | 11.93s |
+| Case | DPI | Strict CER | NFKC CER | Elapsed |
+|---|---:|---:|---:|---:|
+| MHLW digital | 150 | 3.788% | 0.842% | 5.50s |
+| MHLW digital | 300 | 3.704% | 0.842% | 13.87s |
+| archival scan | 150 | 1.823% | 1.562% | 2.05s |
+| archival scan | 300 | 1.302% | 1.042% | 5.37s |
 
-The RapidOCR v6 reference measured 0.926% and 0.758% NFKC CER respectively, so
-the report retains both pylopdf's 150-dpi win and 300-dpi loss. Strict CER only
-removes whitespace; NFKC CER additionally folds compatibility forms such as
-full-width Latin characters. Timings are hardware-specific. Reproduce the
+For the MHLW case, the RapidOCR v6 reference measured 0.926% and 0.758% NFKC
+CER respectively, so the report retains both pylopdf's 150-dpi win and 300-dpi
+loss. Strict CER only removes whitespace; NFKC CER additionally folds
+compatibility forms such as full-width Latin characters. Timings are
+hardware-specific.
+
+A separate 150-dpi field check ran both documents through one shared engine.
+`max_concurrent=1` completed in 6.31s, while `max_concurrent=2` completed in
+6.75s; both exactly matched the sequential text. This workload showed no
+throughput gain from the higher limit while each admitted call still owns
+separate buffers, supporting the conservative default of 1. Reproduce the
 complete report with `uv run python bench/ocr.py`.
 
 ## Model and layout boundaries

@@ -414,9 +414,15 @@ that gap without broadening the mandatory Python dependency set.
   changing PDF page rotation. Arbitrary skew, automatic sideways-page
   detection, ruby, warichu, and mixed-orientation typography remain explicit
   depth. Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
-- [ ] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher, publish
-      model v0.1.0 before the main v0.11 release, then run field validation over
-      additional licensed Japanese scans and bounded concurrent workloads.
+- [ ] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher and publish
+      model v0.1.0 before the main v0.11 release.
+- [x] Extend field validation to a licensed, image-only Japanese archival scan
+      with 384 manually verified characters. It measured 1.823% / 1.302% strict
+      CER and 1.562% / 1.042% NFKC CER at 150 / 300 dpi. A shared-engine,
+      two-document 150-dpi check exactly matched sequential text at both
+      admission limits, while `max_concurrent=1` took 6.31s and 2 took 6.75s.
+      The higher limit did not improve this four-thread workload and still owns
+      separate buffers, reinforcing the conservative default of 1.
 
 ### v1.0 — product-quality declaration of trust
 

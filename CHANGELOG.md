@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Native OCR field validation now includes a licensed, image-only Japanese
+  archival scan with manually verified ground truth at 150 and 300 dpi. The
+  reproducible report also checks two distinct documents through one shared
+  engine at admission limits 1 and 2, verifies exact agreement with sequential
+  recognition, and publishes the lack of a throughput gain alongside the
+  increased live-buffer risk.
 - `Page.find_tables()` now refines coarse vector-grid spans when at least three
   evenly led text records densely occupy the same cross-axis cell slots. The
   conservative inference is symmetric across right-angle page rotations,

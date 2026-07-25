@@ -30,8 +30,9 @@ overview.
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
   losses together.
 - `uv sync --all-extras && uv run python bench/ocr.py` — reproduce native OCR
-  strict/NFKC CER and elapsed time on the licensed MHLW fixture. Results are
-  written to `bench/results/ocr-latest.md`.
+  strict/NFKC CER and elapsed time on two licensed Japanese fixtures, plus a
+  bounded shared-engine concurrency check. Results are written to
+  `bench/results/ocr-latest.md`.
 - `uv sync --group docs && uv run zensical serve -f mkdocs.yml` — preview the
   English documentation with Zensical. Locale configurations are
   `mkdocs.ja.yml`, `mkdocs.zh-cn.yml`, and `mkdocs.ko.yml`. To reproduce the
@@ -122,12 +123,15 @@ overview.
   Documents, including CPython 3.14t. A Python admission semaphore covers the
   complete render-and-recognize operation; `max_concurrent=1` is the
   memory-safe default and values through 16 require workload measurement.
-  Every admitted call owns raster and inference buffers. Same-Document
-  restrictions still apply. `Page.apply_ocr` skips pages with extractable text
-  by default so repeated runs are idempotent. With `clip=`, only intersecting
-  text triggers the skip and result boxes remain in full-page display
-  coordinates. Clipping reduces OCR detector input but not hayro's current
-  full-page rendering cost. The first engine returns axis-aligned boxes only;
+  Every admitted call owns raster and inference buffers. A two-document,
+  four-thread field check at 150 dpi exactly matched sequential output, while
+  admission limits 1 and 2 took 6.31s and 6.75s respectively, reinforcing the
+  default of 1. Same-Document restrictions still apply. `Page.apply_ocr` skips
+  pages with extractable text by default so repeated runs are idempotent. With
+  `clip=`, only intersecting text triggers the skip and result boxes remain in
+  full-page display coordinates. Clipping reduces OCR detector input but not
+  hayro's current full-page rendering cost. The first engine returns
+  axis-aligned boxes only;
   `rotation=90 / 180 / 270` turns the rendered OCR input clockwise, maps boxes
   back to the unmodified display space, and makes `apply_ocr` orient its
   invisible baseline accordingly. Nonzero rotation temporarily adds one RGBA
