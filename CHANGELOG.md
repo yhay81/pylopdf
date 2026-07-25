@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unimplemented ecosystem-only feature.
 
 ### Added
+- A reproducible Pyodide 0.28.3 builder now produces a static,
+  `micropip.install()`-compatible WebAssembly wheel. It pins Python 3.13.2,
+  Emscripten 4.0.9 and its Node.js runtime, Rust 1.95.0, pyodide-build, maturin,
+  the Pyodide cross-build environment checksum, and every Python build
+  dependency hash. The verifier checks the `pyodide_2025_0_wasm32` wheel tag,
+  WebAssembly exception import, and absence of wasm-bindgen shims; the runtime
+  smoke test covers byte-stream loading, text extraction, batch rendering,
+  Python exception recovery, and reuse after malformed input. Emscripten builds
+  omit lopdf's native clock and rayon features and execute `render_pages`
+  serially, while native builds retain their existing bounded worker pools.
+  Two identical builds produced the same 4.52 MiB wheel byte for byte.
 - `Document.compress_images(dpi=150, quality=75)` now downsamples and
   recompresses safe JPEG XObjects for smaller attachment-oriented PDFs. hayro
   measures every placement and preserves the pixels required by the largest

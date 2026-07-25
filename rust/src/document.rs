@@ -20,6 +20,7 @@ use lopdf::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+#[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
 use crate::draw;
@@ -181,7 +182,9 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
 
 /// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
+#[cfg(not(target_os = "emscripten"))]
 const MAX_PARALLEL_RENDER_BYTES: u64 = 512_000_000;
+#[cfg(not(target_os = "emscripten"))]
 const ESTIMATED_RENDER_BYTES_PER_PIXEL: u64 = 8;
 
 /// Convert a lopdf error to a Python exception with a context prefix.
@@ -2788,6 +2791,7 @@ impl _Document {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
+            #[cfg(not(target_os = "emscripten"))]
             let max_pixels = page_numbers
                 .iter()
                 .map(|&page_number| render_pixel_count(pdf, page_number, scale))
@@ -2800,22 +2804,31 @@ impl _Document {
                 render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
                     .and_then(rendered_png)
             };
-            let estimated_page_bytes = max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
-            let memory_limited_workers =
-                usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
-                    .unwrap_or(usize::MAX);
-            let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
-            let rendered: Result<Vec<Vec<u8>>, String> = if worker_count == 1 {
-                page_numbers.iter().map(render_one).collect()
-            } else {
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(worker_count)
-                    .thread_name(|index| format!("pylopdf-render-{index}"))
-                    .build()
-                    .map_err(|error| {
-                        PdfError::new_err(format!("failed to create render worker pool: {error}"))
-                    })?;
-                pool.install(|| page_numbers.par_iter().map(render_one).collect())
+            #[cfg(target_os = "emscripten")]
+            let rendered: Result<Vec<Vec<u8>>, String> =
+                page_numbers.iter().map(render_one).collect();
+            #[cfg(not(target_os = "emscripten"))]
+            let rendered: Result<Vec<Vec<u8>>, String> = {
+                let estimated_page_bytes =
+                    max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
+                let memory_limited_workers =
+                    usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
+                        .unwrap_or(usize::MAX);
+                let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
+                if worker_count == 1 {
+                    page_numbers.iter().map(render_one).collect()
+                } else {
+                    let pool = rayon::ThreadPoolBuilder::new()
+                        .num_threads(worker_count)
+                        .thread_name(|index| format!("pylopdf-render-{index}"))
+                        .build()
+                        .map_err(|error| {
+                            PdfError::new_err(format!(
+                                "failed to create render worker pool: {error}"
+                            ))
+                        })?;
+                    pool.install(|| page_numbers.par_iter().map(render_one).collect())
+                }
             };
             rendered.map_err(PdfError::new_err)
         })
