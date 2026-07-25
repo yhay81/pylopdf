@@ -44,6 +44,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown(table_strategy="lines")` | 使用相同表格控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
+| `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
@@ -54,6 +55,13 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
+
+`get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、
+自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join和
+dashes。对于pattern paint，会保留几何形状，而颜色和opacity为`None`。它不返回
+clip path、clip应用后的可见性判断、group/soft-mask结构、optional-content layer名称、
+text、image或annotation，但仍会应用optional-content的可见性。结果超过8,192 paths
+或131,072 commands时会拒绝，而不是静默截断。
 
 使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。它会对每一行进行塑形，
 但不提供字体回退、双向段落布局或自动换行。RTL塑形可以正确渲染；当前文本提取采用
@@ -86,7 +94,8 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | 页面与表单字典结果的TypedDict契约 |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | 页面、表单与矢量绘制结果的TypedDict契约 |
+| `DrawingItem` | 表示line/cubic绘制命令的类型别名 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |

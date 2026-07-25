@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unimplemented ecosystem-only feature.
 
 ### Added
+- `Page.get_drawings()` now extracts interpreted vector fill, stroke, and
+  combined paths through hayro in rotation-resolved display coordinates. Pymupdf-style
+  typed dictionaries expose self-contained line/cubic commands, path bounds,
+  RGB/opacity, fill rule, width, cap, join, and dashes. Pattern paints retain
+  geometry with `None` color, quadratic curves become exact cubics, and
+  adversarial output is rejected above 8,192 paths or 131,072 commands instead
+  of returning a partial result. Synthetic style/rotation cases and ten
+  real-world PDFs cover the native extractor.
 - `Pixmap.save(path)` now encodes and writes PNG output directly while
   releasing the GIL. It accepts strings and path-like objects, retains the
   fast render-oriented compression used by `tobytes()`, and reports filesystem

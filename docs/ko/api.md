@@ -44,6 +44,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `find_tables(strategy="lines", clip=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown(table_strategy="lines")` | 같은 표 제어를 사용하는 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
+| `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
@@ -54,6 +55,13 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 주석 |
+
+`get_drawings()`는`type="f"` / `"s"` / `"fs"`, 자체 완결형line/cubic `items`,
+`rect`, RGB/opacity, fill rule, width, cap, join, dashes를 포함한`DrawingInfo`
+딕셔너리를 반환합니다. pattern paint는 도형을 유지하고 색상과opacity는`None`으로
+둡니다. clip path, clip 적용 후 가시성 판단, group/soft-mask 구조, optional-content
+layer 이름, text, image, annotation은 반환하지 않지만 optional-content 표시 상태는
+적용합니다. 결과가8,192 paths 또는131,072 commands를 넘으면 잘라내지 않고 거부합니다.
 
 내장 글꼴을 사용하는 `insert_text`에는 필요한 모든 글리프를 포함한 단일 글꼴이
 필요합니다. 각 줄의 셰이핑은 수행하지만 글꼴 폴백, 양방향 단락 레이아웃 또는 자동
@@ -91,7 +99,8 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page와 form의 사전 형식 결과를 위한 TypedDict 계약 |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page, form, vector drawing의 사전 형식 결과를 위한 TypedDict 계약 |
+| `DrawingItem` | line/cubic 그리기 명령을 나타내는 타입 별칭 |
 | `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |

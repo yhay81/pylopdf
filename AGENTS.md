@@ -108,6 +108,17 @@ overview.
   from conservative single-glyph vertical chains: top-to-bottom within a line,
   right-to-left across columns, with horizontal headings and footers preserved.
   Ruby, warichu, and mixed-orientation typography are not interpreted.
+- `Page.get_drawings` uses a separate hayro Device and releases the GIL. It
+  returns interpreted fill/stroke paint operations as pymupdf-style
+  `DrawingInfo` mappings in rotation-resolved display coordinates. Commands are
+  self-contained lines or cubics; quadratics convert exactly to cubics, and
+  adjacent fill/stroke callbacks for one PDF operator combine as `type="fs"`.
+  Solid paints expose normalized RGB and opacity; patterns retain geometry with
+  `None` paint values. Clipping/group/soft-mask structure and clip-resolved
+  visibility, optional-content layer names, text, images, and annotations are
+  outside this path API. Optional-content visibility is still applied. Reject
+  output above 8,192 paths or 131,072 commands rather than returning a partial
+  result.
 - Native OCR uses RTen 0.24 with only its `rten_format` feature. The core wheel
   contains the pure-Rust inference engine; PP-OCRv6 small detector,
   recognizer, and dictionary data come from the independently versioned

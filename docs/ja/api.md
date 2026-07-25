@@ -44,6 +44,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines")` | ドキュメントと同じ表制御を持つ 1 ページ分の Markdown |
 | `get_images()` | 描画された画像（`bbox` 付き。JPEG パススルー / PNG） |
+| `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | レンダリング。`clip` は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
@@ -54,6 +55,13 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層（searchable PDF化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |
+
+`get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
+`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashesを持つ
+`DrawingInfo`辞書を返します。pattern paintでは形状を保持し、色とopacityは`None`です。
+clip path、clip適用後の可視判定、group/soft-mask構造、optional-content layer名、
+text、image、annotationは返しませんが、optional-contentの表示状態は適用されます。
+8,192 pathsまたは131,072 commandsを超える結果は切り詰めず拒否します。
 
 埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。
 各行の字形処理は行いますが、フォントfallback、双方向paragraph layout、折り返しは
@@ -91,7 +99,8 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page・form の辞書形式結果を表す TypedDict |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page・form・vector drawing の辞書形式結果を表す TypedDict |
+| `DrawingItem` | line/cubic 描画コマンドを表す型 alias |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |

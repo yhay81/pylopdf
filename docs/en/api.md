@@ -44,6 +44,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown(table_strategy="lines")` | single-page Markdown with the same table controls |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
+| `get_drawings()` | interpreted vector fill/stroke paths with display-space line/cubic geometry and normalized paint/stroke properties |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
@@ -54,6 +55,14 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
+
+`get_drawings()` returns `DrawingInfo` dictionaries with `type="f"`, `"s"`,
+or `"fs"`, self-contained line/cubic `items`, `rect`, RGB/opacity, fill rule,
+width, cap, join, and dashes. Pattern paints retain their geometry with
+`None` color and opacity. Clipping paths, clip-resolved visibility, group and
+soft-mask structure, optional-content layer names, text, images, and annotations
+are not returned; optional-content visibility is still applied. The result is
+rejected rather than truncated above 8,192 paths or 131,072 commands.
 
 Embedded-font `insert_text` requires one font containing every glyph. It shapes
 each line but does not provide font fallback, bidirectional paragraph layout,
@@ -94,11 +103,11 @@ metrics. `TableFinder.strategy` and
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page and form results |
+| `ImageInfo` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, tuple and literal type aliases |
+| `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()` |

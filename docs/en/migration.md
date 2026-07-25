@@ -29,6 +29,7 @@ deliberately does not implement.
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
 | `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's `tobytes()` and `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
+| `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |

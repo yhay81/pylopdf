@@ -377,6 +377,7 @@ signed_pdf: bytes = out.getvalue()
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
+| `get_drawings()` | Extract interpreted vector fill/stroke paths as typed pymupdf-style dictionaries with display-space line/cubic geometry, RGB/opacity, fill rule, width, cap, join, and dashes |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=/pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw JPEG without recompression, PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; optional clockwise right-angle rotation and rect use display coordinates |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
@@ -399,6 +400,7 @@ Module level:
 | `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe without parsing the whole file |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
+| `DrawingInfo` / `DrawingItem` | Typed vector-path dictionary and its line/cubic command union |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
 | `OcrEngine` / `OcrWord` / `OcrRotation` | Reusable pure-Rust PP-OCR engine, its typed positioned-word result, and the `0 / 90 / 180 / 270` clockwise-correction contract |
 | Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `OcrError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
