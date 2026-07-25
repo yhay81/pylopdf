@@ -76,6 +76,8 @@ struct GlyphRecord {
     font_key: u128,
     /// Font display attributes: name plus pymupdf-compatible flags.
     font: FontInfo,
+    /// Glyph callback order before geometric clustering.
+    source_order: usize,
 }
 
 /// One axis-aligned stroked path segment in display coordinates.
@@ -222,6 +224,7 @@ impl Device<'_> for TextCollector {
         }
         // Context initial_transform already flips y and applies rotation, so
         // transformed coordinates are directly in top-left-origin display space.
+        let source_order = self.glyphs.len();
         self.glyphs.push(GlyphRecord {
             text,
             x: origin.x,
@@ -232,6 +235,7 @@ impl Device<'_> for TextCollector {
             writing_mode: 0,
             font_key,
             font,
+            source_order,
         });
     }
 }
@@ -239,6 +243,15 @@ impl Device<'_> for TextCollector {
 /// Line threshold: baselines within this factor × font size share a line.
 /// This absorbs super/subscripts while separating normal leading of 1.0 or more.
 const LINE_TOLERANCE: f64 = 0.5;
+
+/// Backward movement above this factor starts another source-order paint run.
+const PAINT_RUN_RESET_TOLERANCE: f64 = 0.05;
+
+/// Inline overlap above this factor keeps paint runs on separate logical lines.
+const PAINT_LAYER_OVERLAP_TOLERANCE: f64 = 0.05;
+
+/// Same-origin repeated glyphs below this factor still form separate runs.
+const PAINT_RUN_SAME_ORIGIN_TOLERANCE: f64 = 0.0001;
 
 /// Cross-axis tolerance when joining glyphs on one vertical baseline.
 const VERTICAL_LINE_TOLERANCE: f64 = 0.35;
@@ -598,15 +611,123 @@ fn cluster_explicit_vertical(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecor
             lines.push(vec![glyph]);
         }
     }
-    for line in &mut lines {
-        let direction = line[0].direction;
-        line.sort_by(|left, right| {
-            let left_progress = left.x * direction.0 + left.y * direction.1;
-            let right_progress = right.x * direction.0 + right.y * direction.1;
-            left_progress.total_cmp(&right_progress)
-        });
-    }
     lines
+        .into_iter()
+        .flat_map(split_overlapping_paint_layers)
+        .collect()
+}
+
+struct PaintLayer {
+    glyphs: Vec<GlyphRecord>,
+    intervals: Vec<(f64, f64, f64)>,
+}
+
+fn sort_line_inline(line: &mut [GlyphRecord]) {
+    line.sort_by(|left, right| {
+        glyph_progress(left)
+            .total_cmp(&glyph_progress(right))
+            .then(left.source_order.cmp(&right.source_order))
+    });
+}
+
+fn paint_run_interval(run: &[GlyphRecord]) -> (f64, f64, f64) {
+    let (x0, y0, x1, y1) = glyphs_bbox(run);
+    let vertical = run.first().is_some_and(has_vertical_baseline);
+    let (start, end) = if vertical { (y0, y1) } else { (x0, x1) };
+    let scale = run.iter().map(|glyph| glyph.size).fold(1.0, f64::max);
+    (start, end, scale)
+}
+
+fn paint_intervals_overlap(
+    (left_start, left_end, left_scale): (f64, f64, f64),
+    (right_start, right_end, right_scale): (f64, f64, f64),
+) -> bool {
+    let overlap = left_end.min(right_end) - left_start.max(right_start);
+    overlap > left_scale.max(right_scale) * PAINT_LAYER_OVERLAP_TOLERANCE
+}
+
+/// Preserve source-order text runs when geometry sorting would interleave them.
+///
+/// A PDF may paint complete strings more than once at the same baseline. The
+/// old x/y sort grouped equal-position glyphs (`A1, B1, A2, B2`) and destroyed
+/// both strings. Detect backward source-order resets, then greedily place
+/// non-overlapping runs on one geometry-sorted line while retaining overlapping
+/// runs as separate lines. This preserves distinct overprints instead of
+/// deleting them.
+fn split_overlapping_paint_layers(mut line: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+    if line.len() < 2 {
+        sort_line_inline(&mut line);
+        return vec![line];
+    }
+    line.sort_by_key(|glyph| glyph.source_order);
+
+    let mut runs: Vec<Vec<GlyphRecord>> = Vec::new();
+    let mut previous_progress: Option<f64> = None;
+    let mut previous_direction: Option<(f64, f64)> = None;
+    let mut previous_origin: Option<(f64, f64)> = None;
+    let mut previous_text: Option<String> = None;
+    for glyph in line {
+        let progress = glyph_progress(&glyph);
+        let scale = glyph.size.max(1.0);
+        let direction_changed = previous_direction.is_some_and(|direction| {
+            direction.0 * glyph.direction.0 + direction.1 * glyph.direction.1 < 0.9
+        });
+        let moved_backward = previous_progress
+            .is_some_and(|previous| progress < previous - scale * PAINT_RUN_RESET_TOLERANCE);
+        let repeated_at_same_origin =
+            previous_origin
+                .zip(previous_text.as_deref())
+                .is_some_and(|((x, y), text)| {
+                    (glyph.x - x).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
+                        && (glyph.y - y).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
+                        && glyph.text == text
+                });
+        if runs.is_empty() || moved_backward || repeated_at_same_origin || direction_changed {
+            runs.push(Vec::new());
+        }
+        previous_progress = Some(progress);
+        previous_direction = Some(glyph.direction);
+        previous_origin = Some((glyph.x, glyph.y));
+        previous_text = Some(glyph.text.clone());
+        runs.last_mut()
+            .expect("a paint run was created immediately before")
+            .push(glyph);
+    }
+
+    if runs.len() == 1 {
+        let mut line = runs.pop().expect("one paint run exists");
+        sort_line_inline(&mut line);
+        return vec![line];
+    }
+
+    let mut layers: Vec<PaintLayer> = Vec::new();
+    for run in runs {
+        let interval = paint_run_interval(&run);
+        // Merge only into the latest layer. Searching older compatible layers
+        // would move this run before an intervening overprint.
+        let compatible = layers.last_mut().filter(|layer| {
+            layer
+                .intervals
+                .iter()
+                .all(|existing| !paint_intervals_overlap(*existing, interval))
+        });
+        if let Some(layer) = compatible {
+            layer.glyphs.extend(run);
+            layer.intervals.push(interval);
+        } else {
+            layers.push(PaintLayer {
+                glyphs: run,
+                intervals: vec![interval],
+            });
+        }
+    }
+    layers
+        .into_iter()
+        .map(|mut layer| {
+            sort_line_inline(&mut layer.glyphs);
+            layer.glyphs
+        })
+        .collect()
 }
 
 /// Group glyphs into physical text lines.
@@ -630,12 +751,14 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
             lines.push(vec![glyph]);
         }
     }
-    for line in &mut lines {
-        line.sort_by(|left, right| glyph_progress(left).total_cmp(&glyph_progress(right)));
-    }
+    let lines = lines
+        .into_iter()
+        .flat_map(split_overlapping_paint_layers)
+        .collect::<Vec<_>>();
     vertical_lines.extend(cluster_explicit_vertical(explicit_vertical));
-    lines.extend(vertical_lines);
-    lines
+    let mut all_lines = lines;
+    all_lines.extend(vertical_lines);
+    all_lines
 }
 
 /// Split independently positioned columns or table cells sharing one baseline.

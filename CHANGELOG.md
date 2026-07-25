@@ -174,6 +174,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within 0.01%
 
 ### Fixed
+- Overlapping text paint runs on one baseline now retain their source-order
+  phrases before geometric ordering. Exact overprints, distinct strings,
+  partial overlaps, and slight offsets no longer interleave glyphs in plain
+  text, words, blocks, layout dictionaries, search, or Markdown; separate
+  overprints remain separate instead of being discarded as duplicates
 - `max_decompressed_size=` now validates page content and other streams that
   hayro would otherwise decompress lazily. Image streams are bounded by decoded
   RGBA size, and filter chains that cannot be bounded safely are rejected while

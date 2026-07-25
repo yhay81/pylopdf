@@ -265,6 +265,11 @@ measurable, coherent boundary.
   whitespace gutters split line segments into recursive left-to-right columns,
   with full-width headings and footers preserved and isolated wide gaps
   rejected.
+- [x] Preserve overlapping text paint runs as source-ordered logical layers
+      before geometric line ordering. Exact CJK and Latin overprints, distinct
+      strings at one origin, partial overlaps, and slight offsets retain each
+      phrase, search result, and bbox across text, words, blocks, dict, and
+      Markdown output instead of interleaving equal-position glyphs.
 - [x] Add high-confidence geometry-based table extraction for complete
   axis-aligned stroked grids, with owned `TableFinder` / `Table` results,
   display-space cell bboxes, text matrices, and Markdown export.
