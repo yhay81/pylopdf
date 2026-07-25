@@ -2,7 +2,63 @@
 
 from __future__ import annotations
 
+import pytest
+from conftest import build_raw_pdf
+
 import pylopdf
+
+
+def _table_pdf(
+    *,
+    bordered: bool = True,
+    table_font_size: int = 12,
+    include_cells: bool = True,
+) -> bytes:
+    """Build a three-by-two table between ordinary page text."""
+    rules = (
+        "q 0 G 1 w\n"
+        "40 250 m 300 250 l\n"
+        "40 210 m 300 210 l\n"
+        "40 170 m 300 170 l\n"
+        "40 130 m 300 130 l\n"
+        "40 130 m 40 250 l\n"
+        "170 130 m 170 250 l\n"
+        "300 130 m 300 250 l\n"
+        "S Q\n"
+        if bordered
+        else ""
+    )
+    values = [
+        (50, 225, "Name"),
+        (180, 225, "Value"),
+        (50, 185, "Alpha"),
+        (180, 185, "42"),
+        (50, 145, "Beta"),
+        (180, 145, "7"),
+    ]
+    cells = (
+        "\n".join(f"BT /F1 {table_font_size} Tf {x} {y} Td ({text}) Tj ET" for x, y, text in values)
+        if include_cells
+        else ""
+    )
+    stream = (
+        "BT /F1 18 Tf 40 310 Td (Section) Tj ET\n"
+        "BT /F1 12 Tf 40 280 Td (Body text) Tj ET\n"
+        f"{rules}{cells}\n"
+        "BT /F1 12 Tf 40 60 Td (After table) Tj ET"
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 340 340] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
 
 
 def _layout_pdf(pages: list[list[tuple]]) -> bytes:
@@ -167,3 +223,82 @@ def test_empty_document() -> None:
     doc = pylopdf.Document()
     doc.new_page()
     assert doc.to_markdown() == ""
+
+
+def test_bordered_table_is_inserted_without_duplicate_cell_text() -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+
+    markdown = doc.to_markdown()
+
+    table = "| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n| Beta | 7 |"
+    assert table in markdown
+    assert markdown.index("# Section") < markdown.index(table) < markdown.index("After table")
+    assert markdown.count("Name") == 1
+    assert markdown.count("Alpha") == 1
+
+
+def test_table_conversion_can_be_disabled() -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+
+    markdown = doc[0].to_markdown(table_strategy=None)
+
+    assert "| --- |" not in markdown
+    assert "Name" in markdown
+    assert "Alpha" in markdown
+
+
+def test_borderless_table_conversion_is_explicit() -> None:
+    doc = pylopdf.open(stream=_table_pdf(bordered=False))
+
+    default = doc.to_markdown()
+    with_text_tables = doc.to_markdown(table_strategy="text")
+
+    assert "| --- |" not in default
+    assert "| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n| Beta | 7 |" in with_text_tables
+    assert with_text_tables.count("Name") == 1
+
+
+def test_text_strategy_prefers_overlapping_bordered_table() -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+
+    markdown = doc.to_markdown(table_strategy="text")
+
+    assert markdown.count("| --- | --- |") == 1
+    assert markdown.count("Alpha") == 1
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_table_markdown_preserves_page_reading_order(rotation: int) -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+    doc[0].set_rotation(rotation)
+
+    markdown = doc[0].to_markdown()
+
+    assert markdown.index("# Section") < markdown.index("| Name | Value |") < markdown.index("After table")
+    assert markdown.count("Alpha") == 1
+
+
+def test_table_text_does_not_influence_heading_size_inference() -> None:
+    doc = pylopdf.open(stream=_table_pdf(table_font_size=24))
+
+    markdown = doc.to_markdown()
+
+    assert markdown.startswith("# Section")
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> None:
+    doc = pylopdf.open(stream=_table_pdf(include_cells=False))
+    doc[0].set_rotation(rotation)
+
+    markdown = doc.to_markdown()
+
+    table = "|  |  |\n| --- | --- |\n|  |  |\n|  |  |"
+    assert markdown.index("Body text") < markdown.index(table) < markdown.index("After table")
+
+
+@pytest.mark.parametrize("table_strategy", ["guess", 1, False])
+def test_markdown_rejects_unknown_table_strategy(table_strategy: object) -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+    with pytest.raises(ValueError, match="table_strategy"):
+        doc.to_markdown(table_strategy=table_strategy)  # type: ignore[arg-type]

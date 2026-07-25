@@ -595,28 +595,7 @@ class Table:
         When ``fill_empty`` is true, merged-cell continuation slots inherit the
         value above or to the left because Markdown has no row/column spans.
         """
-        rows = self.extract()
-        if not rows:
-            return ""
-
-        if fill_empty:
-            for row_index, row in enumerate(rows):
-                for column_index, value in enumerate(row):
-                    if value is not None:
-                        continue
-                    above = rows[row_index - 1][column_index] if row_index else None
-                    left = row[column_index - 1] if column_index else None
-                    row[column_index] = above if above is not None else left
-
-        def escape(value: str | None) -> str:
-            if value is None:
-                return ""
-            return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
-
-        rendered = ["| " + " | ".join(escape(value) for value in rows[0]) + " |"]
-        rendered.append("| " + " | ".join("---" for _ in range(self.col_count)) + " |")
-        rendered.extend("| " + " | ".join(escape(value) for value in row) + " |" for row in rows[1:])
-        return "\n".join(rendered)
+        return _markdown.table_to_markdown(self.extract(), fill_empty=fill_empty)
 
 
 class TableFinder:
@@ -651,6 +630,33 @@ class TableFinder:
     def __iter__(self) -> Iterator[Table]:
         """Iterate over detected tables in page order."""
         return iter(self.tables)
+
+
+def _table_overlap_ratio(left: Rect, right: Rect) -> float:
+    """Return intersection area divided by the smaller table area."""
+    width = max(0.0, min(left.x1, right.x1) - max(left.x0, right.x0))
+    height = max(0.0, min(left.y1, right.y1) - max(left.y0, right.y0))
+    smaller_area = min(left.width * left.height, right.width * right.height)
+    return 0.0 if smaller_area <= 0.0 else width * height / smaller_area
+
+
+_MARKDOWN_TABLE_OVERLAP_LIMIT = 0.5
+
+
+def _markdown_page_tables(
+    page: Page,
+    strategy: Literal["lines", "text"],
+) -> list[Table]:
+    """Return bordered tables, optionally extended by non-overlapping text tables."""
+    tables = list(page.find_tables("lines"))
+    if strategy == "text":
+        for candidate in page.find_tables("text"):
+            if all(
+                _table_overlap_ratio(candidate.bbox, table.bbox) < _MARKDOWN_TABLE_OVERLAP_LIMIT for table in tables
+            ):
+                tables.append(candidate)
+    tables.sort(key=lambda table: (table.bbox.y0, table.bbox.x0))
+    return tables
 
 
 #: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
@@ -1057,14 +1063,20 @@ class Page:
             )
         return words
 
-    def to_markdown(self) -> str:
+    def to_markdown(
+        self,
+        *,
+        table_strategy: Literal["lines", "text"] | None = "lines",
+    ) -> str:
         """Convert this page to Markdown.
 
         This is the single-page form of :meth:`Document.to_markdown`; heading
-        sizes are inferred from this page alone.
+        sizes are inferred from this page alone. Complete bordered tables are
+        inserted by default; pass ``table_strategy="text"`` for conservative
+        borderless candidates or ``None`` to disable table conversion.
         """
         self._page_number()
-        return self._document.to_markdown(pages=[self._pno])
+        return self._document.to_markdown(pages=[self._pno], table_strategy=table_strategy)
 
     def search_for(self, needle: str) -> list[Rect]:
         """Search page text case-insensitively.
@@ -1765,7 +1777,12 @@ class Document:
         for pdf_key, value in updates:
             self._doc.set_metadata(pdf_key, value)
 
-    def to_markdown(self, pages: Iterable[int] | None = None) -> str:
+    def to_markdown(
+        self,
+        pages: Iterable[int] | None = None,
+        *,
+        table_strategy: Literal["lines", "text"] | None = "lines",
+    ) -> str:
         """Convert the document to Markdown for RAG or LLM preprocessing.
 
         Headings are inferred from font sizes: the size containing the most text
@@ -1776,17 +1793,49 @@ class Document:
         Multicolumn text follows deterministic whitespace gutters.
         Conservatively detected vertical CJK columns follow top-to-bottom,
         right-to-left reading order; ruby and mixed-orientation typography are
-        not interpreted.
-        :meth:`Page.find_tables` handles bordered and opt-in borderless tables,
-        but automatic table conversion is unsupported.
+        not interpreted. Complete bordered grids become Markdown tables by
+        default. Pass ``table_strategy="text"`` to extend this with conservative
+        borderless detection, or ``None`` to disable table conversion.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
         order; ``None`` means every page.
         """
         self._ensure_open()
-        page_numbers = range(self.page_count) if pages is None else pages
+        if table_strategy not in ("lines", "text", None):
+            msg = f"table_strategy must be 'lines', 'text', or None: {table_strategy!r}"
+            raise ValueError(msg)
+        page_numbers = list(range(self.page_count) if pages is None else pages)
         layouts = [self.get_page_text(pno, "dict") for pno in page_numbers]
-        levels = _markdown.heading_levels(_markdown.collect_sizes(layouts))
-        rendered = (_markdown.page_to_markdown(layout, levels) for layout in layouts)
+        page_tables = (
+            [[] for _ in page_numbers]
+            if table_strategy is None
+            else [_markdown_page_tables(self[pno], table_strategy) for pno in page_numbers]
+        )
+        page_words = [
+            self.get_page_text(pno, "words") if tables else None
+            for pno, tables in zip(page_numbers, page_tables, strict=True)
+        ]
+        table_bboxes = [
+            [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables] for tables in page_tables
+        ]
+        markdown_tables = []
+        for layout, bboxes, tables in zip(layouts, table_bboxes, page_tables, strict=True):
+            markdown_tables.append(
+                [
+                    (
+                        bbox,
+                        _markdown.table_to_markdown(
+                            table.extract(),
+                            orientation=_markdown.table_orientation(layout, bbox),
+                        ),
+                    )
+                    for bbox, table in zip(bboxes, tables, strict=True)
+                ]
+            )
+        levels = _markdown.heading_levels(_markdown.collect_sizes(layouts, table_bboxes))
+        rendered = (
+            _markdown.page_to_markdown(layout, levels, tables, words)
+            for layout, tables, words in zip(layouts, markdown_tables, page_words, strict=True)
+        )
         return "\n\n".join(md for md in rendered if md)
 
     def get_form_fields(self) -> list[FormFieldInfo]:

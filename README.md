@@ -47,8 +47,10 @@ the exact artifact depends on platform and Python ABI.
 `find_tables()` reconstructs bordered grids from strokes or thin filled rules,
 including rectangular merged cells. The opt-in
 `find_tables(strategy="text")` handles high-confidence borderless layouts, but
-can interpret aligned multicolumn prose as a table. Automatic table conversion
-in `Document.to_markdown()` is not implemented. Vertical CJK columns are
+can interpret aligned multicolumn prose as a table. `Document.to_markdown()`
+inserts complete bordered tables by default; pass `table_strategy="text"` to
+opt into borderless candidates or `None` to preserve plain layout text.
+Vertical CJK columns are
 reconstructed conservatively and ordered right-to-left; ruby, warichu, and
 mixed-orientation Japanese typography are not interpreted semantically. There
 is no general-purpose regeneration of arbitrary existing annotation
@@ -194,8 +196,9 @@ page.apply_ocr(engine=engine, rotation=270)
 # Or write external OCR results as an invisible text layer
 page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
 
-# Markdown conversion (RAG / LLM preprocessing; size-based headings, CJK-aware line joining)
+# Markdown conversion (RAG / LLM preprocessing; bordered tables are automatic)
 md = doc.to_markdown()
+md_with_borderless_tables = doc.to_markdown(table_strategy="text")
 md_p1 = doc[0].to_markdown()
 
 # Read the PDF/A self-declaration (validation belongs to veraPDF)
@@ -350,7 +353,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
-| `to_markdown(pages=None)` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; no automatic tables) |
+| `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; complete bordered tables by default, `"text"` adds conservative borderless tables, `None` disables tables) |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; checkboxes take bool |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
@@ -367,7 +370,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `rotation` corrects rendered input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=0, clip=None, skip_existing=True)` | Recognize and insert an orientation-aware invisible searchable layer; existing searchable text in the selected region is skipped by default |
-| `to_markdown()` | Markdown conversion of this page |
+| `to_markdown(table_strategy="lines")` | Markdown conversion of this page with the same table controls as the document method |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |

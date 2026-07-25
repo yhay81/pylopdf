@@ -63,6 +63,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   与对齐的多栏正文之间仍存在几何歧义。使用`clip=`可只保留完整位于已知显示坐标
   区域内的表格；排序无边框结果时可检查`Table.confidence` /
   `Table.diagnostics`。
+- **`to_markdown()`**按阅读顺序插入完整边框表，并从周围正文中移除单元格文本。
+  指定`table_strategy="text"`可加入保守的无边框候选；设为`None`可禁用表格转换。
 - **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用
   Helvetica自动缩小；Unicode需传入OpenType字体，或安装`pylopdf[cjk]`以自动处理
   CJK。富文本、comb布局、pushbutton和签名仍不在API范围内。

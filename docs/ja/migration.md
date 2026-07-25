@@ -69,6 +69,9 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   高信頼な罫線なし表を検出します（整列した複数カラム本文との幾何的な曖昧さは
   残ります）。既知の表示座標領域に完全に収まる表だけを返すには`clip=`を使い、
   罫線なし結果の順位付けには`Table.confidence` / `Table.diagnostics`を確認します。
+- **`to_markdown()`** は完全な罫線表を読み順に挿入し、周囲の本文からセル文字を
+  除外します。`table_strategy="text"` で保守的な罫線なし候補を追加でき、
+  `None` で表変換を無効にできます。
 - **フォーム記入**は値とネイティブ外観を書き込み、pylopdfと外部ビューアの両方で
   描画されます。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeフォントを
   指定するか`pylopdf[cjk]`を導入します。リッチテキスト、comb配置、pushbutton、

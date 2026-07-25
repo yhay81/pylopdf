@@ -71,6 +71,10 @@ deliberately does not implement.
   multicolumn prose remains geometrically ambiguous. Use `clip=` to keep only
   complete tables in a known display-coordinate region, and inspect
   `Table.confidence` / `Table.diagnostics` when ranking borderless results.
+- **`to_markdown()`** inserts complete bordered tables in reading order and
+  removes their cell text from the surrounding prose. Pass
+  `table_strategy="text"` to include conservative borderless candidates, or
+  `None` to disable table conversion.
 - **Form filling** writes values and native appearances that render in pylopdf
   and external viewers. WinAnsi auto-fits in Helvetica; pass an OpenType font
   for Unicode, or install `pylopdf[cjk]` for automatic CJK. Rich text, comb

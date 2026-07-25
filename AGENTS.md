@@ -83,6 +83,12 @@ overview.
   cost. `TableDiagnostics.confidence` is a deterministic ranking heuristic,
   not a probability. Text diagnostics retain em-normalized alignment error,
   minimum gutter, and row-gap variation; complete vector grids score 1.0.
+  `Document.to_markdown()` inserts complete bordered tables by default and
+  accepts `table_strategy="text"` for conservative non-overlapping borderless
+  candidates or `None` to disable table conversion. It removes contained text
+  from prose and heading inference while retaining words outside a table on the
+  same physical line, and normalizes physical table matrices to the dominant
+  logical text direction on right-angle rotations.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated
