@@ -35,6 +35,7 @@ LOCALIZED_DIRECTORIES = {
     Path("docs/zh-cn"),
 }
 MULTILINGUAL_DATA_FILES = {
+    Path("bench/ground_truth/bunka-kokugo-series-019-p4.txt"),
     Path("models/pylopdf-ocr-models/src/pylopdf_ocr_models/ppocrv6_dict.txt"),
 }
 LANGUAGE_SELECTOR_NAMES = {

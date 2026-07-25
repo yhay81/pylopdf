@@ -37,6 +37,7 @@ CASES = [
     Case("usrguide.pdf", pages=27, version="PDF 1.5", snippet="for authors"),
     Case("bill-hr815.pdf", pages=110, version="PDF 1.5", snippet="One Hundred Eighteenth Congress"),
     Case("mhlw-doc.pdf", pages=2, version="PDF 1.7", snippet="裁判例"),
+    Case("bunka-kokugo-series-019-p4.pdf", pages=1, version="PDF 1.7", snippet=None),
     Case("patent-us223898.pdf", pages=4, version="PDF 1.3", snippet="Electric-Lamp"),
     Case("wdl6812-manuscript.pdf", pages=2, version="PDF 1.4", snippet=None),
     Case(
