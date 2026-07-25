@@ -837,7 +837,7 @@ _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 @functools.cache
 def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
-    """Load bundled fonts when ``pylopdf[cjk]`` is installed."""
+    """Load bundled JP-subset fonts when ``pylopdf[cjk]`` is installed."""
     try:
         import pylopdf_fonts_cjk  # noqa: PLC0415  # Lazy optional dependency.
     except ImportError:
@@ -999,6 +999,62 @@ _BASE14_FONTS: dict[str, str] = {
 
 #: Standard fonts that use built-in encoding rather than WinAnsi.
 _SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
+
+#: Times aliases select the optional serif CJK generation font.
+_SERIF_BASE14_FONTS = frozenset({"tiro", "tibo", "tiit", "tibi"})
+
+#: Japanese and Han ranges that trigger optional JP-subset font selection.
+_BUNDLED_CJK_TEXT_RANGES = (
+    (0x2E80, 0x312F),
+    (0x31A0, 0x31FF),
+    (0x3400, 0x9FFF),
+    (0xF900, 0xFAFF),
+    (0xFF65, 0xFF9F),
+    (0x20000, 0x2FA1F),
+)
+
+
+def _bundled_generation_font(text: str, fontname: str) -> bytes | None:
+    """Select one optional JP-subset font for Japanese or Han text."""
+    if not any(start <= ord(character) <= end for character in text for start, end in _BUNDLED_CJK_TEXT_RANGES):
+        return None
+    kind = "serif" if fontname in _SERIF_BASE14_FONTS else "sans"
+    return next((data for candidate, data in _bundled_cjk_fonts() if candidate == kind), None)
+
+
+def _resolve_generation_font(
+    operation: str,
+    text: str,
+    fontname: str,
+    font_data: bytes | None,
+    fontindex: int,
+) -> tuple[str | None, bytes | None]:
+    """Resolve explicit, optional CJK, or Standard 14 generation input."""
+    if font_data is not None:
+        if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
+            msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
+            raise ValueError(msg)
+        return None, font_data
+    if fontindex != 0:
+        msg = "fontindex requires fontfile or fontbuffer"
+        raise ValueError(msg)
+
+    base_font = _BASE14_FONTS.get(fontname)
+    if base_font is None:
+        msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
+        raise ValueError(msg)
+    bundled_font = _bundled_generation_font(text, fontname)
+    if bundled_font is not None:
+        return None, bundled_font
+    try:
+        text.encode("cp1252")
+    except UnicodeEncodeError as exc:
+        msg = (
+            f"{operation} can only print WinAnsi (Latin-1-equivalent) characters without an embedded font. "
+            "For Japanese or Han text, install pylopdf[cjk]; otherwise pass fontfile or fontbuffer"
+        )
+        raise ValueError(msg) from exc
+    return base_font, None
 
 
 #: Page-label numbering styles (`/S`); an empty value means prefix only.
@@ -1534,10 +1590,13 @@ class Page:
 
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
-        including shaped CJK and RTL scripts. ``fontindex`` selects a face in a
-        TrueType/OpenType collection and ``fontname`` is ignored for embedded
-        fonts. A single line should use one script and the font must contain all
-        needed glyphs; no font fallback or paragraph layout is performed. RTL
+        including shaped CJK and RTL scripts. With ``pylopdf[cjk]`` installed,
+        Japanese and Han text without an explicit source automatically uses
+        its JP-subset sans font, or serif for a Times ``fontname``.
+        ``fontindex`` selects a face in a TrueType/OpenType collection and
+        ``fontname`` is otherwise ignored for embedded fonts. A single line
+        should use one script and the selected font must contain all needed
+        glyphs; no per-glyph fallback or paragraph layout is performed. RTL
         glyph shaping renders correctly, but extraction currently follows
         visual rather than logical order.
 
@@ -1563,10 +1622,8 @@ class Page:
             raise ValueError(msg)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         font_data = _read_font_source(fontfile, fontbuffer)
+        base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
         if font_data is not None:
-            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
-                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
-                raise ValueError(msg)
             self._document._doc.insert_embedded_text(
                 self._page_number(),
                 (x, y),
@@ -1579,21 +1636,8 @@ class Page:
             )
             return
 
-        if fontindex != 0:
-            msg = "fontindex requires fontfile or fontbuffer"
-            raise ValueError(msg)
-        base_font = _BASE14_FONTS.get(fontname)
-        if base_font is None:
-            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
-            raise ValueError(msg)
-        try:
-            lines = [line.encode("cp1252") for line in normalized.split("\n")]
-        except UnicodeEncodeError as exc:
-            msg = (
-                "insert_text can only print WinAnsi (Latin-1-equivalent) characters. "
-                "For Unicode text such as Japanese, pass fontfile or fontbuffer"
-            )
-            raise ValueError(msg) from exc
+        base_font = cast("str", base_font)
+        lines = [line.encode("cp1252") for line in normalized.split("\n")]
         self._document._doc.insert_page_text(
             self._page_number(),
             (x, y),
@@ -1638,6 +1682,8 @@ class Page:
         Without a font source, Adobe Core 14 metrics provide exact WinAnsi
         wrapping. Pass exactly one of ``fontfile`` or ``fontbuffer`` for
         HarfRust-shaped Unicode and a krilla subset-embedded OpenType font.
+        With ``pylopdf[cjk]`` installed, Japanese and Han text automatically
+        uses its JP-subset sans font, or serif for a Times ``fontname``.
         Unicode line-break opportunities support CJK without requiring spaces,
         and an overlong word falls back to grapheme-safe wrapping.
         """
@@ -1650,10 +1696,8 @@ class Page:
             return y1 - y0
 
         font_data = _read_font_source(fontfile, fontbuffer)
+        base_font, font_data = _resolve_generation_font("insert_textbox", normalized, fontname, font_data, fontindex)
         if font_data is not None:
-            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
-                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
-                raise ValueError(msg)
             return self._document._doc.insert_embedded_textbox(
                 page_number,
                 (x0, y0, x1, y1),
@@ -1667,21 +1711,7 @@ class Page:
                 overlay,
             )
 
-        if fontindex != 0:
-            msg = "fontindex requires fontfile or fontbuffer"
-            raise ValueError(msg)
-        base_font = _BASE14_FONTS.get(fontname)
-        if base_font is None:
-            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
-            raise ValueError(msg)
-        try:
-            normalized.encode("cp1252")
-        except UnicodeEncodeError as exc:
-            msg = (
-                "insert_textbox can only print WinAnsi (Latin-1-equivalent) characters. "
-                "For Unicode text such as Japanese, pass fontfile or fontbuffer"
-            )
-            raise ValueError(msg) from exc
+        base_font = cast("str", base_font)
         return self._document._doc.insert_page_textbox(
             page_number,
             (x0, y0, x1, y1),

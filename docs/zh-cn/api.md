@@ -59,8 +59,8 @@ decode array或decode parameter的直接8-bit DeviceGray/DeviceRGB DCT stream。
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | 绘制JPEG/PNG或复用已渲染的RGBA `Pixmap`；`rotate`按90度顺时针旋转 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14或shape后的subset文本；`pylopdf[cjk]`可为日文／汉字自动选择JP font |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 使用Core 14、显式OpenType或自动JP font宽度进行UAX #14换行；返回剩余高度，溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
@@ -72,9 +72,12 @@ clip path、clip应用后的可见性判断、group/soft-mask结构、optional-c
 text、image或annotation，但仍会应用optional-content的可见性。结果超过8,192 paths
 或131,072 commands时会拒绝，而不是静默截断。
 
-使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。它会对每一行进行塑形，
-但不提供字体回退、双向段落布局或自动换行。RTL塑形可以正确渲染；当前文本提取采用
-视觉顺序而非逻辑顺序。
+使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。未传入source且安装
+`pylopdf[cjk]`时，日文／汉字会自动使用JP subset的Noto Sans，Times `fontname`则使用
+Noto Serif。这是整段只选一个font，并非逐glyph fallback。简体中文排版应显式传入
+Noto Sans SC等匹配本地字形的OpenType font；Hangul、其他script或其他书体同样如此。
+每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染，但提取目前遵循
+visual order。
 
 `insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，
 并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、
@@ -83,7 +86,8 @@ text、image或annotation，但仍会应用optional-content的可见性。结果
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
-安装`pylopdf[cjk]`后，非WinAnsi值会自动使用其中的sans字体。已有且非空的按钮外观
+安装`pylopdf[cjk]`后，非WinAnsi值会尝试JP subset sans；中文本地字形或Hangul应传入
+匹配font。已有且非空的按钮外观
 会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
 所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的
 `MaxLen`与对齐方式，将每个Unicode grapheme置于相应位置中央，并在不修改文档的

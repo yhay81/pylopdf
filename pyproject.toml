@@ -33,7 +33,7 @@ Issues = "https://github.com/yhay81/pylopdf/issues"
 Source = "https://github.com/yhay81/pylopdf"
 
 [project.optional-dependencies]
-# Fonts for PDFs that reference non-embedded CJK fonts; auto-detect Noto Sans/Serif JP.
+# JP fonts for non-embedded rendering and automatic Japanese/Han generation.
 cjk = ["pylopdf-fonts-cjk>=0.1.0"]
 # PP-OCRv6 small detector, recognizer, and multilingual dictionary.
 ocr = ["pylopdf-ocr-models>=0.1.0,<0.2"]

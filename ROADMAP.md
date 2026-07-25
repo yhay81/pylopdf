@@ -486,6 +486,12 @@ known-limit behavior are polished together.
   sdist, and publish release provenance alongside the artifacts.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
+- [x] Align normal text generation with the optional CJK product experience:
+      `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
+      serif font for Japanese/Han input when `pylopdf[cjk]` is installed,
+      without weakening the single-font, no-per-glyph-fallback boundary.
+      Hangul and locale-specific Chinese typography remain explicit-font cases
+      until the data package has measured pan-CJK coverage.
 - [x] Remove the Pillow/PNG round-trip from rendered-image reuse:
       `Page.insert_image(pixmap=)` now converts immutable straight-alpha RGBA8
       storage directly into a Flate-compressed PDF Image XObject, preserves
@@ -700,8 +706,9 @@ rather than waiting automatically for v1.x.
   selecting the `[ocr]` model generation.
 - **parley**, linebender's richer text layout engine and a krilla dev
   dependency: UAX #14 plus HarfRust metrics was sufficient for the bounded
-  `insert_textbox` contract without adding font fallback and styling machinery.
-  Reconsider only if product demand justifies a native rich-text surface.
+  `insert_textbox` contract without adding per-glyph fallback and styling
+  machinery. Reconsider only if product demand justifies a native rich-text
+  surface.
 - **PP-DocLayout**, Apache-2.0: possible `[layout]` alternative to the
   PolyForm-Noncommercial pymupdf-layout. It could share rten with `[ocr]`;
   evaluate after OCR succeeds.

@@ -31,7 +31,7 @@ the common pymupdf use cases without the AGPL.
 | Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
 | Text extraction | ✅ (positioned text, tables, Markdown) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
 | Encryption (AES-256) | ✅ read & write | ✅ | ✅ | read only | undocumented | ✅ (via qpdf) |
-| CJK font fallback | ✅ ([cjk] extra) | ✅ | — | manual | — | — |
+| Japanese font fallback / generation | ✅ ([cjk] extra) | ✅ | — | manual | — | — |
 | Implementation | **pure Rust** | C/C++ | Python | C++ (PDFium) | Rust | C++ (qpdf) |
 
 Wheel sizes are the ranges of published files for pylopdf 0.10.0, pymupdf
@@ -70,8 +70,9 @@ mixed-orientation typography remain explicit limits.
 pip install pylopdf
 ```
 
-To render Japanese PDFs without embedded fonts, install the optional CJK fonts
-(Noto Sans/Serif JP, auto-detected at render time):
+To render Japanese PDFs without embedded fonts, or auto-subset a JP font for
+Japanese/Han `insert_text` and `insert_textbox`, install the optional font
+package (Noto Sans/Serif JP):
 
 ```bash
 pip install pylopdf[cjk]
@@ -188,15 +189,14 @@ page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fo
 for i, p in enumerate(doc):
     p.insert_text((p.rect.width - 90, p.rect.height - 30), f"Page {i + 1}", fontsize=9)
 
-# Subset-embed an OpenType font for Unicode and CJK text
-page.insert_text((40, 80), "社外秘", fontsize=20, fontfile="NotoSansJP-Regular.otf", color=(0.8, 0, 0))
+# Japanese/Han text auto-subsets the JP font with pip install "pylopdf[cjk]"
+page.insert_text((40, 80), "社外秘", fontsize=20, color=(0.8, 0, 0))
 
 # Wrap a paragraph into a rectangle; negative means nothing was drawn
 spare = page.insert_textbox(
     (40, 100, 300, 220),
     "日本語も空白なしで自然に折り返します。",
     fontsize=12,
-    fontfile="NotoSansJP-Regular.otf",
     align=pylopdf.TEXT_ALIGN_JUSTIFY,
 )
 
@@ -226,7 +226,7 @@ print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 # Forms (AcroForm): read and fill
 print(doc.get_form_fields())        # [{"name", "type", "value"}]
 doc.set_form_field("customer", "Taro Yamada")
-doc.set_form_field("customer_ja", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
+doc.set_form_field("customer_ja", "山田 太郎")  # auto-subset with pylopdf[cjk]
 doc.set_form_field("agree", True)   # checkboxes take bool or a state name
 
 # Page labels (display numbers: roman front matter + decimal body, etc.)
@@ -278,11 +278,13 @@ doc.set_fallback_font(font_bytes, kind="serif")
 ```
 
 Embedded-font `insert_text` shapes each line with HarfRust and asks krilla to
-subset and embed the resulting glyphs. Provide a font containing every required
-glyph; this primitive does not perform font fallback, bidirectional paragraph
-layout, or line wrapping. RTL glyph shaping works, but extraction currently
-follows visual rather than logical order. Use typst below when full typesetting
-is required.
+subset and embed the resulting glyphs. With `pylopdf[cjk]`, Japanese and Han
+text automatically selects its JP-subset sans font; a Times `fontname` selects
+serif. This is one whole-run font selection, not per-glyph fallback. Pass
+`fontfile=` / `fontbuffer=` for Hangul, locale-specific Chinese glyph forms,
+other scripts, or another typeface. RTL glyph shaping works, but extraction
+currently follows visual rather than logical order. Use typst below when full
+typesetting is required.
 
 ## Ecosystem recipes (typesetting, PDF/A, signatures)
 
@@ -399,8 +401,8 @@ signed_pdf: bytes = out.getvalue()
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=/pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw JPEG without recompression, PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; optional clockwise right-angle rotation and rect use display coordinates |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
-| `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 font or a shaped, subset-embedded OpenType font; upright on rotated pages |
-| `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a shaped, subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
+| `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 or shaped subset font; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han; upright on rotated pages |
+| `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap with UAX #14 and Core 14, explicit OpenType, or auto-selected JP font metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=0)` | Write OCR results as an orientation-aware invisible text layer (searchable PDFs; no font embedding, near-zero size) |
 | `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |

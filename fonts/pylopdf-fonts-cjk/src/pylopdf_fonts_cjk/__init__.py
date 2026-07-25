@@ -1,8 +1,9 @@
-"""CJK fallback fonts for pylopdf.
+"""Japanese fallback and generation fonts for pylopdf.
 
 This data-only package bundles Noto Sans JP and Noto Serif JP under SIL OFL 1.1
 from https://github.com/notofonts/noto-cjk. pylopdf discovers it automatically
-to render PDFs that reference Japanese fonts without embedding them.
+to render PDFs that reference Japanese fonts without embedding them and to
+generate Japanese/Han text without an explicit font path.
 """
 
 from __future__ import annotations

@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Page.insert_text()` and `Page.insert_textbox()` now discover the optional
+  `pylopdf[cjk]` JP-subset fonts when Japanese or Han text has no explicit font
+  source. Times aliases select Noto Serif JP and other aliases select Noto Sans
+  JP, then krilla embeds only the used glyphs. The boundary remains
+  honest: this is whole-run font selection rather than per-glyph fallback, and
+  Hangul, locale-specific Chinese typography, other scripts, and alternate
+  typefaces still require `fontfile=` or `fontbuffer=`.
+
 ## [0.11.0] - 2026-07-26
 
 ### Documentation

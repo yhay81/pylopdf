@@ -60,8 +60,8 @@ quality再圧縮だけを行います。対象はmask、独自decode array、dec
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | JPEG/PNG、または描画済みRGBA `Pixmap`の挿入。`rotate`は90度単位の時計回り回転 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準14または字形処理済みsubsetを印字。`pylopdf[cjk]`導入時は日本語・漢字にJP fontを自動選択 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14、明示OpenType、または自動選択JP fontの実幅でUAX #14折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層（searchable PDF化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |
@@ -74,9 +74,12 @@ text、image、annotationは返しませんが、optional-contentの表示状態
 8,192 pathsまたは131,072 commandsを超える結果は切り詰めず拒否します。
 
 埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。
-各行の字形処理は行いますが、フォントfallback、双方向paragraph layout、折り返しは
-行いません。RTLの字形処理結果は正しく描画されますが、現時点の抽出順は論理順ではなく
-視覚順です。
+sourceを省略し`pylopdf[cjk]`が入っていれば、日本語・漢字にはJP subsetのNoto Sans、
+Times系`fontname`にはNoto Serifを自動選択します。これはrun全体で1 fontを選ぶ動作で、
+glyphごとのfallbackではありません。Hangul、中国語地域に合う字形、他script、別書体は
+OpenType fontを明示します。各行の字形処理は行いますが、双方向paragraph layoutと
+折り返しは行いません。RTLの字形処理結果は正しく描画されますが、現時点の抽出順は
+論理順ではなく視覚順です。
 
 `insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode
 改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には
@@ -87,7 +90,8 @@ resourceは追加されません。
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
 `fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。
-`pylopdf[cjk]`の導入時は、WinAnsi外の値にsansフォントを自動使用します。既存の
+`pylopdf[cjk]`の導入時は、WinAnsi外の値にJP subsetのsans fontを試します。Hangulや
+中国語地域に合う字形には対応fontを明示します。既存の
 空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
 フィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ
 `NeedAppearances`を解除します。combテキスト欄は継承された`MaxLen`と整列を尊重し、

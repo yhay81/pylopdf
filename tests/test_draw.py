@@ -415,6 +415,21 @@ def test_insert_text_subset_embeds_unicode_font() -> None:
     assert reopened[0].search_for("テキスト")
 
 
+def test_insert_text_auto_embeds_optional_cjk_font() -> None:
+    pytest.importorskip("pylopdf_fonts_cjk")
+    doc = _new_page_doc(300, 150)
+    page = doc[0]
+
+    page.insert_text((20, 60), "日本語", fontsize=24)
+    page.insert_text((20, 100), "明朝体", fontsize=24, fontname="tiro")
+
+    assert page.get_text().splitlines() == ["日本語", "明朝体"]
+    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    assert spans[0]["font"].startswith("NotoSansJP")
+    assert spans[1]["font"].startswith("NotoSerifJP")
+    assert len(doc.tobytes()) < 100_000
+
+
 def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=150, height=300)
@@ -524,7 +539,8 @@ def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None
     assert page.get_text() == ""
 
 
-def test_insert_textbox_embedded_font_wraps_cjk_and_survives_rotation() -> None:
+def test_insert_textbox_auto_embeds_optional_cjk_font_and_survives_rotation() -> None:
+    pytest.importorskip("pylopdf_fonts_cjk")
     doc = pylopdf.Document()
     doc.new_page(width=120, height=200)
     page = doc[0]
@@ -535,7 +551,6 @@ def test_insert_textbox_embedded_font_wraps_cjk_and_survives_rotation() -> None:
         rect,
         "日本語の文章を空白なしで折り返します。",
         fontsize=12,
-        fontfile=NOTO_SANS_JP,
         align=pylopdf.TEXT_ALIGN_CENTER,
     )
 
@@ -549,7 +564,7 @@ def test_insert_textbox_embedded_font_wraps_cjk_and_survives_rotation() -> None:
     assert reopened[0].get_text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
 
 
-def test_insert_textbox_tabs_custom_leading_and_bad_arguments() -> None:
+def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = _new_page_doc()
     page = doc[0]
     first = page.insert_textbox((10, 10, 150, 80), "a\tb\nc", fontsize=10, expandtabs=4, lineheight=1.0)
@@ -562,8 +577,10 @@ def test_insert_textbox_tabs_custom_leading_and_bad_arguments() -> None:
         page.insert_textbox((10, 10, 100, 80), "x", expandtabs=True)
     with pytest.raises(ValueError, match="lineheight"):
         page.insert_textbox((10, 10, 100, 80), "x", lineheight=0)
-    with pytest.raises(ValueError, match="fontfile or fontbuffer"):
-        page.insert_textbox((10, 10, 100, 80), "日本語")
+    with monkeypatch.context() as context:
+        context.setattr("pylopdf._bundled_cjk_fonts", lambda: ())
+        with pytest.raises(ValueError, match=r"pylopdf\[cjk\].*fontfile or fontbuffer"):
+            page.insert_textbox((10, 10, 100, 80), "日本語")
     with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
         page.insert_textbox((10, 10, 100, 80), "🦀", fontfile=NOTO_SANS_JP)
 
@@ -619,11 +636,15 @@ def test_insert_text_page_numbering_recipe() -> None:
         assert f"Page {i + 1} / 3" in doc[i].get_text()
 
 
-def test_insert_text_rejects_cjk_without_embedded_font() -> None:
+def test_insert_text_rejects_cjk_without_optional_or_explicit_font(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = pylopdf.Document()
     doc.new_page()
+    with monkeypatch.context() as context:
+        context.setattr("pylopdf._bundled_cjk_fonts", lambda: ())
+        with pytest.raises(ValueError, match=r"pylopdf\[cjk\].*fontfile or fontbuffer"):
+            doc[0].insert_text((50, 50), "社外秘")
     with pytest.raises(ValueError, match="fontfile or fontbuffer"):
-        doc[0].insert_text((50, 50), "社外秘")
+        doc[0].insert_text((50, 50), "기밀")
 
 
 def test_insert_text_rejects_unknown_font_and_bad_args() -> None:

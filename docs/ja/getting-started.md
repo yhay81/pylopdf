@@ -11,8 +11,8 @@ description: pylopdfをインストールし、編集・描画・抽出・書き
 pip install pylopdf
 ```
 
-フォント非埋め込みの日本語 PDF をレンダリングする場合は、CJK フォント付きで
-（Noto Sans/Serif JP を同梱、レンダリング時に自動検出）:
+フォント非埋め込みの日本語PDFを描画する場合、または日本語・漢字の`insert_text` /
+`insert_textbox`でJP fontを自動subsetする場合は、Noto Sans/Serif JP付きで:
 
 ```bash
 pip install pylopdf[cjk]
@@ -90,7 +90,7 @@ page.insert_image(page.search_for("承認印")[0], stream=hanko_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBAを直接、時計回りに回転
 page.show_pdf_page(page.rect, letterhead)                    # ベクタのまま重ねる。同じ文書も可
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18, fontfile="NotoSansJP-Regular.otf")
+page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[cjk]から自動subset
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
@@ -99,7 +99,7 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 
 ```python
 page.insert_ocr_text_layer(ocr_words)        # 外部 OCR の結果で searchable PDF 化
-doc.set_form_field("customer", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
+doc.set_form_field("customer", "山田 太郎")  # pylopdf[cjk]から自動subset
 md = doc.to_markdown()                       # RAG 向け Markdown
 ```
 
