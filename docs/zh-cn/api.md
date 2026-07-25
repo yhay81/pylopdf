@@ -81,7 +81,16 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `peek_metadata(path_or_stream, password=)` | 无需完整解析即可快速读取元数据与页数 |
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
+| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | 页面与表单字典结果的TypedDict契约 |
+| `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
+| `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
+| `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()`；cp314t还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 解释器警告（字体解析、图像解码） |
+
+`TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。
+`LinkInfo`要求`kind`和`from`，而各类目标专用键为可选。
+`PageLabelSpec`要求`startpage`；`style`、`prefix`和`firstpagenum`的运行时默认值不变。

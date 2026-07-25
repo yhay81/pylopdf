@@ -85,7 +85,17 @@ grid는 1.0이고 이 텍스트 전용 metric은 `None`입니다. `TableFinder.s
 | `peek_metadata(path_or_stream, password=)` | 전체 파싱 없이 메타데이터와 페이지 수를 빠르게 조회 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
+| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page와 form의 사전 형식 결과를 위한 TypedDict 계약 |
+| `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
+| `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
+| `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |
+
+`TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의
+사전입니다. `LinkInfo`에는 `kind`와 `from`이 필수이고 대상별 키는 선택 사항입니다.
+`PageLabelSpec`에는 `startpage`가 필요하며 `style`, `prefix`, `firstpagenum`의
+runtime 기본값은 바뀌지 않습니다.

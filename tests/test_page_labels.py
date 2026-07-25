@@ -25,7 +25,7 @@ def test_set_and_compute_labels() -> None:
 
 def test_labels_roundtrip_through_save() -> None:
     doc = _six_page_doc()
-    labels = [
+    labels: list[pylopdf.PageLabelSpec] = [
         {"startpage": 0, "style": "R", "prefix": "", "firstpagenum": 5},
         {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
     ]

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Public mapping-shaped APIs now expose importable `TypedDict` contracts:
+  nested text layout, images, annotations, links, AcroForm fields, page labels,
+  metadata updates/results, and fast metadata probes. `WordEntry`,
+  `BlockEntry`, and `FormFieldType` are also runtime-importable type aliases.
+  Runtime values and pymupdf-compatible dictionary keys are unchanged.
 - `Page.insert_textbox()` now wraps paragraphs inside display-coordinate
   rectangles and returns the remaining vertical space without drawing when the
   value is negative. Standard 14 text uses canonical Adobe AFM widths;

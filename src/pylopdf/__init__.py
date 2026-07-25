@@ -12,7 +12,7 @@ import math
 import os
 import warnings as _warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple, overload
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
 
 from pylopdf import _markdown
 from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
@@ -21,11 +21,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
     from types import TracebackType
     from typing import Any, Self
-
-    #: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
-    WordEntry = tuple[float, float, float, float, str, int, int, int]
-    #: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
-    BlockEntry = tuple[float, float, float, float, str, int, int]
 
 __version__ = "0.10.0"
 __all__ = [
@@ -39,10 +34,21 @@ __all__ = [
     "TEXT_ALIGN_JUSTIFY",
     "TEXT_ALIGN_LEFT",
     "TEXT_ALIGN_RIGHT",
+    "AnnotationInfo",
+    "BlockEntry",
     "Document",
     "DocumentClosedError",
+    "DocumentMetadata",
     "EncryptedDocumentError",
+    "FormFieldInfo",
+    "FormFieldType",
+    "ImageInfo",
+    "LinkInfo",
+    "MetadataProbe",
+    "MetadataUpdate",
     "Page",
+    "PageLabelInfo",
+    "PageLabelSpec",
     "PasswordError",
     "PdfError",
     "Permissions",
@@ -52,6 +58,11 @@ __all__ = [
     "Table",
     "TableDiagnostics",
     "TableFinder",
+    "TextBlock",
+    "TextLine",
+    "TextPage",
+    "TextSpan",
+    "WordEntry",
     "open",
     "peek_metadata",
 ]
@@ -132,6 +143,163 @@ class Rect(NamedTuple):
     def height(self) -> float:
         """Return the height, ``y1 - y0``."""
         return self.y1 - self.y0
+
+
+#: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
+WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
+#: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
+BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
+
+
+class TextSpan(TypedDict):
+    """One styled text run in :class:`TextLine`."""
+
+    bbox: tuple[float, float, float, float]
+    origin: tuple[float, float]
+    size: float
+    font: str
+    flags: int
+    text: str
+
+
+class TextLine(TypedDict):
+    """One positioned line in :class:`TextBlock`."""
+
+    bbox: tuple[float, float, float, float]
+    wmode: int
+    dir: tuple[float, float]
+    spans: list[TextSpan]
+
+
+class TextBlock(TypedDict):
+    """One text block returned by ``get_text("dict")``."""
+
+    number: int
+    type: int
+    bbox: tuple[float, float, float, float]
+    lines: list[TextLine]
+
+
+class TextPage(TypedDict):
+    """Nested positioned layout returned by ``get_text("dict")``."""
+
+    width: float
+    height: float
+    blocks: list[TextBlock]
+
+
+class ImageInfo(TypedDict):
+    """One image returned by :meth:`Page.get_images`."""
+
+    width: int
+    height: int
+    bbox: Rect
+    ext: Literal["jpeg", "png"]
+    image: bytes
+
+
+class AnnotationInfo(TypedDict):
+    """One annotation returned by :meth:`Page.annots`."""
+
+    type: str
+    rect: Rect
+    contents: str | None
+    uri: str | None
+
+
+_LinkRequired = TypedDict("_LinkRequired", {"kind": int, "from": Rect})
+
+
+class LinkInfo(_LinkRequired, total=False):
+    """One link returned by :meth:`Page.get_links`.
+
+    Keys other than ``kind`` and ``from`` depend on ``kind``.
+    """
+
+    uri: str | None
+    page: int
+    to: Point
+    zoom: float
+    nameddest: str
+    file: str | None
+    name: str | None
+
+
+FormFieldType: TypeAlias = Literal[
+    "text",
+    "checkbox",
+    "radio",
+    "button",
+    "combobox",
+    "listbox",
+    "signature",
+    "unknown",
+]
+
+
+class FormFieldInfo(TypedDict):
+    """One AcroForm field returned by :meth:`Document.get_form_fields`."""
+
+    name: str
+    type: FormFieldType
+    value: str | None
+
+
+class PageLabelInfo(TypedDict):
+    """One normalized page-label range returned by ``get_page_labels``."""
+
+    startpage: int
+    style: str
+    prefix: str
+    firstpagenum: int
+
+
+class _PageLabelStart(TypedDict):
+    """Required part of :class:`PageLabelSpec`."""
+
+    startpage: int
+
+
+class PageLabelSpec(_PageLabelStart, total=False):
+    """One input range for :meth:`Document.set_page_labels`."""
+
+    style: str
+    prefix: str
+    firstpagenum: int
+
+
+class DocumentMetadata(TypedDict):
+    """Normalized metadata returned by :attr:`Document.metadata`."""
+
+    title: str
+    author: str
+    subject: str
+    keywords: str
+    creator: str
+    producer: str
+    creationDate: str
+    modDate: str
+    format: str
+
+
+class MetadataUpdate(TypedDict, total=False):
+    """Writable subset accepted by :meth:`Document.set_metadata`."""
+
+    title: str
+    author: str
+    subject: str
+    keywords: str
+    creator: str
+    producer: str
+    creationDate: str
+    modDate: str
+
+
+class MetadataProbe(DocumentMetadata):
+    """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
+
+    page_count: int
+    encrypted: bool
 
 
 class TableDiagnostics(NamedTuple):
@@ -554,8 +722,8 @@ class Page:
     @overload
     def get_text(self, option: Literal["blocks"]) -> list[BlockEntry]: ...
     @overload
-    def get_text(self, option: Literal["dict"]) -> dict[str, Any]: ...
-    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
+    def get_text(self, option: Literal["dict"]) -> TextPage: ...
+    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage:
         """Extract page text or positioned layout data.
 
         ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
@@ -637,7 +805,7 @@ class Page:
             )
         return TableFinder(self, tables, strategy, None if clip_rect is None else Rect(*clip_rect))
 
-    def get_images(self) -> list[dict[str, Any]]:
+    def get_images(self) -> list[ImageInfo]:
         """Extract images drawn on the page.
 
         Each item is a ``{"width", "height", "bbox", "ext", "image"}`` dict.
@@ -650,7 +818,13 @@ class Page:
         raw = self._document._doc.extract_images(self._page_number())
         self._document._emit_warnings()
         return [
-            {"width": width, "height": height, "bbox": Rect(*bbox), "ext": ext, "image": data}
+            {
+                "width": width,
+                "height": height,
+                "bbox": Rect(*bbox),
+                "ext": cast("Literal['jpeg', 'png']", ext),
+                "image": data,
+            }
             for width, height, bbox, ext, data in raw
         ]
 
@@ -928,7 +1102,7 @@ class Page:
     def get_label(self) -> str:
         """Return the display label, such as ``"iv"`` or ``"A-2"``, or empty."""
         pno = self._page_number() - 1
-        applicable: dict[str, Any] | None = None
+        applicable: PageLabelInfo | None = None
         for label in self._document.get_page_labels():
             if label["startpage"] <= pno:
                 applicable = label
@@ -939,7 +1113,7 @@ class Page:
         number = pno - applicable["startpage"] + applicable["firstpagenum"]
         return _format_page_label(applicable["style"], applicable["prefix"], number)
 
-    def annots(self) -> list[dict[str, Any]]:
+    def annots(self) -> list[AnnotationInfo]:
         """Read annotations on the page.
 
         Each item is a ``{"type", "rect", "contents", "uri"}`` dict.
@@ -954,7 +1128,7 @@ class Page:
             for subtype, rect, contents, uri in raw
         ]
 
-    def get_links(self) -> list[dict[str, Any]]:
+    def get_links(self) -> list[LinkInfo]:
         """Read link annotations and resolve their destinations.
 
         Each item is a pymupdf-style dict with ``kind`` (for example
@@ -978,9 +1152,9 @@ class Page:
             "launch": LINK_LAUNCH,
             "named": LINK_NAMED,
         }
-        links: list[dict[str, Any]] = []
+        links: list[LinkInfo] = []
         for kind, rect, uri, page, to, zoom, file, name in raw:
-            link: dict[str, Any] = {
+            link: LinkInfo = {
                 "kind": kind_map.get(kind, LINK_NONE),
                 "from": Rect(*rect),
             }
@@ -1222,15 +1396,23 @@ class Document:
         self._generation += 1
 
     @property
-    def metadata(self) -> dict[str, str]:
+    def metadata(self) -> DocumentMetadata:
         """Return title, author, subject, keywords, dates, producer, and format."""
         self._ensure_open()
         raw = self._doc.get_metadata()
-        result = {key: raw.get(pdf_key, "") for key, pdf_key in _METADATA_KEYS.items()}
-        result["format"] = f"PDF {self._doc.version()}"
-        return result
+        return {
+            "title": raw.get("Title", ""),
+            "author": raw.get("Author", ""),
+            "subject": raw.get("Subject", ""),
+            "keywords": raw.get("Keywords", ""),
+            "creator": raw.get("Creator", ""),
+            "producer": raw.get("Producer", ""),
+            "creationDate": raw.get("CreationDate", ""),
+            "modDate": raw.get("ModDate", ""),
+            "format": f"PDF {self._doc.version()}",
+        }
 
-    def set_metadata(self, metadata: dict[str, str]) -> None:
+    def set_metadata(self, metadata: MetadataUpdate) -> None:
         """Set metadata, deleting entries whose values are empty strings.
 
         Keys match :attr:`metadata`, except the read-only ``format`` key.
@@ -1273,7 +1455,7 @@ class Document:
         rendered = (_markdown.page_to_markdown(layout, levels) for layout in layouts)
         return "\n\n".join(md for md in rendered if md)
 
-    def get_form_fields(self) -> list[dict[str, Any]]:
+    def get_form_fields(self) -> list[FormFieldInfo]:
         """Return AcroForm fields.
 
         Each item is ``{"name", "type", "value"}``. ``name`` is the fully
@@ -1282,7 +1464,10 @@ class Document:
         Button values are appearance state names such as ``"Yes"`` or ``"Off"``.
         """
         self._ensure_open()
-        return [{"name": name, "type": kind, "value": value} for name, kind, value in self._doc.get_form_fields()]
+        return [
+            {"name": name, "type": cast("FormFieldType", kind), "value": value}
+            for name, kind, value in self._doc.get_form_fields()
+        ]
 
     def set_form_field(  # noqa: C901 - Keep validation adjacent to the public boundary.
         self,
@@ -1345,7 +1530,7 @@ class Document:
                         font_data = bundled[0][1]
         self._doc.set_form_field(name, resolved, font_data, fontindex)
 
-    def get_page_labels(self) -> list[dict[str, Any]]:
+    def get_page_labels(self) -> list[PageLabelInfo]:
         """Read page-label definitions.
 
         Each item has ``startpage``, ``style``, ``prefix``, and
@@ -1364,7 +1549,7 @@ class Document:
             for start, style, prefix, first in self._doc.get_page_labels()
         ]
 
-    def set_page_labels(self, labels: Sequence[dict[str, Any]]) -> None:
+    def set_page_labels(self, labels: Sequence[PageLabelSpec]) -> None:
         """Set page labels in :meth:`get_page_labels` format; empty removes all.
 
         The PDF specification requires the first range to start at page 0.
@@ -1450,10 +1635,8 @@ class Document:
     @overload
     def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[BlockEntry]: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["dict"]) -> dict[str, Any]: ...
-    def get_page_text(
-        self, pno: int, option: str = "text"
-    ) -> str | list[WordEntry] | list[BlockEntry] | dict[str, Any]:
+    def get_page_text(self, pno: int, option: Literal["dict"]) -> TextPage: ...
+    def get_page_text(self, pno: int, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage:
         """Extract text or positioned layout from zero-based page ``pno``.
 
         ``option`` follows pymupdf:
@@ -1932,7 +2115,7 @@ def peek_metadata(
     filename: str | os.PathLike[str] | None = None,
     stream: bytes | None = None,
     password: str | None = None,
-) -> dict[str, str | int | bool]:
+) -> MetadataProbe:
     """Read metadata and page count without parsing the entire document.
 
     Return the keys from :attr:`Document.metadata` plus integer ``page_count``
@@ -1945,8 +2128,16 @@ def peek_metadata(
         raw, page_count, version, encrypted = _Document.load_metadata_bytes(stream, password)
     else:
         raw, page_count, version, encrypted = _Document.load_metadata(str(filename), password)
-    result: dict[str, str | int | bool] = {key: raw.get(pdf_key, "") for key, pdf_key in _METADATA_KEYS.items()}
-    result["format"] = f"PDF {version}"
-    result["page_count"] = page_count
-    result["encrypted"] = encrypted
-    return result
+    return {
+        "title": raw.get("Title", ""),
+        "author": raw.get("Author", ""),
+        "subject": raw.get("Subject", ""),
+        "keywords": raw.get("Keywords", ""),
+        "creator": raw.get("Creator", ""),
+        "producer": raw.get("Producer", ""),
+        "creationDate": raw.get("CreationDate", ""),
+        "modDate": raw.get("ModDate", ""),
+        "format": f"PDF {version}",
+        "page_count": page_count,
+        "encrypted": encrypted,
+    }

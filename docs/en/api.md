@@ -89,7 +89,17 @@ minimum gutter and row-gap variation. Complete vector grids score 1.0 and have
 | `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe without full parsing |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
+| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page and form results |
+| `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
+| `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
+| `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | interpreter warnings (font resolution, image decode) |
+
+The `TypedDict` contracts affect static typing only; values remain ordinary
+pymupdf-style dictionaries. `LinkInfo` requires `kind` and `from`, with
+destination-specific optional keys. `PageLabelSpec` requires `startpage`;
+`style`, `prefix`, and `firstpagenum` retain their runtime defaults.
