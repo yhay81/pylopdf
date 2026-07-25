@@ -18,6 +18,7 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "DrawingItem",
         "FormFieldInfo",
         "FormFieldType",
+        "ImageCompressionResult",
         "ImageInfo",
         "LinkInfo",
         "MetadataProbe",
@@ -42,6 +43,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.DocumentMetadata,
         pylopdf.DrawingInfo,
         pylopdf.FormFieldInfo,
+        pylopdf.ImageCompressionResult,
         pylopdf.ImageInfo,
         pylopdf.LinkInfo,
         pylopdf.MetadataProbe,
@@ -71,9 +73,11 @@ def test_public_return_annotations_describe_real_values() -> None:
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()
     fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
     drawings: list[pylopdf.DrawingInfo] = doc[0].get_drawings()
+    compression: pylopdf.ImageCompressionResult = doc.compress_images()
 
     assert layout["blocks"][0]["lines"][0]["spans"][0]["text"] == "Typed layout"
     assert metadata["format"].startswith("PDF ")
     assert labels == []
     assert fields == []
     assert drawings == []
+    assert compression["rewritten"] == 0

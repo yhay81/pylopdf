@@ -273,6 +273,18 @@ def test_manuscript_scan_has_no_text_layer() -> None:
     assert doc.get_page_text(0).strip() == ""
 
 
+def test_manuscript_compression_preserves_mismatched_masks() -> None:
+    """Skip real JPEG/mask pairs rather than changing their compositing."""
+    doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
+    before = doc[0].get_pixmap().samples
+
+    result = doc.compress_images(dpi=100, quality=50)
+
+    assert result["considered"] >= 2
+    assert result["rewritten"] == 0
+    assert doc[0].get_pixmap().samples == before
+
+
 @ALL
 def test_select_first_page_and_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)

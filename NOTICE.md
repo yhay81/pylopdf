@@ -24,6 +24,20 @@ pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
 `unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
 grapheme-safe emergency breaks.
 
+pylopdf uses zune-jpeg 0.5.15 to decode JPEG image XObjects. zune-jpeg is
+available under MIT OR Apache-2.0 OR Zlib:
+
+- Source: <https://github.com/etemesi254/zune-image>
+- Package: <https://crates.io/crates/zune-jpeg/0.5.15>
+
+pylopdf uses jpeg-encoder 0.7.0 to encode JPEG image XObjects with optimized
+Huffman tables. jpeg-encoder is available under (MIT OR Apache-2.0) AND IJG:
+
+- Source: <https://github.com/vstroebel/jpeg-encoder>
+- Package: <https://crates.io/crates/jpeg-encoder/0.7.0>
+
+This software is based in part on the work of the Independent JPEG Group.
+
 pylopdf uses RTen 0.24 and its companion `rten-*` crates for local PP-OCR
 inference. RTen is available under MIT OR Apache-2.0. Its RTen model reader
 uses FlatBuffers 24.12.23, available under Apache-2.0. The Apache license is

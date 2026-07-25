@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unimplemented ecosystem-only feature.
 
 ### Added
+- `Document.compress_images(dpi=150, quality=75)` now downsamples and
+  recompresses safe JPEG XObjects for smaller attachment-oriented PDFs. hayro
+  measures every placement and preserves the pixels required by the largest
+  reuse; lopdf applies the edit atomically. The initial boundary accepts direct
+  8-bit DeviceGray/DeviceRGB DCT streams without masks or custom decode
+  semantics, skips outputs that are not smaller, records a private quality
+  marker for repeat-call idempotence, releases the GIL, and returns typed
+  compression statistics. Per-image, document-wide pixel, and unique-object
+  limits bound untrusted inputs.
 - `Page.get_drawings()` now extracts interpreted vector fill, stroke, and
   combined paths through hayro in rotation-resolved display coordinates. Pymupdf-style
   typed dictionaries expose self-contained line/cubic commands, path bounds,

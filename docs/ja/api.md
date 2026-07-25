@@ -23,6 +23,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |
+| `compress_images(dpi=150, quality=75)` | 安全なJPEG XObjectを配置DPIに応じて非可逆縮小・再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
 | `get_toc()` / `set_toc(toc)` | しおり（1 始まり） |
@@ -32,6 +33,13 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_pdfa_claim()` | XMP の PDF/A 宣言（読み取りであって検証ではない） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | with 文でも |
+
+`compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
+寸法を求めてから、lopdfのcloneへ原子的に編集します。`dpi=None`では縮小せず、
+quality再圧縮だけを行います。対象はmask、独自decode array、decode parameterを
+持たない、直接の8-bit DeviceGray/DeviceRGB DCT streamに限定します。解釈された
+非対応の間接画像と結果が小さくならないencodingはskipし、inline画像は集計対象外
+です。同じ設定の再実行は冪等です。
 
 ## Page { #page }
 
@@ -99,7 +107,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page・form・vector drawing の辞書形式結果を表す TypedDict |
+| `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page・document操作・form・vector drawing の辞書形式結果を表す TypedDict |
 | `DrawingItem` | line/cubic 描画コマンドを表す型 alias |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |

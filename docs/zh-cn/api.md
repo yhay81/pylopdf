@@ -23,6 +23,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；默认插入边框表，`"text"`增加无边框表，`None`禁用表格转换） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、保序并行PNG批次或SVG |
+| `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全JPEG XObject进行有损缩小和重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
 | `get_toc()` / `set_toc(toc)` | 书签（页码从1开始） |
@@ -32,6 +33,12 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_pdfa_claim()` | 读取XMP中的PDF/A声明（不是验证） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | 也可通过`with`调用 |
+
+`compress_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地
+编辑lopdf副本。`dpi=None`时不缩小，仅按quality重压缩。保守边界仅包含无mask、自定义
+decode array或decode parameter的直接8-bit DeviceGray/DeviceRGB DCT stream。
+已解释但不支持的间接图像以及不会变小的编码会被跳过；inline图像不计入统计。
+用相同设置重复调用是幂等的。
 
 ## Page { #page }
 
@@ -94,7 +101,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
-| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | 页面、表单与矢量绘制结果的TypedDict契约 |
+| `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | 页面、文档操作、表单与矢量绘制结果的TypedDict契约 |
 | `DrawingItem` | 表示line/cubic绘制命令的类型别名 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |

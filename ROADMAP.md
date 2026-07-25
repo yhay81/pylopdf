@@ -273,6 +273,19 @@ measurable, coherent boundary.
       with display-space line/cubic geometry and normalized paint/stroke
       properties. Ten real-world first pages plus synthetic styling, rotation,
       and adversarial path-count cases cover the extraction boundary.
+- [x] Add attachment-oriented
+      `Document.compress_images(dpi=150, quality=75)`. Interpret every indirect
+      raster placement through hayro and retain the largest reuse by
+      aggregating minimum effective DPI per source axis. Atomically rewrite
+      only safe, unmasked, 8-bit DeviceGray or DeviceRGB JPEG streams; resize
+      with Lanczos3, use optimized Huffman coding, and skip non-smaller output.
+      Repeat calls at the same settings are idempotent, object and decoded-pixel
+      work is bounded, and the GIL is released. Synthetic placement, reuse,
+      size, render, save/reopen, mask, idempotence, and hostile-input cases plus
+      the redistributable WDL masked-image corpus and CPython 3.14t
+      distinct-document concurrency guard the contract.
+      A compact local separable Lanczos3 implementation limits the measured
+      Windows abi3 wheel increase to 0.07 MiB (6.78 to 6.86 MiB).
 - [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
   rectangular merged cells. Keep adversarial search bounded and reject broken
   outer grids and compact filled decorations.
@@ -615,9 +628,6 @@ rather than waiting automatically for v1.x.
   dependency: UAX #14 plus HarfRust metrics was sufficient for the bounded
   `insert_textbox` contract without adding font fallback and styling machinery.
   Reconsider only if product demand justifies a native rich-text surface.
-- **zune-jpeg**: candidate JPEG recompressor for a future
-  `compress_images(dpi=, quality=)`, useful for email attachments and missing
-  from pypdf/pikepdf.
 - **PP-DocLayout**, Apache-2.0: possible `[layout]` alternative to the
   PolyForm-Noncommercial pymupdf-layout. It could share rten with `[ocr]`;
   evaluate after OCR succeeds.

@@ -138,6 +138,7 @@ class _Document:
             tuple[tuple[float, float, float] | None, float | None, bool | None],
         ]
     ]: ...
+    def compress_images(self, target_dpi: float | None, quality: int) -> tuple[int, int, int, int, int]: ...
     def render_page_pixmap(
         self,
         page_number: int,
