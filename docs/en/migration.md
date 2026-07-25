@@ -38,7 +38,7 @@ deliberately does not implement.
 | `page.rect / rotation / set_rotation` | same | |
 | `page.insert_image(rect, filename=)` | same | JPEG/PNG only; no `pixmap=` — convert via Pillow |
 | `page.show_pdf_page(rect, src, pno)` | same | same-document overlay unsupported (copy first) |
-| `page.insert_text(point, text, fontsize=, fontname=)` | same | standard-14 abbreviations (`helv` …); WinAnsi only |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` | no font source: standard-14 / WinAnsi; a source is shaped with HarfRust and subset-embedded through krilla |
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
 | `doc.embfile_add / names / get / del` | same | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |

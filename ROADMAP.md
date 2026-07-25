@@ -66,11 +66,11 @@ rendering, positioned text extraction, and editing in one package**.
   a three-engine split: editing = lopdf, rendering = hayro, generation = krilla.
   A 2026-07-23 audit confirmed that krilla core does not depend on hayro; only
   the `pdf` feature pulls hayro-write, which is unnecessary for lopdf object
-  import. The intended configuration is
-  `default-features = false, features = ["simple-text"]`, with built-in
-  rustybuzz shaping and without redundant raster image support. skrifa, flate2,
-  and png are already shared through hayro, so the estimated wheel increase is
-  0.5–1 MB and must be measured. This unlocks, in order: arbitrary embedded
+  import. The production configuration is `default-features = false`, without
+  redundant raster image support; HarfRust 0.12 supplies shaping separately so
+  krilla's unmaintained rustybuzz/ttf-parser path stays out of the graph.
+  skrifa, flate2, and png are already shared through hayro. This unlocks, in
+  order: arbitrary embedded
   fonts including CJK in `insert_text`; AcroForm appearance generation;
   in-house new-document PDF/A; and eventually tagged PDF/UA.
 
@@ -271,9 +271,20 @@ measurable, and coherent rather than stopping at a nominal parity checklist.
   positive path and the Japanese business-document corpus guards against false
   classification. Ruby, warichu, and mixed-orientation typography remain
   explicit follow-up depth.
-- Turn the successful krilla spike into arbitrary embedded-font text insertion,
-  then `insert_textbox`, and finally native AcroForm appearance generation.
-  Measure wheel size and rendering fidelity at every stage.
+- [x] Turn the successful krilla spike into arbitrary subset-embedded OpenType
+      text insertion. `insert_text(fontfile= / fontbuffer=, fontindex=)` shapes
+      Unicode through HarfRust 0.12, generates in the target page's
+      rotation-resolved display space, and imports through the existing
+      Form-XObject boundary. Extraction, search, multiline placement, rotation,
+      color, overlay order, invalid or incomplete fonts, and save round-trips
+      are covered. RTL glyph shaping works, while extraction currently follows
+      visual rather than logical order.
+      A 4.5 MB Noto Sans JP source produces a 3.3 KB edited PDF for the test
+      phrase. The Windows abi3 wheel is 5.42 MB versus 4.44 MB before krilla
+      (+0.98 MB); `NOTICE.md`, PEP 639 license files, and the wheel SBOM retain
+      third-party attribution.
+- Build `insert_textbox` on the same generation boundary, then native AcroForm
+  appearance generation. Measure size and rendering fidelity at every stage.
 - [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
   with deterministic input order, a dedicated 1–64 worker pool, four-worker
   default, GIL release, and a ~512 MB estimated working-memory concurrency cap.
@@ -390,10 +401,10 @@ rather than waiting automatically for v1.x.
       It subset-embedded a 4.5 MB Noto Sans JP font into an 8 KB one-page PDF,
       which pylopdf opened, extracted with exact Unicode through ToUnicode, and
       rendered. The spike executable is 3.3 MB, but skrifa and related
-      dependencies are shared with hayro, so actual extension growth should be
-      much smaller and must be measured. Next: design arbitrary-font
-      `insert_text`, generate one page with krilla, and import it as a Form
-      XObject into lopdf.
+      dependencies are shared with hayro. Production integration is now
+      complete with HarfRust replacing that spike-only shaping feature: the
+      abi3 wheel grew by 0.98 MB, and generated text is imported into lopdf as
+      a Form XObject. Next: `insert_textbox`.
 - [x] Add `get_pixmap(clip=)` by cropping the full-page raster with exact
       rotation-resolved display-coordinate semantics. hayro `RenderSettings`
       still supports only an origin-fixed viewport, so true region-only

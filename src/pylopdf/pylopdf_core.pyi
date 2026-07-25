@@ -163,6 +163,18 @@ class _Document:
         winansi: bool,
         fontsize: float,
         color: tuple[float, float, float],
+        overlay: bool,
+    ) -> None: ...
+    def insert_embedded_text(
+        self,
+        page_number: int,
+        point: tuple[float, float],
+        lines: list[str],
+        font_data: bytes,
+        font_index: int,
+        fontsize: float,
+        color: tuple[float, float, float],
+        overlay: bool,
     ) -> None: ...
     def replace_text_on_page(
         self, page_number: int, search: str, replacement: str, default_char: str | None

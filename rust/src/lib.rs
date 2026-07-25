@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 mod document;
 mod draw;
 mod extract;
+mod generate;
 mod ocr;
 mod pixmap;
 use document::{_Document, PasswordError, PdfError};

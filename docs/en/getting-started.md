@@ -90,6 +90,7 @@ page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough 
 page.insert_image(page.search_for("Approved")[0], stream=stamp_png)
 page.show_pdf_page(page.rect, letterhead)                    # overlay another PDF as vectors
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
+page.insert_text((40, 70), "社外秘", fontsize=18, fontfile="NotoSansJP-Regular.otf")
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

@@ -37,7 +37,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename=)` | 동일 | JPEG/PNG만 지원, `pixmap=` 없음 — Pillow로 변환 |
 | `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서의 오버레이는 미지원(먼저 복사) |
-| `page.insert_text(point, text, fontsize=, fontname=)` | 동일 | Standard-14 약어(`helv` 등), WinAnsi만 지원 |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` | 글꼴 미지정 시 Standard-14 / WinAnsi, 지정 시 HarfRust로 셰이핑하고 krilla로 서브셋 내장 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |

@@ -131,6 +131,17 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   resolved, then convert to `cm`/`Tm`. Annotations must always include an
   appearance stream at `AP /N`, because hayro does not render annotations
   without one. `render_annotations` defaults to true.
+- Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
+  pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
+  shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
+  PDF-import features remain disabled. Generation creates a transparent page
+  in target display coordinates, subset-embeds the selected OpenType face, and
+  returns bytes that the existing lopdf Form-XObject path imports. It releases
+  the GIL, rejects missing glyphs, and does not provide fallback or paragraph
+  layout. RTL shapes render, but extraction currently follows visual order.
+  Keep third-party acknowledgements in `NOTICE.md` and include both license
+  files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
+  integration, up from 4.44 MB.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
