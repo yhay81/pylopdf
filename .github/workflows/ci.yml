@@ -36,14 +36,18 @@ jobs:
       - name: Test
         run: uv run pytest
       - name: Record native Pyodide compatibility baseline
-        run: >-
-          uv run python tools/pyodide_compat.py
-          --root .
-          --output native-compat/results.json
+        run: |
+          uv run python tools/pyodide_compat.py \
+            --root . \
+            --output native-compat/results.json
+          uv run python tools/pyodide_compat.py \
+            --root . \
+            --benchmark-only \
+            --benchmark-output native-compat/limits-benchmark.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-pyodide-compat-${{ github.sha }}
-          path: native-compat/results.json
+          path: native-compat/*.json
           retention-days: 7
 
   # Test the version-specific ABI without silently falling back to the GIL.
@@ -109,12 +113,18 @@ jobs:
         run: bash tools/build_pyodide.sh
         env:
           PYLOPDF_PYODIDE_NATIVE_RESULTS: native-compat/results.json
+          PYLOPDF_PYODIDE_BENCHMARK_OUTPUT: pyodide-compat/limits-benchmark.json
       - name: Dry-run Cloudflare Workers bundle
         run: python tools/smoke_cloudflare.py --wheel dist/pyodide-0.28.3/*.whl
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pyemscripten-wheel-pyodide-0.28.3
           path: dist/pyodide-0.28.3/*.whl
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pyodide-limit-benchmark-${{ github.sha }}
+          path: pyodide-compat/limits-benchmark.json
           retention-days: 7
 
   test:

@@ -19,15 +19,20 @@ pylopdf is written in Rust (lopdf, hayro, krilla, and HarfRust) and has no
 mandatory Python dependencies, but parsing hostile PDF input is inherently
 risky. When processing untrusted files:
 
-- Pass `max_decompressed_size=` to `pylopdf.open()` to validate every readable
-  stream before returning the document, including page content that the renderer
-  would otherwise decompress lazily. Image streams are bounded by their decoded
-  RGBA size; filter chains whose output cannot be bounded safely are rejected
-  while the limit is enabled.
+- Pass `limits=pylopdf.DocumentLimits.web()` to `pylopdf.open()`. The profile
+  bounds input bytes, pages, indirect objects, direct object nesting, individual
+  and cumulative decompression, page-content decompression, and interpreted
+  Unicode text. `LimitError.code` identifies the rejected resource.
+- Inspect `doc.complexity` before heavy work. It reports page, object, and stream
+  counts, encoded stream bytes, and direct object depth without decoding streams
+  or rendering.
+- `max_decompressed_size=` remains a compatible per-stream shorthand, but the
+  complete policy is preferred for user uploads.
 - Rendering is bounded to 64 megapixels per page. Embedded JavaScript is never
   executed (unsupported by design).
 - Prefer running batch processing of untrusted documents in a sandboxed or
-  containerized environment.
+  containerized environment, and enforce CPU deadlines in the host. pylopdf
+  resource budgets do not provide in-process time cancellation.
 
 ## Dependency auditing
 

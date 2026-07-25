@@ -11,13 +11,14 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None)` —
+`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
 `pylopdf.open()` は別名コンストラクタ。with 文に対応。
 
 | メンバ | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / イテレーション | `Page` ビュー（負数可。構造変更後は取得し直す） |
 | `page_count` / `len(doc)` | ページ数 |
+| `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
 | `metadata` / `set_metadata(dict)` | Info 辞書（UTF-16BE 対応） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
@@ -111,10 +112,11 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DrawingItem` | line/cubic 描画コマンドを表す型 alias |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
+| `DocumentLimits` / `DocumentComplexity` | 信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠 |
-| `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層（ValueError 互換の基底） |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG専用`save(path)`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | インタープリタ警告（フォント未解決・画像デコード失敗） |
 

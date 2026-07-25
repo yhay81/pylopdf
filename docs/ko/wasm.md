@@ -33,7 +33,7 @@ native/Wasm 공유 suite는 현재 다음을 검증합니다.
 - bordered table, 보수적인 borderless table, Markdown 통합, vector drawing 추출
 - 빈 문서, Standard 14와 subset embedded OpenType text, textbox, render,
   `Pixmap`, serialization, 가상 filesystem save, merge, 재정렬, 복제, select
-- `PdfError`, `PasswordError`, `EncryptedDocumentError`,
+- `PdfError`, 안정적인 리소스 code를 가진`LimitError`, `PasswordError`, `EncryptedDocumentError`,
   `DocumentClosedError`, `StalePageError`와 잘못된 입력 이후 runtime 재사용
 - `render_pages(workers=4)` 입력 순서와 `workers=1`의 byte 동일성
 
@@ -59,5 +59,7 @@ hash도 비교합니다.
   application이 font bytes를 명시적으로 전달할 수 있습니다.
 - 현재 gate는 Cloudflare bundle 생성을 검증하며 인증된 production live deploy는 아닙니다.
 
-resource limit과 적대적 입력은 이 기능 matrix와 별도로 추적합니다. native Python에서
-통과했다는 이유로 Wasm에 더 큰 memory budget이 있다고 가정하면 안 됩니다.
+같은 matrix가 native와Wasm에서`DocumentLimits`, `doc.complexity`, Web 예산 내의
+대표 vector/scan, file/page/text 거부 code를 검증합니다. 정기 native Atheris
+fuzzing은 더 큰 생성 hostile corpus도 추가합니다. native Python에서 통과했다고
+더 큰 memory budget을 가정하지 말고 두 runtime 모두 명시적 policy를 사용하세요.

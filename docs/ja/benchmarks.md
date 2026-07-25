@@ -109,10 +109,15 @@ Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+uv run python tools/pyodide_compat.py --root . --benchmark-only \
+  --benchmark-output .tmp/limits-benchmark.json
 # free-threaded CPython 3.14インタープリタで:
 python3.14t bench/free_threaded.py
 ```
 
 生成元レポートは
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)
-へコミットされています。数値を引用するときは、環境とコーパスを併記してください。
+へコミットされています。2番目のcommandは上限付きopen／extractと制御された拒否を
+測定します。CIは同じcaseをPyodide内でも実行し、Wasm linear memoryの増加を
+記録します。この時間とmemory値は傾向であり、native／Wasmの性能比較ではありません。
+数値を引用するときは、環境とコーパスを併記してください。

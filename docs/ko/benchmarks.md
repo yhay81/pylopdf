@@ -110,10 +110,15 @@ GIL이 비활성 상태임을 확인했습니다.
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+uv run python tools/pyodide_compat.py --root . --benchmark-only \
+  --benchmark-output .tmp/limits-benchmark.json
 # free-threaded CPython 3.14 interpreter에서:
 python3.14t bench/free_threaded.py
 ```
 
 생성된 원본 보고서는
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)에
-커밋됩니다. 수치를 인용할 때는 환경과 코퍼스도 함께 적어 주세요.
+커밋됩니다. 두 번째 command는 제한된 open/extract와 제어된 거부를 측정합니다.
+CI는 같은 case를Pyodide에서도 실행하고 Wasm linear memory 증가를 기록합니다.
+이 시간과memory 값은 추세이며 native/Wasm 성능 비교 주장이 아닙니다. 수치를
+인용할 때는 환경과 코퍼스도 함께 적어 주세요.

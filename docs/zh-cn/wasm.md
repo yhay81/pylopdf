@@ -32,7 +32,7 @@ JavaScript PDF 实现或 wasm-bindgen shim。
 - 有边框表格、保守的无边框表格、Markdown 集成与 vector drawing 提取；
 - 空文档、Standard 14 与子集嵌入 OpenType 文本、textbox、渲染、`Pixmap`、
   serialization、虚拟文件系统保存、merge、重排、复制与 select；
-- `PdfError`、`PasswordError`、`EncryptedDocumentError`、
+- `PdfError`、带稳定资源code的`LimitError`、`PasswordError`、`EncryptedDocumentError`、
   `DocumentClosedError`、`StalePageError`，以及错误输入后的 runtime 复用；
 - `render_pages(workers=4)` 的输入顺序，以及与 `workers=1` 的逐字节一致性。
 
@@ -54,5 +54,7 @@ fixture 包含 PDF 2.0、嵌入 CJK 的日本政府文档、IRS Form 1040、旋�
 - 尚未保证自动发现外部 CJK fallback font。已测试嵌入 CJK，也可显式传入字体 bytes。
 - 当前门禁验证 Cloudflare bundle 构建，不代表已在认证的生产环境 live deploy。
 
-resource limit 与对抗性输入测试会在功能矩阵之外单独跟踪。不能因为文档在原生
-Python 中通过，就假定 Wasm 拥有更大的 memory budget。
+同一matrix现会在native与Wasm中验证`DocumentLimits`、`doc.complexity`、Web
+预算内的代表性vector/scan，以及file/page/text拒绝code。定期native Atheris
+fuzzing还会加入更大的生成hostile corpus。不能因为文档在native Python中通过，
+就推断Wasm拥有更大的memory budget；两个runtime都应使用明确policy。

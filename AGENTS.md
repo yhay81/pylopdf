@@ -293,6 +293,19 @@ overview.
   font may be supplied from already licensed repository assets. Do not claim
   direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
   783 even though the binary itself passes that runtime's suite.
+- `DocumentLimits` is the public untrusted-input policy. Python validates the
+  immutable positive budgets and the Rust load boundary enforces file bytes,
+  pages, indirect objects, direct array/dictionary depth, per-stream and
+  cumulative decompression, and page-content decompression before hayro work.
+  Cumulative UTF-8 glyph payload is admitted lazily across interpreted pages
+  and shared by the TextPage/TablePage caches. Policy failures must raise
+  `LimitError`, a `PdfError` subclass whose first argument and `.code` are one
+  of the documented stable resource identifiers. `Document.complexity` may
+  traverse structure but must not decode streams or invoke hayro. Keep
+  `max_decompressed_size=` as the compatible shorthand, keep the web profile
+  usable for representative scans, and require the host to enforce CPU
+  deadlines. Native/Pyodide logical regressions and generated Atheris seeds
+  guard this boundary.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.

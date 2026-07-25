@@ -13,7 +13,17 @@ with atheris.instrument_imports():
 
 _MAX_INPUT_BYTES = 1_048_576
 _MAX_PAGES = 2
-_MAX_DECOMPRESSED_BYTES = 16 * 1024 * 1024
+_MIB = 1024 * 1024
+_FUZZ_LIMITS = pylopdf.DocumentLimits(
+    max_file_size=4 * _MIB,
+    max_pages=_MAX_PAGES,
+    max_objects=20_000,
+    max_decompressed_size=16 * _MIB,
+    max_page_content_size=4 * _MIB,
+    max_total_decompressed_size=32 * _MIB,
+    max_object_depth=64,
+    max_text_size=_MIB,
+)
 
 
 def test_one_input(data: bytes) -> None:
@@ -26,7 +36,7 @@ def test_one_input(data: bytes) -> None:
         try:
             with pylopdf.open(
                 stream=data,
-                max_decompressed_size=_MAX_DECOMPRESSED_BYTES,
+                limits=_FUZZ_LIMITS,
             ) as doc:
                 page_count = min(doc.page_count, _MAX_PAGES)
                 for page_number in range(page_count):
@@ -40,7 +50,7 @@ def test_one_input(data: bytes) -> None:
 
             with pylopdf.open(
                 stream=saved,
-                max_decompressed_size=_MAX_DECOMPRESSED_BYTES,
+                limits=_FUZZ_LIMITS,
             ) as reopened:
                 if reopened.page_count:
                     reopened[0].get_text()

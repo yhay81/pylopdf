@@ -28,6 +28,8 @@ jobs:
         run: |
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-corpus"
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-artifacts"
+          uv run python fuzz/generate_corpus.py \
+            --output "${RUNNER_TEMP}/pylopdf-fuzz-corpus"
           uv run python fuzz/fuzz_api.py \
             -max_total_time=600 \
             -timeout=60 \
@@ -35,7 +37,8 @@ jobs:
             -max_len=1048576 \
             -artifact_prefix="${RUNNER_TEMP}/pylopdf-fuzz-artifacts/" \
             "${RUNNER_TEMP}/pylopdf-fuzz-corpus" \
-            tests/assets/real_world
+            tests/assets/real_world \
+            tests/assets/encrypted
       - name: Upload failure reproducer
         if: steps.fuzz.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

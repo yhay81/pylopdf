@@ -98,6 +98,12 @@ struct TextCollector {
     collect_rules: bool,
     /// font_key → FontInfo cache, resolving font_data only once per font.
     font_infos: HashMap<u128, FontInfo>,
+    /// Cumulative UTF-8 bytes in accepted glyph Unicode.
+    text_size: usize,
+    /// Optional document-wide budget remaining for this interpretation.
+    max_text_size: Option<usize>,
+    /// Set once glyph Unicode would exceed the configured budget.
+    text_limit_exceeded: bool,
 }
 
 impl Device<'_> for TextCollector {
@@ -173,6 +179,9 @@ impl Device<'_> for TextCollector {
         _: &Paint<'_>,
         _: &GlyphDrawMode,
     ) {
+        if self.text_limit_exceeded {
+            return;
+        }
         let Some(unicode) = glyph.as_unicode() else {
             return;
         };
@@ -183,6 +192,18 @@ impl Device<'_> for TextCollector {
         if text.is_empty() {
             return;
         }
+        let Some(next_text_size) = self.text_size.checked_add(text.len()) else {
+            self.text_limit_exceeded = true;
+            return;
+        };
+        if self
+            .max_text_size
+            .is_some_and(|limit| next_text_size > limit)
+        {
+            self.text_limit_exceeded = true;
+            return;
+        }
+        self.text_size = next_text_size;
         let combined = transform * glyph_transform;
         let origin = combined * Point::ZERO;
         // Font size is the transformed y-basis length × 1000. Hayro normalizes
@@ -1096,23 +1117,34 @@ pub(crate) struct TextPage {
     width: f64,
     height: f64,
     lines: Vec<Vec<GlyphRecord>>,
+    text_size: usize,
 }
 
 impl TextPage {
-    pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
+    pub(crate) fn new(
+        pdf: &Pdf,
+        page: &Page<'_>,
+        settings: InterpreterSettings,
+        max_text_size: Option<usize>,
+    ) -> Result<Self, usize> {
         let (width, height) = page.render_dimensions();
-        let (glyphs, _) = collect_page_marks(pdf, page, settings, false);
+        let (glyphs, _, text_size) = collect_page_marks(pdf, page, settings, false, max_text_size)?;
         let physical_lines = cluster_lines(glyphs);
         let lines = order_page_lines(physical_lines);
-        Self {
+        Ok(Self {
             width: f64::from(width),
             height: f64::from(height),
             lines,
-        }
+            text_size,
+        })
     }
 
     pub(crate) fn text(&self) -> String {
         assemble_text(&self.lines)
+    }
+
+    pub(crate) fn text_size(&self) -> usize {
+        self.text_size
     }
 
     pub(crate) fn layout(&self) -> (f64, f64, Vec<BlockTuple>) {
@@ -1128,16 +1160,28 @@ impl TextPage {
 pub(crate) struct TablePage {
     tables: Vec<TableTuple>,
     text_tables: Vec<TableTuple>,
+    text_size: usize,
 }
 
 impl TablePage {
-    pub(crate) fn new(pdf: &Pdf, page: &Page<'_>, settings: InterpreterSettings) -> Self {
-        let (glyphs, rules) = collect_page_marks(pdf, page, settings, true);
+    pub(crate) fn new(
+        pdf: &Pdf,
+        page: &Page<'_>,
+        settings: InterpreterSettings,
+        max_text_size: Option<usize>,
+    ) -> Result<Self, usize> {
+        let (glyphs, rules, text_size) =
+            collect_page_marks(pdf, page, settings, true, max_text_size)?;
         let physical_lines = cluster_lines(glyphs);
-        Self {
+        Ok(Self {
             tables: detect_grid_tables(&physical_lines, &rules),
             text_tables: detect_text_tables(&physical_lines),
-        }
+            text_size,
+        })
+    }
+
+    pub(crate) fn text_size(&self) -> usize {
+        self.text_size
     }
 
     pub(crate) fn tables(&self, text_strategy: bool, clip: Option<BBox>) -> Vec<TableTuple> {
@@ -2963,7 +3007,8 @@ fn collect_page_marks(
     page: &Page<'_>,
     settings: InterpreterSettings,
     collect_rules: bool,
-) -> (Vec<GlyphRecord>, Vec<RuleSegment>) {
+    max_text_size: Option<usize>,
+) -> Result<(Vec<GlyphRecord>, Vec<RuleSegment>, usize), usize> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = TextCollector {
@@ -2971,7 +3016,13 @@ fn collect_page_marks(
         rules: Vec::new(),
         collect_rules,
         font_infos: HashMap::new(),
+        text_size: 0,
+        max_text_size,
+        text_limit_exceeded: false,
     };
     interpret_page(page, &mut context, &mut collector);
-    (collector.glyphs, collector.rules)
+    if collector.text_limit_exceeded {
+        return Err(max_text_size.unwrap_or(usize::MAX));
+    }
+    Ok((collector.glyphs, collector.rules, collector.text_size))
 }

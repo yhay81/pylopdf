@@ -9,7 +9,7 @@ mod layout;
 mod ocr;
 mod ocr_engine;
 mod pixmap;
-use document::{_Document, PasswordError, PdfError};
+use document::{_Document, LimitError, PasswordError, PdfError};
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;
 
@@ -19,6 +19,7 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_OcrEngine>()?;
     m.add_class::<Pixmap>()?;
     m.add("PdfError", m.py().get_type::<PdfError>())?;
+    m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("PasswordError", m.py().get_type::<PasswordError>())?;
     m.add("OcrError", m.py().get_type::<OcrError>())?;
     Ok(())

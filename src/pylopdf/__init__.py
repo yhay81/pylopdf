@@ -12,11 +12,12 @@ import math
 import os
 import threading
 import warnings as _warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
 
 from pylopdf import _markdown
-from pylopdf.pylopdf_core import OcrError, PasswordError, PdfError, Pixmap, _Document, _OcrEngine
+from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, _Document, _OcrEngine
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -39,6 +40,8 @@ __all__ = [
     "BlockEntry",
     "Document",
     "DocumentClosedError",
+    "DocumentComplexity",
+    "DocumentLimits",
     "DocumentMetadata",
     "DrawingInfo",
     "DrawingItem",
@@ -47,6 +50,7 @@ __all__ = [
     "FormFieldType",
     "ImageCompressionResult",
     "ImageInfo",
+    "LimitError",
     "LinkInfo",
     "MetadataProbe",
     "MetadataUpdate",
@@ -137,6 +141,98 @@ class StalePageError(PdfError):
 
     Fetch the page again with ``doc[i]``.
     """
+
+
+_LIMIT_ERROR_STR = LimitError.__str__
+_LIMIT_ERROR_ARG_COUNT = 2
+
+
+def _limit_error_code(error: LimitError) -> str:
+    """Return the stable resource identifier from a core limit exception."""
+    if len(error.args) >= _LIMIT_ERROR_ARG_COUNT and isinstance(error.args[0], str):
+        return error.args[0]
+    return "unknown"
+
+
+def _limit_error_str(error: LimitError) -> str:
+    """Render only the human-readable part of a core limit exception."""
+    if len(error.args) >= _LIMIT_ERROR_ARG_COUNT and isinstance(error.args[1], str):
+        return error.args[1]
+    return _LIMIT_ERROR_STR(error)
+
+
+_limit_error_type = cast("Any", LimitError)
+_limit_error_type.code = property(_limit_error_code)
+_limit_error_type.__str__ = _limit_error_str
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentLimits:
+    """Optional resource budgets for opening and interpreting untrusted PDFs.
+
+    ``None`` leaves an individual budget unlimited. :meth:`web` supplies a
+    conservative starting profile for memory-bounded web and queue workers.
+    """
+
+    max_file_size: int | None = None
+    max_pages: int | None = None
+    max_objects: int | None = None
+    max_decompressed_size: int | None = None
+    max_page_content_size: int | None = None
+    max_total_decompressed_size: int | None = None
+    max_object_depth: int | None = None
+    max_text_size: int | None = None
+
+    def __post_init__(self) -> None:
+        """Reject booleans, non-integers, zero, and negative budgets."""
+        values = (
+            ("max_file_size", self.max_file_size),
+            ("max_pages", self.max_pages),
+            ("max_objects", self.max_objects),
+            ("max_decompressed_size", self.max_decompressed_size),
+            ("max_page_content_size", self.max_page_content_size),
+            ("max_total_decompressed_size", self.max_total_decompressed_size),
+            ("max_object_depth", self.max_object_depth),
+            ("max_text_size", self.max_text_size),
+        )
+        for name, value in values:
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, int):
+                msg = f"{name} must be a positive integer or None: {value!r}"
+                raise TypeError(msg)
+            if value <= 0:
+                msg = f"{name} must be a positive integer or None: {value!r}"
+                raise ValueError(msg)
+
+    @classmethod
+    def web(cls) -> DocumentLimits:
+        """Return a conservative profile for user uploads in bounded workers."""
+        mib = 1024 * 1024
+        return cls(
+            max_file_size=10 * mib,
+            max_pages=200,
+            max_objects=100_000,
+            max_decompressed_size=64 * mib,
+            max_page_content_size=10 * mib,
+            max_total_decompressed_size=128 * mib,
+            max_object_depth=64,
+            max_text_size=mib,
+        )
+
+
+def _document_limit_args(limits: DocumentLimits) -> tuple[int | None, ...]:
+    """Return private Rust arguments in their stable binding order."""
+    return (
+        limits.max_decompressed_size,
+        limits.max_page_content_size,
+        limits.max_file_size,
+        limits.max_pages,
+        limits.max_objects,
+        limits.max_total_decompressed_size,
+        limits.max_object_depth,
+        limits.max_text_size,
+    )
 
 
 class Point(NamedTuple):
@@ -358,6 +454,16 @@ class MetadataProbe(DocumentMetadata):
 
     page_count: int
     encrypted: bool
+
+
+class DocumentComplexity(TypedDict):
+    """Cheap structural facts that require no stream decoding or rendering."""
+
+    page_count: int
+    object_count: int
+    stream_count: int
+    encoded_stream_bytes: int
+    max_object_depth: int
 
 
 class OcrWord(TypedDict):
@@ -1809,36 +1915,44 @@ class Document:
         stream: bytes | None = None,
         password: str | None = None,
         max_decompressed_size: int | None = None,
+        *,
+        limits: DocumentLimits | None = None,
     ) -> None:
         """Open from exactly one of a file path and byte stream, or create empty.
 
         PDFs with an empty user password decrypt automatically. Otherwise pass
         ``password`` or call :meth:`authenticate` after opening.
-        ``max_decompressed_size`` limits decompressed bytes per stream to defend
-        against decompression bombs in untrusted PDFs; ``None`` is unlimited.
-        Lazily decoded streams such as page content are validated during load,
-        and filter chains that cannot be bounded safely are rejected.
+        ``limits`` applies structural, decompression, and interpreted-text
+        budgets before expensive work. :meth:`DocumentLimits.web` is a
+        conservative starting profile for untrusted uploads.
+        ``max_decompressed_size`` remains as the compatible single-budget
+        shorthand and cannot be combined with ``limits``.
         """
         if filename is not None and stream is not None:
             msg = "filename and stream cannot both be specified"
             raise ValueError(msg)
-        if max_decompressed_size is not None and max_decompressed_size <= 0:
-            msg = f"max_decompressed_size must be a positive integer: {max_decompressed_size!r}"
+        if limits is not None and not isinstance(limits, DocumentLimits):
+            msg = f"limits must be a DocumentLimits instance or None: {limits!r}"
+            raise TypeError(msg)
+        if limits is not None and max_decompressed_size is not None:
+            msg = "limits and max_decompressed_size cannot both be specified"
             raise ValueError(msg)
+        resolved_limits = limits or DocumentLimits(max_decompressed_size=max_decompressed_size)
+        limit_args = _document_limit_args(resolved_limits)
         path = None if filename is None else str(filename)
-        self._max_decompressed_size = max_decompressed_size
+        self._limits = resolved_limits
         if stream is not None:
-            doc = _Document.load_bytes(stream, None, max_decompressed_size)
+            doc = _Document.load_bytes(stream, None, *limit_args)
             needs_pass = doc.is_encrypted()
             if needs_pass and password is not None:
-                doc = _Document.load_bytes(stream, password, max_decompressed_size)
+                doc = _Document.load_bytes(stream, password, *limit_args)
         elif path is not None:
-            doc = _Document.load(path, None, max_decompressed_size)
+            doc = _Document.load(path, None, *limit_args)
             needs_pass = doc.is_encrypted()
             if needs_pass and password is not None:
-                doc = _Document.load(path, password, max_decompressed_size)
+                doc = _Document.load(path, password, *limit_args)
         else:
-            doc = _Document()
+            doc = _Document(resolved_limits.max_text_size)
             needs_pass = False
         self._doc = doc
         self._closed = False
@@ -1881,10 +1995,11 @@ class Document:
         if code == 0:
             return 0
         # Reopen with the password so objects inside object streams are readable.
+        limit_args = _document_limit_args(self._limits)
         if self._source_path is not None:
-            self._doc = _Document.load(self._source_path, password, self._max_decompressed_size)
+            self._doc = _Document.load(self._source_path, password, *limit_args)
         elif self._source_bytes is not None:
-            self._doc = _Document.load_bytes(self._source_bytes, password, self._max_decompressed_size)
+            self._doc = _Document.load_bytes(self._source_bytes, password, *limit_args)
         self._source_path = None
         self._source_bytes = None
         return code
@@ -1894,6 +2009,25 @@ class Document:
         """Return the number of pages."""
         self._ensure_open()
         return self._doc.page_count()
+
+    @property
+    def limits(self) -> DocumentLimits:
+        """Return the immutable resource policy configured at open time."""
+        self._ensure_not_closed()
+        return self._limits
+
+    @property
+    def complexity(self) -> DocumentComplexity:
+        """Return cheap structural facts without decoding streams or rendering."""
+        self._ensure_not_closed()
+        pages, objects, streams, encoded_bytes, depth = self._doc.complexity()
+        return {
+            "page_count": pages,
+            "object_count": objects,
+            "stream_count": streams,
+            "encoded_stream_bytes": encoded_bytes,
+            "max_object_depth": depth,
+        }
 
     def __len__(self) -> int:
         """Return the number of pages."""
@@ -2717,6 +2851,8 @@ def open(  # noqa: A001
     stream: bytes | None = None,
     password: str | None = None,
     max_decompressed_size: int | None = None,
+    *,
+    limits: DocumentLimits | None = None,
 ) -> Document:
     """Open a :class:`Document`; equivalent to ``Document(...)``."""
     return Document(
@@ -2724,6 +2860,7 @@ def open(  # noqa: A001
         stream=stream,
         password=password,
         max_decompressed_size=max_decompressed_size,
+        limits=limits,
     )
 
 

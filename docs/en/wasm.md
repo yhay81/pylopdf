@@ -40,7 +40,7 @@ The shared native/Wasm suite currently covers:
 - empty-document creation, Standard 14 and subset-embedded OpenType text,
   textbox layout, rendering, `Pixmap`, serialization, virtual-filesystem save,
   merge, reorder, duplicate, and select;
-- `PdfError`, `PasswordError`, `EncryptedDocumentError`,
+- `PdfError`, `LimitError` and its stable resource code, `PasswordError`, `EncryptedDocumentError`,
   `DocumentClosedError`, and `StalePageError`, followed by reuse of the runtime
   after malformed input; and
 - `render_pages(workers=4)` input ordering and byte equality with
@@ -73,6 +73,8 @@ cannot hide behind a permissive smoke test.
 - The current gate proves Cloudflare bundle construction, not a live
   authenticated production deployment.
 
-Resource-limit and adversarial-input coverage is tracked separately from this
-functional matrix. Do not infer a larger memory budget merely because a PDF
-passes on native Python.
+The same matrix now exercises `DocumentLimits`, `doc.complexity`, representative
+web-bounded vector and scan inputs, and file/page/text rejection codes on native
+and Wasm. Scheduled native Atheris fuzzing adds the larger generated hostile
+corpus. Do not infer a larger memory budget merely because a PDF passes on
+native Python; use the explicit policy on both runtimes.

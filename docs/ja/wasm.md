@@ -33,7 +33,7 @@ native/Wasm共有スイートは、現在次を検証します。
 - 罫線表と保守的なborderless表、Markdown統合、vector drawing抽出
 - 空文書作成、Standard 14とsubset埋め込みOpenType text、textbox、render、
   `Pixmap`、serialization、仮想filesystemへのsave、merge、並べ替え、複製、select
-- `PdfError`、`PasswordError`、`EncryptedDocumentError`、
+- `PdfError`、安定した資源codeを持つ`LimitError`、`PasswordError`、`EncryptedDocumentError`、
   `DocumentClosedError`、`StalePageError`と、破損入力後のruntime再利用
 - `render_pages(workers=4)`の入力順維持と`workers=1`とのbyte一致
 
@@ -59,5 +59,8 @@ fixtureにはPDF 2.0、埋め込みCJKを持つ日本政府文書、IRS Form 104
   applicationからfont bytesを明示的に渡すことはできます。
 - 現在のゲートはCloudflare bundle生成までで、認証済みproduction環境へのlive deployではありません。
 
-resource limitと敵対的入力の検証は、この機能互換matrixとは別に追跡します。
-native Pythonで通ることを理由に、Wasmでより大きなmemory budgetを仮定しないでください。
+同じmatrixで`DocumentLimits`、`doc.complexity`、Web上限内の代表的なvector／scan、
+file／page／text拒否codeをnativeとWasmの両方で検証します。定期native Atheris
+fuzzingでは、より大きな生成hostile corpusも追加します。native Pythonで通る
+PDFだからといって大きなmemory budgetを仮定せず、両runtimeで明示的なpolicyを
+使用してください。
