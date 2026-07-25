@@ -206,16 +206,18 @@ Released as v0.9.0 on 2026-07-23.
 
 ### v0.10 — hardening and reusable page interpretation
 
+Released as v0.10.0 on 2026-07-25.
+
 v0.10 is the pre-1.0 stabilization release, not the OCR release. It publishes
 the substantial safety, performance, documentation, and link-reading work
 completed after v0.9, then establishes the reusable interpretation layer needed
 for deeper extraction accuracy. The release is intentionally allowed to refine
 pre-1.0 APIs.
 
-- Publish the unreleased decompression-limit, object-import isolation, malformed
+- [x] Publish the decompression-limit, object-import isolation, malformed
   input, rotated extraction, rendering, compression, documentation, benchmark,
   and `Page.get_links` changes as one coherent minor release.
-- Synchronize PyPI tags and GitHub Releases, enable public issue reporting, and
+- [x] Synchronize PyPI tags and GitHub Releases, enable public issue reporting, and
   add contributor guidance plus issue and pull-request templates. Require a
   redistributable minimal PDF for parser, renderer, and extraction regressions.
 - [x] Introduce an internal bounded, generation-invalidated `TextPage` that
@@ -239,9 +241,10 @@ pre-1.0 APIs.
 
 ### v0.11 — layout, creation, and concurrency depth
 
-v0.11 is the main capability-expansion release before v1.0. It has no arbitrary
-feature-count deadline: work continues until the new capabilities are accurate,
-measurable, and coherent rather than stopping at a nominal parity checklist.
+v0.11 continues capability expansion before v1.0. Several originally planned
+items shipped early in v0.10; remaining work has no arbitrary feature-count
+deadline and continues until it is accurate, measurable, and coherent rather
+than stopping at a nominal parity checklist.
 
 - [x] Build deterministic multicolumn reading order on `TextPage`: sustained
   whitespace gutters split line segments into recursive left-to-right columns,

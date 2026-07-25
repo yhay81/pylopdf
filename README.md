@@ -29,7 +29,7 @@ PDF editing and rendering for Python, powered by Rust — [lopdf](https://github
 - Fits size-constrained environments such as AWS Lambda
 - Safe for commercial projects that need to avoid the AGPL
 - abi3: one wheel covers Python 3.10–3.14
-- v0.10 adds native `cp314t` wheels for free-threaded Python 3.14
+- v0.10 includes native `cp314t` wheels for free-threaded Python 3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
 **Limitations**: multicolumn text follows deterministic whitespace gutters, and
