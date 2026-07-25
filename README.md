@@ -45,7 +45,9 @@ the exact artifact depends on platform and Python ABI.
 
 **Limitations**: multicolumn text follows deterministic whitespace gutters, and
 `find_tables()` reconstructs bordered grids from strokes or thin filled rules,
-including rectangular merged cells. The opt-in
+including rectangular merged cells. It conservatively separates repeated text
+records when a generator omits internal rules inside an otherwise connected
+grid. The opt-in
 `find_tables(strategy="text")` handles high-confidence borderless layouts, but
 can interpret aligned multicolumn prose as a table. `Document.to_markdown()`
 inserts complete bordered tables by default; pass `table_strategy="text"` to
@@ -372,7 +374,7 @@ signed_pdf: bytes = out.getvalue()
 | `apply_ocr(..., rotation=0, clip=None, skip_existing=True)` | Recognize and insert an orientation-aware invisible searchable layer; existing searchable text in the selected region is skipped by default |
 | `to_markdown(table_strategy="lines")` | Markdown conversion of this page with the same table controls as the document method |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
-| `find_tables(strategy="lines", clip=None)` | Detect complete bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
+| `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |

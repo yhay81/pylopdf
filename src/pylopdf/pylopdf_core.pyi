@@ -108,6 +108,7 @@ class _Document:
             int,
             int,
             list[tuple[tuple[float, float, float, float], str] | None],
+            list[int],
             tuple[float, float | None, float | None, float | None],
         ]
     ]: ...

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.find_tables()` now refines coarse vector-grid spans when at least three
+  evenly led text records densely occupy the same cross-axis cell slots. The
+  conservative inference is symmetric across right-angle page rotations,
+  assigns hybrid grids a 0.95 ranking score, and leaves multiline merged
+  headers intact when their slot signatures differ. Rotated word boxes now
+  follow their baseline geometry, and Markdown expands merged cells from exact
+  anchor mappings instead of ambiguous neighboring `None` values. Independent
+  public-domain FBI NICS and US Senate PDFs add dense numeric, sparse-rule,
+  merged-header, borderless-body, and rotated-table regressions. The refreshed
+  nine-file benchmark publishes the full tradeoff: pylopdf leads all nine
+  first-page renders, five extraction cases, and the combined merge, while
+  pymupdf leads the other four extraction cases.
 - `Document.to_markdown()` and `Page.to_markdown()` now insert complete bordered
   tables in document reading order by default. Cell text is removed from the
   surrounding prose and from heading-size inference while words outside a

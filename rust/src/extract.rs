@@ -292,6 +292,18 @@ const TEXT_TABLE_ALIGNMENT_TOLERANCE: f64 = 1.0;
 /// Maximum gap between consecutive borderless table rows.
 const TEXT_TABLE_ROW_GAP: f64 = 2.5;
 
+/// Minimum aligned physical lines needed to refine one coarse grid interval.
+const MIN_HYBRID_GRID_ROWS: usize = 3;
+
+/// Require text in at least this fraction of cross-axis grid slots.
+const HYBRID_GRID_OCCUPANCY_RATIO: f64 = 0.5;
+
+/// Require adjacent inferred rows to occupy nearly the same grid slots.
+const HYBRID_GRID_SLOT_SIMILARITY: f64 = 0.8;
+
+/// Maximum leading variation relative to the largest candidate font.
+const HYBRID_GRID_LEADING_VARIATION: f64 = 0.75;
+
 /// Treat transformed path segments this close to an axis as horizontal/vertical.
 const TABLE_AXIS_TOLERANCE: f64 = 0.5;
 
@@ -1064,6 +1076,10 @@ type BBox = (f64, f64, f64, f64);
 type SpanTuple = (BBox, String, f64, (f64, f64), String, i64);
 /// Word: `(bbox, text)`.
 type WordTuple = (BBox, String);
+/// One row-major table slot; merged continuations are absent.
+type TableCell = Option<(BBox, String)>;
+/// Materialized row-major cells plus an anchor index for every slot.
+type MaterializedGrid = (Vec<TableCell>, Vec<u32>);
 /// Line: `(bbox, spans, words, baseline direction, writing mode)`.
 type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
@@ -1071,7 +1087,8 @@ pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
 /// Table: `(bbox, row count, column count, row-major cells)`.
 ///
 /// Continuation slots covered by a merged cell are `None`; the merged cell's
-/// top-left slot contains its spanning bbox and text.
+/// top-left slot contains its spanning bbox and text. The parallel anchor list
+/// maps every slot to that top-left slot for lossless span expansion.
 /// Diagnostics are `(confidence, alignment error in em, minimum gutter in em,
 /// row-gap variation in em)`. Vector-grid metrics are `None`.
 type TableDiagnosticsTuple = (f64, Option<f64>, Option<f64>, Option<f64>);
@@ -1079,7 +1096,8 @@ pub(crate) type TableTuple = (
     BBox,
     u32,
     u32,
-    Vec<Option<(BBox, String)>>,
+    Vec<TableCell>,
+    Vec<u32>,
     TableDiagnosticsTuple,
 );
 
@@ -1091,33 +1109,56 @@ fn bbox_is_inside((x0, y0, x1, y1): BBox, (clip_x0, clip_y0, clip_x1, clip_y1): 
         && y1 <= clip_y1 + TABLE_SNAP_TOLERANCE
 }
 
+/// One glyph bbox with vertical extents approximated from baseline and size.
+fn glyph_bbox(glyph: &GlyphRecord) -> BBox {
+    if glyph.writing_mode == 1 {
+        // Inferred mode-1 CJK retains upright glyph geometry; only its
+        // conservative line ordering is vertical.
+        return (
+            glyph.x,
+            glyph.y - glyph.size * ASCENT,
+            glyph.x + glyph.advance,
+            glyph.y + glyph.size * DESCENT,
+        );
+    }
+    if glyph.direction.0 >= 1.0 - 1e-6 && glyph.direction.1.abs() <= 1e-6 {
+        return (
+            glyph.x,
+            glyph.y - glyph.size * ASCENT,
+            glyph.x + glyph.advance,
+            glyph.y + glyph.size * DESCENT,
+        );
+    }
+    let block = (-glyph.direction.1, glyph.direction.0);
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for inline in [0.0, glyph.advance] {
+        for cross in [-glyph.size * ASCENT, glyph.size * DESCENT] {
+            let x = glyph.x + glyph.direction.0 * inline + block.0 * cross;
+            let y = glyph.y + glyph.direction.1 * inline + block.1 * cross;
+            x0 = x0.min(x);
+            x1 = x1.max(x);
+            y0 = y0.min(y);
+            y1 = y1.max(y);
+        }
+    }
+    (x0, y0, x1, y1)
+}
+
 /// Glyph bounding box with vertical extents approximated from baseline and size.
 fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
     let mut x1 = f64::NEG_INFINITY;
     let mut y1 = f64::NEG_INFINITY;
-    for g in glyphs {
-        if g.writing_mode == 1 {
-            // Inferred mode-1 CJK retains upright glyph geometry; only its
-            // conservative line ordering is vertical.
-            x0 = x0.min(g.x);
-            x1 = x1.max(g.x + g.advance);
-            y0 = y0.min(g.y - g.size * ASCENT);
-            y1 = y1.max(g.y + g.size * DESCENT);
-            continue;
-        }
-        let block = (-g.direction.1, g.direction.0);
-        for inline in [0.0, g.advance] {
-            for cross in [-g.size * ASCENT, g.size * DESCENT] {
-                let x = g.x + g.direction.0 * inline + block.0 * cross;
-                let y = g.y + g.direction.1 * inline + block.1 * cross;
-                x0 = x0.min(x);
-                x1 = x1.max(x);
-                y0 = y0.min(y);
-                y1 = y1.max(y);
-            }
-        }
+    for glyph in glyphs {
+        let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = glyph_bbox(glyph);
+        x0 = x0.min(glyph_x0);
+        y0 = y0.min(glyph_y0);
+        x1 = x1.max(glyph_x1);
+        y1 = y1.max(glyph_y1);
     }
     (x0, y0, x1, y1)
 }
@@ -1171,10 +1212,11 @@ fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
         let mut x1 = f64::NEG_INFINITY;
         let mut y1 = f64::NEG_INFINITY;
         for g in current.iter() {
-            x0 = x0.min(g.x);
-            x1 = x1.max(g.x + g.advance);
-            y0 = y0.min(g.y - g.size * ASCENT);
-            y1 = y1.max(g.y + g.size * DESCENT);
+            let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = glyph_bbox(g);
+            x0 = x0.min(glyph_x0);
+            y0 = y0.min(glyph_y0);
+            x1 = x1.max(glyph_x1);
+            y1 = y1.max(glyph_y1);
         }
         words.push(((x0, y0, x1, y1), text));
         current.clear();
@@ -1319,7 +1361,7 @@ fn materialize_grid_cells(
     xs: &[f64],
     ys: &[f64],
     word_lines: &[Vec<WordTuple>],
-) -> Option<Vec<Option<(BBox, String)>>> {
+) -> Option<MaterializedGrid> {
     let row_count = ys.len() - 1;
     let column_count = xs.len() - 1;
     let slot_count = row_count.checked_mul(column_count)?;
@@ -1328,6 +1370,7 @@ fn materialize_grid_cells(
     }
 
     let mut cells = vec![None; slot_count];
+    let mut cell_anchors = vec![0; slot_count];
     let mut covered = vec![false; slot_count];
     let mut span_candidates = 0;
     for row_start in 0..row_count {
@@ -1384,14 +1427,161 @@ fn materialize_grid_cells(
             let (_, row_end, column_end) = best?;
             let bbox = (xs[column_start], ys[row_start], xs[column_end], ys[row_end]);
             cells[slot] = Some((bbox, cell_text(word_lines, bbox)));
+            let anchor = u32::try_from(slot).ok()?;
             for row in row_start..row_end {
                 for column in column_start..column_end {
-                    covered[row * column_count + column] = true;
+                    let covered_slot = row * column_count + column;
+                    covered[covered_slot] = true;
+                    cell_anchors[covered_slot] = anchor;
                 }
             }
         }
     }
-    covered.into_iter().all(|slot| slot).then_some(cells)
+    covered
+        .into_iter()
+        .all(|slot| slot)
+        .then_some((cells, cell_anchors))
+}
+
+/// Return the interval containing one coordinate within snapped grid bounds.
+fn grid_interval(bounds: &[f64], coordinate: f64) -> Option<usize> {
+    bounds.windows(2).position(|pair| {
+        coordinate >= pair[0] - TABLE_SNAP_TOLERANCE && coordinate <= pair[1] + TABLE_SNAP_TOLERANCE
+    })
+}
+
+/// Return the cross-axis grid slots occupied by one physical text line.
+fn line_grid_slots(line: &[GlyphRecord], bounds: &[f64], horizontal: bool) -> Vec<bool> {
+    let mut occupied = vec![false; bounds.len().saturating_sub(1)];
+    for ((x0, y0, x1, y1), _) in split_words(line) {
+        let coordinate = if horizontal {
+            (x0 + x1) * 0.5
+        } else {
+            (y0 + y1) * 0.5
+        };
+        if let Some(index) = grid_interval(bounds, coordinate) {
+            occupied[index] = true;
+        }
+    }
+    occupied
+}
+
+/// Compare two slot signatures without rewarding jointly empty columns.
+fn grid_slot_similarity(left: &[bool], right: &[bool]) -> f64 {
+    let intersection = left
+        .iter()
+        .zip(right)
+        .filter(|(left, right)| **left && **right)
+        .count();
+    let union = left
+        .iter()
+        .zip(right)
+        .filter(|(left, right)| **left || **right)
+        .count();
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
+}
+
+/// Infer missing row rules from three or more dense, evenly led text lines.
+///
+/// Some generators draw complete column borders but only one horizontal rule
+/// every few data rows. Treating those gaps as row spans collapses several
+/// records into one cell. Dense alignment across at least half the opposite
+/// grid axis is strong enough to add synthetic dividers while rejecting
+/// ordinary multiline headers and prose inside a wide merged cell.
+fn infer_hybrid_grid_rules(
+    physical_lines: &[Vec<GlyphRecord>],
+    axis_bounds: &[f64],
+    cross_bounds: &[f64],
+    horizontal: bool,
+) -> Vec<RuleSegment> {
+    let cross_count = cross_bounds.len().saturating_sub(1);
+    if axis_bounds.len() < 2 || cross_count < 2 {
+        return Vec::new();
+    }
+    let minimum_occupancy =
+        ((cross_count as f64 * HYBRID_GRID_OCCUPANCY_RATIO).ceil() as usize).max(2);
+    let mut inferred = Vec::new();
+    for interval in axis_bounds.windows(2) {
+        let mut candidates: Vec<(f64, f64, Vec<bool>)> = physical_lines
+            .iter()
+            .filter_map(|line| {
+                let glyph = line.first()?;
+                let line_is_horizontal = glyph.direction.0.abs() >= glyph.direction.1.abs();
+                let slots = line_grid_slots(line, cross_bounds, horizontal);
+                if line_is_horizontal != horizontal
+                    || slots.iter().filter(|occupied| **occupied).count() < minimum_occupancy
+                {
+                    return None;
+                }
+                let (x0, y0, x1, y1) = line_bbox(line);
+                let (start, end) = if horizontal { (y0, y1) } else { (x0, x1) };
+                let center = (start + end) * 0.5;
+                (center >= interval[0] - TABLE_SNAP_TOLERANCE
+                    && center <= interval[1] + TABLE_SNAP_TOLERANCE)
+                    .then(|| {
+                        let size = line.iter().map(|glyph| glyph.size).fold(0.0, f64::max);
+                        (center, size, slots)
+                    })
+            })
+            .collect();
+        if candidates.len() < MIN_HYBRID_GRID_ROWS {
+            continue;
+        }
+        candidates.sort_by(|left, right| left.0.total_cmp(&right.0));
+        if !candidates
+            .windows(2)
+            .all(|pair| grid_slot_similarity(&pair[0].2, &pair[1].2) >= HYBRID_GRID_SLOT_SIMILARITY)
+        {
+            continue;
+        }
+        let gaps: Vec<f64> = candidates
+            .windows(2)
+            .map(|pair| pair[1].0 - pair[0].0)
+            .collect();
+        let minimum_gap = gaps.iter().copied().reduce(f64::min).unwrap_or(0.0);
+        let maximum_gap = gaps.iter().copied().reduce(f64::max).unwrap_or(0.0);
+        let maximum_size = candidates
+            .iter()
+            .map(|candidate| candidate.1)
+            .reduce(f64::max)
+            .unwrap_or(1.0)
+            .max(1.0);
+        if minimum_gap <= 0.0
+            || maximum_gap > maximum_size * TEXT_TABLE_ROW_GAP
+            || maximum_gap - minimum_gap > maximum_size * HYBRID_GRID_LEADING_VARIATION
+        {
+            continue;
+        }
+        for pair in candidates.windows(2) {
+            let coordinate = (pair[0].0 + pair[1].0) * 0.5;
+            inferred.push(if horizontal {
+                RuleSegment {
+                    x0: cross_bounds[0],
+                    y0: coordinate,
+                    x1: *cross_bounds
+                        .last()
+                        .expect("two cross-axis bounds were checked above"),
+                    y1: coordinate,
+                    horizontal: true,
+                }
+            } else {
+                RuleSegment {
+                    x0: coordinate,
+                    y0: cross_bounds[0],
+                    x1: coordinate,
+                    y1: *cross_bounds
+                        .last()
+                        .expect("two cross-axis bounds were checked above"),
+                    horizontal: false,
+                }
+            });
+        }
+    }
+    inferred
 }
 
 /// Extract physical-order text whose word centers fall inside a cell.
@@ -1565,6 +1755,10 @@ fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
     if !(2..=MAX_TEXT_TABLE_COLUMNS).contains(&column_count_usize) {
         return None;
     }
+    let slot_count = row_count_usize.checked_mul(column_count_usize)?;
+    if slot_count > MAX_TABLE_CELLS {
+        return None;
+    }
 
     let mut x_bounds = Vec::with_capacity(column_count_usize + 1);
     x_bounds.push(
@@ -1627,6 +1821,7 @@ fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
         row_count,
         column_count,
         cells,
+        (0..u32::try_from(slot_count).ok()?).collect(),
         diagnostics,
     ))
 }
@@ -1705,7 +1900,32 @@ fn detect_grid_tables(
     }
 
     let mut tables = Vec::new();
-    for component_rules in groups.into_values() {
+    for mut component_rules in groups.into_values() {
+        let original_xs = clustered_coordinates(
+            component_rules
+                .iter()
+                .filter_map(|rule| (!rule.horizontal).then_some(rule.x0))
+                .collect(),
+        );
+        let original_ys = clustered_coordinates(
+            component_rules
+                .iter()
+                .filter_map(|rule| rule.horizontal.then_some(rule.y0))
+                .collect(),
+        );
+        if original_xs.len() < 3 || original_ys.len() < 3 {
+            continue;
+        }
+        let mut inferred_rules =
+            infer_hybrid_grid_rules(physical_lines, &original_ys, &original_xs, true);
+        inferred_rules.extend(infer_hybrid_grid_rules(
+            physical_lines,
+            &original_xs,
+            &original_ys,
+            false,
+        ));
+        let is_hybrid = !inferred_rules.is_empty();
+        component_rules.extend(inferred_rules);
         let xs = clustered_coordinates(
             component_rules
                 .iter()
@@ -1718,12 +1938,11 @@ fn detect_grid_tables(
                 .filter_map(|rule| rule.horizontal.then_some(rule.y0))
                 .collect(),
         );
-        if xs.len() < 3 || ys.len() < 3 {
-            continue;
-        }
         let row_count_usize = ys.len() - 1;
         let column_count_usize = xs.len() - 1;
-        let Some(cells) = materialize_grid_cells(&component_rules, &xs, &ys, &word_lines) else {
+        let Some((cells, cell_anchors)) =
+            materialize_grid_cells(&component_rules, &xs, &ys, &word_lines)
+        else {
             continue;
         };
         let Ok(row_count) = u32::try_from(row_count_usize) else {
@@ -1742,7 +1961,8 @@ fn detect_grid_tables(
             row_count,
             column_count,
             cells,
-            (1.0, None, None, None),
+            cell_anchors,
+            (if is_hybrid { 0.95 } else { 1.0 }, None, None, None),
         ));
     }
     tables.sort_by(|left, right| {

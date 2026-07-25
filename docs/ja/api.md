@@ -41,7 +41,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_text(option)` / `search_for(needle)` | 抽出と検索（大文字小文字を区別しない） |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
-| `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線と結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
+| `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines")` | ドキュメントと同じ表制御を持つ 1 ページ分の Markdown |
 | `get_images()` | 描画された画像（`bbox` 付き。JPEG パススルー / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | レンダリング。`clip` は表示座標 |
@@ -77,8 +77,9 @@ resourceは追加されません。
 
 `Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
 `Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment
-誤差、最小gutter、行間ばらつきを保持します。完全なベクタグリッドは1.0で、
-これらtext専用metricは`None`です。`TableFinder.strategy`と`TableFinder.clip`には
+誤差、最小gutter、行間ばらつきを保持します。完全なベクタグリッドは1.0、
+疎な罫線を補完したhybrid gridは0.95で、いずれもこれらtext専用metricは`None`です。
+`TableFinder.strategy`と`TableFinder.clip`には
 使用した設定が残ります。
 
 ## モジュールレベル { #module-level }

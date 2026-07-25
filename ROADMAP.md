@@ -561,8 +561,10 @@ rather than waiting automatically for v1.x.
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four
   right-angle rotations plus the public-domain IRS Form 1040 corpus.
-- Expand independent table corpora and quality evaluation beyond the current
-  synthetic, project-regression, and IRS Form 1040 coverage.
+- [x] Expand independent table corpora and quality evaluation beyond synthetic
+  and IRS coverage. Public-domain FBI NICS and US Senate fixtures now protect
+  sparse internal rules, dense numeric records, merged headers, borderless
+  bodies, and all four right-angle reading orientations (2026-07-25).
 
 ## Watchlist
 

@@ -41,7 +41,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_text(option)` / `search_for(needle)` | 추출과 대소문자 구분 없는 검색 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `rotation`은 입력을 시계 방향으로 보정하고 `clip`은 표시 좌표 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
-| `find_tables(strategy="lines", clip=None)` | 완전한 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
+| `find_tables(strategy="lines", clip=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown(table_strategy="lines")` | 같은 표 제어를 사용하는 한 페이지의 Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG 패스스루 / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |
@@ -77,7 +77,8 @@ WinAnsi 밖의 값에 sans 글꼴을 자동 사용합니다. 비어 있지 않�
 `Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
 `Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는
 em으로 정규화한 정렬 오차, 최소 gutter, 행 간격 변화를 보존합니다. 완전한 벡터
-grid는 1.0이고 이 텍스트 전용 metric은 `None`입니다. `TableFinder.strategy`와
+grid는 1.0, 희소 규칙을 보완한 hybrid grid는 0.95이며 두 경우 모두 텍스트 전용
+metric은 `None`입니다. `TableFinder.strategy`와
 `TableFinder.clip`에는 사용한 설정이 남습니다.
 
 ## 모듈 수준 { #module-level }

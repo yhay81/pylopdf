@@ -41,7 +41,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
-| `find_tables(strategy="lines", clip=None)` | complete vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
+| `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown(table_strategy="lines")` | single-page Markdown with the same table controls |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
@@ -80,8 +80,9 @@ not generated.
 `Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
 probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the
 strategy and, for borderless text tables, em-normalized alignment error,
-minimum gutter and row-gap variation. Complete vector grids score 1.0 and have
-`None` for those text-only metrics. `TableFinder.strategy` and
+minimum gutter and row-gap variation. Complete vector grids score 1.0,
+sparse-rule hybrid grids score 0.95, and both have `None` for those text-only
+metrics. `TableFinder.strategy` and
 `TableFinder.clip` preserve the settings used.
 
 ## Module level { #module-level }
