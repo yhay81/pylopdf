@@ -30,7 +30,7 @@ with pylopdf.open("scan.pdf") as doc:
 ```python
 import pylopdf
 
-engine = pylopdf.OcrEngine(threads=4)
+engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
@@ -41,12 +41,12 @@ with pylopdf.open("scan.pdf") as doc:
 
 ## 资源控制
 
-默认值为 300 dpi、1,408 像素的检测分块、192 像素重叠，以及最多四个 RTen 工作线程。重叠分块会合并边缘的重复检测，同时限制整页检测所需的内存。在一次 300 dpi A4 实测中，默认配置的峰值接近 419 MiB；实际值会随文档、平台、内存分配器和并发程度变化。
+默认值为 300 dpi、1,408 像素的检测分块、192 像素重叠、最多四个 RTen 工作线程，以及每个引擎同时执行一个完整识别调用。重叠分块会合并边缘的重复检测，同时限制整页检测所需的内存。在一次 300 dpi A4 实测中，默认配置的峰值接近 419 MiB；实际值会随文档、平台和内存分配器变化。
 
-内存较紧张时可降低 `threads` 和 `tile_size`：
+内存较紧张时可降低 `threads` 和 `tile_size`。只有在测量了同时存活的光栅与推理缓冲区后，才应提高 `max_concurrent`：
 
 ```python
-engine = pylopdf.OcrEngine(threads=2)
+engine = pylopdf.OcrEngine(threads=2, max_concurrent=1)
 words = page.get_text_ocr(
     engine=engine,
     tile_size=1280,
@@ -57,7 +57,7 @@ words = page.get_text_ocr(
 
 `clip` 会减少 OCR 检测器输入和识别工作，但 hayro 0.7 仍会在裁剪前渲染完整页面。返回的文本框继续使用整页显示坐标。
 
-`OcrEngine` 是不可变的，可以在不同文档间复用。每个并发识别调用仍拥有独立的光栅和推理缓冲区，因此应限制外层并发。同一个 `Document` 上来自外部线程的并发调用或编辑不在 pylopdf 的并发契约内。
+`OcrEngine` 是不可变的，可以在不同文档间复用。默认的 `max_concurrent=1` 会串行执行从渲染到识别结束的完整调用，包括 free-threaded Python 发起的调用，因此共享引擎不会意外倍增实测的单次调用内存。只有在测量目标工作负载后才应将其提高，最大值为 16。每个获准执行的调用仍拥有独立的光栅和推理缓冲区。同一个 `Document` 上来自外部线程的并发调用或编辑不在 pylopdf 的并发契约内。
 
 ## 实测准确率门槛
 

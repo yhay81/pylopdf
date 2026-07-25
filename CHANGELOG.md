@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PP-OCRv6 small locally through the pure-Rust RTen runtime. Detection uses
   bounded overlapping tiles, reading order retains sustained columns, results
   use rotation-resolved display coordinates, optional region clips support
-  mixed digital/scanned pages, and invisible layers remain searchable without
-  changing rendered pixels. The separately versioned,
+  mixed digital/scanned pages, and complete render-and-recognize calls are
+  limited to one per engine by default so accidental outer concurrency cannot
+  multiply the measured per-call memory. Invisible layers remain searchable
+  without changing rendered pixels. The separately versioned,
   data-only `pylopdf-ocr-models` wheel includes the multilingual detector,
   recognizer, and dictionary with pinned provenance and artifact hashes.
   English and Japanese integration tests cover recognition and searchable

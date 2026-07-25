@@ -86,6 +86,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tile-size", type=int, default=1408)
     parser.add_argument("--overlap", type=int, default=192)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--max-concurrent", type=int, default=1)
     parser.add_argument("--min-confidence", type=float, default=0.5)
     parser.add_argument("--no-write", action="store_true", help="print results without updating the Markdown report")
     return parser.parse_args()
@@ -94,7 +95,7 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     """Run each requested resolution and write a reproducible report."""
     args = _parse_args()
-    engine = pylopdf.OcrEngine(threads=args.threads)
+    engine = pylopdf.OcrEngine(threads=args.threads, max_concurrent=args.max_concurrent)
     rows: list[OcrBenchmarkResult] = []
 
     with pylopdf.open(FIXTURE) as document:
@@ -150,7 +151,8 @@ def main() -> None:
         ),
         (
             f"- Controls: tile size {args.tile_size}, overlap {args.overlap}, "
-            f"threads {args.threads}, minimum confidence {args.min_confidence}"
+            f"threads {args.threads}, max concurrent {args.max_concurrent}, "
+            f"minimum confidence {args.min_confidence}"
         ),
         "- Reproduce: `uv sync --all-extras && uv run python bench/ocr.py`",
         "- Model artifacts: " + "; ".join(entry.replace("  ", " ") for entry in checksums),

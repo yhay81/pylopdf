@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Event, Lock
 
 import pytest
 
@@ -109,6 +110,112 @@ def test_ocr_engine_is_reusable_across_concurrent_documents(ocr_engine: pylopdf.
     assert results == [["Alpha 123"], ["Beta 456"]]
 
 
+def test_ocr_engine_bounds_complete_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ProbeEngine:
+        def __init__(self) -> None:
+            self.active = 0
+            self.calls = 0
+            self.max_active = 0
+            self.lock = Lock()
+            self.first_entered = Event()
+            self.second_entered = Event()
+            self.release_first = Event()
+
+        def recognize_pixmap(self, *_args: object, **_kwargs: object) -> list[object]:
+            with self.lock:
+                self.calls += 1
+                call = self.calls
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            if call == 1:
+                self.first_entered.set()
+                assert self.release_first.wait(timeout=5)
+            else:
+                self.second_entered.set()
+            with self.lock:
+                self.active -= 1
+            return []
+
+    engine = pylopdf.OcrEngine(
+        MODEL_ROOT / "PP-OCRv6_det_small.rten",
+        MODEL_ROOT / "PP-OCRv6_rec_small.rten",
+        MODEL_ROOT / "ppocrv6_dict.txt",
+        threads=1,
+    )
+    probe = ProbeEngine()
+    monkeypatch.setattr(engine, "_engine", probe)
+    documents = []
+    for _ in range(2):
+        document = pylopdf.Document()
+        document.new_page(width=100, height=100)
+        documents.append(document)
+
+    second_started = Event()
+
+    def second_call() -> list[pylopdf.OcrWord]:
+        second_started.set()
+        return engine.recognize(documents[1][0], dpi=72, tile_size=256, overlap=32)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(engine.recognize, documents[0][0], dpi=72, tile_size=256, overlap=32)
+        assert probe.first_entered.wait(timeout=5)
+        second = pool.submit(second_call)
+        assert second_started.wait(timeout=5)
+        assert not probe.second_entered.wait(timeout=0.2)
+        probe.release_first.set()
+        assert first.result(timeout=5) == []
+        assert second.result(timeout=5) == []
+
+    assert probe.second_entered.is_set()
+    assert probe.max_active == 1
+    assert engine.max_concurrent == 1
+
+
+def test_ocr_engine_can_raise_measured_concurrency(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ProbeEngine:
+        def __init__(self) -> None:
+            self.active = 0
+            self.max_active = 0
+            self.lock = Lock()
+            self.barrier = Barrier(2)
+
+        def recognize_pixmap(self, *_args: object, **_kwargs: object) -> list[object]:
+            with self.lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            self.barrier.wait(timeout=5)
+            with self.lock:
+                self.active -= 1
+            return []
+
+    engine = pylopdf.OcrEngine(
+        MODEL_ROOT / "PP-OCRv6_det_small.rten",
+        MODEL_ROOT / "PP-OCRv6_rec_small.rten",
+        MODEL_ROOT / "ppocrv6_dict.txt",
+        threads=1,
+        max_concurrent=2,
+    )
+    probe = ProbeEngine()
+    monkeypatch.setattr(engine, "_engine", probe)
+    documents = []
+    for _ in range(2):
+        document = pylopdf.Document()
+        document.new_page(width=100, height=100)
+        documents.append(document)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda document: engine.recognize(document[0], dpi=72, tile_size=256, overlap=32),
+                documents,
+            )
+        )
+
+    assert results == [[], []]
+    assert probe.max_active == 2
+    assert engine.max_concurrent == 2
+
+
 def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine) -> None:
     source = pylopdf.Document()
     source.new_page(width=360, height=120)
@@ -210,6 +317,15 @@ def test_ocr_engine_discovers_installed_model_extra() -> None:
 def test_ocr_engine_validates_threads(threads: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="threads"):
         pylopdf.OcrEngine(threads=threads)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("max_concurrent", "error"),
+    [(0, pylopdf.OcrError), (17, pylopdf.OcrError), (True, TypeError), (1.5, TypeError)],
+)
+def test_ocr_engine_validates_max_concurrent(max_concurrent: object, error: type[Exception]) -> None:
+    with pytest.raises(error, match="max_concurrent"):
+        pylopdf.OcrEngine(max_concurrent=max_concurrent)  # type: ignore[arg-type]
 
 
 def test_ocr_engine_validates_runtime_options(ocr_engine: pylopdf.OcrEngine) -> None:

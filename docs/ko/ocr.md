@@ -30,7 +30,7 @@ with pylopdf.open("scan.pdf") as doc:
 ```python
 import pylopdf
 
-engine = pylopdf.OcrEngine(threads=4)
+engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
@@ -41,12 +41,12 @@ with pylopdf.open("scan.pdf") as doc:
 
 ## 리소스 제어
 
-기본값은 300 dpi, 1,408픽셀 감지 타일, 192픽셀 겹침, 최대 4개의 RTen 작업 스레드입니다. 겹치는 타일은 경계의 중복 감지를 병합하면서 전체 페이지 감지 메모리를 제한합니다. 한 300 dpi A4 측정에서 기본 구성의 최대치는 약 419 MiB였지만 문서, 플랫폼, 할당자 및 동시 실행 수에 따라 달라집니다.
+기본값은 300 dpi, 1,408픽셀 감지 타일, 192픽셀 겹침, 최대 4개의 RTen 작업 스레드, 엔진당 동시에 실행되는 완전한 인식 호출 1개입니다. 겹치는 타일은 경계의 중복 감지를 병합하면서 전체 페이지 감지 메모리를 제한합니다. 한 300 dpi A4 측정에서 기본 구성의 최대치는 약 419 MiB였지만 문서, 플랫폼 및 할당자에 따라 달라집니다.
 
-메모리가 부족하면 `threads`와 `tile_size`를 낮추십시오.
+메모리가 부족하면 `threads`와 `tile_size`를 낮추십시오. 동시에 유지되는 래스터와 추론 버퍼를 측정한 뒤에만 `max_concurrent`를 높이십시오.
 
 ```python
-engine = pylopdf.OcrEngine(threads=2)
+engine = pylopdf.OcrEngine(threads=2, max_concurrent=1)
 words = page.get_text_ocr(
     engine=engine,
     tile_size=1280,
@@ -57,7 +57,7 @@ words = page.get_text_ocr(
 
 `clip`은 OCR 감지기 입력과 인식 작업을 줄이지만 hayro 0.7은 자르기 전에 여전히 전체 페이지를 렌더링합니다. 반환되는 상자는 전체 페이지 표시 좌표를 유지합니다.
 
-`OcrEngine`은 불변이며 서로 다른 문서에서 재사용할 수 있습니다. 동시에 실행되는 각 인식 호출은 자체 래스터 및 추론 버퍼를 사용하므로 바깥쪽 동시 실행 수를 제한해야 합니다. 동일한 `Document`에 대한 외부 스레드의 동시 호출이나 편집은 pylopdf의 동시성 계약 범위 밖입니다.
+`OcrEngine`은 불변이며 서로 다른 문서에서 재사용할 수 있습니다. 기본 `max_concurrent=1`은 free-threaded Python의 호출을 포함해 렌더링부터 인식 완료까지의 전체 호출을 직렬화하므로 공유 엔진이 측정된 호출당 메모리를 실수로 배가하지 않습니다. 최대 16까지 높일 수 있지만 대상 작업 부하를 측정한 경우에만 사용하십시오. 허용된 각 호출은 여전히 자체 래스터 및 추론 버퍼를 사용합니다. 동일한 `Document`에 대한 외부 스레드의 동시 호출이나 편집은 pylopdf의 동시성 계약 범위 밖입니다.
 
 ## 측정된 정확도 기준
 

@@ -102,9 +102,11 @@ overview.
   default 1408-pixel tile and 192-pixel overlap measured about 419 MiB peak on
   a 300-dpi A4 page. Recognizer class count must match dictionary length + 2.
   Results use rotation-resolved display coordinates and recursive sustained-
-  gutter column order. One immutable engine can serve concurrent calls on
-  distinct Documents, including CPython 3.14t, but every call owns raster and
-  inference buffers and outer concurrency must remain bounded. Same-Document
+  gutter column order. One immutable engine can serve calls on distinct
+  Documents, including CPython 3.14t. A Python admission semaphore covers the
+  complete render-and-recognize operation; `max_concurrent=1` is the
+  memory-safe default and values through 16 require workload measurement.
+  Every admitted call owns raster and inference buffers. Same-Document
   restrictions still apply. `Page.apply_ocr` skips pages with extractable text
   by default so repeated runs are idempotent. With `clip=`, only intersecting
   text triggers the skip and result boxes remain in full-page display

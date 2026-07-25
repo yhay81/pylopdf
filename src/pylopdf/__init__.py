@@ -10,6 +10,7 @@ import enum
 import functools
 import math
 import os
+import threading
 import warnings as _warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
@@ -86,6 +87,7 @@ TEXT_ALIGN_RIGHT = 2
 TEXT_ALIGN_JUSTIFY = 3
 
 _OCR_MAX_THREADS = 16
+_OCR_MAX_CONCURRENT = 16
 _OCR_MIN_TILE_SIZE = 256
 _OCR_MAX_TILE_SIZE = 2048
 _OCR_TILE_MULTIPLE = 32
@@ -372,6 +374,17 @@ def _validate_ocr_confidence(min_confidence: float) -> float:
     return resolved_confidence
 
 
+def _validate_ocr_concurrency(max_concurrent: int) -> int:
+    """Validate the number of complete OCR calls admitted per engine."""
+    if isinstance(max_concurrent, bool) or not isinstance(max_concurrent, int):
+        msg = f"max_concurrent must be an integer from 1 through {_OCR_MAX_CONCURRENT}: {max_concurrent!r}"
+        raise TypeError(msg)
+    if not 1 <= max_concurrent <= _OCR_MAX_CONCURRENT:
+        msg = f"max_concurrent must be from 1 through {_OCR_MAX_CONCURRENT}: {max_concurrent}"
+        raise OcrError(msg)
+    return max_concurrent
+
+
 class OcrEngine:
     """Reusable, pure-Rust PP-OCR engine.
 
@@ -388,12 +401,14 @@ class OcrEngine:
         dictionary_path: str | os.PathLike[str] | None = None,
         *,
         threads: int | None = None,
+        max_concurrent: int = 1,
     ) -> None:
         """Load an OCR model set once for reuse across pages and documents.
 
         ``threads=None`` uses up to four logical CPUs. Lower it to reduce peak
         inference memory or raise it to at most 16 after measuring the target
-        workload.
+        workload. ``max_concurrent`` bounds complete render-and-recognize calls
+        sharing this engine; its memory-safe default is one.
         """
         if threads is None:
             resolved_threads = min(4, os.cpu_count() or 1)
@@ -405,6 +420,7 @@ class OcrEngine:
             raise OcrError(msg)
         else:
             resolved_threads = threads
+        resolved_max_concurrent = _validate_ocr_concurrency(max_concurrent)
         paths = (detector_path, recognizer_path, dictionary_path)
         if all(path is None for path in paths):
             try:
@@ -433,6 +449,8 @@ class OcrEngine:
             resolved_threads,
         )
         self.threads = resolved_threads
+        self.max_concurrent = resolved_max_concurrent
+        self._recognition_slots = threading.BoundedSemaphore(resolved_max_concurrent)
 
     def recognize(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
@@ -460,37 +478,38 @@ class OcrEngine:
         _validate_ocr_tiles(tile_size, overlap)
         resolved_confidence = _validate_ocr_confidence(min_confidence)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
-        pixmap = page.get_pixmap(
-            dpi=resolved_dpi,
-            background=(255, 255, 255),
-            clip=clip_rect,
-        )
-        raster_results = self._engine.recognize_pixmap(
-            pixmap,
-            tile_size=tile_size,
-            overlap=overlap,
-            min_confidence=resolved_confidence,
-        )
-        pixel_to_page = 72.0 / resolved_dpi
-        if clip_rect is None:
-            offset_x = offset_y = 0.0
-        else:
-            page_rect = page.rect
-            offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
-            offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
-        return [
-            {
-                "bbox": Rect(
-                    offset_x + x0 * pixel_to_page,
-                    offset_y + y0 * pixel_to_page,
-                    offset_x + x1 * pixel_to_page,
-                    offset_y + y1 * pixel_to_page,
-                ),
-                "text": text,
-                "confidence": confidence,
-            }
-            for x0, y0, x1, y1, text, confidence in raster_results
-        ]
+        with self._recognition_slots:
+            pixmap = page.get_pixmap(
+                dpi=resolved_dpi,
+                background=(255, 255, 255),
+                clip=clip_rect,
+            )
+            raster_results = self._engine.recognize_pixmap(
+                pixmap,
+                tile_size=tile_size,
+                overlap=overlap,
+                min_confidence=resolved_confidence,
+            )
+            pixel_to_page = 72.0 / resolved_dpi
+            if clip_rect is None:
+                offset_x = offset_y = 0.0
+            else:
+                page_rect = page.rect
+                offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
+                offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
+            return [
+                {
+                    "bbox": Rect(
+                        offset_x + x0 * pixel_to_page,
+                        offset_y + y0 * pixel_to_page,
+                        offset_x + x1 * pixel_to_page,
+                        offset_y + y1 * pixel_to_page,
+                    ),
+                    "text": text,
+                    "confidence": confidence,
+                }
+                for x0, y0, x1, y1, text, confidence in raster_results
+            ]
 
 
 @functools.cache
