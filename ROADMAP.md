@@ -458,6 +458,10 @@ known-limit behavior are polished together.
       `rotate=` option removes another preprocessing step for all JPEG, PNG, and
       Pixmap sources, with clockwise right-angle rotation composed in display
       space and the rotated aspect ratio retained.
+- [x] Remove the serialize/open workaround from same-document page placement.
+      `show_pdf_page` now clones the current lopdf graph under the released GIL
+      and imports from that pre-edit snapshot, supporting both another page and
+      the target page itself without aliasing mutable state.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

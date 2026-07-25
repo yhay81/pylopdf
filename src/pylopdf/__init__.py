@@ -1255,17 +1255,29 @@ class Page:
         embedded as a Form XObject, preserving text, vectors, and embedded
         fonts. Overlaying a one-page typst PDF enables CJK watermarks, headers,
         and footers; see the README ecosystem recipe. Source rotation and
-        CropBox are resolved visually to fit ``rect``. A document cannot overlay
-        itself; clone it first with ``pylopdf.open(stream=doc.tobytes())``.
+        CropBox are resolved visually to fit ``rect``. ``src`` may be the same
+        document; pylopdf imports from a pre-edit snapshot so the source page,
+        including the target page itself, remains stable during placement.
         """
-        if src is self._document:
-            msg = "cannot overlay pages from the same document (duplicate it first via open(stream=doc.tobytes()))"
-            raise ValueError(msg)
         x0, y0, x1, y1 = _validate_rect(rect)
         src_number = src[pno]._page_number()
-        self._document._doc.show_pdf_page(
-            self._page_number(), (x0, y0, x1, y1), src._doc, src_number, keep_proportion, overlay
-        )
+        if src is self._document:
+            self._document._doc.show_pdf_page_self(
+                self._page_number(),
+                (x0, y0, x1, y1),
+                src_number,
+                keep_proportion,
+                overlay,
+            )
+        else:
+            self._document._doc.show_pdf_page(
+                self._page_number(),
+                (x0, y0, x1, y1),
+                src._doc,
+                src_number,
+                keep_proportion,
+                overlay,
+            )
 
     def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
