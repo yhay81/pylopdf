@@ -15,8 +15,6 @@ name = "pylopdf"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Expose the already-linked rayon runtime for supported batch rendering.
-rayon = "1"
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
@@ -46,17 +44,19 @@ jpeg-encoder = "0.7.0"
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.
 flate2 = { version = "1", features = ["zlib-rs"] }
-# Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
-# ships independently through pylopdf[ocr], keeping the ONNX parser out of the
-# core wheel.
-rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
-rten-tensor = "0.24.0"
-
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
+# Expose the already-linked rayon runtime for supported batch rendering.
+rayon = "1"
 # Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is
 # sufficient. Emscripten keeps PDF date strings opaque and must not link
 # chrono's browser-only js-sys clock.
 lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+# Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
+# ships independently through pylopdf[ocr], keeping the ONNX parser out of the
+# core wheel. Emscripten exposes an explicit unsupported stub instead of
+# shipping an inference runtime that cannot use the model distribution.
+rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
+rten-tensor = "0.24.0"
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 lopdf = { version = "0.44.0", default-features = false }

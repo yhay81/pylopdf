@@ -7,6 +7,10 @@ mod generate;
 mod image_compression;
 mod layout;
 mod ocr;
+#[cfg(not(target_os = "emscripten"))]
+mod ocr_engine;
+#[cfg(target_os = "emscripten")]
+#[path = "ocr_engine_emscripten.rs"]
 mod ocr_engine;
 mod pixmap;
 use document::{_Document, LimitError, PasswordError, PdfError};

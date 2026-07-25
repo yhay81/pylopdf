@@ -645,7 +645,25 @@ rather than waiting automatically for v1.x.
   pages, and Flate/RunLength bombs. CPU
   deadlines remain an explicit host responsibility; application-level
   parallelism must retain the library's bounded admissions.
-  Size investigation and installation workflows continue in #22 and #23.
+- [x] Measure and refine the PyEmscripten distribution (2026-07-26).
+  Emscripten now omits the unsupported RTen inference runtime while preserving
+  an explicit `OcrError` capability boundary and external OCR text-layer
+  insertion. The pinned wheel fell from 4.522 to 3.834 MiB (-15.21%), the Wasm
+  code section fell 21.92%, and the tested Cloudflare gzip upload fell from
+  4.570 to 3.882 MiB. CI records machine-readable artifact sections, staged
+  Pyodide startup/workload timings, linear-memory checkpoints, and Wrangler
+  bundle sizes. The complete core fits Cloudflare's paid-plan limits but not
+  its Free compressed-size limit; removing coherent PDF features for the Free
+  tier would fragment the API without establishing a credible workload, so no
+  separate lightweight distribution is planned.
+- [x] Publish the end-to-end WebAssembly installation and operations guide
+  (2026-07-26). A tested `examples/cloudflare-worker` is the source used by CI
+  and documents a bounded extraction service. Four locale guides record the
+  exact Python/Pyodide/Emscripten/PyEmscripten/workers-py/Wrangler matrix,
+  Cloudflare and direct-Pyodide workflows, dependency-to-capability ownership,
+  OCR/threads/filesystem/rendering boundaries, resource policy, size/startup
+  evidence, and the release support checklist. The public PyEmscripten
+  artifact first ships in v0.11; v0.10.0 remains native-only.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four
