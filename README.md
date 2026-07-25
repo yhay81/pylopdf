@@ -69,6 +69,10 @@ mixed-orientation typography remain explicit limits.
 pip install pylopdf
 ```
 
+Starting with the next release, Pyodide 0.28.3 and Cloudflare Python Workers
+use a published PyEmscripten wheel. See the
+[Pyodide and Cloudflare Workers guide](https://yhay81.github.io/pylopdf/pyodide/).
+
 To render Japanese PDFs without embedded fonts, install the optional CJK fonts
 (Noto Sans/Serif JP, auto-detected at render time):
 

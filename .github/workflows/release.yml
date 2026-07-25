@@ -150,10 +150,53 @@ jobs:
           name: sdist
           path: dist
 
+  build-pyodide-wheel:
+    name: wheel (Pyodide 0.28.3)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    env:
+      CIBW_BUILD: cp313-pyodide_wasm32
+      CIBW_ENVIRONMENT: >-
+        RUSTUP_TOOLCHAIN=nightly-2025-02-01
+        RUSTC_WRAPPER=tools/pyodide_rustc_wrapper.sh
+        MATURIN_PEP517_ARGS="--no-default-features --ignore-rust-version -Zbuild-std=std,panic_unwind"
+        RUSTFLAGS="-C link-arg=-sSIDE_MODULE=2 -C link-arg=-sWASM_BIGINT -C symbol-mangling-version=v0 -Zemscripten-wasm-eh"
+      CIBW_PYODIDE_VERSION: 0.28.3
+      CIBW_TEST_COMMAND: python tools/smoke_artifact.py --run
+      CIBW_TEST_SOURCES: tools/smoke_artifact.py
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install the Pyodide-compatible Rust sysroot
+        run: tools/install_pyodide_rust.sh
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==3.4.1
+      - name: Build and smoke-test the PyEmscripten wheel
+        run: python -m cibuildwheel --platform pyodide --output-dir dist
+      - name: Attest PyEmscripten wheel build provenance
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: dist/*.whl
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-pyodide-0.28.3
+          path: dist
+
   publish:
     name: Publish to PyPI
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-wheels, build-free-threaded-wheels, build-sdist]
+    needs: [build-wheels, build-free-threaded-wheels, build-pyodide-wheel, build-sdist]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: pypi

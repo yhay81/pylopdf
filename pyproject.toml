@@ -46,6 +46,13 @@ manifest-path = "rust/Cargo.toml"
 python-source = "src"
 module-name = "pylopdf.pylopdf_core"
 features = ["pyo3/extension-module"]
+# The local weezl compatibility patch is a Cargo path dependency and must be
+# present when users build the source distribution.
+include = [{ path = "rust/vendor/weezl/**/*", format = "sdist" }]
+
+[tool.cibuildwheel.pyodide]
+# Cloudflare Python Workers currently resolve packages against this Pyodide ABI.
+pyodide-version = "0.28.3"
 
 [dependency-groups]
 dev = [

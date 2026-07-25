@@ -58,6 +58,7 @@ nav:
   - ガイド:
       - はじめる: getting-started.md
       - オフラインOCR: ocr.md
+      - PyodideとCloudflare Workers: pyodide.md
       - エコシステム連携: ecosystem.md
       - pymupdfからの移行: migration.md
   - API: api.md

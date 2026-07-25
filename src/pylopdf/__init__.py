@@ -10,6 +10,7 @@ import enum
 import functools
 import math
 import os
+import sys as _sys
 import threading
 import warnings as _warnings
 from pathlib import Path
@@ -689,6 +690,7 @@ _COLOR_MAX = 255
 _FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
 _UINT32_MAX = 0xFFFFFFFF
 _MAX_RENDER_WORKERS = 64
+_IS_EMSCRIPTEN = _sys.platform == "emscripten"
 
 
 def _normalize_background(
@@ -2305,11 +2307,12 @@ class Document:
         """Render pages to PNG concurrently while preserving input order.
 
         ``pages`` contains zero-based page numbers and defaults to every page.
-        Duplicates are allowed. ``workers=None`` uses up to four CPUs; explicit
-        values must be between 1 and 64. Actual concurrency is also capped to
-        roughly 512 MB of estimated live raster and conversion buffers. A
-        dedicated bounded worker pool renders one immutable snapshot of the
-        document while the GIL is released.
+        Duplicates are allowed. ``workers=None`` uses up to four CPUs on native
+        builds and one worker on Emscripten; explicit values must be between 1
+        and 64. WebAssembly runtimes without pthread support require one worker.
+        Native concurrency is also capped to roughly 512 MB of estimated live
+        raster and conversion buffers. A dedicated bounded worker pool renders
+        one immutable snapshot of the document while the GIL is released.
 
         Do not edit or call other methods on this same :class:`Document` from
         another thread during the operation. Such calls are not part of the
@@ -2323,7 +2326,7 @@ class Document:
                 raise ValueError(msg)
             scale = dpi / 72.0
         if workers is None:
-            workers = min(4, os.cpu_count() or 1)
+            workers = 1 if _IS_EMSCRIPTEN else min(4, os.cpu_count() or 1)
         elif isinstance(workers, bool) or not isinstance(workers, int):
             msg = f"workers must be an integer between 1 and {_MAX_RENDER_WORKERS}"
             raise TypeError(msg)

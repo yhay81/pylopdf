@@ -20,6 +20,7 @@ use lopdf::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use crate::draw;
@@ -159,7 +160,9 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
 
 /// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_PARALLEL_RENDER_BYTES: u64 = 512_000_000;
+#[cfg(not(target_arch = "wasm32"))]
 const ESTIMATED_RENDER_BYTES_PER_PIXEL: u64 = 8;
 
 /// Convert a lopdf error to a Python exception with a context prefix.
@@ -2609,12 +2612,19 @@ impl _Document {
         if workers == 0 || workers > 64 {
             return Err(PyValueError::new_err("workers must be between 1 and 64"));
         }
+        #[cfg(target_arch = "wasm32")]
+        if workers != 1 {
+            return Err(PyValueError::new_err(
+                "workers must be 1 in WebAssembly runtimes without pthread support",
+            ));
+        }
         if page_numbers.is_empty() {
             return Ok(Vec::new());
         }
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
+            #[cfg(not(target_arch = "wasm32"))]
             let max_pixels = page_numbers
                 .iter()
                 .map(|&page_number| render_pixel_count(pdf, page_number, scale))
@@ -2627,11 +2637,18 @@ impl _Document {
                 render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
                     .and_then(rendered_png)
             };
+            #[cfg(not(target_arch = "wasm32"))]
             let estimated_page_bytes = max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
+            #[cfg(not(target_arch = "wasm32"))]
             let memory_limited_workers =
                 usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
                     .unwrap_or(usize::MAX);
+            #[cfg(not(target_arch = "wasm32"))]
             let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
+            #[cfg(target_arch = "wasm32")]
+            let rendered: Result<Vec<Vec<u8>>, String> =
+                page_numbers.iter().map(render_one).collect();
+            #[cfg(not(target_arch = "wasm32"))]
             let rendered: Result<Vec<Vec<u8>>, String> = if worker_count == 1 {
                 page_numbers.iter().map(render_one).collect()
             } else {

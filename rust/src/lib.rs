@@ -3,6 +3,10 @@ mod document;
 mod draw;
 mod extract;
 mod form;
+#[cfg(feature = "generation")]
+mod generate;
+#[cfg(not(feature = "generation"))]
+#[path = "generate_unsupported.rs"]
 mod generate;
 mod layout;
 mod ocr;

@@ -1,0 +1,46 @@
+# Build and exercise the wheel against the Pyodide ABI used by Cloudflare Python Workers.
+name: Pyodide
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CIBW_BUILD: cp313-pyodide_wasm32
+  CIBW_ENVIRONMENT: >-
+    RUSTUP_TOOLCHAIN=nightly-2025-02-01
+    RUSTC_WRAPPER=tools/pyodide_rustc_wrapper.sh
+    MATURIN_PEP517_ARGS="--no-default-features --ignore-rust-version -Zbuild-std=std,panic_unwind"
+    RUSTFLAGS="-C link-arg=-sSIDE_MODULE=2 -C link-arg=-sWASM_BIGINT -C symbol-mangling-version=v0 -Zemscripten-wasm-eh"
+  CIBW_PYODIDE_VERSION: 0.28.3
+  CIBW_TEST_COMMAND: python tools/smoke_artifact.py --run
+  CIBW_TEST_SOURCES: tools/smoke_artifact.py
+
+jobs:
+  wheel:
+    name: wheel (Pyodide 0.28.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install the Pyodide-compatible Rust sysroot
+        run: tools/install_pyodide_rust.sh
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==3.4.1
+      - name: Build and smoke-test the PyEmscripten wheel
+        run: python -m cibuildwheel --platform pyodide --output-dir wheelhouse
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-pyodide-0.28.3
+          path: wheelhouse/*.whl

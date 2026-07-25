@@ -58,6 +58,7 @@ nav:
   - Guide:
       - Getting started: getting-started.md
       - Offline OCR: ocr.md
+      - Pyodide and Cloudflare Workers: pyodide.md
       - Ecosystem recipes: ecosystem.md
       - Migrating from pymupdf: migration.md
   - API: api.md

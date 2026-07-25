@@ -62,6 +62,23 @@ def _run_smoke() -> None:
         samples = pixmap.samples
         _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
         _check_free_threaded_pixmap(pixmap, samples)
+        rendered_pages = reopened.render_pages([0])
+        _require(
+            condition=len(rendered_pages) == 1 and rendered_pages[0].startswith(_PNG_SIGNATURE),
+            message="batch rendering did not return one PNG",
+        )
+
+        if sys.platform == "emscripten":
+            try:
+                reopened[0].insert_text((20, 80), "unsupported", fontbuffer=b"not-a-font")
+            except pylopdf.PdfError as error:
+                _require(
+                    condition="unavailable in this Pyodide build" in str(error),
+                    message=f"unexpected embedded-font compatibility error: {error}",
+                )
+            else:
+                message = "Pyodide unexpectedly enabled embedded-font generation"
+                raise RuntimeError(message)
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "smoke.pdf"

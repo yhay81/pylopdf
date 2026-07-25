@@ -14,21 +14,25 @@ authors = ["Yusuke Hayashi <yusuke8h@gmail.com>"]
 name = "pylopdf"
 crate-type = ["cdylib"]
 
+[features]
+# Native wheels expose the complete API. Pyodide builds disable only the
+# krilla-backed embedded-font generator because its current Rust requirement
+# is newer than the Rust/Emscripten pair in Pyodide 0.28.3.
+default = ["generation"]
+generation = ["dep:harfrust", "dep:krilla", "dep:read-fonts"]
+
 [dependencies]
 # Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is sufficient.
-lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
-# Expose the already-linked rayon runtime for supported batch rendering.
-rayon = "1"
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
 # Generate compact, subset-embedded OpenType text as importable PDF forms.
 # Keep raster and PDF-import features disabled: lopdf owns both responsibilities.
-krilla = { version = "=0.8.2", default-features = false }
+krilla = { version = "=0.8.2", default-features = false, optional = true }
 # Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
-harfrust = "0.12.0"
+harfrust = { version = "0.12.0", optional = true }
 # Read vertical metrics from the same font model used by HarfRust.
-read-fonts = "0.41.0"
+read-fonts = { version = "0.41.0", optional = true }
 # Measure the PDF Core 14 fonts from Adobe's canonical AFM data.
 pdf-base14-metrics = "0.0.1"
 # Apply UAX #14 wrapping to Latin, CJK, and mixed-script text.
@@ -50,5 +54,19 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
 rten-tensor = "0.24.0"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Expose the already-linked rayon runtime for supported batch rendering.
+rayon = "1"
+lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Python Workers do not expose pthreads, so lopdf must parse serially.
+lopdf = { version = "0.44.0", default-features = false, features = ["chrono"] }
+
 [build-dependencies]
 pyo3-build-config = "0.29.0"
+
+[patch.crates-io]
+# Pyodide 0.28.3 pins Rust 1.86. Keep lopdf current while replacing three
+# slice-cursor calls stabilized after that compiler; see vendor/weezl/PATCH.md.
+weezl = { path = "vendor/weezl" }
