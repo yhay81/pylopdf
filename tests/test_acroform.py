@@ -104,7 +104,8 @@ def test_get_form_fields_lists_all() -> None:
     assert fields["notes"]["type"] == "text"
 
 
-def test_fill_text_field_roundtrip() -> None:
+def test_fill_text_field_roundtrip_without_unicode_font(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pylopdf, "_bundled_cjk_fonts", lambda: ())
     doc = pylopdf.open(stream=_build_form_pdf())
     assert _opaque_pixels(doc, (45, 67, 255, 97)) == 0
     doc.set_form_field("customer", "山田 太郎")
