@@ -542,7 +542,7 @@ class TableDiagnostics(NamedTuple):
 
     ``confidence`` is a deterministic ranking heuristic in the range 0–1, not
     a calibrated probability. The em-normalized metrics are present for the
-    ``"text"`` strategy and ``None`` for complete vector grids.
+    ``"text"`` strategy and ``None`` for vector-grid strategies.
     """
 
     strategy: Literal["lines", "text"]
@@ -565,6 +565,7 @@ class Table:
         row_count: int,
         col_count: int,
         cells: list[tuple[Rect, str] | None],
+        cell_anchors: list[int],
         diagnostics: TableDiagnostics,
     ) -> None:
         """Build a table from the internal geometry detector."""
@@ -574,6 +575,7 @@ class Table:
         self.col_count = col_count
         self.cells = [cell[0] if cell is not None else None for cell in cells]
         self._values = [cell[1] if cell is not None else None for cell in cells]
+        self._cell_anchors = cell_anchors
         self.diagnostics = diagnostics
         self.strategy = diagnostics.strategy
         self.confidence = diagnostics.confidence
@@ -593,9 +595,13 @@ class Table:
         """Render the table as Markdown, treating the first row as the header.
 
         When ``fill_empty`` is true, merged-cell continuation slots inherit the
-        value above or to the left because Markdown has no row/column spans.
+        anchor value because Markdown has no row/column spans.
         """
-        return _markdown.table_to_markdown(self.extract(), fill_empty=fill_empty)
+        return _markdown.table_to_markdown(
+            self.extract(),
+            fill_empty=fill_empty,
+            cell_anchors=self._cell_anchors,
+        )
 
 
 class TableFinder:
@@ -1102,7 +1108,9 @@ class Page:
         The default ``"lines"`` strategy is deterministic and does not rasterize
         the page. It accepts stroked rules and thin filled rectangles, requires
         an outer grid with at least two rows and two columns, and reconstructs
-        rectangular merged cells.
+        rectangular merged cells. Coarse grid spans are conservatively split
+        when at least three evenly led text records occupy the same set of
+        cross-axis cells.
 
         The opt-in ``"text"`` strategy detects borderless tables only when at
         least three consecutive rows have the same segment count, aligned
@@ -1121,7 +1129,7 @@ class Page:
         raw = self._document._doc.find_tables(self._page_number(), strategy, clip_rect)
         self._document._emit_warnings()
         tables = []
-        for bbox, row_count, col_count, cells, diagnostic_values in raw:
+        for bbox, row_count, col_count, cells, cell_anchors, diagnostic_values in raw:
             confidence, alignment_error, minimum_gutter, row_gap_variation = diagnostic_values
             diagnostics = TableDiagnostics(
                 strategy,
@@ -1137,6 +1145,7 @@ class Page:
                     row_count,
                     col_count,
                     [None if cell is None else (Rect(*cell[0]), cell[1]) for cell in cells],
+                    cell_anchors,
                     diagnostics,
                 )
             )
@@ -1826,6 +1835,7 @@ class Document:
                         _markdown.table_to_markdown(
                             table.extract(),
                             orientation=_markdown.table_orientation(layout, bbox),
+                            cell_anchors=table._cell_anchors,
                         ),
                     )
                     for bbox, table in zip(bboxes, tables, strict=True)

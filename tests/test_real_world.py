@@ -39,6 +39,13 @@ CASES = [
     Case("mhlw-doc.pdf", pages=2, version="PDF 1.7", snippet="裁判例"),
     Case("patent-us223898.pdf", pages=4, version="PDF 1.3", snippet="Electric-Lamp"),
     Case("wdl6812-manuscript.pdf", pages=2, version="PDF 1.4", snippet=None),
+    Case(
+        "nics-background-checks-2015-11.pdf",
+        pages=1,
+        version="PDF 1.3",
+        snippet="NICS Firearm Background Checks",
+    ),
+    Case("senate-expenditures.pdf", pages=1, version="PDF 1.3", snippet="BAIN, J MATTHEW"),
 ]
 
 ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
@@ -172,6 +179,76 @@ def test_f1040_borderless_text_table() -> None:
     extracted = [table.extract() for table in tables]
 
     assert any(any(cell == "Filing Status" for row in table for cell in row) for table in extracted)
+
+
+def test_nics_sparse_grid_infers_individual_rows() -> None:
+    """Split dense records inside coarse vector row spans."""
+    table = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")[0].find_tables()[0]
+    rows = table.extract()
+
+    assert (table.row_count, table.col_count) == (58, 25)
+    assert table.confidence == 0.95
+    assert rows[2] == [
+        "Alabama",
+        "18,870",
+        "23,022",
+        "22,650",
+        "859",
+        "1,178",
+        "0",
+        "14",
+        "15",
+        "0",
+        "2,179",
+        "2,307",
+        "11",
+        "0",
+        "0",
+        "0",
+        "",
+        "",
+        "13",
+        "14",
+        "0",
+        "3",
+        "2",
+        "0",
+        "71,137",
+    ]
+    assert rows[56][0] == "Wyoming"
+    assert rows[56][-1] == "5,017"
+    assert rows[57][0] == "Totals"
+    assert rows[57][-1] == "2,236,457"
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_nics_markdown_preserves_sparse_grid_reading_order(rotation: int) -> None:
+    """Expand merged headers without duplicating adjacent data after rotation."""
+    document = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
+    document[0].set_rotation(rotation)
+    table = document[0].find_tables()[0]
+
+    expected_shape = (58, 25) if rotation in (0, 180) else (25, 58)
+    assert (table.row_count, table.col_count) == expected_shape
+
+    markdown = document.to_markdown()
+    assert "| Alabama | 18,870 | 23,022 |" in markdown
+    assert "| Wyoming | 383 | 1,745 |" in markdown
+    assert markdown.count("Alabama") == 1
+    assert markdown.count("Wyoming") == 1
+
+
+def test_rotated_senate_header_and_borderless_body() -> None:
+    """Keep a merged vector header separate from aligned expenditure rows."""
+    page = pylopdf.open(ASSETS / "senate-expenditures.pdf")[0]
+
+    header = page.find_tables()[0]
+    assert (header.row_count, header.col_count) == (2, 7)
+    assert header.confidence == 1.0
+
+    body = page.find_tables(strategy="text")[0]
+    assert (body.row_count, body.col_count) == (10, 3)
+    assert body.extract()[0] == ["BAIN, J MATTHEW", "DISTRICT DIRECTOR", "37,499.96"]
 
 
 def test_manuscript_scan_has_no_text_layer() -> None:

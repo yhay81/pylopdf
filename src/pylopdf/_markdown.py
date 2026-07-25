@@ -89,6 +89,7 @@ def table_to_markdown(
     *,
     fill_empty: bool = True,
     orientation: _AxisOrientation = "right",
+    cell_anchors: list[int] | None = None,
 ) -> str:
     """Render table rows after normalizing their dominant text direction."""
     rows = [row.copy() for row in source_rows]
@@ -96,7 +97,7 @@ def table_to_markdown(
         return ""
 
     if fill_empty:
-        _fill_merged_cells(rows)
+        _fill_merged_cells(rows, cell_anchors)
     rows = _orient_rows(rows, orientation)
 
     rendered = ["| " + " | ".join(_escape_table_cell(value) for value in rows[0]) + " |"]
@@ -105,8 +106,23 @@ def table_to_markdown(
     return "\n".join(rendered)
 
 
-def _fill_merged_cells(rows: list[list[str | None]]) -> None:
-    """Copy anchor text into covered merged-cell slots in place."""
+def _fill_merged_cells(
+    rows: list[list[str | None]],
+    cell_anchors: list[int] | None,
+) -> None:
+    """Copy merged-cell anchors into covered slots in place."""
+    column_count = len(rows[0])
+    if cell_anchors is not None and len(cell_anchors) == len(rows) * column_count:
+        for index, anchor in enumerate(cell_anchors):
+            if not 0 <= anchor < len(cell_anchors):
+                continue
+            row_index, column_index = divmod(index, column_count)
+            anchor_row, anchor_column = divmod(anchor, column_count)
+            if rows[row_index][column_index] is None:
+                rows[row_index][column_index] = rows[anchor_row][anchor_column]
+        return
+
+    # Compatibility fallback for callers that only have extracted values.
     for row_index, row in enumerate(rows):
         for column_index, value in enumerate(row):
             if value is not None:

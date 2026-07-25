@@ -89,6 +89,81 @@ def _borderless_table_pdf(*, rows: int = 3) -> bytes:
     )
 
 
+def _sparse_row_grid_pdf() -> bytes:
+    """Build a grid whose data rows omit every internal horizontal rule."""
+    rules = (
+        "q 0 G 1 w\n"
+        "40 260 m 300 260 l\n"
+        "40 230 m 300 230 l\n"
+        "40 130 m 300 130 l\n"
+        "40 130 m 40 260 l\n"
+        "140 130 m 140 260 l\n"
+        "240 130 m 240 260 l\n"
+        "300 130 m 300 260 l\n"
+        "S Q"
+    )
+    cells = [("Name", "Qty", "Total")] + [(f"Item{row}", str(row), str(row * 10)) for row in range(1, 6)]
+    text = "\n".join(
+        " ".join(
+            f"BT /F1 12 Tf {x} {baseline} Td ({value}) Tj ET" for x, value in zip((50, 150, 250), values, strict=True)
+        )
+        for baseline, values in zip((240, 215, 196, 177, 158, 139), cells, strict=True)
+    )
+    stream = f"{rules}\n{text}"
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 340 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+
+def _multiline_merged_header_pdf() -> bytes:
+    """Build a merged header whose dense lines occupy different columns."""
+    stream = (
+        "q 0 G 1 w\n"
+        "40 260 m 300 260 l\n"
+        "40 200 m 300 200 l\n"
+        "40 160 m 300 160 l\n"
+        "40 120 m 300 120 l\n"
+        "40 120 m 40 260 l\n"
+        "300 120 m 300 260 l\n"
+        "140 120 m 140 200 l\n"
+        "240 120 m 240 200 l\n"
+        "S Q\n"
+        "BT /F1 10 Tf 50 248 Td (First) Tj ET\n"
+        "BT /F1 10 Tf 150 248 Td (summary) Tj ET\n"
+        "BT /F1 10 Tf 50 228 Td (Second) Tj ET\n"
+        "BT /F1 10 Tf 250 228 Td (summary) Tj ET\n"
+        "BT /F1 10 Tf 150 208 Td (Third) Tj ET\n"
+        "BT /F1 10 Tf 250 208 Td (summary) Tj ET\n"
+        "BT /F1 12 Tf 50 175 Td (Alpha) Tj ET\n"
+        "BT /F1 12 Tf 150 175 Td (1) Tj ET\n"
+        "BT /F1 12 Tf 250 175 Td (10) Tj ET\n"
+        "BT /F1 12 Tf 50 135 Td (Beta) Tj ET\n"
+        "BT /F1 12 Tf 150 135 Td (2) Tj ET\n"
+        "BT /F1 12 Tf 250 135 Td (20) Tj ET"
+    )
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 340 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+
 def test_find_bordered_table() -> None:
     page = pylopdf.open(stream=_bordered_table_pdf())[0]
 
@@ -198,6 +273,37 @@ def test_find_table_with_filled_rectangle_rules() -> None:
 
     assert table.bbox == pytest.approx(pylopdf.Rect(40, 40, 300, 120))
     assert table.extract() == [["Name", "Value"], ["Alpha", "42"]]
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_sparse_row_grid_infers_repeated_records(rotation: int) -> None:
+    """Refine coarse row spans while preserving logical Markdown orientation."""
+    document = pylopdf.open(stream=_sparse_row_grid_pdf())
+    document[0].set_rotation(rotation)
+
+    table = document[0].find_tables()[0]
+    physical_shape = (6, 3) if rotation in (0, 180) else (3, 6)
+    assert (table.row_count, table.col_count) == physical_shape
+    assert table.confidence == 0.95
+
+    markdown = document.to_markdown()
+    assert "| Name | Qty | Total |" in markdown
+    assert "| Item1 | 1 | 10 |" in markdown
+    assert "| Item5 | 5 | 50 |" in markdown
+    assert markdown.count("Item3") == 1
+
+
+def test_sparse_row_inference_preserves_multiline_merged_header() -> None:
+    """Reject dense multiline text when adjacent slot signatures disagree."""
+    table = pylopdf.open(stream=_multiline_merged_header_pdf())[0].find_tables()[0]
+
+    assert (table.row_count, table.col_count) == (3, 3)
+    assert table.confidence == 1.0
+    assert table.extract() == [
+        ["First summary\nSecond summary\nThird summary", None, None],
+        ["Alpha", "1", "10"],
+        ["Beta", "2", "20"],
+    ]
 
 
 def test_compact_filled_decorations_are_not_table_rules() -> None:

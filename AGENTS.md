@@ -72,8 +72,13 @@ overview.
   4096 axis-aligned candidates from strokes or thin filled polygons. A table
   requires a connected outer grid with at least two rows and columns.
   Rectangular merged cells are tiled from missing internal dividers; covered
-  row-major slots are `None`. Materialization is capped at 4096 slots and
-  merged-span searches at 65,536 candidates. The opt-in borderless
+  row-major slots are `None`, with an internal anchor map retained for exact
+  Markdown span expansion. Coarse grid spans gain synthetic dividers only when
+  at least three evenly led physical lines occupy half the cross-axis slots and
+  adjacent slot signatures overlap by at least 0.8. This inference is symmetric
+  across right-angle rotations; hybrid grids score 0.95 while complete vector
+  grids score 1.0. Materialization is capped at 4096 slots and merged-span
+  searches at 65,536 candidates. The opt-in borderless
   `strategy="text"` requires at least three consecutive physical rows with the
   same segment count, aligned left or right edges, compatible leading, and
   clear gaps. It intentionally does not run as the default because aligned
@@ -82,13 +87,14 @@ overview.
   not synthesize partial tables or reduce the cached full-page interpretation
   cost. `TableDiagnostics.confidence` is a deterministic ranking heuristic,
   not a probability. Text diagnostics retain em-normalized alignment error,
-  minimum gutter, and row-gap variation; complete vector grids score 1.0.
+  minimum gutter, and row-gap variation.
   `Document.to_markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
   candidates or `None` to disable table conversion. It removes contained text
   from prose and heading inference while retaining words outside a table on the
   same physical line, and normalizes physical table matrices to the dominant
-  logical text direction on right-angle rotations.
+  logical text direction on right-angle rotations. Merged spans expand from the
+  internal anchor map rather than guessing from adjacent empty slots.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated

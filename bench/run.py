@@ -222,7 +222,7 @@ def main() -> None:
             lines.append(f"| {name} | {len(ours)} | n/a | - |")
     lines.append("")
     lines.append("Similarity approaches 1.0 as output converges with PyMuPDF.")
-    lines.append("Low scores for the form (f1040) and scanned OCR-layer patent reflect different")
+    lines.append("Low scores for forms, table-heavy reports, and scanned OCR layers reflect different")
     lines.append("reading-order and whitespace conventions despite similar character counts.")
     lines.append("A zero-character row is image-only with no text layer, so zero is correct for both.")
     lines.append("")

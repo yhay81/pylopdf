@@ -41,7 +41,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_text(option)` / `search_for(needle)` | 提取与不区分大小写的搜索 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
-| `find_tables(strategy="lines", clip=None)` | 完整矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
+| `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown(table_strategy="lines")` | 使用相同表格控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
@@ -73,8 +73,9 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 
 `Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
 `Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的
-对齐误差、最小列间距和行间距变化。完整矢量网格得分为1.0，这些文本专用指标为
-`None`。`TableFinder.strategy`和`TableFinder.clip`保留本次使用的设置。
+对齐误差、最小列间距和行间距变化。完整矢量网格得分为1.0，补全稀疏边框的
+hybrid grid为0.95；两者的文本专用指标均为`None`。
+`TableFinder.strategy`和`TableFinder.clip`保留本次使用的设置。
 
 ## 模块级 { #module-level }
 
