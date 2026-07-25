@@ -96,9 +96,9 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ## 스캔 PDF, 폼, Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)     # 모든 OCR 결과로 검색 가능한 PDF 생성
-doc.set_form_field("customer", "Alice")   # AcroForm 입력（NeedAppearances）
-md = doc.to_markdown()                    # RAG에 바로 쓰는 Markdown
+page.insert_ocr_text_layer(ocr_words)        # 모든 OCR 결과로 검색 가능한 PDF 생성
+doc.set_form_field("customer", "홍길동", fontfile="NotoSansKR-Regular.otf")
+md = doc.to_markdown()                       # RAG에 바로 쓰는 Markdown
 ```
 
 조판, PDF/A, 디지털 서명은[생태계 연동](ecosystem.md)을, pymupdf에서 이전한다면

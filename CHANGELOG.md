@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundaries, and left, center, right, and justified alignment work on rotated
   pages. Explicit newlines, tab expansion, custom leading, overlay order,
   missing-glyph errors, and save round-trips are covered.
+- `Document.set_form_field()` now regenerates native appearances for text,
+  combo/list choice, checkbox, and radio widgets. Text auto-fits with inherited
+  alignment and multiline flags; widget rotation, background, and border
+  styling are retained. WinAnsi uses Helvetica, while `fontfile=` /
+  `fontbuffer=` subset-embed arbitrary OpenType text through HarfRust and
+  krilla; `pylopdf[cjk]` is selected automatically for non-WinAnsi text.
+  Missing button states receive vector appearances, non-empty authored states
+  are preserved, and hayro's lack of appearance-state dictionary support is
+  bridged in rendering without changing the canonical saved PDF. Updates are
+  atomic on generation errors, release the GIL, preserve multiline control
+  characters through UTF-16BE, complete other representable missing widget
+  appearances before clearing `NeedAppearances`, and render after save/reopen.
 
 ## [0.10.0] - 2026-07-25
 

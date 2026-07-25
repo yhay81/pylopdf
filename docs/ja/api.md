@@ -27,7 +27,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
 | `get_toc()` / `set_toc(toc)` | しおり（1 始まり） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル |
-| `get_form_fields()` / `set_form_field(name, value)` | AcroForm の一覧と記入（NeedAppearances） |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | ネイティブ外観付き AcroForm の一覧と記入 |
 | `embfile_add / embfile_names / embfile_get / embfile_del` | 添付ファイル |
 | `get_pdfa_claim()` | XMP の PDF/A 宣言（読み取りであって検証ではない） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
@@ -63,6 +63,15 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 `TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`、
 `TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォント
 resourceは追加されません。
+
+`set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
+外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
+`fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。
+`pylopdf[cjk]`の導入時は、WinAnsi外の値にsansフォントを自動使用します。既存の
+空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
+フィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ
+`NeedAppearances`を解除します。リッチテキスト、comb配置、pushbutton action、
+署名は生成しません。
 
 `Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
 `Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment

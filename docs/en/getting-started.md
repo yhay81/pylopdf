@@ -98,9 +98,10 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ## Scanned PDFs, forms, Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)     # searchable PDFs from any OCR output
-doc.set_form_field("customer", "Alice")   # AcroForm fill (NeedAppearances)
-md = doc.to_markdown()                    # RAG-ready Markdown
+page.insert_ocr_text_layer(ocr_words)        # searchable PDFs from any OCR output
+doc.set_form_field("customer", "Alice")      # native AcroForm appearance
+doc.set_form_field("customer_ja", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
+md = doc.to_markdown()                       # RAG-ready Markdown
 ```
 
 Continue with [Ecosystem recipes](ecosystem.md) for typesetting, PDF/A and

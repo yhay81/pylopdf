@@ -180,6 +180,122 @@ pub fn embedded_textbox_page(
     Ok((Some(bytes), layout.spare_height))
 }
 
+/// Auto-fit and generate text for an AcroForm widget appearance.
+///
+/// Single-line fields collapse explicit line breaks and shrink until they fit
+/// on one line. Multiline fields use the shared Unicode line-breaking layout.
+#[allow(clippy::too_many_arguments)]
+pub fn embedded_widget_text_page(
+    page_size: (f64, f64),
+    rect: [f64; 4],
+    text: &str,
+    font_data: Vec<u8>,
+    font_index: u32,
+    multiline: bool,
+    align: u8,
+    color: (f64, f64, f64),
+) -> Result<Vec<u8>, String> {
+    let width = finite_f32(page_size.0, "page width")?;
+    let height = finite_f32(page_size.1, "page height")?;
+    let page_settings = PageSettings::from_wh(width, height)
+        .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
+    let shaping_font = FontRef::from_index(&font_data, font_index)
+        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
+    let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
+    let shaper_data = ShaperData::new(&shaping_font);
+    let shaper = shaper_data.shaper(&shaping_font).build();
+    let normalized = if multiline {
+        text.to_owned()
+    } else {
+        text.chars()
+            .map(|character| match character {
+                '\r' | '\n' => ' ',
+                other => other,
+            })
+            .collect()
+    };
+    let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
+    if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
+        return Err("widget has no usable text area".to_owned());
+    }
+
+    let mut font_size = (box_size.1 / (ascent + descent).max(0.01)).min(12.0);
+    let layout = loop {
+        let candidate = layout_textbox(
+            &normalized,
+            box_size,
+            font_size,
+            1.2,
+            ascent,
+            descent,
+            false,
+            |line| {
+                let glyphs = shape_line(line, &shaper)?;
+                Ok(glyphs
+                    .iter()
+                    .map(|glyph| f64::from(glyph.x_advance) * font_size)
+                    .sum::<f64>()
+                    .abs())
+            },
+        )?;
+        if candidate.fits() && (multiline || candidate.lines.len() <= 1) {
+            break candidate;
+        }
+        font_size *= 0.85;
+        if font_size < 0.01 {
+            return Err("form field text cannot fit inside the widget".to_owned());
+        }
+    };
+
+    let shaped_lines = layout
+        .lines
+        .iter()
+        .map(|line| shape_line(&line.text, &shaper))
+        .collect::<Result<Vec<_>, _>>()?;
+    let font = Font::new(font_data.into(), font_index)
+        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let size = finite_f32(font_size, "font size")?;
+
+    let mut document = Document::new();
+    let mut page = document.start_page_with(page_settings);
+    let mut surface = page.surface();
+    surface.set_fill(Some(Fill {
+        paint: rgb::Color::new(
+            channel_to_u8(color.0),
+            channel_to_u8(color.1),
+            channel_to_u8(color.2),
+        )
+        .into(),
+        opacity: NormalizedF32::ONE,
+        rule: Default::default(),
+    }));
+    for (line_number, (line, glyphs)) in layout.lines.iter().zip(shaped_lines).enumerate() {
+        let x_offset = match align {
+            1 => (box_size.0 - line.width) / 2.0,
+            2 => box_size.0 - line.width,
+            _ => 0.0,
+        };
+        let baseline_x = finite_f32(rect[0] + x_offset.max(0.0), "text x")?;
+        let baseline_y = finite_f32(
+            rect[1] + layout.ascent * font_size + line_number as f64 * layout.leading,
+            "text y",
+        )?;
+        surface.draw_glyphs(
+            Point::from_xy(baseline_x, baseline_y),
+            &glyphs,
+            font.clone(),
+            &line.text,
+            size,
+            false,
+        );
+    }
+    surface.finish();
+    page.finish();
+    document
+        .finish()
+        .map_err(|error| format!("krilla form appearance generation failed: {error}"))
+}
+
 fn font_vertical_metrics(font: &FontRef<'_>) -> Result<(f64, f64), String> {
     let units_per_em = f64::from(
         font.head()

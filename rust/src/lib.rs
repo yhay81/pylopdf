@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 mod document;
 mod draw;
 mod extract;
+mod form;
 mod generate;
 mod layout;
 mod ocr;

@@ -40,7 +40,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
 | `doc.embfile_add / names / get / del` | 相同 | |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
-| `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value)` | Document级；NeedAppearances |
+| `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内置，MIT |
 
 ## 行为差异 { #behavioral-differences }
@@ -63,8 +63,9 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   与对齐的多栏正文之间仍存在几何歧义。使用`clip=`可只保留完整位于已知显示坐标
   区域内的表格；排序无边框结果时可检查`Table.confidence` /
   `Table.diagnostics`。
-- **表单填写**会设置值与`NeedAppearances`，外观由查看器绘制。pylopdf的渲染器不会
-  重新生成widget appearance。
+- **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用
+  Helvetica自动缩小；Unicode需传入OpenType字体，或安装`pylopdf[cjk]`以自动处理
+  CJK。富文本、comb布局、pushbutton和签名仍不在API范围内。
 - **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。
   尚不解释注音、夹注及横竖混排等复杂排版。
 

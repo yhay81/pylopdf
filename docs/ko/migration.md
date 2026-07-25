@@ -42,7 +42,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
-| `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value)` | 문서 수준, NeedAppearances |
+| `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | 문서 수준, 텍스트／선택／checkbox／radio 네이티브 appearance |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 내장, MIT |
 
 ## 동작 차이 { #behavioral-differences }
@@ -69,8 +69,10 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   정렬된 다단 본문과의 기하학적 모호성은 남습니다. 알려진 표시 좌표 영역 안에
   완전히 들어오는 표만 유지하려면 `clip=`을 사용하고, 테두리 없는 결과의 순위를
   정할 때는 `Table.confidence` / `Table.diagnostics`를 확인합니다.
-- **폼 입력**은 값과 `NeedAppearances`를 설정하고, 뷰어가 값을 그립니다.
-  pylopdf의 렌더러 자체는 widget appearance를 다시 생성하지 않습니다.
+- **폼 입력**은 값과 네이티브 appearance를 기록해 pylopdf와 외부 뷰어 모두에서
+  렌더링됩니다. WinAnsi는 Helvetica로 자동 축소하며 Unicode는 OpenType 글꼴을
+  지정하거나 `pylopdf[cjk]`를 설치합니다. rich text, comb layout, pushbutton,
+  서명은 API 범위 밖입니다.
 - **CJK 세로쓰기**는 보수적으로 감지해 열 안에서는 위에서 아래로,
   열 사이는 오른쪽에서 왼쪽으로 읽습니다. 루비, 행간 주석, 혼합 방향 조판은
   해석하지 않습니다.

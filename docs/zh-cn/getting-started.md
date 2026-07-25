@@ -95,9 +95,9 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ## 扫描PDF、表单与Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)     # 将任意OCR结果写入可搜索PDF
-doc.set_form_field("customer", "Alice")   # 填写AcroForm（NeedAppearances）
-md = doc.to_markdown()                    # 适合RAG的Markdown
+page.insert_ocr_text_layer(ocr_words)        # 将任意OCR结果写入可搜索PDF
+doc.set_form_field("customer", "张三", fontfile="NotoSansSC-Regular.otf")
+md = doc.to_markdown()                       # 适合RAG的Markdown
 ```
 
 排版、PDF/A与数字签名请继续阅读[生态系统方案](ecosystem.md)；
