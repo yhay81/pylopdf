@@ -57,6 +57,7 @@ nav:
   - ホーム: index.md
   - ガイド:
       - はじめる: getting-started.md
+      - WebAssembly: wasm.md
       - オフラインOCR: ocr.md
       - エコシステム連携: ecosystem.md
       - pymupdfからの移行: migration.md

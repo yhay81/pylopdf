@@ -278,6 +278,21 @@ overview.
   clocks pull in js-sys imports, and the global rayon pool cannot create
   workers there. `render_pages` keeps its public contract but runs serially;
   native targets retain bounded rayon execution.
+- `tools/pyodide_compat.py` is the shared native/Pyodide functional contract.
+  Keep its logical result independent of Python implementation details and
+  platform-sensitive raster bytes. It must combine explicit content/structure
+  assertions with full text/Markdown hashes rather than relying on either
+  alone. The Python 3.10 CI job uploads the native baseline, and the Pyodide
+  job must compare it exactly. Coverage includes bytes input, PDF 2.0,
+  embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
+  vector extraction, image-only input, AES-256 authentication, Standard 14 and
+  subset-embedded OpenType generation, textbox layout, pixmaps,
+  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, and typed
+  error recovery. Add only small redistributable PDFs listed in
+  `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
+  font may be supplied from already licensed repository assets. Do not claim
+  direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
+  783 even though the binary itself passes that runtime's suite.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.

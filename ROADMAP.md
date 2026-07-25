@@ -618,6 +618,20 @@ rather than waiting automatically for v1.x.
   release. Actual PyPI publication remains pending the next package release;
   compatibility breadth, resource-limit tests, size investigation, and user
   documentation continue in #20 through #23 under the #24 epic.
+- [x] Establish the native/Pyodide functional compatibility matrix (2026-07-26).
+  One shared suite now checks bytes-only input, PDF 2.0, text and document
+  Markdown, embedded and vertical CJK, multicolumn order, bordered/borderless
+  and rotated tables, vector paths, image-only input, AES-256 authentication,
+  generation with subset-embedded OpenType, textbox layout, pixmaps, ordered
+  serial-fallback batch rendering, virtual-filesystem save, merge/select, and
+  typed error recovery. The Python 3.10 CI lane records a stable native result
+  artifact; the pinned Pyodide lane must match it exactly while also satisfying
+  explicit structure and content assertions. Four localized documentation
+  pages distinguish the tested Cloudflare path, runtime-level Pyodide
+  compatibility, unsupported direct PyPI installation through Pyodide 0.28.3's
+  pre-PEP-783 `micropip`, and out-of-scope OCR/fallback-font behavior.
+  Resource-limit tests, size investigation, and installation workflows continue
+  in #21 through #23.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four
