@@ -9,12 +9,7 @@ import pytest
 import pylopdf
 
 NOTO_SANS_JP = (
-    Path(__file__).parents[1]
-    / "fonts"
-    / "pylopdf-fonts-cjk"
-    / "src"
-    / "pylopdf_fonts_cjk"
-    / "NotoSansJP-Regular.otf"
+    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk" / "NotoSansJP-Regular.otf"
 )
 
 
@@ -69,10 +64,7 @@ def _build_form_pdf(*, checkbox_on_content: str = "", text_widget_extra: str = "
         20: _form_stream(""),
         21: _form_stream(""),
         22: _form_stream(""),
-        23: (
-            "<< /FT /Tx /Ff 4096 /T (notes) /Type /Annot /Subtype /Widget"
-            " /Rect [50 540 250 600] /P 4 0 R /F 4 >>"
-        ),
+        23: ("<< /FT /Tx /Ff 4096 /T (notes) /Type /Annot /Subtype /Widget /Rect [50 540 250 600] /P 4 0 R /F 4 >>"),
     }
     out = bytearray(b"%PDF-1.6\n")
     offsets: dict[int, int] = {}
