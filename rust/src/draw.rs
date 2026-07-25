@@ -415,6 +415,40 @@ pub fn placement_matrix(
     }
 }
 
+/// Place an image into a display-space rectangle with clockwise right-angle rotation.
+pub fn image_placement_matrix(
+    target_crop: [f64; 4],
+    target_rotation: i64,
+    rect: [f64; 4],
+    width: u32,
+    height: u32,
+    keep_proportion: bool,
+    image_rotation: i64,
+) -> [f64; 6] {
+    let content = if matches!(image_rotation, 90 | 270) {
+        PlacedContent::Image {
+            width: height,
+            height: width,
+        }
+    } else {
+        PlacedContent::Image { width, height }
+    };
+    let [ux, uy, vx, vy, ox, oy] = placement_matrix(
+        target_crop,
+        target_rotation,
+        rect,
+        &content,
+        keep_proportion,
+    );
+    match image_rotation {
+        // Rotate clockwise in display space. U points right and V points up.
+        90 => [-vx, -vy, ux, uy, ox + vx, oy + vy],
+        180 => [-ux, -uy, -vx, -vy, ox + ux + vx, oy + uy + vy],
+        270 => [vx, vy, -ux, -uy, ox + ux, oy + uy],
+        _ => [ux, uy, vx, vy, ox, oy],
+    }
+}
+
 /// Build drawing operators from a `cm` matrix and XObject name.
 pub fn draw_ops(matrix: [f64; 6], name: &str) -> Vec<u8> {
     let [a, b, c, d, e, f] = matrix;

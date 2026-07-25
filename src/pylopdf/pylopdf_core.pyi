@@ -129,6 +129,7 @@ class _Document:
         page_number: int,
         rect: tuple[float, float, float, float],
         data: bytes,
+        image_rotation: int,
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...
@@ -137,6 +138,7 @@ class _Document:
         page_number: int,
         rect: tuple[float, float, float, float],
         pixmap: Pixmap,
+        image_rotation: int,
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...

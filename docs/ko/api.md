@@ -47,7 +47,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
-| `insert_image(rect, filename= / stream= / pixmap=, keep_proportion=, overlay=)` | JPEG/PNG 또는 렌더링된 RGBA `Pixmap`을 직접 삽입 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | JPEG/PNG 또는 렌더링된 RGBA `Pixmap` 삽입; `rotate`는 90도 단위 시계 방향 회전 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 다른 PDF 페이지를 벡터로 겹치기 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi 또는 서브셋 내장 OpenType Unicode 텍스트 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14 또는 내장 OpenType 실제 폭으로 UAX #14 줄바꿈, 남은 높이를 반환하며 넘치면 그리지 않음 |

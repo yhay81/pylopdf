@@ -790,6 +790,17 @@ def _read_image_source(
     return pixmap
 
 
+def _validate_image_rotation(rotate: int) -> int:
+    """Validate and normalize clockwise image rotation."""
+    if isinstance(rotate, bool) or not isinstance(rotate, int):
+        msg = f"rotate must be a multiple of 90: {rotate!r}"
+        raise TypeError(msg)
+    if rotate % 90 != 0:
+        msg = f"rotate must be a multiple of 90: {rotate!r}"
+        raise ValueError(msg)
+    return rotate % 360
+
+
 def _read_font_source(fontfile: str | os.PathLike[str] | None, fontbuffer: bytes | None) -> bytes | None:
     """Read optional font bytes from at most one font source."""
     if fontfile is not None:
@@ -1188,6 +1199,7 @@ class Page:
         filename: str | os.PathLike[str] | None = None,
         stream: bytes | None = None,
         pixmap: Pixmap | None = None,
+        rotate: int = 0,
         keep_proportion: bool = True,
         overlay: bool = True,
     ) -> None:
@@ -1198,18 +1210,34 @@ class Page:
         soft mask. ``pixmap=`` embeds a rendered :class:`Pixmap` directly from
         its straight-alpha RGBA8 storage without a PNG encode/decode round trip.
         Convert other encoded formats to JPEG or PNG with Pillow or a similar
-        library. ``rect`` uses the same coordinate space as :meth:`search_for`
-        and :meth:`get_text`, so search results can be used directly.
-        ``keep_proportion`` centers the image while preserving its aspect ratio.
-        ``overlay=False`` draws below existing content. Existing page content is
-        never rewritten.
+        library. ``rotate`` turns the image clockwise in multiples of 90 and is
+        normalized to 0–359. ``rect`` uses the same coordinate space as
+        :meth:`search_for` and :meth:`get_text`, so search results can be used
+        directly. ``keep_proportion`` centers the rotated image while preserving
+        its aspect ratio. ``overlay=False`` draws below existing content.
+        Existing page content is never rewritten.
         """
+        image_rotation = _validate_image_rotation(rotate)
         source = _read_image_source(filename, stream, pixmap)
         x0, y0, x1, y1 = _validate_rect(rect)
         if isinstance(source, Pixmap):
-            self._document._doc.insert_pixmap(self._page_number(), (x0, y0, x1, y1), source, keep_proportion, overlay)
+            self._document._doc.insert_pixmap(
+                self._page_number(),
+                (x0, y0, x1, y1),
+                source,
+                image_rotation,
+                keep_proportion,
+                overlay,
+            )
         else:
-            self._document._doc.insert_image(self._page_number(), (x0, y0, x1, y1), source, keep_proportion, overlay)
+            self._document._doc.insert_image(
+                self._page_number(),
+                (x0, y0, x1, y1),
+                source,
+                image_rotation,
+                keep_proportion,
+                overlay,
+            )
 
     def show_pdf_page(
         self,

@@ -47,7 +47,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | レンダリング。`clip` は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
-| `insert_image(rect, filename= / stream= / pixmap=, keep_proportion=, overlay=)` | JPEG/PNG、または描画済みRGBA `Pixmap`の直接挿入 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | JPEG/PNG、または描画済みRGBA `Pixmap`の挿入。`rotate`は90度単位の時計回り回転 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 別 PDF ページをベクタのまま重ねる |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
