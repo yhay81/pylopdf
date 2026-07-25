@@ -35,6 +35,10 @@ __all__ = [
     "LINK_NAMED",
     "LINK_NONE",
     "LINK_URI",
+    "TEXT_ALIGN_CENTER",
+    "TEXT_ALIGN_JUSTIFY",
+    "TEXT_ALIGN_LEFT",
+    "TEXT_ALIGN_RIGHT",
     "Document",
     "DocumentClosedError",
     "EncryptedDocumentError",
@@ -60,6 +64,12 @@ LINK_URI = 2
 LINK_LAUNCH = 3
 LINK_NAMED = 4
 LINK_GOTOR = 5
+
+# Text alignment values compatible with pymupdf.
+TEXT_ALIGN_LEFT = 0
+TEXT_ALIGN_CENTER = 1
+TEXT_ALIGN_RIGHT = 2
+TEXT_ALIGN_JUSTIFY = 3
 
 
 class PylopdfWarning(UserWarning):
@@ -311,6 +321,38 @@ def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
         msg = f"color must be (r, g, b) in the range 0-1: {color!r}"
         raise ValueError(msg)
     return red, green, blue
+
+
+def _validate_textbox_options(
+    fontsize: float,
+    lineheight: float | None,
+    align: int,
+    expandtabs: int,
+) -> tuple[float, float]:
+    """Validate textbox layout options and return normalized size and leading."""
+    try:
+        resolved_fontsize = float(fontsize)
+    except (TypeError, ValueError) as exc:
+        msg = f"fontsize must be a positive number: {fontsize!r}"
+        raise ValueError(msg) from exc
+    if not (math.isfinite(resolved_fontsize) and resolved_fontsize > 0):
+        msg = f"fontsize must be a positive number: {fontsize!r}"
+        raise ValueError(msg)
+    try:
+        resolved_lineheight = 1.2 if lineheight is None else float(lineheight)
+    except (TypeError, ValueError) as exc:
+        msg = f"lineheight must be a positive number or None: {lineheight!r}"
+        raise ValueError(msg) from exc
+    if not (math.isfinite(resolved_lineheight) and resolved_lineheight > 0):
+        msg = f"lineheight must be a positive number or None: {lineheight!r}"
+        raise ValueError(msg)
+    if isinstance(align, bool) or not isinstance(align, int) or not TEXT_ALIGN_LEFT <= align <= TEXT_ALIGN_JUSTIFY:
+        msg = f"align must be one of 0, 1, 2, or 3: {align!r}"
+        raise ValueError(msg)
+    if isinstance(expandtabs, bool) or not isinstance(expandtabs, int) or expandtabs < 0:
+        msg = f"expandtabs must be a non-negative integer: {expandtabs!r}"
+        raise ValueError(msg)
+    return resolved_fontsize, resolved_lineheight
 
 
 def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | None) -> bytes:
@@ -752,6 +794,96 @@ class Page:
             base_font,
             fontname not in _SYMBOLIC_FONTS,
             float(fontsize),
+            (red, green, blue),
+            overlay,
+        )
+
+    def insert_textbox(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
+        self,
+        rect: Sequence[float],
+        text: str,
+        *,
+        fontsize: float = 11.0,
+        fontname: str = "helv",
+        fontfile: str | os.PathLike[str] | None = None,
+        fontbuffer: bytes | None = None,
+        fontindex: int = 0,
+        color: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        align: int = TEXT_ALIGN_LEFT,
+        expandtabs: int = 8,
+        lineheight: float | None = None,
+        overlay: bool = True,
+    ) -> float:
+        r"""Wrap and draw text inside a display-coordinate rectangle.
+
+        The return value is the unused vertical space. A negative value means
+        the laid-out text does not fit; in that case the document is not
+        modified. Empty text returns the rectangle height without modifying the
+        document.
+
+        ``align`` accepts :data:`TEXT_ALIGN_LEFT`,
+        :data:`TEXT_ALIGN_CENTER`, :data:`TEXT_ALIGN_RIGHT`, or
+        :data:`TEXT_ALIGN_JUSTIFY`. Justification expands spaces on soft-wrapped
+        lines, never the final line of a paragraph. ``lineheight`` is a
+        font-size multiplier and defaults to 1.2. Tabs are expanded before
+        Unicode line breaking; explicit newlines always start a new line.
+
+        Without a font source, Adobe Core 14 metrics provide exact WinAnsi
+        wrapping. Pass exactly one of ``fontfile`` or ``fontbuffer`` for
+        HarfRust-shaped Unicode and a krilla subset-embedded OpenType font.
+        Unicode line-break opportunities support CJK without requiring spaces,
+        and an overlong word falls back to grapheme-safe wrapping.
+        """
+        x0, y0, x1, y1 = _validate_rect(rect)
+        page_number = self._page_number()
+        resolved_fontsize, resolved_lineheight = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
+        red, green, blue = _validate_unit_rgb(color)
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").expandtabs(expandtabs)
+        if not normalized:
+            return y1 - y0
+
+        font_data = _read_font_source(fontfile, fontbuffer)
+        if font_data is not None:
+            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
+                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
+                raise ValueError(msg)
+            return self._document._doc.insert_embedded_textbox(
+                page_number,
+                (x0, y0, x1, y1),
+                normalized,
+                font_data,
+                fontindex,
+                resolved_fontsize,
+                resolved_lineheight,
+                align,
+                (red, green, blue),
+                overlay,
+            )
+
+        if fontindex != 0:
+            msg = "fontindex requires fontfile or fontbuffer"
+            raise ValueError(msg)
+        base_font = _BASE14_FONTS.get(fontname)
+        if base_font is None:
+            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
+            raise ValueError(msg)
+        try:
+            normalized.encode("cp1252")
+        except UnicodeEncodeError as exc:
+            msg = (
+                "insert_textbox can only print WinAnsi (Latin-1-equivalent) characters. "
+                "For Unicode text such as Japanese, pass fontfile or fontbuffer"
+            )
+            raise ValueError(msg) from exc
+        return self._document._doc.insert_page_textbox(
+            page_number,
+            (x0, y0, x1, y1),
+            normalized,
+            base_font,
+            fontname not in _SYMBOLIC_FONTS,
+            resolved_fontsize,
+            resolved_lineheight,
+            align,
             (red, green, blue),
             overlay,
         )

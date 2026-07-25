@@ -3262,6 +3262,69 @@ impl _Document {
         })
     }
 
+    /// Lay out and draw Standard 14 text inside a display-coordinate rectangle.
+    ///
+    /// Layout completes before any PDF object is added, so a negative spare
+    /// height leaves the document byte-for-byte unmodified in memory.
+    #[allow(clippy::too_many_arguments)]
+    fn insert_page_textbox(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        base_font: &str,
+        winansi: bool,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+    ) -> PyResult<f64> {
+        let rect = [rect.0, rect.1, rect.2, rect.3];
+        let layout = py.detach(|| {
+            draw::standard_textbox_layout(
+                text,
+                (rect[2] - rect[0], rect[3] - rect[1]),
+                base_font,
+                fontsize,
+                line_height,
+                align == 3,
+            )
+            .map_err(PdfError::new_err)
+        })?;
+        if !layout.fits() {
+            return Ok(layout.spare_height);
+        }
+
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let mut font_dict = dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => Object::Name(base_font.as_bytes().to_vec()),
+            };
+            if winansi {
+                font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+            }
+            let font_id = self.doc.add_object(font_dict);
+            self.bake_page_attrs(page_id)?;
+            self.doc
+                .get_or_create_resources(page_id)
+                .map_err(to_py_err)?;
+            let name = format!("PyloF{}", font_id.0);
+            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
+            let ops = draw::textbox_text_ops(
+                crop, rotation, rect, &layout, align, &name, fontsize, color,
+            )
+            .map_err(PdfError::new_err)?;
+            draw::push_content(&mut self.doc, page_id, ops, overlay).map_err(to_py_err)?;
+            Ok(layout.spare_height)
+        })
+    }
+
     /// Draw subset-embedded OpenType text through a krilla-generated Form.
     ///
     /// The temporary source page uses the target page's rotation-resolved
@@ -3306,6 +3369,62 @@ impl _Document {
             false,
             overlay,
         )
+    }
+
+    /// Lay out and draw subset-embedded OpenType text inside a display rectangle.
+    #[allow(clippy::too_many_arguments)]
+    fn insert_embedded_textbox(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        font_data: Vec<u8>,
+        font_index: u32,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+    ) -> PyResult<f64> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let rect_array = [rect.0, rect.1, rect.2, rect.3];
+        let (generated, spare_height) = py.detach(|| {
+            generate::embedded_textbox_page(
+                page_size,
+                rect_array,
+                text,
+                font_data,
+                font_index,
+                fontsize,
+                line_height,
+                align,
+                color,
+            )
+            .map_err(PdfError::new_err)
+        })?;
+        let Some(generated) = generated else {
+            return Ok(spare_height);
+        };
+        let generated_doc = Document::load_mem(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let source = Self::from_doc(generated_doc, Some(generated));
+        self.show_pdf_page(
+            py,
+            page_number,
+            (0.0, 0.0, page_size.0, page_size.1),
+            &source,
+            1,
+            false,
+            overlay,
+        )?;
+        Ok(spare_height)
     }
 
     /// Replace text on a one-based page and return the replacement count.

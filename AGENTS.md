@@ -142,6 +142,14 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
+- `Page.insert_textbox` completes layout before mutating the PDF and returns
+  negative spare height without drawing on overflow. Standard 14 measurement
+  uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
+  advances and font vertical metrics. Both share greedy UAX #14 wrapping in
+  `rust/src/layout.rs`, with grapheme-safe emergency breaks and soft-line-only
+  justification. Keep page rotation resolved through display coordinates and
+  preserve the no-mutation overflow boundary. The resulting Windows abi3 wheel
+  is 5.58 MB, up 0.16 MB from the arbitrary-font baseline.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.

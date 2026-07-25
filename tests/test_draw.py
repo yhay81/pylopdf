@@ -340,6 +340,114 @@ def test_insert_text_embedded_overlay_order() -> None:
     assert set(standard_rgb) == {0, 128}
 
 
+def test_insert_textbox_wraps_aligns_and_reports_spare_height() -> None:
+    doc = _new_page_doc(200, 120)
+    page = doc[0]
+    rect = (10, 10, 110, 90)
+
+    spare = page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_RIGHT)
+
+    assert spare > 0
+    lines = page.get_text("dict")["blocks"][0]["lines"]
+    assert len(lines) == 2
+    assert " ".join(span["text"] for span in lines[0]["spans"]) == "one two three four five"
+    assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
+    assert lines[1]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
+    assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
+    assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
+
+
+def test_insert_textbox_justifies_only_soft_wrapped_lines() -> None:
+    doc = _new_page_doc(200, 120)
+    page = doc[0]
+    rect = (10, 10, 110, 90)
+
+    page.insert_textbox(rect, "one two three four five six", fontsize=10, align=pylopdf.TEXT_ALIGN_JUSTIFY)
+
+    lines = page.get_text("dict")["blocks"][0]["lines"]
+    assert lines[0]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
+    assert lines[0]["bbox"][2] == pytest.approx(rect[2], abs=0.1)
+    assert lines[1]["bbox"][0] == pytest.approx(rect[0], abs=0.1)
+    assert lines[1]["bbox"][2] < rect[2] - 20
+
+
+def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None:
+    doc = _new_page_doc(200, 100)
+    page = doc[0]
+    before = page.get_pixmap(background=WHITE).samples
+
+    spare = page.insert_textbox((10, 10, 110, 15), "one two three four", fontsize=10)
+
+    assert spare < 0
+    assert page.get_text() == ""
+    assert page.get_pixmap(background=WHITE).samples == before
+    assert page.insert_textbox((10, 10, 110, 25), "", fontsize=10) == 15
+    assert page.get_text() == ""
+
+
+def test_insert_textbox_embedded_font_wraps_cjk_and_survives_rotation() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=120, height=200)
+    page = doc[0]
+    page.set_rotation(90)
+    rect = (10, 10, 100, 80)
+
+    spare = page.insert_textbox(
+        rect,
+        "日本語の文章を空白なしで折り返します。",
+        fontsize=12,
+        fontfile=NOTO_SANS_JP,
+        align=pylopdf.TEXT_ALIGN_CENTER,
+    )
+
+    assert spare > 0
+    lines = page.get_text("dict")["blocks"][0]["lines"]
+    assert len(lines) >= 3
+    assert "".join(span["text"] for line in lines for span in line["spans"]) == "日本語の文章を空白なしで折り返します。"
+    assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)
+    assert all(rect[1] <= line["bbox"][1] < line["bbox"][3] <= rect[3] for line in lines)
+    reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened[0].get_text().replace("\n", "") == "日本語の文章を空白なしで折り返します。"
+
+
+def test_insert_textbox_tabs_custom_leading_and_bad_arguments() -> None:
+    doc = _new_page_doc()
+    page = doc[0]
+    first = page.insert_textbox((10, 10, 150, 80), "a\tb\nc", fontsize=10, expandtabs=4, lineheight=1.0)
+    assert first > 0
+    assert page.get_text().splitlines() == ["a   b", "c"]
+
+    with pytest.raises(ValueError, match="align"):
+        page.insert_textbox((10, 10, 100, 80), "x", align=4)
+    with pytest.raises(ValueError, match="expandtabs"):
+        page.insert_textbox((10, 10, 100, 80), "x", expandtabs=True)
+    with pytest.raises(ValueError, match="lineheight"):
+        page.insert_textbox((10, 10, 100, 80), "x", lineheight=0)
+    with pytest.raises(ValueError, match="fontfile or fontbuffer"):
+        page.insert_textbox((10, 10, 100, 80), "日本語")
+    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
+        page.insert_textbox((10, 10, 100, 80), "🦀", fontfile=NOTO_SANS_JP)
+
+
+@pytest.mark.parametrize("fontfile", [None, NOTO_SANS_JP])
+def test_insert_textbox_underlay_stays_below_existing_content(fontfile: Path | None) -> None:
+    doc = _new_page_doc(160, 80)
+    page = doc[0]
+    page.insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+
+    page.insert_textbox(
+        (5, 5, 155, 75),
+        "TEXT",
+        fontsize=48,
+        fontfile=fontfile,
+        color=(1.0, 0.0, 0.0),
+        overlay=False,
+    )
+
+    rgb = bytes(channel for offset, channel in enumerate(page.get_pixmap().samples) if offset % 4 != 3)
+    assert set(rgb) == {0, 128}
+
+
 def test_get_images_bbox_on_rotated_page_is_display_space() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=200)

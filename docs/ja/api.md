@@ -48,6 +48,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG の描き込み |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 別 PDF ページをベクタのまま重ねる |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words)` | 不可視 OCR テキスト層（searchable PDF 化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |
@@ -56,6 +57,12 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 各行の字形処理は行いますが、フォントfallback、双方向paragraph layout、折り返しは
 行いません。RTLの字形処理結果は正しく描画されますが、現時点の抽出順は論理順ではなく
 視覚順です。
+
+`insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode
+改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には
+`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`、
+`TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォント
+resourceは追加されません。
 
 `Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
 `Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment

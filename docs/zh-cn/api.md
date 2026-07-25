@@ -48,6 +48,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | 绘制JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加其他PDF页面 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
 | `insert_ocr_text_layer(words)` | OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
@@ -55,6 +56,11 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。它会对每一行进行塑形，
 但不提供字体回退、双向段落布局或自动换行。RTL塑形可以正确渲染；当前文本提取采用
 视觉顺序而非逻辑顺序。
+
+`insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，
+并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、
+`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
+垂直空间不足，此时不会添加页面内容或字体resource。
 
 `Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
 `Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的

@@ -3,6 +3,7 @@ mod document;
 mod draw;
 mod extract;
 mod generate;
+mod layout;
 mod ocr;
 mod pixmap;
 use document::{_Document, PasswordError, PdfError};

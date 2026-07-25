@@ -286,8 +286,15 @@ than stopping at a nominal parity checklist.
       phrase. The Windows abi3 wheel is 5.42 MB versus 4.44 MB before krilla
       (+0.98 MB); `NOTICE.md`, PEP 639 license files, and the wheel SBOM retain
       third-party attribution.
-- Build `insert_textbox` on the same generation boundary, then native AcroForm
-  appearance generation. Measure size and rendering fidelity at every stage.
+- [x] Build `insert_textbox` on the same generation boundary. Standard 14 text
+      uses Adobe AFM widths; arbitrary OpenType text uses HarfRust advances and
+      krilla subsetting. Shared UAX #14 wrapping handles CJK, grapheme-safe
+      emergency breaks handle overlong words, and left/center/right/justify,
+      tab expansion, custom leading, rotation, overlay order, overflow
+      non-mutation, missing glyphs, and save round-trips are covered.
+      The Windows abi3 wheel is 5.58 MB, up 0.16 MB for canonical Core 14
+      metrics plus Unicode line/grapheme tables. Continue with native AcroForm
+      appearance generation.
 - [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
   with deterministic input order, a dedicated 1–64 worker pool, four-worker
   default, GIL release, and a ~512 MB estimated working-memory concurrency cap.
@@ -407,7 +414,7 @@ rather than waiting automatically for v1.x.
       dependencies are shared with hayro. Production integration is now
       complete with HarfRust replacing that spike-only shaping feature: the
       abi3 wheel grew by 0.98 MB, and generated text is imported into lopdf as
-      a Form XObject. Next: `insert_textbox`.
+      a Form XObject. `insert_textbox` now reuses this boundary.
 - [x] Add `get_pixmap(clip=)` by cropping the full-page raster with exact
       rotation-resolved display-coordinate semantics. hayro `RenderSettings`
       still supports only an origin-fixed viewport, so true region-only
@@ -497,9 +504,10 @@ rather than waiting automatically for v1.x.
   backend after maturity and lopdf-version alignment.
 - **PP-OCRv6**, released in 2026-06: wait for ONNX conversion support before
   selecting the `[ocr]` model generation.
-- **parley**, linebender's text layout engine and a krilla dev dependency:
-  evaluate for line breaking when implementing `insert_textbox`, the declared
-  upper limit for native typesetting.
+- **parley**, linebender's richer text layout engine and a krilla dev
+  dependency: UAX #14 plus HarfRust metrics was sufficient for the bounded
+  `insert_textbox` contract without adding font fallback and styling machinery.
+  Reconsider only if product demand justifies a native rich-text surface.
 - **zune-jpeg**: candidate JPEG recompressor for a future
   `compress_images(dpi=, quality=)`, useful for email attachments and missing
   from pypdf/pikepdf.

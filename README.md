@@ -145,6 +145,15 @@ for i, p in enumerate(doc):
 # Subset-embed an OpenType font for Unicode and CJK text
 page.insert_text((40, 80), "社外秘", fontsize=20, fontfile="NotoSansJP-Regular.otf", color=(0.8, 0, 0))
 
+# Wrap a paragraph into a rectangle; negative means nothing was drawn
+spare = page.insert_textbox(
+    (40, 100, 300, 220),
+    "日本語も空白なしで自然に折り返します。",
+    fontsize=12,
+    fontfile="NotoSansJP-Regular.otf",
+    align=pylopdf.TEXT_ALIGN_JUSTIFY,
+)
+
 # Annotations: search & highlight / link
 page.add_highlight_annot(page.search_for("important"))  # appearance stream included (visible everywhere)
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
@@ -329,6 +338,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
+| `insert_textbox(rect, text, fontsize=11, fontname="helv", align=0, lineheight=None)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
 | `insert_ocr_text_layer(words)` | Write OCR results as an invisible text layer (searchable PDFs; no font embedding, near-zero size) |
 | `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
@@ -346,6 +356,7 @@ Module level:
 | `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe without parsing the whole file |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
+| `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
 | Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
 
 For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.
