@@ -19,13 +19,13 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
-| `import fitz` / `import pymupdf` | `import pylopdf` | |
-| `fitz.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 같은 형태, `password=`도 지원 |
+| `import pymupdf`(`fitz`는 이전 이름) | `import pylopdf` | |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 같은 형태, `password=`도 지원 |
 | `doc[i]`, `len(doc)`, 반복 | 동일 | 0부터 시작, 음수 인덱스 |
 | `doc.metadata` / `set_metadata` | 동일 | 같은 키 이름 |
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 동일 | `list[Rect]` 반환, `quads=` 없음 |
-| `page.get_pixmap(matrix=fitz.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
 | `pix.samples / width / height / stride` | 동일 | 항상 straight-alpha RGBA8, `tobytes()` → PNG |
 | `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | 동일 | 반복된 페이지 번호로 `select`하면 페이지 복제 |
@@ -82,21 +82,21 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | pymupdf 기능 | pylopdf의 대안 |
 |---|---|
 | Story API / `insert_htmlbox`(조판) | typst-py를 통한 typst — [사용법](ecosystem.md) |
-| OCR(`get_textpage_ocr`, Tesseract 설치 필요) | 원하는 OCR 엔진 + `insert_ocr_text_layer` |
+| OCR(`get_textpage_ocr`, 외부 Tesseract 언어 데이터와 설정 필요) | 원하는 OCR 엔진 + `insert_ocr_text_layer` |
 | 디지털 서명 | pyHanko(MIT) — [사용법](ecosystem.md) |
-| 증분 저장 | 계획 없음(qpdf/pikepdf 방식의 전체 재작성 철학), 서명은 pyHanko로 해결 |
+| 증분 저장 | 현재 미지원, 전체 파일을 다시 쓰며 관찰 목록에 유지, 서명은 pyHanko로 해결 |
 | XPS / EPUB / CBZ / 이미지 열기 | 범위 밖 — PDF만 지원 |
 
 ## 이전 예제 { #worked-example }
 
 ```python
 # pymupdf
-import fitz
-doc = fitz.open("in.pdf")
+import pymupdf
+doc = pymupdf.open("in.pdf")
 page = doc[0]
 for rect in page.search_for("total"):
     page.add_highlight_annot(rect)
-pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
 pix.save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

@@ -35,10 +35,11 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 转换或验证*已有*PDF是另一个问题。[veraPDF](https://verapdf.org/)（Java）是事实上的
 验证标准。`Document.get_pdfa_claim()`只读取文档的自我声明。
 
-## CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
+## 排版复杂CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
 
-Standard-14字体无法绘制中文、日文或韩文。可改用typst排版一页水印
-（字体会以子集嵌入），再以矢量形式写入每一页：
+pylopdf可通过`insert_text(fontfile=...)`或`pylopdf[cjk]`的字体路径直接绘制CJK。
+如水印需要更复杂的整页排版，可用typst排版（字体会以子集嵌入），再以矢量形式
+写入每一页：
 
 ```python
 from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]

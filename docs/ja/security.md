@@ -15,8 +15,8 @@ description: サポート対象、脆弱性の非公開報告、信頼できな�
 
 ## 信頼できないPDFを扱う { #untrusted-pdfs }
 
-pylopdfはRust製で実行時依存もありませんが、悪意あるPDF入力の解析には本質的な
-リスクがあります。
+pylopdfはRust製で必須Python依存もありませんが、悪意あるPDF入力の解析には
+本質的なリスクがあります。
 
 !!! warning "展開サイズの上限を明示する"
     `pylopdf.open()`へ`max_decompressed_size=`を渡してください。レンダラが遅延展開する

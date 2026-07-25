@@ -20,13 +20,13 @@ deliberately does not implement.
 
 | pymupdf | pylopdf | Notes |
 |---|---|---|
-| `import fitz` / `import pymupdf` | `import pylopdf` | |
-| `fitz.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too |
+| `import pymupdf` (`fitz` is the legacy name) | `import pylopdf` | |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | same | returns `list[Rect]`; no `quads=` |
-| `page.get_pixmap(matrix=fitz.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
 | `pix.samples / width / height / stride` | same | always straight-alpha RGBA8; `tobytes()` → PNG |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages |
@@ -84,21 +84,21 @@ deliberately does not implement.
 | pymupdf feature | pylopdf answer |
 |---|---|
 | Story API / `insert_htmlbox` (typesetting) | typst via typst-py — [recipe](ecosystem.md) |
-| OCR (`get_textpage_ocr`, needs Tesseract installed) | any OCR engine + `insert_ocr_text_layer` |
+| OCR (`get_textpage_ocr`; requires external Tesseract language data and configuration) | any OCR engine + `insert_ocr_text_layer` |
 | Digital signatures | pyHanko (MIT) — [recipe](ecosystem.md) |
-| Incremental save | not planned (qpdf/pikepdf-style rewrite philosophy); pyHanko covers the signature use case |
+| Incremental save | not currently supported; pylopdf rewrites the file and keeps this on the watchlist; pyHanko covers signatures |
 | Opening XPS / EPUB / CBZ / images | out of scope — PDF only |
 
 ## Worked example { #worked-example }
 
 ```python
 # pymupdf
-import fitz
-doc = fitz.open("in.pdf")
+import pymupdf
+doc = pymupdf.open("in.pdf")
 page = doc[0]
 for rect in page.search_for("total"):
     page.add_highlight_annot(rect)
-pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
 pix.save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

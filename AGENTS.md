@@ -3,10 +3,13 @@
 This file is the canonical development context for coding agents.
 `CLAUDE.md` only imports this file; update this file instead.
 
-pylopdf is a published Python library for PDF editing and rendering, implemented
-in Rust. Editing is powered by [lopdf](https://github.com/J-F-Liu/lopdf) and
-rendering by [hayro](https://github.com/LaurenzV/hayro). Its API is inspired by
-pymupdf. See [README.md](README.md) for the concept and API overview.
+pylopdf is a published Python library for PDF editing, rendering, extraction,
+and generation, implemented in Rust. Editing is powered by
+[lopdf](https://github.com/J-F-Liu/lopdf), rendering and extraction by
+[hayro](https://github.com/LaurenzV/hayro), and generated text and form
+appearances by [krilla](https://github.com/LaurenzV/krilla) plus HarfRust. Its
+API is inspired by pymupdf. See [README.md](README.md) for the concept and API
+overview.
 
 ## Working conventions
 
@@ -166,7 +169,7 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;
-  wheels are about 3.5–4.5 MB depending on platform.
+  published v0.10.0 wheels are about 5.0–5.8 MiB depending on platform and ABI.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.
@@ -178,7 +181,6 @@ pymupdf. See [README.md](README.md) for the concept and API overview.
   Concurrent external calls or edits on the same `Document` are not; `Page`
   shares its parent's restriction. `Document.render_pages` is the supported
   bounded same-document parallel read boundary.
-
 ## Known pitfalls
 
 - lopdf's `time` feature contains an uncompilable `From<time::Time>`
@@ -221,11 +223,12 @@ integrations, a watchlist, and explicit non-goals.
 - Current phase: v0.10.0 was released on 2026-07-25. It hardens malformed-input
   handling and adds reusable TextPage/TablePage interpretation, parallel batch
   rendering, clipped pixmaps, vertical CJK and table extraction depth,
-  arbitrary-font text insertion, and native CPython 3.14t wheels. Incremental
-  save was rejected after OSS analysis and remains on the watchlist. v0.11 now
-  deepens layout and creation, typed API contracts, and the gated `[ocr]` track.
-  v1.0 is targeted no earlier than 2026-08, after product-level refinement and
-  field feedback rather than as a deadline-driven API freeze.
+  arbitrary-font text insertion, and native CPython 3.14t wheels. The current
+  v0.11 work also completes `insert_textbox`, AcroForm appearances, and typed
+  public mapping contracts. Incremental save was rejected after OSS analysis
+  and remains on the watchlist; the gated `[ocr]` track and product refinement
+  remain. v1.0 is targeted no earlier than 2026-08, after field feedback rather
+  than as a deadline-driven API freeze.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

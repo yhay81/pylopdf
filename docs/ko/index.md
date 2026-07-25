@@ -35,8 +35,8 @@ hide:
 
       <ul class="living-proofs" aria-label="프로젝트 정보">
         <li>MIT 라이선스</li>
-        <li>약 3.5 MB wheel</li>
-        <li>런타임 의존성 없음</li>
+        <li>5–6 MB wheel</li>
+        <li>필수 Python 의존성 없음</li>
         <li>Python 3.10–3.14</li>
       </ul>
     </div>
@@ -99,18 +99,18 @@ hide:
       <p class="living-eyebrow">Useful constraints, visible evidence</p>
       <h2 id="living-evidence-title">배포에는 작게, 실제 업무에는 충분하게.</h2>
       <p>
-        편집에는 lopdf, 렌더링에는 Typst도 사용하는 순수 Rust 렌더러 hayro를 결합해
-        의도적으로 간결한 Python 패키지로 제공합니다.
+        편집에는 lopdf, 렌더링과 추출에는 hayro, 텍스트와 폼 외관 생성에는
+        krilla와 HarfRust를 사용해 간결한 Python 패키지로 제공합니다.
       </p>
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">약 3.5 MB</span>
-        <span class="living-evidence__label">현재 wheel 크기. AWS Lambda처럼 용량 제약이 있는 환경에도 적합합니다.</span>
+        <span class="living-evidence__value">5–6 MB</span>
+        <span class="living-evidence__label">배포된 v0.10 wheel 범위로, AWS Lambda처럼 용량 제약이 있는 환경에도 적합합니다.</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">0</span>
-        <span class="living-evidence__label">런타임 의존성. wheel 하나만 설치하면 PDF 처리를 시작할 수 있습니다.</span>
+        <span class="living-evidence__value">없음</span>
+        <span class="living-evidence__label">필수 Python 의존성. 컴파일된 Rust 구성 요소는 wheel에 포함됩니다.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">3.10–3.14</span>

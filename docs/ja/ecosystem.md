@@ -37,10 +37,11 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 （Java）が事実上の標準です。`Document.get_pdfa_claim()` は自己宣言の読み取りだけを
 行います。
 
-## 日本語の透かし・ヘッダ / フッタ = typst × show_pdf_page { #cjk-watermarks }
+## 組版した日本語の透かし・ヘッダ / フッタ = typst × show_pdf_page { #cjk-watermarks }
 
-標準 14 フォントでは日本語を描けません。代わりに typst で 1 ページの透かしを
-組み（フォントはサブセット埋め込みされる）、全ページへベクタのまま焼き込みます:
+pylopdfは`insert_text(fontfile=...)`または`pylopdf[cjk]`のフォントパスで日本語を
+直接描けます。より複雑な1ページ組版が必要な透かしはtypstで組み（フォントは
+サブセット埋め込みされる）、全ページへベクタのまま焼き込みます:
 
 ```python
 from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]

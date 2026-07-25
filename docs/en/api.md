@@ -21,7 +21,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock (pymupdf semantics) |
 | `metadata` / `set_metadata(dict)` | Info dictionary (UTF-16BE aware) |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown conversion (headings, CJK joining, emphasis, lists) |
+| `to_markdown(pages=None)` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; no automatic tables) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
@@ -48,7 +48,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | draw JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words)` | invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |

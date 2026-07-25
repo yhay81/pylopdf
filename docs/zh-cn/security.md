@@ -14,7 +14,7 @@ description: pylopdf支持版本、私密漏洞报告方式，以及处理不受
 
 ## 处理不受信任的PDF { #untrusted-pdfs }
 
-pylopdf由Rust编写且没有运行时依赖，但解析恶意PDF输入仍然存在固有风险。
+pylopdf由Rust编写且没有必需的Python依赖，但解析恶意PDF输入仍然存在固有风险。
 
 !!! warning "明确设置解压预算"
     请向`pylopdf.open()`传入`max_decompressed_size=`。pylopdf会在返回Document前
