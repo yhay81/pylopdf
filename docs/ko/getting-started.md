@@ -11,8 +11,9 @@ description: pylopdf를 설치하고 편집, 렌더링, 추출, 그리기의 핵
 pip install pylopdf
 ```
 
-글꼴이 임베드되지 않은 CJK PDF를 렌더링하려면 함께 제공되는 Noto CJK 글꼴을
-설치하세요. 렌더링할 때 자동으로 감지됩니다.
+선택형 font package에는 일본어 PDF 렌더링과 일본어／한자 `insert_text` 자동 subset용
+Noto Sans/Serif JP가 들어 있습니다. Hangul에는 Noto Sans KR 같은 font를 명시해야
+합니다.
 
 ```bash
 pip install pylopdf[cjk]
@@ -89,7 +90,7 @@ page.insert_image(page.search_for("승인")[0], stream=stamp_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBA 직접, 시계 방향 회전
 page.show_pdf_page(page.rect, letterhead)                    # 벡터로 겹치기; 같은 문서도 가능
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansJP-Regular.otf")
+page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansKR-Regular.otf")
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

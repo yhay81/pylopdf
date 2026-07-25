@@ -39,8 +39,9 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 
 ## 조판된 CJK 워터마크와 헤더 — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf는 `insert_text(fontfile=...)` 또는 `pylopdf[cjk]`의 글꼴 경로로 CJK를
-직접 그릴 수 있습니다. 스탬프에 더 복잡한 한 페이지 조판이 필요하면 typst로
+pylopdf는 `insert_text(fontfile=...)`와 Noto Sans KR 같은 font로 한국어를 직접
+그릴 수 있습니다. `pylopdf[cjk]` 자동 선택은 JP subset이며 Hangul을 포함하지
+않습니다. 스탬프에 더 복잡한 한 페이지 조판이 필요하면 typst로
 조판하고(글꼴은 부분 집합으로 포함됨), 각 페이지에 벡터로 합성합니다.
 
 ```python

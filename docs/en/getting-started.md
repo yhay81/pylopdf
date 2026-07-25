@@ -11,8 +11,9 @@ description: Install pylopdf and learn its core editing, rendering, extraction a
 pip install pylopdf
 ```
 
-For rendering Japanese PDFs without embedded fonts, install with the bundled
-Noto CJK fonts (auto-detected at render time):
+For rendering Japanese PDFs without embedded fonts, or auto-subsetting a JP font
+for Japanese/Han `insert_text` and `insert_textbox`, install the bundled Noto
+Sans/Serif JP package:
 
 ```bash
 pip install pylopdf[cjk]
@@ -91,7 +92,7 @@ page.insert_image(page.search_for("Approved")[0], stream=stamp_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
 page.show_pdf_page(page.rect, letterhead)                    # vector overlay; same-document src also works
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18, fontfile="NotoSansJP-Regular.otf")
+page.insert_text((40, 70), "社外秘", fontsize=18)             # auto-subset with pylopdf[cjk]
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
@@ -101,7 +102,7 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```python
 page.insert_ocr_text_layer(ocr_words)        # searchable PDFs from any OCR output
 doc.set_form_field("customer", "Alice")      # native AcroForm appearance
-doc.set_form_field("customer_ja", "山田 太郎", fontfile="NotoSansJP-Regular.otf")
+doc.set_form_field("customer_ja", "山田 太郎")  # auto-subset with pylopdf[cjk]
 md = doc.to_markdown()                       # RAG-ready Markdown
 ```
 

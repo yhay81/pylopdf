@@ -39,7 +39,7 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 
 ## 組版した日本語の透かし・ヘッダ / フッタ = typst × show_pdf_page { #cjk-watermarks }
 
-pylopdfは`insert_text(fontfile=...)`または`pylopdf[cjk]`のフォントパスで日本語を
+pylopdfは`pylopdf[cjk]`導入後、font pathなしの`insert_text()`で日本語・漢字を
 直接描けます。より複雑な1ページ組版が必要な透かしはtypstで組み（フォントは
 サブセット埋め込みされる）、全ページへベクタのまま焼き込みます:
 

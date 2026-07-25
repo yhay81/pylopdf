@@ -37,8 +37,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.rect / rotation / set_rotation` | 相同 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换 |
 | `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制 |
-| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` | 未提供字体时为Standard-14 / WinAnsi；提供后由HarfRust塑形并由krilla子集嵌入 |
-| `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` | UAX #14 CJK换行；返回负值时不绘制 |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` | 无source时为Standard-14 / WinAnsi，或由`pylopdf[cjk]`为日文／汉字自动选JP subset；中文本地字形等应显式传font |
+| `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` | 同样的可选JP font选择与UAX #14 CJK换行；返回负值时不绘制 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
 | `doc.embfile_add / names / get / del` | 相同 | |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
@@ -69,8 +69,9 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 - **`to_markdown()`**按阅读顺序插入完整边框表，并从周围正文中移除单元格文本。
   指定`table_strategy="text"`可加入保守的无边框候选；设为`None`可禁用表格转换。
 - **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用
-  Helvetica自动缩小；Unicode需传入OpenType字体，或安装`pylopdf[cjk]`以自动处理
-  CJK。comb文本字段遵循继承的`MaxLen`与对齐方式。富文本、pushbutton和签名仍
+  Helvetica自动缩小；Unicode需传入OpenType字体，或安装`pylopdf[cjk]`尝试JP
+  subset。中文本地字形与Hangul应传入匹配font。comb文本字段遵循继承的`MaxLen`与
+  对齐方式。富文本、pushbutton和签名仍
   不在API范围内。
 - **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。
   尚不解释注音、夹注及横竖混排等复杂排版。

@@ -11,8 +11,9 @@ description: 安装pylopdf，并学习编辑、渲染、提取和写入PDF的核
 pip install pylopdf
 ```
 
-如需渲染未嵌入字体的中日韩PDF，请安装附带Noto CJK字体的额外依赖。
-渲染时会自动检测字体：
+可选font package包含Noto Sans/Serif JP，用于渲染缺少嵌入字体的日文PDF，也可在
+日文／汉字`insert_text`和`insert_textbox`中自动subset。中文本地字形和Hangul需要
+显式传入匹配的font：
 
 ```bash
 pip install pylopdf[cjk]
@@ -88,7 +89,7 @@ page.insert_image(page.search_for("已批准")[0], stream=stamp_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # 直接RGBA并顺时针旋转
 page.show_pdf_page(page.rect, letterhead)                    # 以矢量叠加；也可来自同一文档
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansJP-Regular.otf")
+page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansSC-Regular.otf")
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

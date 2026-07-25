@@ -40,8 +40,8 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 同じ | JPEGパススルー、PNG透過、RGBA `Pixmap`の直接再利用、時計回りの右角回転。その他の符号化形式はPillowで変換 |
 | `page.show_pdf_page(rect, src, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要 |
-| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` | フォント指定なしは標準 14 / WinAnsi。指定時は HarfRust で字形処理し krilla でサブセット埋め込み |
-| `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` に対応 | UAX #14 の CJK 折り返し。負の戻り値なら描画しない |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` | sourceなしは標準14 / WinAnsi、または`pylopdf[cjk]`による日本語・漢字のJP subset自動選択。その他は明示fontを字形処理してsubset埋め込み |
+| `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` に対応 | 同じJP font自動選択とUAX #14のCJK折り返し。負の戻り値なら描画しない |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
@@ -77,7 +77,8 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   `None` で表変換を無効にできます。
 - **フォーム記入**は値とネイティブ外観を書き込み、pylopdfと外部ビューアの両方で
   描画されます。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeフォントを
-  指定するか`pylopdf[cjk]`を導入します。combテキスト欄は継承された`MaxLen`と
+  指定するか`pylopdf[cjk]`のJP subset自動選択を使えます。Hangulや中国語地域に合う
+  字形は対応fontを指定します。combテキスト欄は継承された`MaxLen`と
   整列を尊重します。リッチテキスト、pushbutton、署名は対象外です。
 - **CJK 縦書き**は保守的に検出し、列内を上から下、列間を右から左へ読みます。
   ルビ、割注、縦中横などの混在組版は解釈しません。

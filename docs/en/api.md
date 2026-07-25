@@ -62,8 +62,8 @@ considered. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | draw JPEG/PNG or reuse a rendered RGBA `Pixmap`; `rotate` turns it clockwise in 90-degree steps |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi or shaped subset text; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 wrapping with Core 14, explicit OpenType, or auto-selected JP metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
@@ -76,10 +76,14 @@ soft-mask structure, optional-content layer names, text, images, and annotations
 are not returned; optional-content visibility is still applied. The result is
 rejected rather than truncated above 8,192 paths or 131,072 commands.
 
-Embedded-font `insert_text` requires one font containing every glyph. It shapes
-each line but does not provide font fallback, bidirectional paragraph layout,
-or wrapping. RTL shaping renders correctly; extraction currently follows visual
-rather than logical order.
+Embedded-font `insert_text` requires one font containing every glyph. If no
+source is passed, `pylopdf[cjk]` auto-selects its JP-subset Noto Sans for
+Japanese/Han, or Noto Serif for a Times `fontname`. This is one whole-run font,
+not per-glyph fallback. Pass an explicit OpenType font for Hangul,
+locale-specific Chinese glyph forms, other scripts, or another typeface. Each
+line is shaped, but bidirectional paragraph layout and wrapping remain outside
+this primitive. RTL shaping renders correctly; extraction currently follows
+visual rather than logical order.
 
 `insert_textbox` adds wrapping without becoming a rich-text engine. It preserves
 explicit newlines, expands tabs, breaks CJK at Unicode opportunities, and uses
@@ -91,7 +95,8 @@ content or font resource is added in that case.
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
 `fontfile` or `fontbuffer` for subset-embedded Unicode. With `pylopdf[cjk]`
-installed, non-WinAnsi values automatically use its sans font. Existing
+installed, non-WinAnsi values try its JP-subset sans font; pass a matching font
+for Hangul or locale-specific Chinese typography. Existing
 non-empty checkbox/radio appearances are preserved and missing states receive
 vector marks. Missing appearances on other WinAnsi fields are completed at the
 same time; `NeedAppearances` is cleared only when every fillable widget is

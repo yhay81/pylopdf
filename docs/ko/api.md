@@ -60,8 +60,8 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | JPEG/PNG 또는 렌더링된 RGBA `Pixmap` 삽입; `rotate`는 90도 단위 시계 방향 회전 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi 또는 서브셋 내장 OpenType Unicode 텍스트 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14 또는 내장 OpenType 실제 폭으로 UAX #14 줄바꿈, 남은 높이를 반환하며 넘치면 그리지 않음 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 또는 shaping한 subset 텍스트. `pylopdf[cjk]`는 일본어／한자에 JP font 자동 선택 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14, 명시적 OpenType 또는 자동 JP font 폭으로 UAX #14 줄바꿈. 남은 높이를 반환하며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 주석 |
@@ -74,9 +74,12 @@ layer 이름, text, image, annotation은 반환하지 않지만 optional-content
 적용합니다. 결과가8,192 paths 또는131,072 commands를 넘으면 잘라내지 않고 거부합니다.
 
 내장 글꼴을 사용하는 `insert_text`에는 필요한 모든 글리프를 포함한 단일 글꼴이
-필요합니다. 각 줄의 셰이핑은 수행하지만 글꼴 폴백, 양방향 단락 레이아웃 또는 자동
-줄바꿈은 제공하지 않습니다. RTL 셰이핑은 올바르게 렌더링되지만 현재 텍스트 추출은
-논리 순서가 아닌 시각적 순서를 따릅니다.
+필요합니다. source를 생략하고 `pylopdf[cjk]`를 설치하면 일본어／한자에 JP subset
+Noto Sans를, Times `fontname`에는 Noto Serif를 자동 선택합니다. 이는 run 전체에서
+font 하나를 고르는 것이며 glyph별 fallback이 아닙니다. 이 JP subset에는 Hangul이
+없으므로 한국어에는 Noto Sans KR 같은 OpenType font를 명시해야 합니다. 다른 script나
+서체도 마찬가지입니다. 각 줄은 shaping하지만 양방향 문단 layout과 줄바꿈은 제공하지
+않습니다. RTL은 올바르게 렌더링되지만 추출은 현재 visual order입니다.
 
 `insert_textbox`는 리치 텍스트 엔진이 아니라 명시적 줄바꿈, tab 확장, CJK의 Unicode
 줄바꿈 기회, 너무 긴 단어의 grapheme 안전 긴급 줄바꿈을 처리합니다. 정렬 상수는
@@ -87,7 +90,8 @@ layer 이름, text, image, annotation은 반환하지 않지만 optional-content
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
 또는 `fontbuffer`를 지정해 서브셋 내장합니다. `pylopdf[cjk]`가 설치되어 있으면
-WinAnsi 밖의 값에 sans 글꼴을 자동 사용합니다. 비어 있지 않은 기존 버튼 appearance는
+WinAnsi 밖의 값에 JP subset sans를 시도합니다. Hangul에는 Noto Sans KR 같은 font를
+명시해야 합니다. 비어 있지 않은 기존 버튼 appearance는
 보존하고 누락된 상태만 벡터로 만듭니다. 다른 WinAnsi 필드의 누락된 appearance도
 함께 채우며, 입력 가능한 모든 widget이 자체 완결일 때만 `NeedAppearances`를
 해제합니다. comb 텍스트 필드는 상속된 `MaxLen`과 정렬을 따르고 각 Unicode

@@ -229,8 +229,13 @@ overview.
   PDF-import features remain disabled. Generation creates a transparent page
   in target display coordinates, subset-embeds the selected OpenType face, and
   returns bytes that the existing lopdf Form-XObject path imports. It releases
-  the GIL, rejects missing glyphs, and does not provide fallback or paragraph
-  layout. RTL shapes render, but extraction currently follows visual order.
+  the GIL and rejects missing glyphs. Without an explicit font source,
+  Japanese/Han text auto-selects the optional `pylopdf[cjk]` JP-subset sans
+  font, or serif for Times aliases. This selects one font for the complete run;
+  it is not per-glyph fallback. Hangul, locale-specific Chinese typography, and
+  other scripts need an explicit font. Paragraph layout remains outside
+  `insert_text`. RTL shapes render, but extraction currently follows visual
+  order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.

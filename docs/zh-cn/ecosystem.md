@@ -37,8 +37,9 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 
 ## 排版复杂CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf可通过`insert_text(fontfile=...)`或`pylopdf[cjk]`的字体路径直接绘制CJK。
-如水印需要更复杂的整页排版，可用typst排版（字体会以子集嵌入），再以矢量形式
+pylopdf可用`insert_text(fontfile=...)`直接绘制本地化中文；`pylopdf[cjk]`的自动
+选择使用JP字形，适合日文／汉字但不替代SC font。如水印需要更复杂的整页排版，可用
+typst排版（字体会以子集嵌入），再以矢量形式
 写入每一页：
 
 ```python
