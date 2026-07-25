@@ -118,7 +118,9 @@ python3.14t bench/free_threaded.py
 
 생성된 원본 보고서는
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)에
-커밋됩니다. 두 번째 command는 제한된 open/extract와 제어된 거부를 측정합니다.
+커밋됩니다. native/Pyodide resource-policy 기준값은
+[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)에
+별도로 커밋됩니다. 두 번째 command는 제한된 open/extract와 제어된 거부를 측정합니다.
 CI는 같은 case를Pyodide에서도 실행하고 Wasm linear memory 증가를 기록합니다.
 이 시간과memory 값은 추세이며 native/Wasm 성능 비교 주장이 아닙니다. 수치를
 인용할 때는 환경과 코퍼스도 함께 적어 주세요.

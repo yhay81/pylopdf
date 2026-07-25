@@ -640,8 +640,9 @@ rather than waiting automatically for v1.x.
   cheap facts before rendering or extraction. Native and Pyodide share
   file/page/decompression/depth/unverifiable-filter/text regressions, reference
   cycles, representative vector and scan inputs, and a reproducible timing
-  trend. Scheduled Atheris fuzzing generates bad xrefs, broken streams, deep
-  direct objects, cycles, excessive pages, and Flate/RunLength bombs. CPU
+  trend recorded in `bench/results/limits-latest.md`. Scheduled Atheris fuzzing
+  generates bad xrefs, broken streams, deep direct objects, cycles, excessive
+  pages, and Flate/RunLength bombs. CPU
   deadlines remain an explicit host responsibility; application-level
   parallelism must retain the library's bounded admissions.
   Size investigation and installation workflows continue in #22 and #23.

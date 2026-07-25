@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Atheris fuzzing adds generated bad-xref, cycle, deep-object, broken-stream,
   page-count, and compression-bomb seeds. A reproducible native/Wasm trend
   benchmark records bounded open/extract/rejection time plus process or Wasm
-  linear-memory high-water evidence.
+  linear-memory high-water evidence in `bench/results/limits-latest.md`.
 - A reproducible Pyodide 0.28.3 builder now produces a static,
   WebAssembly wheel. It pins Python 3.13.2,
   Emscripten 4.0.9 and its Node.js runtime, Rust 1.95.0, pyodide-build, maturin,
