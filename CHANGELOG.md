@@ -51,8 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release CI now builds, smoke-tests in Node/Pyodide, attests, and publishes a
   `pyodide_2025_0_wasm32` wheel for Pyodide 0.28.3 and Cloudflare Python
   Workers. The wheel supports bytes-first editing, extraction, forms, saving,
-  and serial rendering; custom OpenType subset generation reports an explicit
-  compatibility error while the native wheels retain the complete generator.
+  and serial rendering; custom OpenType subset generation and native offline
+  OCR report explicit compatibility errors while native wheels retain both
+  features.
 - Public mapping-shaped APIs now expose importable `TypedDict` contracts:
   nested text layout, images, annotations, links, AcroForm fields, page labels,
   metadata updates/results, and fast metadata probes. `WordEntry`,

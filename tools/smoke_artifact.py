@@ -70,6 +70,17 @@ def _run_smoke() -> None:
 
         if sys.platform == "emscripten":
             try:
+                pylopdf.OcrEngine()
+            except pylopdf.OcrError as error:
+                _require(
+                    condition="unavailable in this Pyodide build" in str(error),
+                    message=f"unexpected OCR compatibility error: {error}",
+                )
+            else:
+                message = "Pyodide unexpectedly enabled native offline OCR"
+                raise RuntimeError(message)
+
+            try:
                 reopened[0].insert_text((20, 80), "unsupported", fontbuffer=b"not-a-font")
             except pylopdf.PdfError as error:
                 _require(

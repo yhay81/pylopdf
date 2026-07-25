@@ -59,12 +59,13 @@ rendering. It uses serial parsing and rendering because Cloudflare's runtime
 does not expose pthreads; `render_pages()` automatically defaults to one worker
 and rejects `workers>1`.
 
-Subset-embedded OpenType generation is the one excluded capability. Calls that
-pass `fontfile` or `fontbuffer` to text/form generation raise `PdfError` with a
-clear compatibility message. Standard 14 font editing, opening existing PDFs,
-text/image extraction, forms without a custom embedded font, saving, and
-rendering remain available. Generate custom-font PDFs before upload when that
-capability is required.
+Subset-embedded OpenType generation and offline OCR are excluded from the lean
+Worker wheel. Calls that pass `fontfile` or `fontbuffer` to text/form generation
+raise `PdfError`; `OcrEngine()` raises `OcrError`. Both errors explain the
+runtime constraint. Standard 14 font editing, opening existing PDFs, text/image
+extraction, forms without a custom embedded font, saving, and rendering remain
+available. Generate custom-font PDFs and run OCR before upload when those
+capabilities are required. Native wheels retain both features.
 
 The virtual Emscripten filesystem is temporary; persist source and derived files
 in application storage such as R2.

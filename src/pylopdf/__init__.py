@@ -425,6 +425,12 @@ class OcrEngine:
         workload. ``max_concurrent`` bounds complete render-and-recognize calls
         sharing this engine; its memory-safe default is one.
         """
+        if _IS_EMSCRIPTEN:
+            msg = (
+                "offline OCR is unavailable in this Pyodide build; run OCR before uploading "
+                "the PDF or use a native pylopdf[ocr] installation"
+            )
+            raise OcrError(msg)
         if threads is None:
             resolved_threads = min(4, os.cpu_count() or 1)
         elif isinstance(threads, bool) or not isinstance(threads, int):

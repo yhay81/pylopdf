@@ -10,6 +10,10 @@ mod generate;
 mod generate;
 mod layout;
 mod ocr;
+#[cfg(feature = "ocr")]
+mod ocr_engine;
+#[cfg(not(feature = "ocr"))]
+#[path = "ocr_engine_unsupported.rs"]
 mod ocr_engine;
 mod pixmap;
 use document::{_Document, PasswordError, PdfError};

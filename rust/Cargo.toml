@@ -15,11 +15,12 @@ name = "pylopdf"
 crate-type = ["cdylib"]
 
 [features]
-# Native wheels expose the complete API. Pyodide builds disable only the
-# krilla-backed embedded-font generator because its current Rust requirement
-# is newer than the Rust/Emscripten pair in Pyodide 0.28.3.
-default = ["generation"]
+# Native wheels expose the complete API. Lean Pyodide builds disable the
+# krilla-backed embedded-font generator and RTen-backed OCR because their Rust
+# requirements are newer than the Rust/Emscripten pair in Pyodide 0.28.3.
+default = ["generation", "ocr"]
 generation = ["dep:harfrust", "dep:krilla", "dep:read-fonts"]
+ocr = ["dep:rten", "dep:rten-tensor"]
 
 [dependencies]
 # Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is sufficient.
@@ -51,8 +52,8 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 # Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
 # ships independently through pylopdf[ocr], keeping the ONNX parser out of the
 # core wheel.
-rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
-rten-tensor = "0.24.0"
+rten = { version = "0.24.0", default-features = false, features = ["rten_format"], optional = true }
+rten-tensor = { version = "0.24.0", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Expose the already-linked rayon runtime for supported batch rendering.
@@ -60,8 +61,10 @@ rayon = "1"
 lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# Python Workers do not expose pthreads, so lopdf must parse serially.
-lopdf = { version = "0.44.0", default-features = false, features = ["chrono"] }
+# Python Workers do not expose pthreads, so lopdf must parse serially. Keep the
+# optional chrono bridge off too: its wasm-bindgen imports are for browser JS,
+# not Emscripten side modules loaded by Pyodide.
+lopdf = { version = "0.44.0", default-features = false }
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"

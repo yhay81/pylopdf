@@ -58,11 +58,12 @@ wheelは編集、抽出、renderingについてnative buildと同じPython API�
 Cloudflare runtimeはpthreadを提供しないため、PDFのparseとrenderingは直列処理です。
 `render_pages()`は自動的にworker数を1にし、`workers>1`を明示するとerrorにします。
 
-対象外となる機能は、OpenType fontをsubset embeddingするPDF生成です。textやformの
-生成時に`fontfile`または`fontbuffer`を渡すと、互換性を説明する`PdfError`を返します。
-Standard 14 fontによる編集、既存PDFのopen、text/image抽出、custom embedded fontを
-使わないform、save、renderingは利用できます。custom fontが必要なPDFはupload前に
-生成してください。
+軽量なWorker wheelでは、OpenType fontをsubset embeddingするPDF生成とoffline OCRを
+対象外にします。textやformの生成時に`fontfile`または`fontbuffer`を渡すと`PdfError`、
+`OcrEngine()`は`OcrError`を返し、どちらもruntime制約を説明します。Standard 14 font
+による編集、既存PDFのopen、text/image抽出、custom embedded fontを使わないform、
+save、renderingは利用できます。custom fontが必要なPDFの生成とOCRはupload前に
+行ってください。native wheelは両機能を維持します。
 
 Emscriptenのvirtual filesystemは一時的です。元PDFや派生fileはR2などのapplication
 storageへ保存してください。
