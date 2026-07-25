@@ -264,7 +264,8 @@ The OCR model wheel also releases separately. Update the version in
 `models/pylopdf-ocr-models/src/pylopdf_ocr_models/__init__.py`, keep the
 artifact hashes synchronized in `SHA256SUMS` and its README, then push an
 `ocr-models-vX.Y.Z` tag. Tests and `release-ocr-models.yml` consume that
-manifest. The first
+manifest. The release workflow runs `tools/smoke_ocr_models_artifact.py`
+against isolated wheel and sdist installations before attestation. The first
 release requires registering the `pylopdf-ocr-models` Trusted Publisher on
 PyPI with workflow `release-ocr-models.yml` and environment `pypi`. Publish the
 model wheel before the main package because the main `[ocr]` extra references
