@@ -35,8 +35,8 @@ hide:
 
       <ul class="living-proofs" aria-label="プロジェクト情報">
         <li>MITライセンス</li>
-        <li>約3.5 MBのwheel</li>
-        <li>実行時依存ゼロ</li>
+        <li>5–6 MBのwheel</li>
+        <li>必須Python依存なし</li>
         <li>Python 3.10–3.14</li>
       </ul>
     </div>
@@ -99,18 +99,18 @@ hide:
       <p class="living-eyebrow">Useful constraints, visible evidence</p>
       <h2 id="living-evidence-title">配布には小さく、実務には十分に。</h2>
       <p>
-        編集はlopdf、描画はTypstにも採用された純Rustレンダラhayro。
-        意図的にコンパクトなPythonパッケージへまとめています。
+        編集はlopdf、描画・抽出はhayro、テキストやフォーム外観の生成は
+        krillaとHarfRust。ひとつのコンパクトなPythonパッケージへまとめています。
       </p>
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">約3.5 MB</span>
-        <span class="living-evidence__label">現在のwheelサイズ。AWS Lambdaなど容量制約のある環境にも適します。</span>
+        <span class="living-evidence__value">5–6 MB</span>
+        <span class="living-evidence__label">公開済みv0.10 wheelの範囲。AWS Lambdaなど容量制約のある環境にも適します。</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">0</span>
-        <span class="living-evidence__label">実行時依存。ひとつのwheelを入れればPDF処理を始められます。</span>
+        <span class="living-evidence__value">なし</span>
+        <span class="living-evidence__label">必須Python依存。コンパイル済みRustコンポーネントはwheelに同梱されます。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">3.10–3.14</span>

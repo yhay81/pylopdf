@@ -9,22 +9,33 @@
 **Documentation: <https://yhay81.github.io/pylopdf/>** (with a
 [pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/))
 
-PDF editing and rendering for Python, powered by Rust — [lopdf](https://github.com/J-F-Liu/lopdf) for editing and [hayro](https://github.com/LaurenzV/hayro) (the pure-Rust PDF renderer adopted by typst) for rendering.
+PDF editing, rendering, extraction, and generation for Python, powered by Rust —
+[lopdf](https://github.com/J-F-Liu/lopdf) for editing,
+[hayro](https://github.com/LaurenzV/hayro) (the pure-Rust PDF renderer adopted
+by Typst) for rendering and extraction, and
+[krilla](https://github.com/LaurenzV/krilla) with
+[HarfRust](https://github.com/harfbuzz/harfrust) for generated text and form
+appearances.
 
-**MIT licensed, zero runtime dependencies, lightweight wheels.** Covers the common pymupdf use cases without the AGPL.
+**MIT licensed, no mandatory Python dependencies, lightweight wheels.** Covers
+the common pymupdf use cases without the AGPL.
 
 ## Why pylopdf?
 
 | | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
 |---|---|---|---|---|---|---|
 | License | **MIT** | AGPL / commercial | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
-| Wheel size | **~3.5–4.5 MB** | ~40 MB+ | small (pure Python) | ~8 MB | ~10–11 MB | ~2–5 MB |
+| Wheel size (MiB) | **~5.0–5.8** | ~17.5–24.7 | small (pure Python) | ~2.7–5.0 | ~9.7–10.9 | ~1.9–4.6 |
 | Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited | ✅ | ✅ (structure-focused) |
 | Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
-| Text extraction | ✅ (basic) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
-| Encryption (AES-256) | ✅ read & write | ✅ | ✅ | ❌ | undocumented | ✅ (via qpdf) |
+| Text extraction | ✅ (positioned text, tables, Markdown) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
+| Encryption (AES-256) | ✅ read & write | ✅ | ✅ | read only | undocumented | ✅ (via qpdf) |
 | CJK font fallback | ✅ ([cjk] extra) | ✅ | — | manual | — | — |
-| Implementation | **pure Rust** | C | Python | C++ (PDFium) | Rust | C++ (qpdf) |
+| Implementation | **pure Rust** | C/C++ | Python | C++ (PDFium) | Rust | C++ (qpdf) |
+
+Wheel sizes are the ranges of published files for pylopdf 0.10.0, pymupdf
+1.28.0, pypdfium2 5.12.1, pdf-oxide 0.3.75, and pikepdf 10.10.0 on 2026-07-25;
+the exact artifact depends on platform and Python ABI.
 
 - Fits size-constrained environments such as AWS Lambda
 - Safe for commercial projects that need to avoid the AGPL
@@ -233,9 +244,10 @@ is required.
 
 ## Ecosystem recipes (typesetting, PDF/A, signatures)
 
-pylopdf stays a lightweight core for editing, extraction, and rendering; adjacent
-concerns are solved by pairing it with established libraries. The recipes below
-are covered by integration tests (tests/test_interop.py).
+pylopdf stays a lightweight core for editing, extraction, rendering, and bounded
+text/form generation; adjacent concerns are solved by pairing it with
+established libraries. The recipes below are covered by integration tests
+(tests/test_interop.py).
 
 **Typesetting / creating new documents = [typst](https://typst.app/)**
 (via [typst-py](https://pypi.org/project/typst/)). Typeset reports with typst and
@@ -256,9 +268,10 @@ PDF/A-1b through 4 and PDF/UA-1):
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 ```
 
-**CJK watermarks / headers / footers** combine typst with pylopdf: typeset a
-one-page stamp with typst (fonts get subset-embedded), then burn it onto every
-page as vectors with `show_pdf_page`:
+**Richly typeset CJK watermarks / headers / footers** can combine typst with
+pylopdf. For simple text, use `insert_text(fontfile=...)` directly; for a
+full-page composition, typeset one stamp page with typst (fonts get
+subset-embedded), then burn it onto every page as vectors with `show_pdf_page`:
 
 ```python
 from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk] (reuses the Noto fonts)
@@ -339,8 +352,8 @@ signed_pdf: bytes = out.getvalue()
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
-| `insert_text(point, text, fontsize=11, fontname="helv", color=(0,0,0))` | Print text with a standard-14 font (WinAnsi range; `\n` for multiple lines; upright on rotated pages) |
-| `insert_textbox(rect, text, fontsize=11, fontname="helv", align=0, lineheight=None)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
+| `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 font or a shaped, subset-embedded OpenType font; upright on rotated pages |
+| `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a shaped, subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
 | `insert_ocr_text_layer(words)` | Write OCR results as an invisible text layer (searchable PDFs; no font embedding, near-zero size) |
 | `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
@@ -371,7 +384,9 @@ Follows the division of labor in the 2026 Rust PDF ecosystem:
 pylopdf.Document (Python, pymupdf-style API)
    └─ _Document (PyO3)
         ├─ lopdf 0.44   … editing: open → modify → save
-        └─ hayro 0.7    … rendering: PNG / SVG (standard fonts embedded)
+        ├─ hayro 0.7    … rendering and positioned extraction
+        └─ krilla 0.8 + HarfRust 0.12
+                         … shaped, subset-embedded text and form appearances
 ```
 
 ```
@@ -411,4 +426,4 @@ uv sync --all-extras --group bench && uv run python bench/run.py
 
 ## License
 
-MIT (lopdf is MIT; hayro is MIT/Apache-2.0)
+MIT (lopdf and HarfRust are MIT; hayro and krilla are MIT/Apache-2.0)

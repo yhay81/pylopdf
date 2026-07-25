@@ -21,7 +21,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
 | `metadata` / `set_metadata(dict)` | Info 辞書（UTF-16BE 対応） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown 変換（見出し・CJK 連結・強調・リスト） |
+| `to_markdown(pages=None)` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。表の自動挿入はなし） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
@@ -48,7 +48,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG の描き込み |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 別 PDF ページをベクタのまま重ねる |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words)` | 不可視 OCR テキスト層（searchable PDF 化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |

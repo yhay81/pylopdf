@@ -35,8 +35,8 @@ hide:
 
       <ul class="living-proofs" aria-label="Project facts">
         <li>MIT licensed</li>
-        <li>~3.5 MB wheels</li>
-        <li>Zero runtime dependencies</li>
+        <li>5–6 MB wheels</li>
+        <li>No mandatory Python dependencies</li>
         <li>Python 3.10–3.14</li>
       </ul>
     </div>
@@ -99,18 +99,18 @@ hide:
       <p class="living-eyebrow">Useful constraints, visible evidence</p>
       <h2 id="living-evidence-title">Small enough for deployment. Complete enough for real workflows.</h2>
       <p>
-        pylopdf combines lopdf for editing with hayro—the pure-Rust renderer used
-        by Typst—for an intentionally compact Python package.
+        pylopdf combines lopdf for editing, hayro for rendering and extraction,
+        and krilla with HarfRust for generated text and form appearances.
       </p>
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">~3.5 MB</span>
-        <span class="living-evidence__label">Current wheel size, suited to size-constrained environments such as AWS Lambda.</span>
+        <span class="living-evidence__value">5–6 MB</span>
+        <span class="living-evidence__label">Published v0.10 wheel range, suited to size-constrained environments such as AWS Lambda.</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">0</span>
-        <span class="living-evidence__label">Runtime dependencies. Install one wheel and start processing PDFs.</span>
+        <span class="living-evidence__value">None</span>
+        <span class="living-evidence__label">Mandatory Python dependencies. Compiled Rust components ship in the wheel.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">3.10–3.14</span>

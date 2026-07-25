@@ -14,8 +14,8 @@ PyPI의 최신 릴리스만 보안 수정 지원을 받습니다.
 
 ## 신뢰할 수 없는 PDF 처리 { #untrusted-pdfs }
 
-pylopdf는 Rust로 작성되었고 런타임 의존성이 없지만, 악의적인 PDF 입력을 파싱하는
-작업에는 본질적인 위험이 있습니다.
+pylopdf는 Rust로 작성되었고 필수 Python 의존성이 없지만, 악의적인 PDF 입력을
+파싱하는 작업에는 본질적인 위험이 있습니다.
 
 !!! warning "압축 해제 예산을 명시하세요"
     `pylopdf.open()`에`max_decompressed_size=`를 전달하세요. 렌더러가 지연 압축 해제할

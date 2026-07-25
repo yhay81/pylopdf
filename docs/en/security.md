@@ -16,8 +16,8 @@ week.
 
 ## Handle untrusted PDFs { #untrusted-pdfs }
 
-pylopdf is written in Rust and ships no runtime dependencies, but hostile PDF
-input remains inherently risky.
+pylopdf is written in Rust and has no mandatory Python dependencies, but
+hostile PDF input remains inherently risky.
 
 !!! warning "Set an explicit decompression budget"
     Pass `max_decompressed_size=` to `pylopdf.open()`. pylopdf validates every

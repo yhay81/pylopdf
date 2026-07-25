@@ -17,13 +17,13 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
-| `import fitz` / `import pymupdf` | `import pylopdf` | |
-| `fitz.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=` |
+| `import pymupdf`（`fitz`为旧名称） | `import pylopdf` | |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=` |
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 相同 | 返回`list[Rect]`；无`quads=` |
-| `page.get_pixmap(matrix=fitz.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
 | `pix.samples / width / height / stride` | 相同 | 始终为straight-alpha RGBA8；`tobytes()` → PNG |
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
 | `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
@@ -74,21 +74,21 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | pymupdf功能 | pylopdf方案 |
 |---|---|
 | Story API / `insert_htmlbox`（排版） | 通过typst-py使用typst — [方案](ecosystem.md) |
-| OCR（`get_textpage_ocr`，需安装Tesseract） | 任意OCR引擎 + `insert_ocr_text_layer` |
+| OCR（`get_textpage_ocr`，需要外部Tesseract语言数据与配置） | 任意OCR引擎 + `insert_ocr_text_layer` |
 | 数字签名 | pyHanko（MIT）— [方案](ecosystem.md) |
-| 增量保存 | 不计划支持（采用qpdf/pikepdf式重写思路）；签名场景由pyHanko处理 |
+| 增量保存 | 当前不支持；pylopdf会重写整个文件，并将其保留在观察列表中；签名由pyHanko处理 |
 | 打开XPS / EPUB / CBZ / 图像 | 超出范围，只处理PDF |
 
 ## 迁移示例 { #worked-example }
 
 ```python
 # pymupdf
-import fitz
-doc = fitz.open("in.pdf")
+import pymupdf
+doc = pymupdf.open("in.pdf")
 page = doc[0]
 for rect in page.search_for("合计"):
     page.add_highlight_annot(rect)
-pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
 pix.save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

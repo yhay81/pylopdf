@@ -1,10 +1,11 @@
 # pylopdf roadmap
 
-This is the canonical medium-term plan. It is based on a 2026-07-22 survey of
+This is the canonical medium-term plan. It began with a 2026-07-22 survey of
 the market and upstream projects (all APIs in lopdf 0.44, all hayro 0.7 crates,
 and the Python PDF ecosystem), followed by a 2026-07-23 deeper review of areas
 outside the intended core: krilla, typst, pure-Rust OCR, digital signatures, and
-HTML-to-PDF. Confirmed findings are recorded at the end.
+HTML-to-PDF. Current competitive claims were reviewed again on 2026-07-25.
+Survey sections at the end are dated snapshots, not rolling current claims.
 
 See [AGENTS.md](AGENTS.md) for day-to-day development context and
 [CHANGELOG.md](CHANGELOG.md) for completed changes.
@@ -15,24 +16,33 @@ Build **a verifiably accurate, permissively licensed library that combines
 rendering, positioned text extraction, and editing in one package**.
 
 - As of 2026-07, no mature permissive library combines all three. pymupdf is
-  AGPL; pypdfium2 has limited editing and explicitly documents a bus factor of
-  one; pikepdf deliberately excludes extraction and rendering; pypdf has slow
-  extraction and no renderer.
-- pymupdf's structural weaknesses are difficult to erase: AGPL licensing,
-  officially unsupported threading, no free-threaded wheel, and wheels above
-  20 MB. pymupdf-layout, introduced in 2026-06 to power pymupdf4llm's layout
-  analysis, uses PolyForm Noncommercial plus commercial licensing. MIT's
-  commercial advantage is therefore increasing.
-- Rust competitor pdf_oxide, started in 2025-11, releases weekly and records
-  about 145,000 monthly downloads, but has no renderer and publishes
-  self-reported benchmarks without third-party verification as of 2026-07-23.
+  AGPL; [pypdfium2](https://pypdfium2-team.github.io/pypdfium2/readme.html)
+  documents a volunteer support model, limited editing, and no raw PDF
+  dictionary/stream/name-tree access; pikepdf deliberately excludes extraction
+  and rendering; pypdf has no renderer and is slower on the published pylopdf
+  extraction corpus.
+- pymupdf's structural weaknesses are difficult to erase: AGPL licensing and
+  [officially unsupported multithreaded use](https://pymupdf.readthedocs.io/en/latest/faq/index.html),
+  including on free-threaded Python. Version 1.28.0 does publish an experimental
+  Linux x86-64 cp314t wheel, so differentiate through pylopdf's explicit
+  concurrency contract and five-target cp314t release matrix rather than merely
+  claiming free-threaded availability. Published
+  [pymupdf 1.28.0](https://pypi.org/project/pymupdf/1.28.0/) wheels are about
+  17.5–24.7 MiB versus 5.0–5.8 MiB for pylopdf 0.10.0. pymupdf-layout was first
+  published in 2025-11; its current
+  [1.28.0 package](https://pypi.org/project/pymupdf-layout/1.28.0/) has a roughly
+  39.6 MiB wheel and uses PolyForm Noncommercial plus commercial licensing.
+  MIT's commercial advantage therefore remains material.
+- Rust competitor pdf_oxide, started in 2025-11, releases frequently and records
+  about 142,000 monthly downloads, but has no renderer and publishes
+  self-reported benchmarks without third-party verification as of 2026-07-25.
   Differentiate through a real-world corpus, reproducible evidence, and upstream
   contributions.
 - **oxidize-pdf** (`bzsanti/oxidizePdf`, MIT, crates.io `oxidize-pdf`) is a
   separate direct competitor. It combines parsing, generation, extraction,
   encryption, splitting, merging, and rotation in pure Rust while promoting
-  structure-aware chunking for AI/RAG. It had 91 releases and an update in the
-  same month as of 2026-07-22. Do not confuse it with pdf_oxide.
+  structure-aware chunking for AI/RAG and is released frequently. Do not
+  confuse it with pdf_oxide.
 - The largest demand is positioned text extraction followed by Markdown
   conversion for RAG/LLM workloads. pymupdf4llm records about 24 million monthly
   downloads and docling about 20 million.
@@ -45,39 +55,37 @@ rendering, positioned text extraction, and editing in one package**.
 - Be pymupdf-*style*, not pymupdf-compatible. Match migration-critical data
   shapes such as word tuple ordering, dict layout, and
   `search_for → list[Rect]`.
-- Preserve **one-way data flow**. lopdf's `Document` is the sole source of truth;
-  hayro is a pure view over serialized bytes for rendering and extraction. A
-  cached `hayro_pdf` is invalidated on edits. Because hayro sees normalized
-  lopdf output, damaged PDFs cannot be interpreted differently by editing and
-  rendering, and rendered output always matches saved output. New engines must
-  preserve this shape. krilla, for example, should return bytes that are then
-  imported into lopdf; engines must not share mutable state.
-- Use lopdf and hayro fully: lopdf encryption, `SaveOptions`, image insertion
-  and extraction, TOC, text replacement, and incremental save primitives;
-  hayro `Device`, `RenderSettings`, `warning_sink`, and hayro-write page-to-XObject
-  support.
+- Preserve **one-way data flow**. lopdf's `Document` is the sole editable source
+  of truth; hayro is an immutable view for rendering and extraction. An
+  unedited, unencrypted document may use its original input bytes when hayro
+  accepts them and reports the same page count. Every edit invalidates that
+  fast path and rebuilds hayro from lopdf serialization, so rendered output
+  reflects edited and saved state. New engines must preserve this shape.
+  krilla returns bytes that are imported into lopdf; engines never share mutable
+  state.
+- Use the supported lopdf and hayro surfaces deeply: lopdf encryption,
+  `SaveOptions`, object-graph import, images, TOC, text replacement, and
+  dictionary operations; hayro `Device`, `RenderSettings`, `warning_sink`, and
+  immutable render/extraction snapshots. Evaluate incomplete or unstable
+  surfaces such as incremental save and offset viewports before exposing them.
 - Implement areas absent from lopdf through pylopdf's own dictionary operations:
   AcroForm, annotation creation, attachments, and page labels.
 - Keep the core wheel small by choosing between native implementation and
   ecosystem integration. Use typst/typst-py for typesetting and new-document
   PDF/A, pyHanko for signatures, and veraPDF for PDF/A validation. Protect
   integration recipes with tests.
-- Introduce krilla, the MIT/Apache-2.0 generation crate by hayro's author, under
-  a three-engine split: editing = lopdf, rendering = hayro, generation = krilla.
-  A 2026-07-23 audit confirmed that krilla core does not depend on hayro; only
-  the `pdf` feature pulls hayro-write, which is unnecessary for lopdf object
-  import. The production configuration is `default-features = false`, without
-  redundant raster image support; HarfRust 0.12 supplies shaping separately so
-  krilla's unmaintained rustybuzz/ttf-parser path stays out of the graph.
-  skrifa, flate2, and png are already shared through hayro. This unlocks, in
-  order: arbitrary embedded
-  fonts including CJK in `insert_text`; AcroForm appearance generation;
-  in-house new-document PDF/A; and eventually tagged PDF/UA.
+- Maintain the three-engine split: editing = lopdf, rendering/extraction =
+  hayro, generation = krilla with HarfRust shaping. The production krilla
+  configuration is `default-features = false`, without redundant raster or PDF
+  import support; generated pages cross the existing lopdf Form-XObject
+  boundary. Arbitrary embedded fonts, textbox layout, and AcroForm appearances
+  now use this path. New-document PDF/A and eventually tagged PDF/UA remain
+  gated future work rather than reasons to broaden the core prematurely.
 
 ## Release plan
 
-Each release has one theme. Ordering follows dependencies: Page object, then
-extraction, then drawing.
+Each release has one theme. Ordering follows architectural dependencies;
+completed releases remain below as historical evidence.
 
 ### Near term: 0.5.x foundations
 
@@ -157,8 +165,9 @@ Released as v0.8.0 on 2026-07-23.
 - [x] Solve CJK watermarks and headers through typst integration: typeset a
       one-page PDF, then apply it with `show_pdf_page`. typst subset-embeds fonts
       and can reuse `pylopdf-fonts-cjk` through `font_paths`. Integration tests
-      cover the recipe. krilla remains the future option for self-contained CJK
-      `insert_text`.
+      cover the recipe. At v0.8, krilla remained the future option for
+      self-contained CJK `insert_text`; that path shipped in the later v0.11
+      work.
 - [x] Publish lopdf's simple-encoding partial text replacement as
       `Page.replace_text`, explicitly excluding CJK.
 - [x] Add `Page.insert_text` for headers, footers, page numbers, and Bates
@@ -177,8 +186,9 @@ Released as v0.9.0 on 2026-07-23.
 - [x] Implement first-stage AcroForm reading and filling through
       `get_form_fields` and `set_form_field`: inherited `FT`/`Ff`/`V`, fully
       qualified dotted names, checkbox bool-to-on-state resolution, `/AS`
-      synchronization, and `NeedAppearances`. Native appearance generation
-      remains stage two, so pylopdf's renderer does not yet display filled values.
+      synchronization, and `NeedAppearances`. At v0.9, native appearance
+      generation remained stage two and pylopdf's renderer did not display
+      filled values; the current v0.11 work completes that stage.
 - [x] Add EmbeddedFiles through `embfile_add`, `names`, `get`, and `del`, with
       recursive Kids reading, flat rewriting, preservation of other `/Names`
       trees, Unicode names in `UF`, and survival across
@@ -189,8 +199,10 @@ Released as v0.9.0 on 2026-07-23.
 - [x] Add initial `Document.to_markdown` and `Page.to_markdown`. The most common
       size is body text; larger sizes become heading levels. CJK wrapped lines
       join without spaces, lists normalize, and OCR layers participate.
-      Documented limitations: tables, multicolumn order, vertical writing, and
-      some emphasis metadata. Smoke-tested on six real-world files.
+      At that release, documented limitations included tables, multicolumn
+      order, vertical writing, and some emphasis metadata. Later extraction work
+      added table results, multicolumn and conservative vertical-CJK order, and
+      emphasis; automatic table insertion into Markdown remains open.
 - Deferred: incremental save. A 2026-07-23 OSS review found that qpdf and pikepdf
   succeed with normalization-and-rewrite designs, while pypdf's implementation
   accumulated bugs immediately after its 5.0 debut in 2024-09 (for example
@@ -236,15 +248,17 @@ pre-1.0 APIs.
   the sdist and exercise import, open, extraction, rendering, and save before
   publication. Cross-compiled Linux aarch64 and macOS x86_64 wheels remain
   build-only because their release runners cannot execute the target binary.
-- Migrate to hayro 0.8 when released before building extensive new layout logic
-  on the old `Device` interface.
+- Migrate to hayro 0.8 when released. The extensive v0.10/v0.11 layout work is
+  already isolated behind bounded, owned `TextPage` and `TablePage` caches, so
+  the expected `Device`/`DrawProps` migration should not change the Python API.
 
 ### v0.11 — layout, creation, and concurrency depth
 
-v0.11 continues capability expansion before v1.0. Several originally planned
-items shipped early in v0.10; remaining work has no arbitrary feature-count
-deadline and continues until it is accurate, measurable, and coherent rather
-than stopping at a nominal parity checklist.
+v0.11 continues capability expansion before v1.0. Layout, creation, form
+appearances, typed mapping contracts, and concurrency depth are substantially
+implemented; the optional OCR gate and product-level validation remain. Work
+has no arbitrary feature-count deadline and stops only at an accurate,
+measurable, coherent boundary.
 
 - [x] Build deterministic multicolumn reading order on `TextPage`: sustained
   whitespace gutters split line segments into recursive left-to-right columns,
@@ -293,8 +307,8 @@ than stopping at a nominal parity checklist.
       tab expansion, custom leading, rotation, overlay order, overflow
       non-mutation, missing glyphs, and save round-trips are covered.
       The Windows abi3 wheel is 5.58 MB, up 0.16 MB for canonical Core 14
-      metrics plus Unicode line/grapheme tables. Continue with native AcroForm
-      appearance generation.
+      metrics plus Unicode line/grapheme tables. The completed AcroForm work
+      below reuses this generation boundary.
 - [x] Complete second-stage AcroForm appearance generation for text, choice,
       checkbox, and radio widgets. Standard text auto-fits with canonical
       Helvetica metrics; explicit OpenType sources and optional
@@ -331,9 +345,11 @@ than stopping at a nominal parity checklist.
 #### Optional OCR track for v0.11 — `pylopdf[ocr]`
 
 Decision depends on measured accuracy. “pip-only, no shared libraries,
-permissively licensed Japanese OCR” remains a gap: pymupdf requires an external
-Tesseract install, pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime.
-This aligns with the CJK moat and merits staged exploration.
+permissively licensed Japanese OCR” remains a gap: pymupdf integrates the
+Tesseract engine but still requires
+[external language data (`tessdata`) and configuration](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support),
+pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime. This aligns with
+the CJK moat and merits staged exploration.
 
 - Runtime: statically link rten, a pure-Rust ONNX runtime under MIT/Apache-2.0.
   Estimated main-wheel increase: 1.5–2.5 MB.
@@ -391,7 +407,7 @@ known-limit behavior are polished together.
       the only exceptions (2026-07-24).
 - [x] Add `SECURITY.md` with a private-reporting path, untrusted-PDF guidance,
       and `max_decompressed_size`, plus cargo-audit in CI. pip-audit is omitted
-      because the package has no runtime Python dependencies.
+      because the core package has no mandatory Python dependencies.
 
 ### Continuing engineering inventory — v0.10 through v1.x
 
@@ -493,9 +509,14 @@ rather than waiting automatically for v1.x.
     consistent normal-stream `compression_level` in lopdf, and implementing or
     removing lopdf's dead `linearize` flag.
 - [x] Add a Python 3.10 CI job to validate the abi3 floor (2026-07-23).
-- Experiment with a Pyodide/emscripten wheel; pymupdf's wasm wheel cannot be
-  installed through micropip.
-- Research table extraction as a major post-v1.0 theme.
+- Experiment with a Pyodide/emscripten wheel. pymupdf now publishes an
+  experimental wasm artifact, but its shared-library packaging still requires
+  [`pyodide_js.loadPackage()`](https://pymupdf.readthedocs.io/en/latest/pyodide.html)
+  rather than an ordinary `micropip.install()`; target a static,
+  micropip-compatible pylopdf package.
+- Expand independent table corpora and quality evaluation, then integrate
+  detected tables into `Document.to_markdown()`. Core bordered, merged-cell, and
+  opt-in borderless detection is already implemented.
 
 ## Watchlist
 
@@ -505,10 +526,10 @@ rather than waiting automatically for v1.x.
   the performance improvements. Keep this separate from krilla integration.
 - **fulgur**, Blitz plus krilla for HTML-to-PDF under MIT/Apache-2.0, already
   supports `@page`, page breaks, running headers/footers, and tagged PDF/UA-1,
-  but is four months old, single-maintainer, at 24.1% css-page WPT, and changing
-  APIs rapidly. Reassess around 2027-01 for survival, API stability, and a stable
-  Blitz 0.3. pyfulgur currently stops at cp312 and is not abi3, leaving an
-  opportunity.
+  but first appeared in 2026-03, is single-maintainer, is at 24.1% css-page WPT,
+  and is changing APIs rapidly. Reassess around 2027-01 for survival, API
+  stability, and a stable Blitz 0.3. pyfulgur currently stops at cp312 and is
+  not abi3, leaving an opportunity.
 - **underskrift**, BSD-2-Clause PAdES signing over lopdf by kushaldas, appeared
   in 2026-03 and claims B-B through LTA. Reconsider as an optional signature
   backend after maturity and lopdf-version alignment.
@@ -532,7 +553,7 @@ rather than waiting automatically for v1.x.
 ## Explicit non-goals
 
 These boundaries preserve focus. The 2026-07-23 deeper review updated the
-evidence; built-in OCR moved out of this list into a conditional v0.10 candidate.
+evidence; built-in OCR moved out of this list into the gated v0.11 track.
 
 - **Drop-in pymupdf compatibility**: remain pymupdf-style.
 - **Converting or validating arbitrary PDFs as PDF/A**: krilla's validated
@@ -552,9 +573,10 @@ evidence; built-in OCR moved out of this list into a conditional v0.10 candidate
   and security goals.
 - **Native HTML-to-PDF**: recreating pagination would duplicate the work behind
   fulgur's roughly 2,800 commits. Keep fulgur on the watchlist.
-- **Bundling typst or another typesetter**: typst-py adds 25–33 MB and breaks the
-  lightweight goal. Integrate externally. The maximum future native typesetting
-  scope is text flow into a rectangle, similar to pymupdf `insert_htmlbox`.
+- **Bundling typst or another typesetter**: current typst wheels add about
+  25–35 MB and break the lightweight goal. Integrate externally. The maximum
+  future native typesetting scope is text flow into a rectangle, similar to
+  pymupdf `insert_htmlbox`.
 
 ## Survey notes: confirmed 2026-07-22
 
@@ -627,8 +649,10 @@ HTML-to-PDF:
 - **XFA and JavaScript**: XFA is deprecated in PDF 2.0 and has no Rust
   implementation. pdf.js enables QuickJS form calculation in a sandbox by
   default; an extraction/editing library does not need general JavaScript.
-- **pymupdf 1.28** remains AGPL and introduced pymupdf-layout, a GNN layout
-  analyzer behind pymupdf4llm, under PolyForm Noncommercial plus commercial
-  licensing.
+- **pymupdf 1.28** remains AGPL. **pymupdf-layout** was first published in
+  2025-11; version 1.28.0 provides a GNN layout analyzer used by pymupdf4llm
+  when separately installed and enabled. It uses PolyForm Noncommercial plus
+  commercial licensing, ships a roughly 39.6 MiB wheel, and depends on NumPy,
+  ONNX Runtime, NetworkX, PyYAML, and the matching pymupdf release.
 - **pdf_oxide** records weekly releases, about 145,000 monthly downloads, and
   899 stars, but no renderer and no third-party benchmark verification.

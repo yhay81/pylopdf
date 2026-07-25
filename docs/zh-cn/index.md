@@ -34,8 +34,8 @@ hide:
 
       <ul class="living-proofs" aria-label="项目信息">
         <li>MIT许可</li>
-        <li>约3.5 MB wheel</li>
-        <li>零运行时依赖</li>
+        <li>5–6 MB wheel</li>
+        <li>无必需Python依赖</li>
         <li>Python 3.10–3.14</li>
       </ul>
     </div>
@@ -98,18 +98,18 @@ hide:
       <p class="living-eyebrow">Useful constraints, visible evidence</p>
       <h2 id="living-evidence-title">足够轻，便于部署；足够完整，胜任真实工作流。</h2>
       <p>
-        pylopdf使用lopdf进行编辑，使用Typst采用的纯Rust渲染器hayro进行渲染，
-        并将它们组合成一个刻意保持紧凑的Python包。
+        pylopdf使用lopdf进行编辑、hayro进行渲染与提取，并通过krilla和
+        HarfRust生成文本与表单外观，将这些能力组合成一个紧凑的Python包。
       </p>
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">约3.5 MB</span>
-        <span class="living-evidence__label">当前wheel大小，适合AWS Lambda等容量受限的环境。</span>
+        <span class="living-evidence__value">5–6 MB</span>
+        <span class="living-evidence__label">已发布v0.10 wheel的大小范围，适合AWS Lambda等容量受限的环境。</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">0</span>
-        <span class="living-evidence__label">运行时依赖。安装一个wheel即可开始处理PDF。</span>
+        <span class="living-evidence__value">无</span>
+        <span class="living-evidence__label">必需Python依赖。编译后的Rust组件已包含在wheel中。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">3.10–3.14</span>

@@ -38,10 +38,12 @@ Converting or validating *existing* PDFs is a different problem —
 [veraPDF](https://verapdf.org/) (Java) is the de-facto validator.
 `Document.get_pdfa_claim()` reads the self-declaration only.
 
-## CJK watermarks & headers — typst × show_pdf_page { #cjk-watermarks }
+## Typeset CJK watermarks & headers — typst × show_pdf_page { #cjk-watermarks }
 
-Standard-14 fonts cannot draw Japanese. Instead, typeset a one-page stamp with
-typst (fonts get subset-embedded) and burn it onto every page as vectors:
+pylopdf can draw CJK directly with `insert_text(fontfile=...)` or the
+`pylopdf[cjk]` font paths. When a stamp needs richer, full-page typesetting,
+typeset it with typst (fonts get subset-embedded) and burn it onto every page as
+vectors:
 
 ```python
 from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]

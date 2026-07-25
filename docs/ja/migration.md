@@ -20,13 +20,13 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
-| `import fitz` / `import pymupdf` | `import pylopdf` | |
-| `fitz.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=` も同じ |
+| `import pymupdf`（`fitz` は旧名） | `import pylopdf` | |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=` も同じ |
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 同じ | `list[Rect]`。`quads=` は無い |
-| `page.get_pixmap(matrix=fitz.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | `dpi=144` でも。Matrix クラスは無い |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | `dpi=144` でも。Matrix クラスは無い |
 | `pix.samples / width / height / stride` | 同じ | 常にストレートアルファ RGBA8。`tobytes()` → PNG |
 | `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |
 | `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
@@ -81,21 +81,21 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | pymupdf の機能 | pylopdf での答え |
 |---|---|
 | Story API / `insert_htmlbox`（組版） | typst（typst-py 経由）— [レシピ](ecosystem.md) |
-| OCR（`get_textpage_ocr`。Tesseract の外部インストール必須） | 任意の OCR エンジン + `insert_ocr_text_layer` |
+| OCR（`get_textpage_ocr`。外部のTesseract言語データと設定が必要） | 任意の OCR エンジン + `insert_ocr_text_layer` |
 | 電子署名 | pyHanko（MIT）— [レシピ](ecosystem.md) |
-| インクリメンタル保存 | 非対応の方針（qpdf/pikepdf と同じ書き直し思想）。署名用途は pyHanko が担う |
+| インクリメンタル保存 | 現在は非対応。全体を書き直し、将来候補として監視中。署名用途はpyHankoが担う |
 | XPS / EPUB / CBZ / 画像を開く | 対象外 — PDF 専用 |
 
 ## 移植例 { #worked-example }
 
 ```python
 # pymupdf
-import fitz
-doc = fitz.open("in.pdf")
+import pymupdf
+doc = pymupdf.open("in.pdf")
 page = doc[0]
 for rect in page.search_for("合計"):
     page.add_highlight_annot(rect)
-pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
 pix.save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

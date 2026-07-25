@@ -15,9 +15,9 @@ initial response within a week.
 
 ## Handling untrusted PDFs
 
-pylopdf is written in Rust (lopdf + hayro) and ships no runtime dependencies,
-but parsing hostile PDF input is inherently risky. When processing untrusted
-files:
+pylopdf is written in Rust (lopdf, hayro, krilla, and HarfRust) and has no
+mandatory Python dependencies, but parsing hostile PDF input is inherently
+risky. When processing untrusted files:
 
 - Pass `max_decompressed_size=` to `pylopdf.open()` to validate every readable
   stream before returning the document, including page content that the renderer

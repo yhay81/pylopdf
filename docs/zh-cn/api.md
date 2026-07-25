@@ -21,7 +21,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 加密状态与解锁（兼容pymupdf语义） |
 | `metadata` / `set_metadata(dict)` | Info字典（支持UTF-16BE） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown转换（标题、CJK连接、强调、列表） |
+| `to_markdown(pages=None)` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；不自动插入表格） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、保序并行PNG批次或SVG |
 | `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
@@ -48,7 +48,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | 绘制JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加其他PDF页面 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
 | `insert_ocr_text_layer(words)` | OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
