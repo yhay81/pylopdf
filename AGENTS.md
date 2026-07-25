@@ -277,7 +277,15 @@ overview.
   4.114.0. Emscripten excludes lopdf's `chrono` and `rayon` features: browser
   clocks pull in js-sys imports, and the global rayon pool cannot create
   workers there. `render_pages` keeps its public contract but runs serially;
-  native targets retain bounded rayon execution.
+  native targets retain bounded rayon execution. Emscripten also omits RTen
+  inference while exposing an API-compatible `_OcrEngine` stub that raises
+  `OcrError` and directs callers to external OCR plus
+  `Page.insert_ocr_text_layer()`. Keep artifact sections, staged Pyodide
+  startup/workload timing, linear-memory checkpoints, and Wrangler bundle
+  measurements in CI. The 2026-07-26 baseline is a 3.834 MiB wheel and
+  3.882 MiB compressed Cloudflare bundle; it fits the paid plan, not the Free
+  compressed-size limit. Preserve one complete Wasm distribution unless a
+  coherent deployment need justifies a variant.
 - `tools/pyodide_compat.py` is the shared native/Pyodide functional contract.
   Keep its logical result independent of Python implementation details and
   platform-sensitive raster bytes. It must combine explicit content/structure

@@ -87,6 +87,21 @@ pip install "pylopdf[ocr]"
 See the [offline OCR guide](https://yhay81.github.io/pylopdf/ocr/) for memory
 controls, searchable-layer behavior, and current layout boundaries.
 
+### WebAssembly and Cloudflare Workers
+
+pylopdf 0.11 adds a static PyEmscripten wheel for the pinned Python 3.13 /
+Pyodide 0.28.3 ABI. Cloudflare Python Workers are the supported public
+installation path: every release resolves the wheel from PyPI and dry-runs the
+repository's
+[bounded PDF extraction Worker](examples/cloudflare-worker/README.md).
+
+Pyodide 0.28.3 itself is runtime-tested, but its older `micropip` cannot install
+PyPI's PEP 783 wheel tag directly. Native OCR inference is intentionally absent
+from Wasm; external OCR results can still be inserted with
+`Page.insert_ocr_text_layer()`. See the
+[WebAssembly guide](https://yhay81.github.io/pylopdf/wasm/) for the exact
+version matrix, local Pyodide workflow, resource policy, and release gates.
+
 Building from source (requires a Rust toolchain):
 
 ```bash

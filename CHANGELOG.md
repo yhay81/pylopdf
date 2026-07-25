@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Emscripten's intentional serial `render_pages` behavior, virtual-filesystem
   boundaries, and the unsupported direct-PyPI path in Pyodide 0.28.3's older
   `micropip`.
+- PyEmscripten builds now omit the unsupported RTen OCR inference runtime while
+  retaining an explicit `OcrEngine` stub that raises `OcrError` and directs
+  callers to external OCR plus `insert_ocr_text_layer`. The pinned wheel fell
+  from 4.522 to 3.834 MiB (-15.21%), its Wasm code section fell 21.92%, and the
+  tested Cloudflare bundle fell from 4.570 to 3.882 MiB compressed. CI now
+  records wheel/Wasm sections, staged startup and workload time, linear-memory
+  checkpoints, and Wrangler bundle sizes as a retained JSON artifact. The
+  exact repository Worker example, four localized deployment guides, and
+  `bench/results/wasm-latest.md` document the paid-plan Cloudflare boundary.
+  The complete core fits that boundary, so a fragmented lightweight
+  distribution was rejected for now.
 - `Document.compress_images(dpi=150, quality=75)` now downsamples and
   recompresses safe JPEG XObjects for smaller attachment-oriented PDFs. hayro
   measures every placement and preserves the pixels required by the largest
