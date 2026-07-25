@@ -39,8 +39,8 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 |---|---|
 | `number` / `parent` / `get_label()` | 标识与显示标签 |
 | `get_text(option)` / `search_for(needle)` | 提取与不区分大小写的搜索 |
-| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`clip`使用显示坐标 |
-| `apply_ocr(..., clip=, skip_existing=True)` | 插入不可见可搜索层；默认跳过所选区域的已有文本 |
+| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
+| `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown()` | 单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
@@ -51,7 +51,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加其他PDF页面 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
-| `insert_ocr_text_layer(words)` | OCR不可见文本层（可搜索PDF） |
+| `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
 
@@ -88,7 +88,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
-| `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的tuple和literal类型别名 |
+| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()`；cp314t还支持只读、零复制的`memoryview()` |

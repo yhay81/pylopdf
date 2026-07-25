@@ -383,6 +383,53 @@ fn has_vertical_baseline(glyph: &GlyphRecord) -> bool {
     glyph.direction.1.abs() > glyph.direction.0.abs()
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AxisOrientation {
+    Right,
+    Down,
+    Left,
+    Up,
+}
+
+impl AxisOrientation {
+    fn from_direction((x, y): (f64, f64)) -> Option<Self> {
+        const NEAR_AXIS: f64 = 0.999;
+        if x >= NEAR_AXIS {
+            Some(Self::Right)
+        } else if y >= NEAR_AXIS {
+            Some(Self::Down)
+        } else if x <= -NEAR_AXIS {
+            Some(Self::Left)
+        } else if y <= -NEAR_AXIS {
+            Some(Self::Up)
+        } else {
+            None
+        }
+    }
+
+    /// Map display coordinates into logical inline/block coordinates.
+    fn logical_point(self, x: f64, y: f64) -> (f64, f64) {
+        match self {
+            Self::Right => (x, y),
+            Self::Down => (y, -x),
+            Self::Left => (-x, -y),
+            Self::Up => (-y, x),
+        }
+    }
+}
+
+fn uniform_axis_orientation(lines: &[Vec<GlyphRecord>]) -> Option<AxisOrientation> {
+    let first = AxisOrientation::from_direction(lines.first()?.first()?.direction)?;
+    lines
+        .iter()
+        .all(|line| {
+            line.first()
+                .and_then(|glyph| AxisOrientation::from_direction(glyph.direction))
+                == Some(first)
+        })
+        .then_some(first)
+}
+
 /// Return whether all visible characters are CJK or full-width punctuation.
 fn is_cjk_text(text: &str) -> bool {
     let mut saw_character = false;
@@ -572,7 +619,7 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
         }
     }
     for line in &mut lines {
-        line.sort_by(|a, b| a.x.total_cmp(&b.x));
+        line.sort_by(|left, right| glyph_progress(left).total_cmp(&glyph_progress(right)));
     }
     vertical_lines.extend(cluster_explicit_vertical(explicit_vertical));
     lines.extend(vertical_lines);
@@ -586,10 +633,10 @@ fn split_line_segments(line: &[GlyphRecord]) -> Vec<Vec<GlyphRecord>> {
     let mut previous_size = 0.0_f64;
     for glyph in line {
         let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
-        if previous_end.is_some_and(|end| glyph.x - end > threshold) {
+        if previous_end.is_some_and(|end| glyph_progress(glyph) - end > threshold) {
             segments.push(Vec::new());
         }
-        previous_end = Some(glyph.x + glyph.advance);
+        previous_end = Some(glyph_end(glyph));
         previous_size = glyph.size;
         if segments.is_empty() {
             segments.push(Vec::new());
@@ -609,10 +656,10 @@ fn line_segment_count(line: &[GlyphRecord]) -> usize {
     let mut previous_size = 0.0_f64;
     for glyph in line {
         let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
-        if previous_end.is_some_and(|end| glyph.x - end > threshold) {
+        if previous_end.is_some_and(|end| glyph_progress(glyph) - end > threshold) {
             count += 1;
         }
-        previous_end = Some(glyph.x + glyph.advance);
+        previous_end = Some(glyph_end(glyph));
         previous_size = glyph.size;
     }
     count
@@ -620,12 +667,31 @@ fn line_segment_count(line: &[GlyphRecord]) -> usize {
 
 /// Split baseline bands only when a sustained page-level column gutter exists.
 fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
+    if let Some(orientation) = uniform_axis_orientation(&clustered) {
+        return order_axis_page_lines(clustered, orientation);
+    }
     if clustered
         .iter()
         .any(|line| line.first().is_some_and(has_vertical_baseline))
     {
         return order_vertical_page_lines(clustered);
     }
+    order_axis_page_lines(clustered, AxisOrientation::Right)
+}
+
+/// Order a uniformly axis-aligned page in its logical inline/block space.
+fn order_axis_page_lines(
+    mut clustered: Vec<Vec<GlyphRecord>>,
+    orientation: AxisOrientation,
+) -> Vec<Vec<GlyphRecord>> {
+    clustered.sort_by(|left, right| {
+        let left_bbox = logical_line_bbox(left, orientation);
+        let right_bbox = logical_line_bbox(right, orientation);
+        left_bbox
+            .1
+            .total_cmp(&right_bbox.1)
+            .then(left_bbox.0.total_cmp(&right_bbox.0))
+    });
     if clustered
         .iter()
         .filter(|line| line_segment_count(line) > 1)
@@ -639,8 +705,10 @@ fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
         .iter()
         .flat_map(|line| split_line_segments(line))
         .collect();
-    if column_boundary(&segments).is_some_and(|boundary| valid_column_split(&segments, boundary)) {
-        order_columns(segments)
+    if column_boundary(&segments, orientation)
+        .is_some_and(|boundary| valid_column_split(&segments, boundary, orientation))
+    {
+        order_columns(segments, orientation)
     } else {
         clustered
     }
@@ -698,6 +766,22 @@ fn line_bbox(line: &[GlyphRecord]) -> BBox {
     glyphs_bbox(line)
 }
 
+/// Return a line bbox in logical inline/block coordinates.
+fn logical_line_bbox(line: &[GlyphRecord], orientation: AxisOrientation) -> BBox {
+    let mut u0 = f64::INFINITY;
+    let mut v0 = f64::INFINITY;
+    let mut u1 = f64::NEG_INFINITY;
+    let mut v1 = f64::NEG_INFINITY;
+    for glyph in line {
+        let (u, v) = orientation.logical_point(glyph.x, glyph.y);
+        u0 = u0.min(u);
+        u1 = u1.max(u + glyph.advance);
+        v0 = v0.min(v - glyph.size * ASCENT);
+        v1 = v1.max(v + glyph.size * DESCENT);
+    }
+    (u0, v0, u1, v1)
+}
+
 /// Median font size across lines, used to make gutter thresholds scale-aware.
 fn typical_line_size(lines: &[Vec<GlyphRecord>]) -> f64 {
     let mut sizes: Vec<f64> = lines
@@ -713,11 +797,14 @@ fn typical_line_size(lines: &[Vec<GlyphRecord>]) -> f64 {
 }
 
 /// Find the strongest vertical whitespace gutter between line segments.
-fn column_boundary(lines: &[Vec<GlyphRecord>]) -> Option<f64> {
+fn column_boundary(lines: &[Vec<GlyphRecord>], orientation: AxisOrientation) -> Option<f64> {
     if lines.len() < MIN_COLUMN_LINES * 2 {
         return None;
     }
-    let bounds: Vec<BBox> = lines.iter().map(|line| line_bbox(line)).collect();
+    let bounds: Vec<BBox> = lines
+        .iter()
+        .map(|line| logical_line_bbox(line, orientation))
+        .collect();
     let region_x0 = bounds.iter().map(|(x0, _, _, _)| *x0).reduce(f64::min)?;
     let region_x1 = bounds.iter().map(|(_, _, x1, _)| *x1).reduce(f64::max)?;
     let region_width = region_x1 - region_x0;
@@ -762,12 +849,13 @@ fn side_vertical_extent(
     lines: &[Vec<GlyphRecord>],
     boundary: f64,
     left_side: bool,
+    orientation: AxisOrientation,
 ) -> Option<(f64, f64, usize)> {
     let mut y0 = f64::INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     let mut count = 0;
     for line in lines {
-        let (line_x0, line_y0, line_x1, line_y1) = line_bbox(line);
+        let (line_x0, line_y0, line_x1, line_y1) = logical_line_bbox(line, orientation);
         let belongs = if left_side {
             line_x1 <= boundary
         } else {
@@ -783,11 +871,18 @@ fn side_vertical_extent(
 }
 
 /// Validate that both sides are sustained columns rather than indentation.
-fn valid_column_split(lines: &[Vec<GlyphRecord>], boundary: f64) -> bool {
-    let Some((left_y0, left_y1, left_count)) = side_vertical_extent(lines, boundary, true) else {
+fn valid_column_split(
+    lines: &[Vec<GlyphRecord>],
+    boundary: f64,
+    orientation: AxisOrientation,
+) -> bool {
+    let Some((left_y0, left_y1, left_count)) =
+        side_vertical_extent(lines, boundary, true, orientation)
+    else {
         return false;
     };
-    let Some((right_y0, right_y1, right_count)) = side_vertical_extent(lines, boundary, false)
+    let Some((right_y0, right_y1, right_count)) =
+        side_vertical_extent(lines, boundary, false, orientation)
     else {
         return false;
     };
@@ -801,18 +896,21 @@ fn valid_column_split(lines: &[Vec<GlyphRecord>], boundary: f64) -> bool {
 
 /// Recursively order column regions left-to-right while preserving spanning
 /// headings above them and footers below them.
-fn order_columns(lines: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
-    let Some(boundary) = column_boundary(&lines) else {
+fn order_columns(
+    lines: Vec<Vec<GlyphRecord>>,
+    orientation: AxisOrientation,
+) -> Vec<Vec<GlyphRecord>> {
+    let Some(boundary) = column_boundary(&lines, orientation) else {
         return lines;
     };
-    if !valid_column_split(&lines, boundary) {
+    if !valid_column_split(&lines, boundary, orientation) {
         return lines;
     }
 
     let side_centers: Vec<f64> = lines
         .iter()
         .filter_map(|line| {
-            let (x0, y0, x1, y1) = line_bbox(line);
+            let (x0, y0, x1, y1) = logical_line_bbox(line, orientation);
             (x1 <= boundary || x0 >= boundary).then_some((y0 + y1) * 0.5)
         })
         .collect();
@@ -823,7 +921,7 @@ fn order_columns(lines: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
         return lines;
     };
     let has_middle_spanning = lines.iter().any(|line| {
-        let (x0, y0, x1, y1) = line_bbox(line);
+        let (x0, y0, x1, y1) = logical_line_bbox(line, orientation);
         let center = (y0 + y1) * 0.5;
         x0 < boundary && x1 > boundary && center > first_center && center < last_center
     });
@@ -836,7 +934,7 @@ fn order_columns(lines: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
     let mut right = Vec::new();
     let mut bottom = Vec::new();
     for line in lines {
-        let (x0, y0, x1, y1) = line_bbox(&line);
+        let (x0, y0, x1, y1) = logical_line_bbox(&line, orientation);
         if x1 <= boundary {
             left.push(line);
         } else if x0 >= boundary {
@@ -848,8 +946,8 @@ fn order_columns(lines: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
         }
     }
 
-    top.extend(order_columns(left));
-    top.extend(order_columns(right));
+    top.extend(order_columns(left, orientation));
+    top.extend(order_columns(right, orientation));
     top.extend(bottom);
     top
 }
@@ -923,11 +1021,7 @@ impl TablePage {
 
 /// Position along the line's baseline direction.
 fn glyph_progress(glyph: &GlyphRecord) -> f64 {
-    if has_vertical_baseline(glyph) {
-        glyph.x * glyph.direction.0 + glyph.y * glyph.direction.1
-    } else {
-        glyph.x
-    }
+    glyph.x * glyph.direction.0 + glyph.y * glyph.direction.1
 }
 
 /// Decide whether to insert a space from the gap between adjacent glyphs.
@@ -1004,10 +1098,26 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     let mut x1 = f64::NEG_INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     for g in glyphs {
-        x0 = x0.min(g.x);
-        x1 = x1.max(g.x + g.advance);
-        y0 = y0.min(g.y - g.size * ASCENT);
-        y1 = y1.max(g.y + g.size * DESCENT);
+        if g.writing_mode == 1 {
+            // Inferred mode-1 CJK retains upright glyph geometry; only its
+            // conservative line ordering is vertical.
+            x0 = x0.min(g.x);
+            x1 = x1.max(g.x + g.advance);
+            y0 = y0.min(g.y - g.size * ASCENT);
+            y1 = y1.max(g.y + g.size * DESCENT);
+            continue;
+        }
+        let block = (-g.direction.1, g.direction.0);
+        for inline in [0.0, g.advance] {
+            for cross in [-g.size * ASCENT, g.size * DESCENT] {
+                let x = g.x + g.direction.0 * inline + block.0 * cross;
+                let y = g.y + g.direction.1 * inline + block.1 * cross;
+                x0 = x0.min(x);
+                x1 = x1.max(x);
+                y0 = y0.min(y);
+                y1 = y1.max(y);
+            }
+        }
     }
     (x0, y0, x1, y1)
 }

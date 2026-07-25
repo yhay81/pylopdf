@@ -87,6 +87,10 @@ overview.
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated
   baselines assemble along their direction while remaining writing mode 0.
+  Uniform axis-aligned pages derive logical inline and block axes from that
+  direction, so 90/180/270-degree lines and sustained columns preserve reading
+  order. Explicitly rotated glyph bboxes follow the baseline and cross-axis;
+  inferred mode-1 CJK keeps its conservative upright-glyph approximation.
   Because hayro does not expose font WMode, mode-1 CJK lines are inferred only
   from conservative single-glyph vertical chains: top-to-bottom within a line,
   right-to-left across columns, with horizontal headings and footers preserved.
@@ -112,8 +116,12 @@ overview.
   text triggers the skip and result boxes remain in full-page display
   coordinates. Clipping reduces OCR detector input but not hayro's current
   full-page rendering cost. The first engine returns axis-aligned boxes only;
-  arbitrary skew, automatic page orientation, ruby, warichu, and
-  mixed-orientation typography are not interpreted.
+  `rotation=90 / 180 / 270` turns the rendered OCR input clockwise, maps boxes
+  back to the unmodified display space, and makes `apply_ocr` orient its
+  invisible baseline accordingly. Nonzero rotation temporarily adds one RGBA
+  raster copy inside the complete-call admission limit. Arbitrary skew,
+  automatic page orientation, ruby, warichu, and mixed-orientation typography
+  are not interpreted.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page

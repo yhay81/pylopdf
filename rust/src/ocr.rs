@@ -102,36 +102,47 @@ pub fn add_ocr_font(doc: &mut Document, cid_map: &BTreeMap<char, u16>) -> Object
 
 /// Build drawing operators for invisible text (`Tr 3`).
 ///
-/// For each word, font size equals bbox height; the baseline sits one 0.2
-/// descent ratio above the bottom; horizontal scale fits the bbox width.
+/// Font size follows the bbox cross-axis, the baseline sits one 0.2 descent
+/// ratio inside the box, and horizontal scale fits the along-axis length.
 pub fn ocr_ops(
     crop: [f64; 4],
-    rotation: i64,
+    page_rotation: i64,
     words: &[OcrWord],
     cid_map: &BTreeMap<char, u16>,
     font_name: &str,
+    text_rotation: u16,
 ) -> Vec<u8> {
     let mut out = b"q\n".to_vec();
     for (x0, y0, x1, y1, text) in words {
         let (w, h) = (x1 - x0, y1 - y0);
         #[allow(clippy::cast_precision_loss)]
         let chars = text.chars().count() as f64;
-        let base_y = y1 - 0.2 * h;
-        let (ox, oy) = draw::display_to_pdf(crop, rotation, *x0, base_y);
+        let (origin, baseline, up, font_size, line_length) = match text_rotation {
+            90 => ((x1 - 0.2 * w, *y1), (0.0, -1.0), (-1.0, 0.0), w, h),
+            180 => ((*x1, y0 + 0.2 * h), (-1.0, 0.0), (0.0, 1.0), h, w),
+            270 => ((x0 + 0.2 * w, *y0), (0.0, 1.0), (1.0, 0.0), w, h),
+            _ => ((*x0, y1 - 0.2 * h), (1.0, 0.0), (0.0, -1.0), h, w),
+        };
+        let (ox, oy) = draw::display_to_pdf(crop, page_rotation, origin.0, origin.1);
         let (rx, ry) = {
-            let p = draw::display_to_pdf(crop, rotation, x0 + 1.0, base_y);
+            let p = draw::display_to_pdf(
+                crop,
+                page_rotation,
+                origin.0 + baseline.0,
+                origin.1 + baseline.1,
+            );
             (p.0 - ox, p.1 - oy)
         };
         let (ux, uy) = {
-            let p = draw::display_to_pdf(crop, rotation, *x0, base_y - 1.0);
+            let p = draw::display_to_pdf(crop, page_rotation, origin.0 + up.0, origin.1 + up.1);
             (p.0 - ox, p.1 - oy)
         };
         // Scale the natural width of one em per character to the bbox width.
-        let sx = w / (chars * h);
+        let sx = line_length / (chars * font_size);
         out.extend_from_slice(
             format!(
                 "BT\n/{font_name} {} Tf\n3 Tr\n{} {} {} {} {} {} Tm\n<",
-                draw::fmt(h),
+                draw::fmt(font_size),
                 draw::fmt(sx * rx),
                 draw::fmt(sx * ry),
                 draw::fmt(ux),

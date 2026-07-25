@@ -49,6 +49,7 @@ __all__ = [
     "MetadataUpdate",
     "OcrEngine",
     "OcrError",
+    "OcrRotation",
     "OcrWord",
     "Page",
     "PageLabelInfo",
@@ -159,6 +160,8 @@ class Rect(NamedTuple):
 WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
 #: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
 BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
+#: Clockwise correction applied to rendered OCR input.
+OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 
 
 class TextSpan(TypedDict):
@@ -385,6 +388,17 @@ def _validate_ocr_concurrency(max_concurrent: int) -> int:
     return max_concurrent
 
 
+def _validate_ocr_rotation(rotation: int) -> OcrRotation:
+    """Validate one clockwise OCR input correction."""
+    if isinstance(rotation, bool) or not isinstance(rotation, int):
+        msg = f"rotation must be 0, 90, 180, or 270: {rotation!r}"
+        raise TypeError(msg)
+    if rotation not in (0, 90, 180, 270):
+        msg = f"rotation must be 0, 90, 180, or 270: {rotation}"
+        raise OcrError(msg)
+    return cast("OcrRotation", rotation)
+
+
 class OcrEngine:
     """Reusable, pure-Rust PP-OCR engine.
 
@@ -460,6 +474,7 @@ class OcrEngine:
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
+        rotation: OcrRotation = 0,
         clip: Sequence[float] | None = None,
     ) -> list[OcrWord]:
         """Recognize one page without modifying it.
@@ -469,7 +484,9 @@ class OcrEngine:
         tensor. Results use the same top-left display coordinates as rendering,
         extraction, and :meth:`Page.insert_ocr_text_layer`. ``clip`` limits
         recognition to one display-coordinate region while preserving page
-        coordinates in the returned boxes.
+        coordinates in the returned boxes. ``rotation`` turns the rendered
+        input clockwise for recognition, then maps boxes back without changing
+        the PDF.
         """
         if not isinstance(page, Page):
             msg = f"page must be a pylopdf.Page: {page!r}"
@@ -477,6 +494,7 @@ class OcrEngine:
         resolved_dpi = _validate_ocr_dpi(dpi)
         _validate_ocr_tiles(tile_size, overlap)
         resolved_confidence = _validate_ocr_confidence(min_confidence)
+        resolved_rotation = _validate_ocr_rotation(rotation)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         with self._recognition_slots:
             pixmap = page.get_pixmap(
@@ -489,6 +507,7 @@ class OcrEngine:
                 tile_size=tile_size,
                 overlap=overlap,
                 min_confidence=resolved_confidence,
+                rotation=resolved_rotation,
             )
             pixel_to_page = 72.0 / resolved_dpi
             if clip_rect is None:
@@ -956,6 +975,7 @@ class Page:
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
+        rotation: OcrRotation = 0,
         clip: Sequence[float] | None = None,
     ) -> list[OcrWord]:
         """Recognize rasterized page text without modifying the document.
@@ -963,7 +983,8 @@ class Page:
         The default engine is loaded lazily from ``pylopdf[ocr]`` and reused.
         Pass an explicit :class:`OcrEngine` to control the model set or its
         lifetime. ``clip`` recognizes one display-coordinate region and
-        returns boxes in full-page coordinates.
+        returns boxes in full-page coordinates. ``rotation`` corrects sideways
+        input clockwise without editing the page.
         """
         resolved_engine = _default_ocr_engine() if engine is None else engine
         if not isinstance(resolved_engine, OcrEngine):
@@ -975,6 +996,7 @@ class Page:
             tile_size=tile_size,
             overlap=overlap,
             min_confidence=min_confidence,
+            rotation=rotation,
             clip=clip,
         )
 
@@ -986,6 +1008,7 @@ class Page:
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
+        rotation: OcrRotation = 0,
         clip: Sequence[float] | None = None,
         skip_existing: bool = True,
     ) -> list[OcrWord]:
@@ -997,11 +1020,13 @@ class Page:
         ``clip`` can select a scanned region on a mixed-content page; only
         extractable text intersecting that region triggers the default skip.
         Use ``skip_existing=False`` to append despite such text. Existing text
-        is preserved.
+        is preserved. ``rotation`` also orients the invisible text baseline
+        after correcting sideways input.
         """
         if not isinstance(skip_existing, bool):
             msg = f"skip_existing must be a bool: {skip_existing!r}"
             raise TypeError(msg)
+        resolved_rotation = _validate_ocr_rotation(rotation)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         if skip_existing:
             if clip_rect is None:
@@ -1022,10 +1047,14 @@ class Page:
             tile_size=tile_size,
             overlap=overlap,
             min_confidence=min_confidence,
+            rotation=resolved_rotation,
             clip=clip_rect,
         )
         if words:
-            self.insert_ocr_text_layer([(*word["bbox"], word["text"]) for word in words])
+            self.insert_ocr_text_layer(
+                [(*word["bbox"], word["text"]) for word in words],
+                rotation=resolved_rotation,
+            )
         return words
 
     def to_markdown(self) -> str:
@@ -1358,7 +1387,12 @@ class Page:
             overlay,
         )
 
-    def insert_ocr_text_layer(self, words: Iterable[Sequence[Any]]) -> None:
+    def insert_ocr_text_layer(
+        self,
+        words: Iterable[Sequence[Any]],
+        *,
+        rotation: OcrRotation = 0,
+    ) -> None:
         """Insert OCR output as an invisible, searchable text layer.
 
         Each item in ``words`` begins with ``(x0, y0, x1, y1, text, ...)``;
@@ -1368,7 +1402,10 @@ class Page:
         extraction and search. An Identity-H reference font with ToUnicode is
         used without embedding font data, so any language, including CJK, adds
         almost no file size. The primitive is engine-neutral and accepts cloud
-        APIs, Tesseract, or any equivalent source.
+        APIs, Tesseract, or any equivalent source. ``rotation`` describes the
+        clockwise correction used to read sideways input and orients the
+        invisible baseline while retaining the supplied display-coordinate
+        boxes.
         """
         payload: list[tuple[float, float, float, float, str]] = []
         for entry in words:
@@ -1379,7 +1416,8 @@ class Page:
         if not payload:
             msg = "words must contain at least one word with text"
             raise ValueError(msg)
-        self._document._doc.insert_ocr_layer(self._page_number(), payload)
+        resolved_rotation = _validate_ocr_rotation(rotation)
+        self._document._doc.insert_ocr_layer(self._page_number(), payload, resolved_rotation)
 
     def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:
         """Replace text on the page and return the number of replacements.

@@ -18,6 +18,22 @@ def _blank_page_doc() -> pylopdf.Document:
     return doc
 
 
+def _rotate_box_clockwise(
+    box: tuple[float, float, float, float],
+    width: float,
+    height: float,
+    rotation: int,
+) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = box
+    if rotation == 90:
+        return (height - y1, x0, height - y0, x1)
+    if rotation == 180:
+        return (width - x1, height - y1, width - x0, height - y0)
+    if rotation == 270:
+        return (y0, width - x1, y1, width - x0)
+    return box
+
+
 def test_ocr_layer_is_extractable_and_searchable() -> None:
     doc = _blank_page_doc()
     page = doc[0]
@@ -94,9 +110,67 @@ def test_ocr_layer_on_rotated_page_uses_display_coordinates() -> None:
     assert abs(hits[0].x0 - 120) < 5  # Match near the requested display coordinates.
 
 
+@pytest.mark.parametrize("rotation", [90, 180, 270])
+def test_ocr_layer_orients_sideways_baselines(rotation: pylopdf.OcrRotation) -> None:
+    doc = _blank_page_doc()
+    page = doc[0]
+    page.insert_ocr_text_layer([(80, 30, 105, 150, "Vertical box")], rotation=rotation)
+
+    hits = page.search_for("Vertical box")
+
+    assert hits
+    assert hits[0].height > hits[0].width
+    assert tuple(hits[0]) == pytest.approx((80, 30, 105, 150), abs=0.1)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_ocr_layer_orders_rotated_columns_logically(rotation: pylopdf.OcrRotation) -> None:
+    logical_width = 400.0
+    logical_height = 300.0
+    logical_words = [
+        ((20.0, 10.0, 380.0, 35.0), "Spanning heading"),
+        ((40.0, 60.0, 150.0, 80.0), "Left one"),
+        ((40.0, 100.0, 150.0, 120.0), "Left two"),
+        ((40.0, 140.0, 150.0, 160.0), "Left three"),
+        ((240.0, 60.0, 350.0, 80.0), "Right one"),
+        ((240.0, 100.0, 350.0, 120.0), "Right two"),
+        ((240.0, 140.0, 350.0, 160.0), "Right three"),
+        ((20.0, 260.0, 380.0, 285.0), "Spanning footer"),
+    ]
+    display_rotation = (360 - rotation) % 360
+    physical_words = [
+        (
+            _rotate_box_clockwise(box, logical_width, logical_height, display_rotation),
+            text,
+        )
+        for box, text in logical_words
+    ]
+    page_width, page_height = (
+        (logical_height, logical_width) if display_rotation in (90, 270) else (logical_width, logical_height)
+    )
+    doc = pylopdf.Document()
+    doc.new_page(width=page_width, height=page_height)
+    page = doc[0]
+    # Geometry, not caller ordering, determines the logical reading sequence.
+    scrambled = physical_words[4:] + physical_words[:4]
+    page.insert_ocr_text_layer(
+        [(*box, text) for box, text in scrambled],
+        rotation=rotation,
+    )
+
+    expected = [text for _, text in logical_words]
+    assert page.get_text().splitlines() == expected
+    for box, text in physical_words:
+        hits = page.search_for(text)
+        assert len(hits) == 1
+        assert tuple(hits[0]) == pytest.approx(box, abs=0.1)
+
+
 def test_ocr_layer_rejects_empty() -> None:
     doc = _blank_page_doc()
     with pytest.raises(ValueError, match="words"):
         doc[0].insert_ocr_text_layer([])
     with pytest.raises(ValueError, match="words"):
         doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "")])
+    with pytest.raises(pylopdf.OcrError, match="rotation"):
+        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # type: ignore[arg-type]

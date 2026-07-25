@@ -14,8 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use rotation-resolved display coordinates, optional region clips support
   mixed digital/scanned pages, and complete render-and-recognize calls are
   limited to one per engine by default so accidental outer concurrency cannot
-  multiply the measured per-call memory. Invisible layers remain searchable
-  without changing rendered pixels. The separately versioned,
+  multiply the measured per-call memory. Explicit `rotation=90 / 180 / 270`
+  corrections recognize sideways or upside-down scans without changing PDF
+  page rotation, map result boxes back to original display coordinates, and
+  orient the invisible text baseline for extraction and search. Direction-aware
+  line/column ordering preserves multi-line logical text at every right-angle
+  orientation, and rotated search boxes match OCR geometry. Invisible layers
+  remain searchable without changing rendered pixels. The separately versioned,
   data-only `pylopdf-ocr-models` wheel includes the multilingual detector,
   recognizer, and dictionary with pinned provenance and artifact hashes.
   English and Japanese integration tests cover recognition and searchable

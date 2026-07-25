@@ -12,6 +12,7 @@ class _OcrEngine:
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
+        rotation: int = 0,
     ) -> list[tuple[float, float, float, float, str, float]]: ...
 
 class Pixmap:
@@ -165,7 +166,12 @@ class _Document:
         content: str | None,
     ) -> None: ...
     def add_link_annotation(self, page_number: int, rect: tuple[float, float, float, float], uri: str) -> None: ...
-    def insert_ocr_layer(self, page_number: int, words: list[tuple[float, float, float, float, str]]) -> None: ...
+    def insert_ocr_layer(
+        self,
+        page_number: int,
+        words: list[tuple[float, float, float, float, str]],
+        text_rotation: int = 0,
+    ) -> None: ...
     def insert_page_text(
         self,
         page_number: int,

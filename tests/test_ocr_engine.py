@@ -263,6 +263,55 @@ def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> 
     assert target[0].get_pixmap(background=(255, 255, 255)).samples == before
 
 
+@pytest.mark.parametrize(
+    ("page_rotation", "ocr_rotation"),
+    [(90, 270), (180, 180), (270, 90)],
+)
+def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
+    ocr_engine: pylopdf.OcrEngine,
+    page_rotation: int,
+    ocr_rotation: pylopdf.OcrRotation,
+) -> None:
+    source = pylopdf.Document()
+    source.new_page(width=360, height=200)
+    source[0].insert_text((20, 65), "First line 111", fontsize=28)
+    source[0].insert_text((20, 145), "Second line 222", fontsize=28)
+    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255))
+
+    target = pylopdf.Document()
+    target.new_page(width=360, height=200)
+    target[0].insert_image(target[0].rect, stream=raster.tobytes())
+    target[0].set_rotation(page_rotation)
+    before = target[0].get_pixmap(background=(255, 255, 255)).samples
+
+    words = target[0].apply_ocr(
+        dpi=150,
+        engine=ocr_engine,
+        tile_size=512,
+        overlap=64,
+        rotation=ocr_rotation,
+    )
+
+    assert [word["text"] for word in words] == ["First line 111", "Second line 222"]
+    assert target[0].get_text() == "First line 111\nSecond line 222\n"
+    for word in words:
+        if page_rotation in (90, 270):
+            assert word["bbox"].height > word["bbox"].width
+        else:
+            assert word["bbox"].width > word["bbox"].height
+        hits = target[0].search_for(word["text"])
+        assert len(hits) == 1
+        assert tuple(hits[0]) == pytest.approx(tuple(word["bbox"]), abs=0.2)
+    assert target[0].rotation == page_rotation
+    assert target[0].get_pixmap(background=(255, 255, 255)).samples == before
+    reopened = pylopdf.open(stream=target.tobytes())
+    assert reopened[0].get_text() == "First line 111\nSecond line 222\n"
+    assert reopened[0].search_for("First line 111")
+    assert reopened[0].search_for("Second line 222")
+    assert reopened[0].rotation == page_rotation
+    assert reopened[0].get_pixmap(background=(255, 255, 255)).samples == before
+
+
 def test_apply_ocr_skips_existing_text_by_default() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=200, height=100)
@@ -326,6 +375,21 @@ def test_ocr_engine_validates_threads(threads: object, error: type[Exception]) -
 def test_ocr_engine_validates_max_concurrent(max_concurrent: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="max_concurrent"):
         pylopdf.OcrEngine(max_concurrent=max_concurrent)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("rotation", "error"),
+    [(45, pylopdf.OcrError), (-90, pylopdf.OcrError), (360, pylopdf.OcrError), (True, TypeError), (1.5, TypeError)],
+)
+def test_ocr_engine_validates_input_rotation(
+    ocr_engine: pylopdf.OcrEngine,
+    rotation: object,
+    error: type[Exception],
+) -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=100, height=100)
+    with pytest.raises(error, match="rotation"):
+        ocr_engine.recognize(doc[0], dpi=72, rotation=rotation)  # type: ignore[arg-type]
 
 
 def test_ocr_engine_validates_runtime_options(ocr_engine: pylopdf.OcrEngine) -> None:

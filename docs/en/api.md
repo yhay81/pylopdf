@@ -39,8 +39,8 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
-| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, clip=)` | local PP-OCRv6 positioned words without editing; `clip` uses display coordinates |
-| `apply_ocr(..., clip=, skip_existing=True)` | recognize and insert an invisible searchable layer; skip existing text in the selected region by default |
+| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
+| `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(strategy="lines", clip=None)` | complete vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown()` | single-page Markdown |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
@@ -51,7 +51,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
-| `insert_ocr_text_layer(words)` | invisible OCR text layer (searchable PDFs) |
+| `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
 
@@ -96,7 +96,7 @@ minimum gutter and row-gap variation. Complete vector grids score 1.0 and have
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
-| `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable tuple and literal type aliases |
+| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()` |
