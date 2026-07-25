@@ -26,6 +26,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
 | `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf的`tobytes()`和`save(path)`生成PNG，且`save`要求`.png`扩展名 |
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
+| `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |

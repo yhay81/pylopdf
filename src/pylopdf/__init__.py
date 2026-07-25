@@ -40,6 +40,8 @@ __all__ = [
     "Document",
     "DocumentClosedError",
     "DocumentMetadata",
+    "DrawingInfo",
+    "DrawingItem",
     "EncryptedDocumentError",
     "FormFieldInfo",
     "FormFieldType",
@@ -92,6 +94,8 @@ _OCR_MAX_CONCURRENT = 16
 _OCR_MIN_TILE_SIZE = 256
 _OCR_MAX_TILE_SIZE = 2048
 _OCR_TILE_MULTIPLE = 32
+_DRAWING_LINE_POINT_COUNT = 2
+_DRAWING_CUBIC_POINT_COUNT = 4
 
 
 class PylopdfWarning(UserWarning):
@@ -162,6 +166,8 @@ WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
 BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
+#: One vector command: a line or a cubic Bézier in display coordinates.
+DrawingItem: TypeAlias = tuple[Literal["l"], Point, Point] | tuple[Literal["c"], Point, Point, Point, Point]
 
 
 class TextSpan(TypedDict):
@@ -209,6 +215,29 @@ class ImageInfo(TypedDict):
     bbox: Rect
     ext: Literal["jpeg", "png"]
     image: bytes
+
+
+class DrawingInfo(TypedDict):
+    """One vector paint operation returned by :meth:`Page.get_drawings`.
+
+    Keys follow the common pymupdf path dictionary where practical. A combined
+    fill-stroke operator has ``type="fs"``. Pattern paints have no single RGB
+    color or opacity and therefore expose ``None`` for those values.
+    """
+
+    rect: Rect
+    type: Literal["f", "s", "fs"]
+    items: list[DrawingItem]
+    closePath: bool
+    color: tuple[float, float, float] | None
+    fill: tuple[float, float, float] | None
+    stroke_opacity: float | None
+    fill_opacity: float | None
+    even_odd: bool | None
+    width: float | None
+    lineCap: tuple[int, int, int] | None
+    lineJoin: int | None
+    dashes: str | None
 
 
 class AnnotationInfo(TypedDict):
@@ -1191,6 +1220,73 @@ class Page:
             }
             for width, height, bbox, ext, data in raw
         ]
+
+    def get_drawings(self) -> list[DrawingInfo]:
+        """Extract interpreted vector paint operations in display coordinates.
+
+        Results use pymupdf-style path dictionaries with ``type`` equal to
+        ``"f"``, ``"s"``, or ``"fs"``. ``items`` contains self-contained line
+        and cubic Bézier commands. Quadratic curves are converted exactly to
+        cubics. Stroke colors use ``color``; fill colors use ``fill``. Exotic
+        pattern paints do not have one representative RGB value and return
+        ``None`` for color and opacity.
+
+        Clipping paths and clip-resolved visibility, transparency-group
+        structure, optional-content layer names, text outlines, and images are
+        not returned. The interpreter still applies optional-content visibility
+        before reporting a paint operation. Output is bounded to 8,192 paths and
+        131,072 commands; exceeding either limit raises :class:`PdfError` instead
+        of returning partial results.
+        """
+        raw = self._document._doc.extract_drawings(self._page_number())
+        self._document._emit_warnings()
+        drawings: list[DrawingInfo] = []
+        for (
+            bbox,
+            kind,
+            raw_items,
+            close_path,
+            stroke,
+            fill,
+        ) in raw:
+            stroke_color, stroke_opacity, width, line_cap, line_join, dashes = stroke
+            fill_color, fill_opacity, even_odd = fill
+            items: list[DrawingItem] = []
+            for command, points in raw_items:
+                converted = [Point(*point) for point in points]
+                if command == "l" and len(converted) == _DRAWING_LINE_POINT_COUNT:
+                    items.append(("l", converted[0], converted[1]))
+                elif command == "c" and len(converted) == _DRAWING_CUBIC_POINT_COUNT:
+                    items.append(
+                        (
+                            "c",
+                            converted[0],
+                            converted[1],
+                            converted[2],
+                            converted[3],
+                        )
+                    )
+                else:  # pragma: no cover - guarded by the native extractor.
+                    msg = f"invalid native drawing command: {command!r}"
+                    raise PdfError(msg)
+            drawings.append(
+                {
+                    "rect": Rect(*bbox),
+                    "type": cast("Literal['f', 's', 'fs']", kind),
+                    "items": items,
+                    "closePath": close_path,
+                    "color": stroke_color,
+                    "fill": fill_color,
+                    "stroke_opacity": stroke_opacity,
+                    "fill_opacity": fill_opacity,
+                    "even_odd": even_odd,
+                    "width": width,
+                    "lineCap": line_cap,
+                    "lineJoin": line_join,
+                    "dashes": dashes,
+                }
+            )
+        return drawings
 
     def insert_image(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,

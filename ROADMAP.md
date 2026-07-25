@@ -268,6 +268,11 @@ measurable, coherent boundary.
 - [x] Add high-confidence geometry-based table extraction for complete
   axis-aligned stroked grids, with owned `TableFinder` / `Table` results,
   display-space cell bboxes, text matrices, and Markdown export.
+- [x] Expose general vector paint operations through `Page.get_drawings()`.
+      The hayro Device returns bounded, typed, pymupdf-style fill/stroke paths
+      with display-space line/cubic geometry and normalized paint/stroke
+      properties. Ten real-world first pages plus synthetic styling, rotation,
+      and adversarial path-count cases cover the extraction boundary.
 - [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
   rectangular merged cells. Keep adversarial search bounded and reject broken
   outer grids and compact filled decorations.

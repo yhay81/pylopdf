@@ -119,6 +119,25 @@ class _Document:
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...
+    def extract_drawings(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            tuple[float, float, float, float],
+            str,
+            list[tuple[str, list[tuple[float, float]]]],
+            bool,
+            tuple[
+                tuple[float, float, float] | None,
+                float | None,
+                float | None,
+                tuple[int, int, int] | None,
+                int | None,
+                str | None,
+            ],
+            tuple[tuple[float, float, float] | None, float | None, bool | None],
+        ]
+    ]: ...
     def render_page_pixmap(
         self,
         page_number: int,

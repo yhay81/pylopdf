@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
-use kurbo::{Affine, PathSeg, Point, Rect};
+use kurbo::{Affine, Cap, Join, PathEl, PathSeg, Point, Rect, Shape};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
@@ -2340,6 +2340,365 @@ pub(crate) fn extract_page_images(
     let mut collector = ImageCollector { images: Vec::new() };
     interpret_page(page, &mut context, &mut collector);
     collector.images
+}
+
+/// One vector command: `"l"` with two points or `"c"` with four points.
+pub(crate) type DrawingItemTuple = (String, Vec<(f64, f64)>);
+
+type DrawingColor = (f64, f64, f64);
+type DrawingStrokeTuple = (
+    Option<DrawingColor>,
+    Option<f64>,
+    Option<f64>,
+    Option<(i64, i64, i64)>,
+    Option<i64>,
+    Option<String>,
+);
+type DrawingFillTuple = (Option<DrawingColor>, Option<f64>, Option<bool>);
+
+/// One pymupdf-style drawing path.
+///
+/// Fields are bbox, type, commands, close flag, stroke/fill RGB and opacity,
+/// fill rule, stroke width/cap/join, and PDF dash syntax.
+pub(crate) type DrawingTuple = (
+    BBox,
+    String,
+    Vec<DrawingItemTuple>,
+    bool,
+    DrawingStrokeTuple,
+    DrawingFillTuple,
+);
+
+/// Bound materialized output for adversarial pages.
+const MAX_DRAWING_PATHS: usize = 8192;
+const MAX_DRAWING_COMMANDS: usize = 131_072;
+
+#[derive(PartialEq)]
+struct DrawingGeometry {
+    bbox: BBox,
+    items: Vec<DrawingItemTuple>,
+    close_path: bool,
+}
+
+struct DrawingRecord {
+    geometry: DrawingGeometry,
+    kind: &'static str,
+    stroke_color: Option<(f64, f64, f64)>,
+    fill_color: Option<(f64, f64, f64)>,
+    stroke_opacity: Option<f64>,
+    fill_opacity: Option<f64>,
+    even_odd: Option<bool>,
+    width: Option<f64>,
+    line_cap: Option<(i64, i64, i64)>,
+    line_join: Option<i64>,
+    dashes: Option<String>,
+}
+
+impl DrawingRecord {
+    fn into_tuple(self) -> DrawingTuple {
+        (
+            self.geometry.bbox,
+            self.kind.to_owned(),
+            self.geometry.items,
+            self.geometry.close_path,
+            (
+                self.stroke_color,
+                self.stroke_opacity,
+                self.width,
+                self.line_cap,
+                self.line_join,
+                self.dashes,
+            ),
+            (self.fill_color, self.fill_opacity, self.even_odd),
+        )
+    }
+}
+
+struct DrawingCollector {
+    drawings: Vec<DrawingRecord>,
+    command_count: usize,
+    error: Option<&'static str>,
+}
+
+fn drawing_paint(paint: &Paint<'_>) -> (Option<(f64, f64, f64)>, Option<f64>) {
+    let Paint::Color(color) = paint else {
+        return (None, None);
+    };
+    let [red, green, blue, alpha] = color.to_rgba().components();
+    (
+        Some((f64::from(red), f64::from(green), f64::from(blue))),
+        Some(f64::from(alpha)),
+    )
+}
+
+fn drawing_scale(transform: Affine) -> f64 {
+    let [a, b, c, d, _, _] = transform.as_coeffs();
+    (a.hypot(b)).max(c.hypot(d))
+}
+
+fn drawing_cap(cap: Cap) -> i64 {
+    match cap {
+        Cap::Butt => 0,
+        Cap::Round => 1,
+        Cap::Square => 2,
+    }
+}
+
+fn drawing_join(join: Join) -> i64 {
+    match join {
+        Join::Miter => 0,
+        Join::Round => 1,
+        Join::Bevel => 2,
+    }
+}
+
+fn drawing_dashes(values: &[f32], offset: f32, scale: f64) -> String {
+    let values = values
+        .iter()
+        .map(|value| (f64::from(*value) * scale).to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("[{values}] {}", f64::from(offset) * scale)
+}
+
+fn drawing_geometry(
+    path: &kurbo::BezPath,
+    transform: Affine,
+) -> Result<Option<DrawingGeometry>, &'static str> {
+    let mut transformed = path.clone();
+    transformed.apply_affine(transform);
+    let bbox = transformed.bounding_box();
+    let bbox = (bbox.x0, bbox.y0, bbox.x1, bbox.y1);
+    if ![bbox.0, bbox.1, bbox.2, bbox.3]
+        .into_iter()
+        .all(f64::is_finite)
+    {
+        return Err("drawing path contains non-finite coordinates");
+    }
+
+    let mut items = Vec::new();
+    let mut current = None;
+    let mut subpath_start = None;
+    let mut close_path = false;
+    let mut push_item = |kind: &str, points: Vec<(f64, f64)>| -> Result<(), &'static str> {
+        if items.len() >= MAX_DRAWING_COMMANDS {
+            return Err("drawing extraction exceeds the 131072-command safety limit");
+        }
+        if !points
+            .iter()
+            .flat_map(|point| [point.0, point.1])
+            .all(f64::is_finite)
+        {
+            return Err("drawing path contains non-finite coordinates");
+        }
+        items.push((kind.to_owned(), points));
+        Ok(())
+    };
+
+    for element in transformed.elements() {
+        match *element {
+            PathEl::MoveTo(point) => {
+                current = Some(point);
+                subpath_start = Some(point);
+            }
+            PathEl::LineTo(point) => {
+                if let Some(start) = current {
+                    push_item("l", vec![(start.x, start.y), (point.x, point.y)])?;
+                }
+                current = Some(point);
+            }
+            PathEl::QuadTo(control, point) => {
+                if let Some(start) = current {
+                    let control1 = start + (control - start) * (2.0 / 3.0);
+                    let control2 = point + (control - point) * (2.0 / 3.0);
+                    push_item(
+                        "c",
+                        vec![
+                            (start.x, start.y),
+                            (control1.x, control1.y),
+                            (control2.x, control2.y),
+                            (point.x, point.y),
+                        ],
+                    )?;
+                }
+                current = Some(point);
+            }
+            PathEl::CurveTo(control1, control2, point) => {
+                if let Some(start) = current {
+                    push_item(
+                        "c",
+                        vec![
+                            (start.x, start.y),
+                            (control1.x, control1.y),
+                            (control2.x, control2.y),
+                            (point.x, point.y),
+                        ],
+                    )?;
+                }
+                current = Some(point);
+            }
+            PathEl::ClosePath => {
+                if let (Some(start), Some(end)) = (subpath_start, current)
+                    && start != end
+                {
+                    push_item("l", vec![(end.x, end.y), (start.x, start.y)])?;
+                }
+                current = subpath_start;
+                close_path = true;
+            }
+        }
+    }
+
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DrawingGeometry {
+        bbox,
+        items,
+        close_path,
+    }))
+}
+
+impl DrawingCollector {
+    fn collect(
+        &mut self,
+        path: &kurbo::BezPath,
+        transform: Affine,
+        paint: &Paint<'_>,
+        mode: &PathDrawMode,
+    ) {
+        if self.error.is_some() {
+            return;
+        }
+        let geometry = match drawing_geometry(path, transform) {
+            Ok(Some(geometry)) => geometry,
+            Ok(None) => return,
+            Err(error) => {
+                self.error = Some(error);
+                return;
+            }
+        };
+        let (color, opacity) = drawing_paint(paint);
+        let scale = drawing_scale(transform);
+        let mut record = match mode {
+            PathDrawMode::Fill(rule) => DrawingRecord {
+                geometry,
+                kind: "f",
+                stroke_color: None,
+                fill_color: color,
+                stroke_opacity: None,
+                fill_opacity: opacity,
+                even_odd: Some(matches!(rule, hayro::hayro_interpret::FillRule::EvenOdd)),
+                width: None,
+                line_cap: None,
+                line_join: None,
+                dashes: None,
+            },
+            PathDrawMode::Stroke(stroke) => {
+                let cap = drawing_cap(stroke.line_cap);
+                DrawingRecord {
+                    geometry,
+                    kind: "s",
+                    stroke_color: color,
+                    fill_color: None,
+                    stroke_opacity: opacity,
+                    fill_opacity: None,
+                    even_odd: None,
+                    width: Some(f64::from(stroke.line_width) * scale),
+                    line_cap: Some((cap, cap, cap)),
+                    line_join: Some(drawing_join(stroke.line_join)),
+                    dashes: Some(drawing_dashes(
+                        &stroke.dash_array,
+                        stroke.dash_offset,
+                        scale,
+                    )),
+                }
+            }
+        };
+
+        if record.kind == "s"
+            && let Some(previous) = self.drawings.last_mut()
+            && previous.kind == "f"
+            && previous.geometry == record.geometry
+        {
+            previous.kind = "fs";
+            previous.stroke_color = record.stroke_color.take();
+            previous.stroke_opacity = record.stroke_opacity;
+            previous.width = record.width;
+            previous.line_cap = record.line_cap;
+            previous.line_join = record.line_join;
+            previous.dashes = record.dashes.take();
+            return;
+        }
+
+        if self.drawings.len() >= MAX_DRAWING_PATHS {
+            self.error = Some("drawing extraction exceeds the 8192-path safety limit");
+            return;
+        }
+        let Some(command_count) = self.command_count.checked_add(record.geometry.items.len())
+        else {
+            self.error = Some("drawing extraction command count overflowed");
+            return;
+        };
+        if command_count > MAX_DRAWING_COMMANDS {
+            self.error = Some("drawing extraction exceeds the 131072-command safety limit");
+            return;
+        }
+        self.command_count = command_count;
+        self.drawings.push(record);
+    }
+}
+
+impl Device<'_> for DrawingCollector {
+    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
+    fn set_blend_mode(&mut self, _: BlendMode) {}
+    fn draw_path(
+        &mut self,
+        path: &kurbo::BezPath,
+        transform: Affine,
+        paint: &Paint<'_>,
+        mode: &PathDrawMode,
+    ) {
+        self.collect(path, transform, paint, mode);
+    }
+    fn push_clip_path(&mut self, _: &ClipPath) {}
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+    fn draw_glyph(
+        &mut self,
+        _: &Glyph<'_>,
+        _: Affine,
+        _: Affine,
+        _: &Paint<'_>,
+        _: &GlyphDrawMode,
+    ) {
+    }
+    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
+    fn pop_clip_path(&mut self) {}
+    fn pop_transparency_group(&mut self) {}
+}
+
+/// Extract interpreted vector paint operations in display coordinates.
+pub(crate) fn extract_page_drawings(
+    pdf: &Pdf,
+    page: &Page<'_>,
+    settings: InterpreterSettings,
+) -> Result<Vec<DrawingTuple>, &'static str> {
+    let cache = InterpreterCache::new();
+    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut collector = DrawingCollector {
+        drawings: Vec::new(),
+        command_count: 0,
+        error: None,
+    };
+    interpret_page(page, &mut context, &mut collector);
+    if let Some(error) = collector.error {
+        return Err(error);
+    }
+    Ok(collector
+        .drawings
+        .into_iter()
+        .map(DrawingRecord::into_tuple)
+        .collect())
 }
 
 /// Interpret a page once and optionally collect vector table rules.

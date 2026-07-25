@@ -134,6 +134,14 @@ def test_extract_text_page0(case: Case) -> None:
     assert case.snippet in doc.get_page_text(0)
 
 
+@ALL
+def test_extract_drawings_page0(case: Case) -> None:
+    """Interpret real vector paths without returning malformed commands."""
+    drawings = pylopdf.open(ASSETS / case.name)[0].get_drawings()
+    assert all(drawing["type"] in {"f", "s", "fs"} for drawing in drawings)
+    assert all(item[0] in {"l", "c"} for drawing in drawings for item in drawing["items"])
+
+
 def test_pdf20_comment_streams_extract() -> None:
     """Protect extraction from comment-plus-indentation regression lopdf#535.
 
@@ -158,6 +166,13 @@ def test_f1040_bordered_table() -> None:
     text = "\n".join(cell for row in table.extract() for cell in row if cell is not None)
     assert "Full-time\nstudent" in text
     assert "Child tax\ncredit" in text
+
+
+def test_f1040_drawing_extraction_retains_form_paths() -> None:
+    """Expose the dense vector structure underlying a real tax form."""
+    drawings = pylopdf.open(ASSETS / "f1040.pdf")[0].get_drawings()
+    assert len(drawings) >= 400
+    assert any(drawing["type"] == "fs" for drawing in drawings)
 
 
 def test_f1040_markdown_integrates_bordered_table_once() -> None:

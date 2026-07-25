@@ -28,6 +28,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
 | `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 `tobytes()`와 `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
 | `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
+| `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | 동일 | 반복된 페이지 번호로 `select`하면 페이지 복제 |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 동일 | |
 | `doc.get_toc()` / `set_toc()` | 동일 | 둘 다 페이지 번호는 1부터 시작 |

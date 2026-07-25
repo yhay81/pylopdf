@@ -2576,6 +2576,24 @@ impl _Document {
         })
     }
 
+    /// Extract vector paint operations on a one-based page.
+    fn extract_drawings(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<crate::extract::DrawingTuple>> {
+        let settings = self.interpreter_settings();
+        let pdf = self.hayro_view()?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+            crate::extract::extract_page_drawings(pdf, page, settings).map_err(PdfError::new_err)
+        })
+    }
+
     /// Search a one-based page case-insensitively.
     fn search_page(
         &mut self,
