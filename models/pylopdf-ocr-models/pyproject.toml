@@ -1,0 +1,34 @@
+[project]
+name = "pylopdf-ocr-models"
+version = "0.1.0"
+description = "PP-OCRv6 small RTen models for pylopdf's optional offline OCR engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/yhay81/pylopdf"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pylopdf_ocr_models"]
+artifacts = [
+    "src/pylopdf_ocr_models/SHA256SUMS",
+    "src/pylopdf_ocr_models/*.rten",
+    "src/pylopdf_ocr_models/*.txt",
+]

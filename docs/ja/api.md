@@ -39,6 +39,8 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 |---|---|
 | `number` / `parent` / `get_label()` | 素性と表示ラベル |
 | `get_text(option)` / `search_for(needle)` | 抽出と検索（大文字小文字を区別しない） |
+| `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`clip`は表示座標 |
+| `apply_ocr(..., clip=, skip_existing=True)` | 不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
 | `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線と結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown()` | 1 ページ分の Markdown |
 | `get_images()` | 描画された画像（`bbox` 付き。JPEG パススルー / PNG） |
@@ -90,9 +92,10 @@ resourceは追加されません。
 | `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page・form の辞書形式結果を表す TypedDict |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
+| `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
 | `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるtuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠 |
-| `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層（ValueError 互換の基底） |
+| `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層（ValueError 互換の基底） |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | インタープリタ警告（フォント未解決・画像デコード失敗） |
 

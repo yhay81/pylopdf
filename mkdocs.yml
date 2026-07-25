@@ -57,6 +57,7 @@ nav:
   - Home: index.md
   - Guide:
       - Getting started: getting-started.md
+      - Offline OCR: ocr.md
       - Ecosystem recipes: ecosystem.md
       - Migrating from pymupdf: migration.md
   - API: api.md

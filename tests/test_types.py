@@ -20,6 +20,7 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "LinkInfo",
         "MetadataProbe",
         "MetadataUpdate",
+        "OcrWord",
         "PageLabelInfo",
         "PageLabelSpec",
         "TextBlock",
@@ -41,6 +42,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.LinkInfo,
         pylopdf.MetadataProbe,
         pylopdf.MetadataUpdate,
+        pylopdf.OcrWord,
         pylopdf.PageLabelInfo,
         pylopdf.PageLabelSpec,
         pylopdf.TextBlock,
@@ -55,6 +57,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
     assert pylopdf.PageLabelSpec.__optional_keys__ == frozenset({"style", "prefix", "firstpagenum"})
     assert pylopdf.MetadataUpdate.__required_keys__ == frozenset()
     assert get_type_hints(pylopdf.ImageInfo)["bbox"] is pylopdf.Rect
+    assert get_type_hints(pylopdf.OcrWord)["bbox"] is pylopdf.Rect
 
 
 def test_public_return_annotations_describe_real_values() -> None:

@@ -10,6 +10,7 @@
 use pyo3::prelude::*;
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use pyo3::{exceptions::PyBufferError, ffi};
+use std::sync::Arc;
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use std::{
     ffi::{CString, c_int, c_void},
@@ -26,7 +27,7 @@ pub struct Pixmap {
     pub(crate) width: u32,
     pub(crate) height: u32,
     /// Row-major straight-alpha RGBA8 data.
-    pub(crate) data: Vec<u8>,
+    pub(crate) data: Arc<[u8]>,
 }
 
 #[pymethods]

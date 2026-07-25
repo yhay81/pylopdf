@@ -34,6 +34,8 @@ Source = "https://github.com/yhay81/pylopdf"
 [project.optional-dependencies]
 # Fonts for PDFs that reference non-embedded CJK fonts; auto-detect Noto Sans/Serif JP.
 cjk = ["pylopdf-fonts-cjk>=0.1.0"]
+# PP-OCRv6 small detector, recognizer, and multilingual dictionary.
+ocr = ["pylopdf-ocr-models>=0.1.0,<0.2"]
 
 [build-system]
 requires = ["maturin>=1.14,<2.0"]
@@ -83,11 +85,12 @@ cache-keys = [
 ]
 
 [tool.uv.workspace]
-members = ["fonts/pylopdf-fonts-cjk"]
+members = ["fonts/pylopdf-fonts-cjk", "models/pylopdf-ocr-models"]
 
 [tool.uv.sources]
-# Resolve the extra to the workspace font package during local development.
+# Resolve data-only extras to their workspace packages during local development.
 pylopdf-fonts-cjk = { workspace = true }
+pylopdf-ocr-models = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -100,6 +103,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # Allow type checking without the cjk extra installed.
 module = "pylopdf_fonts_cjk"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Allow type checking without the OCR model extra installed.
+module = "pylopdf_ocr_models"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

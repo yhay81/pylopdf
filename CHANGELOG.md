@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Optional offline OCR through `pylopdf[ocr]`: a reusable `OcrEngine`,
+  `Page.get_text_ocr()`, and idempotent-by-default `Page.apply_ocr()` run
+  PP-OCRv6 small locally through the pure-Rust RTen runtime. Detection uses
+  bounded overlapping tiles, reading order retains sustained columns, results
+  use rotation-resolved display coordinates, optional region clips support
+  mixed digital/scanned pages, and invisible layers remain searchable without
+  changing rendered pixels. The separately versioned,
+  data-only `pylopdf-ocr-models` wheel includes the multilingual detector,
+  recognizer, and dictionary with pinned provenance and artifact hashes.
+  English and Japanese integration tests cover recognition and searchable
+  save/reopen behavior. Arbitrary skew, automatic page-orientation detection,
+  and mixed-orientation typography remain outside this first native engine.
 - Public mapping-shaped APIs now expose importable `TypedDict` contracts:
   nested text layout, images, annotations, links, AcroForm fields, page labels,
   metadata updates/results, and fast metadata probes. `WordEntry`,

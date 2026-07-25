@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "pylopdf",
     "pylopdf-fonts-cjk",
+    "pylopdf-ocr-models",
 ]
 
 [[package]]
@@ -1090,6 +1091,9 @@ source = { editable = "." }
 cjk = [
     { name = "pylopdf-fonts-cjk" },
 ]
+ocr = [
+    { name = "pylopdf-ocr-models" },
+]
 
 [package.dev-dependencies]
 bench = [
@@ -1116,8 +1120,11 @@ interop = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pylopdf-fonts-cjk", marker = "extra == 'cjk'", editable = "fonts/pylopdf-fonts-cjk" }]
-provides-extras = ["cjk"]
+requires-dist = [
+    { name = "pylopdf-fonts-cjk", marker = "extra == 'cjk'", editable = "fonts/pylopdf-fonts-cjk" },
+    { name = "pylopdf-ocr-models", marker = "extra == 'ocr'", editable = "models/pylopdf-ocr-models" },
+]
+provides-extras = ["cjk", "ocr"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -1143,6 +1150,11 @@ interop = [
 name = "pylopdf-fonts-cjk"
 version = "0.1.0"
 source = { editable = "fonts/pylopdf-fonts-cjk" }
+
+[[package]]
+name = "pylopdf-ocr-models"
+version = "0.1.0"
+source = { editable = "models/pylopdf-ocr-models" }
 
 [[package]]
 name = "pymdown-extensions"

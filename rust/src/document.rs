@@ -2673,7 +2673,7 @@ impl _Document {
         Ok(crate::pixmap::Pixmap {
             width,
             height,
-            data,
+            data: data.into(),
         })
     }
 

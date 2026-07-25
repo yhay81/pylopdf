@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
 
 from pylopdf import _markdown
-from pylopdf.pylopdf_core import PasswordError, PdfError, Pixmap, _Document
+from pylopdf.pylopdf_core import OcrError, PasswordError, PdfError, Pixmap, _Document, _OcrEngine
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
@@ -46,6 +46,9 @@ __all__ = [
     "LinkInfo",
     "MetadataProbe",
     "MetadataUpdate",
+    "OcrEngine",
+    "OcrError",
+    "OcrWord",
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
@@ -81,6 +84,11 @@ TEXT_ALIGN_LEFT = 0
 TEXT_ALIGN_CENTER = 1
 TEXT_ALIGN_RIGHT = 2
 TEXT_ALIGN_JUSTIFY = 3
+
+_OCR_MAX_THREADS = 16
+_OCR_MIN_TILE_SIZE = 256
+_OCR_MAX_TILE_SIZE = 2048
+_OCR_TILE_MULTIPLE = 32
 
 
 class PylopdfWarning(UserWarning):
@@ -300,6 +308,195 @@ class MetadataProbe(DocumentMetadata):
 
     page_count: int
     encrypted: bool
+
+
+class OcrWord(TypedDict):
+    """One OCR result in rotation-resolved page display coordinates."""
+
+    bbox: Rect
+    text: str
+    confidence: float
+
+
+def _validate_ocr_dpi(dpi: float) -> float:
+    """Resolve one positive finite OCR resolution."""
+    if isinstance(dpi, bool):
+        msg = f"dpi must be a positive finite number: {dpi!r}"
+        raise TypeError(msg)
+    try:
+        resolved_dpi = float(dpi)
+    except (TypeError, ValueError) as exc:
+        msg = f"dpi must be a positive finite number: {dpi!r}"
+        raise OcrError(msg) from exc
+    if not (math.isfinite(resolved_dpi) and resolved_dpi > 0):
+        msg = f"dpi must be a positive finite number: {dpi!r}"
+        raise OcrError(msg)
+    return resolved_dpi
+
+
+def _validate_ocr_tiles(tile_size: int, overlap: int) -> None:
+    """Validate bounded detector tile geometry."""
+    if isinstance(tile_size, bool) or not isinstance(tile_size, int):
+        msg = (
+            f"tile_size must be an integer multiple of {_OCR_TILE_MULTIPLE} from "
+            f"{_OCR_MIN_TILE_SIZE} through {_OCR_MAX_TILE_SIZE}: {tile_size!r}"
+        )
+        raise TypeError(msg)
+    if not _OCR_MIN_TILE_SIZE <= tile_size <= _OCR_MAX_TILE_SIZE or tile_size % _OCR_TILE_MULTIPLE:
+        msg = (
+            f"tile_size must be a multiple of {_OCR_TILE_MULTIPLE} from "
+            f"{_OCR_MIN_TILE_SIZE} through {_OCR_MAX_TILE_SIZE}: {tile_size}"
+        )
+        raise OcrError(msg)
+    if isinstance(overlap, bool) or not isinstance(overlap, int):
+        msg = f"overlap must be an integer from {_OCR_TILE_MULTIPLE} through half of tile_size: {overlap!r}"
+        raise TypeError(msg)
+    if not _OCR_TILE_MULTIPLE <= overlap <= tile_size // 2:
+        msg = f"overlap must be from {_OCR_TILE_MULTIPLE} through half of tile_size: {overlap}"
+        raise OcrError(msg)
+
+
+def _validate_ocr_confidence(min_confidence: float) -> float:
+    """Resolve one finite OCR confidence threshold."""
+    if isinstance(min_confidence, bool):
+        msg = f"min_confidence must be a finite number from 0 through 1: {min_confidence!r}"
+        raise TypeError(msg)
+    try:
+        resolved_confidence = float(min_confidence)
+    except (TypeError, ValueError) as exc:
+        msg = f"min_confidence must be a finite number from 0 through 1: {min_confidence!r}"
+        raise OcrError(msg) from exc
+    if not (math.isfinite(resolved_confidence) and 0 <= resolved_confidence <= 1):
+        msg = f"min_confidence must be a finite number from 0 through 1: {min_confidence!r}"
+        raise OcrError(msg)
+    return resolved_confidence
+
+
+class OcrEngine:
+    """Reusable, pure-Rust PP-OCR engine.
+
+    With no paths, the engine discovers models from the optional
+    ``pylopdf[ocr]`` installation. Explicit paths are useful for evaluating a
+    compatible RTen-format PP-OCR detector, recognizer, and character
+    dictionary.
+    """
+
+    def __init__(
+        self,
+        detector_path: str | os.PathLike[str] | None = None,
+        recognizer_path: str | os.PathLike[str] | None = None,
+        dictionary_path: str | os.PathLike[str] | None = None,
+        *,
+        threads: int | None = None,
+    ) -> None:
+        """Load an OCR model set once for reuse across pages and documents.
+
+        ``threads=None`` uses up to four logical CPUs. Lower it to reduce peak
+        inference memory or raise it to at most 16 after measuring the target
+        workload.
+        """
+        if threads is None:
+            resolved_threads = min(4, os.cpu_count() or 1)
+        elif isinstance(threads, bool) or not isinstance(threads, int):
+            msg = f"threads must be an integer from 1 through {_OCR_MAX_THREADS} or None: {threads!r}"
+            raise TypeError(msg)
+        elif not 1 <= threads <= _OCR_MAX_THREADS:
+            msg = f"threads must be from 1 through {_OCR_MAX_THREADS}: {threads}"
+            raise OcrError(msg)
+        else:
+            resolved_threads = threads
+        paths = (detector_path, recognizer_path, dictionary_path)
+        if all(path is None for path in paths):
+            try:
+                import pylopdf_ocr_models  # noqa: PLC0415 - lazy optional dependency.
+            except ImportError as exc:
+                msg = "OCR models are not installed; install pylopdf[ocr] or pass explicit model paths"
+                raise OcrError(msg) from exc
+            try:
+                discovered = pylopdf_ocr_models.model_paths()
+                detector_path = discovered.detector
+                recognizer_path = discovered.recognizer
+                dictionary_path = discovered.dictionary
+            except (AttributeError, TypeError) as exc:
+                msg = "pylopdf-ocr-models does not expose a compatible model_paths() result"
+                raise OcrError(msg) from exc
+        elif any(path is None for path in paths):
+            msg = "detector_path, recognizer_path, and dictionary_path must be provided together"
+            raise OcrError(msg)
+        if detector_path is None or recognizer_path is None or dictionary_path is None:
+            msg = "OCR model discovery returned incomplete paths"
+            raise OcrError(msg)
+        self._engine = _OcrEngine(
+            os.fspath(detector_path),
+            os.fspath(recognizer_path),
+            os.fspath(dictionary_path),
+            resolved_threads,
+        )
+        self.threads = resolved_threads
+
+    def recognize(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+        self,
+        page: Page,
+        *,
+        dpi: float = 300,
+        tile_size: int = 1408,
+        overlap: int = 192,
+        min_confidence: float = 0.5,
+        clip: Sequence[float] | None = None,
+    ) -> list[OcrWord]:
+        """Recognize one page without modifying it.
+
+        The page is rendered on white at ``dpi``. Detection uses bounded,
+        overlapping tiles so A4 scans do not require a gigabyte-scale detector
+        tensor. Results use the same top-left display coordinates as rendering,
+        extraction, and :meth:`Page.insert_ocr_text_layer`. ``clip`` limits
+        recognition to one display-coordinate region while preserving page
+        coordinates in the returned boxes.
+        """
+        if not isinstance(page, Page):
+            msg = f"page must be a pylopdf.Page: {page!r}"
+            raise TypeError(msg)
+        resolved_dpi = _validate_ocr_dpi(dpi)
+        _validate_ocr_tiles(tile_size, overlap)
+        resolved_confidence = _validate_ocr_confidence(min_confidence)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
+        pixmap = page.get_pixmap(
+            dpi=resolved_dpi,
+            background=(255, 255, 255),
+            clip=clip_rect,
+        )
+        raster_results = self._engine.recognize_pixmap(
+            pixmap,
+            tile_size=tile_size,
+            overlap=overlap,
+            min_confidence=resolved_confidence,
+        )
+        pixel_to_page = 72.0 / resolved_dpi
+        if clip_rect is None:
+            offset_x = offset_y = 0.0
+        else:
+            page_rect = page.rect
+            offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
+            offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
+        return [
+            {
+                "bbox": Rect(
+                    offset_x + x0 * pixel_to_page,
+                    offset_y + y0 * pixel_to_page,
+                    offset_x + x1 * pixel_to_page,
+                    offset_y + y1 * pixel_to_page,
+                ),
+                "text": text,
+                "confidence": confidence,
+            }
+            for x0, y0, x1, y1, text, confidence in raster_results
+        ]
+
+
+@functools.cache
+def _default_ocr_engine() -> OcrEngine:
+    """Load and cache the optional default OCR model set."""
+    return OcrEngine()
 
 
 class TableDiagnostics(NamedTuple):
@@ -731,6 +928,86 @@ class Page:
         """
         self._page_number()
         return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
+
+    def get_text_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+        self,
+        *,
+        dpi: float = 300,
+        engine: OcrEngine | None = None,
+        tile_size: int = 1408,
+        overlap: int = 192,
+        min_confidence: float = 0.5,
+        clip: Sequence[float] | None = None,
+    ) -> list[OcrWord]:
+        """Recognize rasterized page text without modifying the document.
+
+        The default engine is loaded lazily from ``pylopdf[ocr]`` and reused.
+        Pass an explicit :class:`OcrEngine` to control the model set or its
+        lifetime. ``clip`` recognizes one display-coordinate region and
+        returns boxes in full-page coordinates.
+        """
+        resolved_engine = _default_ocr_engine() if engine is None else engine
+        if not isinstance(resolved_engine, OcrEngine):
+            msg = f"engine must be an OcrEngine or None: {engine!r}"
+            raise TypeError(msg)
+        return resolved_engine.recognize(
+            self,
+            dpi=dpi,
+            tile_size=tile_size,
+            overlap=overlap,
+            min_confidence=min_confidence,
+            clip=clip,
+        )
+
+    def apply_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+        self,
+        *,
+        dpi: float = 300,
+        engine: OcrEngine | None = None,
+        tile_size: int = 1408,
+        overlap: int = 192,
+        min_confidence: float = 0.5,
+        clip: Sequence[float] | None = None,
+        skip_existing: bool = True,
+    ) -> list[OcrWord]:
+        """Recognize the page and insert an invisible searchable text layer.
+
+        The recognized words are returned after insertion. An empty result is
+        a no-op. By default, a page with extractable text is skipped, making
+        repeated calls idempotent and avoiding duplicate text layers.
+        ``clip`` can select a scanned region on a mixed-content page; only
+        extractable text intersecting that region triggers the default skip.
+        Use ``skip_existing=False`` to append despite such text. Existing text
+        is preserved.
+        """
+        if not isinstance(skip_existing, bool):
+            msg = f"skip_existing must be a bool: {skip_existing!r}"
+            raise TypeError(msg)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
+        if skip_existing:
+            if clip_rect is None:
+                if self.get_text().strip():
+                    return []
+            elif any(
+                word[4].strip()
+                and word[0] < clip_rect[2]
+                and word[2] > clip_rect[0]
+                and word[1] < clip_rect[3]
+                and word[3] > clip_rect[1]
+                for word in self.get_text("words")
+            ):
+                return []
+        words = self.get_text_ocr(
+            dpi=dpi,
+            engine=engine,
+            tile_size=tile_size,
+            overlap=overlap,
+            min_confidence=min_confidence,
+            clip=clip_rect,
+        )
+        if words:
+            self.insert_ocr_text_layer([(*word["bbox"], word["text"]) for word in words])
+        return words
 
     def to_markdown(self) -> str:
         """Convert this page to Markdown.
