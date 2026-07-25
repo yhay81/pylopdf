@@ -1,0 +1,40 @@
+version: 1
+# Observe integrity-sensitive changes before requiring an independent reviewer.
+mode: audit
+approval:
+  required: 1
+sourcePaths:
+  - "src/**/*.py"
+  - "rust/src/**/*.rs"
+protectedSurfaces:
+  - id: prooflock-policy
+    title: ProofLock policy
+    paths:
+      - ".github/prooflock.yml"
+  - id: continuous-integration
+    title: Continuous integration and release workflows
+    paths:
+      - ".github/workflows/**"
+  - id: security-policy
+    title: Security policy
+    paths:
+      - "SECURITY.md"
+  - id: test-suites
+    title: Python and integration tests
+    paths:
+      - "tests/**"
+  - id: dependency-and-build-integrity
+    title: Python and Rust dependency and build integrity
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/build.rs"
+      - "fonts/*/pyproject.toml"
+      - "models/*/pyproject.toml"
+  - id: verification-tooling
+    title: Verification and packaging tooling
+    paths:
+      - ".pre-commit-config.yaml"
+      - "scripts/**"
