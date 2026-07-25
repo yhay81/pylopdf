@@ -599,14 +599,25 @@ rather than waiting automatically for v1.x.
     removing lopdf's dead `linearize` flag.
 - [x] Add a Python 3.10 CI job to validate the abi3 floor (2026-07-23).
 - [x] Produce a reproducible Pyodide 0.28.3/emscripten wheel (2026-07-26).
-  The static 4.52 MiB `cp310-abi3-pyodide_2025_0_wasm32` artifact installs with
-  ordinary `micropip.install()`, imports without wasm-bindgen shims, preserves
-  Python exceptions through the WebAssembly exception tag, and passes
-  byte-stream open, extraction, rendering, malformed-input recovery, and
-  post-error reuse checks. The builder pins and verifies the complete native
-  toolchain and hashed Python build environment. Publishing, compatibility
-  breadth, resource-limit tests, size investigation, and user documentation
-  continue in #19 through #23 under the #24 epic.
+  The builder checks the static legacy
+  `cp310-abi3-pyodide_2025_0_wasm32` artifact with ordinary
+  `micropip.install()` in the pinned runtime, then deterministically retags the
+  same binary as the PEP 783
+  `cp310-abi3-pyemscripten_2025_0_wasm32` artifact accepted by PyPI. It imports
+  without wasm-bindgen shims, preserves Python exceptions through the
+  WebAssembly exception tag, and passes byte-stream open, extraction,
+  rendering, malformed-input recovery, and post-error reuse checks. The
+  builder pins and verifies the complete native toolchain and hashed Python
+  build environment.
+- [x] Automate PyEmscripten wheel CI and release gates (2026-07-26).
+  Pull requests build the wheel, run the pinned Pyodide smoke suite, verify its
+  PEP 783 metadata, and dry-run a Cloudflare Workers bundle with pinned
+  `workers-py` and Wrangler versions. Tagged releases attach build provenance,
+  include the artifact in the PyPI upload and SBOM, then resolve it back from
+  PyPI and repeat the Cloudflare dry run before creating the immutable GitHub
+  release. Actual PyPI publication remains pending the next package release;
+  compatibility breadth, resource-limit tests, size investigation, and user
+  documentation continue in #20 through #23 under the #24 epic.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four

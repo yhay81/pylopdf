@@ -10,6 +10,7 @@ license-files = ["LICENSE", "NOTICE.md", "LICENSES/*"]
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: WebAssembly :: Emscripten",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
