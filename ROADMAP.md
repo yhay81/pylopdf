@@ -331,6 +331,10 @@ measurable, coherent boundary.
   errors. hayro 0.7 lacks an offset viewport, so this initially crops the
   full-page raster and retains the full-page size/cost limits; pursue an
   upstream offset viewport before claiming true region-only rendering.
+- [x] Add `Pixmap.save(path)` for direct PNG output from immutable rendered
+      pixels. Encoding and filesystem I/O release the GIL, strings and path-like
+      objects are accepted, non-PNG extensions are rejected, and failures remain
+      inside the `PdfError` hierarchy.
 - [x] Build and test version-specific cp314t wheels after the mutable `Document`
       concurrency audit. Import keeps the GIL disabled; immutable Pixmaps expose
       a read-only zero-copy buffer; distinct-document extraction is tested for

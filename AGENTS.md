@@ -236,7 +236,9 @@ overview.
 - `Pixmap` is immutable. Version-specific builds expose its RGBA8 storage
   through a read-only zero-copy buffer. The buffer protocol remains unavailable
   under `abi3-py310` because `Py_buffer` entered the stable ABI in Python 3.11;
-  `Pixmap.samples` is the one-copy portable fallback.
+  `Pixmap.samples` is the one-copy portable fallback. `Pixmap.save` encodes and
+  writes PNG output while the GIL is released and maps I/O failures to
+  `PdfError`.
 - Concurrent operations on distinct `Document` objects are supported.
   Concurrent external calls or edits on the same `Document` are not; `Page`
   shares its parent's restriction. `Document.render_pages` is the supported
