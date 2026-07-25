@@ -3144,7 +3144,7 @@ impl _Document {
         })
     }
 
-    /// Downsample and recompress safe JPEG XObjects atomically.
+    /// Downsample and JPEG-recompress safe DCT or Flate XObjects atomically.
     fn compress_images(
         &mut self,
         py: Python<'_>,

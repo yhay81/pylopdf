@@ -1,15 +1,15 @@
-//! Conservative JPEG XObject downsampling and recompression.
+//! Conservative raster XObject downsampling and JPEG recompression.
 //!
 //! Placement DPI comes from hayro interpretation. Mutation stays in lopdf and
-//! is limited to direct 8-bit DeviceGray/DeviceRGB DCT streams without masks or
-//! custom decode semantics.
+//! is limited to direct 8-bit DeviceGray/DeviceRGB DCT or Flate streams without
+//! masks or custom decode semantics.
 
 use std::collections::HashSet;
 use std::f64::consts::PI;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use jpeg_encoder::{ColorType as JpegColorType, Encoder as JpegEncoder};
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use zune_jpeg::JpegDecoder;
 use zune_jpeg::zune_core::bytestream::ZCursor;
 use zune_jpeg::zune_core::colorspace::ColorSpace;
@@ -54,11 +54,28 @@ impl ColorModel {
 }
 
 struct Candidate {
-    data: Vec<u8>,
+    source: CandidateSource,
     width: u32,
     height: u32,
     color: ColorModel,
     previous_quality: Option<u8>,
+}
+
+enum CandidateSource {
+    Jpeg(Vec<u8>),
+    Flate {
+        stream: Stream,
+        max_decoded_bytes: usize,
+    },
+}
+
+impl CandidateSource {
+    fn encoded_len(&self) -> usize {
+        match self {
+            Self::Jpeg(data) => data.len(),
+            Self::Flate { stream, .. } => stream.content.len(),
+        }
+    }
 }
 
 fn mask_references(doc: &Document, usages: &[ImageUsage]) -> HashSet<ObjectId> {
@@ -90,7 +107,33 @@ fn direct_integer(dict: &Dictionary, key: &[u8]) -> Option<i64> {
     dict.get(key).and_then(Object::as_i64).ok()
 }
 
-fn is_safe_dct_stream(
+fn safe_flate_decode_limit(
+    dict: &Dictionary,
+    width: u32,
+    height: u32,
+    color: ColorModel,
+) -> Option<usize> {
+    let samples = sample_buffer_len(width, height, color.components()).ok()?;
+    let params = match dict.get(b"DecodeParms") {
+        Err(_) | Ok(Object::Null) => return Some(samples),
+        Ok(Object::Dictionary(params)) => params,
+        _ => return None,
+    };
+    let predictor = direct_integer(params, b"Predictor").unwrap_or(1);
+    if predictor == 1 {
+        return Some(samples);
+    }
+    if !(10..=15).contains(&predictor)
+        || direct_integer(params, b"Columns").unwrap_or(1) != i64::from(width)
+        || direct_integer(params, b"Colors").unwrap_or(1) != color.components() as i64
+        || direct_integer(params, b"BitsPerComponent").unwrap_or(8) != 8
+    {
+        return None;
+    }
+    samples.checked_add(height as usize)
+}
+
+fn is_safe_image_stream(
     doc: &Document,
     usage: ImageUsage,
     mask_ids: &HashSet<ObjectId>,
@@ -102,14 +145,12 @@ fn is_safe_dct_stream(
     if !matches!(direct_name(&stream.dict, b"Subtype"), Some(b"Image")) {
         return None;
     }
-    let filters = stream.filters().ok()?;
-    if filters.len() != 1 || !matches!(filters[0], b"DCTDecode" | b"DCT") {
-        return None;
-    }
     if stream.dict.get(b"Decode").is_ok()
-        || stream.dict.get(b"DecodeParms").is_ok()
         || stream.dict.get(b"SMask").is_ok()
         || stream.dict.get(b"Mask").is_ok()
+        || stream.dict.get(b"F").is_ok()
+        || stream.dict.get(b"FFilter").is_ok()
+        || stream.dict.get(b"FDecodeParms").is_ok()
     {
         return None;
     }
@@ -132,19 +173,42 @@ fn is_safe_dct_stream(
         Some(b"DeviceRGB" | b"RGB") => ColorModel::Rgb,
         _ => return None,
     };
-    let previous_quality = direct_integer(&stream.dict, b"PylopdfQuality")
-        .and_then(|value| u8::try_from(value).ok())
-        .filter(|value| (1..=100).contains(value));
-    stream
-        .content
-        .starts_with(&[0xFF, 0xD8, 0xFF])
-        .then(|| Candidate {
-            data: stream.content.clone(),
-            width,
-            height,
-            color,
-            previous_quality,
-        })
+    let filters = stream.filters().ok()?;
+    if filters.len() != 1 {
+        return None;
+    }
+    let (source, previous_quality) = match filters[0] {
+        b"DCTDecode" | b"DCT"
+            if stream.dict.get(b"DecodeParms").is_err()
+                && stream.content.starts_with(&[0xFF, 0xD8, 0xFF]) =>
+        {
+            let previous_quality = direct_integer(&stream.dict, b"PylopdfQuality")
+                .and_then(|value| u8::try_from(value).ok())
+                .filter(|value| (1..=100).contains(value));
+            (
+                CandidateSource::Jpeg(stream.content.clone()),
+                previous_quality,
+            )
+        }
+        b"FlateDecode" | b"Fl" => {
+            let max_decoded_bytes = safe_flate_decode_limit(&stream.dict, width, height, color)?;
+            (
+                CandidateSource::Flate {
+                    stream: stream.clone(),
+                    max_decoded_bytes,
+                },
+                None,
+            )
+        }
+        _ => return None,
+    };
+    Some(Candidate {
+        source,
+        width,
+        height,
+        color,
+        previous_quality,
+    })
 }
 
 fn target_dimension(original: u32, min_dpi: Option<f64>, target_dpi: Option<f64>) -> u32 {
@@ -165,14 +229,16 @@ fn target_dimension(original: u32, min_dpi: Option<f64>, target_dpi: Option<f64>
 }
 
 fn decode_jpeg(candidate: &Candidate) -> Result<Vec<u8>, String> {
+    let CandidateSource::Jpeg(data) = &candidate.source else {
+        return Err("internal image source mismatch".to_owned());
+    };
     let options = DecoderOptions::default()
         .set_max_width(MAX_JPEG_DIMENSION)
         .set_max_height(MAX_JPEG_DIMENSION)
         .set_strict_mode(true)
         .jpeg_set_out_colorspace(candidate.color.zune_color());
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut decoder =
-            JpegDecoder::new_with_options(ZCursor::new(candidate.data.as_slice()), options);
+        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(data.as_slice()), options);
         decoder
             .decode_headers()
             .map_err(|error| format!("failed to read JPEG headers: {error}"))?;
@@ -202,6 +268,38 @@ fn decode_jpeg(candidate: &Candidate) -> Result<Vec<u8>, String> {
     Ok(pixels)
 }
 
+fn decode_flate(candidate: &Candidate) -> Result<Vec<u8>, String> {
+    let CandidateSource::Flate {
+        stream,
+        max_decoded_bytes,
+    } = &candidate.source
+    else {
+        return Err("internal image source mismatch".to_owned());
+    };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        stream
+            .decompressed_content_with_limit(*max_decoded_bytes)
+            .map_err(|error| format!("failed to decode Flate image: {error}"))
+    }));
+    let pixels = result.map_err(|_| "Flate decoder panicked on malformed input".to_owned())??;
+    let expected = sample_buffer_len(
+        candidate.width,
+        candidate.height,
+        candidate.color.components(),
+    )?;
+    if pixels.len() != expected {
+        return Err("Flate image returned an unexpected sample count".to_owned());
+    }
+    Ok(pixels)
+}
+
+fn decode_pixels(candidate: &Candidate) -> Result<Vec<u8>, String> {
+    match &candidate.source {
+        CandidateSource::Jpeg(_) => decode_jpeg(candidate),
+        CandidateSource::Flate { .. } => decode_flate(candidate),
+    }
+}
+
 struct ResampleKernel {
     start: usize,
     weights: Vec<f32>,
@@ -226,7 +324,7 @@ fn lanczos3(value: f64) -> f64 {
 /// coefficients linear in the source dimension.
 fn resample_kernels(source: u32, target: u32) -> Result<Vec<ResampleKernel>, String> {
     if target == 0 || target >= source {
-        return Err("invalid JPEG resize dimensions".to_owned());
+        return Err("invalid image resize dimensions".to_owned());
     }
     let scale = f64::from(source) / f64::from(target);
     let support = 3.0 * scale;
@@ -234,18 +332,18 @@ fn resample_kernels(source: u32, target: u32) -> Result<Vec<ResampleKernel>, Str
     let mut kernels = Vec::new();
     kernels
         .try_reserve_exact(target as usize)
-        .map_err(|_| "failed to allocate JPEG resize kernels".to_owned())?;
+        .map_err(|_| "failed to allocate image resize kernels".to_owned())?;
 
     for output in 0..target {
         let center = (f64::from(output) + 0.5) * scale - 0.5;
         let start = ((center - support).ceil() as i64).clamp(0, last_source);
         let end = ((center + support).floor() as i64).clamp(start, last_source);
         let count = usize::try_from(end - start + 1)
-            .map_err(|_| "JPEG resize kernel length overflowed".to_owned())?;
+            .map_err(|_| "image resize kernel length overflowed".to_owned())?;
         let mut weights = Vec::new();
         weights
             .try_reserve_exact(count)
-            .map_err(|_| "failed to allocate JPEG resize coefficients".to_owned())?;
+            .map_err(|_| "failed to allocate image resize coefficients".to_owned())?;
         let mut sum = 0.0;
         for input in start..=end {
             let weight = lanczos3((input as f64 - center) / scale);
@@ -253,14 +351,14 @@ fn resample_kernels(source: u32, target: u32) -> Result<Vec<ResampleKernel>, Str
             sum += weight;
         }
         if !sum.is_finite() || sum.abs() < f64::EPSILON {
-            return Err("JPEG resize kernel is not finite".to_owned());
+            return Err("image resize kernel is not finite".to_owned());
         }
         for weight in &mut weights {
             *weight = (*weight as f64 / sum) as f32;
         }
         kernels.push(ResampleKernel {
             start: usize::try_from(start)
-                .map_err(|_| "JPEG resize kernel start overflowed".to_owned())?,
+                .map_err(|_| "image resize kernel start overflowed".to_owned())?,
             weights,
         });
     }
@@ -276,7 +374,7 @@ fn sample_buffer_len(width: u32, height: u32, components: usize) -> Result<usize
                 .and_then(|height| width.checked_mul(height))
         })
         .and_then(|pixels| pixels.checked_mul(components))
-        .ok_or_else(|| "JPEG resize buffer length overflowed".to_owned())
+        .ok_or_else(|| "image resize buffer length overflowed".to_owned())
 }
 
 fn allocate_samples(width: u32, height: u32, components: usize) -> Result<Vec<u8>, String> {
@@ -284,7 +382,7 @@ fn allocate_samples(width: u32, height: u32, components: usize) -> Result<Vec<u8
     let mut samples = Vec::new();
     samples
         .try_reserve_exact(len)
-        .map_err(|_| "failed to allocate JPEG resize output".to_owned())?;
+        .map_err(|_| "failed to allocate image resize output".to_owned())?;
     samples.resize(len, 0);
     Ok(samples)
 }
@@ -301,7 +399,7 @@ fn resize_horizontal(
     components: usize,
 ) -> Result<Vec<u8>, String> {
     if input.len() != sample_buffer_len(source_width, height, components)? {
-        return Err("JPEG resize input length is inconsistent".to_owned());
+        return Err("image resize input length is inconsistent".to_owned());
     }
     let kernels = resample_kernels(source_width, target_width)?;
     let mut output = allocate_samples(target_width, height, components)?;
@@ -332,7 +430,7 @@ fn resize_horizontal(
                     output[target + 1] = quantize_sample(values[1]);
                     output[target + 2] = quantize_sample(values[2]);
                 }
-                _ => return Err("unsupported JPEG component count".to_owned()),
+                _ => return Err("unsupported image component count".to_owned()),
             }
         }
     }
@@ -347,7 +445,7 @@ fn resize_vertical(
     components: usize,
 ) -> Result<Vec<u8>, String> {
     if input.len() != sample_buffer_len(width, source_height, components)? {
-        return Err("JPEG resize input length is inconsistent".to_owned());
+        return Err("image resize input length is inconsistent".to_owned());
     }
     let kernels = resample_kernels(source_height, target_height)?;
     let mut output = allocate_samples(width, target_height, components)?;
@@ -377,7 +475,7 @@ fn resize_vertical(
                     output[target + 1] = quantize_sample(values[1]);
                     output[target + 2] = quantize_sample(values[2]);
                 }
-                _ => return Err("unsupported JPEG component count".to_owned()),
+                _ => return Err("unsupported image component count".to_owned()),
             }
         }
     }
@@ -441,7 +539,7 @@ fn encode_jpeg(
     Ok(output)
 }
 
-/// Rewrite safe JPEG XObjects when the encoded result is smaller.
+/// Rewrite safe JPEG or Flate XObjects when the encoded result is smaller.
 pub(crate) fn compress_images(
     doc: &mut Document,
     usages: &[ImageUsage],
@@ -457,7 +555,7 @@ pub(crate) fn compress_images(
     let mut total_pixels = 0u64;
 
     for usage in usages {
-        let Some(candidate) = is_safe_dct_stream(doc, *usage, &mask_ids) else {
+        let Some(candidate) = is_safe_image_stream(doc, *usage, &mask_ids) else {
             continue;
         };
         let target_width = target_dimension(candidate.width, usage.min_dpi_x, target_dpi);
@@ -479,7 +577,7 @@ pub(crate) fn compress_images(
         if total_pixels > MAX_TOTAL_IMAGE_PIXELS {
             return Err("image compression exceeds the 250000000-pixel safety limit".to_owned());
         }
-        let pixels = decode_jpeg(&candidate)?;
+        let pixels = decode_pixels(&candidate)?;
         let pixels = resize_pixels(
             pixels,
             (candidate.width, candidate.height),
@@ -493,7 +591,7 @@ pub(crate) fn compress_images(
             candidate.color,
             quality,
         )?;
-        if encoded.len() >= candidate.data.len() {
+        if encoded.len() >= candidate.source.encoded_len() {
             continue;
         }
 
@@ -506,6 +604,8 @@ pub(crate) fn compress_images(
         stream.dict.set("Height", i64::from(target_height));
         stream.dict.set("BitsPerComponent", 8);
         stream.dict.set("Filter", "DCTDecode");
+        stream.dict.remove(b"DecodeParms");
+        stream.dict.remove(b"DL");
         stream.dict.set(
             "PylopdfQuality",
             i64::from(
@@ -519,7 +619,7 @@ pub(crate) fn compress_images(
         stream.start_position = None;
 
         rewritten += 1;
-        bytes_before += candidate.data.len() as u64;
+        bytes_before += candidate.source.encoded_len() as u64;
         bytes_after += stream.content.len() as u64;
     }
 

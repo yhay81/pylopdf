@@ -126,10 +126,12 @@ overview.
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest
   placement. It atomically edits a lopdf clone, releases the GIL, and rewrites
-  only direct, single-DCT, 8-bit DeviceGray or DeviceRGB streams without masks,
-  custom decode arrays, or decode parameters. Strict zune-jpeg decoding,
-  Lanczos3 resizing, and jpeg-encoder optimized Huffman coding are used, and a
-  candidate is committed only when its encoded payload becomes smaller. The
+  only direct, single-filter, 8-bit DeviceGray or DeviceRGB DCT/Flate streams
+  without masks or custom decode arrays. DCT decode parameters are excluded;
+  Flate accepts no predictor or consistent PNG predictor parameters through
+  lopdf's bounded decoder. Strict zune-jpeg decoding, Lanczos3 resizing, and
+  jpeg-encoder optimized Huffman coding are used, and a candidate is committed
+  only when its encoded payload becomes smaller. The
   private `/PylopdfQuality` marker prevents repeat calls at the same or higher
   quality from introducing generational loss when dimensions are unchanged.
   Actual rewrites invalidate hayro and derived interpretation caches without
@@ -139,7 +141,8 @@ overview.
   source above 64 million pixels. The compact local separable Lanczos3
   implementation avoids a general-purpose resizing dependency. On Windows
   abi3, the wheel measured 6.86 MiB versus 6.78 MiB at the preceding v0.11
-  commit (+0.07 MiB).
+  commit (+0.07 MiB); extending the same path to bounded Flate decoding
+  measured 6.90 MiB (+0.04 MiB).
 - Native OCR uses RTen 0.24 with only its `rten_format` feature. The core wheel
   contains the pure-Rust inference engine; PP-OCRv6 small detector,
   recognizer, and dictionary data come from the independently versioned
