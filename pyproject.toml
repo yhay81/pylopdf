@@ -1,6 +1,6 @@
 [project]
 name = "pylopdf"
-version = "0.10.0"
+version = "0.11.0"
 description = "PDF editing, rendering, extraction, and generation for Python, powered by Rust. MIT, no mandatory Python dependencies, lightweight wheels."
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"

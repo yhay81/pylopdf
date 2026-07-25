@@ -255,11 +255,12 @@ pre-1.0 APIs.
 
 ### v0.11 — layout, creation, and concurrency depth
 
-v0.11 continues capability expansion before v1.0. Layout, creation, form
-appearances, typed mapping contracts, and concurrency depth are substantially
-implemented; the optional OCR gate and product-level validation remain. Work
-has no arbitrary feature-count deadline and stops only at an accurate,
-measurable, coherent boundary.
+v0.11 completes its implementation and validation boundary before v1.0.
+Layout, creation, form appearances, typed mapping contracts, concurrency,
+native OCR, and the PyEmscripten deployment path are release-ready. Publishing
+the first OCR model artifact remains the prerequisite for the main v0.11 tag.
+Work beyond this release keeps the same rule: no arbitrary feature-count
+deadline, only accurate, measurable, coherent boundaries.
 
 - [x] Build deterministic multicolumn reading order on `TextPage`: sustained
   whitespace gutters split line segments into recursive left-to-right columns,
