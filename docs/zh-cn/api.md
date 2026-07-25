@@ -93,7 +93,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
-| `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()`；cp314t还支持只读、零复制的`memoryview()` |
+| `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()` / 仅限PNG的`save(path)`；cp314t还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 解释器警告（字体解析、图像解码） |
 
 `TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。

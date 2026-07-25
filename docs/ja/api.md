@@ -98,7 +98,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠 |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層（ValueError 互換の基底） |
-| `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
+| `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG専用`save(path)`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | インタープリタ警告（フォント未解決・画像デコード失敗） |
 
 `TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。

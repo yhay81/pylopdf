@@ -61,6 +61,29 @@ def test_pixmap_tobytes_is_png(one_page_pdf: bytes) -> None:
     assert pix.tobytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_pixmap_save_writes_png_to_pathlike(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    target = tmp_path / "rendered page.png"
+
+    pix.save(target)
+    assert target.read_bytes() == pix.tobytes()
+
+
+def test_pixmap_save_reports_io_error(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    target = tmp_path / "missing" / "page.png"
+
+    with pytest.raises(pylopdf.PdfError, match="failed to save PNG"):
+        pix.save(target)
+
+
+def test_pixmap_save_rejects_non_png_extension(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+
+    with pytest.raises(pylopdf.PdfError, match=r"\.png extension"):
+        pix.save(tmp_path / "page.jpg")
+
+
 def test_pixmap_background(one_page_pdf: bytes) -> None:
     """Use opaque pixels with a background and transparency by default."""
     doc = pylopdf.open(stream=one_page_pdf)

@@ -98,7 +98,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층（ValueError 호환 기반） |
-| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG 전용 `save(path)`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |
 
 `TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의

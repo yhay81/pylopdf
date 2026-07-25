@@ -101,7 +101,7 @@ metrics. `TableFinder.strategy` and
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy (ValueError-compatible base) |
-| `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()` |
+| `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | interpreter warnings (font resolution, image decode) |
 
 The `TypedDict` contracts affect static typing only; values remain ordinary

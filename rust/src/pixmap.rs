@@ -10,12 +10,12 @@
 use pyo3::prelude::*;
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use pyo3::{exceptions::PyBufferError, ffi};
-use std::sync::Arc;
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use std::{
     ffi::{CString, c_int, c_void},
     ptr,
 };
+use std::{path::PathBuf, sync::Arc};
 
 use crate::document::PdfError;
 
@@ -28,6 +28,19 @@ pub struct Pixmap {
     pub(crate) height: u32,
     /// Row-major straight-alpha RGBA8 data.
     pub(crate) data: Arc<[u8]>,
+}
+
+impl Pixmap {
+    fn encode_png(&self) -> PyResult<Vec<u8>> {
+        crate::extract::encode_png(
+            self.width,
+            self.height,
+            png::ColorType::Rgba,
+            &self.data,
+            png::Compression::Fast,
+        )
+        .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+    }
 }
 
 #[pymethods]
@@ -67,15 +80,25 @@ impl Pixmap {
     /// Fast compression matches `render_page` and prioritizes speed over size.
     /// Recompress externally when a smaller PNG is required.
     fn tobytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.detach(|| self.encode_png())
+    }
+
+    /// Encode and save PNG data directly to a filesystem path.
+    fn save(&self, py: Python<'_>, path: PathBuf) -> PyResult<()> {
+        let is_png = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("png"));
+        if !is_png {
+            return Err(PdfError::new_err(
+                "Pixmap.save requires a path with a .png extension",
+            ));
+        }
         py.detach(|| {
-            crate::extract::encode_png(
-                self.width,
-                self.height,
-                png::ColorType::Rgba,
-                &self.data,
-                png::Compression::Fast,
-            )
-            .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+            let png = self.encode_png()?;
+            std::fs::write(&path, png).map_err(|e| {
+                PdfError::new_err(format!("failed to save PNG to {}: {e}", path.display()))
+            })
         })
     }
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Pixmap.save(path)` now encodes and writes PNG output directly while
+  releasing the GIL. It accepts strings and path-like objects, retains the
+  fast render-oriented compression used by `tobytes()`, and reports filesystem
+  failures through the `PdfError` hierarchy. Non-PNG extensions are rejected
+  instead of silently writing mismatched content.
 - `Page.show_pdf_page()` now accepts its own `Document` as the source, including
   the target page itself. Native lopdf cloning provides a stable pre-edit
   snapshot before Form-XObject import, eliminating the previous
