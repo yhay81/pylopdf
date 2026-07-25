@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GitHub release. Emscripten builds omit lopdf's native clock and rayon features
   and execute `render_pages` serially, while native builds retain their existing
   bounded worker pools.
+- Native Python and Pyodide now run one shared WebAssembly compatibility suite
+  and compare stable logical results exactly. It covers bytes-only PDF 2.0
+  loading, plain text and document Markdown, embedded Japanese text, inferred
+  vertical CJK, multicolumn order, bordered and borderless tables, right-angle
+  rotation, vector drawings, image-only pages, AES-256 authentication,
+  document generation with a subset-embedded OpenType font, textbox layout,
+  pixmaps, ordered batch rendering, virtual-filesystem save, merge/select, and
+  the public exception hierarchy. The corpus uses only small redistributable
+  fixtures. A four-language WebAssembly reference records the tested surface,
+  Emscripten's intentional serial `render_pages` behavior, virtual-filesystem
+  boundaries, and the unsupported direct-PyPI path in Pyodide 0.28.3's older
+  `micropip`.
 - `Document.compress_images(dpi=150, quality=75)` now downsamples and
   recompresses safe JPEG XObjects for smaller attachment-oriented PDFs. hayro
   measures every placement and preserves the pixels required by the largest

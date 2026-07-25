@@ -11,6 +11,7 @@ PyPI: https://pypi.org/project/pylopdf/
 
 Core pages:
 - Getting started: https://yhay81.github.io/pylopdf/getting-started/
+- WebAssembly compatibility: https://yhay81.github.io/pylopdf/wasm/
 - API overview: https://yhay81.github.io/pylopdf/api/
 - Ecosystem recipes: https://yhay81.github.io/pylopdf/ecosystem/
 - Migrating from pymupdf: https://yhay81.github.io/pylopdf/migration/
@@ -22,8 +23,10 @@ Core pages:
 Key facts:
 - MIT licensed.
 - Zero runtime dependencies.
-- Approximately 3.5–4.5 MB abi3 wheels for Python 3.10 through 3.14, plus
+- Approximately 5.0–5.8 MiB abi3 wheels for Python 3.10 through 3.14, plus
   cp314t wheels for free-threaded Python 3.14.
+- A release-gated PyEmscripten wheel targets Pyodide 0.28.3 and Cloudflare
+  Python Workers starting after v0.10.0.
 - 0-based pages except get_toc/set_toc, which are 1-based for pymupdf compatibility.
 - Top-left-origin display coordinates across extraction, drawing and rendering.
 - PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.

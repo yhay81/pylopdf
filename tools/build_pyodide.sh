@@ -148,10 +148,20 @@ export SOURCE_DATE_EPOCH="${source_date_epoch}"
     --platform "${PYODIDE_PLATFORM}"
 
 if [[ "${PYLOPDF_PYODIDE_SKIP_SMOKE:-0}" != "1" ]]; then
+    compatibility_assets="$("${PYTHON_BIN}" "${SCRIPT_DIR}/pyodide_compat.py" --list-assets)"
+    smoke_arguments=(
+        "${XBUILDENV_CACHE}/xbuildenv/xbuildenv/pyodide-root/dist"
+        "${runtime_wheel}"
+        "${REPOSITORY_ROOT}"
+        "${compatibility_assets}"
+    )
+    native_results="${PYLOPDF_PYODIDE_NATIVE_RESULTS:-}"
+    if [[ -n "${native_results}" ]]; then
+        [[ -f "${native_results}" ]] || fail "native compatibility baseline is unavailable: ${native_results}"
+        smoke_arguments+=("${native_results}")
+    fi
     "${EMSDK_NODE}" "${SCRIPT_DIR}/smoke_pyodide.mjs" \
-        "${XBUILDENV_CACHE}/xbuildenv/xbuildenv/pyodide-root/dist" \
-        "${runtime_wheel}" \
-        "${REPOSITORY_ROOT}/tests/assets/real_world/pdf20-simple.pdf"
+        "${smoke_arguments[@]}"
 fi
 
 "${TOOL_VENV}/bin/wheel" tags \
