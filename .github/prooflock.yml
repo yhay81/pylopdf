@@ -1,4 +1,5 @@
 version: 1
+# Smoke verification: protected policy edits remain non-blocking in audit mode.
 # Observe integrity-sensitive changes before requiring an independent reviewer.
 mode: audit
 approval:
