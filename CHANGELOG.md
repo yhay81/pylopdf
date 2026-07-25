@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   English and Japanese integration tests cover recognition and searchable
   save/reopen behavior. Arbitrary skew, automatic page-orientation detection,
   and mixed-orientation typography remain outside this first native engine.
+  Model release CI now requires byte-identical repeated builds, validates PyPI
+  metadata, and smoke-tests isolated wheel and sdist installations, including
+  dependency freedom, license payloads, typing markers, exact resource names,
+  and streamed artifact hashes.
 - Public mapping-shaped APIs now expose importable `TypedDict` contracts:
   nested text layout, images, annotations, links, AcroForm fields, page labels,
   metadata updates/results, and fast metadata probes. `WordEntry`,

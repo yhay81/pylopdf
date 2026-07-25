@@ -25,6 +25,10 @@ Traditional Chinese, and English.
 | `ppocrv6_dict.txt` | Recognition character dictionary | `b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d` |
 
 The installed package also includes these values in `SHA256SUMS`.
+Release CI builds the wheel and sdist twice and requires byte-identical output.
+It then installs both formats into isolated environments, verifies distribution
+metadata and license files, and streams each installed artifact through SHA-256
+before publishing.
 
 The source ONNX artifacts and dictionary are the PP-OCRv6 small files listed in
 [RapidOCR's pinned model manifest](https://github.com/RapidAI/RapidOCR/blob/095232a4c94f7f0e6600ba5bba1177010ad696d4/python/rapidocr/default_models.yaml)
