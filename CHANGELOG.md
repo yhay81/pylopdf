@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.insert_image(..., pixmap=)` now embeds an immutable rendered `Pixmap`
+  directly from its straight-alpha RGBA8 storage. The Rust path avoids PNG
+  encoding and decoding, preserves transparency through a soft mask, and omits
+  that mask for fully opaque input.
 - Native OCR field validation now includes a licensed, image-only Japanese
   archival scan with manually verified ground truth at 150 and 300 dpi. The
   reproducible report also checks two distinct documents through one shared

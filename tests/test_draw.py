@@ -74,6 +74,42 @@ def test_insert_png_alpha_is_preserved() -> None:
     assert _pixel(page, 80, 30) == GREEN
 
 
+def test_insert_pixmap_directly_preserves_alpha() -> None:
+    source = _new_page_doc(20, 10)
+    source[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    pixmap = source[0].get_pixmap()
+
+    target = _new_page_doc(40, 20)
+    target[0].insert_image((0, 0, 40, 20), pixmap=pixmap, keep_proportion=False)
+    assert _pixel(target[0], 10, 10) == RED
+    assert _pixel(target[0], 30, 10) == WHITE
+    reopened = pylopdf.open(stream=target.tobytes())
+    assert _pixel(reopened[0], 10, 10) == RED
+    assert _pixel(reopened[0], 30, 10) == WHITE
+
+
+def test_insert_opaque_pixmap_omits_soft_mask() -> None:
+    source = _new_page_doc(4, 2)
+    pixmap = source[0].get_pixmap(background=GREEN)
+
+    target = _new_page_doc(40, 20)
+    target[0].insert_image((0, 0, 40, 20), pixmap=pixmap)
+    assert _pixel(target[0], 20, 10) == GREEN
+    assert b"/SMask" not in target.tobytes()
+
+
+def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
+    source = _new_page_doc(2, 2)
+    pixmap = source[0].get_pixmap(background=RED)
+
+    target = pylopdf.Document()
+    target.new_page(width=100, height=200)
+    target[0].set_rotation(90)
+    target[0].insert_image((150, 25, 190, 75), pixmap=pixmap)
+    assert _pixel(target[0], 170, 50) == RED
+    assert _pixel(target[0], 50, 50) == WHITE
+
+
 def test_insert_image_keep_proportion_centers() -> None:
     doc = _new_page_doc()
     page = doc[0]
@@ -129,8 +165,16 @@ def test_insert_image_survives_save_roundtrip() -> None:
 def test_insert_image_rejects_bad_input() -> None:
     doc = _new_page_doc()
     page = doc[0]
-    with pytest.raises(ValueError, match="filename or stream"):
+    with pytest.raises(ValueError, match="exactly one"):
         page.insert_image((0, 0, 10, 10))
+    with pytest.raises(ValueError, match="exactly one"):
+        page.insert_image(
+            (0, 0, 10, 10),
+            stream=_solid_png(1, 1, RED),
+            pixmap=page.get_pixmap(),
+        )
+    with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
+        page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
     with pytest.raises(pylopdf.PdfError, match="image format"):

@@ -47,7 +47,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
-| `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | draw JPEG/PNG |
+| `insert_image(rect, filename= / stream= / pixmap=, keep_proportion=, overlay=)` | draw JPEG/PNG or reuse a rendered RGBA `Pixmap` directly |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |

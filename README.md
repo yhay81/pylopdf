@@ -164,6 +164,7 @@ doc.copy_page(0, to=1)  # duplicate page 0 in front of page 1
 # Drawing (coordinates are the same top-left display space as search_for / get_text)
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough, PNG with alpha
 page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at a search hit
+page.insert_image((300, 72, 500, 200), pixmap=thumbnail)     # reuse rendered RGBA directly
 page.show_pdf_page(page.rect, letterhead)  # overlay another PDF page as vectors (watermark / letterhead)
 page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
 
@@ -377,7 +378,7 @@ signed_pdf: bytes = out.getvalue()
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
-| `insert_image(rect, filename=/stream=, keep_proportion=True, overlay=True)` | Draw an image (JPEG without recompression, PNG with alpha; rect in display coordinates) |
+| `insert_image(rect, filename=/stream=/pixmap=, keep_proportion=True, overlay=True)` | Draw JPEG without recompression, PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; rect uses display coordinates |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 font or a shaped, subset-embedded OpenType font; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a shaped, subset-embedded OpenType font, returns spare height, and draws nothing on overflow |

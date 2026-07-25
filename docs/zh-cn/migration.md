@@ -33,7 +33,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256 |
 | `doc.needs_pass` / `authenticate()` | 相同 | 返回值语义相同（0/1/2/4/6） |
 | `page.rect / rotation / set_rotation` | 相同 | |
-| `page.insert_image(rect, filename=)` | 相同 | 仅JPEG/PNG；无`pixmap=`，可先用Pillow转换 |
+| `page.insert_image(rect, filename= / stream= / pixmap=)` | 相同 | JPEG直通、PNG透明和已渲染RGBA `Pixmap`直接复用；其他编码格式可用Pillow转换 |
 | `page.show_pdf_page(rect, src, pno)` | 相同 | 不支持叠加同一Document，需先复制 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` | 未提供字体时为Standard-14 / WinAnsi；提供后由HarfRust塑形并由krilla子集嵌入 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` | UAX #14 CJK换行；返回负值时不绘制 |

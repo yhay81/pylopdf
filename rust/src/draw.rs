@@ -40,6 +40,39 @@ pub fn parse_image(data: &[u8]) -> Result<Option<ImageParts>, String> {
     Ok(None)
 }
 
+/// Convert straight-alpha RGBA8 pixels directly to a PDF Image XObject.
+pub fn rgba_parts(width: u32, height: u32, data: &[u8]) -> Result<ImageParts, String> {
+    if width == 0 || height == 0 {
+        return Err("Pixmap dimensions are zero".to_owned());
+    }
+    let pixel_count = usize::try_from(u64::from(width) * u64::from(height))
+        .map_err(|_| "Pixmap dimensions are too large".to_owned())?;
+    let expected_len = pixel_count
+        .checked_mul(4)
+        .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
+    if data.len() != expected_len {
+        return Err("Pixmap RGBA buffer length does not match its dimensions".to_owned());
+    }
+
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    let mut alpha = Vec::with_capacity(pixel_count);
+    let mut opaque = true;
+    for pixel in data.chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+        alpha.push(pixel[3]);
+        opaque &= pixel[3] == u8::MAX;
+    }
+
+    Ok(ImageParts {
+        width,
+        height,
+        color_space: "DeviceRGB",
+        filter: "FlateDecode",
+        data: flate_compress(&rgb)?,
+        alpha: (!opaque).then_some(alpha),
+    })
+}
+
 /// Read dimensions/components from a JPEG SOF marker and pass bytes through.
 fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
     let mut pos = 2usize;
