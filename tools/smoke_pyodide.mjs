@@ -215,6 +215,7 @@ except pylopdf.OcrError as error:
     message
 else:
     raise RuntimeError("native OCR unexpectedly initialized on Emscripten")
+message
 `);
 const wasmBytesBeforeBenchmark =
   pyodide._module?.HEAP8?.buffer?.byteLength ?? null;
@@ -297,7 +298,7 @@ process.stdout.write(
     `Pyodide limit benchmark: ${JSON.stringify(benchmarkRecord)}\n` +
     `Pyodide linear memory bytes: before=${wasmBytesBeforeBenchmark}, after=${wasmBytesAfterBenchmark}\n`,
 );
-result.destroy?.();
-benchmark.destroy?.();
-ocrBoundary.destroy?.();
-processFixture.destroy?.();
+result?.destroy?.();
+benchmark?.destroy?.();
+ocrBoundary?.destroy?.();
+processFixture?.destroy?.();

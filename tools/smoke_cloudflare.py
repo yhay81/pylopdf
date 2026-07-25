@@ -16,6 +16,8 @@ _PYEMSCRIPTEN_TAG = "cp310-abi3-pyemscripten_2025_0_wasm32"
 _WORKERS_PY_VERSION = "1.15.0"
 _WRANGLER_VERSION = "4.114.0"
 _COMPATIBILITY_DATE = "2026-07-26"
+_EXAMPLE_REQUIREMENT = "pylopdf>=0.11,<0.12"
+_EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "cloudflare-worker"
 _UPLOAD_RE = re.compile(r"Total Upload:\s+([0-9.]+)\s+KiB\s+/\s+gzip:\s+([0-9.]+)\s+KiB")
 
 
@@ -28,42 +30,16 @@ def _require_command(name: str) -> str:
 
 
 def _write_project(root: Path, requirement: str) -> None:
-    source = root / "src"
-    source.mkdir(parents=True)
-    dependencies = json.dumps([requirement])
+    shutil.copytree(_EXAMPLE_ROOT / "src", root / "src")
+    shutil.copy2(_EXAMPLE_ROOT / "wrangler.jsonc", root / "wrangler.jsonc")
+    project = (_EXAMPLE_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    expected = json.dumps(_EXAMPLE_REQUIREMENT)
+    replacement = json.dumps(requirement)
+    if project.count(expected) != 1:
+        msg = f"expected one {expected} dependency in the Cloudflare example"
+        raise RuntimeError(msg)
     (root / "pyproject.toml").write_text(
-        f"""\
-[project]
-name = "pylopdf-cloudflare-smoke"
-version = "0.0.0"
-requires-python = ">=3.13"
-dependencies = {dependencies}
-""",
-        encoding="utf-8",
-    )
-    (root / "wrangler.jsonc").write_text(
-        """\
-{
-  "name": "pylopdf-cloudflare-smoke",
-  "main": "src/entry.py",
-  "compatibility_date": "{_COMPATIBILITY_DATE}",
-  "compatibility_flags": ["python_workers"]
-}
-""".replace("{_COMPATIBILITY_DATE}", _COMPATIBILITY_DATE),
-        encoding="utf-8",
-    )
-    (source / "entry.py").write_text(
-        """\
-import pylopdf
-from workers import Response, WorkerEntrypoint
-
-
-class Default(WorkerEntrypoint):
-    async def fetch(self, request):
-        document = pylopdf.Document()
-        document.new_page()
-        return Response(f"pylopdf {pylopdf.__version__}: {document.page_count} page")
-""",
+        project.replace(expected, replacement),
         encoding="utf-8",
     )
 
