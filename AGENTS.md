@@ -65,6 +65,9 @@ overview.
   fallback configuration also applies to extraction, including invisible OCR
   text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
+  Overlapping paint runs on one baseline are split into source-order logical
+  layers before inline geometry sorting; preserve distinct overprints rather
+  than interleaving or deduplicating their glyphs.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. `find_tables` uses a
