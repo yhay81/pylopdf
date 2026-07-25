@@ -52,17 +52,17 @@ def test_metadata_roundtrip(one_page_pdf: bytes) -> None:
 def test_metadata_unknown_key_raises(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"format": "PDF 2.0"})
+        doc.set_metadata({"format": "PDF 2.0"})  # type: ignore[typeddict-unknown-key]
 
 
 def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})
+        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})  # type: ignore[typeddict-unknown-key]
     assert doc.metadata["title"] == ""
 
     with pytest.raises(TypeError, match="must be a string"):
-        doc.set_metadata({"author": "変更されない", "title": 42})  # type: ignore[dict-item]
+        doc.set_metadata({"author": "変更されない", "title": 42})  # type: ignore[typeddict-item]
     assert doc.metadata["author"] == ""
 
 

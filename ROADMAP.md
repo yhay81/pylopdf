@@ -321,8 +321,10 @@ than stopping at a nominal parity checklist.
       CPython 3.14.6t. CI runs the full suite on 3.14t, and release CI builds
       cp314t alongside abi3 on all five targets. Local Windows artifacts are
       4.43 MB for cp314t and 4.44 MB for abi3.
-- Replace public `dict[str, Any]` shapes with documented `TypedDict` contracts
-  where doing so remains compatible with pymupdf-style data.
+- [x] Replace public `dict[str, Any]` shapes with documented, runtime-importable
+  `TypedDict` contracts while preserving pymupdf-style dictionaries. This also
+  covers metadata inputs/results and promotes word/block/form-kind aliases to
+  public runtime types.
 - Continue the optional OCR track below if rten execution, model packaging,
   memory use, and end-to-end accuracy all pass their gates.
 

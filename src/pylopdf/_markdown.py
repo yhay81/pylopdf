@@ -24,7 +24,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Any
+    from pylopdf import TextLine, TextPage, TextSpan
 
 #: Minimum size ratio relative to body text for a heading.
 _HEADING_RATIO = 1.15
@@ -42,7 +42,7 @@ def _round_size(size: float) -> float:
     return round(size, 1)
 
 
-def collect_sizes(layouts: list[dict[str, Any]]) -> Counter[float]:
+def collect_sizes(layouts: list[TextPage]) -> Counter[float]:
     """Count characters by rounded font size across page dicts."""
     counter: Counter[float] = Counter()
     for layout in layouts:
@@ -89,14 +89,14 @@ _ITALIC = 2
 _BOLD = 16
 
 
-def _line_text(line: dict[str, Any]) -> str:
+def _line_text(line: TextLine) -> str:
     return "".join(span["text"] for span in line["spans"]).strip()
 
 
-def _span_markdown(span: dict[str, Any]) -> str:
+def _span_markdown(span: TextSpan) -> str:
     """Convert a span to emphasized Markdown, keeping outer whitespace outside."""
     text: str = span["text"]
-    flags = int(span.get("flags", 0))
+    flags = span["flags"]
     bold = bool(flags & _BOLD)
     italic = bool(flags & _ITALIC)
     core = text.strip()
@@ -108,12 +108,12 @@ def _span_markdown(span: dict[str, Any]) -> str:
     return f"{lead}{marker}{core}{marker}{trail}"
 
 
-def _line_markdown(line: dict[str, Any]) -> str:
+def _line_markdown(line: TextLine) -> str:
     """Build a body line with bold and italic markers."""
     return "".join(_span_markdown(span) for span in line["spans"]).strip()
 
 
-def _line_size(line: dict[str, Any]) -> float:
+def _line_size(line: TextLine) -> float:
     """Return the line's representative size by character count."""
     sizes: Counter[float] = Counter()
     for span in line["spans"]:
@@ -133,7 +133,7 @@ def _normalize_list_item(text: str) -> str | None:
     return None
 
 
-def page_to_markdown(layout: dict[str, Any], levels: dict[float, int]) -> str:
+def page_to_markdown(layout: TextPage, levels: dict[float, int]) -> str:
     """Convert one page's dict layout to Markdown."""
     # (kind, text): h=heading, li=list item, p=paragraph.
     entries: list[tuple[str, str]] = []

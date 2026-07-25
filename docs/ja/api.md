@@ -86,7 +86,17 @@ resourceは追加されません。
 | `peek_metadata(path_or_stream, password=)` | 全体パース無しの高速メタデータ読み取り |
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
+| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
+| `ImageInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | page・form の辞書形式結果を表す TypedDict |
+| `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
+| `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
+| `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるtuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠 |
 | `PdfError` / `PasswordError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層（ValueError 互換の基底） |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | インタープリタ警告（フォント未解決・画像デコード失敗） |
+
+`TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。
+`LinkInfo`では`kind`と`from`が必須で、遷移先ごとのキーは任意です。
+`PageLabelSpec`では`startpage`が必須で、`style`、`prefix`、`firstpagenum`の
+runtime既定値は変わりません。

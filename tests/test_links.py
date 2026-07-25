@@ -91,5 +91,5 @@ def test_usrguide_named_destinations() -> None:
     first = goto[0]
     assert first["nameddest"] == "section.1"
     assert first["page"] == 1
-    assert all(link["uri"].startswith(("http://", "https://")) for link in uri)
+    assert all(link["uri"] is not None and link["uri"].startswith(("http://", "https://")) for link in uri)
     doc.close()
