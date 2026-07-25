@@ -37,10 +37,10 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
 `pylopdf.peek_metadata(path)` reads metadata and page count without parsing the
 whole file — useful when scanning large collections. Pass
-`max_decompressed_size=` when processing untrusted files (decompression-bomb
-protection). The limit is checked per stream at open time, including page
-content and decoded image size; streams whose filter chain cannot be bounded
-safely are rejected while the limit is enabled.
+`limits=pylopdf.DocumentLimits.web()` when processing untrusted files. It
+bounds file, structure, decompression, and interpreted text; inspect
+`doc.complexity` before heavy work and catch `LimitError` for controlled
+rejection. See [Security](security.md#untrusted-pdfs) for every budget.
 
 ## Pages, text, search { #pages-text-search }
 

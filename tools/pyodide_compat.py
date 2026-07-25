@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import gc
 import hashlib
 import json
+import platform
+import statistics
 import struct
 import sys
 import tempfile
+import time
+import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -140,12 +145,106 @@ def _build_multicolumn_pdf() -> bytes:
     )
 
 
-def _fixture_results(root: Path) -> dict[str, Any]:
+def _build_limited_content_pdf(content: bytes, filter_name: str) -> bytes:
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+            4: (f"<< /Length {len(content)} /Filter /{filter_name} >>\nstream\n".encode() + content + b"\nendstream"),
+        }
+    )
+
+
+def _build_reference_cycle_pdf() -> bytes:
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /Cycle 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Next 5 0 R >>",
+            5: "<< /Next 4 0 R >>",
+        }
+    )
+
+
+def _limit_results(
+    pdf20_bytes: bytes,
+    form_bytes: bytes,
+    pdf20_complexity: dict[str, int],
+    bounded_scan_complexity: dict[str, int],
+) -> dict[str, Any]:
+    import pylopdf  # noqa: PLC0415
+
+    def limit_code(callback: Callable[[], object]) -> str:
+        try:
+            callback()
+        except pylopdf.LimitError as error:
+            return error.code
+        msg = "limited operation unexpectedly succeeded"
+        raise RuntimeError(msg)
+
+    compressed_bomb = _build_limited_content_pdf(
+        zlib.compress(b" " * 65_536),
+        "FlateDecode",
+    )
+    deep_object = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "[" * 12 + "0" + "]" * 12,
+        }
+    )
+    unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
+    cyclic = pylopdf.Document(
+        stream=_build_reference_cycle_pdf(),
+        limits=pylopdf.DocumentLimits(max_object_depth=16),
+    )
+    return {
+        "file_size": limit_code(
+            lambda: pylopdf.Document(
+                stream=pdf20_bytes,
+                limits=pylopdf.DocumentLimits(max_file_size=len(pdf20_bytes) - 1),
+            )
+        ),
+        "page_count": limit_code(
+            lambda: pylopdf.Document(
+                stream=form_bytes,
+                limits=pylopdf.DocumentLimits(max_pages=1),
+            )
+        ),
+        "decompressed_size": limit_code(
+            lambda: pylopdf.Document(
+                stream=compressed_bomb,
+                limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
+            )
+        ),
+        "object_depth": limit_code(
+            lambda: pylopdf.Document(
+                stream=deep_object,
+                limits=pylopdf.DocumentLimits(max_object_depth=4),
+            )
+        ),
+        "unverifiable": limit_code(
+            lambda: pylopdf.Document(
+                stream=unverifiable,
+                limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
+            )
+        ),
+        "reference_cycle_pages": cyclic.page_count,
+        "pdf20_complexity": pdf20_complexity,
+        "bounded_scan_complexity": bounded_scan_complexity,
+    }
+
+
+def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415 - list-assets must work without an installed extension.
 
     real_world = root / "tests/assets/real_world"
 
-    pdf20 = pylopdf.Document(stream=(real_world / "pdf20-simple.pdf").read_bytes())
+    pdf20_bytes = (real_world / "pdf20-simple.pdf").read_bytes()
+    pdf20 = pylopdf.Document(stream=pdf20_bytes)
     pdf20_text = pdf20.get_page_text(0)
     pdf20_markdown = pdf20.to_markdown()
     _require(pdf20.page_count == 1, "PDF 2.0 fixture has the wrong page count")
@@ -159,7 +258,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:
     _require(_CASE_LAW in mhlw_text[0], "MHLW fixture lost embedded Japanese text")
     _require(_CASE_LAW in mhlw_markdown, "MHLW Markdown lost embedded Japanese text")
 
-    form = pylopdf.Document(stream=(real_world / "f1040.pdf").read_bytes())
+    form_bytes = (real_world / "f1040.pdf").read_bytes()
+    form = pylopdf.Document(stream=form_bytes)
     form_text = form.get_page_text(0)
     form_markdown = form[0].to_markdown()
     form_tables = form[0].find_tables()
@@ -190,9 +290,12 @@ def _fixture_results(root: Path) -> dict[str, Any]:
         "Senate rotated reading order changed",
     )
 
-    scan = pylopdf.Document(stream=(real_world / "bunka-kokugo-series-019-p4.pdf").read_bytes())
+    scan_bytes = (real_world / "bunka-kokugo-series-019-p4.pdf").read_bytes()
+    scan = pylopdf.Document(stream=scan_bytes)
     _require(scan.page_count == 1, "Japanese scan has the wrong page count")
     _require(scan.get_page_text(0) == "", "image-only Japanese scan unexpectedly exposed text")
+    bounded_scan = pylopdf.Document(stream=scan_bytes, limits=pylopdf.DocumentLimits.web())
+    _require(bounded_scan.page_count == 1, "web limits rejected a representative scan")
 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
     encrypted = pylopdf.Document(stream=encrypted_bytes)
@@ -239,6 +342,12 @@ def _fixture_results(root: Path) -> dict[str, Any]:
             "wrong_password_exception": authentication_error,
             "decrypted_pages": decrypted.page_count,
         },
+        "limits": _limit_results(
+            pdf20_bytes,
+            form_bytes,
+            pdf20.complexity,
+            bounded_scan.complexity,
+        ),
     }
 
 
@@ -267,6 +376,17 @@ def _layout_results() -> dict[str, Any]:
         "A footer spanning both columns",
     ]
     _require(column_lines == expected_columns, "multicolumn reading order changed")
+    limited_columns = pylopdf.Document(
+        stream=_build_multicolumn_pdf(),
+        limits=pylopdf.DocumentLimits(max_text_size=8),
+    )
+    try:
+        limited_columns[0].get_text()
+    except pylopdf.LimitError as error:
+        text_limit_code = error.code
+    else:
+        msg = "text budget unexpectedly admitted the multicolumn fixture"
+        raise RuntimeError(msg)
 
     return {
         "vertical_cjk": {
@@ -278,6 +398,7 @@ def _layout_results() -> dict[str, Any]:
             "lines": column_lines,
             "word_count": len(columns.get_text("words")),
         },
+        "text_limit_code": text_limit_code,
     }
 
 
@@ -370,13 +491,99 @@ def collect_results(root: Path) -> dict[str, Any]:
         path = root / relative_path
         _require(path.is_file(), f"compatibility asset is missing: {path}")
     return {
-        "schema": 1,
+        "schema": 2,
         "pylopdf_version": pylopdf.__version__,
         "fixtures": _fixture_results(root),
         "layout": _layout_results(),
         "generation": _generation_results(root),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
+        },
+    }
+
+
+def _median_ms(callback: Callable[[], object], repeats: int) -> float:
+    callback()
+    samples = []
+    for _ in range(repeats):
+        gc.collect()
+        start = time.perf_counter()
+        callback()
+        samples.append((time.perf_counter() - start) * 1000)
+    return round(statistics.median(samples), 3)
+
+
+def _peak_rss_bytes() -> int | None:
+    if sys.platform == "emscripten":
+        return None
+    try:
+        import resource  # noqa: PLC0415
+    except ImportError:
+        return None
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(peak if sys.platform == "darwin" else peak * 1024)
+
+
+def benchmark_limits(root: Path, repeats: int = 5) -> dict[str, Any]:
+    """Measure bounded open/extract/rejection costs on native Python or Wasm."""
+    import pylopdf  # noqa: PLC0415
+
+    root = root.resolve()
+    real_world = root / "tests/assets/real_world"
+    form = (real_world / "f1040.pdf").read_bytes()
+    scan = (real_world / "bunka-kokugo-series-019-p4.pdf").read_bytes()
+    pdf20 = (real_world / "pdf20-simple.pdf").read_bytes()
+    limits = pylopdf.DocumentLimits.web()
+
+    def bounded_open(data: bytes) -> None:
+        pylopdf.Document(stream=data, limits=limits).close()
+
+    def bounded_extract() -> None:
+        with pylopdf.Document(stream=form, limits=limits) as document:
+            document.get_page_text(0)
+
+    def reject_file_size() -> None:
+        try:
+            pylopdf.Document(
+                stream=pdf20,
+                limits=pylopdf.DocumentLimits(max_file_size=len(pdf20) - 1),
+            )
+        except pylopdf.LimitError as error:
+            _require(error.code == "file_size", "file rejection returned the wrong code")
+            return
+        msg = "file-size rejection unexpectedly succeeded"
+        raise RuntimeError(msg)
+
+    def reject_page_count() -> None:
+        try:
+            pylopdf.Document(
+                stream=form,
+                limits=pylopdf.DocumentLimits(max_pages=1),
+            )
+        except pylopdf.LimitError as error:
+            _require(error.code == "page_count", "page rejection returned the wrong code")
+            return
+        msg = "page-count rejection unexpectedly succeeded"
+        raise RuntimeError(msg)
+
+    timings = {
+        "open_form": _median_ms(lambda: bounded_open(form), repeats),
+        "open_scan": _median_ms(lambda: bounded_open(scan), repeats),
+        "open_and_extract_form_page_0": _median_ms(bounded_extract, repeats),
+        "reject_file_size": _median_ms(reject_file_size, repeats),
+        "reject_page_count": _median_ms(reject_page_count, repeats),
+    }
+    return {
+        "schema": 1,
+        "runtime": sys.platform,
+        "python": platform.python_version(),
+        "repeats": repeats,
+        "median_ms": timings,
+        "process_peak_rss_bytes": _peak_rss_bytes(),
+        "input_bytes": {
+            "f1040.pdf": len(form),
+            "bunka-kokugo-series-019-p4.pdf": len(scan),
+            "pdf20-simple.pdf": len(pdf20),
         },
     }
 
@@ -409,18 +616,41 @@ def main() -> None:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--benchmark-output", type=Path)
+    parser.add_argument("--benchmark-only", action="store_true")
     args = parser.parse_args()
     if args.list_assets:
         sys.stdout.write(json.dumps(_ASSETS))
         return
     if args.root is None:
         parser.error("--root is required unless --list-assets is used")
+    if args.benchmark_only:
+        if args.benchmark_output is None:
+            parser.error("--benchmark-only requires --benchmark-output")
+        benchmark = json.dumps(
+            benchmark_limits(args.root),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        args.benchmark_output.parent.mkdir(parents=True, exist_ok=True)
+        args.benchmark_output.write_text(f"{benchmark}\n", encoding="utf-8")
+        return
     result = run_suite(args.root, args.baseline)
     if args.output is None:
         sys.stdout.write(f"{result}\n")
     else:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(f"{result}\n", encoding="utf-8")
+    if args.benchmark_output is not None:
+        benchmark = json.dumps(
+            benchmark_limits(args.root),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        args.benchmark_output.parent.mkdir(parents=True, exist_ok=True)
+        args.benchmark_output.write_text(f"{benchmark}\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

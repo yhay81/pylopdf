@@ -18,22 +18,63 @@ description: サポート対象、脆弱性の非公開報告、信頼できな�
 pylopdfはRust製で必須Python依存もありませんが、悪意あるPDF入力の解析には
 本質的なリスクがあります。
 
-!!! warning "展開サイズの上限を明示する"
-    `pylopdf.open()`へ`max_decompressed_size=`を渡してください。レンダラが遅延展開する
-    ページ内容も含め、読み取り可能なすべてのストリームをDocument返却前に検査します。
+!!! warning "資源ポリシーを一式指定する"
+    `pylopdf.open()`へ`limits=pylopdf.DocumentLimits.web()`を渡してください。
+    メモリに制約のあるWeb workerやqueue workerでユーザー入力を扱うための、
+    保守的な初期値です。
 
 ```python
 import pylopdf
 
-with pylopdf.open("upload.pdf", max_decompressed_size=128 * 1024 * 1024) as doc:
-    preview = doc[0].get_pixmap(dpi=144)
+try:
+    with pylopdf.open(
+        "upload.pdf",
+        limits=pylopdf.DocumentLimits.web(),
+    ) as doc:
+        facts = doc.complexity
+        preview = doc[0].get_pixmap(dpi=144)
+except pylopdf.LimitError as error:
+    reject_upload(error.code)
 ```
 
-- 画像ストリームは展開後のRGBAサイズで制限されます。
-- 出力を安全に上限計算できないフィルタチェーンは、制限有効時に拒否されます。
+Webプロファイルは現在、次の上限を独立に適用します。
+
+| 資源 | 上限 |
+|---|---:|
+| 入力ファイル | 10 MiB |
+| ページ数 | 200 |
+| 間接オブジェクト数 | 100,000 |
+| 画像のRGBA見積りを含む個々の展開ストリーム | 64 MiB |
+| 個々のページ内容ストリーム | 10 MiB |
+| ストリームの累積展開／見積りbyte | 128 MiB |
+| 直接array／dictionaryの入れ子 | 64 |
+| 解釈済みページ全体のUTF-8 glyph payload | 1 MiB |
+
+ワークロードに合わせる場合は`DocumentLimits(...)`を直接作成します。`None`以外は
+正の整数でなければなりません。従来の`max_decompressed_size=`はストリーム単位の
+短縮指定として残りますが、`limits=`とは同時指定できません。
+
+`LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
+`page_count`、`object_count`、`object_depth`、`decompressed_size`、
+`page_content_size`、`total_decompressed_size`、`text_size`、
+`decompression_unverifiable`のいずれかです。同じ値を`error.args[0]`でも取得できます。
+安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
+
+`doc.complexity`はstreamを展開せずrendererも呼ばずに、ページ数、object数、
+stream数、圧縮状態のstream byte数、直接objectの最大深度を返します。重い抽出へ
+進む前のroutingに利用できます。構造・展開上限は開いたsourceを検査するため、
+生成物が別のtrust boundaryを越えるときは同じポリシーで開き直してください。
+
 - レンダリングは1ページ64メガピクセルまでです。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
+- `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
+  並列呼び出しを重ねないでください。
+- CPU deadlineはWorker、process、container側で設定してください。資源上限は
+  文書化したallocationと出力量を抑えますが、実行中のparserやinterpreterを
+  wall-clock時間で中断する機能ではありません。
 - 可能なら、信頼できないファイルの一括処理はsandboxやcontainer内で行ってください。
+  nativeとPyodideのCIは同じhostile-input回帰契約を共有し、定期Atheris fuzzingは
+  壊れたxref、cycle、深いobject、broken stream、圧縮bombをseedにします。
 
 ## 依存関係の監査 { #dependency-auditing }
 

@@ -11,13 +11,14 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None)` —
+`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
 `pylopdf.open()`是别名构造函数，并支持上下文管理器。
 
 | 成员 | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / 迭代 | `Page`视图（支持负数；结构变更后需重新获取） |
 | `page_count` / `len(doc)` | 页数 |
+| `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 加密状态与解锁（兼容pymupdf语义） |
 | `metadata` / `set_metadata(dict)` | Info字典（支持UTF-16BE） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
@@ -105,10 +106,11 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DrawingItem` | 表示line/cubic绘制命令的类型别名 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
+| `DocumentLimits` / `DocumentComplexity` | 不受信任输入的不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
-| `PdfError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级（基类兼容ValueError） |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()` / 仅限PNG的`save(path)`；cp314t还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 解释器警告（字体解析、图像解码） |
 

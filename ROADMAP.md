@@ -630,8 +630,22 @@ rather than waiting automatically for v1.x.
   pages distinguish the tested Cloudflare path, runtime-level Pyodide
   compatibility, unsupported direct PyPI installation through Pyodide 0.28.3's
   pre-PEP-783 `micropip`, and out-of-scope OCR/fallback-font behavior.
-  Resource-limit tests, size investigation, and installation workflows continue
-  in #21 through #23.
+- [x] Establish a shared untrusted-PDF resource policy (2026-07-26).
+  `DocumentLimits` bounds file bytes, pages, indirect objects, direct nesting,
+  per-stream and cumulative decompression, page-content decompression, and
+  cumulative interpreted glyph bytes. `DocumentLimits.web()` encodes the
+  initial bounded-worker profile without rejecting a representative scanned
+  page under the page-content budget. `LimitError.code` gives stable
+  machine-readable rejection categories, while `Document.complexity` exposes
+  cheap facts before rendering or extraction. Native and Pyodide share
+  file/page/decompression/depth/unverifiable-filter/text regressions, reference
+  cycles, representative vector and scan inputs, and a reproducible timing
+  trend recorded in `bench/results/limits-latest.md`. Scheduled Atheris fuzzing
+  generates bad xrefs, broken streams, deep direct objects, cycles, excessive
+  pages, and Flate/RunLength bombs. CPU
+  deadlines remain an explicit host responsibility; application-level
+  parallelism must retain the library's bounded admissions.
+  Size investigation and installation workflows continue in #22 and #23.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four

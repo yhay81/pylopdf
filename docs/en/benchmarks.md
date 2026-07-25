@@ -117,10 +117,17 @@ recorded alongside the files.
 ```bash
 uv sync --all-extras --group bench
 uv run python bench/run.py
+uv run python tools/pyodide_compat.py --root . --benchmark-only \
+  --benchmark-output .tmp/limits-benchmark.json
 # With a free-threaded CPython 3.14 interpreter:
 python3.14t bench/free_threaded.py
 ```
 
 The generated source report is committed at
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md).
+The native/Pyodide resource-policy baseline is committed separately at
+[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md).
+The second command measures bounded open/extract and controlled rejection.
+CI runs the same cases inside Pyodide and records Wasm linear-memory growth;
+those timing and memory values are trends, not native/Wasm performance claims.
 When quoting a number, include the environment and corpus.

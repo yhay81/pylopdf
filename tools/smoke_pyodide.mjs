@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Install a local wheel into Pyodide and run the shared compatibility suite.
 
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -89,7 +89,43 @@ run_suite(
 `);
 
 const parsed = JSON.parse(result);
+const wasmBytesBeforeBenchmark =
+  pyodide._module?.HEAP8?.buffer?.byteLength ?? null;
+const benchmark = await pyodide.runPythonAsync(`
+import json
+from pathlib import Path
+
+from pyodide_compat import benchmark_limits
+
+json.dumps(
+    benchmark_limits(Path("${compatibilityRoot}")),
+    sort_keys=True,
+    separators=(",", ":"),
+)
+`);
+const wasmBytesAfterBenchmark =
+  pyodide._module?.HEAP8?.buffer?.byteLength ?? null;
+const benchmarkRecord = {
+  ...JSON.parse(benchmark),
+  wasm_linear_memory_bytes: {
+    before: wasmBytesBeforeBenchmark,
+    after: wasmBytesAfterBenchmark,
+  },
+};
+const benchmarkOutput = process.env.PYLOPDF_PYODIDE_BENCHMARK_OUTPUT;
+if (benchmarkOutput) {
+  const resolvedOutput = path.resolve(benchmarkOutput);
+  await mkdir(path.dirname(resolvedOutput), { recursive: true });
+  await writeFile(
+    resolvedOutput,
+    `${JSON.stringify(benchmarkRecord)}\n`,
+    "utf8",
+  );
+}
 process.stdout.write(
-  `Pyodide compatibility suite passed: pylopdf ${parsed.pylopdf_version}, schema ${parsed.schema}\n`,
+  `Pyodide compatibility suite passed: pylopdf ${parsed.pylopdf_version}, schema ${parsed.schema}\n` +
+    `Pyodide limit benchmark: ${JSON.stringify(benchmarkRecord)}\n` +
+    `Pyodide linear memory bytes: before=${wasmBytesBeforeBenchmark}, after=${wasmBytesAfterBenchmark}\n`,
 );
 result.destroy?.();
+benchmark.destroy?.();

@@ -339,11 +339,12 @@ signed_pdf: bytes = out.getvalue()
 
 | Method / property | Description |
 |---|---|
-| `Document(filename=None, stream=None, password=None, max_decompressed_size=None)` | Open from a path or bytes; empty document if both are None. `max_decompressed_size` validates each stream's decoded size at open time |
+| `Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` | Open from a path or bytes; empty document if both are None. Use `limits=DocumentLimits.web()` for a complete untrusted-upload policy; `max_decompressed_size` remains the compatible per-stream shorthand |
 | `doc[i]` / `load_page(pno)` / `for page in doc` | Get a Page view (negative indices count from the end; re-fetch after structural changes) |
 | `needs_pass` / `is_encrypted` | Encryption status (pymupdf-compatible semantics) |
 | `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
+| `limits` / `complexity` | Immutable open-time resource policy / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
 | `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
 | `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |

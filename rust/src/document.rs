@@ -4,6 +4,7 @@
 //! `pylopdf.Document` provides the ergonomic API.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
@@ -15,8 +16,8 @@ use hayro::{RenderCache, RenderSettings, render};
 use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
-    Bookmark, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata, SaveOptions,
-    Stream, StringFormat, decode_text_string, dictionary, text_string,
+    Bookmark, DecompressError, Dictionary, Document, LoadOptions, Object, ObjectId, PdfMetadata,
+    SaveOptions, Stream, StringFormat, decode_text_string, dictionary, text_string,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -174,6 +175,28 @@ pyo3::create_exception!(
     PdfError,
     "A password is required or incorrect."
 );
+pyo3::create_exception!(
+    pylopdf,
+    LimitError,
+    PdfError,
+    "A configured resource limit was exceeded."
+);
+
+/// Resource limits accepted by the private Rust loading boundary.
+#[derive(Clone, Copy, Default)]
+struct DocumentLimits {
+    max_file_size: Option<usize>,
+    max_pages: Option<usize>,
+    max_objects: Option<usize>,
+    max_decompressed_size: Option<usize>,
+    max_page_content_size: Option<usize>,
+    max_total_decompressed_size: Option<usize>,
+    max_object_depth: Option<usize>,
+    max_text_size: Option<usize>,
+}
+
+/// Cheap structural facts that require neither stream decoding nor rendering.
+type ComplexityTuple = (usize, usize, usize, u64, usize);
 
 /// Page dictionary keys that may be inherited from parent nodes.
 const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
@@ -200,6 +223,11 @@ fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
         lopdf::Error::Decryption(_) | lopdf::Error::InvalidPassword
     ) {
         PasswordError::new_err(message)
+    } else if matches!(
+        e,
+        lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
+    ) {
+        limit_err("decompressed_size", message)
     } else {
         PdfError::new_err(message)
     }
@@ -208,6 +236,67 @@ fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
 /// Convert a lopdf error to a Python exception.
 fn to_py_err(e: lopdf::Error) -> PyErr {
     lopdf_err(None, &e)
+}
+
+/// Convert a load error while retaining which configured bound protected eager
+/// object/xref stream decoding.
+fn load_err(prefix: Option<&str>, error: &lopdf::Error, limit_code: &'static str) -> PyErr {
+    if matches!(
+        error,
+        lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
+    ) {
+        let message = match prefix {
+            Some(prefix) => format!("{prefix}: {error}"),
+            None => error.to_string(),
+        };
+        limit_err(limit_code, message)
+    } else {
+        lopdf_err(prefix, error)
+    }
+}
+
+/// Construct a machine-readable resource-limit exception.
+///
+/// The first exception argument is a stable code; Python supplies a friendly
+/// `str(error)` and `error.code` view over the two arguments.
+fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
+    LimitError::new_err((code, message.into()))
+}
+
+/// Read a path without ever admitting more than one byte beyond its file budget.
+fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
+    let Some(limit) = max_file_size else {
+        return std::fs::read(path)
+            .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")));
+    };
+    let file = std::fs::File::open(path)
+        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?;
+    let metadata_size = file
+        .metadata()
+        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?
+        .len();
+    if metadata_size > limit as u64 {
+        return Err(limit_err(
+            "file_size",
+            format!("PDF file is {metadata_size} bytes, exceeding the configured limit of {limit}"),
+        ));
+    }
+    let read_limit = limit.saturating_add(1);
+    let mut data = Vec::with_capacity(
+        usize::try_from(metadata_size)
+            .unwrap_or(limit)
+            .min(read_limit),
+    );
+    file.take(read_limit as u64)
+        .read_to_end(&mut data)
+        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?;
+    if data.len() > limit {
+        return Err(limit_err(
+            "file_size",
+            format!("PDF file exceeds the configured limit of {limit} bytes while being read"),
+        ));
+    }
+    Ok(data)
 }
 
 /// Safely convert f64 to PDF real representation (`lopdf::Object::Real = f32`).
@@ -623,7 +712,7 @@ fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
 }
 
 /// Validate RunLengthDecode output size without allocating the output.
-fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
+fn run_length_size(data: &[u8], max_output: usize, limit_code: &'static str) -> PyResult<usize> {
     let mut pos = 0usize;
     let mut output_len = 0usize;
     while pos < data.len() {
@@ -639,7 +728,10 @@ fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
                 }
                 pos += count;
                 output_len = output_len.checked_add(count).ok_or_else(|| {
-                    PdfError::new_err("RunLengthDecode decompressed size exceeds the limit")
+                    limit_err(
+                        limit_code,
+                        "RunLengthDecode decompressed size exceeds the configured limit",
+                    )
                 })?;
             }
             128 => break,
@@ -653,21 +745,27 @@ fn validate_run_length_size(data: &[u8], max_output: usize) -> PyResult<()> {
                 output_len = output_len
                     .checked_add(257 - usize::from(length))
                     .ok_or_else(|| {
-                        PdfError::new_err("RunLengthDecode decompressed size exceeds the limit")
+                        limit_err(
+                            limit_code,
+                            "RunLengthDecode decompressed size exceeds the configured limit",
+                        )
                     })?;
             }
         }
         if output_len > max_output {
-            return Err(PdfError::new_err(format!(
-                "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
-            )));
+            return Err(limit_err(
+                limit_code,
+                format!(
+                    "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
+                ),
+            ));
         }
     }
-    Ok(())
+    Ok(output_len)
 }
 
 /// Validate ASCIIHexDecode output size without allocating the output.
-fn validate_ascii_hex_size(data: &[u8], max_output: usize) -> PyResult<()> {
+fn ascii_hex_size(data: &[u8], max_output: usize, limit_code: &'static str) -> PyResult<usize> {
     let digits = data
         .iter()
         .take_while(|&&byte| byte != b'>')
@@ -675,11 +773,14 @@ fn validate_ascii_hex_size(data: &[u8], max_output: usize) -> PyResult<()> {
         .count();
     let output_len = digits.div_ceil(2);
     if output_len > max_output {
-        return Err(PdfError::new_err(format!(
-            "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
-        )));
+        return Err(limit_err(
+            limit_code,
+            format!(
+                "decompressed output exceeded the {max_output}-byte limit (possible decompression bomb)"
+            ),
+        ));
     }
-    Ok(())
+    Ok(output_len)
 }
 
 /// Normalize PDF-spec filter abbreviations to canonical names.
@@ -696,12 +797,161 @@ fn canonical_filter_name(filter: &[u8]) -> &[u8] {
     }
 }
 
-/// Prevalidate decompression limits at load, including hayro-lazy streams.
+/// Return the maximum direct array/dictionary nesting in one object.
 ///
-/// Decode Flate/LZW/ASCII85 with lopdf's bound; scan RunLength/ASCIIHex sizes
-/// only. Bound image-decoder DCT/JPX/JBIG2/CCITT buffers as Width×Height×4.
-/// Reject filter chains that cannot be bounded safely when a limit is set.
-fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<()> {
+/// Indirect references are leaves here. This makes cycles harmless while
+/// bounding the recursive object shapes consumed by downstream libraries.
+fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> usize {
+    enum Pending<'a> {
+        Visit(&'a Object, usize),
+        ArrayTail(&'a [Object], usize),
+    }
+
+    let mut maximum = 1usize;
+    let mut pending = vec![Pending::Visit(object, 1usize)];
+    while let Some(work) = pending.pop() {
+        let (current, depth) = match work {
+            Pending::Visit(current, depth) => (current, depth),
+            Pending::ArrayTail(items, depth) => {
+                let Some((current, remaining)) = items.split_first() else {
+                    continue;
+                };
+                if !remaining.is_empty() {
+                    pending.push(Pending::ArrayTail(remaining, depth));
+                }
+                (current, depth)
+            }
+        };
+        maximum = maximum.max(depth);
+        if stop_above.is_some_and(|limit| maximum > limit) {
+            return maximum;
+        }
+        let child_depth = depth.saturating_add(1);
+        match current {
+            Object::Array(items) if !items.is_empty() => {
+                pending.push(Pending::ArrayTail(items, child_depth));
+            }
+            Object::Dictionary(dict) => {
+                pending.extend(
+                    dict.iter()
+                        .map(|(_, item)| Pending::Visit(item, child_depth)),
+                );
+            }
+            Object::Stream(stream) => {
+                pending.extend(
+                    stream
+                        .dict
+                        .iter()
+                        .map(|(_, item)| Pending::Visit(item, child_depth)),
+                );
+            }
+            _ => {}
+        }
+    }
+    maximum
+}
+
+/// Collect cheap structural complexity without decoding streams.
+fn document_complexity(doc: &Document) -> ComplexityTuple {
+    let page_count = doc.get_pages().len();
+    let object_count = doc.objects.len();
+    let mut stream_count = 0usize;
+    let mut encoded_stream_bytes = 0u64;
+    let mut max_object_depth = doc
+        .trailer
+        .iter()
+        .map(|(_, object)| direct_object_depth(object, None))
+        .max()
+        .unwrap_or_default();
+    for object in doc.objects.values() {
+        max_object_depth = max_object_depth.max(direct_object_depth(object, None));
+        if let Object::Stream(stream) = object {
+            stream_count = stream_count.saturating_add(1);
+            encoded_stream_bytes = encoded_stream_bytes.saturating_add(stream.content.len() as u64);
+        }
+    }
+    (
+        page_count,
+        object_count,
+        stream_count,
+        encoded_stream_bytes,
+        max_object_depth,
+    )
+}
+
+/// Reject structural work above configured limits before rendering/extraction.
+fn validate_structural_limits(
+    doc: &Document,
+    limits: DocumentLimits,
+    validate_pages: bool,
+) -> PyResult<()> {
+    if let Some(limit) = limits.max_objects
+        && doc.objects.len() > limit
+    {
+        return Err(limit_err(
+            "object_count",
+            format!(
+                "PDF contains {} indirect objects, exceeding the configured limit of {limit}",
+                doc.objects.len()
+            ),
+        ));
+    }
+
+    if let Some(limit) = limits.max_object_depth {
+        let depth = doc
+            .trailer
+            .iter()
+            .map(|(_, object)| direct_object_depth(object, Some(limit)))
+            .chain(
+                doc.objects
+                    .values()
+                    .map(|object| direct_object_depth(object, Some(limit))),
+            )
+            .max()
+            .unwrap_or_default();
+        if depth > limit {
+            return Err(limit_err(
+                "object_depth",
+                format!(
+                    "PDF direct object nesting depth is {depth}, exceeding the configured limit of {limit}"
+                ),
+            ));
+        }
+    }
+
+    if validate_pages && limits.max_pages.is_some() {
+        let pages = doc.get_pages().len();
+        if let Some(limit) = limits.max_pages
+            && pages > limit
+        {
+            return Err(limit_err(
+                "page_count",
+                format!("PDF contains {pages} pages, exceeding the configured limit of {limit}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Map bounded decoder failures to the applicable stable limit code.
+fn decompression_err(error: lopdf::Error, code: &'static str) -> PyErr {
+    if matches!(
+        error,
+        lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
+    ) {
+        limit_err(code, error.to_string())
+    } else {
+        to_py_err(error)
+    }
+}
+
+/// Measure one decoded stream with bounded intermediate allocations.
+fn decoded_stream_size(
+    doc: &Document,
+    stream: &Stream,
+    max_output: usize,
+    limit_code: &'static str,
+) -> PyResult<usize> {
     const LOPDF_FILTERS: [&[u8]; 3] = [b"FlateDecode", b"LZWDecode", b"ASCII85Decode"];
     const IMAGE_FILTERS: [&[u8]; 4] = [
         b"DCTDecode",
@@ -710,110 +960,214 @@ fn validate_decompression_limits(doc: &Document, max_output: usize) -> PyResult<
         b"CCITTFaxDecode",
     ];
 
-    for object in doc.objects.values() {
-        let Object::Stream(stream) = object else {
-            continue;
-        };
-        if !stream.dict.has(b"Filter") {
-            stream
-                .get_plain_content_with_limit(max_output)
-                .map_err(to_py_err)?;
-            continue;
+    if !stream.dict.has(b"Filter") {
+        if stream.content.len() > max_output {
+            return Err(limit_err(
+                limit_code,
+                format!("decompressed output exceeded the {max_output}-byte limit"),
+            ));
         }
-        let raw_filters = stream.filters().map_err(to_py_err)?;
-        let filters: Vec<&[u8]> = raw_filters
-            .iter()
-            .map(|filter| canonical_filter_name(filter))
-            .collect();
-        if filters.is_empty() {
-            stream
-                .get_plain_content_with_limit(max_output)
-                .map_err(to_py_err)?;
-            continue;
+        return Ok(stream.content.len());
+    }
+    let raw_filters = stream.filters().map_err(to_py_err)?;
+    let filters: Vec<&[u8]> = raw_filters
+        .iter()
+        .map(|filter| canonical_filter_name(filter))
+        .collect();
+    if filters.is_empty() {
+        if stream.content.len() > max_output {
+            return Err(limit_err(
+                limit_code,
+                format!("decompressed output exceeded the {max_output}-byte limit"),
+            ));
         }
-        // lopdf accepts canonical filter names only; normalize on the clone.
-        let mut checked_stream = stream.clone();
-        let normalized_filter = if filters.len() == 1 {
-            Object::Name(filters[0].to_vec())
+        return Ok(stream.content.len());
+    }
+    // lopdf accepts canonical filter names only; normalize on the clone.
+    let mut checked_stream = stream.clone();
+    let normalized_filter = |selected: &[&[u8]]| {
+        if selected.len() == 1 {
+            Object::Name(selected[0].to_vec())
         } else {
             Object::Array(
-                filters
+                selected
                     .iter()
                     .map(|filter| Object::Name(filter.to_vec()))
                     .collect(),
             )
-        };
-        checked_stream.dict.set("Filter", normalized_filter);
+        }
+    };
+    checked_stream
+        .dict
+        .set("Filter", normalized_filter(&filters));
 
-        let first_unsupported = filters
-            .iter()
-            .position(|filter| !LOPDF_FILTERS.contains(filter));
-        match first_unsupported {
-            None => {
+    let first_unsupported = filters
+        .iter()
+        .position(|filter| !LOPDF_FILTERS.contains(filter));
+    match first_unsupported {
+        None => checked_stream
+            .get_plain_content_with_limit(max_output)
+            .map(|content| content.len())
+            .map_err(|error| decompression_err(error, limit_code)),
+        Some(index)
+            if IMAGE_FILTERS.contains(&filters[index])
+                && index + 1 == filters.len()
+                && filters[..index]
+                    .iter()
+                    .all(|filter| LOPDF_FILTERS.contains(filter)) =>
+        {
+            // Bound and measure any compression layers before the image codec.
+            let prefix_size = if index == 0 {
+                0
+            } else {
+                checked_stream
+                    .dict
+                    .set("Filter", normalized_filter(&filters[..index]));
                 checked_stream
                     .get_plain_content_with_limit(max_output)
-                    .map_err(to_py_err)?;
-            }
-            Some(index)
-                if IMAGE_FILTERS.contains(&filters[index])
-                    && index + 1 == filters.len()
-                    && filters[..index]
-                        .iter()
-                        .all(|filter| LOPDF_FILTERS.contains(filter)) =>
-            {
-                // Decode compression layers before image filters with lopdf's bound.
-                if index > 0 {
-                    match checked_stream.get_plain_content_with_limit(max_output) {
-                        Err(lopdf::Error::Unimplemented(_)) => {}
-                        result => {
-                            result.map_err(to_py_err)?;
-                        }
-                    }
-                }
-                let width = stream
-                    .dict
-                    .get(b"Width")
-                    .ok()
-                    .and_then(|value| resolve_i64(doc, value));
-                let height = stream
-                    .dict
-                    .get(b"Height")
-                    .ok()
-                    .and_then(|value| resolve_i64(doc, value));
-                let (Some(width), Some(height)) = (width, height) else {
-                    return Err(PdfError::new_err(
-                        "cannot resolve the image stream's Width/Height, so the decompression limit cannot be verified",
-                    ));
-                };
-                let decoded_size = u64::try_from(width)
-                    .ok()
-                    .and_then(|width| {
-                        u64::try_from(height)
-                            .ok()
-                            .and_then(|height| width.checked_mul(height))
-                    })
-                    .and_then(|pixels| pixels.checked_mul(4))
-                    .ok_or_else(|| {
-                        PdfError::new_err("image decompressed size exceeds the limit")
-                    })?;
-                if decoded_size > max_output as u64 {
-                    return Err(PdfError::new_err(format!(
+                    .map(|content| content.len())
+                    .map_err(|error| decompression_err(error, limit_code))?
+            };
+            let width = stream
+                .dict
+                .get(b"Width")
+                .ok()
+                .and_then(|value| resolve_i64(doc, value));
+            let height = stream
+                .dict
+                .get(b"Height")
+                .ok()
+                .and_then(|value| resolve_i64(doc, value));
+            let (Some(width), Some(height)) = (width, height) else {
+                return Err(limit_err(
+                    "decompression_unverifiable",
+                    "cannot resolve an image stream's Width/Height under the configured decompression policy",
+                ));
+            };
+            let decoded_size = u64::try_from(width)
+                .ok()
+                .and_then(|width| {
+                    u64::try_from(height)
+                        .ok()
+                        .and_then(|height| width.checked_mul(height))
+                })
+                .and_then(|pixels| pixels.checked_mul(4))
+                .and_then(|bytes| usize::try_from(bytes).ok())
+                .ok_or_else(|| {
+                    limit_err(
+                        limit_code,
+                        "image decompressed size exceeds the platform limit",
+                    )
+                })?;
+            let measured = prefix_size.max(decoded_size);
+            if measured > max_output {
+                return Err(limit_err(
+                    limit_code,
+                    format!(
                         "decompressed image output exceeded the {max_output}-byte limit (possible decompression bomb)"
-                    )));
-                }
+                    ),
+                ));
             }
-            Some(index) if filters.len() == 1 && filters[index] == b"RunLengthDecode" => {
-                validate_run_length_size(&stream.content, max_output)?;
-            }
-            Some(index) if filters.len() == 1 && filters[index] == b"ASCIIHexDecode" => {
-                validate_ascii_hex_size(&stream.content, max_output)?;
-            }
-            Some(index) => {
-                return Err(PdfError::new_err(format!(
-                    "cannot safely verify the decompression limit for a stream with filter {:?}",
-                    String::from_utf8_lossy(filters[index])
-                )));
-            }
+            Ok(measured)
+        }
+        Some(index) if filters.len() == 1 && filters[index] == b"RunLengthDecode" => {
+            run_length_size(&stream.content, max_output, limit_code)
+        }
+        Some(index) if filters.len() == 1 && filters[index] == b"ASCIIHexDecode" => {
+            ascii_hex_size(&stream.content, max_output, limit_code)
+        }
+        Some(index) => Err(limit_err(
+            "decompression_unverifiable",
+            format!(
+                "cannot safely verify a stream with filter {:?} under the configured decompression policy",
+                String::from_utf8_lossy(filters[index])
+            ),
+        )),
+    }
+}
+
+/// Prevalidate per-stream and cumulative decompression budgets at load.
+fn validate_decompression_limits(
+    doc: &Document,
+    max_output: Option<usize>,
+    max_page_content: Option<usize>,
+    max_total: Option<usize>,
+) -> PyResult<()> {
+    if max_output.is_none() && max_page_content.is_none() && max_total.is_none() {
+        return Ok(());
+    }
+    let page_content_ids: HashSet<ObjectId> = if max_page_content.is_some() {
+        doc.get_pages()
+            .values()
+            .flat_map(|page_id| doc.get_page_contents(*page_id))
+            .collect()
+    } else {
+        HashSet::new()
+    };
+    let mut total = 0usize;
+    for (object_id, object) in &doc.objects {
+        let Object::Stream(stream) = object else {
+            continue;
+        };
+        let is_page_content = page_content_ids.contains(object_id);
+        if max_output.is_none() && max_total.is_none() && !is_page_content {
+            continue;
+        }
+        let mut decode_bound = usize::MAX;
+        let mut bound_code = "decompressed_size";
+        if let Some(limit) = max_output {
+            decode_bound = limit;
+        }
+        if is_page_content
+            && let Some(limit) = max_page_content
+            && limit < decode_bound
+        {
+            decode_bound = limit;
+            bound_code = "page_content_size";
+        }
+        if let Some(limit) = max_total
+            && limit < decode_bound
+        {
+            decode_bound = limit;
+            bound_code = "total_decompressed_size";
+        }
+        let size = decoded_stream_size(doc, stream, decode_bound, bound_code)?;
+        if let Some(limit) = max_output
+            && size > limit
+        {
+            return Err(limit_err(
+                "decompressed_size",
+                format!(
+                    "stream expands to {size} bytes, exceeding the configured limit of {limit}"
+                ),
+            ));
+        }
+        if is_page_content
+            && let Some(limit) = max_page_content
+            && size > limit
+        {
+            return Err(limit_err(
+                "page_content_size",
+                format!(
+                    "page content stream expands to {size} bytes, exceeding the configured limit of {limit}"
+                ),
+            ));
+        }
+        total = total.checked_add(size).ok_or_else(|| {
+            limit_err(
+                "total_decompressed_size",
+                "cumulative decompressed size exceeds the platform limit",
+            )
+        })?;
+        if let Some(limit) = max_total
+            && total > limit
+        {
+            return Err(limit_err(
+                "total_decompressed_size",
+                format!(
+                    "streams expand to at least {total} bytes, exceeding the configured cumulative limit of {limit}"
+                ),
+            ));
         }
     }
     Ok(())
@@ -893,6 +1247,10 @@ pub struct _Document {
     table_pages: HashMap<u32, crate::extract::TablePage>,
     /// Least-recently-used to most-recently-used table-page keys.
     table_page_order: VecDeque<u32>,
+    /// Configured cumulative Unicode glyph payload across interpreted pages.
+    max_text_size: Option<usize>,
+    /// Glyph payload already admitted for each interpreted page.
+    interpreted_text_sizes: HashMap<u32, usize>,
     /// Hayro warnings from the latest render/extraction, written by the
     /// interpreter-settings sink and drained by `take_warnings`.
     pending_warnings: Arc<Mutex<Vec<String>>>,
@@ -900,7 +1258,11 @@ pub struct _Document {
 
 impl _Document {
     /// Construct from lopdf with no fallback fonts configured.
-    fn from_doc(doc: Document, hayro_source: Option<Vec<u8>>) -> Self {
+    fn from_doc(
+        doc: Document,
+        hayro_source: Option<Vec<u8>>,
+        max_text_size: Option<usize>,
+    ) -> Self {
         Self {
             doc,
             fallback_fonts: FallbackFonts::default(),
@@ -910,6 +1272,8 @@ impl _Document {
             text_page_order: VecDeque::new(),
             table_pages: HashMap::new(),
             table_page_order: VecDeque::new(),
+            max_text_size,
+            interpreted_text_sizes: HashMap::new(),
             pending_warnings: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -945,6 +1309,58 @@ impl _Document {
         self.text_page_order.clear();
         self.table_pages.clear();
         self.table_page_order.clear();
+        self.interpreted_text_sizes.clear();
+    }
+
+    /// Return the glyph payload still available to one page interpretation.
+    fn text_budget(&self, page_number: u32) -> PyResult<Option<usize>> {
+        let Some(limit) = self.max_text_size else {
+            return Ok(None);
+        };
+        if let Some(admitted) = self.interpreted_text_sizes.get(&page_number) {
+            return Ok(Some(*admitted));
+        }
+        let used = self
+            .interpreted_text_sizes
+            .values()
+            .try_fold(0usize, |total, value| total.checked_add(*value))
+            .ok_or_else(|| {
+                limit_err(
+                    "text_size",
+                    "interpreted text size exceeds the platform limit",
+                )
+            })?;
+        let remaining = limit.saturating_sub(used);
+        Ok(Some(remaining))
+    }
+
+    /// Record one page's glyph payload without counting cache re-interpretation.
+    fn admit_text_size(&mut self, page_number: u32, text_size: usize) -> PyResult<()> {
+        if self.interpreted_text_sizes.contains_key(&page_number) {
+            return Ok(());
+        }
+        if let Some(limit) = self.max_text_size {
+            let used = self
+                .interpreted_text_sizes
+                .values()
+                .try_fold(text_size, |total, value| total.checked_add(*value))
+                .ok_or_else(|| {
+                    limit_err(
+                        "text_size",
+                        "interpreted text size exceeds the platform limit",
+                    )
+                })?;
+            if used > limit {
+                return Err(limit_err(
+                    "text_size",
+                    format!(
+                        "interpreted text reached {used} bytes, exceeding the configured cumulative limit of {limit}"
+                    ),
+                ));
+            }
+        }
+        self.interpreted_text_sizes.insert(page_number, text_size);
+        Ok(())
     }
 
     /// Return the ObjectId of a one-based page.
@@ -1795,6 +2211,7 @@ impl _Document {
                 .expect("cache key was checked immediately before"));
         }
 
+        let text_budget = self.text_budget(page_number)?;
         let text_page = {
             let pdf = self.hayro_view()?;
             let pages = pdf.pages();
@@ -1802,8 +2219,16 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TextPage::new(pdf, page, settings)
+            crate::extract::TextPage::new(pdf, page, settings, text_budget).map_err(|limit| {
+                limit_err(
+                    "text_size",
+                    format!(
+                        "page text exceeds the remaining configured Unicode payload budget of {limit} bytes"
+                    ),
+                )
+            })?
         };
+        self.admit_text_size(page_number, text_page.text_size())?;
 
         if self.text_pages.len() >= TEXT_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.text_page_order.pop_front()
@@ -1834,6 +2259,7 @@ impl _Document {
                 .expect("cache key was checked immediately before"));
         }
 
+        let text_budget = self.text_budget(page_number)?;
         let table_page = {
             let pdf = self.hayro_view()?;
             let pages = pdf.pages();
@@ -1841,8 +2267,16 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TablePage::new(pdf, page, settings)
+            crate::extract::TablePage::new(pdf, page, settings, text_budget).map_err(|limit| {
+                limit_err(
+                    "text_size",
+                    format!(
+                        "page text exceeds the remaining configured Unicode payload budget of {limit} bytes"
+                    ),
+                )
+            })?
         };
+        self.admit_text_size(page_number, table_page.text_size())?;
 
         if self.table_pages.len() >= TABLE_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.table_page_order.pop_front()
@@ -2241,68 +2675,180 @@ fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>)
 impl _Document {
     /// Create an empty PDF document.
     #[new]
-    fn new() -> PyResult<Self> {
-        let mut document = Self::from_doc(Document::with_version("1.7"), None);
+    #[pyo3(signature = (max_text_size=None))]
+    fn new(max_text_size: Option<usize>) -> PyResult<Self> {
+        let mut document = Self::from_doc(Document::with_version("1.7"), None, max_text_size);
         document.ensure_page_tree().map_err(to_py_err)?;
         Ok(document)
     }
 
     /// Load from a file path.
     ///
-    /// `password` decrypts encrypted PDFs. `max_decompressed_size` limits bytes
-    /// per stream against decompression bombs; None is unlimited.
+    /// `password` decrypts encrypted PDFs. Optional limits are validated before
+    /// returning a document or interpreting its text.
     #[staticmethod]
-    #[pyo3(signature = (path, password=None, max_decompressed_size=None))]
+    #[pyo3(signature = (
+        path,
+        password=None,
+        max_decompressed_size=None,
+        max_page_content_size=None,
+        max_file_size=None,
+        max_pages=None,
+        max_objects=None,
+        max_total_decompressed_size=None,
+        max_object_depth=None,
+        max_text_size=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn load(
         py: Python<'_>,
         path: &str,
         password: Option<String>,
         max_decompressed_size: Option<usize>,
+        max_page_content_size: Option<usize>,
+        max_file_size: Option<usize>,
+        max_pages: Option<usize>,
+        max_objects: Option<usize>,
+        max_total_decompressed_size: Option<usize>,
+        max_object_depth: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<Self> {
+        let limits = DocumentLimits {
+            max_file_size,
+            max_pages,
+            max_objects,
+            max_decompressed_size,
+            max_page_content_size,
+            max_total_decompressed_size,
+            max_object_depth,
+            max_text_size,
+        };
+        let (decoder_bound, decoder_limit_code) = match (
+            limits.max_decompressed_size,
+            limits.max_total_decompressed_size,
+        ) {
+            (Some(per_stream), Some(total)) if total < per_stream => {
+                (Some(total), "total_decompressed_size")
+            }
+            (Some(per_stream), _) => (Some(per_stream), "decompressed_size"),
+            (None, Some(total)) => (Some(total), "total_decompressed_size"),
+            (None, None) => (None, "decompressed_size"),
+        };
         let options = LoadOptions {
             password,
-            max_decompressed_size,
+            max_decompressed_size: decoder_bound,
             ..Default::default()
         };
         py.detach(|| {
-            let data = std::fs::read(path)
-                .map_err(|e| PdfError::new_err(format!("failed to load {path}: {e}")))?;
-            let doc = Document::load_mem_with_options(&data, options)
-                .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))?;
-            if !doc.is_encrypted()
-                && let Some(limit) = max_decompressed_size
-            {
-                validate_decompression_limits(&doc, limit)?;
+            let data = read_input(path, limits.max_file_size)?;
+            let doc = Document::load_mem_with_options(&data, options).map_err(|error| {
+                load_err(
+                    Some(&format!("failed to load {path}")),
+                    &error,
+                    decoder_limit_code,
+                )
+            })?;
+            let decrypted = !doc.is_encrypted();
+            validate_structural_limits(&doc, limits, decrypted)?;
+            if decrypted {
+                validate_decompression_limits(
+                    &doc,
+                    limits.max_decompressed_size,
+                    limits.max_page_content_size,
+                    limits.max_total_decompressed_size,
+                )?;
             }
             let hayro_source = (!doc.was_encrypted()).then_some(data);
-            Ok(Self::from_doc(doc, hayro_source))
+            Ok(Self::from_doc(doc, hayro_source, limits.max_text_size))
         })
     }
 
     /// Load from bytes with the same arguments as `load`.
     #[staticmethod]
-    #[pyo3(signature = (data, password=None, max_decompressed_size=None))]
+    #[pyo3(signature = (
+        data,
+        password=None,
+        max_decompressed_size=None,
+        max_page_content_size=None,
+        max_file_size=None,
+        max_pages=None,
+        max_objects=None,
+        max_total_decompressed_size=None,
+        max_object_depth=None,
+        max_text_size=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn load_bytes(
         py: Python<'_>,
         data: &[u8],
         password: Option<String>,
         max_decompressed_size: Option<usize>,
+        max_page_content_size: Option<usize>,
+        max_file_size: Option<usize>,
+        max_pages: Option<usize>,
+        max_objects: Option<usize>,
+        max_total_decompressed_size: Option<usize>,
+        max_object_depth: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<Self> {
+        let limits = DocumentLimits {
+            max_file_size,
+            max_pages,
+            max_objects,
+            max_decompressed_size,
+            max_page_content_size,
+            max_total_decompressed_size,
+            max_object_depth,
+            max_text_size,
+        };
+        if let Some(limit) = limits.max_file_size
+            && data.len() > limit
+        {
+            return Err(limit_err(
+                "file_size",
+                format!(
+                    "PDF input is {} bytes, exceeding the configured limit of {limit}",
+                    data.len()
+                ),
+            ));
+        }
+        let (decoder_bound, decoder_limit_code) = match (
+            limits.max_decompressed_size,
+            limits.max_total_decompressed_size,
+        ) {
+            (Some(per_stream), Some(total)) if total < per_stream => {
+                (Some(total), "total_decompressed_size")
+            }
+            (Some(per_stream), _) => (Some(per_stream), "decompressed_size"),
+            (None, Some(total)) => (Some(total), "total_decompressed_size"),
+            (None, None) => (None, "decompressed_size"),
+        };
         let options = LoadOptions {
             password,
-            max_decompressed_size,
+            max_decompressed_size: decoder_bound,
             ..Default::default()
         };
         py.detach(|| {
-            let doc = Document::load_mem_with_options(data, options).map_err(to_py_err)?;
-            if !doc.is_encrypted()
-                && let Some(limit) = max_decompressed_size
-            {
-                validate_decompression_limits(&doc, limit)?;
+            let doc = Document::load_mem_with_options(data, options)
+                .map_err(|error| load_err(None, &error, decoder_limit_code))?;
+            let decrypted = !doc.is_encrypted();
+            validate_structural_limits(&doc, limits, decrypted)?;
+            if decrypted {
+                validate_decompression_limits(
+                    &doc,
+                    limits.max_decompressed_size,
+                    limits.max_page_content_size,
+                    limits.max_total_decompressed_size,
+                )?;
             }
             let hayro_source = (!doc.was_encrypted()).then(|| data.to_vec());
-            Ok(Self::from_doc(doc, hayro_source))
+            Ok(Self::from_doc(doc, hayro_source, limits.max_text_size))
         })
+    }
+
+    /// Return `(pages, objects, streams, encoded stream bytes, direct depth)`.
+    fn complexity(&self) -> ComplexityTuple {
+        document_complexity(&self.doc)
     }
 
     /// Read metadata quickly without loading the complete document.
@@ -4098,7 +4644,7 @@ impl _Document {
         })?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated));
+        let source = Self::from_doc(generated_doc, Some(generated), None);
         self.show_pdf_page(
             py,
             page_number,
@@ -4153,7 +4699,7 @@ impl _Document {
         };
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated));
+        let source = Self::from_doc(generated_doc, Some(generated), None);
         self.show_pdf_page(
             py,
             page_number,

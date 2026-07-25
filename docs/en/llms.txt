@@ -29,4 +29,6 @@ Key facts:
   Python Workers starting after v0.10.0.
 - 0-based pages except get_toc/set_toc, which are 1-based for pymupdf compatibility.
 - Top-left-origin display coordinates across extraction, drawing and rendering.
+- DocumentLimits.web(), LimitError.code and doc.complexity provide a shared
+  native/Wasm policy boundary for untrusted uploads.
 - PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.
