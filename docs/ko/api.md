@@ -8,6 +8,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 전체 docstring은 패키지 안에 있으며`help(pylopdf.Document)`로 볼 수 있습니다.
 이 페이지는 API 지도입니다.`get_toc` / `set_toc`만 pymupdf 호환을 위해 1부터 시작하고
 나머지 페이지 번호는 모두 0부터 시작합니다. 모든 좌표는 왼쪽 위가 원점인 표시 공간입니다.
+[API 안정성 정책](stability.md)은 공개 경계와 사용 중단 절차를 정의합니다.
 
 ## Document { #document }
 

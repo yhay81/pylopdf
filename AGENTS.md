@@ -256,6 +256,12 @@ overview.
   Retain the original-byte fast path when no selected state stream can be
   resolved.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- `api/public-api.json` is the reviewed candidate public surface. It covers
+  `__all__`, signatures and defaults, documented members, TypedDict keys, type
+  aliases, NamedTuple fields, enum/constant values, and exception inheritance.
+  Run `uv run python tools/check_api_surface.py`; refresh with `--update` only
+  after reviewing runtime, typing, documentation, and SemVer impact. The
+  snapshot detects changes but does not decide compatibility.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
@@ -382,11 +388,13 @@ integrations, a watchlist, and explicit non-goals.
   on 2026-07-25. It completes `insert_textbox`, AcroForm appearances, typed
   public mapping contracts, vector and table extraction depth, image
   compression, native OCR, the PyEmscripten artifact, and Cloudflare deployment
-  gates. The first separately versioned OCR model package must be published
-  before the main tag. Incremental save was rejected after OSS analysis and
-  remains on the watchlist. v1.0 is targeted no earlier than 2026-08, after
-  field feedback and further product refinement rather than as a
-  deadline-driven API freeze.
+  gates. Its documented 0.11 candidate API surface is now checked
+  deterministically across every native Python test lane, with the post-v1.0
+  SemVer and deprecation contract published in four languages. The first
+  separately versioned OCR model package must be published before the main tag.
+  Incremental save was rejected after OSS analysis and remains on the
+  watchlist. v1.0 is targeted no earlier than 2026-08, after field feedback and
+  further product refinement rather than as a deadline-driven API freeze.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

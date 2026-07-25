@@ -7,6 +7,7 @@ pylopdf の日本語ドキュメントは、次のサイトで継続的に更新
 - [オフラインOCR](https://yhay81.github.io/pylopdf/ja/ocr/)
 - [WebAssemblyとCloudflare Workers](https://yhay81.github.io/pylopdf/ja/wasm/)
 - [API概要](https://yhay81.github.io/pylopdf/ja/api/)
+- [API安定性](https://yhay81.github.io/pylopdf/ja/stability/)
 - [並行実行とfree-threaded Python](https://yhay81.github.io/pylopdf/ja/concurrency/)
 - [pymupdfからの移行](https://yhay81.github.io/pylopdf/ja/migration/)
 

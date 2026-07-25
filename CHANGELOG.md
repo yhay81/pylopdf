@@ -9,11 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.11.0] - 2026-07-26
 
 ### Documentation
+- Published a four-language API stability policy that defines the public
+  boundary, SemVer impact, post-v1.0 deprecation lifecycle, behavioral
+  compatibility, runtime support changes, and emergency exceptions. The 0.11
+  surface is explicitly a field-tested candidate baseline rather than a
+  premature v1.0 freeze.
 - Updated all four pymupdf migration guides for native offline OCR and direct
   `Pixmap.save(path)` output, removing the stale classification of OCR as an
   unimplemented ecosystem-only feature.
 
 ### Added
+- A checked-in, deterministic public API snapshot now detects unreviewed
+  changes to exports, callable signatures and defaults, documented members,
+  TypedDict keys, type aliases, NamedTuple fields, enum and constant values,
+  and exception inheritance across every native Python test lane. The maintenance
+  command emits a unified diff and requires an explicit reviewed refresh,
+  making API freeze preparation enforceable without pretending that a machine
+  diff can decide SemVer.
 - `DocumentLimits` now applies one immutable untrusted-input policy across file
   bytes, pages, indirect objects, direct object nesting, per-stream and
   cumulative decompression, page-content decompression, and cumulative

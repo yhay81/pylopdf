@@ -459,7 +459,14 @@ current API. It follows v0.10 and v0.11 field use and ships only after the
 library's product experience, error recovery, documentation, performance, and
 known-limit behavior are polished together.
 
-- Freeze the API and publish semantic-versioning and deprecation policies.
+- [x] Publish the semantic-versioning and deprecation policy before the final
+      freeze. The EN/JA/zh-CN/KO contract defines the public boundary, typed
+      mappings, behavioral corrections, runtime changes, and a post-v1.0
+      two-minor-and-six-month deprecation window. A deterministic 0.11 candidate
+      snapshot now reviews exports, signatures, members, mapping keys, aliases,
+      constants, and exception inheritance on every native Python test lane.
+- Freeze the v1.0 API only after 0.11 field use and the remaining limitation
+  review; the snapshot is a review gate, not a premature compatibility claim.
 - [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
       Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document
       theme at <https://yhay81.github.io/pylopdf/>. Includes per-locale strict

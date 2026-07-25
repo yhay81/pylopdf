@@ -8,6 +8,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 完整docstring包含在包内，可运行`help(pylopdf.Document)`查看。本页提供API地图。
 除`get_toc` / `set_toc`为兼容pymupdf而从1开始外，所有页码均从0开始。
 所有坐标均为左上角原点的显示空间。
+[API稳定性政策](stability.md)定义了公共边界和弃用流程。
 
 ## Document { #document }
 

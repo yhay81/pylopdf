@@ -66,6 +66,7 @@ nav:
       - Benchmarks: benchmarks.md
       - Concurrency: concurrency.md
       - Security: security.md
+      - API stability: stability.md
       - Languages: languages.md
   - Changelog: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
