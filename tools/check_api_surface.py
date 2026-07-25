@@ -60,10 +60,6 @@ def _type_expression(value: object) -> str:
         msg = "empty annotations do not have a type expression"
         raise ValueError(msg)
 
-    atomic = _atomic_type_expression(value)
-    if atomic is not None:
-        return atomic
-
     origin = get_origin(value)
     arguments = get_args(value)
     if origin is typing.Literal:
@@ -75,6 +71,10 @@ def _type_expression(value: object) -> str:
         origin_name = _public_type_name(origin) if isinstance(origin, type) else str(origin).removeprefix("typing.")
         rendered = ", ".join(_type_expression(argument) for argument in arguments)
         return f"{origin_name}[{rendered}]"
+
+    atomic = _atomic_type_expression(value)
+    if atomic is not None:
+        return atomic
 
     return str(value).removeprefix("typing.")
 
