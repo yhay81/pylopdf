@@ -378,15 +378,15 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.10.0 was released on 2026-07-25. It hardens malformed-input
-  handling and adds reusable TextPage/TablePage interpretation, parallel batch
-  rendering, clipped pixmaps, vertical CJK and table extraction depth,
-  arbitrary-font text insertion, and native CPython 3.14t wheels. The current
-  v0.11 work also completes `insert_textbox`, AcroForm appearances, and typed
-  public mapping contracts. Incremental save was rejected after OSS analysis
-  and remains on the watchlist; the gated `[ocr]` track and product refinement
-  remain. v1.0 is targeted no earlier than 2026-08, after field feedback rather
-  than as a deadline-driven API freeze.
+- Current phase: v0.11.0 is release-prepared on 2026-07-26 after v0.10.0 shipped
+  on 2026-07-25. It completes `insert_textbox`, AcroForm appearances, typed
+  public mapping contracts, vector and table extraction depth, image
+  compression, native OCR, the PyEmscripten artifact, and Cloudflare deployment
+  gates. The first separately versioned OCR model package must be published
+  before the main tag. Incremental save was rejected after OSS analysis and
+  remains on the watchlist. v1.0 is targeted no earlier than 2026-08, after
+  field feedback and further product refinement rather than as a
+  deadline-driven API freeze.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-26
+
 ### Documentation
 - Updated all four pymupdf migration guides for native offline OCR and direct
   `Pixmap.save(path)` output, removing the stale classification of OCR as an
