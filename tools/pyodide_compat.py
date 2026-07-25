@@ -28,6 +28,7 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _EXPECTED_TWO_PAGES = 2
 _EXPECTED_MERGED_PAGES = 3
 _SENATE_ROTATION = 90
+_MIN_FORM_DRAWINGS = 400
 # Keep required Unicode fixture data escaped so repository prose remains English.
 _RIGHT_COLUMN = "\u53f3\u5074\u5217"
 _LEFT_COLUMN = "\u5de6\u5074\u5217"
@@ -169,7 +170,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:
     form_table = form_tables[0]
     _require((form_table.row_count, form_table.col_count) == (2, 7), "Form 1040 table shape changed")
     _require("Full-time<br>student" in form_markdown, "Form 1040 table was not integrated into Markdown")
-    _require(len(form_drawings) >= 400, "Form 1040 vector extraction is incomplete")
+    _require(len(form_drawings) >= _MIN_FORM_DRAWINGS, "Form 1040 vector extraction is incomplete")
 
     senate = pylopdf.Document(stream=(real_world / "senate-expenditures.pdf").read_bytes())
     senate_lines = senate[0].find_tables()
@@ -280,7 +281,7 @@ def _layout_results() -> dict[str, Any]:
     }
 
 
-def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915
+def _generation_results(root: Path) -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
     font = (root / "fonts/pylopdf-fonts-cjk/src/pylopdf_fonts_cjk/NotoSansJP-Regular.otf").read_bytes()
