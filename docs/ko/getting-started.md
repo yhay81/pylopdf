@@ -86,6 +86,7 @@ page.set_rotation(90)
 ```python
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG 패스스루/PNG 알파
 page.insert_image(page.search_for("승인")[0], stream=stamp_png)
+page.insert_image((300, 72, 500, 200), pixmap=thumbnail)     # 렌더링된 RGBA 직접 재사용
 page.show_pdf_page(page.rect, letterhead)                    # 다른 PDF를 벡터로 겹치기
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansJP-Regular.otf")

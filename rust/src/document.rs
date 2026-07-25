@@ -26,6 +26,7 @@ use crate::draw;
 use crate::form;
 use crate::generate;
 use crate::ocr;
+use crate::pixmap::Pixmap;
 
 /// Bound interpreted text-page memory on long documents while retaining the
 /// common search/extract/annotate working set.
@@ -3035,6 +3036,52 @@ impl _Document {
                 .add_xobject(page_id, name.as_bytes(), xobj_id)
                 .map_err(to_py_err)?;
             draw::push_content(&mut self.doc, page_id, draw::draw_ops(matrix, &name), overlay).map_err(to_py_err)
+        })
+    }
+
+    /// Draw a rendered RGBA8 Pixmap directly into display `rect`.
+    ///
+    /// This avoids a PNG encode/decode round trip while preserving alpha.
+    fn insert_pixmap(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        pixmap: PyRef<'_, Pixmap>,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        let width = pixmap.width;
+        let height = pixmap.height;
+        let data = Arc::clone(&pixmap.data);
+        drop(pixmap);
+        py.detach(|| {
+            let parts = draw::rgba_parts(width, height, &data).map_err(PdfError::new_err)?;
+            let content = draw::PlacedContent::Image { width, height };
+            let matrix = draw::placement_matrix(
+                crop,
+                rotation,
+                [rect.0, rect.1, rect.2, rect.3],
+                &content,
+                keep_proportion,
+            );
+            let xobj_id =
+                draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
+            self.bake_page_attrs(page_id)?;
+            let name = format!("PyloIm{}", xobj_id.0);
+            self.doc
+                .add_xobject(page_id, name.as_bytes(), xobj_id)
+                .map_err(to_py_err)?;
+            draw::push_content(
+                &mut self.doc,
+                page_id,
+                draw::draw_ops(matrix, &name),
+                overlay,
+            )
+            .map_err(to_py_err)
         })
     }
 

@@ -451,6 +451,10 @@ known-limit behavior are polished together.
   sdist, and publish release provenance alongside the artifacts.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
+- [x] Remove the Pillow/PNG round-trip from rendered-image reuse:
+      `Page.insert_image(pixmap=)` now converts immutable straight-alpha RGBA8
+      storage directly into a Flate-compressed PDF Image XObject, preserves
+      transparency, and omits the soft mask for fully opaque input.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

@@ -132,6 +132,14 @@ class _Document:
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...
+    def insert_pixmap(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        pixmap: Pixmap,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> None: ...
     def show_pdf_page(
         self,
         page_number: int,

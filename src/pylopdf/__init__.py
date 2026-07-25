@@ -770,17 +770,24 @@ def _validate_textbox_options(
     return resolved_fontsize, resolved_lineheight
 
 
-def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | None) -> bytes:
-    """Read image bytes from exactly one of ``filename`` and ``stream``."""
-    if filename is not None:
-        if stream is not None:
-            msg = "filename and stream cannot both be specified"
-            raise ValueError(msg)
-        return Path(filename).read_bytes()
-    if stream is None:
-        msg = "specify either filename or stream"
+def _read_image_source(
+    filename: str | os.PathLike[str] | None,
+    stream: bytes | None,
+    pixmap: Pixmap | None,
+) -> bytes | Pixmap:
+    """Resolve exactly one encoded-image or rendered-Pixmap source."""
+    source_count = sum(source is not None for source in (filename, stream, pixmap))
+    if source_count != 1:
+        msg = "specify exactly one of filename, stream, or pixmap"
         raise ValueError(msg)
-    return bytes(stream)
+    if filename is not None:
+        return Path(filename).read_bytes()
+    if stream is not None:
+        return bytes(stream)
+    if not isinstance(pixmap, Pixmap):
+        msg = f"pixmap must be a Pixmap, not {type(pixmap).__name__}"
+        raise TypeError(msg)
+    return pixmap
 
 
 def _read_font_source(fontfile: str | os.PathLike[str] | None, fontbuffer: bytes | None) -> bytes | None:
@@ -1174,28 +1181,35 @@ class Page:
             for width, height, bbox, ext, data in raw
         ]
 
-    def insert_image(
+    def insert_image(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
         rect: Sequence[float],
         *,
         filename: str | os.PathLike[str] | None = None,
         stream: bytes | None = None,
+        pixmap: Pixmap | None = None,
         keep_proportion: bool = True,
         overlay: bool = True,
     ) -> None:
         """Draw an image into ``rect`` in top-left-origin display coordinates.
 
-        JPEG is embedded unchanged through DCTDecode passthrough. PNG is decoded
-        and embedded, preserving transparency as a soft mask. Convert other
-        formats to JPEG or PNG with Pillow or a similar library. ``rect`` uses
-        the same coordinate space as :meth:`search_for` and :meth:`get_text`, so
-        search results can be used directly. ``keep_proportion`` centers the
-        image while preserving its aspect ratio. ``overlay=False`` draws below
-        existing content. Existing page content is never rewritten.
+        Specify exactly one source. JPEG is embedded unchanged through DCTDecode
+        passthrough. PNG is decoded and embedded, preserving transparency as a
+        soft mask. ``pixmap=`` embeds a rendered :class:`Pixmap` directly from
+        its straight-alpha RGBA8 storage without a PNG encode/decode round trip.
+        Convert other encoded formats to JPEG or PNG with Pillow or a similar
+        library. ``rect`` uses the same coordinate space as :meth:`search_for`
+        and :meth:`get_text`, so search results can be used directly.
+        ``keep_proportion`` centers the image while preserving its aspect ratio.
+        ``overlay=False`` draws below existing content. Existing page content is
+        never rewritten.
         """
-        data = _read_image_source(filename, stream)
+        source = _read_image_source(filename, stream, pixmap)
         x0, y0, x1, y1 = _validate_rect(rect)
-        self._document._doc.insert_image(self._page_number(), (x0, y0, x1, y1), data, keep_proportion, overlay)
+        if isinstance(source, Pixmap):
+            self._document._doc.insert_pixmap(self._page_number(), (x0, y0, x1, y1), source, keep_proportion, overlay)
+        else:
+            self._document._doc.insert_image(self._page_number(), (x0, y0, x1, y1), source, keep_proportion, overlay)
 
     def show_pdf_page(
         self,

@@ -85,6 +85,7 @@ page.set_rotation(90)
 ```python
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG パススルー / PNG 透過
 page.insert_image(page.search_for("承認印")[0], stream=hanko_png)
+page.insert_image((300, 72, 500, 200), pixmap=thumbnail)     # 描画済みRGBAを直接再利用
 page.show_pdf_page(page.rect, letterhead)                    # 別 PDF をベクタのまま重ねる
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "社外秘", fontsize=18, fontfile="NotoSansJP-Regular.otf")

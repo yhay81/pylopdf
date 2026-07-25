@@ -47,7 +47,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
-| `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | 绘制JPEG/PNG |
+| `insert_image(rect, filename= / stream= / pixmap=, keep_proportion=, overlay=)` | 绘制JPEG/PNG，或直接复用已渲染的RGBA `Pixmap` |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加其他PDF页面 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 按Core 14或嵌入OpenType的实际字宽进行UAX #14换行；返回剩余高度，溢出时不绘制 |
