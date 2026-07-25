@@ -405,10 +405,12 @@ that gap without broadening the mandatory Python dependency set.
       small models through numerical, synthetic, Japanese real-document,
       memory, and artifact-size measurements.
 - The first native engine deliberately exposes axis-aligned boxes and no
-  automatic page-orientation classifier. Arbitrary skew, sideways-page
+  automatic page-orientation classifier. Explicit `rotation=90 / 180 / 270`
+  correction now turns OCR input clockwise, maps boxes back to the original
+  display space, and writes an orientation-aware invisible layer without
+  changing PDF page rotation. Arbitrary skew, automatic sideways-page
   detection, ruby, warichu, and mixed-orientation typography remain explicit
-  depth. Sideways scans can set PDF page rotation before OCR. Use ocrs-cjk
-  (MIT/Apache) as a reference, not a dependency.
+  depth. Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
 - [ ] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher, publish
       model v0.1.0 before the main v0.11 release, then run field validation over
       additional licensed Japanese scans and bounded concurrent workloads.

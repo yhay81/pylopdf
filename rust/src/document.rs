@@ -3676,12 +3676,19 @@ impl _Document {
     ///
     /// Store only Unicode and position using a non-embedded Identity-H CID font,
     /// ToUnicode, and invisible `Tr 3`; it appears only in extraction and search.
+    #[pyo3(signature = (page_number, words, text_rotation=0))]
     fn insert_ocr_layer(
         &mut self,
         py: Python<'_>,
         page_number: u32,
         words: Vec<(f64, f64, f64, f64, String)>,
+        text_rotation: u16,
     ) -> PyResult<()> {
+        if !matches!(text_rotation, 0 | 90 | 180 | 270) {
+            return Err(PdfError::new_err(
+                "text_rotation must be 0, 90, 180, or 270",
+            ));
+        }
         self.invalidate_hayro_pdf();
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
@@ -3699,7 +3706,7 @@ impl _Document {
                 .map_err(to_py_err)?;
             let name = format!("PyloF{}", font_id.0);
             draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
-            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name);
+            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
             draw::push_content(&mut self.doc, page_id, ops, true).map_err(to_py_err)
         })
     }

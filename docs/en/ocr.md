@@ -51,6 +51,23 @@ display-coordinate `clip=(x0, y0, x1, y1)` around the scanned region; only
 existing text intersecting that region triggers the skip. Use
 `skip_existing=False` deliberately to append despite intersecting text.
 
+## Correct rotated input
+
+Pass `rotation=90`, `180`, or `270` to turn the rendered OCR input clockwise
+before detection and recognition:
+
+```python
+words = page.get_text_ocr(rotation=270)
+page.apply_ocr(rotation=270)
+```
+
+The PDF page rotation and rendered pixels do not change. Returned word boxes
+remain in the page's original display coordinates. `apply_ocr()` also orients
+the invisible baseline, so extraction and search follow the recognized logical
+text after save and reopen. A nonzero correction temporarily allocates one
+additional `width * height * 4` RGBA raster inside the engine's complete-call
+admission limit.
+
 ## Resource controls
 
 The defaults are 300 dpi, 1,408-pixel detector tiles with 192-pixel overlap,
@@ -108,9 +125,9 @@ With no paths, `OcrEngine` discovers the verified model set installed by
 `pylopdf[ocr]`. Advanced users can pass a compatible RTen-format PP-OCR
 detector, recognizer, and dictionary explicitly.
 
-The first native engine returns axis-aligned word boxes. It does not yet deskew
-arbitrary text, detect a sideways page automatically, or interpret ruby,
-warichu, and mixed-orientation typography. Set the page rotation explicitly
-before OCR when a scan is sideways. PP-OCRv6 model provenance, source and
-artifact hashes, conversion commands, and Apache-2.0 notices are included in
-the `pylopdf-ocr-models` distribution.
+The first native engine returns axis-aligned word boxes. Explicit clockwise
+correction handles known 90-degree orientations, but it does not yet deskew
+arbitrary text, detect the required correction automatically, or interpret
+ruby, warichu, and mixed-orientation typography. PP-OCRv6 model provenance,
+source and artifact hashes, conversion commands, and Apache-2.0 notices are
+included in the `pylopdf-ocr-models` distribution.

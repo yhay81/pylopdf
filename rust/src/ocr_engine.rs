@@ -38,6 +38,57 @@ const MAX_COLUMN_DEPTH: usize = 8;
 /// One internal OCR result in raster pixel coordinates.
 type OcrTuple = (f32, f32, f32, f32, String, f32);
 
+fn rotate_rgba(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    rotation: usize,
+) -> (Vec<u8>, usize, usize) {
+    let (rotated_width, rotated_height) = if rotation == 90 || rotation == 270 {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let mut rotated = vec![0; pixels.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let (rotated_x, rotated_y) = match rotation {
+                90 => (height - 1 - y, x),
+                180 => (width - 1 - x, height - 1 - y),
+                270 => (y, width - 1 - x),
+                _ => unreachable!("rotation was validated before raster conversion"),
+            };
+            let source = (y * width + x) * 4;
+            let target = (rotated_y * rotated_width + rotated_x) * 4;
+            rotated[target..target + 4].copy_from_slice(&pixels[source..source + 4]);
+        }
+    }
+    (rotated, rotated_width, rotated_height)
+}
+
+fn restore_result_coordinates(
+    results: &mut [OcrTuple],
+    width: usize,
+    height: usize,
+    rotation: usize,
+) {
+    let width = width as f32;
+    let height = height as f32;
+    for result in results {
+        let (x0, y0, x1, y1) = (result.0, result.1, result.2, result.3);
+        let restored = match rotation {
+            90 => (y0, height - x1, y1, height - x0),
+            180 => (width - x1, height - y1, width - x0, height - y0),
+            270 => (width - y1, x0, width - y0, x1),
+            _ => unreachable!("rotation was validated before coordinate restoration"),
+        };
+        result.0 = restored.0.clamp(0.0, width);
+        result.1 = restored.1.clamp(0.0, height);
+        result.2 = restored.2.clamp(0.0, width);
+        result.3 = restored.3.clamp(0.0, height);
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Candidate {
     x0: f32,
@@ -796,7 +847,7 @@ impl _OcrEngine {
             .map_err(OcrError::new_err)
     }
 
-    #[pyo3(signature = (pixmap, *, tile_size=1408, overlap=192, min_confidence=0.5))]
+    #[pyo3(signature = (pixmap, *, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0))]
     fn recognize_pixmap(
         &self,
         py: Python<'_>,
@@ -804,6 +855,7 @@ impl _OcrEngine {
         tile_size: usize,
         overlap: usize,
         min_confidence: f32,
+        rotation: usize,
     ) -> PyResult<Vec<OcrTuple>> {
         if !(256..=2048).contains(&tile_size) || !tile_size.is_multiple_of(32) {
             return Err(OcrError::new_err(
@@ -820,14 +872,35 @@ impl _OcrEngine {
                 "min_confidence must be a finite number from 0 through 1",
             ));
         }
+        if !matches!(rotation, 0 | 90 | 180 | 270) {
+            return Err(OcrError::new_err("rotation must be 0, 90, 180, or 270"));
+        }
         let pixels = Arc::clone(&pixmap.data);
         let width = pixmap.width as usize;
         let height = pixmap.height as usize;
         drop(pixmap);
         py.detach(|| {
-            self.engine
-                .recognize(&pixels, width, height, tile_size, overlap, min_confidence)
-                .map_err(OcrError::new_err)
+            if rotation == 0 {
+                return self
+                    .engine
+                    .recognize(&pixels, width, height, tile_size, overlap, min_confidence)
+                    .map_err(OcrError::new_err);
+            }
+            let (rotated, rotated_width, rotated_height) =
+                rotate_rgba(&pixels, width, height, rotation);
+            let mut results = self
+                .engine
+                .recognize(
+                    &rotated,
+                    rotated_width,
+                    rotated_height,
+                    tile_size,
+                    overlap,
+                    min_confidence,
+                )
+                .map_err(OcrError::new_err)?;
+            restore_result_coordinates(&mut results, width, height, rotation);
+            Ok(results)
         })
     }
 

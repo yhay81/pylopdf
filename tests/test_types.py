@@ -20,6 +20,7 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "LinkInfo",
         "MetadataProbe",
         "MetadataUpdate",
+        "OcrRotation",
         "OcrWord",
         "PageLabelInfo",
         "PageLabelSpec",

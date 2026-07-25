@@ -188,6 +188,8 @@ print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)  # pip install "pylopdf[ocr]"
 words = page.get_text_ocr(engine=engine)
 page.apply_ocr(engine=engine)  # skips existing searchable text by default
+# Correct a sideways scan clockwise for OCR without changing page rotation
+page.apply_ocr(engine=engine, rotation=270)
 
 # Or write external OCR results as an invisible text layer
 page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
@@ -363,8 +365,8 @@ signed_pdf: bytes = out.getvalue()
 | `number` / `parent` | 0-based page number and owning Document |
 | `get_label()` | Display label of the page ("iv", "A-2", …; empty string if undefined) |
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
-| `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `clip` uses display coordinates |
-| `apply_ocr(..., clip=None, skip_existing=True)` | Recognize and insert an invisible searchable layer; existing searchable text in the selected region is skipped by default |
+| `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `rotation` corrects rendered input clockwise and `clip` uses display coordinates |
+| `apply_ocr(..., rotation=0, clip=None, skip_existing=True)` | Recognize and insert an orientation-aware invisible searchable layer; existing searchable text in the selected region is skipped by default |
 | `to_markdown()` | Markdown conversion of this page |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
@@ -374,7 +376,7 @@ signed_pdf: bytes = out.getvalue()
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 font or a shaped, subset-embedded OpenType font; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a shaped, subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
-| `insert_ocr_text_layer(words)` | Write OCR results as an invisible text layer (searchable PDFs; no font embedding, near-zero size) |
+| `insert_ocr_text_layer(words, rotation=0)` | Write OCR results as an orientation-aware invisible text layer (searchable PDFs; no font embedding, near-zero size) |
 | `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
 | `add_link_annot(rect, uri)` | URI link annotation (no border) |
@@ -392,7 +394,7 @@ Module level:
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
-| `OcrEngine` / `OcrWord` | Reusable pure-Rust PP-OCR engine and its typed positioned-word result |
+| `OcrEngine` / `OcrWord` / `OcrRotation` | Reusable pure-Rust PP-OCR engine, its typed positioned-word result, and the `0 / 90 / 180 / 270` clockwise-correction contract |
 | Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `OcrError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
 
 For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.
