@@ -25,7 +25,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |
-| `compress_images(dpi=150, quality=75)` | 安全なJPEG XObjectを配置DPIに応じて非可逆縮小・再圧縮し、型付きのbyte/count統計を返す |
+| `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
 | `get_toc()` / `set_toc(toc)` | しおり（1 始まり） |
@@ -38,10 +38,11 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
 寸法を求めてから、lopdfのcloneへ原子的に編集します。`dpi=None`では縮小せず、
-quality再圧縮だけを行います。対象はmask、独自decode array、decode parameterを
-持たない、直接の8-bit DeviceGray/DeviceRGB DCT streamに限定します。解釈された
-非対応の間接画像と結果が小さくならないencodingはskipし、inline画像は集計対象外
-です。同じ設定の再実行は冪等です。
+quality再圧縮だけを行います。対象はmaskや独自decode arrayを持たない、直接かつ
+単一filterの8-bit DeviceGray/DeviceRGB DCT/Flate streamに限定します。DCTの
+decode parameterは対象外で、Flateはpredictorなし、または辞書と整合するPNG
+predictorに対応します。解釈された非対応の間接画像と結果が小さくならないencodingは
+skipし、inline画像は集計対象外です。同じ設定の再実行は冪等です。
 
 ## Page { #page }
 

@@ -283,15 +283,18 @@ deadline, only accurate, measurable, coherent boundaries.
       `Document.compress_images(dpi=150, quality=75)`. Interpret every indirect
       raster placement through hayro and retain the largest reuse by
       aggregating minimum effective DPI per source axis. Atomically rewrite
-      only safe, unmasked, 8-bit DeviceGray or DeviceRGB JPEG streams; resize
-      with Lanczos3, use optimized Huffman coding, and skip non-smaller output.
+      only safe, unmasked, 8-bit DeviceGray or DeviceRGB DCT or Flate streams
+      to JPEG; Flate supports bounded decoding with absent or consistent PNG
+      predictors. Resize with Lanczos3, use optimized Huffman coding, and skip
+      non-smaller output.
       Repeat calls at the same settings are idempotent, object and decoded-pixel
       work is bounded, and the GIL is released. Synthetic placement, reuse,
       size, render, save/reopen, mask, idempotence, and hostile-input cases plus
       the redistributable WDL masked-image corpus and CPython 3.14t
       distinct-document concurrency guard the contract.
       A compact local separable Lanczos3 implementation limits the measured
-      Windows abi3 wheel increase to 0.07 MiB (6.78 to 6.86 MiB).
+      Windows abi3 wheel increase to 0.07 MiB (6.78 to 6.86 MiB); bounded
+      Flate decoding raises it another 0.04 MiB to 6.90 MiB.
 - [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
   rectangular merged cells. Keep adversarial search bounded and reject broken
   outer grids and compact filled decorations.

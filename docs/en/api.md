@@ -26,7 +26,7 @@ deprecation lifecycle.
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; bordered tables by default, `"text"` adds borderless tables, `None` disables tables) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |
-| `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and recompression of safe JPEG XObjects; returns typed byte/count statistics |
+| `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |
@@ -40,10 +40,11 @@ deprecation lifecycle.
 `compress_images()` interprets every page to find each indirect raster object's
 largest placement, then edits a lopdf clone atomically. `dpi=None` disables
 downsampling but retains quality recompression. The conservative boundary is
-direct 8-bit DeviceGray/DeviceRGB DCT streams without masks, custom decode
-arrays, or decode parameters. Unsupported interpreted indirect images and
-encodings that would not be smaller are skipped; inline images are not
-considered. Repeating the same settings is idempotent.
+direct, single-filter, 8-bit DeviceGray/DeviceRGB DCT or Flate streams without
+masks or custom decode arrays. DCT decode parameters are excluded; Flate may
+use no predictor or a consistent PNG predictor. Unsupported interpreted
+indirect images and encodings that would not be smaller are skipped; inline
+images are not considered. Repeating the same settings is idempotent.
 
 ## Page { #page }
 

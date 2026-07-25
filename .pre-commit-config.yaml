@@ -77,3 +77,4 @@ repos:
     hooks:
       - id: mypy
         files: ^(src|tests)/.*\.pyi?$
+        additional_dependencies: ["pytest>=8.3"]

@@ -2707,7 +2707,7 @@ class Document:
         dpi: float | None = 150,
         quality: int = 75,
     ) -> ImageCompressionResult:
-        """Downsample and recompress safe JPEG images in place.
+        """Downsample and JPEG-recompress safe raster images in place.
 
         ``dpi`` limits the effective resolution of each source-image axis.
         Reused images retain the pixels required by their largest placement
@@ -2715,18 +2715,19 @@ class Document:
         while retaining JPEG quality recompression. ``quality`` is 1 through
         100; both operations are lossy.
 
-        The conservative first version rewrites only indirect 8-bit
-        DeviceGray/DeviceRGB JPEG XObjects without masks, custom decode arrays,
-        or decode parameters. Unsupported interpreted indirect images and
-        outputs that would not be smaller are counted as ``skipped``; inline
-        images are not considered. The operation releases the GIL, is atomic
-        on decoding errors, rejects more than 16,384 unique image objects or
-        250 million eligible source pixels, and skips an individual source
-        above 64 million pixels.
+        The conservative implementation rewrites only indirect, single-filter,
+        8-bit DeviceGray/DeviceRGB DCT or Flate XObjects without masks or custom
+        decode arrays. DCT decode parameters are excluded; Flate may use no
+        predictor or a consistent PNG predictor. Unsupported interpreted
+        indirect images and outputs that would not be smaller are counted as
+        ``skipped``; inline images are not considered. The operation releases
+        the GIL, is atomic on decoding errors, rejects more than 16,384 unique
+        image objects or 250 million eligible source pixels, and skips an
+        individual source above 64 million pixels.
 
-        Byte totals cover rewritten JPEG stream payloads, not complete PDF
-        serialization. Save to a new output and inspect it before replacing an
-        original document.
+        Byte totals compare rewritten source payloads with their resulting JPEG
+        payloads, not complete PDF serialization. Save to a new output and
+        inspect it before replacing an original document.
         """
         self._ensure_open()
         if (

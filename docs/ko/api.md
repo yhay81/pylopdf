@@ -25,7 +25,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown 변환(제목, CJK 연결, 강조, 목록, 다단 및 보수적인 세로쓰기 순서, 기본 테두리 표, `"text"`로 테두리 없는 표 추가, `None`으로 표 변환 비활성화) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG, 순서 보장 병렬 PNG 묶음, SVG |
-| `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한JPEG XObject를 손실 축소·재압축하고 타입 지정byte/count 통계를 반환 |
+| `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |
 | `get_toc()` / `set_toc(toc)` | 목차（페이지는 1부터） |
@@ -38,10 +38,11 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 
 `compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
 찾은 뒤 lopdf clone을 원자적으로 편집합니다. `dpi=None`이면 축소 없이quality 재압축만
-수행합니다. 보수적 범위는mask, 사용자decode array, decode parameter가 없는 직접
-8-bit DeviceGray/DeviceRGB DCT stream입니다. 해석된 미지원 간접 이미지와 더 작아지지
-않는encoding은 건너뛰며 inline 이미지는 집계하지 않습니다. 같은 설정의 반복 호출은
-멱등입니다.
+수행합니다. 보수적 범위는mask나 사용자decode array가 없는 직접 단일filter
+8-bit DeviceGray/DeviceRGB DCT/Flate stream입니다. DCT decode parameter는 제외하며,
+Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 수 있습니다. 해석된
+미지원 간접 이미지와 더 작아지지 않는encoding은 건너뛰며 inline 이미지는 집계하지
+않습니다. 같은 설정의 반복 호출은 멱등입니다.
 
 ## Page { #page }
 

@@ -30,7 +30,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `pix.samples / width / height / stride / save()` | 同じ | 常にストレートアルファ RGBA8。pylopdfの`tobytes()`と`save(path)`はPNGを生成し、`save`には`.png`が必要 |
 | `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 現在はmaskのない安全なDeviceGray/DeviceRGB JPEGのみ。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
+| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
 | `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |

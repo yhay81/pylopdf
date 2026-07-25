@@ -1,9 +1,10 @@
-"""Tests for placement-aware JPEG image compression."""
+"""Tests for placement-aware raster image compression."""
 
 from __future__ import annotations
 
 import base64
 import functools
+import zlib
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,61 @@ def build_jpeg_pdf(
             5: image,
         }
     )
+
+
+def build_flate_pdf(
+    *,
+    color_space: str = "DeviceRGB",
+    predictor: int | None = None,
+    corrupt: bool = False,
+    compressible: bool = False,
+) -> tuple[bytes, bytes]:
+    """Draw a deterministic Flate raster and return its encoded payload."""
+    width = height = 128
+    components = 1 if color_space == "DeviceGray" else 3
+    if compressible:
+        samples = bytearray(width * height * components)
+    else:
+        state = 0x12345678
+        samples = bytearray()
+        for _ in range(width * height * components):
+            state = (1_664_525 * state + 1_013_904_223) & 0xFFFFFFFF
+            samples.append(state >> 24)
+    if predictor is not None and 10 <= predictor <= 15:
+        row_bytes = width * components
+        filtered = b"".join(
+            b"\x00" + samples[offset : offset + row_bytes] for offset in range(0, len(samples), row_bytes)
+        )
+    else:
+        filtered = bytes(samples)
+    encoded = zlib.compress(filtered)
+    if corrupt:
+        encoded = encoded[: max(4, len(encoded) // 3)]
+    decode_params = (
+        ""
+        if predictor is None
+        else (f"/DecodeParms << /Predictor {predictor} /Colors {components} /BitsPerComponent 8 /Columns {width} >>")
+    )
+    commands = "q 72 0 0 72 0 0 cm /Im0 Do Q"
+    image = (
+        (
+            f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} "
+            f"/ColorSpace /{color_space} /BitsPerComponent 8 /Filter /FlateDecode "
+            f"{decode_params} /Length {len(encoded)} >>\nstream\n"
+        ).encode("ascii")
+        + encoded
+        + b"\nendstream"
+    )
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>",
+            3: ("<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>"),
+            4: f"<< /Length {len(commands)} >>\nstream\n{commands}\nendstream",
+            5: image,
+        }
+    )
+    return pdf, encoded
 
 
 def test_compress_images_downsamples_and_reduces_jpeg() -> None:
@@ -144,6 +200,77 @@ def test_compress_images_downsamples_grayscale_jpeg() -> None:
     assert (compressed["width"], compressed["height"]) == (36, 36)
     assert compressed["ext"] == "jpeg"
     assert len(compressed["image"]) < len(GRAY_GRADIENT_JPEG)
+
+
+@pytest.mark.parametrize(
+    ("color_space", "predictor"),
+    [("DeviceRGB", None), ("DeviceRGB", 15), ("DeviceGray", 15)],
+)
+def test_compress_images_converts_safe_flate_rasters(
+    color_space: str,
+    predictor: int | None,
+) -> None:
+    source, encoded = build_flate_pdf(color_space=color_space, predictor=predictor)
+    doc = pylopdf.open(stream=source)
+    page = doc[0]
+    before = page.get_pixmap().samples
+
+    result = doc.compress_images(dpi=64, quality=65)
+
+    compressed = page.get_images()[0]
+    after = page.get_pixmap().samples
+    assert result == {
+        "considered": 1,
+        "rewritten": 1,
+        "skipped": 0,
+        "bytes_before": len(encoded),
+        "bytes_after": len(compressed["image"]),
+        "bytes_saved": len(encoded) - len(compressed["image"]),
+    }
+    assert compressed["ext"] == "jpeg"
+    assert (compressed["width"], compressed["height"]) == (64, 64)
+    assert len(compressed["image"]) < len(encoded)
+    assert len(after) == len(before)
+    assert sum(abs(a - b) for a, b in zip(before, after, strict=True)) / len(after) < 50
+
+    reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened[0].get_images()[0]["ext"] == "jpeg"
+
+
+@pytest.mark.parametrize("predictor", [2, 9])
+def test_compress_images_skips_unsupported_flate_predictors(predictor: int) -> None:
+    source, _ = build_flate_pdf(predictor=predictor)
+    doc = pylopdf.open(stream=source)
+    original = doc.tobytes()
+
+    result = doc.compress_images(dpi=64, quality=65)
+
+    assert result["rewritten"] == 0
+    assert result["skipped"] == 1
+    assert doc.tobytes() == original
+
+
+def test_compress_images_skips_flate_when_jpeg_is_not_smaller() -> None:
+    source, _ = build_flate_pdf(compressible=True)
+    doc = pylopdf.open(stream=source)
+    original = doc.tobytes()
+
+    result = doc.compress_images(dpi=None, quality=65)
+
+    assert result["rewritten"] == 0
+    assert result["skipped"] == 1
+    assert doc.tobytes() == original
+
+
+def test_compress_images_rejects_malformed_flate_atomically() -> None:
+    source, _ = build_flate_pdf(corrupt=True)
+    doc = pylopdf.open(stream=source)
+    original = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match=r"failed to decode Flate image|unexpected sample count"):
+        doc.compress_images(dpi=64, quality=65)
+
+    assert doc.tobytes() == original
 
 
 def test_compress_images_skips_encoding_that_is_not_smaller() -> None:
