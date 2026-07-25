@@ -709,6 +709,15 @@ class Table:
     A merged cell occupies its top-left slot. Continuation slots are ``None``.
     """
 
+    page: Page
+    bbox: Rect
+    row_count: int
+    col_count: int
+    cells: list[Rect | None]
+    diagnostics: TableDiagnostics
+    strategy: Literal["lines", "text"]
+    confidence: float
+
     def __init__(  # noqa: PLR0913 - internal owned result constructor
         self,
         page: Page,
@@ -757,6 +766,12 @@ class Table:
 
 class TableFinder:
     """Sequence-like result with the strategy and optional clip used."""
+
+    page: Page
+    tables: list[Table]
+    cells: list[Rect | None]
+    strategy: Literal["lines", "text"]
+    clip: Rect | None
 
     def __init__(
         self,

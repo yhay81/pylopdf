@@ -8,6 +8,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 詳細な docstring はパッケージ内にあります（`help(pylopdf.Document)`）。この
 ページは地図です。ページ番号は `get_toc` / `set_toc`（pymupdf 互換の 1 始まり）を
 除きすべて 0 始まり。座標はすべて左上原点の表示空間です。
+[API安定性ポリシー](stability.md)で公開範囲と非推奨化の手順を定義しています。
 
 ## Document { #document }
 

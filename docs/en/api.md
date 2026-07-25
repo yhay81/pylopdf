@@ -8,6 +8,8 @@ description: A compact map of pylopdf Document, Page, Pixmap, Rect, permissions,
 Full docstrings live in the package (`help(pylopdf.Document)`); this page is a
 map. All page numbers are 0-based except `get_toc` / `set_toc` (1-based,
 pymupdf-compatible). All coordinates are top-left-origin display space.
+The [API stability policy](stability.md) defines the public boundary and
+deprecation lifecycle.
 
 ## Document { #document }
 

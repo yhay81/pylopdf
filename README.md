@@ -7,7 +7,8 @@
 
 [Japanese README](README.ja.md) /
 **Documentation: <https://yhay81.github.io/pylopdf/>** (with a
-[pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/))
+[pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/) and
+[API stability policy](https://yhay81.github.io/pylopdf/stability/))
 
 PDF editing, rendering, extraction, and generation for Python, powered by Rust —
 [lopdf](https://github.com/J-F-Liu/lopdf) for editing,

@@ -18,6 +18,7 @@ Core pages:
 - Benchmarks: https://yhay81.github.io/pylopdf/benchmarks/
 - Concurrency: https://yhay81.github.io/pylopdf/concurrency/
 - Security: https://yhay81.github.io/pylopdf/security/
+- API stability: https://yhay81.github.io/pylopdf/stability/
 - Language policy: https://yhay81.github.io/pylopdf/languages/
 
 Key facts:
