@@ -67,6 +67,14 @@ type LinkTuple = (
 /// Resolved link destination: page number, display point, zoom, named destination.
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
 
+/// Target geometry and drawing order for one placed PDF page.
+#[derive(Clone, Copy)]
+struct PagePlacement {
+    rect: [f64; 4],
+    keep_proportion: bool,
+    overlay: bool,
+}
+
 /// One EmbeddedFiles name-tree item: display name and FileSpec object.
 ///
 /// FileSpec may be either an indirect reference or an inline dictionary.
@@ -987,6 +995,46 @@ impl _Document {
     fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
         let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
         self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        Ok(())
+    }
+
+    /// Import and place a page from an owned source snapshot.
+    fn place_pdf_page(
+        &mut self,
+        page_id: ObjectId,
+        target_geometry: ([f64; 4], i64),
+        source: Document,
+        src_page_number: u32,
+        placement: PagePlacement,
+    ) -> PyResult<()> {
+        let (form_id, src_crop, src_rotation) =
+            import_page_as_form(&mut self.doc, source, src_page_number)?;
+        let content = draw::PlacedContent::Form {
+            crop: src_crop,
+            rotation: src_rotation,
+        };
+        let matrix = draw::placement_matrix(
+            target_geometry.0,
+            target_geometry.1,
+            placement.rect,
+            &content,
+            placement.keep_proportion,
+        );
+        self.bake_page_attrs(page_id)?;
+        let name = format!("PyloFm{}", form_id.0);
+        self.doc
+            .add_xobject(page_id, name.as_bytes(), form_id)
+            .map_err(to_py_err)?;
+        draw::push_content(
+            &mut self.doc,
+            page_id,
+            draw::draw_ops(matrix, &name),
+            placement.overlay,
+        )
+        .map_err(to_py_err)?;
+        // All source non-page objects were moved initially; prune assets and
+        // attachments unreachable from the Form XObject.
+        self.doc.prune_objects();
         Ok(())
     }
 
@@ -3107,36 +3155,49 @@ impl _Document {
         self.invalidate_hayro_pdf();
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
+        let placement = PagePlacement {
+            rect: [rect.0, rect.1, rect.2, rect.3],
+            keep_proportion,
+            overlay,
+        };
         py.detach(|| {
-            let (form_id, src_crop, src_rotation) =
-                import_page_as_form(&mut self.doc, other.doc.clone(), src_page_number)?;
-            let content = draw::PlacedContent::Form {
-                crop: src_crop,
-                rotation: src_rotation,
-            };
-            let matrix = draw::placement_matrix(
-                crop,
-                rotation,
-                [rect.0, rect.1, rect.2, rect.3],
-                &content,
-                keep_proportion,
-            );
-            self.bake_page_attrs(page_id)?;
-            let name = format!("PyloFm{}", form_id.0);
-            self.doc
-                .add_xobject(page_id, name.as_bytes(), form_id)
-                .map_err(to_py_err)?;
-            draw::push_content(
-                &mut self.doc,
+            self.place_pdf_page(
                 page_id,
-                draw::draw_ops(matrix, &name),
-                overlay,
+                (crop, rotation),
+                other.doc.clone(),
+                src_page_number,
+                placement,
             )
-            .map_err(to_py_err)?;
-            // All source non-page objects were moved initially; prune assets and
-            // attachments unreachable from the Form XObject.
-            self.doc.prune_objects();
-            Ok(())
+        })
+    }
+
+    /// Import a page from this document's pre-edit snapshot as a Form XObject.
+    fn show_pdf_page_self(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        src_page_number: u32,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> PyResult<()> {
+        self.invalidate_hayro_pdf();
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let page_id = self.page_id(page_number)?;
+        let placement = PagePlacement {
+            rect: [rect.0, rect.1, rect.2, rect.3],
+            keep_proportion,
+            overlay,
+        };
+        py.detach(|| {
+            let source = self.doc.clone();
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                source,
+                src_page_number,
+                placement,
+            )
         })
     }
 

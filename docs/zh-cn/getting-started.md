@@ -86,7 +86,7 @@ page.set_rotation(90)
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG直通/PNG透明
 page.insert_image(page.search_for("已批准")[0], stream=stamp_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # 直接RGBA并顺时针旋转
-page.show_pdf_page(page.rect, letterhead)                    # 以矢量叠加其他PDF
+page.show_pdf_page(page.rect, letterhead)                    # 以矢量叠加；也可来自同一文档
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansJP-Regular.otf")
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮

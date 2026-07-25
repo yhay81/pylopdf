@@ -186,9 +186,11 @@ overview.
   optional soft mask; fully opaque Pixmaps must not create a mask.
   `insert_image(rotate=)` rotates every source clockwise in normalized
   right-angle steps, swaps the aspect ratio for 90/270, and composes with target
-  page rotation in display space. Annotations must always include an appearance
-  stream at `AP /N`, because hayro does not render annotations without one.
-  `render_annotations` defaults to true.
+  page rotation in display space. Same-document `show_pdf_page` must clone the
+  lopdf graph before importing the source Form XObject so the target page can
+  safely source itself without serialization or mutable aliasing. Annotations
+  must always include an appearance stream at `AP /N`, because hayro does not
+  render annotations without one. `render_annotations` defaults to true.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and

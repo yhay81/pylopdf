@@ -151,6 +151,14 @@ class _Document:
         keep_proportion: bool,
         overlay: bool,
     ) -> None: ...
+    def show_pdf_page_self(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        src_page_number: int,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> None: ...
     def read_annotations(
         self, page_number: int
     ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...

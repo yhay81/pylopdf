@@ -36,7 +36,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.needs_pass` / `authenticate()` | 동일 | 같은 반환값 의미(0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 동일 | JPEG 패스스루, PNG 알파, RGBA `Pixmap` 직접 재사용과 시계 방향 직각 회전; 그 밖의 인코딩 형식은 Pillow로 변환 |
-| `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서의 오버레이는 미지원(먼저 복사) |
+| `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` | 글꼴 미지정 시 Standard-14 / WinAnsi, 지정 시 HarfRust로 셰이핑하고 krilla로 서브셋 내장 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` 지원 | UAX #14 CJK 줄바꿈, 음수 반환 시 그리지 않음 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |

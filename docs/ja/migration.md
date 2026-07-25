@@ -37,7 +37,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.needs_pass` / `authenticate()` | 同じ | 戻り値の意味（0/1/2/4/6）も同じ |
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 同じ | JPEGパススルー、PNG透過、RGBA `Pixmap`の直接再利用、時計回りの右角回転。その他の符号化形式はPillowで変換 |
-| `page.show_pdf_page(rect, src, pno)` | 同じ | 同一ドキュメントの重ねは不可（複製してから） |
+| `page.show_pdf_page(rect, src, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` | フォント指定なしは標準 14 / WinAnsi。指定時は HarfRust で字形処理し krilla でサブセット埋め込み |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` に対応 | UAX #14 の CJK 折り返し。負の戻り値なら描画しない |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |

@@ -48,7 +48,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | draw JPEG/PNG or reuse a rendered RGBA `Pixmap`; `rotate` turns it clockwise in 90-degree steps |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
+| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR text layer (searchable PDFs) |

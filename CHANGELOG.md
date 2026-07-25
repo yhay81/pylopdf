@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.show_pdf_page()` now accepts its own `Document` as the source, including
+  the target page itself. Native lopdf cloning provides a stable pre-edit
+  snapshot before Form-XObject import, eliminating the previous
+  serialize-and-reopen workaround without retaining unreachable duplicate
+  source objects.
 - `Page.insert_image(..., pixmap=)` now embeds an immutable rendered `Pixmap`
   directly from its straight-alpha RGBA8 storage. The Rust path avoids PNG
   encoding and decoding, preserves transparency through a soft mask, and omits

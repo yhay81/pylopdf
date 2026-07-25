@@ -294,10 +294,30 @@ def test_show_pdf_page_scales_source_crop_into_rect() -> None:
     assert _pixel(page, 140, 60) == WHITE
 
 
-def test_show_pdf_page_rejects_same_document() -> None:
-    doc = _new_page_doc()
-    with pytest.raises(ValueError, match="same document"):
-        doc[0].show_pdf_page((0, 0, 50, 50), doc)
+def test_show_pdf_page_imports_another_page_from_same_document() -> None:
+    doc = _new_page_doc(100, 100)
+    doc[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    doc.embfile_add("keep.txt", b"reachable target attachment")
+    target = doc.new_page(width=200, height=100)
+
+    target.show_pdf_page((120, 20, 180, 80), doc, pno=0)
+
+    assert _pixel(target, 150, 50) == RED
+    assert _pixel(target, 60, 50) == WHITE
+    assert doc.embfile_names() == ["keep.txt"]
+    assert doc.embfile_get("keep.txt") == b"reachable target attachment"
+
+
+def test_show_pdf_page_imports_target_page_from_pre_edit_snapshot() -> None:
+    doc = _new_page_doc(100, 100)
+    page = doc[0]
+    page.insert_image((0, 0, 50, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
+
+    page.show_pdf_page((50, 0, 100, 100), doc, pno=0, keep_proportion=False)
+
+    assert _pixel(page, 25, 50) == RED
+    assert _pixel(page, 62, 50) == RED
+    assert _pixel(page, 87, 50) == WHITE
 
 
 def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:

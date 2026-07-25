@@ -165,7 +165,7 @@ doc.copy_page(0, to=1)  # duplicate page 0 in front of page 1
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough, PNG with alpha
 page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at a search hit
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
-page.show_pdf_page(page.rect, letterhead)  # overlay another PDF page as vectors (watermark / letterhead)
+page.show_pdf_page(page.rect, letterhead)  # vector overlay; same-document sources also work
 page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
 
 # Headers / footers / page numbers (standard-14 fonts, WinAnsi range)
@@ -379,7 +379,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=/pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw JPEG without recompression, PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; optional clockwise right-angle rotation and rect use display coordinates |
-| `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page from another document as vectors (watermarks / stamps / letterheads) |
+| `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 font or a shaped, subset-embedded OpenType font; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap text with UAX #14 line breaking; supports Core 14 metrics or a shaped, subset-embedded OpenType font, returns spare height, and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=0)` | Write OCR results as an orientation-aware invisible text layer (searchable PDFs; no font embedding, near-zero size) |

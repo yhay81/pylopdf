@@ -48,7 +48,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | JPEG/PNG、または描画済みRGBA `Pixmap`の挿入。`rotate`は90度単位の時計回り回転 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 別 PDF ページをベクタのまま重ねる |
+| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 標準 14 または埋め込み OpenType の実幅で UAX #14 折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層（searchable PDF化） |
