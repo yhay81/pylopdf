@@ -54,6 +54,30 @@ uv run pytest tests/test_interop.py
 Coverage-guided fuzzing is documented in `fuzz/README.md`. It runs on a weekly
 scheduled workflow and can be reproduced locally with Python 3.13.
 
+### Pyodide 0.28.3 build
+
+The Cloudflare-compatible WebAssembly wheel requires Linux, exact host Python
+3.13.2, Git, curl, and rustup. The checked-in builder pins and verifies Pyodide
+0.28.3, Emscripten 4.0.9 with its Node.js 20.18.0 runtime, Rust 1.95.0 with its
+`wasm32-unknown-emscripten` target, pyodide-build, and maturin. Python build
+dependencies are fully resolved with distribution hashes:
+
+```bash
+bash tools/build_pyodide.sh
+```
+
+Toolchains and downloads are isolated under `.tmp/pyodide-0.28.3`; the wheel is
+written to `dist/pyodide-0.28.3`. Rust compilation defaults to two jobs to
+bound memory use; set `PYLOPDF_PYODIDE_BUILD_JOBS` only after measuring the
+builder. The command validates the
+`cp310-abi3-pyodide_2025_0_wasm32` tag, the imported WebAssembly exception tag,
+and the absence of wasm-bindgen shims before installing the wheel into the
+Pyodide 0.28.3 Node runtime. Its smoke test loads a PDF from bytes, checks page
+count, text extraction, and batch rendering, and verifies that a malformed-
+input `PdfError` does not terminate the runtime. Builds outside a Git checkout
+must provide an integer commit timestamp through
+`PYLOPDF_SOURCE_DATE_EPOCH`.
+
 ## Pull requests
 
 Keep each pull request focused on one coherent behavior. Before submitting:

@@ -598,11 +598,15 @@ rather than waiting automatically for v1.x.
     consistent normal-stream `compression_level` in lopdf, and implementing or
     removing lopdf's dead `linearize` flag.
 - [x] Add a Python 3.10 CI job to validate the abi3 floor (2026-07-23).
-- Experiment with a Pyodide/emscripten wheel. pymupdf now publishes an
-  experimental wasm artifact, but its shared-library packaging still requires
-  [`pyodide_js.loadPackage()`](https://pymupdf.readthedocs.io/en/latest/pyodide.html)
-  rather than an ordinary `micropip.install()`; target a static,
-  micropip-compatible pylopdf package.
+- [x] Produce a reproducible Pyodide 0.28.3/emscripten wheel (2026-07-26).
+  The static 4.52 MiB `cp310-abi3-pyodide_2025_0_wasm32` artifact installs with
+  ordinary `micropip.install()`, imports without wasm-bindgen shims, preserves
+  Python exceptions through the WebAssembly exception tag, and passes
+  byte-stream open, extraction, rendering, malformed-input recovery, and
+  post-error reuse checks. The builder pins and verifies the complete native
+  toolchain and hashed Python build environment. Publishing, compatibility
+  breadth, resource-limit tests, size investigation, and user documentation
+  continue in #19 through #23 under the #24 epic.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four

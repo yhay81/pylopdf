@@ -15,8 +15,6 @@ name = "pylopdf"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is sufficient.
-lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
 # Expose the already-linked rayon runtime for supported batch rendering.
 rayon = "1"
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
@@ -53,6 +51,15 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 # core wheel.
 rten = { version = "0.24.0", default-features = false, features = ["rten_format"] }
 rten-tensor = "0.24.0"
+
+[target.'cfg(not(target_os = "emscripten"))'.dependencies]
+# Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is
+# sufficient. Emscripten keeps PDF date strings opaque and must not link
+# chrono's browser-only js-sys clock.
+lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+
+[target.'cfg(target_os = "emscripten")'.dependencies]
+lopdf = { version = "0.44.0", default-features = false }
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"
