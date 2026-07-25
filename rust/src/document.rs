@@ -23,6 +23,7 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use crate::draw;
+use crate::generate;
 use crate::ocr;
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -3235,6 +3236,7 @@ impl _Document {
         winansi: bool,
         fontsize: f64,
         color: (f64, f64, f64),
+        overlay: bool,
     ) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         let (crop, rotation) = self.page_display_geometry(page_number)?;
@@ -3256,8 +3258,54 @@ impl _Document {
             let name = format!("PyloF{}", font_id.0);
             draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
             let ops = draw::text_ops(crop, rotation, point, &lines, &name, fontsize, color);
-            draw::push_content(&mut self.doc, page_id, ops, true).map_err(to_py_err)
+            draw::push_content(&mut self.doc, page_id, ops, overlay).map_err(to_py_err)
         })
+    }
+
+    /// Draw subset-embedded OpenType text through a krilla-generated Form.
+    ///
+    /// The temporary source page uses the target page's rotation-resolved
+    /// display size and coordinate system, then follows `show_pdf_page`'s
+    /// existing object-import and placement path.
+    // This boundary mirrors the Python signature, so the argument count is intentional.
+    #[allow(clippy::too_many_arguments)]
+    fn insert_embedded_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: Vec<String>,
+        font_data: Vec<u8>,
+        font_index: u32,
+        fontsize: f64,
+        color: (f64, f64, f64),
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let generated = py.detach(|| {
+            generate::embedded_text_page(
+                page_size, point, &lines, font_data, font_index, fontsize, color,
+            )
+            .map_err(PdfError::new_err)
+        })?;
+        let generated_doc = Document::load_mem(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let source = Self::from_doc(generated_doc, Some(generated));
+        self.show_pdf_page(
+            py,
+            page_number,
+            (0.0, 0.0, page_size.0, page_size.1),
+            &source,
+            1,
+            false,
+            overlay,
+        )
     }
 
     /// Replace text on a one-based page and return the replacement count.

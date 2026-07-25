@@ -1,4 +1,4 @@
-"""Tests for Page.insert_image, show_pdf_page, and replace_text.
+"""Tests for page image, PDF, text, and replacement drawing.
 
 Placement is verified end to end through rendered pixel colors, exposing any
 failure in coordinate transforms, rotation, or XObject registration.
@@ -16,6 +16,9 @@ from conftest import build_pdf
 import pylopdf
 
 ASSETS = Path(__file__).parent / "assets" / "real_world"
+NOTO_SANS_JP = (
+    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk" / "NotoSansJP-Regular.otf"
+)
 
 RED = (255, 0, 0)
 GREEN = (0, 128, 0)
@@ -252,6 +255,91 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     assert page.search_for("Rotated")
 
 
+def test_insert_text_subset_embeds_unicode_font() -> None:
+    doc = _new_page_doc(300, 150)
+    page = doc[0]
+    page.insert_text(
+        (20, 60),
+        "日本語テキスト",
+        fontsize=24,
+        fontfile=NOTO_SANS_JP,
+        fontname="private-resource-name-is-ignored",
+    )
+
+    assert page.get_text().strip() == "日本語テキスト"
+    assert page.search_for("日本語")
+    # The 4.5 MB source is subset to the glyphs used by this one-page Form.
+    saved = doc.tobytes()
+    assert len(saved) < 50_000
+    reopened = pylopdf.open(stream=saved)
+    assert reopened[0].get_text().strip() == "日本語テキスト"
+    assert reopened[0].search_for("テキスト")
+
+
+def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=150, height=300)
+    page = doc[0]
+    page.set_rotation(90)
+    page.insert_text(
+        (30, 55),
+        "一行目\n二行目",
+        fontsize=18,
+        fontbuffer=NOTO_SANS_JP.read_bytes(),
+        color=(0.8, 0.1, 0.2),
+    )
+
+    words = {word[4]: word for word in page.get_text("words")}
+    assert set(words) == {"一行目", "二行目"}
+    assert abs(words["一行目"][0] - 30) < 2
+    assert words["一行目"][1] < 55 < words["一行目"][3]
+    assert words["二行目"][1] > words["一行目"][1]
+    assert page.get_pixmap().width == 300
+
+
+def test_insert_text_embedded_overlay_order() -> None:
+    font_data = NOTO_SANS_JP.read_bytes()
+
+    underlay = _new_page_doc(160, 80)
+    underlay[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    underlay[0].insert_text(
+        (10, 55),
+        "TEXT",
+        fontsize=48,
+        fontbuffer=font_data,
+        color=(1.0, 0.0, 0.0),
+        overlay=False,
+    )
+    underlay_rgb = bytes(channel for offset, channel in enumerate(underlay[0].get_pixmap().samples) if offset % 4 != 3)
+    assert set(underlay_rgb) == {0, 128}
+
+    overlay = _new_page_doc(160, 80)
+    overlay[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    overlay[0].insert_text(
+        (10, 55),
+        "TEXT",
+        fontsize=48,
+        fontbuffer=font_data,
+        color=(1.0, 0.0, 0.0),
+    )
+    overlay_rgb = bytes(channel for offset, channel in enumerate(overlay[0].get_pixmap().samples) if offset % 4 != 3)
+    assert set(overlay_rgb) != {0, 128}
+
+    standard_underlay = _new_page_doc(160, 80)
+    standard_underlay[0].insert_image((0, 0, 160, 80), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    standard_underlay[0].insert_text(
+        (10, 55),
+        "TEXT",
+        fontsize=48,
+        color=(1.0, 0.0, 0.0),
+        overlay=False,
+    )
+    standard_rgb = bytes(
+        channel for offset, channel in enumerate(standard_underlay[0].get_pixmap().samples) if offset % 4 != 3
+    )
+    assert set(standard_rgb) == {0, 128}
+
+
 def test_get_images_bbox_on_rotated_page_is_display_space() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=200)
@@ -284,10 +372,10 @@ def test_insert_text_page_numbering_recipe() -> None:
         assert f"Page {i + 1} / 3" in doc[i].get_text()
 
 
-def test_insert_text_rejects_cjk_with_recipe_hint() -> None:
+def test_insert_text_rejects_cjk_without_embedded_font() -> None:
     doc = pylopdf.Document()
     doc.new_page()
-    with pytest.raises(ValueError, match="show_pdf_page"):
+    with pytest.raises(ValueError, match="fontfile or fontbuffer"):
         doc[0].insert_text((50, 50), "社外秘")
 
 
@@ -301,6 +389,16 @@ def test_insert_text_rejects_unknown_font_and_bad_args() -> None:
         page.insert_text((50, 50), "x", fontsize=0)
     with pytest.raises(ValueError, match="color"):
         page.insert_text((50, 50), "x", color=(2.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="cannot both"):
+        page.insert_text((50, 50), "x", fontfile=NOTO_SANS_JP, fontbuffer=b"font")
+    with pytest.raises(ValueError, match="fontindex"):
+        page.insert_text((50, 50), "x", fontindex=1)
+    with pytest.raises(ValueError, match="fontindex"):
+        page.insert_text((50, 50), "x", fontbuffer=NOTO_SANS_JP.read_bytes(), fontindex=True)
+    with pytest.raises(pylopdf.PdfError, match="font data"):
+        page.insert_text((50, 50), "x", fontbuffer=b"not a font")
+    with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
+        page.insert_text((50, 50), "🦀", fontfile=NOTO_SANS_JP)
 
 
 def test_replace_text_replaces_and_counts() -> None:

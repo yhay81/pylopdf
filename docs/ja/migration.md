@@ -38,7 +38,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename=)` | 同じ | JPEG/PNG のみ。`pixmap=` は無い（他形式は Pillow で変換） |
 | `page.show_pdf_page(rect, src, pno)` | 同じ | 同一ドキュメントの重ねは不可（複製してから） |
-| `page.insert_text(point, text, fontsize=, fontname=)` | 同じ | 標準 14 の略名（`helv` など）。WinAnsi の範囲のみ |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` | フォント指定なしは標準 14 / WinAnsi。指定時は HarfRust で字形処理し krilla でサブセット埋め込み |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |

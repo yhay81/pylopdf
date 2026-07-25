@@ -5,7 +5,8 @@ description = "PDF editing and rendering for Python, powered by Rust (lopdf + ha
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",

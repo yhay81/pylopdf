@@ -262,6 +262,7 @@ _COLOR_MAX = 255
 
 #: Largest absolute value representable as a finite lopdf PDF real (f32).
 _FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
+_UINT32_MAX = 0xFFFFFFFF
 _MAX_RENDER_WORKERS = 64
 
 
@@ -323,6 +324,18 @@ def _read_image_source(filename: str | os.PathLike[str] | None, stream: bytes | 
         msg = "specify either filename or stream"
         raise ValueError(msg)
     return bytes(stream)
+
+
+def _read_font_source(fontfile: str | os.PathLike[str] | None, fontbuffer: bytes | None) -> bytes | None:
+    """Read optional font bytes from at most one font source."""
+    if fontfile is not None:
+        if fontbuffer is not None:
+            msg = "fontfile and fontbuffer cannot both be specified"
+            raise ValueError(msg)
+        return Path(fontfile).read_bytes()
+    if fontbuffer is not None:
+        return bytes(fontbuffer)
+    return None
 
 
 #: Map pymupdf-style insert_text aliases to Standard 14 font names.
@@ -650,25 +663,39 @@ class Page:
             self._page_number(), (x0, y0, x1, y1), src._doc, src_number, keep_proportion, overlay
         )
 
-    def insert_text(
+    def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
         point: Sequence[float],
         text: str,
         *,
         fontsize: float = 11.0,
         fontname: str = "helv",
+        fontfile: str | os.PathLike[str] | None = None,
+        fontbuffer: bytes | None = None,
+        fontindex: int = 0,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        overlay: bool = True,
     ) -> None:
         r"""Draw text at ``point``, the first line's baseline-left display point.
 
         ``fontname`` is a pymupdf-style Standard 14 alias: the ``"helv"``,
         ``"tiro"``, and ``"cour"`` families with ``bo``/``it`` variants, plus
-        ``"symb"`` and ``"zadb"``. Fonts are not embedded and viewers provide
-        the standard typeface. Text is limited to WinAnsi, roughly Latin-1; use
-        the typst plus :meth:`show_pdf_page` ecosystem recipe for CJK. ``\n``
-        starts a new line at 1.2 times ``fontsize``. Text remains visually
-        upright on rotated pages. Loop over pages for headers, footers, page
-        numbers, or Bates numbers.
+        ``"symb"`` and ``"zadb"``. These fonts are not embedded and text is
+        limited to WinAnsi, roughly Latin-1.
+
+        Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
+        arbitrary OpenType font through krilla. This enables Unicode text,
+        including shaped CJK and RTL scripts. ``fontindex`` selects a face in a
+        TrueType/OpenType collection and ``fontname`` is ignored for embedded
+        fonts. A single line should use one script and the font must contain all
+        needed glyphs; no font fallback or paragraph layout is performed. RTL
+        glyph shaping renders correctly, but extraction currently follows
+        visual rather than logical order.
+
+        ``\n`` starts a new line at 1.2 times ``fontsize``. Text remains
+        visually upright on rotated pages. ``overlay=False`` draws below
+        existing content. Loop over pages for headers, footers, page numbers,
+        or Bates numbers.
         """
         try:
             x, y = (float(v) for v in point)
@@ -681,22 +708,41 @@ class Page:
         if not (math.isfinite(fontsize) and fontsize > 0):
             msg = f"fontsize must be a positive number: {fontsize!r}"
             raise ValueError(msg)
-        base_font = _BASE14_FONTS.get(fontname)
-        if base_font is None:
-            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
-            raise ValueError(msg)
         red, green, blue = _validate_unit_rgb(color)
         if not text:
             msg = "text must be at least 1 character"
             raise ValueError(msg)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        font_data = _read_font_source(fontfile, fontbuffer)
+        if font_data is not None:
+            if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
+                msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
+                raise ValueError(msg)
+            self._document._doc.insert_embedded_text(
+                self._page_number(),
+                (x, y),
+                normalized.split("\n"),
+                font_data,
+                fontindex,
+                float(fontsize),
+                (red, green, blue),
+                overlay,
+            )
+            return
+
+        if fontindex != 0:
+            msg = "fontindex requires fontfile or fontbuffer"
+            raise ValueError(msg)
+        base_font = _BASE14_FONTS.get(fontname)
+        if base_font is None:
+            msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
+            raise ValueError(msg)
         try:
             lines = [line.encode("cp1252") for line in normalized.split("\n")]
         except UnicodeEncodeError as exc:
             msg = (
                 "insert_text can only print WinAnsi (Latin-1-equivalent) characters. "
-                "For CJK text such as Japanese, use the typst + show_pdf_page recipe "
-                "(see the README's ecosystem integrations)"
+                "For Unicode text such as Japanese, pass fontfile or fontbuffer"
             )
             raise ValueError(msg) from exc
         self._document._doc.insert_page_text(
@@ -707,6 +753,7 @@ class Page:
             fontname not in _SYMBOLIC_FONTS,
             float(fontsize),
             (red, green, blue),
+            overlay,
         )
 
     def insert_ocr_text_layer(self, words: Iterable[Sequence[Any]]) -> None:

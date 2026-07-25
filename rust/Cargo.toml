@@ -22,6 +22,11 @@ rayon = "1"
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
+# Generate compact, subset-embedded OpenType text as importable PDF forms.
+# Keep raster and PDF-import features disabled: lopdf owns both responsibilities.
+krilla = { version = "=0.8.2", default-features = false }
+# Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
+harfrust = "0.12.0"
 # generate-import-lib enables Windows builds in Python-free containers/cross environments.
 pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
 # Used for coordinate transforms in the hayro text-extraction Device; align versions.

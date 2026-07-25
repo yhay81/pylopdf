@@ -167,6 +167,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read top-to-bottom and right-to-left between horizontal headings and footers;
   line dictionaries report `wmode=1`. Ordinary CJK rows and rotated horizontal
   text remain `wmode=0`
+- `Page.insert_text()` now accepts `fontfile=`, `fontbuffer=`, and
+  `fontindex=` to subset-embed arbitrary OpenType fonts through HarfRust 0.12
+  and krilla 0.8.2. Unicode CJK text remains extractable and searchable;
+  multiline baselines, rotated display coordinates, color, and `overlay=` are
+  preserved through the existing Form-XObject import boundary. Fonts missing
+  any required glyph are rejected instead of emitting `.notdef`. RTL glyph
+  shaping works, while extraction currently follows visual rather than logical
+  order. A 4.5 MB Noto Sans JP source yields a 3.3 KB edited PDF for the
+  regression phrase. The Windows abi3 wheel grew from 4.44 MB to 5.42 MB
+  (+0.98 MB). PEP 639 metadata includes `LICENSE` and third-party
+  acknowledgements in `NOTICE.md`, alongside the generated wheel SBOM
 
 ### Changed
 - PyPI classifier moved from Alpha to `Development Status :: 4 - Beta`

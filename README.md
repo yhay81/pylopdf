@@ -138,9 +138,12 @@ page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at 
 page.show_pdf_page(page.rect, letterhead)  # overlay another PDF page as vectors (watermark / letterhead)
 page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
 
-# Headers / footers / page numbers (standard-14 fonts, WinAnsi range; CJK via the typst recipe)
+# Headers / footers / page numbers (standard-14 fonts, WinAnsi range)
 for i, p in enumerate(doc):
     p.insert_text((p.rect.width - 90, p.rect.height - 30), f"Page {i + 1}", fontsize=9)
+
+# Subset-embed an OpenType font for Unicode and CJK text
+page.insert_text((40, 80), "社外秘", fontsize=20, fontfile="NotoSansJP-Regular.otf", color=(0.8, 0, 0))
 
 # Annotations: search & highlight / link
 page.add_highlight_annot(page.search_for("important"))  # appearance stream included (visible everywhere)
@@ -209,6 +212,13 @@ if doc.needs_pass:
 doc.set_fallback_font("NotoSansJP-Regular.otf")
 doc.set_fallback_font(font_bytes, kind="serif")
 ```
+
+Embedded-font `insert_text` shapes each line with HarfRust and asks krilla to
+subset and embed the resulting glyphs. Provide a font containing every required
+glyph; this primitive does not perform font fallback, bidirectional paragraph
+layout, or line wrapping. RTL glyph shaping works, but extraction currently
+follows visual rather than logical order. Use typst below when full typesetting
+is required.
 
 ## Ecosystem recipes (typesetting, PDF/A, signatures)
 

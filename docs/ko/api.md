@@ -47,10 +47,15 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG 그리기 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 다른 PDF 페이지를 벡터로 겹치기 |
-| `insert_text(point, text, fontsize=, fontname=, color=)` | Standard-14 텍스트（WinAnsi） |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi 또는 서브셋 내장 OpenType Unicode 텍스트 |
 | `insert_ocr_text_layer(words)` | OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 주석 |
+
+내장 글꼴을 사용하는 `insert_text`에는 필요한 모든 글리프를 포함한 단일 글꼴이
+필요합니다. 각 줄의 셰이핑은 수행하지만 글꼴 폴백, 양방향 단락 레이아웃 또는 자동
+줄바꿈은 제공하지 않습니다. RTL 셰이핑은 올바르게 렌더링되지만 현재 텍스트 추출은
+논리 순서가 아닌 시각적 순서를 따릅니다.
 
 `Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
 `Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는

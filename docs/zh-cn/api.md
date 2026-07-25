@@ -47,10 +47,14 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | 绘制JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加其他PDF页面 |
-| `insert_text(point, text, fontsize=, fontname=, color=)` | Standard-14文本（WinAnsi） |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi文本，或子集嵌入OpenType Unicode文本 |
 | `insert_ocr_text_layer(words)` | OCR不可见文本层（可搜索PDF） |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 批注 |
+
+使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。它会对每一行进行塑形，
+但不提供字体回退、双向段落布局或自动换行。RTL塑形可以正确渲染；当前文本提取采用
+视觉顺序而非逻辑顺序。
 
 `Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
 `Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的

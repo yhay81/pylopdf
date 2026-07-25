@@ -47,10 +47,15 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG の描き込み |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 別 PDF ページをベクタのまま重ねる |
-| `insert_text(point, text, fontsize=, fontname=, color=)` | 標準 14 フォント印字（WinAnsi） |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準 14 の WinAnsi、またはサブセット埋め込み OpenType の Unicode 印字 |
 | `insert_ocr_text_layer(words)` | 不可視 OCR テキスト層（searchable PDF 化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 注釈 |
+
+埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。
+各行の字形処理は行いますが、フォントfallback、双方向paragraph layout、折り返しは
+行いません。RTLの字形処理結果は正しく描画されますが、現時点の抽出順は論理順ではなく
+視覚順です。
 
 `Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
 `Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment

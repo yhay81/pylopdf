@@ -88,6 +88,7 @@ page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG 패스스루
 page.insert_image(page.search_for("승인")[0], stream=stamp_png)
 page.show_pdf_page(page.rect, letterhead)                    # 다른 PDF를 벡터로 겹치기
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
+page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansJP-Regular.otf")
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

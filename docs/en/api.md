@@ -47,10 +47,15 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | draw JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
-| `insert_text(point, text, fontsize=, fontname=, color=)` | standard-14 text (WinAnsi) |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
 | `insert_ocr_text_layer(words)` | invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
+
+Embedded-font `insert_text` requires one font containing every glyph. It shapes
+each line but does not provide font fallback, bidirectional paragraph layout,
+or wrapping. RTL shaping renders correctly; extraction currently follows visual
+rather than logical order.
 
 `Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
 probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the
