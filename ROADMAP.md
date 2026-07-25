@@ -315,9 +315,11 @@ measurable, coherent boundary.
       Helvetica metrics; explicit OpenType sources and optional
       `pylopdf[cjk]` use HarfRust/krilla subsetting. Preserve non-empty authored
       button states, synthesize missing vector states, honor inherited
-      alignment/multiline flags plus widget rotation/background/border, and
-      make updates atomic. A render-only state-dictionary normalization bridges
-      hayro 0.7 while keeping saved PDFs canonical and save/reopen-visible.
+      alignment/multiline flags plus widget rotation/background/border, and make
+      updates atomic. Comb text fields additionally honor inherited `MaxLen`,
+      position Unicode graphemes individually, and reject overlength values
+      atomically. A render-only state-dictionary normalization bridges hayro 0.7
+      while keeping saved PDFs canonical and save/reopen-visible.
 - [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
   with deterministic input order, a dedicated 1–64 worker pool, four-worker
   default, GIL release, and a ~512 MB estimated working-memory concurrency cap.

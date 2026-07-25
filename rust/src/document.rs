@@ -34,6 +34,18 @@ const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
 /// Keep table interpretations bounded independently from ordinary text pages.
 const TABLE_PAGE_CACHE_CAPACITY: usize = 8;
 
+const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
+const TEXT_FIELD_PASSWORD: i64 = 1 << 13;
+const TEXT_FIELD_FILE_SELECT: i64 = 1 << 20;
+const TEXT_FIELD_COMB: i64 = 1 << 24;
+
+#[derive(Clone, Copy)]
+enum WidgetTextLayout {
+    SingleLine,
+    Multiline,
+    Comb(usize),
+}
+
 /// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
 
@@ -1147,6 +1159,26 @@ impl _Document {
         None
     }
 
+    /// Resolve a valid text-field comb size or explain malformed flag data.
+    fn field_comb_max_len(&self, field_id: ObjectId, flags: i64) -> Result<Option<usize>, String> {
+        if flags & TEXT_FIELD_COMB == 0 {
+            return Ok(None);
+        }
+        if flags & (TEXT_FIELD_MULTILINE | TEXT_FIELD_PASSWORD | TEXT_FIELD_FILE_SELECT) != 0 {
+            return Err(
+                "comb fields cannot also be multiline, password, or file-select fields".to_owned(),
+            );
+        }
+        let max_len = self
+            .resolve_field_attr(field_id, b"MaxLen")
+            .as_ref()
+            .and_then(|object| resolve_i64(&self.doc, object))
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| "comb field requires a positive MaxLen".to_owned())?;
+        Ok(Some(max_len))
+    }
+
     /// Clone a widget AP dictionary, update/remove `/N`, and write it locally.
     fn set_widget_normal_appearance(
         &mut self,
@@ -1288,7 +1320,7 @@ impl _Document {
         &mut self,
         widget_id: ObjectId,
         value: &str,
-        multiline: bool,
+        layout: WidgetTextLayout,
         align: u8,
         font_data: Option<&Vec<u8>>,
         font_index: u32,
@@ -1301,6 +1333,9 @@ impl _Document {
             .clone();
         let style =
             form::WidgetStyle::from_widget(&self.doc, &widget).map_err(PdfError::new_err)?;
+        if let WidgetTextLayout::Comb(max_len) = layout {
+            form::validate_comb_text(value, max_len).map_err(PdfError::new_err)?;
+        }
 
         if font_data.is_none() && !draw::is_winansi(value) {
             // Preserve the value and NeedAppearances compatibility behavior when
@@ -1311,16 +1346,28 @@ impl _Document {
 
         let (resources, text_ops) = match font_data {
             Some(font_data) if !value.is_empty() => {
-                let generated = generate::embedded_widget_text_page(
-                    (style.layout_width, style.layout_height),
-                    style.content_rect(),
-                    value,
-                    font_data.clone(),
-                    font_index,
-                    multiline,
-                    align,
-                    (0.0, 0.0, 0.0),
-                )
+                let generated = match layout {
+                    WidgetTextLayout::Comb(max_len) => generate::embedded_widget_comb_text_page(
+                        (style.layout_width, style.layout_height),
+                        style.content_rect(),
+                        value,
+                        max_len,
+                        align,
+                        font_data.clone(),
+                        font_index,
+                        (0.0, 0.0, 0.0),
+                    ),
+                    _ => generate::embedded_widget_text_page(
+                        (style.layout_width, style.layout_height),
+                        style.content_rect(),
+                        value,
+                        font_data.clone(),
+                        font_index,
+                        matches!(layout, WidgetTextLayout::Multiline),
+                        align,
+                        (0.0, 0.0, 0.0),
+                    ),
+                }
                 .map_err(PdfError::new_err)?;
                 let generated_doc = Document::load_mem(&generated).map_err(|error| {
                     lopdf_err(Some("failed to import generated form appearance"), &error)
@@ -1345,8 +1392,19 @@ impl _Document {
             }
             Some(_) => (None, Vec::new()),
             None => {
-                let text_ops = form::standard_text_ops(&style, value, multiline, align, "Helv")
-                    .map_err(PdfError::new_err)?;
+                let text_ops = match layout {
+                    WidgetTextLayout::Comb(max_len) => {
+                        form::standard_comb_text_ops(&style, value, max_len, align, "Helv")
+                    }
+                    _ => form::standard_text_ops(
+                        &style,
+                        value,
+                        matches!(layout, WidgetTextLayout::Multiline),
+                        align,
+                        "Helv",
+                    ),
+                }
+                .map_err(PdfError::new_err)?;
                 if text_ops.is_empty() {
                     (None, text_ops)
                 } else {
@@ -1397,7 +1455,18 @@ impl _Document {
                     if !draw::is_winansi(&value) {
                         continue;
                     }
-                    let multiline = field_type == "Tx" && flags & (1 << 12) != 0;
+                    let layout = if field_type == "Tx" {
+                        match self.field_comb_max_len(field_id, flags) {
+                            Ok(Some(max_len)) => WidgetTextLayout::Comb(max_len),
+                            Ok(None) if flags & TEXT_FIELD_MULTILINE != 0 => {
+                                WidgetTextLayout::Multiline
+                            }
+                            Ok(None) => WidgetTextLayout::SingleLine,
+                            Err(_) => continue,
+                        }
+                    } else {
+                        WidgetTextLayout::SingleLine
+                    };
                     let align = self
                         .resolve_field_attr(field_id, b"Q")
                         .as_ref()
@@ -1409,7 +1478,7 @@ impl _Document {
                         if !self.widget_has_normal_stream(widget_id)
                             && self
                                 .synthesize_text_appearance(
-                                    widget_id, &value, multiline, align, None, 0,
+                                    widget_id, &value, layout, align, None, 0,
                                 )
                                 .is_err()
                         {
@@ -1489,7 +1558,18 @@ impl _Document {
                         .map_err(to_py_err)?;
                     field.set("V", form_text_string(value));
                 }
-                let multiline = ft == "Tx" && ff & (1 << 12) != 0;
+                let layout = if ft == "Tx" {
+                    match self
+                        .field_comb_max_len(field_id, ff)
+                        .map_err(PdfError::new_err)?
+                    {
+                        Some(max_len) => WidgetTextLayout::Comb(max_len),
+                        None if ff & TEXT_FIELD_MULTILINE != 0 => WidgetTextLayout::Multiline,
+                        None => WidgetTextLayout::SingleLine,
+                    }
+                } else {
+                    WidgetTextLayout::SingleLine
+                };
                 let align = self
                     .resolve_field_attr(field_id, b"Q")
                     .as_ref()
@@ -1501,7 +1581,7 @@ impl _Document {
                     self.synthesize_text_appearance(
                         widget_id,
                         value,
-                        multiline,
+                        layout,
                         align,
                         font_data.as_ref(),
                         font_index,

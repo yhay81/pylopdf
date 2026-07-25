@@ -74,8 +74,9 @@ installed, non-WinAnsi values automatically use its sans font. Existing
 non-empty checkbox/radio appearances are preserved and missing states receive
 vector marks. Missing appearances on other WinAnsi fields are completed at the
 same time; `NeedAppearances` is cleared only when every fillable widget is
-self-contained. Rich text, comb layout, pushbutton actions, and signatures are
-not generated.
+self-contained. Comb text fields honor inherited `MaxLen` and alignment, center
+each Unicode grapheme in its position, and reject overlength values atomically.
+Rich text, pushbutton actions, and signatures are not generated.
 
 `Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
 probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the

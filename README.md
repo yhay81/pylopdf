@@ -57,7 +57,7 @@ reconstructed conservatively and ordered right-to-left; ruby, warichu, and
 mixed-orientation Japanese typography are not interpreted semantically. There
 is no general-purpose regeneration of arbitrary existing annotation
 appearances. AcroForm filling generates appearances for text, choice, checkbox,
-and radio fields, but rich-text/comb layout, pushbuttons, and signature fields
+radio, and comb text fields, but rich text, pushbuttons, and signature fields
 remain out of scope. Typesetting, PDF/A output, and digital signatures are
 covered by the ecosystem recipes below. Native OCR returns axis-aligned word
 boxes; automatic page orientation, arbitrary deskew, ruby, warichu, and

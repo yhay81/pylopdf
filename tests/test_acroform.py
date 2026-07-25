@@ -27,9 +27,9 @@ def _build_form_pdf(*, checkbox_on_content: str = "", text_widget_extra: str = "
         1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 8 0 R >>",
         2: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
         3: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        4: "<< /Type /Page /Parent 2 0 R /Annots [9 0 R 10 0 R 14 0 R 15 0 R 17 0 R 18 0 R 23 0 R] >>",
+        4: ("<< /Type /Page /Parent 2 0 R /Annots [9 0 R 10 0 R 14 0 R 15 0 R 17 0 R 18 0 R 23 0 R 25 0 R] >>"),
         8: (
-            "<< /Fields [9 0 R 10 0 R 13 0 R 15 0 R 16 0 R 23 0 R]"
+            "<< /Fields [9 0 R 10 0 R 13 0 R 15 0 R 16 0 R 23 0 R 24 0 R]"
             " /DA (/Helv 0 Tf 0 g) /DR << /Font << /Helv 3 0 R >> >> >>"
         ),
         # Text field with an initial value.
@@ -65,6 +65,9 @@ def _build_form_pdf(*, checkbox_on_content: str = "", text_widget_extra: str = "
         21: _form_stream(""),
         22: _form_stream(""),
         23: ("<< /FT /Tx /Ff 4096 /T (notes) /Type /Annot /Subtype /Widget /Rect [50 540 250 600] /P 4 0 R /F 4 >>"),
+        # Six-position centered comb field with inherited field attributes.
+        24: "<< /FT /Tx /Ff 16777216 /MaxLen 6 /Q 1 /T (code) /Kids [25 0 R] >>",
+        25: ("<< /Parent 24 0 R /Type /Annot /Subtype /Widget /Rect [300 540 500 565] /P 4 0 R /F 4 /BS << /W 0 >> >>"),
     }
     out = bytearray(b"%PDF-1.6\n")
     offsets: dict[int, int] = {}
@@ -92,7 +95,7 @@ def _opaque_pixels(doc: pylopdf.Document, clip: tuple[float, float, float, float
 def test_get_form_fields_lists_all() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     fields = {f["name"]: f for f in doc.get_form_fields()}
-    assert set(fields) == {"customer", "agree", "person.first", "level", "plan", "notes"}
+    assert set(fields) == {"customer", "agree", "person.first", "level", "plan", "notes", "code"}
     assert fields["customer"]["type"] == "text"
     assert fields["customer"]["value"] == "initial"
     assert fields["agree"]["type"] == "checkbox"
@@ -102,6 +105,7 @@ def test_get_form_fields_lists_all() -> None:
     assert fields["level"] == {"name": "level", "type": "combobox", "value": "basic"}
     assert fields["plan"]["type"] == "radio"
     assert fields["notes"]["type"] == "text"
+    assert fields["code"]["type"] == "text"
 
 
 def test_fill_text_field_roundtrip_without_unicode_font(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,6 +159,53 @@ def test_fill_multiline_text_field_wraps_and_renders() -> None:
     doc.set_form_field("notes", value)
     assert {field["name"]: field["value"] for field in doc.get_form_fields()}["notes"] == value
     assert _opaque_pixels(doc, (45, 187, 255, 257)) > 0
+
+
+def test_fill_comb_field_centers_characters_and_enforces_maxlen() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    doc.set_form_field("code", "A12")
+    fields = {field["name"]: field["value"] for field in doc.get_form_fields()}
+    assert fields["code"] == "A12"
+
+    # Center alignment places three characters in slots 2–4 of the six-cell field.
+    cell_width = 200 / 6
+    counts = [
+        _opaque_pixels(doc, (300 + index * cell_width, 227, 300 + (index + 1) * cell_width, 252)) for index in range(6)
+    ]
+    assert counts[0] == 0
+    assert all(count > 0 for count in counts[1:4])
+    assert counts[4:] == [0, 0]
+
+    with pytest.raises(pylopdf.PdfError, match="exceeding MaxLen 6"):
+        doc.set_form_field("code", "1234567")
+    assert {field["name"]: field["value"] for field in doc.get_form_fields()}["code"] == "A12"
+
+
+def test_fill_comb_field_supports_unicode_graphemes() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    doc.set_form_field("code", "日A\u0301", fontfile=NOTO_SANS_JP)
+    data = doc.tobytes()
+    assert b"/NeedAppearances false" in data
+    reopened = pylopdf.open(stream=data)
+    assert {field["name"]: field["value"] for field in reopened.get_form_fields()}["code"] == "日A\u0301"
+    assert _opaque_pixels(reopened, (300, 227, 500, 252)) > 0
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement", "message"),
+    [
+        (b"/MaxLen 6", b"/MaxLen 0", "positive MaxLen"),
+        (b"/Ff 16777216", b"/Ff 16781312", "cannot also be multiline"),
+    ],
+)
+def test_malformed_comb_field_is_rejected_atomically(original: bytes, replacement: bytes, message: str) -> None:
+    source = _build_form_pdf().replace(original, replacement)
+    doc = pylopdf.open(stream=source)
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match=message):
+        doc.set_form_field("code", "12")
+    assert {field["name"]: field["value"] for field in doc.get_form_fields()}["code"] is None
+    assert doc.tobytes() == before
 
 
 def test_fill_checkbox_with_bool() -> None:

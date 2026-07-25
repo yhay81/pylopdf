@@ -67,7 +67,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   指定`table_strategy="text"`可加入保守的无边框候选；设为`None`可禁用表格转换。
 - **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用
   Helvetica自动缩小；Unicode需传入OpenType字体，或安装`pylopdf[cjk]`以自动处理
-  CJK。富文本、comb布局、pushbutton和签名仍不在API范围内。
+  CJK。comb文本字段遵循继承的`MaxLen`与对齐方式。富文本、pushbutton和签名仍
+  不在API范围内。
 - **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。
   尚不解释注音、夹注及横竖混排等复杂排版。
 

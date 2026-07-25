@@ -1,6 +1,7 @@
 //! AcroForm widget appearance primitives.
 
 use lopdf::{Dictionary, Document, Object, Stream, dictionary};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::draw;
 
@@ -68,6 +69,100 @@ pub fn standard_text_ops(
         font_size,
         (0.0, 0.0, 0.0),
     )
+}
+
+/// Validate the text length for a comb field using grapheme-safe characters.
+pub fn validate_comb_text(text: &str, max_len: usize) -> Result<(), String> {
+    if max_len == 0 {
+        return Err("comb field MaxLen must be positive".to_owned());
+    }
+    let count = normalized_single_line(text).graphemes(true).count();
+    if count > max_len {
+        return Err(format!(
+            "comb field value has {count} characters, exceeding MaxLen {max_len}"
+        ));
+    }
+    Ok(())
+}
+
+/// Auto-fit and center WinAnsi characters in an AcroForm comb field.
+pub fn standard_comb_text_ops(
+    style: &WidgetStyle,
+    text: &str,
+    max_len: usize,
+    align: u8,
+    font_resource: &str,
+) -> Result<Vec<u8>, String> {
+    validate_comb_text(text, max_len)?;
+    let normalized = normalized_single_line(text);
+    let graphemes = normalized.graphemes(true).collect::<Vec<_>>();
+    if graphemes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rect = style.content_rect();
+    let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
+    if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
+        return Ok(Vec::new());
+    }
+    let cell_width = box_size.0 / max_len as f64;
+    let mut font_size = box_size.1.min(12.0);
+    let layouts = loop {
+        let candidates = graphemes
+            .iter()
+            .map(|grapheme| {
+                draw::standard_textbox_layout(
+                    grapheme,
+                    (cell_width, box_size.1),
+                    "Helvetica",
+                    font_size,
+                    1.0,
+                    false,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if candidates
+            .iter()
+            .all(|candidate| candidate.fits() && candidate.lines.len() == 1)
+        {
+            break candidates;
+        }
+        font_size *= 0.85;
+        if font_size < 0.01 {
+            return Err("comb field text cannot fit inside the widget".to_owned());
+        }
+    };
+
+    let unused = max_len - graphemes.len();
+    let start_slot = match align {
+        1 => unused / 2,
+        2 => unused,
+        _ => 0,
+    };
+    let mut out = Vec::new();
+    for (index, layout) in layouts.iter().enumerate() {
+        let x0 = rect[0] + (start_slot + index) as f64 * cell_width;
+        out.extend_from_slice(&draw::textbox_text_ops(
+            [0.0, 0.0, style.layout_width, style.layout_height],
+            0,
+            [x0, rect[1], x0 + cell_width, rect[3]],
+            layout,
+            1,
+            font_resource,
+            font_size,
+            (0.0, 0.0, 0.0),
+        )?);
+    }
+    Ok(out)
+}
+
+fn normalized_single_line(text: &str) -> String {
+    text.chars()
+        .map(|character| match character {
+            '\r' | '\n' => ' ',
+            other => other,
+        })
+        .collect()
 }
 
 #[derive(Clone)]

@@ -77,8 +77,9 @@ deliberately does not implement.
   `None` to disable table conversion.
 - **Form filling** writes values and native appearances that render in pylopdf
   and external viewers. WinAnsi auto-fits in Helvetica; pass an OpenType font
-  for Unicode, or install `pylopdf[cjk]` for automatic CJK. Rich text, comb
-  layout, pushbuttons, and signatures remain outside the API.
+  for Unicode, or install `pylopdf[cjk]` for automatic CJK. Comb text fields
+  honor inherited `MaxLen` and alignment. Rich text, pushbuttons, and signatures
+  remain outside the API.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,
   with columns ordered right-to-left. Ruby, warichu and mixed-orientation
   typography are not interpreted.
