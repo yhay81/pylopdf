@@ -202,13 +202,16 @@ overview.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
-  14 or krilla generation paths. Preserve non-empty authored button states and
-  synthesize only missing/empty Off/on states. Widget `/MK /R`, `/BG`, `/BC`,
-  `/BS /W`, and legacy `/Border` feed the appearance. Keep updates atomic by
-  restoring the document clone on error. hayro 0.7 cannot select an `/AP /N`
-  state dictionary, so the rendering snapshot substitutes any resolvable
-  widget `/AS` stream; the editable/saved PDF remains canonical. Retain the
-  original-byte fast path when no selected state stream can be resolved.
+  14 or krilla generation paths. Comb text fields resolve inherited `/MaxLen`,
+  count Unicode graphemes, position them individually, and reject overlength or
+  incompatible flag combinations. Preserve non-empty authored button states
+  and synthesize only missing/empty Off/on states. Widget `/MK /R`, `/BG`,
+  `/BC`, `/BS /W`, and legacy `/Border` feed the appearance. Keep updates
+  atomic by restoring the document clone on error. hayro 0.7 cannot select an
+  `/AP /N` state dictionary, so the rendering snapshot substitutes any
+  resolvable widget `/AS` stream; the editable/saved PDF remains canonical.
+  Retain the original-byte fast path when no selected state stream can be
+  resolved.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.

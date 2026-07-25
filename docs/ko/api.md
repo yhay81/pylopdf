@@ -72,7 +72,9 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 WinAnsi 밖의 값에 sans 글꼴을 자동 사용합니다. 비어 있지 않은 기존 버튼 appearance는
 보존하고 누락된 상태만 벡터로 만듭니다. 다른 WinAnsi 필드의 누락된 appearance도
 함께 채우며, 입력 가능한 모든 widget이 자체 완결일 때만 `NeedAppearances`를
-해제합니다. rich text, comb layout, pushbutton action, 서명은 생성하지 않습니다.
+해제합니다. comb 텍스트 필드는 상속된 `MaxLen`과 정렬을 따르고 각 Unicode
+grapheme을 해당 위치 중앙에 배치하며, 너무 긴 값은 문서를 변경하지 않고 거부합니다.
+rich text, pushbutton action, 서명은 생성하지 않습니다.
 
 `Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
 `Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는

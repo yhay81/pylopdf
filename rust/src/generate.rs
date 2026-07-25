@@ -12,7 +12,9 @@ use krilla::page::PageSettings;
 use krilla::paint::Fill;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use read_fonts::TableProvider;
+use unicode_segmentation::UnicodeSegmentation;
 
+use crate::form;
 use crate::layout::layout_textbox;
 
 /// Generate one transparent page containing subset-embedded OpenType text.
@@ -285,6 +287,115 @@ pub fn embedded_widget_text_page(
             &glyphs,
             font.clone(),
             &line.text,
+            size,
+            false,
+        );
+    }
+    surface.finish();
+    page.finish();
+    document
+        .finish()
+        .map_err(|error| format!("krilla form appearance generation failed: {error}"))
+}
+
+/// Auto-fit and center shaped Unicode characters in an AcroForm comb field.
+#[allow(clippy::too_many_arguments)]
+pub fn embedded_widget_comb_text_page(
+    page_size: (f64, f64),
+    rect: [f64; 4],
+    text: &str,
+    max_len: usize,
+    align: u8,
+    font_data: Vec<u8>,
+    font_index: u32,
+    color: (f64, f64, f64),
+) -> Result<Vec<u8>, String> {
+    form::validate_comb_text(text, max_len)?;
+    let width = finite_f32(page_size.0, "page width")?;
+    let height = finite_f32(page_size.1, "page height")?;
+    let page_settings = PageSettings::from_wh(width, height)
+        .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
+    let shaping_font = FontRef::from_index(&font_data, font_index)
+        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
+    let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
+    let shaper_data = ShaperData::new(&shaping_font);
+    let shaper = shaper_data.shaper(&shaping_font).build();
+    let normalized = text
+        .chars()
+        .map(|character| match character {
+            '\r' | '\n' => ' ',
+            other => other,
+        })
+        .collect::<String>();
+    let graphemes = normalized.graphemes(true).collect::<Vec<_>>();
+    let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
+    if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
+        return Err("widget has no usable text area".to_owned());
+    }
+    let cell_width = box_size.0 / max_len as f64;
+
+    let mut font_size = (box_size.1 / (ascent + descent).max(0.01)).min(12.0);
+    let shaped = loop {
+        let candidates = graphemes
+            .iter()
+            .map(|grapheme| {
+                let glyphs = shape_line(grapheme, &shaper)?;
+                let glyph_width = glyphs
+                    .iter()
+                    .map(|glyph| f64::from(glyph.x_advance) * font_size)
+                    .sum::<f64>()
+                    .abs();
+                Ok((glyphs, glyph_width))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if candidates
+            .iter()
+            .all(|(_, glyph_width)| *glyph_width <= cell_width)
+        {
+            break candidates;
+        }
+        font_size *= 0.85;
+        if font_size < 0.01 {
+            return Err("comb field text cannot fit inside the widget".to_owned());
+        }
+    };
+
+    let font = Font::new(font_data.into(), font_index)
+        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let size = finite_f32(font_size, "font size")?;
+    let unused = max_len - graphemes.len();
+    let start_slot = match align {
+        1 => unused / 2,
+        2 => unused,
+        _ => 0,
+    };
+
+    let mut document = Document::new();
+    let mut page = document.start_page_with(page_settings);
+    let mut surface = page.surface();
+    surface.set_fill(Some(Fill {
+        paint: rgb::Color::new(
+            channel_to_u8(color.0),
+            channel_to_u8(color.1),
+            channel_to_u8(color.2),
+        )
+        .into(),
+        opacity: NormalizedF32::ONE,
+        rule: Default::default(),
+    }));
+    for (index, (grapheme, (glyphs, glyph_width))) in graphemes.iter().zip(shaped).enumerate() {
+        let baseline_x = finite_f32(
+            rect[0]
+                + (start_slot + index) as f64 * cell_width
+                + (cell_width - glyph_width).max(0.0) / 2.0,
+            "text x",
+        )?;
+        let baseline_y = finite_f32(rect[1] + ascent * font_size, "text y")?;
+        surface.draw_glyphs(
+            Point::from_xy(baseline_x, baseline_y),
+            &glyphs,
+            font.clone(),
+            grapheme,
             size,
             false,
         );

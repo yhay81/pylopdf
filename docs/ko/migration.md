@@ -74,8 +74,8 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   추가하거나 `None`으로 표 변환을 끌 수 있습니다.
 - **폼 입력**은 값과 네이티브 appearance를 기록해 pylopdf와 외부 뷰어 모두에서
   렌더링됩니다. WinAnsi는 Helvetica로 자동 축소하며 Unicode는 OpenType 글꼴을
-  지정하거나 `pylopdf[cjk]`를 설치합니다. rich text, comb layout, pushbutton,
-  서명은 API 범위 밖입니다.
+  지정하거나 `pylopdf[cjk]`를 설치합니다. comb 텍스트 필드는 상속된 `MaxLen`과
+  정렬을 따릅니다. rich text, pushbutton, 서명은 API 범위 밖입니다.
 - **CJK 세로쓰기**는 보수적으로 감지해 열 안에서는 위에서 아래로,
   열 사이는 오른쪽에서 왼쪽으로 읽습니다. 루비, 행간 주석, 혼합 방향 조판은
   해석하지 않습니다.

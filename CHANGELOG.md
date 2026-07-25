@@ -77,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   atomic on generation errors, release the GIL, preserve multiline control
   characters through UTF-16BE, complete other representable missing widget
   appearances before clearing `NeedAppearances`, and render after save/reopen.
+- AcroForm comb text fields now resolve inherited `MaxLen` and alignment,
+  center each Unicode grapheme in its assigned position with either Helvetica
+  or a subset-embedded OpenType font, and reject overlength or malformed flag
+  combinations atomically.
 
 ## [0.10.0] - 2026-07-25
 

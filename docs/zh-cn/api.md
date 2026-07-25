@@ -68,8 +68,9 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
 安装`pylopdf[cjk]`后，非WinAnsi值会自动使用其中的sans字体。已有且非空的按钮外观
 会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
-所有可填写widget都自包含时才清除`NeedAppearances`。富文本、comb布局、pushbutton
-动作和签名不在生成范围内。
+所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的
+`MaxLen`与对齐方式，将每个Unicode grapheme置于相应位置中央，并在不修改文档的
+情况下拒绝超长值。富文本、pushbutton动作和签名不在生成范围内。
 
 `Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
 `Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的

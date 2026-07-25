@@ -1881,14 +1881,17 @@ class Document:
         appearances are preserved; missing ones use native vector marks.
         Missing appearances on other WinAnsi fields are completed in the same
         operation, and ``NeedAppearances`` is cleared once every fillable widget
-        has a usable normal appearance.
+        has a usable normal appearance. Comb text fields honor inherited
+        ``MaxLen`` and alignment, center Unicode graphemes in their positions,
+        and reject overlength values without changing the document.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text
         automatically uses the sans font from ``pylopdf[cjk]`` when installed;
         otherwise the value is still stored with ``NeedAppearances`` for viewer
         compatibility, but its appearance cannot be rendered by pylopdf.
-        Signature fields are unsupported; use the pyHanko integration.
+        Rich text, pushbuttons, and signature fields are unsupported; use the
+        pyHanko integration for signatures.
         """
         self._ensure_open()
         if not name:

@@ -72,8 +72,9 @@ resourceは追加されません。
 `pylopdf[cjk]`の導入時は、WinAnsi外の値にsansフォントを自動使用します。既存の
 空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
 フィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ
-`NeedAppearances`を解除します。リッチテキスト、comb配置、pushbutton action、
-署名は生成しません。
+`NeedAppearances`を解除します。combテキスト欄は継承された`MaxLen`と整列を尊重し、
+Unicode graphemeを各位置の中央に配置して、長すぎる値を文書無変更で拒否します。
+リッチテキスト、pushbutton action、署名は生成しません。
 
 `Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
 `Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment
