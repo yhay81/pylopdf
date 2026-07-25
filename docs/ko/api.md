@@ -48,6 +48,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | JPEG/PNG 그리기 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 다른 PDF 페이지를 벡터로 겹치기 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 WinAnsi 또는 서브셋 내장 OpenType Unicode 텍스트 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | Core 14 또는 내장 OpenType 실제 폭으로 UAX #14 줄바꿈, 남은 높이를 반환하며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words)` | OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 주석 |
@@ -56,6 +57,12 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 필요합니다. 각 줄의 셰이핑은 수행하지만 글꼴 폴백, 양방향 단락 레이아웃 또는 자동
 줄바꿈은 제공하지 않습니다. RTL 셰이핑은 올바르게 렌더링되지만 현재 텍스트 추출은
 논리 순서가 아닌 시각적 순서를 따릅니다.
+
+`insert_textbox`는 리치 텍스트 엔진이 아니라 명시적 줄바꿈, tab 확장, CJK의 Unicode
+줄바꿈 기회, 너무 긴 단어의 grapheme 안전 긴급 줄바꿈을 처리합니다. 정렬 상수는
+`TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`,
+`TEXT_ALIGN_JUSTIFY`입니다. 반환값이 음수이면 세로 공간이 부족하며 페이지 내용이나
+글꼴 resource를 추가하지 않습니다.
 
 `Table.confidence`는 0–1의 결정적 순위 지정 heuristic이며 보정된 확률이 아닙니다.
 `Table.diagnostics`는 `TableDiagnostics` tuple입니다. 테두리 없는 텍스트 표에서는

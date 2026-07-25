@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Page.insert_textbox()` now wraps paragraphs inside display-coordinate
+  rectangles and returns the remaining vertical space without drawing when the
+  value is negative. Standard 14 text uses canonical Adobe AFM widths;
+  arbitrary OpenType fonts use HarfRust shaping and krilla subsetting. UAX #14
+  line breaks cover CJK text without spaces, overlong words break at grapheme
+  boundaries, and left, center, right, and justified alignment work on rotated
+  pages. Explicit newlines, tab expansion, custom leading, overlay order,
+  missing-glyph errors, and save round-trips are covered.
+
 ## [0.10.0] - 2026-07-25
 
 ### Documentation

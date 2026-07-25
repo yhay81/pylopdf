@@ -48,6 +48,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `insert_image(rect, filename= / stream=, keep_proportion=, overlay=)` | draw JPEG/PNG |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay another PDF page as vectors |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi text, or subset-embedded OpenType Unicode text |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 paragraph wrapping with Core 14 or embedded OpenType metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words)` | invisible OCR text layer (searchable PDFs) |
 | `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
 | `annots()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | annotations |
@@ -56,6 +57,13 @@ Embedded-font `insert_text` requires one font containing every glyph. It shapes
 each line but does not provide font fallback, bidirectional paragraph layout,
 or wrapping. RTL shaping renders correctly; extraction currently follows visual
 rather than logical order.
+
+`insert_textbox` adds wrapping without becoming a rich-text engine. It preserves
+explicit newlines, expands tabs, breaks CJK at Unicode opportunities, and uses
+grapheme-safe emergency breaks for overlong words. Alignment constants are
+`TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`, and
+`TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
+content or font resource is added in that case.
 
 `Table.confidence` is a deterministic 0–1 ranking heuristic, not a calibrated
 probability. `Table.diagnostics` is a `TableDiagnostics` tuple containing the

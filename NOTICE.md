@@ -12,6 +12,18 @@ the MIT license:
 - Source: <https://github.com/harfbuzz/harfrust>
 - Package: <https://crates.io/crates/harfrust/0.12.0>
 
+pylopdf uses `pdf-base14-metrics` 0.0.1 for canonical Core 14 font widths.
+Its Rust code is MIT and its Adobe Font Metrics data is licensed under
+APAFML. The required Adobe license text is distributed in
+`LICENSES/APAFML.txt`.
+
+- Source: <https://github.com/kjanat/mosaic>
+- Package: <https://crates.io/crates/pdf-base14-metrics/0.0.1>
+
+pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
+`unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
+grapheme-safe emergency breaks.
+
 The following acknowledgements are reproduced from krilla's `NOTICE.md`.
 
 ## krilla acknowledgements

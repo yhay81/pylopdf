@@ -6,7 +6,7 @@ authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-license-files = ["LICENSE", "NOTICE.md"]
+license-files = ["LICENSE", "NOTICE.md", "LICENSES/*"]
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",

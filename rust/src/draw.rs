@@ -8,6 +8,9 @@
 use std::io::Write;
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
+use pdf_base14_metrics::Base14Font;
+
+use crate::layout::{TextBoxLayout, layout_textbox};
 
 /// Decoded image data used to build a PDF Image XObject.
 pub struct ImageParts {
@@ -513,6 +516,206 @@ pub fn text_ops(
     }
     out.extend_from_slice(b"ET\nQ\n");
     out
+}
+
+/// Lay out Standard 14 text using Adobe's canonical AFM metrics.
+pub fn standard_textbox_layout(
+    text: &str,
+    box_size: (f64, f64),
+    base_font: &str,
+    font_size: f64,
+    line_height: f64,
+    justify: bool,
+) -> Result<TextBoxLayout, String> {
+    let font = base14_font(base_font)
+        .ok_or_else(|| format!("unsupported Standard 14 font: {base_font}"))?;
+    let metrics = font.metrics();
+    // FontBBox is intentionally conservative: Core 14 viewers substitute
+    // different outlines, while the AFM ascender only covers typical letters.
+    let mut ascent = f64::from(metrics.font_bbox.ury.max(0.0)) / 1000.0;
+    let mut descent = f64::from((-metrics.font_bbox.lly).max(0.0)) / 1000.0;
+    if ascent + descent <= 0.0 {
+        ascent = f64::from(metrics.ascender.max(0.0)) / 1000.0;
+        descent = f64::from((-metrics.descender).max(0.0)) / 1000.0;
+    }
+    if ascent + descent <= 0.0 {
+        (ascent, descent) = (0.8, 0.2);
+    }
+
+    layout_textbox(
+        text,
+        box_size,
+        font_size,
+        line_height,
+        ascent,
+        descent,
+        justify,
+        |line| standard_text_width(line, font, font_size),
+    )
+}
+
+/// Build individually positioned Standard 14 textbox lines.
+#[allow(clippy::too_many_arguments)]
+pub fn textbox_text_ops(
+    crop: [f64; 4],
+    rotation: i64,
+    rect: [f64; 4],
+    layout: &TextBoxLayout,
+    align: u8,
+    font: &str,
+    size: f64,
+    color: (f64, f64, f64),
+) -> Result<Vec<u8>, String> {
+    let mut out = format!(
+        "q\nBT\n/{font} {} Tf\n{} {} {} rg\n",
+        fmt(size),
+        fmt(color.0),
+        fmt(color.1),
+        fmt(color.2),
+    )
+    .into_bytes();
+    let box_width = rect[2] - rect[0];
+    for (line_number, line) in layout.lines.iter().enumerate() {
+        let x_offset = match align {
+            1 => (box_width - line.width) / 2.0,
+            2 => box_width - line.width,
+            _ => 0.0,
+        };
+        let baseline = (
+            rect[0] + x_offset.max(0.0),
+            rect[1] + layout.ascent * size + line_number as f64 * layout.leading,
+        );
+        let (ox, oy) = display_to_pdf(crop, rotation, baseline.0, baseline.1);
+        let (rx, ry) = {
+            let p = display_to_pdf(crop, rotation, baseline.0 + 1.0, baseline.1);
+            (p.0 - ox, p.1 - oy)
+        };
+        let (ux, uy) = {
+            let p = display_to_pdf(crop, rotation, baseline.0, baseline.1 - 1.0);
+            (p.0 - ox, p.1 - oy)
+        };
+        let space_count = line.text.bytes().filter(|&byte| byte == b' ').count();
+        let word_space = if line.justify && space_count > 0 {
+            (box_width - line.width).max(0.0) / space_count as f64
+        } else {
+            0.0
+        };
+        out.extend_from_slice(
+            format!(
+                "{} Tw\n{} {} {} {} {} {} Tm\n",
+                fmt(word_space),
+                fmt(rx),
+                fmt(ry),
+                fmt(ux),
+                fmt(uy),
+                fmt(ox),
+                fmt(oy),
+            )
+            .as_bytes(),
+        );
+        let encoded = encode_cp1252(&line.text)?;
+        append_pdf_string(&mut out, &encoded);
+        out.extend_from_slice(b" Tj\n");
+    }
+    out.extend_from_slice(b"ET\nQ\n");
+    Ok(out)
+}
+
+fn standard_text_width(text: &str, font: Base14Font, font_size: f64) -> Result<f64, String> {
+    let encoded = encode_cp1252(text)?;
+    let metrics = font.metrics();
+    let symbolic = matches!(font, Base14Font::Symbol | Base14Font::ZapfDingbats);
+    let units = encoded
+        .into_iter()
+        .map(|byte| {
+            if symbolic {
+                metrics
+                    .character_metrics
+                    .iter()
+                    .find(|metric| metric.code == i32::from(byte))
+                    .map(|metric| metric.width_x)
+            } else {
+                font.winansi_width(byte)
+            }
+            .unwrap_or(250.0)
+        })
+        .map(f64::from)
+        .sum::<f64>();
+    Ok(units * font_size / 1000.0)
+}
+
+fn base14_font(name: &str) -> Option<Base14Font> {
+    Some(match name {
+        "Helvetica" => Base14Font::Helvetica,
+        "Helvetica-Bold" => Base14Font::HelveticaBold,
+        "Helvetica-Oblique" => Base14Font::HelveticaOblique,
+        "Helvetica-BoldOblique" => Base14Font::HelveticaBoldOblique,
+        "Times-Roman" => Base14Font::TimesRoman,
+        "Times-Bold" => Base14Font::TimesBold,
+        "Times-Italic" => Base14Font::TimesItalic,
+        "Times-BoldItalic" => Base14Font::TimesBoldItalic,
+        "Courier" => Base14Font::Courier,
+        "Courier-Bold" => Base14Font::CourierBold,
+        "Courier-Oblique" => Base14Font::CourierOblique,
+        "Courier-BoldOblique" => Base14Font::CourierBoldOblique,
+        "Symbol" => Base14Font::Symbol,
+        "ZapfDingbats" => Base14Font::ZapfDingbats,
+        _ => return None,
+    })
+}
+
+fn encode_cp1252(text: &str) -> Result<Vec<u8>, String> {
+    text.chars()
+        .map(|character| {
+            let code = character as u32;
+            match code {
+                0x00..=0x7f | 0xa0..=0xff => Ok(code as u8),
+                0x20ac => Ok(0x80),
+                0x201a => Ok(0x82),
+                0x0192 => Ok(0x83),
+                0x201e => Ok(0x84),
+                0x2026 => Ok(0x85),
+                0x2020 => Ok(0x86),
+                0x2021 => Ok(0x87),
+                0x02c6 => Ok(0x88),
+                0x2030 => Ok(0x89),
+                0x0160 => Ok(0x8a),
+                0x2039 => Ok(0x8b),
+                0x0152 => Ok(0x8c),
+                0x017d => Ok(0x8e),
+                0x2018 => Ok(0x91),
+                0x2019 => Ok(0x92),
+                0x201c => Ok(0x93),
+                0x201d => Ok(0x94),
+                0x2022 => Ok(0x95),
+                0x2013 => Ok(0x96),
+                0x2014 => Ok(0x97),
+                0x02dc => Ok(0x98),
+                0x2122 => Ok(0x99),
+                0x0161 => Ok(0x9a),
+                0x203a => Ok(0x9b),
+                0x0153 => Ok(0x9c),
+                0x017e => Ok(0x9e),
+                0x0178 => Ok(0x9f),
+                _ => Err("Standard 14 text contains a character outside WinAnsi".to_owned()),
+            }
+        })
+        .collect()
+}
+
+fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) {
+    out.push(b'(');
+    for &byte in text {
+        match byte {
+            b'(' | b')' | b'\\' => {
+                out.push(b'\\');
+                out.push(byte);
+            }
+            0x20..=0x7e => out.push(byte),
+            _ => out.extend_from_slice(format!("\\{byte:03o}").as_bytes()),
+        }
+    }
+    out.push(b')');
 }
 
 /// Wrap existing `/Contents` in q/Q streams once to isolate graphics state.

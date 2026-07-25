@@ -176,6 +176,32 @@ class _Document:
         color: tuple[float, float, float],
         overlay: bool,
     ) -> None: ...
+    def insert_page_textbox(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        text: str,
+        base_font: str,
+        winansi: bool,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: tuple[float, float, float],
+        overlay: bool,
+    ) -> float: ...
+    def insert_embedded_textbox(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        text: str,
+        font_data: bytes,
+        font_index: int,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: tuple[float, float, float],
+        overlay: bool,
+    ) -> float: ...
     def replace_text_on_page(
         self, page_number: int, search: str, replacement: str, default_char: str | None
     ) -> int: ...
