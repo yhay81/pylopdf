@@ -24,7 +24,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 相同 | 返回`list[Rect]`；无`quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
-| `pix.samples / width / height / stride` | 相同 | 始终为straight-alpha RGBA8；`tobytes()` → PNG |
+| `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf的`tobytes()`和`save(path)`生成PNG，且`save`要求`.png`扩展名 |
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
 | `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | |
@@ -41,6 +41,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.embfile_add / names / get / del` | 相同 | |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
 | `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
+| `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | 通过`pylopdf[ocr]`使用离线纯Rust PP-OCR；任意带坐标结果仍可传给`insert_ocr_text_layer` |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内置，MIT |
 
 ## 行为差异 { #behavioral-differences }
@@ -77,7 +78,6 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | pymupdf功能 | pylopdf方案 |
 |---|---|
 | Story API / `insert_htmlbox`（排版） | 通过typst-py使用typst — [方案](ecosystem.md) |
-| OCR（`get_textpage_ocr`，需要外部Tesseract语言数据与配置） | 任意OCR引擎 + `insert_ocr_text_layer` |
 | 数字签名 | pyHanko（MIT）— [方案](ecosystem.md) |
 | 增量保存 | 当前不支持；pylopdf会重写整个文件，并将其保留在观察列表中；签名由pyHanko处理 |
 | 打开XPS / EPUB / CBZ / 图像 | 超出范围，只处理PDF |
@@ -102,7 +102,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合计"))   # 可直接传入整个列表
-with open("page.png", "wb") as f:
-    f.write(page.get_pixmap(scale=2).tobytes())
+page.get_pixmap(scale=2).save("page.png")
 doc.save("out.pdf", garbage=True, deflate=True)
 ```

@@ -27,7 +27,7 @@ deliberately does not implement.
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | same | returns `list[Rect]`; no `quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
-| `pix.samples / width / height / stride` | same | always straight-alpha RGBA8; `tobytes()` → PNG |
+| `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's `tobytes()` and `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | |
@@ -44,6 +44,7 @@ deliberately does not implement.
 | `doc.embfile_add / names / get / del` | same | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
 | `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | document-level; native text/choice/checkbox/radio appearances |
+| `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | offline pure-Rust PP-OCR through `pylopdf[ocr]`; arbitrary positioned results still work with `insert_ocr_text_layer` |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
 ## Behavioral differences { #behavioral-differences }
@@ -89,7 +90,6 @@ deliberately does not implement.
 | pymupdf feature | pylopdf answer |
 |---|---|
 | Story API / `insert_htmlbox` (typesetting) | typst via typst-py — [recipe](ecosystem.md) |
-| OCR (`get_textpage_ocr`; requires external Tesseract language data and configuration) | any OCR engine + `insert_ocr_text_layer` |
 | Digital signatures | pyHanko (MIT) — [recipe](ecosystem.md) |
 | Incremental save | not currently supported; pylopdf rewrites the file and keeps this on the watchlist; pyHanko covers signatures |
 | Opening XPS / EPUB / CBZ / images | out of scope — PDF only |
@@ -114,7 +114,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # takes the whole list
-with open("page.png", "wb") as f:
-    f.write(page.get_pixmap(scale=2).tobytes())
+page.get_pixmap(scale=2).save("page.png")
 doc.save("out.pdf", garbage=True, deflate=True)
 ```

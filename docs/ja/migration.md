@@ -27,7 +27,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 同じ | `list[Rect]`。`quads=` は無い |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | `dpi=144` でも。Matrix クラスは無い |
-| `pix.samples / width / height / stride` | 同じ | 常にストレートアルファ RGBA8。`tobytes()` → PNG |
+| `pix.samples / width / height / stride / save()` | 同じ | 常にストレートアルファ RGBA8。pylopdfの`tobytes()`と`save(path)`はPNGを生成し、`save`には`.png`が必要 |
 | `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |
 | `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | |
@@ -44,6 +44,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
 | `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | ドキュメント単位。テキスト／選択／checkbox／radioのネイティブ外観 |
+| `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`によるオフライン純Rust PP-OCR。任意の位置付き結果には`insert_ocr_text_layer`も利用可能 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内蔵・MIT |
 
 ## 挙動の違い { #behavioral-differences }
@@ -84,7 +85,6 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | pymupdf の機能 | pylopdf での答え |
 |---|---|
 | Story API / `insert_htmlbox`（組版） | typst（typst-py 経由）— [レシピ](ecosystem.md) |
-| OCR（`get_textpage_ocr`。外部のTesseract言語データと設定が必要） | 任意の OCR エンジン + `insert_ocr_text_layer` |
 | 電子署名 | pyHanko（MIT）— [レシピ](ecosystem.md) |
 | インクリメンタル保存 | 現在は非対応。全体を書き直し、将来候補として監視中。署名用途はpyHankoが担う |
 | XPS / EPUB / CBZ / 画像を開く | 対象外 — PDF 専用 |
@@ -109,7 +109,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合計"))   # リストごと渡せる
-with open("page.png", "wb") as f:
-    f.write(page.get_pixmap(scale=2).tobytes())
+page.get_pixmap(scale=2).save("page.png")
 doc.save("out.pdf", garbage=True, deflate=True)
 ```

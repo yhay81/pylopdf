@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Updated all four pymupdf migration guides for native offline OCR and direct
+  `Pixmap.save(path)` output, removing the stale classification of OCR as an
+  unimplemented ecosystem-only feature.
+
 ### Added
 - `Pixmap.save(path)` now encodes and writes PNG output directly while
   releasing the GIL. It accepts strings and path-like objects, retains the

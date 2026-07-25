@@ -26,7 +26,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 동일 | `list[Rect]` 반환, `quads=` 없음 |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
-| `pix.samples / width / height / stride` | 동일 | 항상 straight-alpha RGBA8, `tobytes()` → PNG |
+| `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 `tobytes()`와 `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
 | `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | 동일 | 반복된 페이지 번호로 `select`하면 페이지 복제 |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 동일 | |
@@ -43,6 +43,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
 | `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | 문서 수준, 텍스트／선택／checkbox／radio 네이티브 appearance |
+| `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`의 오프라인 순수 Rust PP-OCR, 임의의 위치 결과에는 `insert_ocr_text_layer`도 사용 가능 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 내장, MIT |
 
 ## 동작 차이 { #behavioral-differences }
@@ -85,7 +86,6 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | pymupdf 기능 | pylopdf의 대안 |
 |---|---|
 | Story API / `insert_htmlbox`(조판) | typst-py를 통한 typst — [사용법](ecosystem.md) |
-| OCR(`get_textpage_ocr`, 외부 Tesseract 언어 데이터와 설정 필요) | 원하는 OCR 엔진 + `insert_ocr_text_layer` |
 | 디지털 서명 | pyHanko(MIT) — [사용법](ecosystem.md) |
 | 증분 저장 | 현재 미지원, 전체 파일을 다시 쓰며 관찰 목록에 유지, 서명은 pyHanko로 해결 |
 | XPS / EPUB / CBZ / 이미지 열기 | 범위 밖 — PDF만 지원 |
@@ -110,7 +110,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # 전체 목록을 한 번에 전달
-with open("page.png", "wb") as f:
-    f.write(page.get_pixmap(scale=2).tobytes())
+page.get_pixmap(scale=2).save("page.png")
 doc.save("out.pdf", garbage=True, deflate=True)
 ```
