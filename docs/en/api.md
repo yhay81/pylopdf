@@ -21,7 +21,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock (pymupdf semantics) |
 | `metadata` / `set_metadata(dict)` | Info dictionary (UTF-16BE aware) |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; no automatic tables) |
+| `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; bordered tables by default, `"text"` adds borderless tables, `None` disables tables) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
@@ -42,7 +42,7 @@ pymupdf-compatible). All coordinates are top-left-origin display space.
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(strategy="lines", clip=None)` | complete vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
-| `to_markdown()` | single-page Markdown |
+| `to_markdown(table_strategy="lines")` | single-page Markdown with the same table controls |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG) |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |

@@ -21,7 +21,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
 | `metadata` / `set_metadata(dict)` | Info 辞書（UTF-16BE 対応） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。表の自動挿入はなし） |
+| `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
@@ -42,7 +42,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
 | `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線と結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
-| `to_markdown()` | 1 ページ分の Markdown |
+| `to_markdown(table_strategy="lines")` | ドキュメントと同じ表制御を持つ 1 ページ分の Markdown |
 | `get_images()` | 描画された画像（`bbox` 付き。JPEG パススルー / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | レンダリング。`clip` は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |

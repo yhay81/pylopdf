@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.to_markdown()` and `Page.to_markdown()` now insert complete bordered
+  tables in document reading order by default. Cell text is removed from the
+  surrounding prose and from heading-size inference while words outside a
+  table on the same physical line are retained. Empty grids retain their
+  geometric position, merged cells expand for Markdown, and right-angle page
+  rotations normalize table rows to logical text direction. Pass
+  `table_strategy="text"` to add conservative non-overlapping borderless
+  candidates, or `None` to retain the previous text-only conversion. Synthetic
+  bordered, borderless, merged-order, empty-grid, and 0/90/180/270-degree cases
+  plus the public-domain IRS Form 1040 corpus cover the integration.
 - Optional offline OCR through `pylopdf[ocr]`: a reusable `OcrEngine`,
   `Page.get_text_ocr()`, and idempotent-by-default `Page.apply_ocr()` run
   PP-OCRv6 small locally through the pure-Rust RTen runtime. Detection uses

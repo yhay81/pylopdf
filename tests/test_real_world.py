@@ -152,6 +152,20 @@ def test_f1040_bordered_table() -> None:
     assert "Child tax\ncredit" in text
 
 
+def test_f1040_markdown_integrates_bordered_table_once() -> None:
+    """Place a real stroked dependency grid into page Markdown."""
+    page = pylopdf.open(ASSETS / "f1040.pdf")[0]
+    markdown = page.to_markdown()
+
+    assert "| --- | --- | --- | --- | --- | --- | --- |" in markdown
+    assert "Full-time<br>student" in markdown
+    assert "Child tax<br>credit" in markdown
+    assert "(6) Check if" in markdown
+    assert "(7) Credits" in markdown
+    assert markdown.count("Full-time") == page.get_text().count("Full-time")
+    assert markdown.count("Child tax") == page.get_text().count("Child tax")
+
+
 def test_f1040_borderless_text_table() -> None:
     """Extract aligned form rows that have no complete surrounding grid."""
     tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables(strategy="text")

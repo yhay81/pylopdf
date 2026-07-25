@@ -69,6 +69,9 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   정렬된 다단 본문과의 기하학적 모호성은 남습니다. 알려진 표시 좌표 영역 안에
   완전히 들어오는 표만 유지하려면 `clip=`을 사용하고, 테두리 없는 결과의 순위를
   정할 때는 `Table.confidence` / `Table.diagnostics`를 확인합니다.
+- **`to_markdown()`**는 완전한 테두리 표를 읽기 순서에 삽입하고 주변 본문에서
+  셀 텍스트를 제거합니다. `table_strategy="text"`로 보수적인 테두리 없는 후보를
+  추가하거나 `None`으로 표 변환을 끌 수 있습니다.
 - **폼 입력**은 값과 네이티브 appearance를 기록해 pylopdf와 외부 뷰어 모두에서
   렌더링됩니다. WinAnsi는 Helvetica로 자동 축소하며 Unicode는 OpenType 글꼴을
   지정하거나 `pylopdf[cjk]`를 설치합니다. rich text, comb layout, pushbutton,

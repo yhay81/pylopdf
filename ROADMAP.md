@@ -202,7 +202,8 @@ Released as v0.9.0 on 2026-07-23.
       At that release, documented limitations included tables, multicolumn
       order, vertical writing, and some emphasis metadata. Later extraction work
       added table results, multicolumn and conservative vertical-CJK order, and
-      emphasis; automatic table insertion into Markdown remains open.
+      emphasis. The current v0.11 work automatically inserts complete bordered
+      tables; conservative borderless insertion remains explicit.
 - Deferred: incremental save. A 2026-07-23 OSS review found that qpdf and pikepdf
   succeed with normalization-and-rewrite designs, while pypdf's implementation
   accumulated bugs immediately after its 5.0 debut in 2024-09 (for example
@@ -556,9 +557,12 @@ rather than waiting automatically for v1.x.
   [`pyodide_js.loadPackage()`](https://pymupdf.readthedocs.io/en/latest/pyodide.html)
   rather than an ordinary `micropip.install()`; target a static,
   micropip-compatible pylopdf package.
-- Expand independent table corpora and quality evaluation, then integrate
-  detected tables into `Document.to_markdown()`. Core bordered, merged-cell, and
-  opt-in borderless detection is already implemented.
+- [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
+  are automatic, borderless candidates remain opt-in, table text is suppressed
+  from prose and heading inference, and reading order is covered at all four
+  right-angle rotations plus the public-domain IRS Form 1040 corpus.
+- Expand independent table corpora and quality evaluation beyond the current
+  synthetic, project-regression, and IRS Form 1040 coverage.
 
 ## Watchlist
 

@@ -21,7 +21,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 加密状态与解锁（兼容pymupdf语义） |
 | `metadata` / `set_metadata(dict)` | Info字典（支持UTF-16BE） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None)` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；不自动插入表格） |
+| `to_markdown(pages=None, table_strategy="lines")` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；默认插入边框表，`"text"`增加无边框表，`None`禁用表格转换） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、保序并行PNG批次或SVG |
 | `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
@@ -42,7 +42,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
-| `to_markdown()` | 单页Markdown |
+| `to_markdown(table_strategy="lines")` | 使用相同表格控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
