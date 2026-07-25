@@ -122,7 +122,7 @@ jobs:
     name: sdist
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     permissions:
       artifact-metadata: write
       attestations: write
