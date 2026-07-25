@@ -3000,12 +3000,14 @@ impl _Document {
     ///
     /// `rect` uses top-left-origin page display space, including rotation.
     /// Drawing only adds a content stream and never rewrites existing content.
+    #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
     fn insert_image(
         &mut self,
         py: Python<'_>,
         page_number: u32,
         rect: (f64, f64, f64, f64),
         data: Vec<u8>,
+        image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
     ) -> PyResult<()> {
@@ -3018,16 +3020,14 @@ impl _Document {
                     "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
                 )
             })?;
-            let content = draw::PlacedContent::Image {
-                width: parts.width,
-                height: parts.height,
-            };
-            let matrix = draw::placement_matrix(
+            let matrix = draw::image_placement_matrix(
                 crop,
                 rotation,
                 [rect.0, rect.1, rect.2, rect.3],
-                &content,
+                parts.width,
+                parts.height,
                 keep_proportion,
+                image_rotation,
             );
             let xobj_id = draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
             self.bake_page_attrs(page_id)?;
@@ -3042,12 +3042,14 @@ impl _Document {
     /// Draw a rendered RGBA8 Pixmap directly into display `rect`.
     ///
     /// This avoids a PNG encode/decode round trip while preserving alpha.
+    #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
     fn insert_pixmap(
         &mut self,
         py: Python<'_>,
         page_number: u32,
         rect: (f64, f64, f64, f64),
         pixmap: PyRef<'_, Pixmap>,
+        image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
     ) -> PyResult<()> {
@@ -3060,13 +3062,14 @@ impl _Document {
         drop(pixmap);
         py.detach(|| {
             let parts = draw::rgba_parts(width, height, &data).map_err(PdfError::new_err)?;
-            let content = draw::PlacedContent::Image { width, height };
-            let matrix = draw::placement_matrix(
+            let matrix = draw::image_placement_matrix(
                 crop,
                 rotation,
                 [rect.0, rect.1, rect.2, rect.3],
-                &content,
+                width,
+                height,
                 keep_proportion,
+                image_rotation,
             );
             let xobj_id =
                 draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;

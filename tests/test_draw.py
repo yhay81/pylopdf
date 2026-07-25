@@ -55,6 +55,14 @@ def _new_page_doc(width: float = 200, height: float = 100) -> pylopdf.Document:
     return doc
 
 
+def _split_pixmap() -> pylopdf.Pixmap:
+    """Render a wide image with red on the left and green on the right."""
+    source = _new_page_doc(20, 10)
+    source[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
+    source[0].insert_image((10, 0, 20, 10), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
+    return source[0].get_pixmap(background=WHITE)
+
+
 def test_insert_png_draws_at_rect() -> None:
     doc = _new_page_doc()
     page = doc[0]
@@ -107,6 +115,66 @@ def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
     target[0].set_rotation(90)
     target[0].insert_image((150, 25, 190, 75), pixmap=pixmap)
     assert _pixel(target[0], 170, 50) == RED
+    assert _pixel(target[0], 50, 50) == WHITE
+
+
+@pytest.mark.parametrize("source_kind", ["stream", "pixmap"])
+@pytest.mark.parametrize(
+    ("rotate", "red_point", "green_point"),
+    [
+        (0, (30, 50), (70, 50)),
+        (90, (50, 30), (50, 70)),
+        (180, (70, 50), (30, 50)),
+        (-90, (50, 70), (50, 30)),
+    ],
+)
+def test_insert_image_rotates_clockwise(
+    source_kind: str,
+    rotate: int,
+    red_point: tuple[int, int],
+    green_point: tuple[int, int],
+) -> None:
+    pixmap = _split_pixmap()
+    target = _new_page_doc(100, 100)
+    if source_kind == "stream":
+        target[0].insert_image(
+            (10, 10, 90, 90),
+            stream=pixmap.tobytes(),
+            rotate=rotate,
+            keep_proportion=False,
+        )
+    else:
+        target[0].insert_image(
+            (10, 10, 90, 90),
+            pixmap=pixmap,
+            rotate=rotate,
+            keep_proportion=False,
+        )
+    assert _pixel(target[0], *red_point) == RED
+    assert _pixel(target[0], *green_point) == GREEN
+
+
+def test_insert_image_rotation_preserves_rotated_aspect() -> None:
+    target = _new_page_doc(100, 100)
+    target[0].insert_image((10, 10, 90, 90), pixmap=_split_pixmap(), rotate=90)
+    assert _pixel(target[0], 50, 30) == RED
+    assert _pixel(target[0], 50, 70) == GREEN
+    assert _pixel(target[0], 20, 50) == WHITE
+    assert _pixel(target[0], 80, 50) == WHITE
+
+
+def test_insert_image_rotation_composes_with_page_rotation() -> None:
+    target = pylopdf.Document()
+    target.new_page(width=100, height=200)
+    target[0].set_rotation(90)
+    target[0].insert_image(
+        (110, 10, 190, 90),
+        pixmap=_split_pixmap(),
+        rotate=90,
+        keep_proportion=False,
+    )
+    assert _pixel(target[0], 150, 30) == RED
+    assert _pixel(target[0], 150, 70) == GREEN
     assert _pixel(target[0], 50, 50) == WHITE
 
 
@@ -175,6 +243,13 @@ def test_insert_image_rejects_bad_input() -> None:
         )
     with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
         page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # type: ignore[arg-type]
+    before = page.get_pixmap(background=WHITE).samples
+    with pytest.raises(TypeError, match="rotate must be a multiple of 90"):
+        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=True)
+    with pytest.raises(ValueError, match="rotate must be a multiple of 90"):
+        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=45)
+    assert page.get_pixmap(background=WHITE).samples == before
+    assert page.get_images() == []
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
     with pytest.raises(pylopdf.PdfError, match="image format"):

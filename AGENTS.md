@@ -183,9 +183,12 @@ overview.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an
-  optional soft mask; fully opaque Pixmaps must not create a mask. Annotations
-  must always include an appearance stream at `AP /N`, because hayro does not
-  render annotations without one. `render_annotations` defaults to true.
+  optional soft mask; fully opaque Pixmaps must not create a mask.
+  `insert_image(rotate=)` rotates every source clockwise in normalized
+  right-angle steps, swaps the aspect ratio for 90/270, and composes with target
+  page rotation in display space. Annotations must always include an appearance
+  stream at `AP /N`, because hayro does not render annotations without one.
+  `render_annotations` defaults to true.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and

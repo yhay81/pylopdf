@@ -88,7 +88,7 @@ page.set_rotation(90)
 ```python
 page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough / PNG alpha
 page.insert_image(page.search_for("Approved")[0], stream=stamp_png)
-page.insert_image((300, 72, 500, 200), pixmap=thumbnail)     # direct rendered-RGBA reuse
+page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
 page.show_pdf_page(page.rect, letterhead)                    # overlay another PDF as vectors
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "社外秘", fontsize=18, fontfile="NotoSansJP-Regular.otf")

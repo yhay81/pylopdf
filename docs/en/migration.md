@@ -36,7 +36,7 @@ deliberately does not implement.
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only |
 | `doc.needs_pass` / `authenticate()` | same | same return semantics (0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | same | |
-| `page.insert_image(rect, filename= / stream= / pixmap=)` | same | JPEG passthrough, PNG alpha, and direct rendered-RGBA `Pixmap` reuse; convert other encoded formats with Pillow |
+| `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | same | JPEG passthrough, PNG alpha, direct rendered-RGBA `Pixmap` reuse, and clockwise right-angle rotation; convert other encoded formats with Pillow |
 | `page.show_pdf_page(rect, src, pno)` | same | same-document overlay unsupported (copy first) |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` | no font source: standard-14 / WinAnsi; a source is shaped with HarfRust and subset-embedded through krilla |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` | UAX #14 CJK wrapping; negative return means no drawing |
