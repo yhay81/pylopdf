@@ -383,7 +383,7 @@ signed_pdf: bytes = out.getvalue()
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; complete bordered tables by default, `"text"` adds conservative borderless tables, `None` disables tables) |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; bounded field-tree/name/value interpretation; checkboxes take bool |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; bounded field-tree/name/value/button-state interpretation; checkboxes take bool |
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete file attachments; `max_size=None` explicitly opts out, and name trees are capped at 4,096 entries/nodes |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |

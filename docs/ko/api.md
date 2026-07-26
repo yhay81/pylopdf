@@ -31,7 +31,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |
 | `get_toc()` / `set_toc(toc)` | 목차（페이지는 1부터） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field/button state가 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 디코딩 상한이 있는 첨부 파일. `max_size=None`은 명시적으로 상한을 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |

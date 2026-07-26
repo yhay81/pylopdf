@@ -97,6 +97,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   or 4,096 choice-value items. Reference cycles are visited once, inherited
   values are charged per returned leaf, and fills enforce the same tree plus
   1 MiB input-value boundary atomically.
+- AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
+  state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
+  state-name text. Fills budget missing `Off` and on-state keys before mutation.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

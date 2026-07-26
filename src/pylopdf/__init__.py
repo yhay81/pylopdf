@@ -2247,6 +2247,8 @@ class Document:
         ``MaxLen`` and alignment, center Unicode graphemes in their positions,
         and reject overlength values without changing the document. Field-tree
         and 1 MiB value limits are checked without leaving a partial update.
+        Button handling additionally caps widgets, appearance states, and state
+        names before resolving booleans or generating missing appearances.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text

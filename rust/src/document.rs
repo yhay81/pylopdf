@@ -55,9 +55,13 @@ const MAX_FORM_FIELD_ENTRIES: usize = 4_096;
 const MAX_FORM_FIELD_TREE_NODES: usize = 4_096;
 const MAX_FORM_FIELD_TREE_EDGES: usize = 8_192;
 const MAX_FORM_FIELD_TREE_DEPTH: usize = 64;
+const MAX_FORM_FIELD_WIDGETS: usize = 4_096;
 const MAX_FORM_FIELD_NAME_BYTES: usize = 1024 * 1024;
 const MAX_FORM_FIELD_VALUE_BYTES: usize = 1024 * 1024;
 const MAX_FORM_FIELD_VALUE_ITEMS: usize = 4_096;
+const MAX_FORM_BUTTON_STATE_ENTRIES: usize = 8_192;
+const MAX_FORM_BUTTON_STATE_NAMES: usize = 4_096;
+const MAX_FORM_BUTTON_STATE_NAME_BYTES: usize = 1024 * 1024;
 
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
@@ -114,6 +118,9 @@ type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
 
 /// One flattened AcroForm field: name, object, type, flags, and normalized value.
 type FormFieldEntry = (String, ObjectId, String, i64, Option<Arc<str>>);
+
+/// One widget and the raw state names from its normal appearance dictionary.
+type WidgetStateNames = (ObjectId, Vec<Vec<u8>>);
 
 /// Resolve one reference level, returning the original object on failure.
 fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
@@ -2043,6 +2050,7 @@ impl _Document {
             .collect();
         let mut visited = HashSet::new();
         let mut edges = fields.len();
+        let mut widget_refs = 0usize;
         let mut encoded_name_bytes = 0usize;
         let mut decoded_name_bytes = 0usize;
         let mut materialized_name_bytes = 0usize;
@@ -2148,6 +2156,12 @@ impl _Document {
                         .and_then(Object::as_dict)
                         .is_ok_and(|child| child.has(b"T"));
                     if !is_field {
+                        widget_refs = widget_refs.saturating_add(1);
+                        if widget_refs > MAX_FORM_FIELD_WIDGETS {
+                            return Err(PdfError::new_err(format!(
+                                "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+                            )));
+                        }
                         continue;
                     }
                     if depth >= MAX_FORM_FIELD_TREE_DEPTH {
@@ -2194,7 +2208,9 @@ impl _Document {
         };
         let widgets: Vec<ObjectId> = dict
             .get(b"Kids")
-            .and_then(Object::as_array)
+            .ok()
+            .map(|object| deref_object(&self.doc, object))
+            .and_then(|object| object.as_array().ok())
             .map(|kids| {
                 kids.iter()
                     .filter_map(|k| k.as_reference().ok())
@@ -2230,6 +2246,56 @@ impl _Document {
                     })
             })
             .collect()
+    }
+
+    /// Borrow and bound every normal-appearance state name for one button field.
+    fn button_appearance_states(
+        &self,
+        field_id: ObjectId,
+    ) -> PyResult<(Vec<WidgetStateNames>, usize, usize)> {
+        let widgets = self.visible_field_widgets(field_id);
+        if widgets.len() > MAX_FORM_FIELD_WIDGETS {
+            return Err(PdfError::new_err(format!(
+                "AcroForm field exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+            )));
+        }
+        let mut result = Vec::with_capacity(widgets.len());
+        let mut entries = 0usize;
+        let mut encoded_name_bytes = 0usize;
+        for widget_id in widgets {
+            let normal = self
+                .doc
+                .get_object(widget_id)
+                .and_then(Object::as_dict)
+                .ok()
+                .and_then(|widget| widget.get(b"AP").ok())
+                .and_then(|object| deref_object(&self.doc, object).as_dict().ok())
+                .and_then(|appearance| appearance.get(b"N").ok())
+                .and_then(|object| deref_object(&self.doc, object).as_dict().ok());
+            let mut states = Vec::new();
+            if let Some(normal) = normal {
+                entries = entries.checked_add(normal.len()).ok_or_else(|| {
+                    PdfError::new_err("AcroForm button states exceed the platform size limit")
+                })?;
+                if entries > MAX_FORM_BUTTON_STATE_ENTRIES {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm button states exceed the {MAX_FORM_BUTTON_STATE_ENTRIES}-entry safety limit"
+                    )));
+                }
+                states.reserve(normal.len());
+                for (state, _) in normal {
+                    add_form_budget(
+                        &mut encoded_name_bytes,
+                        state.len(),
+                        MAX_FORM_BUTTON_STATE_NAME_BYTES,
+                        "encoded button-state name",
+                    )?;
+                    states.push(state.clone());
+                }
+            }
+            result.push((widget_id, states));
+        }
+        Ok((result, entries, encoded_name_bytes))
     }
 
     /// Set AcroForm NeedAppearances, including indirect dictionaries.
@@ -2404,21 +2470,42 @@ impl _Document {
         flags: i64,
         value: &str,
     ) -> PyResult<()> {
-        let widgets = self.visible_field_widgets(field_id);
-        let known_states: Vec<Vec<Vec<u8>>> = widgets
+        let (widget_states, mut planned_entries, mut planned_name_bytes) =
+            self.button_appearance_states(field_id)?;
+        let requested_is_known = widget_states
             .iter()
-            .map(|widget_id| {
-                self.button_normal_appearance(*widget_id)
-                    .iter()
-                    .map(|(state, _)| state.clone())
-                    .collect()
-            })
-            .collect();
-        let requested_is_known = known_states
-            .iter()
-            .any(|states| states.iter().any(|state| state == value.as_bytes()));
+            .any(|(_, states)| states.iter().any(|state| state == value.as_bytes()));
+        for (index, (_, states)) in widget_states.iter().enumerate() {
+            let selected = value != "Off"
+                && (states.iter().any(|state| state == value.as_bytes())
+                    || (!requested_is_known && index == 0));
+            let selected_state = if selected { value } else { "Off" };
+            for (position, planned_state) in ["Off", selected_state].into_iter().enumerate() {
+                if position == 1 && selected_state == "Off" {
+                    // The duplicate name in this pair never creates a second key.
+                    continue;
+                }
+                if states.iter().any(|state| state == planned_state.as_bytes()) {
+                    continue;
+                }
+                planned_entries = planned_entries.checked_add(1).ok_or_else(|| {
+                    PdfError::new_err("AcroForm button states exceed the platform size limit")
+                })?;
+                if planned_entries > MAX_FORM_BUTTON_STATE_ENTRIES {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm button state update exceeds the {MAX_FORM_BUTTON_STATE_ENTRIES}-entry safety limit"
+                    )));
+                }
+                add_form_budget(
+                    &mut planned_name_bytes,
+                    planned_state.len(),
+                    MAX_FORM_BUTTON_STATE_NAME_BYTES,
+                    "encoded button-state name",
+                )?;
+            }
+        }
         let radio = flags & (1 << 15) != 0;
-        for (index, (widget_id, states)) in widgets.into_iter().zip(known_states).enumerate() {
+        for (index, (widget_id, states)) in widget_states.into_iter().enumerate() {
             let selected = value != "Off"
                 && (states.iter().any(|state| state == value.as_bytes())
                     || (!requested_is_known && index == 0));
@@ -5134,39 +5221,43 @@ impl _Document {
     }
 
     /// Return checkbox/radio state names from widget `AP /N` keys.
-    fn form_button_states(&self, name: &str) -> PyResult<Vec<String>> {
-        let (field_id, ft) = self
-            .collect_form_fields()?
-            .into_iter()
-            .find(|(n, ..)| n == name)
-            .map(|(_, id, ft, ..)| (id, ft))
-            .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
-        if ft != "Btn" {
-            return Ok(Vec::new());
-        }
-        let mut states = Vec::new();
-        for widget_id in self.field_widgets(field_id) {
-            let Ok(widget) = self.doc.get_object(widget_id).and_then(Object::as_dict) else {
-                continue;
-            };
-            let Some(ap) = widget
-                .get(b"AP")
-                .ok()
-                .and_then(|o| deref_dict(&self.doc, o))
-            else {
-                continue;
-            };
-            let Some(normal) = ap.get(b"N").ok().and_then(|o| deref_dict(&self.doc, o)) else {
-                continue;
-            };
-            for (key, _) in normal.iter() {
-                let state = String::from_utf8_lossy(key).into_owned();
-                if !states.contains(&state) {
+    fn form_button_states(&self, py: Python<'_>, name: &str) -> PyResult<Vec<String>> {
+        py.detach(|| {
+            let (field_id, ft) = self
+                .collect_form_fields()?
+                .into_iter()
+                .find(|(field_name, ..)| field_name == name)
+                .map(|(_, id, ft, ..)| (id, ft))
+                .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
+            if ft != "Btn" {
+                return Ok(Vec::new());
+            }
+            let (widget_states, _, _) = self.button_appearance_states(field_id)?;
+            let mut states = Vec::new();
+            let mut seen = HashSet::new();
+            let mut returned_name_bytes = 0usize;
+            for (_, widget_state_names) in widget_states {
+                for state_name in widget_state_names {
+                    if !seen.insert(state_name.clone()) {
+                        continue;
+                    }
+                    if states.len() >= MAX_FORM_BUTTON_STATE_NAMES {
+                        return Err(PdfError::new_err(format!(
+                            "AcroForm button states exceed the {MAX_FORM_BUTTON_STATE_NAMES}-name safety limit"
+                        )));
+                    }
+                    let state = String::from_utf8_lossy(&state_name).into_owned();
+                    add_form_budget(
+                        &mut returned_name_bytes,
+                        state.len(),
+                        MAX_FORM_BUTTON_STATE_NAME_BYTES,
+                        "returned button-state name",
+                    )?;
                     states.push(state);
                 }
             }
-        }
-        Ok(states)
+            Ok(states)
+        })
     }
 
     /// Set a form-field value and generate native widget appearances.

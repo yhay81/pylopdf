@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- AcroForm button handling now bounds field expansion at 4,096 widgets and
+  normal-appearance dictionaries at 8,192 state entries, 4,096 unique returned
+  names, and 1 MiB of encoded or returned state-name text. Boolean state lookup
+  releases the GIL and uses linear deduplication. Appearance synchronization
+  validates every missing `Off`/on key before mutation, so a fill cannot create
+  a state dictionary that the next call must reject. Indirect `/Kids` arrays
+  are now resolved consistently.
 - AcroForm field-tree reads now borrow object shapes, visit indirect cycles
   once, release the GIL, and reject partial output above 4,096 entries/nodes,
   8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
