@@ -111,7 +111,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 
 | 名前 | 用途 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 高速メタデータ読み取り。`repaired`で限定的なclassic `startxref`修復を確認 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 入力サイズを任意に制限できる高速メタデータ読み取り。`repaired`で限定的なclassic `startxref`修復を確認 |
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |

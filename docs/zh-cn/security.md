@@ -142,8 +142,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   node/entry、8,192条edge、64层、32层destination间接引用或1 MiB source/returned
   文本时拒绝部分结果。写入也会在修改前检查entry、深度和title文本上限。
 - `Document.metadata`只解码8个标准Info字段；aggregate source/returned文本超过
-  1 MiB时会拒绝，custom entry不会materialize为Python输出。`peek_metadata()`也
-  限制returned标准文本；写入在修改前检查1 MiB source/encoded文本并原子应用。
+  1 MiB时会拒绝，custom entry不会materialize为Python输出。
+  `peek_metadata(max_file_size=)`可在解析前拒绝path或byte input，并限制returned
+  标准文本；输入默认不设上限。写入在修改前检查1 MiB source/encoded文本并原子应用。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`最多接受4,096个page entry，累计encoded PNG默认上限为512 MiB。
   并行结果共享一个atomic budget，失败时不返回部分list；`max_size=None`可显式

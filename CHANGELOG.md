@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `peek_metadata(..., *, max_file_size=None)` can now reject oversized path or
+  byte input before metadata parsing. Path reads use a one-byte-overrun
+  boundary, direct Rust calls repeat the check, exact limits succeed, and
+  refusals use `LimitError.code == "file_size"`. The unbounded default preserves
+  the existing collection-scanning API.
+
 ### Changed
 - The free-threaded extraction benchmark now writes a standalone
   `bench/results/free-threaded-latest.md` report with its version, environment,

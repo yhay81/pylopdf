@@ -158,8 +158,9 @@ xref dataを正規化します。
   変更前に検査します。
 - `Document.metadata`は標準Info 8項目だけをdecodeし、aggregate source/returned
   text 1 MiBを超えると拒否します。custom entryはPython出力にmaterializeしません。
-  `peek_metadata()`もreturned standard textを制限し、書き込みはsource/encoded
-  text 1 MiBを変更前に検査して原子的に適用します。
+  `peek_metadata(max_file_size=)`はpathまたはbyte inputをparse前に拒否でき、
+  returned standard textも制限します。入力の既定値は無制限です。書き込みは
+  source/encoded text 1 MiBを変更前に検査して原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`は最大4,096 page entryで、累積encoded PNG上限は既定512 MiB
   です。並列結果は1つのatomic budgetを共有し、失敗時に部分listを返しません。

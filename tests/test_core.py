@@ -37,6 +37,25 @@ def test_load_bytes_and_page_count(three_page_pdf: bytes) -> None:
     assert doc.page_count() == 3
 
 
+def test_load_metadata_file_size_limit(tmp_path: Path, three_page_pdf: bytes) -> None:
+    path = tmp_path / "three-pages.pdf"
+    path.write_bytes(three_page_pdf)
+    limit = len(three_page_pdf)
+
+    assert _Document.load_metadata(str(path), None, limit)[1] == 3
+    assert _Document.load_metadata_bytes(three_page_pdf, None, limit)[1] == 3
+
+    with pytest.raises(LimitError) as path_error:
+        _Document.load_metadata(str(path), None, limit - 1)
+    with pytest.raises(LimitError) as stream_error:
+        _Document.load_metadata_bytes(three_page_pdf, None, limit - 1)
+    assert path_error.value.args[0] == "file_size"
+    assert stream_error.value.args[0] == "file_size"
+
+    with pytest.raises(ValueError, match="max_file_size"):
+        _Document.load_metadata_bytes(three_page_pdf, None, 0)
+
+
 def test_save_bytes_roundtrip(three_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(three_page_pdf)
     data = doc.save_bytes()

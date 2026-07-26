@@ -850,6 +850,11 @@ fn read_bounded_input(
 
 /// Read PDF input without admitting more than one byte beyond its file budget.
 fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
+    if max_file_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_file_size must be a positive integer or None",
+        ));
+    }
     read_bounded_input(
         path,
         max_file_size,
@@ -857,6 +862,27 @@ fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
         "PDF file",
         "failed to load",
     )
+}
+
+/// Reject an in-memory PDF before parsing when it exceeds the file budget.
+fn validate_input_size(data: &[u8], max_file_size: Option<usize>) -> PyResult<()> {
+    if max_file_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_file_size must be a positive integer or None",
+        ));
+    }
+    if let Some(limit) = max_file_size
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "file_size",
+            format!(
+                "PDF input is {} bytes, exceeding the configured limit of {limit}",
+                data.len()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Read encoded image input without admitting more than one byte beyond its budget.
@@ -4679,17 +4705,7 @@ impl _Document {
             max_object_depth,
             max_text_size,
         };
-        if let Some(limit) = limits.max_file_size
-            && data.len() > limit
-        {
-            return Err(limit_err(
-                "file_size",
-                format!(
-                    "PDF input is {} bytes, exceeding the configured limit of {limit}",
-                    data.len()
-                ),
-            ));
-        }
+        validate_input_size(data, limits.max_file_size)?;
         let (decoder_bound, decoder_limit_code) = match (
             limits.max_decompressed_size,
             limits.max_total_decompressed_size,
@@ -4743,60 +4759,32 @@ impl _Document {
     ///
     /// Return `(Info string dict, page count, version, encrypted, repaired)`.
     #[staticmethod]
-    #[pyo3(signature = (path, password=None))]
+    #[pyo3(signature = (path, password=None, max_file_size=None))]
     fn load_metadata(
         py: Python<'_>,
         path: &str,
         password: Option<String>,
+        max_file_size: Option<usize>,
     ) -> PyResult<MetadataTuple> {
         py.detach(|| {
-            let original_error = match &password {
-                Some(password) => Document::load_metadata_with_password(path, password),
-                None => Document::load_metadata(path),
-            };
-            match original_error {
-                Ok(meta) => {
-                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
-                    Ok((metadata, page_count, version, encrypted, false))
-                }
-                Err(original_error) => {
-                    if !xref_recovery_candidate(&original_error) {
-                        return Err(lopdf_err(
-                            Some(&format!("failed to load {path}")),
-                            &original_error,
-                        ));
-                    }
-                    let data = read_input(path, None)?;
-                    let Some(repaired) = repair_classic_startxref(&data) else {
-                        return Err(lopdf_err(
-                            Some(&format!("failed to load {path}")),
-                            &original_error,
-                        ));
-                    };
-                    let retried = match &password {
-                        Some(password) => {
-                            Document::load_metadata_mem_with_password(&repaired, password)
-                        }
-                        None => Document::load_metadata_mem(&repaired),
-                    };
-                    let meta = retried.map_err(|_| {
-                        lopdf_err(Some(&format!("failed to load {path}")), &original_error)
-                    })?;
-                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
-                    Ok((metadata, page_count, version, encrypted, true))
-                }
-            }
+            let data = read_input(path, max_file_size)?;
+            let (meta, repaired) = load_metadata_with_recovery(&data, password.as_deref())
+                .map_err(|error| lopdf_err(Some(&format!("failed to load {path}")), &error))?;
+            let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
+            Ok((metadata, page_count, version, encrypted, repaired))
         })
     }
 
     /// Read metadata from bytes, returning the same shape as `load_metadata`.
     #[staticmethod]
-    #[pyo3(signature = (data, password=None))]
+    #[pyo3(signature = (data, password=None, max_file_size=None))]
     fn load_metadata_bytes(
         py: Python<'_>,
         data: &[u8],
         password: Option<String>,
+        max_file_size: Option<usize>,
     ) -> PyResult<MetadataTuple> {
+        validate_input_size(data, max_file_size)?;
         py.detach(|| {
             let (meta, repaired) =
                 load_metadata_with_recovery(data, password.as_deref()).map_err(to_py_err)?;

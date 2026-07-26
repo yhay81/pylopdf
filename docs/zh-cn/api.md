@@ -105,7 +105,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 
 | 名称 | 用途 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 快速读取元数据与页数；`repaired`报告受限的classic `startxref`修复 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 可选输入大小限制的快速元数据与页数读取；`repaired`报告受限的classic `startxref`修复 |
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
