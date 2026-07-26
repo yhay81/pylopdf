@@ -38,6 +38,12 @@ const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
 /// Keep table interpretations bounded independently from ordinary text pages.
 const TABLE_PAGE_CACHE_CAPACITY: usize = 8;
 
+/// Bound attachment name-tree traversal and returned metadata.
+const MAX_EMBEDDED_FILE_ENTRIES: usize = 4_096;
+const MAX_EMBEDDED_FILE_TREE_NODES: usize = 4_096;
+const MAX_EMBEDDED_FILE_NAME_BYTES: usize = 1024 * 1024;
+const MAX_EMBEDDED_FILE_TREE_DEPTH: usize = 32;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -2793,57 +2799,122 @@ impl _Document {
     }
 }
 
-/// Collect `(name, FileSpec)` attachments from the EmbeddedFiles name tree.
+/// Visit valid `(name, FileSpec)` items in the EmbeddedFiles name tree.
 ///
-/// Recurse through `/Kids` with depth/cycle guards. Preserve inline dictionaries
-/// so a read operation does not mutate the document.
-fn collect_embedded_files(doc: &Document) -> Vec<EmbeddedFileEntry> {
-    fn node_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
-        match obj {
-            Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok().cloned(),
-            Object::Dictionary(d) => Some(d.clone()),
-            _ => None,
-        }
-    }
+/// Recurse through `/Kids` with depth, cycle, node, entry, and decoded-name
+/// guards. Nodes and FileSpecs remain borrowed so read operations do not clone
+/// adversarial direct object shapes. Returning `Some` stops the walk early.
+fn visit_embedded_files<'a, T>(
+    doc: &'a Document,
+    mut visitor: impl FnMut(String, &'a Object) -> PyResult<Option<T>>,
+) -> PyResult<Option<T>> {
     let Some(root) = doc
         .catalog()
         .ok()
-        .and_then(|c| c.get(b"Names").ok().cloned())
-        .and_then(|names| node_dict(doc, &names))
-        .and_then(|names| names.get(b"EmbeddedFiles").ok().cloned())
-        .and_then(|ef| node_dict(doc, &ef))
+        .and_then(|catalog| catalog.get(b"Names").ok())
+        .map(|names| deref_object(doc, names))
+        .and_then(|names| names.as_dict().ok())
+        .and_then(|names| names.get(b"EmbeddedFiles").ok())
     else {
-        return Vec::new();
+        return Ok(None);
     };
-    let mut out = Vec::new();
-    let mut stack = vec![(root, 0usize)];
-    while let Some((node, depth)) = stack.pop() {
-        if depth > 32 {
+    let mut visited = HashSet::new();
+    let mut stack = vec![(root, 1usize)];
+    let mut nodes = 0usize;
+    let mut edges = 0usize;
+    let mut pairs_seen = 0usize;
+    let mut encoded_name_bytes = 0usize;
+    let mut name_bytes = 0usize;
+    while let Some((node_object, depth)) = stack.pop() {
+        if let Object::Reference(id) = node_object
+            && !visited.insert(*id)
+        {
             continue;
         }
+        let Ok(node) = deref_object(doc, node_object).as_dict() else {
+            continue;
+        };
+        nodes = nodes.saturating_add(1);
+        if nodes > MAX_EMBEDDED_FILE_TREE_NODES {
+            return Err(PdfError::new_err(format!(
+                "attachment name tree exceeds the {MAX_EMBEDDED_FILE_TREE_NODES}-node safety limit"
+            )));
+        }
         if let Ok(pairs) = node.get(b"Names").and_then(Object::as_array) {
+            pairs_seen = pairs_seen
+                .checked_add(pairs.len().div_ceil(2))
+                .ok_or_else(|| {
+                    PdfError::new_err("attachment name tree exceeds the platform size limit")
+                })?;
+            if pairs_seen > MAX_EMBEDDED_FILE_ENTRIES {
+                return Err(PdfError::new_err(format!(
+                    "attachment name tree exceeds the {MAX_EMBEDDED_FILE_ENTRIES}-entry safety limit"
+                )));
+            }
             for pair in pairs.chunks(2) {
                 let [key, value] = pair else { continue };
+                let Object::String(encoded_name, _) = key else {
+                    continue;
+                };
+                encoded_name_bytes = encoded_name_bytes
+                    .checked_add(encoded_name.len())
+                    .ok_or_else(|| {
+                        PdfError::new_err("attachment names exceed the platform size limit")
+                    })?;
+                if encoded_name_bytes > MAX_EMBEDDED_FILE_NAME_BYTES {
+                    return Err(PdfError::new_err(format!(
+                        "encoded attachment names exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
+                    )));
+                }
                 let Ok(name) = decode_text_string(key) else {
                     continue;
                 };
-                let filespec = match value {
-                    Object::Reference(id) => Object::Reference(*id),
-                    Object::Dictionary(d) => Object::Dictionary(d.clone()),
-                    _ => continue,
-                };
-                out.push((name, filespec));
-            }
-        }
-        if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
-            for kid in kids.clone() {
-                if let Some(dict) = node_dict(doc, &kid) {
-                    stack.push((dict, depth + 1));
+                name_bytes = name_bytes.checked_add(name.len()).ok_or_else(|| {
+                    PdfError::new_err("attachment names exceed the platform size limit")
+                })?;
+                if name_bytes > MAX_EMBEDDED_FILE_NAME_BYTES {
+                    return Err(PdfError::new_err(format!(
+                        "attachment names exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
+                    )));
+                }
+                if !matches!(value, Object::Reference(_) | Object::Dictionary(_)) {
+                    continue;
+                }
+                if let Some(result) = visitor(name, value)? {
+                    return Ok(Some(result));
                 }
             }
         }
+        if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
+            if !kids.is_empty() && depth >= MAX_EMBEDDED_FILE_TREE_DEPTH {
+                return Err(PdfError::new_err(format!(
+                    "attachment name tree exceeds the {MAX_EMBEDDED_FILE_TREE_DEPTH}-level safety limit"
+                )));
+            }
+            edges = edges.checked_add(kids.len()).ok_or_else(|| {
+                PdfError::new_err("attachment name tree exceeds the platform size limit")
+            })?;
+            if edges > MAX_EMBEDDED_FILE_TREE_NODES {
+                return Err(PdfError::new_err(format!(
+                    "attachment name tree exceeds the {MAX_EMBEDDED_FILE_TREE_NODES}-edge safety limit"
+                )));
+            }
+            for kid in kids {
+                stack.push((kid, depth + 1));
+            }
+        }
     }
-    out
+    Ok(None)
+}
+
+/// Collect owned entries for attachment-tree rewrite operations.
+fn collect_embedded_files(doc: &Document) -> PyResult<Vec<EmbeddedFileEntry>> {
+    let mut out = Vec::new();
+    visit_embedded_files(doc, |name, value| {
+        out.push((name, value.clone()));
+        Ok(None::<()>)
+    })?;
+    Ok(out)
 }
 
 /// Rewrite EmbeddedFiles as one flat node while preserving other name trees.
@@ -4624,53 +4695,131 @@ impl _Document {
     }
 
     /// Return sorted attachment names independent of name-tree order.
-    fn embfile_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = collect_embedded_files(&self.doc)
-            .into_iter()
-            .map(|(n, _)| n)
-            .collect();
-        names.sort();
-        names
+    fn embfile_names(&self, py: Python<'_>) -> PyResult<Vec<String>> {
+        py.detach(|| {
+            let mut names = Vec::new();
+            visit_embedded_files(&self.doc, |name, _| {
+                names.push(name);
+                Ok(None::<()>)
+            })?;
+            names.sort();
+            Ok(names)
+        })
     }
 
-    /// Return attachment contents.
-    fn embfile_get(&self, name: &str) -> PyResult<Vec<u8>> {
-        let entries = collect_embedded_files(&self.doc);
-        let (_, filespec_obj) = entries
-            .into_iter()
-            .find(|(n, _)| n == name)
-            .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
-        let filespec = match &filespec_obj {
-            Object::Reference(id) => self
+    /// Return attachment contents, bounding every decoding layer when requested.
+    fn embfile_get(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            let filespec_obj = visit_embedded_files(&self.doc, |entry_name, value| {
+                Ok((entry_name == name).then_some(value))
+            })?
+                .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
+            let filespec = match filespec_obj {
+                Object::Reference(id) => self
+                    .doc
+                    .get_object(*id)
+                    .and_then(Object::as_dict)
+                    .map_err(to_py_err)?,
+                Object::Dictionary(dict) => dict,
+                _ => return Err(PdfError::new_err("attachment's FileSpec is corrupt")),
+            };
+            let ef = match filespec.get(b"EF").map_err(to_py_err)? {
+                Object::Reference(id) => self
+                    .doc
+                    .get_object(*id)
+                    .and_then(Object::as_dict)
+                    .map_err(to_py_err)?,
+                Object::Dictionary(d) => d,
+                _ => return Err(PdfError::new_err("attachment's EF dictionary is corrupt")),
+            };
+            let stream_ref = ef
+                .get(b"F")
+                .or_else(|_| ef.get(b"UF"))
+                .and_then(Object::as_reference)
+                .map_err(to_py_err)?;
+            let stream = self
                 .doc
-                .get_object(*id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?,
-            Object::Dictionary(dict) => dict,
-            _ => return Err(PdfError::new_err("attachment's FileSpec is corrupt")),
-        };
-        let ef = match filespec.get(b"EF").map_err(to_py_err)? {
-            Object::Reference(id) => self
-                .doc
-                .get_object(*id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?,
-            Object::Dictionary(d) => d,
-            _ => return Err(PdfError::new_err("attachment's EF dictionary is corrupt")),
-        };
-        let stream_ref = ef
-            .get(b"F")
-            .or_else(|_| ef.get(b"UF"))
-            .and_then(Object::as_reference)
-            .map_err(to_py_err)?;
-        let stream = self
-            .doc
-            .get_object(stream_ref)
-            .and_then(Object::as_stream)
-            .map_err(to_py_err)?;
-        Ok(stream
-            .decompressed_content()
-            .unwrap_or_else(|_| stream.content.clone()))
+                .get_object(stream_ref)
+                .and_then(Object::as_stream)
+                .map_err(to_py_err)?;
+            let decode_error = |error: lopdf::Error| {
+                if matches!(
+                    error,
+                    lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
+                ) {
+                    limit_err(
+                        "embedded_file_size",
+                        format!(
+                            "attachment {name:?} exceeds the {}-byte decoded-size limit",
+                            max_size.unwrap_or(usize::MAX)
+                        ),
+                    )
+                } else {
+                    PdfError::new_err(format!("failed to decode attachment {name:?}: {error}"))
+                }
+            };
+            if !stream.dict.has(b"Filter") {
+                if let Some(limit) = max_size
+                    && stream.content.len() > limit
+                {
+                    return Err(limit_err(
+                        "embedded_file_size",
+                        format!(
+                            "attachment {name:?} is {} bytes, exceeding the {limit}-byte decoded-size limit",
+                            stream.content.len()
+                        ),
+                    ));
+                }
+                return Ok(stream.content.clone());
+            }
+
+            let raw_filters = stream.filters().map_err(|error| {
+                PdfError::new_err(format!("attachment {name:?} has an invalid Filter: {error}"))
+            })?;
+            if raw_filters.is_empty() {
+                if let Some(limit) = max_size
+                    && stream.content.len() > limit
+                {
+                    return Err(limit_err(
+                        "embedded_file_size",
+                        format!(
+                            "attachment {name:?} is {} bytes, exceeding the {limit}-byte decoded-size limit",
+                            stream.content.len()
+                        ),
+                    ));
+                }
+                return Ok(stream.content.clone());
+            }
+            let normalized_filters: Vec<&[u8]> = raw_filters
+                .iter()
+                .map(|filter| canonical_filter_name(filter))
+                .collect();
+            let mut checked_stream = stream.clone();
+            checked_stream.dict.set(
+                "Filter",
+                if normalized_filters.len() == 1 {
+                    Object::Name(normalized_filters[0].to_vec())
+                } else {
+                    Object::Array(
+                        normalized_filters
+                            .iter()
+                            .map(|filter| Object::Name(filter.to_vec()))
+                            .collect(),
+                    )
+                },
+            );
+            match max_size {
+                Some(limit) => checked_stream
+                    .decompressed_content_with_limit(limit)
+                    .map_err(decode_error),
+                None => checked_stream.decompressed_content().map_err(decode_error),
+            }
+        })
     }
 
     /// Add an attachment, rejecting duplicate names.
@@ -4682,14 +4831,51 @@ impl _Document {
         filename: Option<String>,
         desc: Option<String>,
     ) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            let entries = collect_embedded_files(&self.doc);
+        let result = py.detach(|| {
+            let entries = collect_embedded_files(&self.doc)?;
             if entries.iter().any(|(n, _)| *n == name) {
                 return Err(PdfError::new_err(format!(
                     "an attachment with this name already exists: {name:?} (call embfile_del first)"
                 )));
             }
+            if entries.len() >= MAX_EMBEDDED_FILE_ENTRIES {
+                return Err(PdfError::new_err(format!(
+                    "cannot add attachment: the {MAX_EMBEDDED_FILE_ENTRIES}-entry safety limit is reached"
+                )));
+            }
+            let total_name_bytes = entries
+                .iter()
+                .try_fold(name.len(), |total, (entry_name, _)| {
+                    total.checked_add(entry_name.len())
+                })
+                .ok_or_else(|| {
+                    PdfError::new_err("attachment names exceed the platform size limit")
+                })?;
+            if total_name_bytes > MAX_EMBEDDED_FILE_NAME_BYTES {
+                return Err(PdfError::new_err(format!(
+                    "cannot add attachment: decoded names would exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
+                )));
+            }
+            let total_encoded_name_bytes =
+                entries
+                    .iter()
+                    .map(|(entry_name, _)| entry_name)
+                    .chain(std::iter::once(&name))
+                    .try_fold(0usize, |total, entry_name| {
+                        let Object::String(encoded, _) = text_string(entry_name) else {
+                            unreachable!("text_string always returns a PDF string")
+                        };
+                        total.checked_add(encoded.len())
+                    })
+                    .ok_or_else(|| {
+                        PdfError::new_err("attachment names exceed the platform size limit")
+                    })?;
+            if total_encoded_name_bytes > MAX_EMBEDDED_FILE_NAME_BYTES {
+                return Err(PdfError::new_err(format!(
+                    "cannot add attachment: encoded names would exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
+                )));
+            }
+            let original = self.doc.clone();
             let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
             // Keep compression allowed so save(deflate=True) can compress it.
             let ef_id = self.doc.add_object(Stream::new(
@@ -4712,21 +4898,34 @@ impl _Document {
             let filespec_id = self.doc.add_object(filespec);
             let mut entries = entries;
             entries.push((name, Object::Reference(filespec_id)));
-            write_embedded_files(&mut self.doc, entries)
-        })
+            let result = write_embedded_files(&mut self.doc, entries);
+            if result.is_err() {
+                self.doc = original;
+            }
+            result
+        });
+        if result.is_ok() {
+            self.invalidate_hayro_pdf();
+        }
+        result
     }
 
     /// Delete an attachment, raising an error when absent.
-    fn embfile_del(&mut self, name: &str) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
-        let entries = collect_embedded_files(&self.doc);
-        let before = entries.len();
-        let remaining: Vec<EmbeddedFileEntry> =
-            entries.into_iter().filter(|(n, _)| n != name).collect();
-        if remaining.len() == before {
-            return Err(PdfError::new_err(format!("attachment not found: {name:?}")));
+    fn embfile_del(&mut self, py: Python<'_>, name: &str) -> PyResult<()> {
+        let result = py.detach(|| {
+            let entries = collect_embedded_files(&self.doc)?;
+            let before = entries.len();
+            let remaining: Vec<EmbeddedFileEntry> =
+                entries.into_iter().filter(|(n, _)| n != name).collect();
+            if remaining.len() == before {
+                return Err(PdfError::new_err(format!("attachment not found: {name:?}")));
+            }
+            write_embedded_files(&mut self.doc, remaining)
+        });
+        if result.is_ok() {
+            self.invalidate_hayro_pdf();
         }
-        write_embedded_files(&mut self.doc, remaining)
+        result
     }
 
     /// Insert display-coordinate OCR words as an invisible text layer.

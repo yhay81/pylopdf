@@ -236,7 +236,8 @@ print(doc[4].get_label())  # "2"
 # File attachments (e.g. attach the XML data to an invoice PDF)
 doc.embfile_add("invoice.xml", xml_bytes, filename="invoice-data.xml")
 print(doc.embfile_names())  # ["invoice.xml"]
-xml = doc.embfile_get("invoice.xml")
+xml = doc.embfile_get("invoice.xml")  # decoded output is capped at 64 MiB by default
+# known_large = doc.embfile_get("archive.bin", max_size=256 * 1024 * 1024)
 
 # Table of contents (page numbers are 1-based here, pymupdf-compatible)
 doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
@@ -384,7 +385,7 @@ signed_pdf: bytes = out.getvalue()
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; complete bordered tables by default, `"text"` adds conservative borderless tables, `None` disables tables) |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; checkboxes take bool |
 | `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
-| `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name)` / `embfile_del(name)` | Add / list / read / delete file attachments (EmbeddedFiles) |
+| `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete file attachments; `max_size=None` explicitly opts out, and name trees are capped at 4,096 entries/nodes |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |
 | `close()` | Close (supports `with`) |

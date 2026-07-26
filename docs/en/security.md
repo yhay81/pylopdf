@@ -59,7 +59,7 @@ per-stream budget and cannot be combined with `limits=`.
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
-`text_size`, or `decompression_unverifiable`. The same code is also
+`text_size`, `embedded_file_size`, or `decompression_unverifiable`. The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
 
@@ -80,6 +80,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
+- `Document.embfile_get()` defaults to a 64 MiB decoded-size limit applied to
+  every filter layer. Raise `max_size=` for a known large attachment;
+  `max_size=None` explicitly accepts unbounded materialization. Attachment name
+  trees are rejected above 4,096 entries/nodes, 32 levels, or 1 MiB of encoded
+  or decoded names.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

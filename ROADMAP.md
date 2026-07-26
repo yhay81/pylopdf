@@ -497,6 +497,12 @@ known-limit behavior are polished together.
       count, cumulative source pixels, returned payload bytes, and the
       Flate-to-DCT fast path. Repeated reuse now fails atomically instead of
       multiplying one source into unbounded Python-owned byte strings.
+- [x] Bound attachment retrieval before Python-byte materialization. The public
+      `embfile_get(max_size=64 MiB)` default caps every decoder layer, uses a
+      stable `embedded_file_size` rejection code, and requires an explicit
+      opt-out for unbounded reads. Name-tree traversal now borrows direct object
+      shapes, visits cycles once, and rejects excessive entries, nodes, depth,
+      or name bytes; failed additions cannot create an unreadable tree.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

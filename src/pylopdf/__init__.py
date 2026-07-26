@@ -80,6 +80,8 @@ __all__ = [
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
 
+_DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
+
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
 LINK_GOTO = 1
@@ -2358,10 +2360,28 @@ class Document:
         self._ensure_open()
         return self._doc.embfile_names()
 
-    def embfile_get(self, name: str) -> bytes:
-        """Return attachment contents as bytes."""
+    def embfile_get(
+        self,
+        name: str,
+        *,
+        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
+    ) -> bytes:
+        """Return attachment contents as bytes.
+
+        ``max_size`` bounds every decoding layer and defaults to 64 MiB. Pass a
+        larger positive integer for a known large attachment, or ``None`` only
+        when intentionally accepting unbounded materialization. Oversized
+        content raises :class:`LimitError` with code ``embedded_file_size``.
+        """
         self._ensure_open()
-        return self._doc.embfile_get(name)
+        if max_size is not None:
+            if isinstance(max_size, bool) or not isinstance(max_size, int):
+                msg = f"max_size must be a positive integer or None: {max_size!r}"
+                raise TypeError(msg)
+            if max_size <= 0:
+                msg = f"max_size must be a positive integer or None: {max_size!r}"
+                raise ValueError(msg)
+        return self._doc.embfile_get(name, max_size)
 
     def embfile_del(self, name: str) -> None:
         """Delete an attachment, raising an error when absent."""

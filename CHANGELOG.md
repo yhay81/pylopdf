@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.embfile_get(name, *, max_size=64 * 1024 * 1024)` now bounds every
+  attachment decoding layer before materializing Python bytes. Callers can raise
+  the positive limit for a known large file or pass `None` as an explicit
+  unbounded opt-out; rejection uses `LimitError.code == "embedded_file_size"`.
+  Decode failures no longer masquerade as raw attachment contents, PDF filter
+  abbreviations are normalized, and decompression releases the GIL. EmbeddedFiles
+  name-tree reads now borrow direct object shapes, visit reference cycles once,
+  and reject traversal above 4,096 entries/nodes, 32 levels, or 1 MiB of names
+  instead of returning partial metadata. Adding the 4,097th entry is refused
+  atomically.
 - `Page.get_images()` now rejects per-page output amplification above 4,096
   placements, 64,000,000 cumulative source pixels, or 64 MiB of returned image
   payloads instead of materializing a partial list. The Flate-to-DCT JPEG

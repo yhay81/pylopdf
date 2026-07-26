@@ -32,7 +32,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_toc()` / `set_toc(toc)` | 목차（페이지는 1부터） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위 |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 네이티브 widget appearance를 포함한 AcroForm 목록과 입력 |
-| `embfile_add / embfile_names / embfile_get / embfile_del` | 첨부 파일 |
+| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 디코딩 상한이 있는 첨부 파일. `max_size=None`은 명시적으로 상한을 해제 |
 | `get_pdfa_claim()` | XMP PDF/A 선언 읽기（검증 아님） |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | `with`로도 호출 |
