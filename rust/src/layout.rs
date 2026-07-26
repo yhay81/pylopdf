@@ -4,6 +4,9 @@ use unicode_linebreak::linebreaks;
 use unicode_segmentation::UnicodeSegmentation;
 
 const FIT_TOLERANCE: f64 = 1.0e-6;
+const DIRECT_BREAK_MEASURE_BYTES: usize = 64;
+pub const MAX_GENERATED_TEXT_LINES: usize = 4_096;
+pub const TEXT_LINE_LIMIT_ERROR: &str = "text layout exceeds the configured logical-line limit";
 
 /// One laid-out line in display coordinates.
 pub struct TextBoxLine {
@@ -38,6 +41,7 @@ pub fn layout_textbox<F>(
     ascent: f64,
     descent: f64,
     justify: bool,
+    max_lines: Option<usize>,
     mut measure: F,
 ) -> Result<TextBoxLayout, String>
 where
@@ -46,7 +50,17 @@ where
     let (width, height) = box_size;
     let mut lines = Vec::new();
     for paragraph in text.split('\n') {
-        lines.extend(wrap_paragraph(paragraph, width, justify, &mut measure)?);
+        let remaining = max_lines.map(|limit| limit.saturating_sub(lines.len()));
+        if remaining == Some(0) {
+            return Err(TEXT_LINE_LIMIT_ERROR.to_owned());
+        }
+        lines.extend(wrap_paragraph(
+            paragraph,
+            width,
+            justify,
+            remaining,
+            &mut measure,
+        )?);
     }
 
     let leading = line_height * font_size;
@@ -72,12 +86,16 @@ fn wrap_paragraph<F>(
     paragraph: &str,
     max_width: f64,
     justify: bool,
+    max_lines: Option<usize>,
     measure: &mut F,
 ) -> Result<Vec<TextBoxLine>, String>
 where
     F: FnMut(&str) -> Result<f64, String>,
 {
     if paragraph.is_empty() {
+        if max_lines == Some(0) {
+            return Err(TEXT_LINE_LIMIT_ERROR.to_owned());
+        }
         return Ok(vec![TextBoxLine {
             text: String::new(),
             width: 0.0,
@@ -98,29 +116,26 @@ where
         }]);
     }
 
+    let break_ends: Vec<usize> = linebreaks(paragraph).map(|(end, _)| end).collect();
+    let grapheme_ends: Vec<usize> = paragraph
+        .grapheme_indices(true)
+        .map(|(offset, grapheme)| offset + grapheme.len())
+        .collect();
     let mut lines = Vec::new();
     let mut start = 0;
     while start < paragraph.len() {
-        let tail = &paragraph[start..];
-        let mut best: Option<(usize, usize, f64)> = None;
-        for (end, _) in linebreaks(tail) {
-            let visible = tail[..end].trim_end_matches(char::is_whitespace);
-            // Do not turn leading whitespace into an artificial blank line.
-            if visible.is_empty() && end < tail.len() {
-                continue;
-            }
-            let line_width = measure(visible)?;
-            if line_width <= max_width + FIT_TOLERANCE {
-                best = Some((end, visible.len(), line_width));
-            } else {
-                break;
-            }
+        if max_lines.is_some_and(|limit| lines.len() >= limit) {
+            return Err(TEXT_LINE_LIMIT_ERROR.to_owned());
         }
-
-        let (consumed, visible_end, line_width) = match best {
-            Some(value) => value,
-            None => emergency_break(tail, max_width, measure)?,
-        };
+        let tail = &paragraph[start..];
+        let (consumed, visible_end, line_width) = greedy_line_break(
+            paragraph,
+            start,
+            max_width,
+            &break_ends,
+            &grapheme_ends,
+            measure,
+        )?;
         let soft_break = consumed < tail.len();
         lines.push(TextBoxLine {
             text: tail[..visible_end].to_owned(),
@@ -132,23 +147,179 @@ where
     Ok(lines)
 }
 
+type MeasuredLineBreak = (usize, usize, f64);
+
+fn measure_line_break<F>(
+    text: &str,
+    start: usize,
+    end: usize,
+    measure: &mut F,
+) -> Result<MeasuredLineBreak, String>
+where
+    F: FnMut(&str) -> Result<f64, String>,
+{
+    let visible = text[start..end].trim_end_matches(char::is_whitespace);
+    Ok((end - start, visible.len(), measure(visible)?))
+}
+
+fn greedy_line_break<F>(
+    text: &str,
+    start: usize,
+    max_width: f64,
+    break_ends: &[usize],
+    grapheme_ends: &[usize],
+    measure: &mut F,
+) -> Result<MeasuredLineBreak, String>
+where
+    F: FnMut(&str) -> Result<f64, String>,
+{
+    let mut first = break_ends.partition_point(|end| *end <= start);
+    while first < break_ends.len() {
+        let end = break_ends[first];
+        let visible = text[start..end].trim_end_matches(char::is_whitespace);
+        // Do not turn leading whitespace into an artificial blank line.
+        if !visible.is_empty() || end == text.len() {
+            break;
+        }
+        first += 1;
+    }
+
+    let first_end = break_ends[first];
+    let first_visible = text[start..first_end].trim_end_matches(char::is_whitespace);
+    let first_visible_end = start + first_visible.len();
+    let first_candidate = if first_visible.is_empty() {
+        (first_end - start, 0, measure(first_visible)?)
+    } else if first_visible.len() <= DIRECT_BREAK_MEASURE_BYTES {
+        let candidate = measure_line_break(text, start, first_end, measure)?;
+        if candidate.2 <= max_width + FIT_TOLERANCE {
+            candidate
+        } else {
+            return emergency_break(
+                text,
+                start,
+                first_visible_end,
+                max_width,
+                grapheme_ends,
+                measure,
+            );
+        }
+    } else {
+        let candidate = emergency_break(
+            text,
+            start,
+            first_visible_end,
+            max_width,
+            grapheme_ends,
+            measure,
+        )?;
+        if candidate.0 < first_visible.len() {
+            return Ok(candidate);
+        }
+        (first_end - start, first_visible.len(), candidate.2)
+    };
+
+    // Probe increasingly distant line-break opportunities, then refine only
+    // the final fitting interval. This retains greedy wrapping without
+    // repeatedly measuring every growing prefix.
+    let last = break_ends.len() - 1;
+    let mut best_index = first;
+    let mut best = first_candidate;
+    let mut offset = 1_usize;
+    let failed_index = loop {
+        if best_index == last {
+            return Ok(best);
+        }
+        let probe = first.saturating_add(offset).min(last);
+        let candidate = measure_line_break(text, start, break_ends[probe], measure)?;
+        if candidate.2 <= max_width + FIT_TOLERANCE {
+            best_index = probe;
+            best = candidate;
+            if probe == last {
+                return Ok(best);
+            }
+            offset = offset.saturating_mul(2);
+        } else {
+            break probe;
+        }
+    };
+
+    let mut low = best_index + 1;
+    let mut high = failed_index;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let candidate = measure_line_break(text, start, break_ends[middle], measure)?;
+        if candidate.2 <= max_width + FIT_TOLERANCE {
+            best_index = middle;
+            best = candidate;
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    debug_assert!(best_index < failed_index);
+    Ok(best)
+}
+
 fn emergency_break<F>(
     text: &str,
+    start: usize,
+    max_end: usize,
     max_width: f64,
+    grapheme_ends: &[usize],
     measure: &mut F,
 ) -> Result<(usize, usize, f64), String>
 where
     F: FnMut(&str) -> Result<f64, String>,
 {
-    let mut best = None;
-    for (start, grapheme) in text.grapheme_indices(true) {
-        let end = start + grapheme.len();
-        let line_width = measure(&text[..end])?;
+    let first = grapheme_ends.partition_point(|end| *end <= start);
+    let last_exclusive = grapheme_ends.partition_point(|end| *end <= max_end);
+    let first_end = grapheme_ends[first];
+    let first_width = measure(&text[start..first_end])?;
+    if first_width > max_width + FIT_TOLERANCE {
+        return Err("textbox is too narrow to fit one text grapheme".to_owned());
+    }
+
+    // Galloping keeps narrow lines local; binary refinement avoids measuring
+    // every grapheme prefix when one line can hold a long unbreakable run.
+    let last = last_exclusive - 1;
+    let mut best_index = first;
+    let mut best_width = first_width;
+    let mut offset = 1_usize;
+    let failed_index = loop {
+        if best_index == last {
+            let end = grapheme_ends[best_index];
+            return Ok((end - start, end - start, best_width));
+        }
+        let probe = first.saturating_add(offset).min(last);
+        let end = grapheme_ends[probe];
+        let line_width = measure(&text[start..end])?;
         if line_width <= max_width + FIT_TOLERANCE {
-            best = Some((end, end, line_width));
+            best_index = probe;
+            best_width = line_width;
+            if probe == last {
+                return Ok((end - start, end - start, best_width));
+            }
+            offset = offset.saturating_mul(2);
         } else {
-            break;
+            break probe;
+        }
+    };
+
+    let mut low = best_index + 1;
+    let mut high = failed_index;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let end = grapheme_ends[middle];
+        let line_width = measure(&text[start..end])?;
+        if line_width <= max_width + FIT_TOLERANCE {
+            best_index = middle;
+            best_width = line_width;
+            low = middle + 1;
+        } else {
+            high = middle;
         }
     }
-    best.ok_or_else(|| "textbox is too narrow to fit one text grapheme".to_owned())
+    debug_assert!(best_index < failed_index);
+    let end = grapheme_ends[best_index];
+    Ok((end - start, end - start, best_width))
 }

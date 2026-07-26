@@ -50,6 +50,7 @@ pub fn standard_text_ops(
             font_size,
             1.2,
             false,
+            Some(crate::layout::MAX_GENERATED_TEXT_LINES),
         )?;
         if candidate.fits() && (multiline || candidate.lines.len() <= 1) {
             break candidate;
@@ -118,6 +119,7 @@ pub fn standard_comb_text_ops(
                     font_size,
                     1.0,
                     false,
+                    Some(crate::layout::MAX_GENERATED_TEXT_LINES),
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;

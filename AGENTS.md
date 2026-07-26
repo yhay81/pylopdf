@@ -386,11 +386,16 @@ overview.
   `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
   boundary. Python rejects text before normalization, tab expansion, or PyO3
   copying; textbox tab expansion is size-preflighted without materializing the
-  expanded string, and direct core variants repeat the check.
-  `max_text_size=None` explicitly opts trusted input out, failures use
-  `text_input_size`, and refusal must not mutate the document. Paragraph layout
-  remains outside `insert_text`. RTL shapes render, but extraction currently
-  follows visual order.
+  expanded string, and direct core variants repeat the check. A configured
+  budget also caps physical and final wrapped layout at 4,096 lines; AcroForm
+  text and choice appearances use the same fixed layout cap. Collect UAX #14
+  and grapheme boundaries once per wrapped paragraph, and use local galloping
+  plus binary refinement so long unbreakable runs do not repeatedly rescan or
+  measure complete tails. `max_text_size=None` explicitly opts trusted
+  insertion input out, failures use `text_input_size` or `text_line_count`, and
+  refusal must not mutate the document. Paragraph layout remains outside
+  `insert_text`. RTL shapes render, but extraction currently follows visual
+  order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
@@ -400,7 +405,8 @@ overview.
   advances and font vertical metrics. Both share greedy UAX #14 wrapping in
   `rust/src/layout.rs`, with grapheme-safe emergency breaks and soft-line-only
   justification. Measure the complete visible paragraph first and return it
-  directly when it fits so wide one-line boxes remain linear; preserve
+  directly when it fits so wide one-line boxes remain linear; otherwise reuse
+  one break/grapheme index and bounded local probes. Preserve
   trailing-whitespace trimming and empty-paragraph semantics. Keep page
   rotation resolved through display coordinates and preserve the no-mutation
   overflow boundary. The resulting Windows abi3 wheel is 5.58 MB, up 0.16 MB

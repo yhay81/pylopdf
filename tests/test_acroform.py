@@ -182,6 +182,17 @@ def test_fill_multiline_text_field_wraps_and_renders() -> None:
     assert _opaque_pixels(doc, (45, 187, 255, 257)) > 0
 
 
+def test_fill_multiline_text_field_bounds_layout_lines_atomically() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.set_form_field("notes", "\n" * 4096)
+
+    assert caught.value.code == "text_line_count"
+    assert doc.tobytes() == before
+
+
 def test_fill_comb_field_centers_characters_and_enforces_maxlen() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     doc.set_form_field("code", "A12")

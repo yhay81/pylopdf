@@ -943,6 +943,51 @@ def test_insert_text_bounds_utf8_input_atomically() -> None:
     assert doc[0].get_text().splitlines() == ["é", "unbounded"]
 
 
+@pytest.mark.parametrize("method", ["insert_text", "insert_textbox"])
+def test_generated_text_bounds_physical_lines_atomically(method: str) -> None:
+    doc = _new_page_doc()
+    before = doc.complexity
+    text = "\n" * 4096
+
+    def call() -> None:
+        if method == "insert_text":
+            doc[0].insert_text((10, 20), text, max_text_size=len(text))
+        else:
+            doc[0].insert_textbox((10, 10, 100, 80), text, max_text_size=len(text))
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        call()
+
+    assert caught.value.code == "text_line_count"
+    assert doc.complexity == before
+    assert doc[0].get_text() == ""
+
+
+def test_generated_text_line_limit_boundary_and_opt_out_do_not_draw_on_overflow() -> None:
+    bounded = _new_page_doc()
+    before = bounded.complexity
+    assert bounded[0].insert_textbox((10, 10, 100, 20), "\n" * 4095, max_text_size=4095) < 0
+    assert bounded.complexity == before
+
+    unbounded = _new_page_doc()
+    before = unbounded.complexity
+    assert unbounded[0].insert_textbox((10, 10, 100, 20), "\n" * 4096, max_text_size=None) < 0
+    assert unbounded.complexity == before
+
+
+def test_insert_textbox_bounds_soft_wrapped_lines_atomically() -> None:
+    doc = _new_page_doc()
+    before = doc.complexity
+    text = "a" * 4097
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_textbox((10, 10, 16, 80), text, fontsize=10, max_text_size=len(text))
+
+    assert caught.value.code == "text_line_count"
+    assert doc.complexity == before
+    assert doc[0].get_text() == ""
+
+
 def test_insert_textbox_bounds_expanded_tabs_before_allocation() -> None:
     rejected = _new_page_doc()
     before = rejected.complexity

@@ -96,6 +96,7 @@ _DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_GENERATED_TEXT_SIZE = 1024 * 1024
+_MAX_GENERATED_TEXT_LINES = 4096
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
 _UTF8_TWO_BYTE_MIN = 1 << 7
 _UTF8_THREE_BYTE_MIN = 1 << 11
@@ -1217,6 +1218,16 @@ def _validate_utf8_text_input(
             raise_limit()
 
 
+def _validate_generated_text_lines(text: str, max_text_size: int | None) -> None:
+    """Bound physical lines before split or layout object materialization."""
+    if max_text_size is not None and text.count("\n") >= _MAX_GENERATED_TEXT_LINES:
+        code = "text_line_count"
+        raise LimitError(
+            code,
+            f"text input exceeds the {_MAX_GENERATED_TEXT_LINES}-line safety limit",
+        )
+
+
 def _validate_password_input(password: str | None, label: str = "password") -> None:
     """Bound password KDF input before crossing the Python/Rust boundary."""
     if password is not None:
@@ -1925,9 +1936,10 @@ class Page:
         or Bates numbers. Explicit and automatically selected font input
         defaults to a 64 MiB boundary; ``max_font_size=None`` opts trusted
         workloads out. Refusal raises :class:`LimitError` with code
-        ``font_input_size``. Text input defaults to a 1 MiB UTF-8 boundary;
-        ``max_text_size=None`` is the explicit trusted-input opt-out and
-        refusal uses code ``text_input_size``.
+        ``font_input_size``. Text input defaults to a 1 MiB UTF-8 and 4,096
+        physical-line boundary. ``max_text_size=None`` is the explicit
+        trusted-input opt-out for both limits. Refusals use
+        ``text_input_size`` or ``text_line_count``.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
         try:
@@ -1947,6 +1959,7 @@ class Page:
             raise ValueError(msg)
         _validate_utf8_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        _validate_generated_text_lines(normalized, max_text_size)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
         if isinstance(font_data, Path):
@@ -2034,9 +2047,10 @@ class Page:
         automatically selected font input defaults to a 64 MiB boundary;
         ``max_font_size=None`` opts trusted workloads out. Refusal raises
         :class:`LimitError` with code ``font_input_size``. Text after tab
-        expansion defaults to a 1 MiB UTF-8 boundary; ``max_text_size=None``
-        explicitly opts trusted input out and refusal uses
-        ``text_input_size``.
+        expansion defaults to a 1 MiB UTF-8 boundary. Physical input and final
+        wrapped layout each stop at 4,096 lines. ``max_text_size=None``
+        explicitly opts trusted input out of both limits; refusals use
+        ``text_input_size`` or ``text_line_count``.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
         x0, y0, x1, y1 = _validate_rect(rect)
@@ -2045,6 +2059,7 @@ class Page:
         red, green, blue = _validate_unit_rgb(color)
         _validate_utf8_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        _validate_generated_text_lines(normalized, max_text_size)
         _validate_utf8_text_input(normalized, max_text_size, expandtabs=expandtabs)
         normalized = normalized.expandtabs(expandtabs)
         if not normalized:
@@ -2720,8 +2735,9 @@ class Document:
         ``MaxLen`` and alignment, center Unicode graphemes in their positions,
         and reject overlength values without changing the document. Field-tree
         and 1 MiB value limits are checked without leaving a partial update.
-        Button handling additionally caps widgets, appearance states, and state
-        names before resolving booleans or generating missing appearances.
+        Text and choice appearances stop at 4,096 layout lines. Button handling
+        additionally caps widgets, appearance states, and state names before
+        resolving booleans or generating missing appearances.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text

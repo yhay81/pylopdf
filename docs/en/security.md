@@ -65,7 +65,7 @@ per-stream budget and cannot be combined with `limits=`.
 `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`,
+`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, or `decompression_unverifiable`.
 The same code is also
@@ -135,10 +135,13 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   read through the bounded, GIL-released Rust path. `max_font_size=None`
   explicitly opts trusted workloads out.
 - `insert_text()` and `insert_textbox()` default generated text input to
-  1 MiB of UTF-8. Python checks the input before PyO3 copying, the Rust
-  boundary repeats the check, and textbox tab expansion is preflighted before
-  allocating the expanded string. `max_text_size=None` explicitly opts trusted
-  input out; refusals use `text_input_size`.
+  1 MiB of UTF-8 and 4,096 physical or final wrapped lines. Python checks
+  physical input before PyO3 copying, the Rust boundary repeats it and stops
+  wrapped layout before mutation, and textbox tab expansion is preflighted
+  before allocating the expanded string. `max_text_size=None` explicitly opts
+  trusted insertion input out; refusals use `text_input_size` or
+  `text_line_count`. AcroForm text and choice appearances retain the fixed
+  4,096-line layout cap.
 - `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
   returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
   copying and the Rust boundary repeats both limits. `max_hits=None` explicitly

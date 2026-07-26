@@ -62,8 +62,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8 Standard-14或shape subset文本；`pylopdf[cjk]`自动选择JP font；对应可信input可用`None`取消上限 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType或自动JP font宽度进行UAX #14换行；溢出时不绘制 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`pylopdf[cjk]`自动选择JP font；对应可信input可用`None`取消上限 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType或自动JP font宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取、每次call一个cycle-aware named-destination index与创建 |

@@ -363,6 +363,71 @@ def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -
     assert doc.save_bytes() != before
 
 
+def test_generated_text_line_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+    color = (0.0, 0.0, 0.0)
+    point = (10.0, 20.0)
+    rect = (10.0, 10.0, 100.0, 20.0)
+    byte_lines = [b""] * 4097
+    text_lines = [""] * 4097
+    text = "\n" * 4096
+
+    calls = [
+        lambda: doc.insert_page_text(1, point, byte_lines, "Helvetica", True, 11.0, color, True, 1),
+        lambda: doc.insert_page_textbox(1, rect, text, "Helvetica", True, 11.0, 1.2, 0, color, True, len(text)),
+        lambda: doc.insert_embedded_text(1, point, text_lines, b"bad font", 0, 11.0, color, True, None, 1),
+        lambda: doc.insert_embedded_text_file(
+            1,
+            point,
+            text_lines,
+            "missing-font.otf",
+            0,
+            11.0,
+            color,
+            True,
+            None,
+            1,
+        ),
+        lambda: doc.insert_embedded_textbox(
+            1,
+            rect,
+            text,
+            b"bad font",
+            0,
+            11.0,
+            1.2,
+            0,
+            color,
+            True,
+            None,
+            len(text),
+        ),
+        lambda: doc.insert_embedded_textbox_file(
+            1,
+            rect,
+            text,
+            "missing-font.otf",
+            0,
+            11.0,
+            1.2,
+            0,
+            color,
+            True,
+            None,
+            len(text),
+        ),
+    ]
+    for call in calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "text_line_count"
+        assert doc.save_bytes() == before
+
+    assert doc.insert_page_textbox(1, rect, text, "Helvetica", True, 11.0, 1.2, 0, color, True, None) < 0
+    assert doc.save_bytes() == before
+
+
 def test_search_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
 
