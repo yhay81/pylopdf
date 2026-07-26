@@ -303,36 +303,143 @@ pub fn bounding_rect(points: &[(f64, f64)]) -> [f64; 4] {
     out
 }
 
-/// Build drawing operators for a highlight annotation appearance stream (`AP /N`).
+/// A text-markup annotation appearance synthesized from `QuadPoints`.
+#[derive(Clone, Copy)]
+pub enum TextMarkupKind {
+    Highlight,
+    Underline,
+    Squiggly,
+    StrikeOut,
+}
+
+impl TextMarkupKind {
+    /// PDF blend mode used by the synthesized appearance.
+    pub fn blend_mode(self) -> &'static str {
+        match self {
+            Self::Highlight => "Multiply",
+            Self::Underline | Self::Squiggly | Self::StrikeOut => "Normal",
+        }
+    }
+}
+
+fn midpoint(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
+    ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0)
+}
+
+fn interpolate(a: (f64, f64), b: (f64, f64), t: f64) -> (f64, f64) {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
+
+fn inward_normal(quad: [(f64, f64); 4]) -> ((f64, f64), f64) {
+    let [ul, ur, ll, lr] = quad;
+    let top = midpoint(ul, ur);
+    let bottom = midpoint(ll, lr);
+    let dx = top.0 - bottom.0;
+    let dy = top.1 - bottom.1;
+    let length = dx.hypot(dy);
+    ((dx / length, dy / length), length)
+}
+
+/// Build bounded drawing operators for a text-markup appearance stream.
 ///
-/// `quads` are TL, TR, BL, BR corners returned by `display_rect_quad_pdf`.
-/// The caller registers `/PyloGS` with Multiply blending and opacity in Resources.
-pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Vec<u8> {
+/// `quads` use TL, TR, BL, BR order. `segment_counts` is preflighted by the
+/// caller and controls only Squiggly path amplification.
+pub fn text_markup_ap_ops(
+    kind: TextMarkupKind,
+    quads: &[[(f64, f64); 4]],
+    color: (f64, f64, f64),
+    segment_counts: &[usize],
+) -> Vec<u8> {
+    let paint = if matches!(kind, TextMarkupKind::Highlight) {
+        "rg"
+    } else {
+        "RG"
+    };
     let mut out = format!(
-        "/PyloGS gs\n{} {} {} rg\n",
+        "/PyloGS gs\n{} {} {} {paint}\n",
         fmt(color.0),
         fmt(color.1),
-        fmt(color.2)
+        fmt(color.2),
     )
     .into_bytes();
-    for quad in quads {
+    if !matches!(kind, TextMarkupKind::Highlight) {
+        out.extend_from_slice(b"1 w\n");
+    }
+
+    for (index, quad) in quads.iter().enumerate() {
         let [ul, ur, ll, lr] = *quad;
-        out.extend_from_slice(
-            format!(
-                "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\nf\n",
-                fmt(ul.0),
-                fmt(ul.1),
-                fmt(ur.0),
-                fmt(ur.1),
-                fmt(lr.0),
-                fmt(lr.1),
-                fmt(ll.0),
-                fmt(ll.1),
-            )
-            .as_bytes(),
-        );
+        match kind {
+            TextMarkupKind::Highlight => {
+                out.extend_from_slice(
+                    format!(
+                        "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\nf\n",
+                        fmt(ul.0),
+                        fmt(ul.1),
+                        fmt(ur.0),
+                        fmt(ur.1),
+                        fmt(lr.0),
+                        fmt(lr.1),
+                        fmt(ll.0),
+                        fmt(ll.1),
+                    )
+                    .as_bytes(),
+                );
+            }
+            TextMarkupKind::Underline => {
+                let (normal, cross_length) = inward_normal(*quad);
+                let inset = cross_length.min(1.0);
+                let start = (ll.0 + normal.0 * inset, ll.1 + normal.1 * inset);
+                let end = (lr.0 + normal.0 * inset, lr.1 + normal.1 * inset);
+                out.extend_from_slice(
+                    format!(
+                        "{} {} m\n{} {} l\nS\n",
+                        fmt(start.0),
+                        fmt(start.1),
+                        fmt(end.0),
+                        fmt(end.1),
+                    )
+                    .as_bytes(),
+                );
+            }
+            TextMarkupKind::StrikeOut => {
+                let start = midpoint(ul, ll);
+                let end = midpoint(ur, lr);
+                out.extend_from_slice(
+                    format!(
+                        "{} {} m\n{} {} l\nS\n",
+                        fmt(start.0),
+                        fmt(start.1),
+                        fmt(end.0),
+                        fmt(end.1),
+                    )
+                    .as_bytes(),
+                );
+            }
+            TextMarkupKind::Squiggly => {
+                let segments = segment_counts[index];
+                let (normal, cross_length) = inward_normal(*quad);
+                let inset = cross_length.min(0.5);
+                let amplitude = (cross_length - inset).clamp(0.0, 2.0);
+                for point_index in 0..=segments {
+                    let t = point_index as f64 / segments as f64;
+                    let base = interpolate(ll, lr, t);
+                    let offset = inset + if point_index % 2 == 0 { amplitude } else { 0.0 };
+                    let point = (base.0 + normal.0 * offset, base.1 + normal.1 * offset);
+                    let operator = if point_index == 0 { "m" } else { "l" };
+                    out.extend_from_slice(
+                        format!("{} {} {operator}\n", fmt(point.0), fmt(point.1)).as_bytes(),
+                    );
+                }
+                out.extend_from_slice(b"S\n");
+            }
+        }
     }
     out
+}
+
+/// Build drawing operators for a pylopdf-created Highlight appearance.
+pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Vec<u8> {
+    text_markup_ap_ops(TextMarkupKind::Highlight, quads, color, &[])
 }
 
 /// Content variants that require different `cm` matrix construction.

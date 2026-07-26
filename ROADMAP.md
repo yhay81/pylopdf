@@ -181,9 +181,11 @@ Released as v0.8.0 on 2026-07-23.
       be passed directly for “search and mark.” Highlights always include an
       `AP /N` appearance stream with Multiply blending. hayro renders
       annotations with appearances when `render_annotations` is true by
-      default. The current rendering snapshot also supplies a bounded normal
-      appearance for valid existing RGB Highlight annotations without `AP`,
-      while the editable and saved PDF remain unchanged.
+      default. The current rendering snapshot also supplies bounded appearances
+      for valid existing RGB Highlight, Underline, StrikeOut, and Squiggly
+      annotations without `AP`, while the editable and saved PDF remain
+      unchanged. Aggregate synthesis stops atomically at 4,096 quads or 65,536
+      generated path segments.
 
 ### v0.9 — document finishing
 

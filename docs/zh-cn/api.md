@@ -66,7 +66,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType或自动JP font宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight保守补全缺失appearance，同时不修改原PDF |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
 
 `get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、
 自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join和

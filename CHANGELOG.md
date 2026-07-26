@@ -79,10 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded interpretation without bound. Refusals use `text_size`.
 
 ### Fixed
-- Existing RGB Highlight annotations with valid `QuadPoints` now render even
-  when their producer omitted `/AP /N`. pylopdf synthesizes a bounded
-  Multiply-blended appearance only in the immutable hayro snapshot; the
-  editable annotation dictionary and saved PDF remain unchanged.
+- Existing RGB Highlight, Underline, StrikeOut, and Squiggly annotations with
+  valid `QuadPoints` now render even when their producer omitted `/AP /N`.
+  pylopdf synthesizes bounded appearances only in the immutable hayro snapshot;
+  the editable annotation dictionary and saved PDF remain unchanged.
+  Aggregate synthesis is atomic above 4,096 quads or 65,536 path segments.
 - AES-256 output no longer accepts passwords above the PDF 2.0 127-byte
   boundary that lopdf could write but could not reopen with the same password.
   Exact 127-byte user passwords now have round-trip coverage.

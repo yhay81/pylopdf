@@ -74,6 +74,7 @@ const MAX_FORM_BUTTON_STATE_NAME_BYTES: usize = 1024 * 1024;
 const MAX_PAGE_ANNOTATIONS: usize = 4_096;
 const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_HIGHLIGHT_RECTS: usize = 4_096;
+const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 
 /// Bound named-destination name-tree lookup used by link resolution.
 const MAX_NAMED_DEST_ENTRIES: usize = 4_096;
@@ -1882,9 +1883,11 @@ fn has_state_appearances(doc: &Document) -> bool {
     })
 }
 
-struct HighlightAppearancePlan {
+struct TextMarkupAppearancePlan {
     annotation_id: ObjectId,
+    kind: draw::TextMarkupKind,
     quads: Vec<[(f64, f64); 4]>,
+    segment_counts: Vec<usize>,
     color: (f64, f64, f64),
     opacity: f64,
 }
@@ -1906,24 +1909,87 @@ fn annotation_has_normal_appearance(doc: &Document, annotation: &Dictionary) -> 
         })
 }
 
-/// Collect bounded Highlight annotations that need a render-only appearance.
+fn text_markup_kind(subtype: &[u8]) -> Option<draw::TextMarkupKind> {
+    match subtype {
+        b"Highlight" => Some(draw::TextMarkupKind::Highlight),
+        b"Underline" => Some(draw::TextMarkupKind::Underline),
+        b"Squiggly" => Some(draw::TextMarkupKind::Squiggly),
+        b"StrikeOut" => Some(draw::TextMarkupKind::StrikeOut),
+        _ => None,
+    }
+}
+
+fn text_markup_segment_count(kind: draw::TextMarkupKind, quad: [(f64, f64); 4]) -> Option<usize> {
+    if matches!(kind, draw::TextMarkupKind::Highlight) {
+        return Some(4);
+    }
+    let [upper_left, upper_right, lower_left, lower_right] = quad;
+    let (start, end) = match kind {
+        draw::TextMarkupKind::Underline | draw::TextMarkupKind::Squiggly => {
+            (lower_left, lower_right)
+        }
+        draw::TextMarkupKind::StrikeOut => (
+            (
+                (upper_left.0 + lower_left.0) / 2.0,
+                (upper_left.1 + lower_left.1) / 2.0,
+            ),
+            (
+                (upper_right.0 + lower_right.0) / 2.0,
+                (upper_right.1 + lower_right.1) / 2.0,
+            ),
+        ),
+        draw::TextMarkupKind::Highlight => unreachable!(),
+    };
+    let inline_length = (end.0 - start.0).hypot(end.1 - start.1);
+    if !inline_length.is_finite() || inline_length <= f64::EPSILON {
+        return None;
+    }
+    if matches!(
+        kind,
+        draw::TextMarkupKind::Underline | draw::TextMarkupKind::Squiggly
+    ) {
+        let top = (
+            (upper_left.0 + upper_right.0) / 2.0,
+            (upper_left.1 + upper_right.1) / 2.0,
+        );
+        let bottom = (
+            (lower_left.0 + lower_right.0) / 2.0,
+            (lower_left.1 + lower_right.1) / 2.0,
+        );
+        let cross_length = (top.0 - bottom.0).hypot(top.1 - bottom.1);
+        if !cross_length.is_finite() || cross_length <= f64::EPSILON {
+            return None;
+        }
+    }
+    if matches!(kind, draw::TextMarkupKind::Squiggly) {
+        let segments = (inline_length / 2.0).ceil().max(1.0);
+        return Some(segments as usize);
+    }
+    Some(1)
+}
+
+/// Collect bounded text-markup annotations that need a render-only appearance.
 ///
 /// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
 /// but hayro 0.7 requires `/AP /N`. Keep this compatibility work outside the
 /// editable document and refuse aggregate geometry amplification.
-fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightAppearancePlan>> {
+fn missing_text_markup_appearance_plans(doc: &Document) -> Option<Vec<TextMarkupAppearancePlan>> {
     let mut plans = Vec::new();
     let mut total_quads = 0usize;
+    let mut total_segments = 0usize;
     for (&annotation_id, object) in &doc.objects {
         let Ok(annotation) = object.as_dict() else {
             continue;
         };
-        let is_highlight = annotation
+        let Some(kind) = annotation
             .get(b"Subtype")
             .ok()
             .and_then(|subtype| deref_object(doc, subtype).as_name().ok())
-            .is_some_and(|subtype| subtype == b"Highlight");
-        if !is_highlight || annotation_has_normal_appearance(doc, annotation) {
+            .and_then(text_markup_kind)
+        else {
+            continue;
+        };
+        if annotation_has_normal_appearance(doc, annotation) {
             continue;
         }
 
@@ -1944,6 +2010,7 @@ fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightApp
         }
 
         let mut quads = Vec::with_capacity(quad_count);
+        let mut segment_counts = Vec::with_capacity(quad_count);
         let mut valid = true;
         for chunk in quad_points.chunks_exact(8) {
             let mut values = [0.0f64; 8];
@@ -1957,12 +2024,22 @@ fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightApp
             if !valid {
                 break;
             }
-            quads.push([
+            let quad = [
                 (values[0], values[1]),
                 (values[2], values[3]),
                 (values[4], values[5]),
                 (values[6], values[7]),
-            ]);
+            ];
+            let Some(segment_count) = text_markup_segment_count(kind, quad) else {
+                valid = false;
+                break;
+            };
+            total_segments = total_segments.checked_add(segment_count)?;
+            if total_segments > MAX_TEXT_MARKUP_SEGMENTS {
+                return None;
+            }
+            quads.push(quad);
+            segment_counts.push(segment_count);
         }
         if !valid {
             continue;
@@ -2006,9 +2083,11 @@ fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightApp
         if bbox.iter().any(|value| !value.is_finite()) || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
             continue;
         }
-        plans.push(HighlightAppearancePlan {
+        plans.push(TextMarkupAppearancePlan {
             annotation_id,
+            kind,
             quads,
+            segment_counts,
             color,
             opacity,
         });
@@ -2016,13 +2095,13 @@ fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightApp
     Some(plans)
 }
 
-fn has_missing_highlight_appearances(doc: &Document) -> bool {
-    missing_highlight_appearance_plans(doc).is_some_and(|plans| !plans.is_empty())
+fn has_missing_text_markup_appearances(doc: &Document) -> bool {
+    missing_text_markup_appearance_plans(doc).is_some_and(|plans| !plans.is_empty())
 }
 
-/// Add bounded Highlight appearances to a rendering clone only.
-fn synthesize_missing_highlight_appearances_for_render(doc: &mut Document) -> bool {
-    let Some(plans) = missing_highlight_appearance_plans(doc) else {
+/// Add bounded text-markup appearances to a rendering clone only.
+fn synthesize_missing_text_markup_appearances_for_render(doc: &mut Document) -> bool {
+    let Some(plans) = missing_text_markup_appearance_plans(doc) else {
         return false;
     };
     let Ok(object_count) = u32::try_from(plans.len()).map(|count| count.saturating_mul(2)) else {
@@ -2038,7 +2117,7 @@ fn synthesize_missing_highlight_appearances_for_render(doc: &mut Document) -> bo
         let bbox = draw::bounding_rect(&points);
         let gs_id = doc.add_object(dictionary! {
             "Type" => "ExtGState",
-            "BM" => Object::Name(b"Multiply".to_vec()),
+            "BM" => Object::Name(plan.kind.blend_mode().as_bytes().to_vec()),
             "CA" => Object::Real(plan.opacity as f32),
             "ca" => Object::Real(plan.opacity as f32),
             "AIS" => Object::Boolean(false),
@@ -2052,10 +2131,10 @@ fn synthesize_missing_highlight_appearances_for_render(doc: &mut Document) -> bo
                 "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
             },
         };
-        let appearance_id = doc.add_object(
-            Stream::new(form_dict, draw::highlight_ap_ops(&plan.quads, plan.color))
-                .with_compression(false),
-        );
+        let appearance_ops =
+            draw::text_markup_ap_ops(plan.kind, &plan.quads, plan.color, &plan.segment_counts);
+        let appearance_id =
+            doc.add_object(Stream::new(form_dict, appearance_ops).with_compression(false));
         if let Ok(annotation) = doc
             .get_object_mut(plan.annotation_id)
             .and_then(Object::as_dict_mut)
@@ -4288,7 +4367,7 @@ impl _Document {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.get_pages().len();
             let prepare_appearances =
-                has_state_appearances(&self.doc) || has_missing_highlight_appearances(&self.doc);
+                has_state_appearances(&self.doc) || has_missing_text_markup_appearances(&self.doc);
             if !prepare_appearances && let Some(data) = self.hayro_source.as_deref() {
                 self.validate_interpretation_source(data)?;
             }
@@ -4312,7 +4391,7 @@ impl _Document {
                             self.doc.clone()
                         };
                         normalize_state_appearances_for_render(&mut doc);
-                        synthesize_missing_highlight_appearances_for_render(&mut doc);
+                        synthesize_missing_text_markup_appearances_for_render(&mut doc);
                         Some(doc)
                     } else {
                         None
