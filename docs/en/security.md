@@ -176,8 +176,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   Writes enforce compatible entry, depth, and title-text limits before mutation.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom entries do not become
-  Python output. `peek_metadata()` caps returned standard text too. Writes
-  preflight 1 MiB aggregate source/encoded text and apply atomically.
+  Python output. `peek_metadata(max_file_size=)` can reject path or byte input
+  before parsing and also caps returned standard text; `None` preserves the
+  unbounded input default. Writes preflight 1 MiB aggregate source/encoded text
+  and apply atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` accepts at most 4,096 page entries and defaults to a 512 MiB
   cumulative encoded-PNG limit. Completed parallel results share one atomic

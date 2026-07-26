@@ -416,9 +416,12 @@ overview.
   source/encoded-title boundaries before mutation.
 - Info metadata reads decode only the eight public standard fields, release the
   GIL, and reject aggregate source or returned text above 1 MiB. The fast
-  metadata probe applies the returned-text boundary. `set_metadata` must batch
-  and preflight the 1 MiB source/encoded boundary before mutation; inline Info
-  dictionaries are moved rather than cloned.
+  metadata probe applies the returned-text boundary and accepts an optional
+  input-file boundary before parsing. Bounded path reads admit at most one byte
+  beyond the budget, byte input is checked directly, and failures use
+  `LimitError.code == "file_size"`. `set_metadata` must batch and preflight the
+  1 MiB source/encoded boundary before mutation; inline Info dictionaries are
+  moved rather than cloned.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

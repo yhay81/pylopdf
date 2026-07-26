@@ -118,7 +118,7 @@ metrics. `TableFinder.strategy` and
 
 | Name | Purpose |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe; `repaired` reports bounded classic-`startxref` recovery |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | fast metadata/page-count probe with optional input-size rejection; `repaired` reports bounded classic-`startxref` recovery |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |

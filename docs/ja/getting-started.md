@@ -41,8 +41,10 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 
 暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。
 `pylopdf.peek_metadata(path)` は通常、全体をパースせずメタデータとページ数だけを
-高速に読みます（大量走査向け）。最終classic `startxref`の誤りを限定的に修復した
-場合は`repaired`と`doc.is_repaired`が`True`になり、`PylopdfWarning`も発生します。
+高速に読みます（大量走査向け）。`max_file_size=`を指定するとpathまたはbyte inputを
+parse前にサイズで拒否でき、互換性のため既定値は無制限です。最終classic
+`startxref`の誤りを限定的に修復した場合は`repaired`と`doc.is_repaired`が`True`に
+なり、`PylopdfWarning`も発生します。
 保存するとxref dataは正規化されます。信頼できないファイルには
 `limits=pylopdf.DocumentLimits.web()`を指定してください。ファイル、構造、展開、
 解釈済みテキストを制限し、重い処理の前に`doc.complexity`を確認できます。

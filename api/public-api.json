@@ -2913,6 +2913,12 @@
             "default": null,
             "kind": "positional_or_keyword",
             "name": "password"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "max_file_size"
           }
         ],
         "returns": "MetadataProbe"

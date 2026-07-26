@@ -266,8 +266,8 @@ merged.save("small.pdf", garbage=True, deflate=True, object_streams=True)
 # Encrypted save (AES-256; owner_pw alone = open freely, restricted permissions)
 merged.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 
-# Fast metadata probe without parsing the whole file
-info = pylopdf.peek_metadata("input.pdf")
+# Fast metadata probe without parsing the whole document
+info = pylopdf.peek_metadata("input.pdf", max_file_size=32 * 1024 * 1024)
 print(info["title"], info["page_count"], info["encrypted"], info["repaired"])
 
 # Context manager
@@ -436,7 +436,7 @@ Module level:
 
 | Name | Description |
 |---|---|
-| `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe; `repaired` reports bounded classic-`startxref` recovery |
+| `peek_metadata(filename/stream, password=None, *, max_file_size=None)` | Fast metadata / page-count / encryption probe; optional input-size rejection; `repaired` reports bounded classic-`startxref` recovery |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
 | `ImageCompressionResult` | Typed counts and rewritten source/result byte totals from `compress_images()` |

@@ -365,6 +365,36 @@ def test_peek_metadata_stream(three_page_pdf: bytes) -> None:
     assert meta["format"] == "PDF 1.4"
 
 
+def test_peek_metadata_file_size_limit(tmp_path: Path, three_page_pdf: bytes) -> None:
+    path = tmp_path / "three-pages.pdf"
+    path.write_bytes(three_page_pdf)
+    limit = len(three_page_pdf)
+
+    assert pylopdf.peek_metadata(path, max_file_size=limit)["page_count"] == 3
+    assert pylopdf.peek_metadata(stream=three_page_pdf, max_file_size=limit)["page_count"] == 3
+
+    with pytest.raises(pylopdf.LimitError) as path_error:
+        pylopdf.peek_metadata(path, max_file_size=limit - 1)
+    with pytest.raises(pylopdf.LimitError) as stream_error:
+        pylopdf.peek_metadata(stream=three_page_pdf, max_file_size=limit - 1)
+    assert path_error.value.code == "file_size"
+    assert stream_error.value.code == "file_size"
+
+
+@pytest.mark.parametrize("value", [True, 1.5, "1024"])
+def test_peek_metadata_file_size_limit_rejects_non_integers(
+    one_page_pdf: bytes,
+    value: object,
+) -> None:
+    with pytest.raises(TypeError, match="max_file_size"):
+        pylopdf.peek_metadata(stream=one_page_pdf, max_file_size=value)  # type: ignore[arg-type]
+
+
+def test_peek_metadata_file_size_limit_must_be_positive(one_page_pdf: bytes) -> None:
+    with pytest.raises(ValueError, match="max_file_size"):
+        pylopdf.peek_metadata(stream=one_page_pdf, max_file_size=0)
+
+
 def test_peek_metadata_requires_exactly_one_source(one_page_pdf: bytes) -> None:
     with pytest.raises(ValueError, match="exactly one"):
         pylopdf.peek_metadata()

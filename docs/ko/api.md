@@ -111,7 +111,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 
 | 이름 | 용도 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 빠른 메타데이터·페이지 수 조회. `repaired`는 제한된 classic `startxref` 복구를 표시 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 입력 크기를 선택적으로 제한하는 빠른 메타데이터·페이지 수 조회. `repaired`는 제한된 classic `startxref` 복구를 표시 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |

@@ -3416,20 +3416,33 @@ def peek_metadata(
     filename: str | os.PathLike[str] | None = None,
     stream: bytes | None = None,
     password: str | None = None,
+    *,
+    max_file_size: int | None = None,
 ) -> MetadataProbe:
     """Read metadata and page count without parsing the entire document.
 
     Return the keys from :attr:`Document.metadata` plus integer ``page_count``
     and boolean ``encrypted`` / ``repaired`` facts. This is suitable for
-    scanning many PDFs. Returned standard Info text is capped at 1 MiB.
+    scanning many PDFs. ``max_file_size`` rejects oversized path or byte input
+    before metadata parsing; ``None`` leaves it unbounded. Returned standard
+    Info text is capped at 1 MiB.
     """
     if (filename is None) == (stream is None):
         msg = "specify exactly one of filename or stream"
         raise ValueError(msg)
+    _validate_optional_positive_int("max_file_size", max_file_size)
     if stream is not None:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(stream, password)
+        raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(
+            stream,
+            password,
+            max_file_size,
+        )
     else:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata(str(filename), password)
+        raw, page_count, version, encrypted, repaired = _Document.load_metadata(
+            str(filename),
+            password,
+            max_file_size,
+        )
     if repaired:
         _warnings.warn(
             "recovered a PDF with an incorrect startxref offset",

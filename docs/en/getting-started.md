@@ -42,8 +42,10 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 ```
 
 Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
-`pylopdf.peek_metadata(path)` reads metadata and page count without parsing the
-whole file in the normal case — useful when scanning large collections. Its
+`pylopdf.peek_metadata(path)` reads metadata and page count without fully
+parsing the document — useful when scanning large collections. Its
+optional `max_file_size=` rejects oversized path or byte input before parsing;
+the backward-compatible default is unbounded. Its
 `repaired` result and `doc.is_repaired` expose the bounded recovery of an
 incorrect final classic `startxref`; pylopdf also emits `PylopdfWarning`, and
 saving rewrites normalized cross-reference data. Pass

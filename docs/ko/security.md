@@ -159,8 +159,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   entry, 깊이, title text 상한을 검사합니다.
 - `Document.metadata`는 표준Info 8개 필드만decode하고 aggregate source/returned
   text 1 MiB를 넘으면 거부합니다. custom entry는Python 출력으로materialize하지
-  않습니다. `peek_metadata()`도returned 표준text를 제한하고, 쓰기는 변경 전에
-  source/encoded text 1 MiB를 검사해 원자적으로 적용합니다.
+  않습니다. `peek_metadata(max_file_size=)`는 parsing 전에 path 또는 byte input을
+  거부할 수 있고 returned 표준text도 제한합니다. 입력 기본값은 무제한입니다.
+  쓰기는 변경 전에 source/encoded text 1 MiB를 검사해 원자적으로 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`는 최대4,096 page entry를 허용하고 누적encoded PNG 기본 상한은
   512 MiB입니다. 병렬 결과는 하나의atomic budget을 공유하며 실패 시 부분list를
