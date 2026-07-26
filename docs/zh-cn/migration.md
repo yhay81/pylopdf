@@ -24,7 +24,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 相同 | 返回`list[Rect]`；无`quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
-| `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf的`tobytes()`和`save(path)`生成PNG，且`save`要求`.png`扩展名 |
+| `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(path)`生成PNG，且`save`要求`.png`扩展名 |
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |

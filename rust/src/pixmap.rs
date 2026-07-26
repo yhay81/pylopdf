@@ -7,7 +7,9 @@
 //! The abi3-py310 wheel cannot use `Py_buffer`, which entered the stable ABI in
 //! Python 3.11, so `samples` remains the portable one-copy fallback.
 
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyBool, PyInt};
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use pyo3::{exceptions::PyBufferError, ffi};
 #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
@@ -17,18 +19,39 @@ use std::{
 };
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use crate::document::PdfError;
+use crate::document::{LimitError, PdfError};
 
 const TEMPORARY_PATH_ATTEMPTS: usize = 100;
 const MAX_SYMLINK_DEPTH: usize = 40;
+const DEFAULT_MAX_PNG_OUTPUT_SIZE: usize = 64 * 1024 * 1024;
 
 fn save_error(path: &Path, error: impl std::fmt::Display) -> PyErr {
     PdfError::new_err(format!("failed to save PNG to {}: {error}", path.display()))
+}
+
+fn extract_max_size(value: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
+    if value.is_none() {
+        return Ok(None);
+    }
+    if value.is_instance_of::<PyBool>() || !value.is_instance_of::<PyInt>() {
+        return Err(PyTypeError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    let size = value
+        .extract::<usize>()
+        .map_err(|_| PyValueError::new_err("max_size must be a positive integer or None"))?;
+    if size == 0 {
+        return Err(PyValueError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    Ok(Some(size))
 }
 
 fn resolve_final_symlink(path: &Path) -> io::Result<PathBuf> {
@@ -97,15 +120,27 @@ pub struct Pixmap {
 }
 
 impl Pixmap {
-    fn encode_png(&self) -> PyResult<Vec<u8>> {
-        crate::extract::encode_png(
+    fn encode_png(&self, max_size: Option<usize>) -> PyResult<Vec<u8>> {
+        match crate::extract::encode_png_bounded(
             self.width,
             self.height,
             png::ColorType::Rgba,
             &self.data,
             png::Compression::Fast,
-        )
-        .ok_or_else(|| PdfError::new_err("failed to encode PNG"))
+            max_size,
+        ) {
+            Ok(png) => Ok(png),
+            Err(crate::extract::PngEncodeError::OutputLimit) => {
+                let limit = max_size.expect("PNG output can exceed only a configured limit");
+                Err(LimitError::new_err((
+                    "pixmap_output_size",
+                    format!("encoded Pixmap PNG exceeds the {limit}-byte output limit"),
+                )))
+            }
+            Err(crate::extract::PngEncodeError::Encoding(error)) => {
+                Err(PdfError::new_err(format!("failed to encode PNG: {error}")))
+            }
+        }
     }
 }
 
@@ -145,8 +180,16 @@ impl Pixmap {
     ///
     /// Fast compression matches `render_page` and prioritizes speed over size.
     /// Recompress externally when a smaller PNG is required.
-    fn tobytes(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
-        py.detach(|| self.encode_png())
+    #[pyo3(
+        signature = (*, max_size=Some(DEFAULT_MAX_PNG_OUTPUT_SIZE)),
+        text_signature = "($self, /, *, max_size=67108864)"
+    )]
+    fn tobytes(
+        &self,
+        py: Python<'_>,
+        #[pyo3(from_py_with = extract_max_size)] max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        py.detach(|| self.encode_png(max_size))
     }
 
     /// Encode PNG data and failure-atomically replace a filesystem path.
@@ -169,11 +212,15 @@ impl Pixmap {
             let (temporary, mut output) =
                 temporary_sibling(&target).map_err(|error| save_error(&path, error))?;
 
-            let result = self.encode_png().and_then(|png| {
-                output
-                    .write_all(&png)
-                    .map_err(|error| save_error(&path, error))
-            });
+            let result = crate::extract::write_png(
+                &mut output,
+                self.width,
+                self.height,
+                png::ColorType::Rgba,
+                &self.data,
+                png::Compression::Fast,
+            )
+            .map_err(|error| save_error(&path, error));
             drop(output);
             let result = result.and_then(|()| {
                 if let Some(permissions) = permissions {

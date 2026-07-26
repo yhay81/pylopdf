@@ -162,6 +162,16 @@ def test_text_replacement_is_bounded_in_core(one_page_pdf: bytes) -> None:
     assert doc.save_bytes() == before
 
 
+def test_single_render_output_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+
+    with pytest.raises(LimitError) as caught:
+        doc.render_page_png(1, 1.0, None, 1)
+    assert caught.value.args[0] == "render_output_size"
+    with pytest.raises(ValueError, match="max_output_size"):
+        doc.render_page_png(1, 1.0, None, 0)
+
+
 def test_image_insertion_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     before = doc.save_bytes()
