@@ -5,6 +5,7 @@
 //! constructs this engine with explicit detector, recognizer, and dictionary
 //! paths.
 
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,7 +14,7 @@ use rten::{Model, RunOptions, ThreadPool};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
-use crate::document::PdfError;
+use crate::document::{LimitError, PdfError};
 use crate::pixmap::Pixmap;
 
 pyo3::create_exception!(
@@ -27,6 +28,7 @@ const DETECTOR_THRESHOLD: f32 = 0.3;
 const DETECTOR_BOX_THRESHOLD: f32 = 0.5;
 const DETECTOR_UNCLIP_RATIO: f32 = 1.6;
 const MAX_DETECTIONS: usize = 4096;
+const MAX_DICTIONARY_ENTRIES: usize = 65_536;
 const RECOGNITION_HEIGHT: usize = 48;
 const MAX_RECOGNITION_WIDTH: usize = 4096;
 const COLUMN_GUTTER: f32 = 1.5;
@@ -136,40 +138,125 @@ struct Engine {
 }
 
 impl Engine {
+    fn read_input(
+        path: &Path,
+        label: &str,
+        error_action: &str,
+        max_model_size: Option<usize>,
+        consumed: &mut usize,
+    ) -> PyResult<Vec<u8>> {
+        let io_error = |error| {
+            OcrError::new_err(format!(
+                "failed to {error_action} OCR {label} {}: {error}",
+                path.display()
+            ))
+        };
+        let Some(limit) = max_model_size else {
+            return std::fs::read(path).map_err(io_error);
+        };
+        let remaining = limit.saturating_sub(*consumed);
+        let file = std::fs::File::open(path).map_err(&io_error)?;
+        let metadata_size = file.metadata().map_err(&io_error)?.len();
+        if metadata_size > remaining as u64 {
+            return Err(LimitError::new_err((
+                "ocr_model_size",
+                format!(
+                    "cumulative OCR model input exceeds the {limit}-byte limit while reading {label} {}",
+                    path.display()
+                ),
+            )));
+        }
+        let read_limit = remaining.saturating_add(1);
+        let mut data = Vec::with_capacity(
+            usize::try_from(metadata_size)
+                .unwrap_or(remaining)
+                .min(read_limit),
+        );
+        file.take(read_limit as u64)
+            .read_to_end(&mut data)
+            .map_err(io_error)?;
+        if data.len() > remaining {
+            return Err(LimitError::new_err((
+                "ocr_model_size",
+                format!(
+                    "cumulative OCR model input exceeds the {limit}-byte limit while reading {label} {}",
+                    path.display()
+                ),
+            )));
+        }
+        *consumed += data.len();
+        Ok(data)
+    }
+
     fn load(
         detector_path: impl AsRef<Path>,
         recognizer_path: impl AsRef<Path>,
         dictionary_path: impl AsRef<Path>,
         threads: usize,
-    ) -> Result<Self, String> {
+        max_model_size: Option<usize>,
+    ) -> PyResult<Self> {
         let detector_path = detector_path.as_ref();
         let recognizer_path = recognizer_path.as_ref();
         let dictionary_path = dictionary_path.as_ref();
-        let detector = Model::load_file(detector_path).map_err(|error| {
-            format!(
-                "failed to load OCR detector {}: {error}",
-                detector_path.display()
-            )
-        })?;
-        let recognizer = Model::load_file(recognizer_path).map_err(|error| {
-            format!(
-                "failed to load OCR recognizer {}: {error}",
-                recognizer_path.display()
-            )
-        })?;
-        let dictionary = std::fs::read_to_string(dictionary_path).map_err(|error| {
-            format!(
+        let mut consumed = 0;
+        let detector_data = Self::read_input(
+            detector_path,
+            "detector",
+            "load",
+            max_model_size,
+            &mut consumed,
+        )?;
+        let recognizer_data = Self::read_input(
+            recognizer_path,
+            "recognizer",
+            "load",
+            max_model_size,
+            &mut consumed,
+        )?;
+        let dictionary_data = Self::read_input(
+            dictionary_path,
+            "dictionary",
+            "read",
+            max_model_size,
+            &mut consumed,
+        )?;
+        let dictionary = std::str::from_utf8(&dictionary_data).map_err(|error| {
+            OcrError::new_err(format!(
                 "failed to read OCR dictionary {}: {error}",
                 dictionary_path.display()
-            )
+            ))
         })?;
-        let characters = dictionary.lines().map(str::to_owned).collect::<Vec<_>>();
+        let mut characters = Vec::new();
+        for character in dictionary.lines() {
+            if characters.len() == MAX_DICTIONARY_ENTRIES {
+                return Err(LimitError::new_err((
+                    "ocr_dictionary_entries",
+                    format!(
+                        "OCR dictionary {} exceeds the {MAX_DICTIONARY_ENTRIES}-entry limit",
+                        dictionary_path.display()
+                    ),
+                )));
+            }
+            characters.push(character.to_owned());
+        }
         if characters.is_empty() {
-            return Err(format!(
+            return Err(OcrError::new_err(format!(
                 "OCR dictionary {} contains no characters",
                 dictionary_path.display()
-            ));
+            )));
         }
+        let detector = Model::load(detector_data).map_err(|error| {
+            OcrError::new_err(format!(
+                "failed to load OCR detector {}: {error}",
+                detector_path.display()
+            ))
+        })?;
+        let recognizer = Model::load(recognizer_data).map_err(|error| {
+            OcrError::new_err(format!(
+                "failed to load OCR recognizer {}: {error}",
+                recognizer_path.display()
+            ))
+        })?;
         Ok(Self {
             detector,
             recognizer,
@@ -838,13 +925,26 @@ impl _OcrEngine {
         recognizer_path: &str,
         dictionary_path: &str,
         threads: usize,
+        max_model_size: Option<usize>,
     ) -> PyResult<Self> {
         if !(1..=16).contains(&threads) {
             return Err(OcrError::new_err("threads must be from 1 through 16"));
         }
-        py.detach(|| Engine::load(detector_path, recognizer_path, dictionary_path, threads))
-            .map(|engine| Self { engine })
-            .map_err(OcrError::new_err)
+        if max_model_size == Some(0) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "max_model_size must be a positive integer or None",
+            ));
+        }
+        py.detach(|| {
+            Engine::load(
+                detector_path,
+                recognizer_path,
+                dictionary_path,
+                threads,
+                max_model_size,
+            )
+        })
+        .map(|engine| Self { engine })
     }
 
     #[pyo3(signature = (pixmap, *, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0))]

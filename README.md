@@ -205,7 +205,7 @@ page.add_highlight_annot(page.search_for("important"))  # appearance stream incl
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 print(page.annots())  # [{"type", "rect", "contents", "uri"}]
 
-# Native offline OCR: recognize and add an invisible searchable layer
+# Native offline OCR: model inputs share a 64 MiB cap; add a searchable layer
 engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)  # pip install "pylopdf[ocr]"
 words = page.get_text_ocr(engine=engine)
 page.apply_ocr(engine=engine)  # skips existing searchable text by default

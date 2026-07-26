@@ -59,7 +59,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `decompression_unverifiable` 중
+`image_pixel_count`, `font_input_size`, `ocr_model_size`,
+`ocr_dictionary_entries`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 

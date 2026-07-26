@@ -10,6 +10,7 @@ from threading import Barrier, Event, Lock
 import pytest
 
 import pylopdf
+from pylopdf.pylopdf_core import _OcrEngine
 
 MODEL_ROOT = Path(__file__).parents[1] / "models" / "pylopdf-ocr-models" / "src" / "pylopdf_ocr_models"
 FONT_ROOT = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk"
@@ -337,6 +338,50 @@ def test_ocr_engine_rejects_incomplete_or_missing_model_paths(tmp_path: Path) ->
         pylopdf.OcrEngine(tmp_path / "det.onnx", tmp_path / "rec.onnx", tmp_path / "dict.txt")
 
 
+def test_ocr_engine_bounds_cumulative_model_input(tmp_path: Path) -> None:
+    detector = tmp_path / "det.rten"
+    recognizer = tmp_path / "rec.rten"
+    dictionary = tmp_path / "dict.txt"
+    detector.write_bytes(b"det!")
+    recognizer.write_bytes(b"rec!")
+    dictionary.write_bytes(b"x\n")
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        pylopdf.OcrEngine(detector, recognizer, dictionary, max_model_size=9)
+    assert caught.value.code == "ocr_model_size"
+
+    with pytest.raises(pylopdf.OcrError, match="failed to load OCR detector"):
+        pylopdf.OcrEngine(detector, recognizer, dictionary, max_model_size=10)
+    with pytest.raises(pylopdf.OcrError, match="failed to load OCR detector"):
+        pylopdf.OcrEngine(detector, recognizer, dictionary, max_model_size=None)
+
+
+def test_ocr_core_repeats_cumulative_model_limit(tmp_path: Path) -> None:
+    detector = tmp_path / "det.rten"
+    recognizer = tmp_path / "rec.rten"
+    dictionary = tmp_path / "dict.txt"
+    detector.write_bytes(b"det!")
+    recognizer.write_bytes(b"rec!")
+    dictionary.write_bytes(b"x\n")
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        _OcrEngine(str(detector), str(recognizer), str(dictionary), 1, 9)
+    assert caught.value.code == "ocr_model_size"
+
+
+def test_ocr_engine_bounds_dictionary_entries(tmp_path: Path) -> None:
+    detector = tmp_path / "det.rten"
+    recognizer = tmp_path / "rec.rten"
+    dictionary = tmp_path / "dict.txt"
+    detector.write_bytes(b"x")
+    recognizer.write_bytes(b"x")
+    dictionary.write_text("x\n" * 65_537, encoding="utf-8")
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        pylopdf.OcrEngine(detector, recognizer, dictionary, max_model_size=None)
+    assert caught.value.code == "ocr_dictionary_entries"
+
+
 def test_ocr_engine_rejects_mismatched_dictionary(tmp_path: Path) -> None:
     dictionary = tmp_path / "mismatched.txt"
     dictionary.write_text("x\n", encoding="utf-8")
@@ -357,6 +402,7 @@ def test_ocr_engine_discovers_installed_model_extra() -> None:
     pytest.importorskip("pylopdf_ocr_models")
     engine = pylopdf.OcrEngine()
     assert 1 <= engine.threads <= 4
+    assert engine.max_model_size == 64 * 1024 * 1024
 
 
 @pytest.mark.parametrize(
@@ -375,6 +421,15 @@ def test_ocr_engine_validates_threads(threads: object, error: type[Exception]) -
 def test_ocr_engine_validates_max_concurrent(max_concurrent: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="max_concurrent"):
         pylopdf.OcrEngine(max_concurrent=max_concurrent)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("max_model_size", "error"),
+    [(0, ValueError), (-1, ValueError), (True, TypeError), (1.5, TypeError)],
+)
+def test_ocr_engine_validates_max_model_size(max_model_size: object, error: type[Exception]) -> None:
+    with pytest.raises(error, match="max_model_size"):
+        pylopdf.OcrEngine(max_model_size=max_model_size)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

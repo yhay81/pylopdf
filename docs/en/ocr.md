@@ -77,6 +77,12 @@ duplicate edge detections. In one measured 300-dpi A4 workload, the default
 geometry peaked near 419 MiB; documents, platforms, and allocators change that
 value.
 
+Model loading has a separate cumulative 64 MiB input boundary across the
+detector, recognizer, and dictionary. All three files are admitted before RTen
+parses either model, and dictionaries stop at 65,536 entries. Refusals raise
+`LimitError` with code `ocr_model_size` or `ocr_dictionary_entries`. Pass
+`max_model_size=None` only for a trusted custom model set.
+
 Reduce `threads` and `tile_size` when memory is tighter. Raise
 `max_concurrent` only after measuring the combined live raster and inference
 buffers:

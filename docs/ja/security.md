@@ -60,7 +60,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`decompression_unverifiable`の
+`image_pixel_count`、`font_input_size`、`ocr_model_size`、
+`ocr_dictionary_entries`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 

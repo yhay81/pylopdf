@@ -10,7 +10,14 @@ class LimitError(PdfError):
 class OcrError(PdfError): ...
 
 class _OcrEngine:
-    def __init__(self, detector_path: str, recognizer_path: str, dictionary_path: str, threads: int) -> None: ...
+    def __init__(
+        self,
+        detector_path: str,
+        recognizer_path: str,
+        dictionary_path: str,
+        threads: int,
+        max_model_size: int | None,
+    ) -> None: ...
     def recognize_pixmap(
         self,
         pixmap: Pixmap,

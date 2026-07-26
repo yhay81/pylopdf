@@ -56,7 +56,8 @@ Web预设目前独立应用以下上限：
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
-`font_input_size`、`decompression_unverifiable`之一；
+`font_input_size`、`ocr_model_size`、`ocr_dictionary_entries`、
+`decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
 

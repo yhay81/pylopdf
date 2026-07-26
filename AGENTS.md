@@ -174,8 +174,12 @@ overview.
   contains the pure-Rust inference engine; PP-OCRv6 small detector,
   recognizer, and dictionary data come from the independently versioned
   `pylopdf-ocr-models` package through the `[ocr]` extra. `OcrEngine` loads one
-  immutable model set and owns a dedicated 1–16 thread pool. Loading and
-  inference release the GIL. OCR clones the Pixmap's `Arc<[u8]>`, composites
+  immutable model set and owns a dedicated 1–16 thread pool. Detector,
+  recognizer, and dictionary paths share a default 64 MiB cumulative input
+  budget enforced before RTen parses either model; `max_model_size=None` is
+  the explicit trusted-input opt-out. Dictionary materialization stops at
+  65,536 entries. Loading and inference release the GIL. OCR clones the
+  Pixmap's `Arc<[u8]>`, composites
   RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
   pixels, a 4096-candidate cap, and deterministic edge deduplication. The
   default 1408-pixel tile and 192-pixel overlap measured about 419 MiB peak on
