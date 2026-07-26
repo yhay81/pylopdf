@@ -87,9 +87,7 @@ def test_page_label_tree_reference_cycle_is_visited_once() -> None:
         }
     )
     doc = pylopdf.open(stream=pdf)
-    assert doc.get_page_labels() == [
-        {"startpage": 0, "style": "D", "prefix": "A-", "firstpagenum": 1}
-    ]
+    assert doc.get_page_labels() == [{"startpage": 0, "style": "D", "prefix": "A-", "firstpagenum": 1}]
     assert doc[0].get_label() == "A-1"
 
 
