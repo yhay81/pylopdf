@@ -2362,11 +2362,13 @@ fn search_lines(
 
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
 pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
+type EncodedRasterPng = (u32, u32, Vec<u8>);
 
 /// Keep one page from multiplying repeated image placements into unbounded output.
 const MAX_EXTRACTED_IMAGE_PLACEMENTS: usize = 4_096;
 const MAX_EXTRACTED_IMAGE_PIXELS: u64 = 64_000_000;
 const MAX_EXTRACTED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+const PNG_ALPHA_SCRATCH_BYTES: usize = 4096;
 const IMAGE_PLACEMENT_LIMIT_ERROR: &str =
     "image extraction exceeds the 4096-placement safety limit";
 const IMAGE_PIXEL_LIMIT_ERROR: &str = "image extraction exceeds the 64000000-pixel safety limit";
@@ -2670,76 +2672,120 @@ pub(crate) fn encode_png_bounded(
     Ok(output.bytes)
 }
 
-/// Encode pixel data as PNG.
-pub(crate) fn encode_png(
+fn write_luma_alpha(output: &mut dyn Write, luma: &[u8], alpha: &[u8]) -> io::Result<()> {
+    let mut buffer = Vec::with_capacity(PNG_ALPHA_SCRATCH_BYTES);
+    for (gray, alpha) in luma.iter().zip(alpha) {
+        buffer.extend_from_slice(&[*gray, *alpha]);
+        if buffer.len() >= PNG_ALPHA_SCRATCH_BYTES {
+            output.write_all(&buffer)?;
+            buffer.clear();
+        }
+    }
+    output.write_all(&buffer)
+}
+
+fn write_rgb_alpha(output: &mut dyn Write, rgb: &[u8], alpha: &[u8]) -> io::Result<()> {
+    let mut buffer = Vec::with_capacity(PNG_ALPHA_SCRATCH_BYTES);
+    for (rgb, alpha) in rgb.chunks_exact(3).zip(alpha) {
+        buffer.extend_from_slice(&[rgb[0], rgb[1], rgb[2], *alpha]);
+        if buffer.len() >= PNG_ALPHA_SCRATCH_BYTES {
+            output.write_all(&buffer)?;
+            buffer.clear();
+        }
+    }
+    output.write_all(&buffer)
+}
+
+fn encode_png_stream_bounded(
     width: u32,
     height: u32,
     color: png::ColorType,
-    data: &[u8],
     compression: png::Compression,
-) -> Option<Vec<u8>> {
-    encode_png_bounded(width, height, color, data, compression, None).ok()
+    max_size: usize,
+    write_pixels: impl FnOnce(&mut dyn Write) -> io::Result<()>,
+) -> Result<Vec<u8>, PngEncodeError> {
+    let mut output = BoundedPngOutput::new(Some(max_size));
+    let result = (|| -> Result<(), png::EncodingError> {
+        let mut encoder = png::Encoder::new(&mut output, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(compression);
+        let mut writer = encoder.write_header()?;
+        {
+            let mut stream = writer.stream_writer()?;
+            write_pixels(&mut stream)?;
+            stream.finish()?;
+        }
+        writer.finish()
+    })();
+    if output.exceeded {
+        return Err(PngEncodeError::OutputLimit);
+    }
+    result.map_err(PngEncodeError::Encoding)?;
+    Ok(output.bytes)
 }
 
-/// Encode decoded RGB/gray raster data plus separate alpha as PNG.
-fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, u32, Vec<u8>)> {
+fn extracted_png(result: Result<Vec<u8>, PngEncodeError>) -> Result<Option<Vec<u8>>, &'static str> {
+    match result {
+        Ok(data) => Ok(Some(data)),
+        Err(PngEncodeError::OutputLimit) => Err(IMAGE_BYTE_LIMIT_ERROR),
+        Err(PngEncodeError::Encoding(_)) => Ok(None),
+    }
+}
+
+/// Encode decoded RGB/gray raster data plus separate alpha within remaining output.
+fn encode_raster_png(
+    image: ImageData,
+    alpha: Option<LumaData>,
+    max_size: usize,
+) -> Result<Option<EncodedRasterPng>, &'static str> {
     let (rgb, width, height) = match image {
         ImageData::Rgb(rgb) => (rgb.data, rgb.width, rgb.height),
         ImageData::Luma(luma) => {
-            let data = match &alpha {
+            return match &alpha {
                 Some(a) if a.width == luma.width && a.height == luma.height => {
-                    let interleaved: Vec<u8> = luma
-                        .data
-                        .iter()
-                        .zip(&a.data)
-                        .flat_map(|(g, a)| [*g, *a])
-                        .collect();
-                    return encode_png(
+                    extracted_png(encode_png_stream_bounded(
                         luma.width,
                         luma.height,
                         png::ColorType::GrayscaleAlpha,
-                        &interleaved,
                         png::Compression::Balanced,
-                    )
-                    .map(|png| (luma.width, luma.height, png));
+                        max_size,
+                        |output| write_luma_alpha(output, &luma.data, &a.data),
+                    ))
                 }
-                _ => luma.data,
-            };
-            return encode_png(
-                luma.width,
-                luma.height,
-                png::ColorType::Grayscale,
-                &data,
-                png::Compression::Balanced,
-            )
-            .map(|png| (luma.width, luma.height, png));
+                _ => extracted_png(encode_png_bounded(
+                    luma.width,
+                    luma.height,
+                    png::ColorType::Grayscale,
+                    &luma.data,
+                    png::Compression::Balanced,
+                    Some(max_size),
+                )),
+            }
+            .map(|data| data.map(|png| (luma.width, luma.height, png)));
         }
     };
-    match alpha {
+    let data = match alpha {
         Some(a) if a.width == width && a.height == height => {
-            let interleaved: Vec<u8> = rgb
-                .chunks(3)
-                .zip(&a.data)
-                .flat_map(|(rgb, a)| [rgb[0], rgb[1], rgb[2], *a])
-                .collect();
-            encode_png(
+            extracted_png(encode_png_stream_bounded(
                 width,
                 height,
                 png::ColorType::Rgba,
-                &interleaved,
                 png::Compression::Balanced,
-            )
-            .map(|png| (width, height, png))
+                max_size,
+                |output| write_rgb_alpha(output, &rgb, &a.data),
+            ))?
         }
-        _ => encode_png(
+        _ => extracted_png(encode_png_bounded(
             width,
             height,
             png::ColorType::Rgb,
             &rgb,
             png::Compression::Balanced,
-        )
-        .map(|png| (width, height, png)),
-    }
+            Some(max_size),
+        ))?,
+    };
+    Ok(data.map(|png| (width, height, png)))
 }
 
 impl ImageCollector {
@@ -2827,26 +2873,35 @@ impl Device<'_> for ImageCollector {
                     }
                 }
                 raster.with_rgba(
-                    |image_data, alpha| {
-                        if let Some((width, height, data)) = encode_raster_png(image_data, alpha) {
+                    |image_data, alpha| match encode_raster_png(
+                        image_data,
+                        alpha,
+                        MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes),
+                    ) {
+                        Ok(Some((width, height, data))) => {
                             self.push((width, height, bbox, "png".to_owned(), data));
                         }
+                        Ok(None) => {}
+                        Err(error) => self.error = Some(error),
                     },
                     None,
                 );
             }
             Image::Stencil(stencil) => {
                 stencil.with_stencil(
-                    |luma, _| {
-                        if let Some(data) = encode_png(
-                            luma.width,
-                            luma.height,
-                            png::ColorType::Grayscale,
-                            &luma.data,
-                            png::Compression::Balanced,
-                        ) {
-                            self.push((luma.width, luma.height, bbox, "png".to_owned(), data));
+                    |luma, _| match extracted_png(encode_png_bounded(
+                        luma.width,
+                        luma.height,
+                        png::ColorType::Grayscale,
+                        &luma.data,
+                        png::Compression::Balanced,
+                        Some(MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes)),
+                    )) {
+                        Ok(Some(data)) => {
+                            self.push((luma.width, luma.height, bbox, "png".to_owned(), data))
                         }
+                        Ok(None) => {}
+                        Err(error) => self.error = Some(error),
                     },
                     None,
                 );

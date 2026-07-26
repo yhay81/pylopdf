@@ -157,7 +157,9 @@ overview.
   JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
-  never return a partial list.
+  non-passthrough PNG encoding writes into that same remaining budget. Combine
+  separate RGB/gray and alpha planes through a bounded scratch buffer instead
+  of a complete interleaved copy. Never return a partial list.
 - `Document.embfile_add` and `embfile_get` share a 64 MiB default attachment
   boundary. Adds reject byte input before its PyO3 copy and repeat the check in
   Rust; gets apply the decoded-size limit to every filter layer. `max_size=None`
