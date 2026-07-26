@@ -36,6 +36,7 @@ impl _OcrEngine {
         _recognizer_path: &str,
         _dictionary_path: &str,
         _threads: usize,
+        _max_model_size: Option<usize>,
     ) -> PyResult<Self> {
         Err(unavailable())
     }

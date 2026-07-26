@@ -94,6 +94,7 @@ _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -651,7 +652,7 @@ class OcrEngine:
     dictionary.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - model resource controls are keyword-only.
         self,
         detector_path: str | os.PathLike[str] | None = None,
         recognizer_path: str | os.PathLike[str] | None = None,
@@ -659,14 +660,18 @@ class OcrEngine:
         *,
         threads: int | None = None,
         max_concurrent: int = 1,
+        max_model_size: int | None = _DEFAULT_MAX_OCR_MODEL_SIZE,
     ) -> None:
         """Load an OCR model set once for reuse across pages and documents.
 
         ``threads=None`` uses up to four logical CPUs. Lower it to reduce peak
         inference memory or raise it to at most 16 after measuring the target
         workload. ``max_concurrent`` bounds complete render-and-recognize calls
-        sharing this engine; its memory-safe default is one.
+        sharing this engine; its memory-safe default is one. ``max_model_size``
+        bounds the cumulative detector, recognizer, and dictionary input.
+        Pass ``None`` only for trusted custom model sets.
         """
+        _validate_optional_positive_int("max_model_size", max_model_size)
         if threads is None:
             resolved_threads = min(4, os.cpu_count() or 1)
         elif isinstance(threads, bool) or not isinstance(threads, int):
@@ -704,9 +709,11 @@ class OcrEngine:
             os.fspath(recognizer_path),
             os.fspath(dictionary_path),
             resolved_threads,
+            max_model_size,
         )
         self.threads = resolved_threads
         self.max_concurrent = resolved_max_concurrent
+        self.max_model_size = max_model_size
         self._recognition_slots = threading.BoundedSemaphore(resolved_max_concurrent)
 
     def recognize(  # noqa: PLR0913 - OCR resource controls are keyword-only.

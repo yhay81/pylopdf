@@ -62,7 +62,8 @@ per-stream budget and cannot be combined with `limits=`.
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, or
+`image_pixel_count`, `font_input_size`, `ocr_model_size`,
+`ocr_dictionary_entries`, or
 `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected

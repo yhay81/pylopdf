@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `OcrEngine(..., max_model_size=64 * 1024 * 1024)` now bounds the
+  cumulative detector, recognizer, and dictionary input before RTen parses
+  either model. Paths are read with the GIL released through a one-byte-overrun
+  boundary, dictionaries stop before a 65,537th materialized entry, and direct
+  core construction repeats the checks. Refusals use `LimitError.code ==
+  "ocr_model_size"` or `"ocr_dictionary_entries"`; `None` explicitly opts
+  trusted custom model sets out.
 - Explicit and automatically selected OpenType input for `insert_text`,
   `insert_textbox`, `set_form_field`, and `set_fallback_font` now shares a
   `max_font_size=64 * 1024 * 1024` default. `fontbuffer=` is rejected before

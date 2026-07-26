@@ -1440,6 +1440,12 @@
             "default": 1,
             "kind": "keyword_only",
             "name": "max_concurrent"
+          },
+          {
+            "annotation": "int | None",
+            "default": 67108864,
+            "kind": "keyword_only",
+            "name": "max_model_size"
           }
         ],
         "returns": "None"

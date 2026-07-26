@@ -435,6 +435,10 @@ that gap without broadening the mandatory Python dependency set.
       by default, making repeated application idempotent. Display-coordinate
       region clips let mixed-content pages recognize scanned areas without
       duplicating digital text; callers can still opt into appending.
+- [x] Bound model-set admission before inference. Detector, recognizer, and
+      dictionary files share a 64 MiB default cumulative input budget, direct
+      core calls repeat it, and dictionary materialization stops at 65,536
+      entries. `None` remains an explicit trusted-model opt-out.
 - [x] Keep full-page detector memory bounded with overlapping tiles and a
       4,096-candidate safety cap. The default 1,408-pixel tile with 192-pixel
       overlap uses six tiles for a 300-dpi A4 page and measured about 419 MiB
