@@ -52,7 +52,8 @@ Web预设目前独立应用以下上限：
 
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
-`total_decompressed_size`、`text_size`或`decompression_unverifiable`之一；
+`total_decompressed_size`、`text_size`、`embedded_file_size`或
+`decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
 
@@ -68,6 +69,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - 每页渲染上限为6400万像素。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
+- `Document.embfile_get()`默认将每个filter层的解码输出限制为64 MiB。对于已知的
+  大型附件可提高`max_size=`；`max_size=None`会显式接受无限制materialization。
+  附件name tree超过4,096个entry/node、32层或encoded/decoded名称合计1 MiB时也会拒绝。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的

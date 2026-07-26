@@ -127,6 +127,14 @@ overview.
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
   never return a partial list.
+- `Document.embfile_get` releases the GIL and defaults to a 64 MiB decoded-size
+  limit applied to every filter layer. `max_size=None` is the explicit
+  unbounded opt-out; limit failures use `LimitError.code ==
+  "embedded_file_size"`, while malformed or unsupported filters must not fall
+  back to encoded bytes. EmbeddedFiles name-tree traversal borrows direct
+  shapes, visits indirect cycles once, and rejects more than 4,096 entries or
+  nodes, 32 levels, or 1 MiB of encoded/decoded names. Attachment edits must not
+  create an over-limit tree or invalidate caches after a failed operation.
 - `Document.compress_images` interprets indirect raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest

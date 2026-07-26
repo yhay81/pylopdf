@@ -33,7 +33,7 @@ deprecation lifecycle.
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | AcroForm list & fill with native widget appearances |
-| `embfile_add / embfile_names / embfile_get / embfile_del` | file attachments |
+| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | file attachments with bounded decoding; `max_size=None` explicitly opts out |
 | `get_pdfa_claim()` | XMP PDF/A declaration (a read, not validation) |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | also via `with` |

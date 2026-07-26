@@ -337,6 +337,12 @@
                 "annotation": "str",
                 "kind": "positional_or_keyword",
                 "name": "name"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "bytes"

@@ -56,7 +56,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
-`decompression_unverifiable` 중 하나이며 같은 값은`error.args[0]`에도 있습니다.
+`embedded_file_size`, `decompression_unverifiable` 중 하나이며 같은 값은
+`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
 `doc.complexity`는 stream 디코딩이나 renderer 호출 없이 페이지, object, stream 수,
@@ -75,6 +76,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.
+- `Document.embfile_get()`은 각filter layer의 디코딩 출력을 기본64 MiB로 제한합니다.
+  크기를 알고 있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은
+  무제한materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
+  깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.
