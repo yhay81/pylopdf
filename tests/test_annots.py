@@ -6,6 +6,9 @@ correctness is checked through rendered pixels.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
+from typing import cast
+
 import pytest
 from conftest import build_pdf, build_raw_pdf
 
@@ -234,13 +237,39 @@ def test_annotation_add_bounds_inputs_atomically() -> None:
     doc = pylopdf.open(stream=build_pdf([""]))
     before = doc.tobytes()
 
-    with pytest.raises(pylopdf.PdfError, match=r"content.*1048576-byte safety limit"):
+    with pytest.raises(pylopdf.LimitError, match=r"content.*1048576-byte") as content_limit:
         doc[0].add_highlight_annot((10, 10, 20, 20), content="x" * (1024 * 1024 + 1))
-    with pytest.raises(pylopdf.PdfError, match=r"URI.*1048576-byte safety limit"):
+    assert content_limit.value.code == "annotation_input_size"
+    with pytest.raises(pylopdf.LimitError, match=r"URI.*1048576-byte") as uri_limit:
         doc[0].add_link_annot((10, 10, 20, 20), "x" * (1024 * 1024 + 1))
+    assert uri_limit.value.code == "annotation_input_size"
     with pytest.raises(ValueError, match="4096 rectangles"):
         doc[0].add_highlight_annot([(10, 10, 20, 20)] * 4097)
     assert doc.tobytes() == before
+
+
+def test_highlight_input_stops_before_unbounded_materialization() -> None:
+    doc = pylopdf.open(stream=build_pdf([""]))
+
+    def excessive_rects() -> Iterator[tuple[int, int, int, int]]:
+        yield from [(10, 10, 20, 20)] * 4097
+        msg = "the bounded reader consumed beyond item 4,097"
+        raise AssertionError(msg)
+
+    with pytest.raises(ValueError, match="4096 rectangles"):
+        doc[0].add_highlight_annot(cast("Sequence[Sequence[float]]", excessive_rects()))
+
+    def unreadable_rects() -> Iterator[tuple[int, int, int, int]]:
+        msg = "oversized text must fail before rectangle iteration"
+        raise AssertionError(msg)
+        yield (10, 10, 20, 20)
+
+    with pytest.raises(pylopdf.LimitError) as content_limit:
+        doc[0].add_highlight_annot(
+            cast("Sequence[Sequence[float]]", unreadable_rects()),
+            content="x" * (1024 * 1024 + 1),
+        )
+    assert content_limit.value.code == "annotation_input_size"
 
 
 def test_annotation_add_at_metadata_boundary_remains_readable() -> None:

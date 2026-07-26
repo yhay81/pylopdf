@@ -105,6 +105,8 @@ _UTF8_THREE_BYTE_MIN = 1 << 11
 _UTF8_FOUR_BYTE_MIN = 1 << 16
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
+_MAX_ANNOTATION_INPUT_TEXT_SIZE = 1024 * 1024
+_RECT_COORDINATE_COUNT = 4
 _MAX_SEARCH_INPUT_BYTES = 4096
 _DEFAULT_MAX_SEARCH_HITS = 4096
 _MAX_PASSWORD_INPUT_BYTES = 127
@@ -2346,17 +2348,41 @@ class Page:
         Multiply blending, so it looks consistent in pylopdf's renderer and
         other viewers. Multiple rectangles form one annotation, with at most
         4,096 rectangles; its subtype and popup ``content`` share a 1 MiB text
-        budget.
+        budget. Oversized text is rejected before rectangle iteration or the
+        Rust boundary with ``LimitError.code == "annotation_input_size"``.
         """
-        seq = list(rects)
-        if not seq:
+        if content is not None and not isinstance(content, str):
+            msg = f"content must be a string or None: {type(content).__name__}"
+            raise TypeError(msg)
+        _validate_cumulative_utf8_input(
+            ("Highlight", "" if content is None else content),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and content input",
+        )
+
+        iterator = iter(rects)
+        try:
+            first = next(iterator)
+        except StopIteration:
             msg = "rects must contain at least one rect"
-            raise ValueError(msg)
-        if len(seq) > _MAX_HIGHLIGHT_RECTS:
-            msg = f"rects cannot contain more than {_MAX_HIGHLIGHT_RECTS} rectangles"
-            raise ValueError(msg)
-        rect_list = [seq] if isinstance(seq[0], (int, float)) else seq
-        validated = [_validate_rect(r) for r in rect_list]  # type: ignore[arg-type]
+            raise ValueError(msg) from None
+
+        if isinstance(first, (int, float)):
+            coordinates = [first]
+            for coordinate in iterator:
+                if len(coordinates) >= _RECT_COORDINATE_COUNT:
+                    msg = f"rect must be 4 numbers (x0, y0, x1, y1): {rects!r}"
+                    raise ValueError(msg)
+                coordinates.append(cast("float", coordinate))
+            validated = [_validate_rect(coordinates)]
+        else:
+            validated = [_validate_rect(cast("Sequence[float]", first))]
+            for rect in iterator:
+                if len(validated) >= _MAX_HIGHLIGHT_RECTS:
+                    msg = f"rects cannot contain more than {_MAX_HIGHLIGHT_RECTS} rectangles"
+                    raise ValueError(msg)
+                validated.append(_validate_rect(cast("Sequence[float]", rect)))
         rgb = _validate_unit_rgb(color)
         if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
             msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
@@ -2369,10 +2395,21 @@ class Page:
         This supports search-then-link workflows using :meth:`search_for`.
         For new documents, links are usually better created in typst; see the
         README ecosystem recipe. Its subtype and URI share a 1 MiB text budget.
+        Oversized text is rejected before the Rust boundary with
+        ``LimitError.code == "annotation_input_size"``.
         """
+        if not isinstance(uri, str):
+            msg = f"uri must be a string: {type(uri).__name__}"
+            raise TypeError(msg)
         if not uri:
             msg = "uri must be at least 1 character"
             raise ValueError(msg)
+        _validate_cumulative_utf8_input(
+            ("Link", uri),
+            _MAX_ANNOTATION_INPUT_TEXT_SIZE,
+            limit_code="annotation_input_size",
+            input_label="annotation subtype and URI input",
+        )
         x0, y0, x1, y1 = _validate_rect(rect)
         self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
 

@@ -85,7 +85,8 @@ risky. When processing untrusted files:
   or 1 MiB of aggregate encoded/returned metadata text per call. Adds enforce
   the same page count, 1 MiB generated subtype plus Contents/URI input, and
   4,096 highlight rectangles before adding dependent objects or invalidating
-  caches.
+  caches. Caller text is rejected before PyO3 copying or rectangle iteration
+  with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
   above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
   instead of silently reporting a truncated tree as unresolved.

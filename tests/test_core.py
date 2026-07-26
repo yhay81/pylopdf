@@ -531,6 +531,22 @@ def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> N
         assert doc.save_bytes() == before
 
 
+def test_annotation_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+    oversized = "é" * (512 * 1024 + 1)
+
+    calls = [
+        lambda: doc.add_highlight_annotation(1, [(10.0, 10.0, 20.0, 20.0)], (1.0, 1.0, 0.0), 0.4, oversized),
+        lambda: doc.add_link_annotation(1, (10.0, 10.0, 20.0, 20.0), oversized),
+    ]
+    for call in calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "annotation_input_size"
+        assert doc.save_bytes() == before
+
+
 def test_merge_into_empty(three_page_pdf: bytes) -> None:
     doc = _Document()
     doc.merge(_Document.load_bytes(three_page_pdf))

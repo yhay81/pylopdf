@@ -582,7 +582,11 @@ known-limit behavior are polished together.
       borrow `/Annots`, release the GIL, and share fixed entry and aggregate
       metadata-text budgets. Adds preflight page capacity, Contents/URI text,
       and highlight rectangle count before creating dependent appearance
-      objects, preserving document bytes and caches on refusal.
+      objects, preserving document bytes and caches on refusal. Caller text
+      now stops at 1 MiB before PyO3 copying or rectangle iteration with
+      `annotation_input_size`; direct Rust calls repeat the boundary, and
+      highlight iteration stops at item 4,097 without first materializing the
+      complete input (2026-07-26).
 - [x] Bound named-destination resolution. `/Names/Dests` lookup is now
       iterative and cycle-aware, with fixed entry/node/edge/depth and key-byte
       budgets. Excessive trees raise instead of becoming indistinguishable from

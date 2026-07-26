@@ -55,7 +55,7 @@ Web预设目前独立应用以下上限：
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
-`embedded_file_input_size`、`form_field_input_size`、
+`embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -167,7 +167,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - 批注与link读取会拒绝超过4,096个`/Annots` entry或每次调用aggregate
   encoded/returned metadata文本1 MiB的部分结果。添加会在创建dependent object和
   失效cache之前检查相同的页面数量、生成subtype加Contents/URI输入合计1 MiB与
-  4,096个highlight矩形。
+  4,096个highlight矩形。caller text会在PyO3 copy或rectangle iteration前以
+  `annotation_input_size`拒绝，highlight iteration在第4,097个item停止。
 - named destination lookup只访问引用cycle一次，并拒绝超过4,096个entry/node、
   8,192条edge、32层或1 MiB key byte的tree，而不会静默地将截断结果报告为未解析。
   `Page.get_links()`每次call只构建一个borrowed index，不会为每个named link重复遍历。

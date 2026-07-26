@@ -60,7 +60,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `text_glyph_count`、`interpretation_size`、`embedded_file_size`、
-`embedded_file_input_size`、`form_field_input_size`、`xmp_metadata_size`、`render_output_size`、
+`embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
+`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
@@ -183,7 +184,9 @@ xref dataを正規化します。
 - 注釈・link読み取りは4,096 `/Annots` entryまたは1 call当たりaggregate
   encoded/returned metadata text 1 MiBを超える部分結果を拒否します。追加は同じ
   page件数、生成subtypeとContents/URI入力の合計1 MiB、highlight 4,096矩形を
-  dependent object作成とcache無効化の前に検査します。
+  dependent object作成とcache無効化の前に検査します。caller textはPyO3 copyや
+  rectangle iteration前に`annotation_input_size`で拒否し、highlight iterationは
+  4,097 item目で停止します。
 - named destination lookupは参照cycleを一度だけ訪問し、4,096 entry/node、
   8,192 edge、深さ32、key byte 1 MiBを超えるtreeを、通常の未解決として黙って
   扱わず拒否します。`Page.get_links()`はnamed linkごとにtreeを再走査せず、
