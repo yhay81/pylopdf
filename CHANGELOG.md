@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.get_toc()` now replaces lopdf's recursive outline parser with an
+  iterative, cycle-aware walk that releases the GIL and rejects partial output
+  above 4,096 nodes/entries, 8,192 edges, 64 levels, 32 destination
+  indirections, or 1 MiB of source/returned text. Named destinations are
+  indexed once per call under their existing limits. `set_toc()` preflights the
+  same entry, depth, and title-text boundaries before mutation, so failed
+  replacements preserve the existing outline.
 - Named-destination lookup for `Page.get_links()` now uses an iterative,
   cycle-aware `/Names/Dests` walk and rejects silent unresolved results above
   4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of scanned key bytes.

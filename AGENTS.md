@@ -308,6 +308,12 @@ overview.
   levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
   ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
   dictionary lookup after a bounded name-tree miss.
+- TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
+  parser. They visit indirect cycles once, release the GIL, index named
+  destinations once, and reject partial results above 4,096 nodes/entries,
+  8,192 edges, 64 levels, 32 destination indirections, or 1 MiB of
+  source/returned text. `set_toc` preflights the entry, depth, and
+  source/encoded-title boundaries before mutation.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

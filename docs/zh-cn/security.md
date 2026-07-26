@@ -92,6 +92,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   4,096个highlight矩形。
 - named destination lookup只访问引用cycle一次，并拒绝超过4,096个entry/node、
   8,192条edge、32层或1 MiB key byte的tree，而不会静默地将截断结果报告为未解析。
+- TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过4,096个
+  node/entry、8,192条edge、64层、32层destination间接引用或1 MiB source/returned
+  文本时拒绝部分结果。写入也会在修改前检查entry、深度和title文本上限。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的

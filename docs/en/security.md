@@ -108,6 +108,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - Named-destination lookup visits reference cycles once and rejects traversal
   above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
   instead of silently reporting a truncated tree as unresolved.
+- TOC reads use an iterative outline walk, visit reference cycles once, release
+  the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
+  64 levels, 32 destination indirections, or 1 MiB of source/returned text.
+  Writes enforce compatible entry, depth, and title-text limits before mutation.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.
