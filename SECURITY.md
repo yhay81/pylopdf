@@ -40,6 +40,11 @@ risky. When processing untrusted files:
   cached glyph records or Python layout objects can amplify one-byte text.
   The stable code is `text_glyph_count`; normal and table interpretation of one
   page share a single cumulative admission.
+- With `DocumentLimits.max_text_size` configured, plain-text extraction
+  preflights exact output and caps one private batch at twice the glyph-payload
+  budget. Inferred spaces plus line endings cannot outnumber non-empty glyphs.
+  The batch accepts at most 4,096 page entries and rejects repeated-page
+  amplification with `text_size`.
 - Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and

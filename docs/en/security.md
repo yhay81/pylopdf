@@ -84,6 +84,13 @@ AcroForm state selection. The bounded writer refuses the crossing write and
 does not install a partial renderer/extractor cache. Its default is `None` for
 compatibility; `DocumentLimits.web()` sets 64 MiB.
 
+When `max_text_size` is configured, plain-text extraction preflights exact
+assembled UTF-8 size and caps one private batch at twice that glyph-payload
+budget. Each non-empty glyph contributes at least one payload byte, while
+inferred gaps plus line endings cannot outnumber glyphs. The batch accepts at
+most 4,096 page entries, so repeated page numbers cannot bypass the policy.
+Refusals retain `text_size`; the compatible default remains `None`.
+
 `max_text_glyphs` bounds the records retained before line assembly and therefore
 also bounds the number of blocks, lines, spans, and words that structured text
 can materialize. Text and table interpretations of one page share one

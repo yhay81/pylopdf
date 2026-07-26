@@ -78,6 +78,12 @@ AcroForm state選択後の現在状態をpylopdfがserializeするときに適�
 writerは境界を越えるwriteを拒否し、不完全なrenderer／extractor cacheを登録しません。
 互換性のため既定値は`None`で、`DocumentLimits.web()`は64 MiBです。
 
+`max_text_size`を設定すると、plain-text抽出は組立後の正確なUTF-8 sizeを事前検査し、
+private batchをglyph payload budgetの2倍に制限します。空でないglyphはpayloadを
+最低1 byte持ち、推定gapと改行の合計はglyph数を超えません。batchは最大4,096 page
+entryのため、同じpageの反復でもポリシーを回避できません。拒否codeは`text_size`の
+ままで、互換性のため既定値は`None`です。
+
 `max_text_glyphs`はline組立前に保持するrecord数を制限するため、構造化textが
 materializeできるblock、line、span、wordの数も制限します。同じpageのtext解釈と
 table解釈は1回分の累積admissionを共有し、拒否されたpageはbudgetを消費しません。

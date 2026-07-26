@@ -100,6 +100,9 @@ const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 /// Bound one page-structure mutation batch before cloning or importing graphs.
 const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 
+/// Bound the private multi-page plain-text extraction input.
+const MAX_TEXT_EXTRACTION_PAGES: usize = 4_096;
+
 /// Bound search input and returned geometry independently from page text.
 const MAX_SEARCH_INPUT_BYTES: usize = 4_096;
 const DEFAULT_MAX_SEARCH_HITS: usize = 4_096;
@@ -5248,11 +5251,46 @@ impl _Document {
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
+        if page_numbers.len() > MAX_TEXT_EXTRACTION_PAGES {
+            return Err(PdfError::new_err(format!(
+                "cannot extract text from more than {MAX_TEXT_EXTRACTION_PAGES} page entries per call"
+            )));
+        }
+        // Every collected glyph contributes at least one UTF-8 byte. Plain
+        // assembly adds at most one inferred gap or line ending per glyph, so
+        // twice the configured payload budget is a complete output bound.
+        let max_output_size = self
+            .max_text_size
+            .map(|limit| {
+                limit.checked_mul(2).ok_or_else(|| {
+                    limit_err(
+                        "text_size",
+                        "configured text budget exceeds the platform limit",
+                    )
+                })
+            })
+            .transpose()?;
         let settings = self.interpreter_settings();
         py.detach(|| {
             let mut out = String::new();
             for number in &page_numbers {
-                out.push_str(&self.text_page(*number, settings.clone())?.text());
+                let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
+                let page_text = self
+                    .text_page(*number, settings.clone())?
+                    .text(remaining)
+                    .map_err(|_| {
+                        if let Some(limit) = max_output_size {
+                            limit_err(
+                                "text_size",
+                                format!(
+                                    "plain text output exceeds the {limit}-byte limit derived from max_text_size"
+                                ),
+                            )
+                        } else {
+                            limit_err("text_size", "plain text output exceeds the platform limit")
+                        }
+                    })?;
+                out.push_str(&page_text);
             }
             Ok(out)
         })

@@ -77,6 +77,12 @@ routing하는 데 사용할 수 있습니다. 구조 및 압축 해제 예산은
 writer는 경계를 넘는 write를 거부하며 불완전한 renderer／extractor cache를 설치하지
 않습니다. 호환성을 위한 기본값은`None`이고`DocumentLimits.web()`은64 MiB입니다.
 
+`max_text_size`를 설정하면plain-text 추출은 조립된 정확한UTF-8 size를 사전 검사하고
+private batch를glyph payload budget의2배로 제한합니다. 비어 있지 않은glyph는payload를
+최소1 byte 제공하며 추론gap과 줄바꿈 합계는glyph 수를 넘지 않습니다. batch는 최대
+4,096 page entry를 허용하므로 반복page 번호로policy를 우회할 수 없습니다. 거부code는
+`text_size`를 유지하고 호환성을 위한 기본값은`None`입니다.
+
 `max_text_glyphs`는line 조립 전에 유지하는record 수를 제한하므로 구조화text가
 materialize할 수 있는block, line, span, word 수도 제한합니다. 같은page의text 해석과
 table 해석은 하나의 누적admission을 공유하며 거부된page는budget을 소비하지 않습니다.

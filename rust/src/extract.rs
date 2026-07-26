@@ -1161,8 +1161,17 @@ impl TextPage {
         })
     }
 
-    pub(crate) fn text(&self) -> String {
-        assemble_text(&self.lines)
+    pub(crate) fn text(&self, max_size: Option<usize>) -> Result<String, usize> {
+        let size = max_size
+            .map(|limit| {
+                let size = assembled_text_size(&self.lines).ok_or(usize::MAX)?;
+                if size > limit {
+                    return Err(limit);
+                }
+                Ok(size)
+            })
+            .transpose()?;
+        Ok(assemble_text(&self.lines, size))
     }
 
     pub(crate) fn text_size(&self) -> usize {
@@ -1253,9 +1262,46 @@ fn glyph_end(glyph: &GlyphRecord) -> f64 {
     glyph_progress(glyph) + glyph.advance
 }
 
+/// Calculate the exact plain-text size before allocating the returned string.
+fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
+    let mut total = 0usize;
+    for (line_index, line) in lines.iter().enumerate() {
+        let mut line_size = 0usize;
+        let mut trailing_spaces = 0usize;
+        let mut ends_with_space = false;
+        let mut ends_with_newline = line_index > 0;
+        let mut prev_end: Option<f64> = None;
+        for glyph in line {
+            if needs_gap(prev_end, glyph) && !ends_with_space && !ends_with_newline {
+                line_size = line_size.checked_add(1)?;
+                trailing_spaces = trailing_spaces.checked_add(1)?;
+            }
+            line_size = line_size.checked_add(glyph.text.len())?;
+            let glyph_trailing_spaces = glyph
+                .text
+                .as_bytes()
+                .iter()
+                .rev()
+                .take_while(|byte| **byte == b' ')
+                .count();
+            if glyph_trailing_spaces == glyph.text.len() {
+                trailing_spaces = trailing_spaces.checked_add(glyph_trailing_spaces)?;
+            } else {
+                trailing_spaces = glyph_trailing_spaces;
+            }
+            ends_with_space = glyph.text.ends_with(' ');
+            ends_with_newline = glyph.text.ends_with('\n');
+            prev_end = Some(glyph_end(glyph));
+        }
+        line_size = line_size.checked_sub(trailing_spaces)?;
+        total = total.checked_add(line_size)?.checked_add(1)?;
+    }
+    Some(total)
+}
+
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
-fn assemble_text(lines: &[Vec<GlyphRecord>]) -> String {
-    let mut out = String::new();
+fn assemble_text(lines: &[Vec<GlyphRecord>], exact_size: Option<usize>) -> String {
+    let mut out = String::with_capacity(exact_size.unwrap_or(0));
     for line in lines {
         let mut prev_end: Option<f64> = None;
         for glyph in line {
@@ -1270,6 +1316,9 @@ fn assemble_text(lines: &[Vec<GlyphRecord>]) -> String {
             out.pop();
         }
         out.push('\n');
+    }
+    if let Some(size) = exact_size {
+        debug_assert_eq!(out.len(), size);
     }
     out
 }

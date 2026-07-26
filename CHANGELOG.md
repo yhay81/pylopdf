@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages consume no budget, direct Rust calls repeat the check, and refusals use
   `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
+- When `DocumentLimits.max_text_size` is configured, plain-text extraction now
+  preflights exact assembled UTF-8 size and caps one private extraction batch
+  at twice that payload budget. The direct Rust boundary also accepts at most
+  4,096 page entries, preventing repeated page numbers from amplifying a
+  bounded interpretation without bound. Refusals use `text_size`.
 
 ### Fixed
 - AES-256 output no longer accepts passwords above the PDF 2.0 127-byte

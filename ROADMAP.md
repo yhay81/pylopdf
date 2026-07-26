@@ -843,6 +843,12 @@ rather than waiting automatically for v1.x.
   ASCII payloads. Normal and table interpretation share one page admission,
   rejected pages consume no budget, failures use `text_glyph_count`, the web
   profile uses 65,536, and the Cloudflare example uses 16,384.
+- [x] Bound plain-text assembly amplification (2026-07-26).
+  With `max_text_size` configured, exact UTF-8 output size is preflighted before
+  allocation and safely derives a two-times output cap because inferred gaps
+  and line endings cannot outnumber non-empty glyphs. The private Rust batch
+  accepts at most 4,096 page entries. Repeated page numbers therefore cannot
+  bypass the policy; failures retain `text_size`.
 - [x] Measure and refine the PyEmscripten distribution (2026-07-26).
   Emscripten now omits the unsupported RTen inference runtime while preserving
   an explicit `OcrError` capability boundary and external OCR text-layer
