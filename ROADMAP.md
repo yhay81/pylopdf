@@ -639,6 +639,15 @@ known-limit behavior are polished together.
       with the GIL released, direct core calls repeat the boundary, and failed
       reads preserve document and fallback-cache state. `font_input_size` is the
       stable code and `None` is the trusted-input opt-out (2026-07-26).
+- [x] Bound generated text and remove wide-line prefix amplification
+      (2026-07-26). `insert_text` and `insert_textbox` default aggregate UTF-8
+      input to 1 MiB, reject before PyO3 copying or mutation, repeat the
+      boundary in direct Rust calls, and preflight textbox tab expansion
+      without allocating the expanded string. `text_input_size` is stable and
+      `None` is the trusted-input opt-out. The layout engine now measures a
+      complete paragraph first when it fits: on a 1,000,000,000-point-wide
+      page, one warmup plus five runs of `"word " * 10_000` fell from a
+      928.7 ms median to 31.1 ms (29.9x) while retaining one-line semantics.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

@@ -85,6 +85,19 @@ where
         }]);
     }
 
+    // Avoid measuring every UAX #14 prefix when the complete paragraph already
+    // fits. Besides the common short-line case, this keeps very wide textboxes
+    // linear rather than repeatedly shaping or encoding growing prefixes.
+    let visible = paragraph.trim_end_matches(char::is_whitespace);
+    let paragraph_width = measure(visible)?;
+    if paragraph_width <= max_width + FIT_TOLERANCE {
+        return Ok(vec![TextBoxLine {
+            text: visible.to_owned(),
+            width: paragraph_width,
+            justify: false,
+        }]);
+    }
+
     let mut lines = Vec::new();
     let mut start = 0;
     while start < paragraph.len() {

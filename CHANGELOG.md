@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successful default write remains readable with default `embfile_get()`.
   Direct Rust calls repeat the boundary, refusals are atomic and use
   `embedded_file_size`, and `None` explicitly opts trusted input out.
+- `Page.insert_text(..., max_text_size=1024 * 1024)` and
+  `Page.insert_textbox(..., max_text_size=1024 * 1024)` now bound aggregate
+  generated UTF-8 text before PyO3 copying or PDF mutation. Textbox tab
+  expansion is preflighted without materializing the expanded string, direct
+  Rust calls repeat the boundary, exact limits succeed, and refusals use
+  `LimitError.code == "text_input_size"`. `None` explicitly opts trusted input
+  out.
 
 ### Changed
 - The free-threaded extraction benchmark now writes a standalone
@@ -31,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extraction, rendering, and free-threaded buffer paths.
 
 ### Performance
+- `Page.insert_textbox()` now measures the complete paragraph first when it
+  fits on one line, avoiding repeated UAX #14 prefix measurement. On the paired
+  local 50,000-character Standard 14 wide-line benchmark, median insertion
+  fell from 928.7 ms to 31.1 ms (29.9x faster) while preserving layout
+  semantics.
 - PyEmscripten builds now apply fat LTO with one codegen unit while native
   builds retain Cargo's default release profile. In paired pinned CI runs this
   reduced the wheel by 113,135 bytes (2.78%), the installed extension by

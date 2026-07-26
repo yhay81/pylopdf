@@ -62,8 +62,8 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB)` | 標準14または上限付きshape済みsubsetを印字。`pylopdf[cjk]`はJP fontを自動選択。信頼できるfont inputは`None`で解除 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB)` | Core 14、上限付きOpenType、または自動JP fontの実幅でUAX #14折り返し。収まらなければ描画しない |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8 textを上限付きで標準14またはshape済みsubsetとして印字。`pylopdf[cjk]`はJP fontを自動選択。信頼できる各inputは`None`で解除 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、または自動JP fontの実幅でUAX #14折り返し。収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取り、1 call 1回のcycle-aware named-destination index、作成 |

@@ -62,8 +62,8 @@ per-stream budget and cannot be combined with `limits=`.
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `pixmap_output_size`, `ocr_model_size`,
-`ocr_dictionary_entries`, or
+`image_pixel_count`, `font_input_size`, `text_input_size`,
+`pixmap_output_size`, `ocr_model_size`, `ocr_dictionary_entries`, or
 `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
@@ -112,6 +112,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   64 MiB. Buffer input is rejected before its PyO3 copy and filename input is
   read through the bounded, GIL-released Rust path. `max_font_size=None`
   explicitly opts trusted workloads out.
+- `insert_text()` and `insert_textbox()` default generated text input to
+  1 MiB of UTF-8. Python checks the input before PyO3 copying, the Rust
+  boundary repeats the check, and textbox tab expansion is preflighted before
+  allocating the expanded string. `max_text_size=None` explicitly opts trusted
+  input out; refusals use `text_input_size`.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

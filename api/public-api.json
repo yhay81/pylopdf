@@ -1965,6 +1965,12 @@
                 "default": 67108864,
                 "kind": "keyword_only",
                 "name": "max_font_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
               }
             ],
             "returns": "None"
@@ -2057,6 +2063,12 @@
                 "default": 67108864,
                 "kind": "keyword_only",
                 "name": "max_font_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
               }
             ],
             "returns": "float"

@@ -59,8 +59,9 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `pixmap_output_size`, `ocr_model_size`,
-`ocr_dictionary_entries`, `decompression_unverifiable` 중
+`image_pixel_count`, `font_input_size`, `text_input_size`,
+`pixmap_output_size`, `ocr_model_size`, `ocr_dictionary_entries`,
+`decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -102,6 +103,11 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   OpenType input은 기본64 MiB입니다. buffer는PyO3 copy 전에 거부하고 filename은GIL을
   해제한 상한 적용Rust path에서 읽습니다. 신뢰 가능한workload는
   `max_font_size=None`으로 명시적으로 해제할 수 있습니다.
+- `insert_text()`와`insert_textbox()`의 생성text input은 기본UTF-8 1 MiB입니다.
+  Python은PyO3 copy 전에 검사하고Rust 경계도 다시 검사합니다. textbox는확장된
+  string을 할당하기 전에tab 확장량을 미리 검사합니다. 신뢰 가능한input은
+  `max_text_size=None`으로 명시적으로 해제할 수 있고 거부code는
+  `text_input_size`입니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로
