@@ -440,6 +440,9 @@ overview.
   snapshot detects changes but does not decide compatibility.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
+  Release CI builds all five native targets on architecture-matched standard
+  hosted runners and install-smokes every abi3 and cp314t artifact; do not
+  return Linux aarch64 or macOS x86_64 to an unexecuted cross-build.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;

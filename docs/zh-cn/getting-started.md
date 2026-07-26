@@ -19,6 +19,11 @@ pip install pylopdf
 pip install pylopdf[cjk]
 ```
 
+release CI 会在architecture匹配的runner上安装每个native platform wheel，并验证PDF
+创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖全部五个
+`abi3-py310`和五个CPython 3.14t artifact；sdist与PyEmscripten wheel各有独立的
+environment-specific gate。
+
 ## 打开、检查、保存 { #open-inspect-save }
 
 ```python

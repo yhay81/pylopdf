@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workload, equality check, and reproduction command. The normal benchmark no
   longer relies on a manually appended section that `bench/run.py` would erase,
   and report formatting has regression coverage.
+- Release builds now use architecture-matched GitHub-hosted runners and
+  install-smoke all five `abi3-py310` plus all five CPython 3.14t wheels.
+  Linux aarch64 and macOS x86_64 are no longer unexecuted cross-builds. A
+  non-publishing release dry run verified all ten create, save, reopen,
+  extraction, rendering, and free-threaded buffer paths.
 
 ### Performance
 - PyEmscripten builds now apply fat LTO with one codegen unit while native

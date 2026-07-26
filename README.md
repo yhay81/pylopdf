@@ -106,6 +106,12 @@ from Wasm; external OCR results can still be inserted with
 [WebAssembly guide](https://yhay81.github.io/pylopdf/wasm/) for the exact
 version matrix, local Pyodide workflow, resource policy, and release gates.
 
+Every release installs each of the five `abi3-py310` and five CPython 3.14t
+wheels on an architecture-matched Linux, macOS, or Windows runner and exercises
+PDF creation, saving, reopening, extraction, rendering, and immutable Pixmap
+storage. The sdist and PyEmscripten wheel have equivalent environment-specific
+gates, and every artifact carries build provenance.
+
 Building from source (requires a Rust toolchain):
 
 ```bash
