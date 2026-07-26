@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   streams through admission, decode, resize, and re-encode. It releases those
   borrows before mutating the atomic lopdf clone instead of cloning every
   complete encoded source, including sources skipped by the 64-million-pixel
-  per-image boundary.
+  per-image boundary. JPEG encoding also stops at one byte below the source
+  payload instead of materializing a complete result that cannot be adopted.
 
 ## [0.12.0] - 2026-07-26
 
