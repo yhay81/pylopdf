@@ -44,6 +44,12 @@ const MAX_EMBEDDED_FILE_TREE_NODES: usize = 4_096;
 const MAX_EMBEDDED_FILE_NAME_BYTES: usize = 1024 * 1024;
 const MAX_EMBEDDED_FILE_TREE_DEPTH: usize = 32;
 
+/// Bound page-label number-tree traversal and returned metadata.
+const MAX_PAGE_LABEL_ENTRIES: usize = 4_096;
+const MAX_PAGE_LABEL_TREE_NODES: usize = 4_096;
+const MAX_PAGE_LABEL_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_PAGE_LABEL_TREE_DEPTH: usize = 32;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -93,6 +99,9 @@ struct PagePlacement {
 ///
 /// FileSpec may be either an indirect reference or an inline dictionary.
 type EmbeddedFileEntry = (String, Object);
+
+/// One PageLabels number-tree item: start, style, prefix, and first number.
+type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
 
 /// Resolve one reference level, returning the original object on failure.
 fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
@@ -2967,6 +2976,118 @@ impl _Document {
     }
 }
 
+/// Collect page-label definitions from a bounded, cycle-aware number-tree walk.
+fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
+    let Some(root) = doc
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get(b"PageLabels").ok())
+    else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    let mut visited = HashSet::new();
+    let mut stack = vec![(root, 1usize)];
+    let mut nodes = 0usize;
+    let mut edges = 0usize;
+    let mut pairs_seen = 0usize;
+    let mut encoded_text_bytes = 0usize;
+    let mut decoded_text_bytes = 0usize;
+    while let Some((node_object, depth)) = stack.pop() {
+        if let Object::Reference(id) = node_object
+            && !visited.insert(*id)
+        {
+            continue;
+        }
+        let Ok(node) = deref_object(doc, node_object).as_dict() else {
+            continue;
+        };
+        nodes = nodes.saturating_add(1);
+        if nodes > MAX_PAGE_LABEL_TREE_NODES {
+            return Err(PdfError::new_err(format!(
+                "page-label number tree exceeds the {MAX_PAGE_LABEL_TREE_NODES}-node safety limit"
+            )));
+        }
+        if let Ok(nums) = node.get(b"Nums").and_then(Object::as_array) {
+            pairs_seen = pairs_seen
+                .checked_add(nums.len().div_ceil(2))
+                .ok_or_else(|| {
+                    PdfError::new_err("page-label number tree exceeds the platform size limit")
+                })?;
+            if pairs_seen > MAX_PAGE_LABEL_ENTRIES {
+                return Err(PdfError::new_err(format!(
+                    "page-label number tree exceeds the {MAX_PAGE_LABEL_ENTRIES}-entry safety limit"
+                )));
+            }
+            for pair in nums.chunks(2) {
+                let [key, value] = pair else { continue };
+                let Some(start) = resolve_i64(doc, key) else {
+                    continue;
+                };
+                let Ok(label) = deref_object(doc, value).as_dict() else {
+                    continue;
+                };
+                let style = label
+                    .get(b"S")
+                    .and_then(|object| deref_object(doc, object).as_name())
+                    .ok()
+                    .map(|name| {
+                        encoded_text_bytes = encoded_text_bytes.saturating_add(name.len());
+                        let text = String::from_utf8_lossy(name).into_owned();
+                        decoded_text_bytes = decoded_text_bytes.saturating_add(text.len());
+                        text
+                    });
+                let prefix = label
+                    .get(b"P")
+                    .ok()
+                    .map(|object| deref_object(doc, object))
+                    .and_then(|object| {
+                        if let Object::String(encoded, _) = object {
+                            encoded_text_bytes = encoded_text_bytes.saturating_add(encoded.len());
+                        }
+                        decode_text_string(object).ok()
+                    })
+                    .inspect(|text| {
+                        decoded_text_bytes = decoded_text_bytes.saturating_add(text.len());
+                    });
+                if encoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
+                    || decoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
+                {
+                    return Err(PdfError::new_err(format!(
+                        "page-label text exceeds the {MAX_PAGE_LABEL_TEXT_BYTES}-byte safety limit"
+                    )));
+                }
+                let first = label
+                    .get(b"St")
+                    .ok()
+                    .and_then(|object| resolve_i64(doc, object))
+                    .unwrap_or(1);
+                out.push((start, style, prefix, first));
+            }
+        }
+        if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
+            if !kids.is_empty() && depth >= MAX_PAGE_LABEL_TREE_DEPTH {
+                return Err(PdfError::new_err(format!(
+                    "page-label number tree exceeds the {MAX_PAGE_LABEL_TREE_DEPTH}-level safety limit"
+                )));
+            }
+            edges = edges.checked_add(kids.len()).ok_or_else(|| {
+                PdfError::new_err("page-label number tree exceeds the platform size limit")
+            })?;
+            if edges > MAX_PAGE_LABEL_TREE_NODES {
+                return Err(PdfError::new_err(format!(
+                    "page-label number tree exceeds the {MAX_PAGE_LABEL_TREE_NODES}-edge safety limit"
+                )));
+            }
+            for kid in kids {
+                stack.push((kid, depth + 1));
+            }
+        }
+    }
+    out.sort_by_key(|(start, _, _, _)| *start);
+    Ok(out)
+}
+
 /// Visit valid `(name, FileSpec)` items in the EmbeddedFiles name tree.
 ///
 /// Recurse through `/Kids` with depth, cycle, node, entry, and decoded-name
@@ -4681,58 +4802,8 @@ impl _Document {
     ///
     /// Each item is `(start index, style, prefix, first number)`. Recurse through
     /// Kids and return entries sorted by start page.
-    fn get_page_labels(&self) -> Vec<(i64, Option<String>, Option<String>, i64)> {
-        let Some(root) = self
-            .doc
-            .catalog()
-            .ok()
-            .and_then(|c| c.get(b"PageLabels").ok().cloned())
-            .and_then(|o| deref_dict(&self.doc, &o))
-        else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut stack = vec![(root, 0usize)];
-        while let Some((node, depth)) = stack.pop() {
-            if depth > 32 {
-                continue;
-            }
-            if let Ok(nums) = node.get(b"Nums").and_then(Object::as_array) {
-                for pair in nums.chunks(2) {
-                    let [key, value] = pair else { continue };
-                    let Some(start) = resolve_i64(&self.doc, key) else {
-                        continue;
-                    };
-                    let Some(label) = deref_dict(&self.doc, value) else {
-                        continue;
-                    };
-                    let style = label
-                        .get(b"S")
-                        .and_then(Object::as_name)
-                        .ok()
-                        .map(|n| String::from_utf8_lossy(n).into_owned());
-                    let prefix = label
-                        .get(b"P")
-                        .ok()
-                        .and_then(|o| decode_text_string(o).ok());
-                    let st = label
-                        .get(b"St")
-                        .ok()
-                        .and_then(|o| resolve_i64(&self.doc, o))
-                        .unwrap_or(1);
-                    out.push((start, style, prefix, st));
-                }
-            }
-            if let Ok(kids) = node.get(b"Kids").and_then(Object::as_array) {
-                for kid in kids.clone() {
-                    if let Some(dict) = deref_dict(&self.doc, &kid) {
-                        stack.push((dict, depth + 1));
-                    }
-                }
-            }
-        }
-        out.sort_by_key(|(start, _, _, _)| *start);
-        out
+    fn get_page_labels(&self, py: Python<'_>) -> PyResult<Vec<PageLabelEntry>> {
+        py.detach(|| collect_page_labels(&self.doc))
     }
 
     /// Write labels as a flat number tree; empty removes it, Python validates.
@@ -4740,15 +4811,35 @@ impl _Document {
         &mut self,
         labels: Vec<(i64, Option<String>, Option<String>, i64)>,
     ) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        if labels.len() > MAX_PAGE_LABEL_ENTRIES {
+            return Err(PdfError::new_err(format!(
+                "cannot set more than {MAX_PAGE_LABEL_ENTRIES} page-label ranges"
+            )));
+        }
         let mut nums = Vec::with_capacity(labels.len() * 2);
+        let mut encoded_text_bytes = 0usize;
+        let mut decoded_text_bytes = 0usize;
         for (start, style, prefix, st) in labels {
             let mut label = Dictionary::new();
             if let Some(s) = style {
+                encoded_text_bytes = encoded_text_bytes.saturating_add(s.len());
+                decoded_text_bytes = decoded_text_bytes.saturating_add(s.len());
                 label.set("S", Object::Name(s.into_bytes()));
             }
             if let Some(p) = prefix {
-                label.set("P", text_string(&p));
+                decoded_text_bytes = decoded_text_bytes.saturating_add(p.len());
+                let encoded = text_string(&p);
+                if let Object::String(bytes, _) = &encoded {
+                    encoded_text_bytes = encoded_text_bytes.saturating_add(bytes.len());
+                }
+                label.set("P", encoded);
+            }
+            if encoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
+                || decoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
+            {
+                return Err(PdfError::new_err(format!(
+                    "page-label text exceeds the {MAX_PAGE_LABEL_TEXT_BYTES}-byte safety limit"
+                )));
             }
             if st != 1 {
                 label.set("St", st);
@@ -4762,6 +4853,7 @@ impl _Document {
         } else {
             catalog.set("PageLabels", dictionary! { "Nums" => Object::Array(nums) });
         }
+        self.invalidate_hayro_pdf();
         Ok(())
     }
 

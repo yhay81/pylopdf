@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Page-label number-tree reads now borrow node shapes, visit indirect cycles
+  once, release the GIL, and reject partial output above 4,096 entries/nodes,
+  32 levels, or 1 MiB of encoded or decoded style/prefix text. The previous
+  depth-only walk cloned nodes and could repeat a cycle before silently
+  truncating it. `Document.set_page_labels()` enforces the same entry/text
+  boundary before mutation, so failed edits preserve document bytes and caches.
 - `Document.get_pdfa_claim(*, max_size=1024 * 1024)` now bounds every XMP
   metadata decoding layer before inspecting a PDF/A self-declaration. Known
   larger packets can raise the positive limit or use `None` as an explicit

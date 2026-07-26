@@ -89,6 +89,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied
   to every filter layer. Raise `max_size=` for a known large packet;
   `max_size=None` explicitly accepts unbounded materialization.
+- Page-label number-tree reads reject partial output above 4,096 entries/nodes,
+  32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
+  are visited once; writes enforce the same entry/text boundary.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

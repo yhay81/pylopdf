@@ -31,7 +31,7 @@ deprecation lifecycle.
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management |
 | `get_toc()` / `set_toc(toc)` | outlines (1-based pages) |
-| `get_page_labels()` / `set_page_labels(labels)` | page label ranges |
+| `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | AcroForm list & fill with native widget appearances |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | file attachments with bounded decoding; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |

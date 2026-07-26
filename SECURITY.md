@@ -42,6 +42,9 @@ risky. When processing untrusted files:
   by default and raises `LimitError` with code `xmp_metadata_size`. Raise
   `max_size=` for a known large packet; `None` explicitly accepts unbounded
   materialization.
+- Page-label number-tree reads reject partial output above 4,096 entries/nodes,
+  32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
+  are visited once, and writes enforce the same entry/text boundary.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.
