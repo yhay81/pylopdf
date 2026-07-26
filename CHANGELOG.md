@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.render_page()`, `Page.render()`, and
+  `Pixmap.tobytes(max_size=64 * 1024 * 1024)` now bound a single encoded PNG
+  before Python `bytes` conversion. The shared PNG writer refuses the crossing
+  write without retaining output beyond the configured budget; exact
+  boundaries succeed, direct core rendering repeats the check, and `None`
+  explicitly opts trusted workloads out. Render failures use
+  `LimitError.code == "render_output_size"` and direct Pixmap failures use
+  `"pixmap_output_size"`. `Pixmap.save()` now streams the same encoder directly
+  into its failure-atomic sibling instead of retaining a second completed PNG.
 - `OcrEngine(..., max_model_size=64 * 1024 * 1024)` now bounds the
   cumulative detector, recognizer, and dictionary input before RTen parses
   either model. Paths are read with the GIL released through a one-byte-overrun
@@ -33,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LimitError.code` values `image_input_size` and `image_pixel_count`, and
   accept `None` as the explicit trusted-input opt-out. `pixmap=` remains
   outside these limits because rendered Pixmaps are already bounded.
-- `Pixmap.save(path)` now writes its completed PNG to an unpredictable,
-  exclusively created same-directory sibling before atomically replacing the
+- `Pixmap.save(path)` now uses an unpredictable, exclusively created
+  same-directory sibling before atomically replacing the
   requested path. Replacement failures preserve existing output and remove the
   temporary file, existing regular-file permissions are retained, and a final
   symlink remains in place while its target is updated. Encoding and I/O still

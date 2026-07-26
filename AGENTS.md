@@ -226,6 +226,11 @@ overview.
   and PyEmscripten execution; `max_size=None` is the explicit unbounded opt-out
   and limit failures return no partial list. Other simultaneous calls or edits
   on the same `Document` are outside the contract.
+- `Document.render_page`, `Page.render`, and `Pixmap.tobytes` default to a
+  64 MiB encoded-PNG output boundary. The shared PNG writer refuses the write
+  crossing the limit before Python bytes conversion. `max_size=None` is the
+  explicit trusted-output opt-out. Render failures use `render_output_size`;
+  direct Pixmap failures use `pixmap_output_size`.
 - `Document.render_page_svg` and `Page.render_svg` default to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
   creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.7
@@ -489,12 +494,12 @@ overview.
 - `Pixmap` is immutable. Version-specific builds expose its RGBA8 storage
   through a read-only zero-copy buffer. The buffer protocol remains unavailable
   under `abi3-py310` because `Py_buffer` entered the stable ABI in Python 3.11;
-  `Pixmap.samples` is the one-copy portable fallback. `Pixmap.save` encodes and
-  writes PNG output while the GIL is released. It uses an unpredictable,
-  exclusively created same-directory sibling and atomically replaces the
-  requested path only after a complete write. Preserve existing regular-file
-  permissions and final symlinks, clean up temporaries on failure, and map
-  errors to `PdfError`.
+  `Pixmap.samples` is the one-copy portable fallback. `Pixmap.save` streams PNG
+  encoding directly to disk while the GIL is released rather than retaining a
+  second completed PNG. It uses an unpredictable, exclusively created
+  same-directory sibling and atomically replaces the requested path only after
+  a complete write. Preserve existing regular-file permissions and final
+  symlinks, clean up temporaries on failure, and map errors to `PdfError`.
 - Concurrent operations on distinct `Document` objects are supported.
   Concurrent external calls or edits on the same `Document` are not; `Page`
   shares its parent's restriction. `Document.render_pages` is the supported

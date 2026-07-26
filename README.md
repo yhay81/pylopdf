@@ -153,7 +153,7 @@ images = doc[0].get_images()         # [{"width", "height", "bbox", "ext", "imag
 pix = doc[0].get_pixmap(dpi=144, clip=(0, 0, 300, 200))  # cropped RGBA8 pixels for NumPy / PIL
 
 # Rendering
-png: bytes = doc.render_page(0)             # 72 dpi
+png: bytes = doc.render_page(0)             # 72 dpi; 64 MiB encoded-output cap
 png2x: bytes = doc.render_page(0, scale=2)  # 144 dpi
 png300 = doc.render_page(0, dpi=300)        # by resolution
 png_bg = doc.render_page(0, background=(255, 255, 255))  # white background (default: transparent)
@@ -372,7 +372,7 @@ signed_pdf: bytes = out.getvalue()
 | `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
 | `set_metadata(dict)` | Atomically set standard metadata under the 1 MiB input/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
-| `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
+| `render_page(pno, scale=1.0, dpi=None, background=None, max_size=64 MiB)` | Render bounded PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total); `None` opts out |
 | `render_pages(pages=None, scale=1.0, workers=None, max_size=512 MiB, ...)` | Render up to 4,096 ordered PNGs from one immutable snapshot; up to 4 workers by default, ~512 MB estimated live-work concurrency, and a cumulative encoded-output cap (`None` opts out) |
 | `render_page_svg(pno, max_size=64 MiB)` | Render bounded UTF-8 SVG; over-limit output is rejected before Python string conversion, `None` opts out |
 | `compress_images(dpi=150, quality=75)` | Lossily downsample and JPEG-recompress safe unmasked DeviceGray/DeviceRGB DCT or Flate XObjects; preserves the largest reuse, skips non-smaller output, and returns typed byte/count statistics |
@@ -404,7 +404,7 @@ signed_pdf: bytes = out.getvalue()
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads per page |
 | `get_drawings()` | Extract interpreted vector fill/stroke paths as typed pymupdf-style dictionaries with display-space line/cubic geometry, RGB/opacity, fill rule, width, cap, join, and dashes |
-| `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()` / failure-atomic PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()`) |
+| `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=/pixmap=, rotate=0, keep_proportion=True, overlay=True, max_size=64 MiB, max_pixels=64,000,000)` | Draw JPEG without recompression, bounded PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; `None` opts trusted encoded input or PNG pixels out of its boundary; optional clockwise right-angle rotation and rect use display coordinates |
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True, max_font_size=64 MiB)` | Print multiline text with a standard-14 or bounded shaped subset font; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han; `None` opts trusted font input out; upright on rotated pages |

@@ -1479,19 +1479,31 @@ fn render_pdf_page(
     Ok(render(page, &cache, interpreter_settings, &render_settings))
 }
 
-/// Convert a rendered pixmap into the fast PNG representation used publicly.
-fn rendered_png(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
+/// Convert a rendered pixmap into the bounded fast PNG representation used publicly.
+fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     let data = rgba_bytes(pixmap);
-    crate::extract::encode_png(
+    match crate::extract::encode_png_bounded(
         width,
         height,
         png::ColorType::Rgba,
         &data,
         png::Compression::Fast,
-    )
-    .ok_or_else(|| "failed to encode PNG".to_owned())
+        max_size,
+    ) {
+        Ok(png) => Ok(png),
+        Err(crate::extract::PngEncodeError::OutputLimit) => {
+            let limit = max_size.expect("PNG output can exceed only a configured limit");
+            Err(limit_err(
+                "render_output_size",
+                format!("rendered PNG exceeds the {limit}-byte encoded-output limit"),
+            ))
+        }
+        Err(crate::extract::PngEncodeError::Encoding(error)) => {
+            Err(PdfError::new_err(format!("failed to encode PNG: {error}")))
+        }
+    }
 }
 
 /// Clone a dictionary while allowing an indirect reference.
@@ -5216,12 +5228,18 @@ impl _Document {
         page_number: u32,
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
+        max_output_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
+        if max_output_size == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_output_size must be a positive integer or None",
+            ));
+        }
         let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
         // PNG encoding can cost more than rasterization, so release the GIL and
         // use Fast/fdeflate. Balanced is tens of times slower for about 10%
         // smaller output and made PNG the dominant render cost in benchmarks.
-        py.detach(|| rendered_png(pixmap).map_err(PdfError::new_err))
+        py.detach(|| rendered_png(pixmap, max_output_size))
     }
 
     /// Render one-based pages to PNG in input order on a bounded worker pool.
@@ -5259,10 +5277,10 @@ impl _Document {
                 .expect("empty page lists return before rendering");
             let output_bytes = AtomicUsize::new(0);
             let render_one = |&page_number: &u32| -> PyResult<Vec<u8>> {
-                let png =
+                let pixmap =
                     render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
-                        .and_then(rendered_png)
                         .map_err(PdfError::new_err)?;
+                let png = rendered_png(pixmap, max_output_size)?;
                 if let Some(limit) = max_output_size
                     && output_bytes
                         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {

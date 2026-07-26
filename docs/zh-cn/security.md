@@ -56,7 +56,7 @@ Web预设目前独立应用以下上限：
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
-`font_input_size`、`ocr_model_size`、`ocr_dictionary_entries`、
+`font_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
@@ -71,15 +71,19 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 `doc.is_repaired`（metadata probe中的`repaired`）为`True`；保存会规范化xref数据。
 
 - 每页渲染上限为6400万像素。
+- `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG
+  输出默认上限为64 MiB。writer会在返回Python `bytes`前拒绝越界write；
+  `max_size=None`可显式取消。rendering使用`render_output_size`，
+  Pixmap直接encode使用`pixmap_output_size`。
 - `Document.tobytes()`对普通、object/xref stream及加密输出统一应用512 MiB默认
   serialization上限。Rust writer会在转换为Python `bytes`之前拒绝越界write；
   `max_size=None`可显式取消。`save()`先流式写入target同directory中安全创建的
   sibling，仅在完整写入后原子替换请求path，因此serialization或替换失败会保留
   现有file。它不受此in-memory预算限制。即使后续I/O失败，`garbage`、`deflate`、
   `object_streams`等save option仍保持已记录的mutation语义。
-- `Pixmap.save()`同样写入target directory中不可预测且排他创建的sibling，仅在
-  PNG encode与完整write成功后原子替换请求path。替换失败会保留现有output并删除
-  临时file。
+- `Pixmap.save()`把PNG encode直接流式写入target directory中不可预测且排他创建的
+  sibling，仅在完整write成功后原子替换请求path，不会在内存中再保留一份完成PNG。
+  替换失败会保留现有output并删除临时file。
 - `Page.insert_image()`默认将encoded JPEG/PNG input限制为64 MiB，将decoded PNG
   input限制为64,000,000像素。filename通过释放GIL的Rust边界进行有上限读取，PNG
   dimension在分配decoded storage前检查。可信workload可用`max_size=None`／

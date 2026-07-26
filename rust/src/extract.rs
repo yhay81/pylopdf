@@ -12,6 +12,7 @@ use hayro::hayro_interpret::{
     InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
 use std::collections::{BTreeMap, HashMap};
+use std::io::{self, Write};
 use std::sync::Arc;
 
 use hayro::hayro_syntax::page::Page;
@@ -2492,11 +2493,93 @@ fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
     (x0, y0, x1, y1)
 }
 
-/// Encode pixel data as PNG.
+/// Write pixel data as PNG.
 ///
 /// Rendering uses Fast/fdeflate: Balanced is tens of times slower for about 10%
 /// smaller output and makes PNG the dominant render cost in benchmarks.
 /// `get_images` keeps Balanced because extracted images are stored artifacts.
+pub(crate) fn write_png<W: Write>(
+    output: W,
+    width: u32,
+    height: u32,
+    color: png::ColorType,
+    data: &[u8],
+    compression: png::Compression,
+) -> Result<(), png::EncodingError> {
+    let mut encoder = png::Encoder::new(output, width, height);
+    encoder.set_color(color);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(compression);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(data)?;
+    writer.finish()
+}
+
+pub(crate) enum PngEncodeError {
+    Encoding(png::EncodingError),
+    OutputLimit,
+}
+
+struct BoundedPngOutput {
+    bytes: Vec<u8>,
+    max_size: Option<usize>,
+    exceeded: bool,
+}
+
+impl BoundedPngOutput {
+    fn new(max_size: Option<usize>) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_size,
+            exceeded: false,
+        }
+    }
+}
+
+impl Write for BoundedPngOutput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
+        if self.max_size.is_some_and(|limit| {
+            self.bytes
+                .len()
+                .checked_add(buffer.len())
+                .is_none_or(|size| size > limit)
+        }) {
+            self.exceeded = true;
+            return Err(io::Error::other("PNG output size limit exceeded"));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Encode pixel data as PNG without retaining output beyond `max_size`.
+pub(crate) fn encode_png_bounded(
+    width: u32,
+    height: u32,
+    color: png::ColorType,
+    data: &[u8],
+    compression: png::Compression,
+    max_size: Option<usize>,
+) -> Result<Vec<u8>, PngEncodeError> {
+    let mut output = BoundedPngOutput::new(max_size);
+    let result = write_png(&mut output, width, height, color, data, compression);
+    if output.exceeded {
+        return Err(PngEncodeError::OutputLimit);
+    }
+    result.map_err(PngEncodeError::Encoding)?;
+    Ok(output.bytes)
+}
+
+/// Encode pixel data as PNG.
 pub(crate) fn encode_png(
     width: u32,
     height: u32,
@@ -2504,17 +2587,7 @@ pub(crate) fn encode_png(
     data: &[u8],
     compression: png::Compression,
 ) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut out, width, height);
-        encoder.set_color(color);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_compression(compression);
-        let mut writer = encoder.write_header().ok()?;
-        writer.write_image_data(data).ok()?;
-        writer.finish().ok()?;
-    }
-    Some(out)
+    encode_png_bounded(width, height, color, data, compression, None).ok()
 }
 
 /// Encode decoded RGB/gray raster data plus separate alpha as PNG.

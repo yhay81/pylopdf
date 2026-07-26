@@ -86,6 +86,7 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
+_DEFAULT_MAX_RENDER_PAGE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_SVG_SIZE = 64 * 1024 * 1024
@@ -2249,10 +2250,17 @@ class Page:
         *,
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        max_size: int | None = _DEFAULT_MAX_RENDER_PAGE_SIZE,
     ) -> bytes:
-        """Render the page to PNG with :meth:`Document.render_page` arguments."""
+        """Render the page to bounded PNG with :meth:`Document.render_page` arguments."""
         self._page_number()
-        return self._document.render_page(self._pno, scale, dpi=dpi, background=background)
+        return self._document.render_page(
+            self._pno,
+            scale,
+            dpi=dpi,
+            background=background,
+            max_size=max_size,
+        )
 
     def render_svg(
         self,
@@ -3074,6 +3082,7 @@ class Document:
         *,
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        max_size: int | None = _DEFAULT_MAX_RENDER_PAGE_SIZE,
     ) -> bytes:
         """Render zero-based page ``pno`` to PNG.
 
@@ -3081,8 +3090,10 @@ class Document:
         may be used instead (144 equals scale 2.0) but not together with a
         nondefault scale. ``background`` is an RGB or RGBA tuple with components
         from 0 to 255; the default is transparent. Output is limited to 65,535
-        pixels per side and 64,000,000 total pixels.
+        pixels per side and 64,000,000 total pixels. ``max_size`` defaults to
+        64 MiB of encoded PNG output; pass ``None`` only for trusted workloads.
         """
+        _validate_optional_positive_int("max_size", max_size)
         if dpi is not None:
             if scale != 1.0:
                 msg = "scale and dpi cannot both be specified"
@@ -3091,7 +3102,7 @@ class Document:
         rgba = _normalize_background(background)
         page_number = self._lopdf_page_number(pno)
         self._ensure_fallback_fonts()
-        result = self._doc.render_page_png(page_number, scale, rgba)
+        result = self._doc.render_page_png(page_number, scale, rgba, max_size)
         self._emit_warnings()
         return result
 
