@@ -108,6 +108,8 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - Named-destination lookup visits reference cycles once and rejects traversal
   above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
   instead of silently reporting a truncated tree as unresolved.
+  `Page.get_links()` builds one borrowed index per call rather than traversing
+  the tree again for every named link.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
   the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
   64 levels, 32 destination indirections, or 1 MiB of source/returned text.

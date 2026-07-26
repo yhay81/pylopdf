@@ -66,7 +66,7 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14、明示OpenType、または自動選択JP fontの実幅でUAX #14折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層（searchable PDF化） |
 | `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取り、cycle-aware named destination、作成 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取り、1 call 1回のcycle-aware named-destination index、作成 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
 `items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashesを持つ

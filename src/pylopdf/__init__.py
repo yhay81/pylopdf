@@ -1826,8 +1826,9 @@ class Page:
         GoTo named destinations resolve from both the ``/Names`` name tree and
         the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
         1 MiB aggregate metadata-text boundaries with :meth:`annots`. Name-tree
-        resolution is cycle-aware and rejects excessive entries, nodes, edges,
-        depth, or key bytes instead of returning a silent unresolved result.
+        resolution builds one borrowed index per call, is cycle-aware, and
+        rejects excessive entries, nodes, edges, depth, or key bytes instead of
+        returning a silent unresolved result.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {

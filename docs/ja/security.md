@@ -100,7 +100,8 @@ xref dataを正規化します。
   dependent object作成とcache無効化の前に検査します。
 - named destination lookupは参照cycleを一度だけ訪問し、4,096 entry/node、
   8,192 edge、深さ32、key byte 1 MiBを超えるtreeを、通常の未解決として黙って
-  扱わず拒否します。
+  扱わず拒否します。`Page.get_links()`はnamed linkごとにtreeを再走査せず、
+  1 callにつき1つのborrowed indexを構築します。
 - TOC読み取りは反復outline walkで参照cycleを一度だけ訪問し、GILを解放します。
   4,096 node/entry、8,192 edge、深さ64、destination間接参照32段、source/returned
   text 1 MiBを超える部分結果を拒否します。書き込みもentry・深さ・title textを
