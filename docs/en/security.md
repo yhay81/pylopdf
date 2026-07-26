@@ -63,7 +63,7 @@ per-stream budget and cannot be combined with `limits=`.
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
 `embedded_file_input_size`, `form_field_input_size`,
-`xmp_metadata_size`, `render_output_size`,
+`annotation_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
@@ -208,7 +208,8 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   or 1 MiB of aggregate encoded/returned metadata text per call. Adds enforce
   the same page count, 1 MiB generated subtype plus Contents/URI input, and
   4,096 highlight rectangles before creating dependent objects or invalidating
-  caches.
+  caches. Caller text is rejected before PyO3 copying or rectangle iteration
+  with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
   above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
   instead of silently reporting a truncated tree as unresolved.

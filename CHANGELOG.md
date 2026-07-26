@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Annotation creation now rejects aggregate generated subtype plus
+  Contents/URI input above 1 MiB before PyO3 string copying, rectangle
+  iteration, or PDF mutation. Direct Rust calls repeat the boundary,
+  `add_highlight_annot` stops at rectangle 4,097 without first materializing
+  the complete input, and refusals use the stable code
+  `annotation_input_size`.
 - `peek_metadata(..., *, max_file_size=None)` can now reject oversized path or
   byte input before metadata parsing. Path reads use a one-byte-overrun
   boundary, direct Rust calls repeat the check, exact limits succeed, and

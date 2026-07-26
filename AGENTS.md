@@ -447,7 +447,10 @@ overview.
   destination text per call. Creation must preflight the same page count,
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
-  caches. Successful output must remain readable under the same budget.
+  caches. Caller annotation text must stop before PyO3 copying with
+  `annotation_input_size`, direct Rust calls repeat the boundary, and
+  highlight iterables stop at item 4,097 without complete materialization.
+  Successful output must remain readable under the same budget.
 - Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
   once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
   levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an

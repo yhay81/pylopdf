@@ -2645,6 +2645,31 @@ fn bounded_annotation_filespec_name(
     }
 }
 
+/// Bound caller-supplied annotation text before encoding or PDF mutation.
+fn validate_annotation_input<'a>(
+    values: impl IntoIterator<Item = &'a [u8]>,
+    label: &str,
+) -> PyResult<()> {
+    let mut total = 0usize;
+    for value in values {
+        total = total.checked_add(value.len()).ok_or_else(|| {
+            limit_err(
+                "annotation_input_size",
+                "annotation input exceeds the platform size limit",
+            )
+        })?;
+        if total > MAX_ANNOTATION_METADATA_BYTES {
+            return Err(limit_err(
+                "annotation_input_size",
+                format!(
+                    "annotation subtype and {label} input exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte UTF-8 safety limit"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Python class holding a `lopdf::Document`.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct _Document {
@@ -6639,17 +6664,15 @@ impl _Document {
                 "highlight annotations require 1 to {MAX_HIGHLIGHT_RECTS} rectangles"
             )));
         }
+        validate_annotation_input(
+            [
+                b"Highlight".as_slice(),
+                content.as_deref().unwrap_or_default().as_bytes(),
+            ],
+            "content",
+        )?;
         let encoded_content = match content {
             Some(content) => {
-                if content
-                    .len()
-                    .checked_add(b"Highlight".len())
-                    .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
-                {
-                    return Err(PdfError::new_err(format!(
-                        "annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
-                    )));
-                }
                 let encoded = text_string(&content);
                 if encoded.as_str().is_ok_and(|bytes| {
                     bytes
@@ -6657,9 +6680,12 @@ impl _Document {
                         .checked_add(b"Highlight".len())
                         .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
                 }) {
-                    return Err(PdfError::new_err(format!(
-                        "encoded annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
-                    )));
+                    return Err(limit_err(
+                        "annotation_input_size",
+                        format!(
+                            "encoded annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
+                        ),
+                    ));
                 }
                 Some(encoded)
             }
@@ -6733,15 +6759,7 @@ impl _Document {
         rect: (f64, f64, f64, f64),
         uri: String,
     ) -> PyResult<()> {
-        if uri
-            .len()
-            .checked_add(b"Link".len())
-            .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
-        {
-            return Err(PdfError::new_err(format!(
-                "annotation subtype and URI exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
-            )));
-        }
+        validate_annotation_input([b"Link".as_slice(), uri.as_bytes()], "URI")?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
         self.ensure_page_annotation_capacity(page_id, 1)?;

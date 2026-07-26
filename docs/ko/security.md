@@ -59,7 +59,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
 `interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
-`form_field_input_size`, `xmp_metadata_size`, `render_output_size`,
+`form_field_input_size`, `annotation_input_size`, `xmp_metadata_size`,
+`render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
@@ -187,7 +188,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - 주석과link 읽기는4,096 `/Annots` entry 또는call당aggregate encoded/returned
   metadata text 1 MiB를 넘는 부분 결과를 거부합니다. 추가는dependent object 생성과
   cache 무효화 전에 같은page 수, 생성subtype과Contents/URI 입력 합계1 MiB,
-  highlight 4,096 rect를 검사합니다.
+  highlight 4,096 rect를 검사합니다. caller text는PyO3 copy 또는rectangle
+  iteration 전에`annotation_input_size`로 거부하며 highlight iteration은4,097번째
+  item에서 중단됩니다.
 - named destination lookup은 참조cycle을 한 번만 방문하고4,096 entry/node,
   8,192 edge, 깊이32 또는key byte 1 MiB를 넘는tree를 단순 미해결로 조용히
   처리하지 않고 거부합니다. `Page.get_links()`는named link마다tree를 다시
