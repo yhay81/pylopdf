@@ -62,7 +62,7 @@ repos:
         files: (^|/)pyproject\.toml$
         # trove-classifiers also validates that classifiers actually exist.
         # schema-store is excluded because it raises an internal error.
-        additional_dependencies: ["packaging>=24.2", "trove-classifiers"]
+        additional_dependencies: ["packaging>=26.2", "trove-classifiers"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.16.0
