@@ -87,6 +87,10 @@ xref dataを正規化します。
 - ページラベル番号treeは4,096 entry/node、深さ32、encoded/decoded
   style・prefix text合計1 MiBを超える部分結果を拒否します。参照cycleは一度だけ
   訪問し、書き込みにも同じentry/text上限を適用します。
+- AcroForm field treeは4,096 entry/node、8,192 edge、深さ64、encoded/
+  decoded/returned name・value 1 MiB、choice value 4,096 itemを超える部分結果を
+  拒否します。参照cycleは一度だけ訪問し、継承値は返却leafごとに課金します。
+  fillにも同じtree上限と入力値1 MiB上限を原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

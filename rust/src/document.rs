@@ -50,6 +50,15 @@ const MAX_PAGE_LABEL_TREE_NODES: usize = 4_096;
 const MAX_PAGE_LABEL_TEXT_BYTES: usize = 1024 * 1024;
 const MAX_PAGE_LABEL_TREE_DEPTH: usize = 32;
 
+/// Bound AcroForm field-tree traversal and returned metadata.
+const MAX_FORM_FIELD_ENTRIES: usize = 4_096;
+const MAX_FORM_FIELD_TREE_NODES: usize = 4_096;
+const MAX_FORM_FIELD_TREE_EDGES: usize = 8_192;
+const MAX_FORM_FIELD_TREE_DEPTH: usize = 64;
+const MAX_FORM_FIELD_NAME_BYTES: usize = 1024 * 1024;
+const MAX_FORM_FIELD_VALUE_BYTES: usize = 1024 * 1024;
+const MAX_FORM_FIELD_VALUE_ITEMS: usize = 4_096;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -102,6 +111,9 @@ type EmbeddedFileEntry = (String, Object);
 
 /// One PageLabels number-tree item: start, style, prefix, and first number.
 type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
+
+/// One flattened AcroForm field: name, object, type, flags, and normalized value.
+type FormFieldEntry = (String, ObjectId, String, i64, Option<Arc<str>>);
 
 /// Resolve one reference level, returning the original object on failure.
 fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
@@ -179,8 +191,15 @@ fn filespec_name(doc: &Document, obj: &Object) -> Option<String> {
     }
 }
 
-/// One field-tree traversal node: ObjectId, prefix, inherited FT, Ff, and V.
-type FieldNode = (ObjectId, String, Option<String>, i64, Option<Object>);
+/// One field-tree traversal node: object, prefix, inherited FT/Ff/value, depth.
+type FieldNode = (
+    ObjectId,
+    String,
+    Option<String>,
+    i64,
+    Option<Arc<str>>,
+    usize,
+);
 
 // Python-visible exceptions. PdfError subclasses ValueError for compatibility.
 pyo3::create_exception!(
@@ -1602,6 +1621,139 @@ fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option
     slot.map(|(data, index)| (Arc::clone(data) as FontData, *index))
 }
 
+/// Add to one AcroForm text budget without overflow or partial output.
+fn add_form_budget(total: &mut usize, amount: usize, limit: usize, label: &str) -> PyResult<()> {
+    *total = total
+        .checked_add(amount)
+        .ok_or_else(|| PdfError::new_err("AcroForm metadata exceeds the platform size limit"))?;
+    if *total > limit {
+        return Err(PdfError::new_err(format!(
+            "AcroForm {label} text exceeds the {limit}-byte safety limit"
+        )));
+    }
+    Ok(())
+}
+
+/// Decode one field-name component while bounding encoded and decoded text.
+fn bounded_form_text(
+    doc: &Document,
+    object: &Object,
+    encoded_bytes: &mut usize,
+    decoded_bytes: &mut usize,
+    limit: usize,
+    label: &str,
+) -> PyResult<Option<String>> {
+    let object = deref_object(doc, object);
+    let Object::String(encoded, _) = object else {
+        return Ok(None);
+    };
+    add_form_budget(
+        encoded_bytes,
+        encoded.len(),
+        limit,
+        &format!("encoded {label}"),
+    )?;
+    let Ok(decoded) = decode_text_string(object) else {
+        return Ok(None);
+    };
+    add_form_budget(
+        decoded_bytes,
+        decoded.len(),
+        limit,
+        &format!("decoded {label}"),
+    )?;
+    Ok(Some(decoded))
+}
+
+/// Normalize one field value while bounding arrays and all produced text.
+fn bounded_form_value(
+    doc: &Document,
+    object: &Object,
+    encoded_bytes: &mut usize,
+    decoded_bytes: &mut usize,
+    value_items: &mut usize,
+) -> PyResult<Option<String>> {
+    match deref_object(doc, object) {
+        Object::Name(name) => {
+            add_form_budget(
+                encoded_bytes,
+                name.len(),
+                MAX_FORM_FIELD_VALUE_BYTES,
+                "encoded field-value",
+            )?;
+            let decoded = String::from_utf8_lossy(name).into_owned();
+            add_form_budget(
+                decoded_bytes,
+                decoded.len(),
+                MAX_FORM_FIELD_VALUE_BYTES,
+                "decoded field-value",
+            )?;
+            Ok(Some(decoded))
+        }
+        object @ Object::String(encoded, _) => {
+            add_form_budget(
+                encoded_bytes,
+                encoded.len(),
+                MAX_FORM_FIELD_VALUE_BYTES,
+                "encoded field-value",
+            )?;
+            let Ok(decoded) = decode_text_string(object) else {
+                return Ok(None);
+            };
+            add_form_budget(
+                decoded_bytes,
+                decoded.len(),
+                MAX_FORM_FIELD_VALUE_BYTES,
+                "decoded field-value",
+            )?;
+            Ok(Some(decoded))
+        }
+        Object::Array(items) => {
+            *value_items = value_items.checked_add(items.len()).ok_or_else(|| {
+                PdfError::new_err("AcroForm field values exceed the platform size limit")
+            })?;
+            if *value_items > MAX_FORM_FIELD_VALUE_ITEMS {
+                return Err(PdfError::new_err(format!(
+                    "AcroForm field values exceed the {MAX_FORM_FIELD_VALUE_ITEMS}-item safety limit"
+                )));
+            }
+            let mut values = Vec::new();
+            for item in items {
+                let item = deref_object(doc, item);
+                let Object::String(encoded, _) = item else {
+                    continue;
+                };
+                add_form_budget(
+                    encoded_bytes,
+                    encoded.len(),
+                    MAX_FORM_FIELD_VALUE_BYTES,
+                    "encoded field-value",
+                )?;
+                let Ok(decoded) = decode_text_string(item) else {
+                    continue;
+                };
+                add_form_budget(
+                    decoded_bytes,
+                    decoded.len(),
+                    MAX_FORM_FIELD_VALUE_BYTES,
+                    "decoded field-value",
+                )?;
+                values.push(decoded);
+            }
+            if values.len() > 1 {
+                add_form_budget(
+                    decoded_bytes,
+                    (values.len() - 1) * 2,
+                    MAX_FORM_FIELD_VALUE_BYTES,
+                    "decoded field-value",
+                )?;
+            }
+            Ok(Some(values.join(", ")))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Python class holding a `lopdf::Document`.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct _Document {
@@ -1857,80 +2009,182 @@ impl _Document {
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
     ///
     /// FT/Ff/V inherit from parents; full names join `/T` components with dots.
-    /// A leaf has resolved FT and no child carrying `/T`.
-    fn collect_form_fields(&self) -> Vec<(String, ObjectId, String, i64, Option<Object>)> {
-        let Some(acroform) = self
+    /// A leaf has resolved FT and no child carrying `/T`. Traversal and returned
+    /// text are bounded so malformed trees cannot produce partial results.
+    fn collect_form_fields(&self) -> PyResult<Vec<FormFieldEntry>> {
+        let Some(acroform_object) = self
             .doc
             .catalog()
             .ok()
-            .and_then(|c| c.get(b"AcroForm").ok().cloned())
-            .and_then(|o| deref_dict(&self.doc, &o))
+            .and_then(|catalog| catalog.get(b"AcroForm").ok())
         else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let Ok(fields) = acroform.get(b"Fields").and_then(Object::as_array) else {
-            return Vec::new();
+        let Ok(acroform) = deref_object(&self.doc, acroform_object).as_dict() else {
+            return Ok(Vec::new());
         };
+        let Ok(fields_object) = acroform.get(b"Fields") else {
+            return Ok(Vec::new());
+        };
+        let Ok(fields) = deref_object(&self.doc, fields_object).as_array() else {
+            return Ok(Vec::new());
+        };
+        if fields.len() > MAX_FORM_FIELD_TREE_EDGES {
+            return Err(PdfError::new_err(format!(
+                "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
+            )));
+        }
+
         let mut out = Vec::new();
-        // (ObjectId, qualified name, inherited FT, inherited Ff, inherited V)
         let mut stack: Vec<FieldNode> = fields
             .iter()
-            .filter_map(|f| f.as_reference().ok())
-            .map(|id| (id, String::new(), None, 0, None))
+            .filter_map(|field| field.as_reference().ok())
+            .map(|id| (id, String::new(), None, 0, None, 1))
             .collect();
         let mut visited = HashSet::new();
-        while let Some((id, prefix, inh_ft, inh_ff, inh_v)) = stack.pop() {
-            if !visited.insert(id) || visited.len() > 4096 {
+        let mut edges = fields.len();
+        let mut encoded_name_bytes = 0usize;
+        let mut decoded_name_bytes = 0usize;
+        let mut materialized_name_bytes = 0usize;
+        let mut encoded_value_bytes = 0usize;
+        let mut decoded_value_bytes = 0usize;
+        let mut returned_value_bytes = 0usize;
+        let mut value_items = 0usize;
+        while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth)) = stack.pop() {
+            if !visited.insert(id) {
                 continue;
+            }
+            if visited.len() > MAX_FORM_FIELD_TREE_NODES {
+                return Err(PdfError::new_err(format!(
+                    "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
+                )));
             }
             let Ok(dict) = self.doc.get_object(id).and_then(Object::as_dict) else {
                 continue;
             };
-            let name = match dict.get(b"T").ok().and_then(|t| decode_text_string(t).ok()) {
-                Some(t) if prefix.is_empty() => t,
-                Some(t) => format!("{prefix}.{t}"),
+            let component = match dict.get(b"T") {
+                Ok(object) => bounded_form_text(
+                    &self.doc,
+                    object,
+                    &mut encoded_name_bytes,
+                    &mut decoded_name_bytes,
+                    MAX_FORM_FIELD_NAME_BYTES,
+                    "field-name",
+                )?,
+                Err(_) => None,
+            };
+            let name = match component {
+                Some(component) if prefix.is_empty() => component,
+                Some(component) => format!("{prefix}.{component}"),
                 None => prefix.clone(),
             };
-            let ft = dict
-                .get(b"FT")
-                .and_then(Object::as_name)
-                .ok()
-                .map(|n| String::from_utf8_lossy(n).into_owned())
-                .or(inh_ft);
+            add_form_budget(
+                &mut materialized_name_bytes,
+                name.len(),
+                MAX_FORM_FIELD_NAME_BYTES,
+                "materialized field-name",
+            )?;
+            let ft = match dict.get(b"FT") {
+                Ok(object) => {
+                    let object = deref_object(&self.doc, object);
+                    match object.as_name() {
+                        Ok(name) => {
+                            add_form_budget(
+                                &mut encoded_name_bytes,
+                                name.len(),
+                                MAX_FORM_FIELD_NAME_BYTES,
+                                "encoded field-name/type",
+                            )?;
+                            let decoded = String::from_utf8_lossy(name).into_owned();
+                            add_form_budget(
+                                &mut decoded_name_bytes,
+                                decoded.len(),
+                                MAX_FORM_FIELD_NAME_BYTES,
+                                "decoded field-name/type",
+                            )?;
+                            Some(decoded)
+                        }
+                        Err(_) => inh_ft,
+                    }
+                }
+                Err(_) => inh_ft,
+            };
             let ff = dict
                 .get(b"Ff")
                 .ok()
-                .and_then(|o| resolve_i64(&self.doc, o))
+                .and_then(|object| resolve_i64(&self.doc, object))
                 .unwrap_or(inh_ff);
-            let v = dict.get(b"V").ok().cloned().or(inh_v);
-            // Children with /T are fields; children without it are widgets.
-            let child_fields: Vec<ObjectId> = dict
-                .get(b"Kids")
-                .and_then(Object::as_array)
-                .map(|kids| {
-                    kids.iter()
-                        .filter_map(|k| k.as_reference().ok())
-                        .filter(|kid_id| {
-                            self.doc
-                                .get_object(*kid_id)
-                                .and_then(Object::as_dict)
-                                .is_ok_and(|d| d.has(b"T"))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            if child_fields.is_empty() {
-                if let Some(ft) = ft {
-                    out.push((name, id, ft, ff, v));
+            let value = match dict.get(b"V") {
+                Ok(object) => bounded_form_value(
+                    &self.doc,
+                    object,
+                    &mut encoded_value_bytes,
+                    &mut decoded_value_bytes,
+                    &mut value_items,
+                )?
+                .map(Arc::from),
+                Err(_) => inh_v,
+            };
+
+            let mut has_child_fields = false;
+            if let Ok(kids_object) = dict.get(b"Kids")
+                && let Ok(kids) = deref_object(&self.doc, kids_object).as_array()
+            {
+                edges = edges.checked_add(kids.len()).ok_or_else(|| {
+                    PdfError::new_err("AcroForm field tree exceeds the platform size limit")
+                })?;
+                if edges > MAX_FORM_FIELD_TREE_EDGES {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
+                    )));
                 }
-            } else {
-                for kid in child_fields {
-                    stack.push((kid, name.clone(), ft.clone(), ff, v.clone()));
+                for kid in kids {
+                    let Ok(kid_id) = kid.as_reference() else {
+                        continue;
+                    };
+                    let is_field = self
+                        .doc
+                        .get_object(kid_id)
+                        .and_then(Object::as_dict)
+                        .is_ok_and(|child| child.has(b"T"));
+                    if !is_field {
+                        continue;
+                    }
+                    if depth >= MAX_FORM_FIELD_TREE_DEPTH {
+                        return Err(PdfError::new_err(format!(
+                            "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_DEPTH}-level safety limit"
+                        )));
+                    }
+                    has_child_fields = true;
+                    stack.push((
+                        kid_id,
+                        name.clone(),
+                        ft.clone(),
+                        ff,
+                        value.clone(),
+                        depth + 1,
+                    ));
                 }
+            }
+            if !has_child_fields && let Some(ft) = ft {
+                if out.len() >= MAX_FORM_FIELD_ENTRIES {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_ENTRIES}-entry safety limit"
+                    )));
+                }
+                if let Some(value) = &value {
+                    add_form_budget(
+                        &mut returned_value_bytes,
+                        value.len(),
+                        MAX_FORM_FIELD_VALUE_BYTES,
+                        "returned field-value",
+                    )?;
+                }
+                out.push((name, id, ft, ff, value));
             }
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
-        out
+        Ok(out)
     }
 
     /// Return widget annotation ObjectIds, or the field itself when Kids is absent.
@@ -2297,26 +2551,13 @@ impl _Document {
     /// Fill missing appearances on untouched fields when their current values
     /// can be represented without guessing a font.
     fn synthesize_missing_form_appearances(&mut self, target_name: &str) -> PyResult<()> {
-        for (name, field_id, field_type, flags, value) in self.collect_form_fields() {
+        for (name, field_id, field_type, flags, value) in self.collect_form_fields()? {
             if name == target_name {
                 continue;
             }
             match field_type.as_str() {
                 "Tx" | "Ch" => {
-                    let value = value
-                        .as_ref()
-                        .and_then(|object| match object {
-                            Object::Name(name) => Some(String::from_utf8_lossy(name).into_owned()),
-                            Object::Array(items) => Some(
-                                items
-                                    .iter()
-                                    .filter_map(|item| decode_text_string(item).ok())
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                            ),
-                            other => decode_text_string(other).ok(),
-                        })
-                        .unwrap_or_default();
+                    let value = value.as_deref().map(str::to_owned).unwrap_or_default();
                     if !draw::is_winansi(&value) {
                         continue;
                     }
@@ -2353,11 +2594,8 @@ impl _Document {
                 }
                 "Btn" if flags & (1 << 16) == 0 => {
                     let state = value
-                        .as_ref()
-                        .and_then(|object| match object {
-                            Object::Name(name) => Some(String::from_utf8_lossy(name).into_owned()),
-                            other => decode_text_string(other).ok(),
-                        })
+                        .as_deref()
+                        .map(str::to_owned)
                         .unwrap_or_else(|| "Off".to_owned());
                     if self
                         .sync_button_widget_appearances(field_id, flags, &state)
@@ -2372,8 +2610,9 @@ impl _Document {
         Ok(())
     }
 
-    fn form_appearances_complete(&self) -> bool {
-        self.collect_form_fields()
+    fn form_appearances_complete(&self) -> PyResult<bool> {
+        Ok(self
+            .collect_form_fields()?
             .into_iter()
             .all(|(_, field_id, field_type, flags, _)| {
                 let widgets = self.visible_field_widgets(field_id);
@@ -2396,7 +2635,7 @@ impl _Document {
                     }),
                     _ => true,
                 }
-            })
+            }))
     }
 
     /// Mutating implementation kept behind an atomic clone in the Python method.
@@ -2408,7 +2647,7 @@ impl _Document {
         font_index: u32,
     ) -> PyResult<()> {
         let (field_id, ft, ff) = self
-            .collect_form_fields()
+            .collect_form_fields()?
             .into_iter()
             .find(|(field_name, ..)| field_name == name)
             .map(|(_, id, ft, ff, _)| (id, ft, ff))
@@ -2481,7 +2720,7 @@ impl _Document {
             }
         }
         self.synthesize_missing_form_appearances(name)?;
-        self.set_need_appearances(!self.form_appearances_complete())
+        self.set_need_appearances(!self.form_appearances_complete()?)
     }
 
     /// Add an annotation reference to page `/Annots`, including indirect arrays.
@@ -4861,57 +5100,43 @@ impl _Document {
     ///
     /// Kind is text/checkbox/radio/button/combobox/listbox/signature. Value is
     /// stringified `/V`, including state names such as Yes/Off, or None.
-    fn get_form_fields(&self) -> Vec<(String, String, Option<String>)> {
-        self.collect_form_fields()
-            .into_iter()
-            .map(|(name, _, ft, ff, v)| {
-                let kind = match ft.as_str() {
-                    "Tx" => "text",
-                    "Sig" => "signature",
-                    "Ch" => {
-                        if ff & (1 << 17) != 0 {
-                            "combobox"
-                        } else {
-                            "listbox"
+    fn get_form_fields(&self, py: Python<'_>) -> PyResult<Vec<(String, String, Option<String>)>> {
+        py.detach(|| {
+            Ok(self
+                .collect_form_fields()?
+                .into_iter()
+                .map(|(name, _, ft, ff, value)| {
+                    let kind = match ft.as_str() {
+                        "Tx" => "text",
+                        "Sig" => "signature",
+                        "Ch" => {
+                            if ff & (1 << 17) != 0 {
+                                "combobox"
+                            } else {
+                                "listbox"
+                            }
                         }
-                    }
-                    "Btn" => {
-                        if ff & (1 << 16) != 0 {
-                            "button"
-                        } else if ff & (1 << 15) != 0 {
-                            "radio"
-                        } else {
-                            "checkbox"
+                        "Btn" => {
+                            if ff & (1 << 16) != 0 {
+                                "button"
+                            } else if ff & (1 << 15) != 0 {
+                                "radio"
+                            } else {
+                                "checkbox"
+                            }
                         }
-                    }
-                    _ => "unknown",
-                };
-                let value = v.and_then(|obj| match &obj {
-                    Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
-                    Object::String(..) => decode_text_string(&obj).ok(),
-                    Object::Reference(id) => self
-                        .doc
-                        .get_object(*id)
-                        .ok()
-                        .and_then(|o| decode_text_string(o).ok()),
-                    Object::Array(items) => Some(
-                        items
-                            .iter()
-                            .filter_map(|i| decode_text_string(i).ok())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    ),
-                    _ => None,
-                });
-                (name, kind.to_owned(), value)
-            })
-            .collect()
+                        _ => "unknown",
+                    };
+                    (name, kind.to_owned(), value.map(|value| value.to_string()))
+                })
+                .collect())
+        })
     }
 
     /// Return checkbox/radio state names from widget `AP /N` keys.
     fn form_button_states(&self, name: &str) -> PyResult<Vec<String>> {
         let (field_id, ft) = self
-            .collect_form_fields()
+            .collect_form_fields()?
             .into_iter()
             .find(|(n, ..)| n == name)
             .map(|(_, id, ft, ..)| (id, ft))
@@ -4954,6 +5179,20 @@ impl _Document {
         font_data: Option<Vec<u8>>,
         font_index: u32,
     ) -> PyResult<()> {
+        if value.len() > MAX_FORM_FIELD_VALUE_BYTES {
+            return Err(PdfError::new_err(format!(
+                "form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
+            )));
+        }
+        let encoded_value = form_text_string(value);
+        if encoded_value
+            .as_str()
+            .is_ok_and(|bytes| bytes.len() > MAX_FORM_FIELD_VALUE_BYTES)
+        {
+            return Err(PdfError::new_err(format!(
+                "encoded form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
+            )));
+        }
         let result = py.detach(|| {
             let original = self.doc.clone();
             match self.set_form_field_inner(name, value, font_data, font_index) {

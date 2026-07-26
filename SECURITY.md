@@ -45,6 +45,11 @@ risky. When processing untrusted files:
 - Page-label number-tree reads reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
   are visited once, and writes enforce the same entry/text boundary.
+- AcroForm field-tree reads reject partial output above 4,096 entries/nodes,
+  8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
+  or 4,096 choice-value items. Reference cycles are visited once, inherited
+  values are charged for every returned leaf, and fills enforce the same tree
+  plus 1 MiB input-value boundary atomically.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

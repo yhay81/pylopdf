@@ -284,6 +284,12 @@ overview.
   resolvable widget `/AS` stream; the editable/saved PDF remains canonical.
   Retain the original-byte fast path when no selected state stream can be
   resolved.
+- AcroForm field-tree reads borrow object shapes, visit indirect cycles once,
+  release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
+  edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
+  4,096 choice-value items. Inherited values use shared storage during the walk
+  and count once per returned leaf. `set_form_field` must enforce the same tree
+  and 1 MiB input-value boundary while preserving its atomic rollback contract.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

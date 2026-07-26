@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import build_raw_pdf
 
 import pylopdf
 
@@ -278,3 +279,147 @@ def test_no_form_returns_empty() -> None:
     doc = pylopdf.Document()
     doc.new_page()
     assert doc.get_form_fields() == []
+
+
+def test_form_field_duplicate_reference_is_visited_once() -> None:
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R 5 0 R] >>",
+            5: "<< /FT /Tx /T (field) /V (value) >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    assert doc.get_form_fields() == [{"name": "field", "type": "text", "value": "value"}]
+
+
+def test_form_field_tree_rejects_excessive_edges_atomically() -> None:
+    fields = "5 0 R " * 8193
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: f"<< /Fields [{fields}] >>",
+            5: "<< /FT /Tx /T (field) /V (value) >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+        doc.get_form_fields()
+    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+        doc.set_form_field("field", "updated")
+    assert doc.tobytes() == before
+
+
+def test_form_field_tree_rejects_excessive_nodes_without_partial_output() -> None:
+    field_ids = range(5, 4101)
+    fields = " ".join(f"{object_id} 0 R" for object_id in field_ids)
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        4: f"<< /Fields [{fields}] >>",
+    }
+    for object_id in range(5, 4100):
+        objects[object_id] = f"<< /FT /Tx /T (field{object_id}) >>"
+    objects[4100] = "<< /FT /Tx /T (parent) /Kids [4101 0 R] >>"
+    objects[4101] = "<< /T (child) >>"
+
+    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    with pytest.raises(pylopdf.PdfError, match="4096-node safety limit"):
+        doc.get_form_fields()
+
+
+def test_form_field_tree_rejects_excessive_depth() -> None:
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        4: "<< /Fields [5 0 R] >>",
+    }
+    for object_id in range(5, 69):
+        objects[object_id] = f"<< /FT /Tx /T (n{object_id}) /Kids [{object_id + 1} 0 R] >>"
+    objects[69] = "<< /FT /Tx /T (leaf) >>"
+
+    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+        doc.get_form_fields()
+
+
+def test_form_field_tree_rejects_excessive_name_text() -> None:
+    name = "x" * (1024 * 1024 + 1)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< /FT /Tx /T ({name}) >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    with pytest.raises(pylopdf.PdfError, match=r"field-name.*1048576-byte safety limit"):
+        doc.get_form_fields()
+
+
+def test_form_field_tree_rejects_excessive_value_items() -> None:
+    values = "(x) " * 4097
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< /FT /Ch /T (choice) /V [{values}] >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    with pytest.raises(pylopdf.PdfError, match="4096-item safety limit"):
+        doc.get_form_fields()
+
+
+def test_form_field_tree_rejects_excessive_value_text() -> None:
+    value = "x" * (1024 * 1024 + 1)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< /FT /Tx /T (field) /V ({value}) >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    with pytest.raises(pylopdf.PdfError, match=r"field-value.*1048576-byte safety limit"):
+        doc.get_form_fields()
+
+
+def test_set_form_field_rejects_excessive_value_text_atomically() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
+        doc.set_form_field("customer", "x" * (1024 * 1024 + 1))
+    assert doc.tobytes() == before
+
+
+def test_form_field_tree_bounds_inherited_returned_values() -> None:
+    value = "x" * 1024
+    child_ids = range(6, 1031)
+    kids = " ".join(f"{object_id} 0 R" for object_id in child_ids)
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: f"<< /FT /Tx /T (root) /V ({value}) /Kids [{kids}] >>",
+    }
+    for object_id in child_ids:
+        objects[object_id] = f"<< /T (child{object_id}) >>"
+
+    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    with pytest.raises(pylopdf.PdfError, match=r"returned field-value.*1048576-byte safety limit"):
+        doc.get_form_fields()
