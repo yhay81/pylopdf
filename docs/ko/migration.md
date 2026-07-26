@@ -26,7 +26,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 동일 | `list[Rect]` 반환, `quads=` 없음 |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
-| `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 `tobytes()`와 `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
+| `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
 | `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로 변환. `dpi`는 최대 배치를 직접 제한하며lossless 변환은 미지원 |

@@ -25,7 +25,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。最大4,096 page・累積UTF-8出力上限（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
-| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
+| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 上限付きPNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/delete/insert batchは4,096 entry上限 |
@@ -57,7 +57,7 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | documentと同じtable・UTF-8出力制御を持つ1 page Markdown |
 | `get_images()` | 描画された画像（`bbox`付き、JPEG passthrough / PNG）。4,096配置、累積64,000,000画素、payload 64 MiBを超える部分結果は拒否 |
 | `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg(max_size=64 MiB)` | PNG / 上限付きUTF-8 SVG rendering。`clip`は表示座標 |
+| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 上限付きPNG / UTF-8 SVG rendering。`clip`は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転 |
@@ -124,7 +124,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
-| `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / 失敗時も既存fileを保持するPNG専用`save(path)`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
+| `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(path)`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 
 `TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。

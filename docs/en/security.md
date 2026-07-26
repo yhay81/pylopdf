@@ -62,7 +62,7 @@ per-stream budget and cannot be combined with `limits=`.
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `ocr_model_size`,
+`image_pixel_count`, `font_input_size`, `pixmap_output_size`, `ocr_model_size`,
 `ocr_dictionary_entries`, or
 `decompression_unverifiable`.
 The same code is also
@@ -83,6 +83,11 @@ The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
 probe's `repaired` key), and saving rewrites normalized xref data.
 
 - Rendering is capped at 64 megapixels per page.
+- `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()` default to
+  a 64 MiB encoded-PNG output boundary. Their writers refuse the crossing
+  write before returning Python `bytes`; `max_size=None` explicitly opts out.
+  Render refusals use `render_output_size`, while direct Pixmap encoding uses
+  `pixmap_output_size`.
 - `Document.tobytes()` defaults to a 512 MiB serialized-output limit across
   normal, object/xref-stream, and encrypted output. Its Rust writer refuses
   the write crossing the boundary before Python `bytes` conversion;
@@ -92,10 +97,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   preserve an existing file. It is not governed by the in-memory output
   budget. Save options such as `garbage`, `deflate`, and `object_streams`
   retain their documented mutation semantics even when later I/O fails.
-- `Pixmap.save()` also writes to an unpredictable, exclusively created sibling
-  in the target directory and atomically replaces the requested path only
-  after PNG encoding and the complete write succeed. Replacement failures
-  preserve existing output and remove the temporary file.
+- `Pixmap.save()` streams PNG encoding directly to an unpredictable,
+  exclusively created sibling in the target directory and atomically replaces
+  the requested path only after the complete write succeeds. It does not
+  retain a second completed PNG in memory. Replacement failures preserve
+  existing output and remove the temporary file.
 - `Page.insert_image()` defaults encoded JPEG/PNG input to 64 MiB and decoded
   PNG input to 64,000,000 pixels. Filename input is read under the released GIL
   through the same bounded Rust boundary used by direct core calls; PNG

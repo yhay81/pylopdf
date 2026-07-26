@@ -60,7 +60,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`ocr_model_size`、
+`image_pixel_count`、`font_input_size`、`pixmap_output_size`、`ocr_model_size`、
 `ocr_dictionary_entries`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
@@ -78,6 +78,10 @@ classic xref tableがあり、元の上限で全体parseが成功した場合に
 xref dataを正規化します。
 
 - レンダリングは1ページ64メガピクセルまでです。
+- `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded
+  PNG出力上限は既定64 MiBです。writerがPython `bytes`を返す前に境界を越える
+  writeを拒否し、`max_size=None`で明示解除できます。renderingは
+  `render_output_size`、Pixmap直接encodeは`pixmap_output_size`を返します。
 - `Document.tobytes()`は通常・object/xref stream・暗号化出力すべてに512 MiBの
   既定serialization上限を適用します。Rust writerがPython `bytes`変換前に境界を
   越えるwriteを拒否し、`max_size=None`で明示的に解除できます。`save()`はtargetと
@@ -85,9 +89,10 @@ xref dataを正規化します。
   原子的に置換するため、serialization/置換失敗時も既存fileを保持します。この
   in-memory上限の対象外です。`garbage`、`deflate`、`object_streams`などのsave
   optionは、その後I/Oが失敗しても文書化済みのmutation semanticsを維持します。
-- `Pixmap.save()`もtarget directory内に予測不能かつ排他的に作成したsiblingへ
-  書き込み、PNG encodeと完全なwriteが成功した後だけ要求pathを原子的に置換します。
-  置換失敗時は既存outputを保持し、一時fileを削除します。
+- `Pixmap.save()`はtarget directory内に予測不能かつ排他的に作成したsiblingへ
+  PNG encodeを直接streamし、完全なwriteが成功した後だけ要求pathを原子的に
+  置換します。完成PNGをメモリにもう1つ保持しません。置換失敗時は既存outputを
+  保持し、一時fileを削除します。
 - `Page.insert_image()`はencoded JPEG/PNG inputを既定64 MiB、decoded PNG inputを
   既定64,000,000画素に制限します。filenameはGILを解放したRust境界で上限付きで
   読み、PNG dimensionはdecoded storage確保前に検査します。信頼できるworkloadは
