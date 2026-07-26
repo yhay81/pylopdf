@@ -1622,9 +1622,9 @@ fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Crop straight-alpha RGBA8 bytes to a display-coordinate rectangle.
-fn crop_rgba_bytes(
-    data: &[u8],
+/// Convert only a display-coordinate crop of a hayro Pixmap to RGBA8 bytes.
+fn cropped_rgba_bytes(
+    pixmap: hayro::vello_cpu::Pixmap,
     width: u32,
     height: u32,
     scale: f32,
@@ -1649,22 +1649,22 @@ fn crop_rgba_bytes(
 
     let cropped_width = pixel_x1 - pixel_x0;
     let cropped_height = pixel_y1 - pixel_y0;
-    let source_stride = usize::try_from(width)
+    let source_width =
+        usize::try_from(width).map_err(|_| "rendered page width is too large".to_owned())?;
+    let source_x0 =
+        usize::try_from(pixel_x0).map_err(|_| "cropped page offset is too large".to_owned())?;
+    let source_x1 =
+        usize::try_from(pixel_x1).map_err(|_| "cropped page offset is too large".to_owned())?;
+    let capacity = usize::try_from(cropped_width)
         .ok()
-        .and_then(|value| value.checked_mul(4))
-        .ok_or_else(|| "rendered page stride is too large".to_owned())?;
-    let row_bytes = usize::try_from(cropped_width)
-        .ok()
-        .and_then(|value| value.checked_mul(4))
-        .ok_or_else(|| "cropped page stride is too large".to_owned())?;
-    let capacity = usize::try_from(cropped_height)
-        .ok()
-        .and_then(|value| value.checked_mul(row_bytes))
+        .and_then(|width| {
+            usize::try_from(cropped_height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
         .ok_or_else(|| "cropped page is too large".to_owned())?;
-    let source_x = usize::try_from(pixel_x0)
-        .ok()
-        .and_then(|value| value.checked_mul(4))
-        .ok_or_else(|| "cropped page offset is too large".to_owned())?;
+    let pixels = pixmap.take_unpremultiplied();
     let mut cropped = Vec::new();
     cropped
         .try_reserve_exact(capacity)
@@ -1672,16 +1672,18 @@ fn crop_rgba_bytes(
     for y in pixel_y0..pixel_y1 {
         let row_start = usize::try_from(y)
             .ok()
-            .and_then(|value| value.checked_mul(source_stride))
-            .and_then(|value| value.checked_add(source_x))
+            .and_then(|value| value.checked_mul(source_width))
+            .and_then(|value| value.checked_add(source_x0))
             .ok_or_else(|| "cropped page offset is too large".to_owned())?;
         let row_end = row_start
-            .checked_add(row_bytes)
+            .checked_add(source_x1 - source_x0)
             .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        cropped.extend_from_slice(
-            data.get(row_start..row_end)
-                .ok_or_else(|| "cropped page exceeds the rendered image".to_owned())?,
-        );
+        for px in pixels
+            .get(row_start..row_end)
+            .ok_or_else(|| "cropped page exceeds the rendered image".to_owned())?
+        {
+            cropped.extend_from_slice(&[px.r, px.g, px.b, px.a]);
+        }
     }
     Ok((cropped_width, cropped_height, cropped))
 }
@@ -6251,12 +6253,9 @@ impl _Document {
         let height = u32::from(pixmap.height());
         // Release the GIL: unpremultiplication, conversion, and cropping are costly.
         let (width, height, data) = py
-            .detach(|| {
-                let data = rgba_bytes(pixmap)?;
-                match clip {
-                    Some(clip) => crop_rgba_bytes(&data, width, height, scale, clip),
-                    None => Ok((width, height, data)),
-                }
+            .detach(|| match clip {
+                Some(clip) => cropped_rgba_bytes(pixmap, width, height, scale, clip),
+                None => Ok((width, height, rgba_bytes(pixmap)?)),
             })
             .map_err(PdfError::new_err)?;
         Ok(crate::pixmap::Pixmap {

@@ -285,8 +285,10 @@ overview.
   intersects them with the page, and rounds outward to pixel boundaries.
   hayro 0.7 lacks an offset viewport, so clipping crops a full-page raster and
   does not relax the full-page render-size limits. Straight-alpha conversion
-  and cropped output reserve their RGBA buffers fallibly, and the completed
-  `Vec<u8>` moves into an `Arc<Vec<u8>>` without copying the complete raster.
+  and cropped output reserve their RGBA buffers fallibly. A clip converts only
+  its selected hayro pixels rather than first materializing complete-page RGBA.
+  The completed `Vec<u8>` moves into an `Arc<Vec<u8>>` without copying the
+  complete raster.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.
