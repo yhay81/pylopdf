@@ -485,10 +485,16 @@ Advisories](https://github.com/yhay81/pylopdf/security/advisories/new).
 A reproducible benchmark ships with the repo (same corpus, same tasks, medians —
 wins and losses are published as-is). See
 [bench/results/latest.md](bench/results/latest.md) for the latest numbers with
-environment details:
+environment details. Free-threaded extraction is generated independently at
+[bench/results/free-threaded-latest.md](bench/results/free-threaded-latest.md)
+so a normal benchmark run cannot overwrite its CPython 3.14t evidence:
 
 ```bash
 uv sync --all-extras --group bench && uv run python bench/run.py
+# Windows:
+py -3.14t bench/free_threaded.py
+# POSIX:
+python3.14t bench/free_threaded.py
 ```
 
 The separate [native OCR report](bench/results/ocr-latest.md) publishes strict

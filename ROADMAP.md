@@ -516,7 +516,9 @@ known-limit behavior are polished together.
       task definition, medians, wins and losses, and pymupdf similarity as a
       fidelity proxy. The first 2026-07-23 run found pylopdf faster on four of
       seven extraction files, 4.1× faster for merge, and faster on all seven 2×
-      renders. Apply separately to py-pdf/benchmarks.
+      renders. Free-threaded extraction now has its own generated report so a
+      regular benchmark rerun cannot erase manually appended 3.14t evidence.
+      Apply separately to py-pdf/benchmarks.
 - [x] Publish an explicit support and concurrency contract covering GIL-enabled,
       free-threaded, single-document, and multi-document use, plus the supported
       `render_pages` boundary and immutable Pixmap buffer behavior.

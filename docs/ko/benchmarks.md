@@ -105,8 +105,8 @@ Windows 11의 free-threaded CPython 3.14.6에서 서로 독립된 `bill-hr815.pd
 
 | 모드 | Workers | 시간 | 속도 향상 |
 |---|---:|---:|---:|
-| 순차 | 1 | 280.3 ms | 1.00배 |
-| 병렬 | 2 | 160.8 ms | 1.74배 |
+| 순차 | 1 | 400.8 ms | 1.00배 |
+| 병렬 | 2 | 235.5 ms | 1.70배 |
 
 모든 실행에서 두 문서의 출력이 정확히 일치했고, interpreter는 import 후에도
 GIL이 비활성 상태임을 확인했습니다.
@@ -121,13 +121,18 @@ uv sync --all-extras --group bench
 uv run python bench/run.py
 uv run python tools/pyodide_compat.py --root . --benchmark-only \
   --benchmark-output .tmp/limits-benchmark.json
-# free-threaded CPython 3.14 interpreter에서:
+# Windows의 free-threaded CPython 3.14 interpreter에서:
+py -3.14t bench/free_threaded.py
+# POSIX에서:
 python3.14t bench/free_threaded.py
 ```
 
 생성된 원본 보고서는
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)에
-커밋됩니다. native/Pyodide resource-policy 기준값은
+커밋됩니다. 별도로 생성되는 free-threaded 보고서는
+[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)에
+커밋되며, `bench/run.py`를 다시 실행해도 CPython 3.14t 증거를 덮어쓰지 않습니다.
+native/Pyodide resource-policy 기준값은
 [`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)에
 별도로 커밋됩니다. 두 번째 command는 제한된 open/extract와 제어된 거부를 측정합니다.
 CI는 같은 case를Pyodide에서도 실행하고 Wasm linear memory 증가를 기록합니다.

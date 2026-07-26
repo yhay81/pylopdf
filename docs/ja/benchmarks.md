@@ -105,8 +105,8 @@ Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部
 
 | モード | Workers | 時間 | 高速化 |
 |---|---:|---:|---:|
-| 逐次 | 1 | 280.3 ms | 1.00倍 |
-| 並行 | 2 | 160.8 ms | 1.74倍 |
+| 逐次 | 1 | 400.8 ms | 1.00倍 |
+| 並行 | 2 | 235.5 ms | 1.70倍 |
 
 すべての実行で2部の出力は完全に一致し、import後もGILが無効であることを
 インタープリタから確認しています。
@@ -120,13 +120,18 @@ uv sync --all-extras --group bench
 uv run python bench/run.py
 uv run python tools/pyodide_compat.py --root . --benchmark-only \
   --benchmark-output .tmp/limits-benchmark.json
-# free-threaded CPython 3.14インタープリタで:
+# Windowsのfree-threaded CPython 3.14インタープリタで:
+py -3.14t bench/free_threaded.py
+# POSIXで:
 python3.14t bench/free_threaded.py
 ```
 
 生成元レポートは
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)
-へコミットされています。native／Pyodideのresource-policy基準値は
+へコミットされています。free-threaded専用の生成レポートは
+[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)
+へ分離され、`bench/run.py`を再実行してもCPython 3.14tの証跡を上書きしません。
+native／Pyodideのresource-policy基準値は
 [`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)
 へ分けてコミットされています。2番目のcommandは上限付きopen／extractと制御された拒否を
 測定します。CIは同じcaseをPyodide内でも実行し、Wasm linear memoryの増加を
