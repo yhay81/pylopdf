@@ -44,7 +44,8 @@ quality再圧縮だけを行います。対象はmaskや独自decode arrayを持
 単一filterの8-bit DeviceGray/DeviceRGB DCT/Flate streamに限定します。DCTの
 decode parameterは対象外で、Flateはpredictorなし、または辞書と整合するPNG
 predictorに対応します。解釈された非対応の間接画像と結果が小さくならないencodingは
-skipし、inline画像は集計対象外です。同じ設定の再実行は冪等です。
+skipし、inline画像は集計対象外です。1回の呼び出しで解釈する間接raster配置が
+65,536件を超える場合は拒否します。同じ設定の再実行は冪等です。
 
 ## Page { #page }
 

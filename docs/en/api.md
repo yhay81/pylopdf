@@ -46,7 +46,8 @@ direct, single-filter, 8-bit DeviceGray/DeviceRGB DCT or Flate streams without
 masks or custom decode arrays. DCT decode parameters are excluded; Flate may
 use no predictor or a consistent PNG predictor. Unsupported interpreted
 indirect images and encodings that would not be smaller are skipped; inline
-images are not considered. Repeating the same settings is idempotent.
+images are not considered. One call rejects more than 65,536 interpreted
+indirect raster placements. Repeating the same settings is idempotent.
 
 ## Page { #page }
 

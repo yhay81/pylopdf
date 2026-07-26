@@ -44,7 +44,8 @@ password input은UTF-8 127 byte로 제한됩니다.
 8-bit DeviceGray/DeviceRGB DCT/Flate stream입니다. DCT decode parameter는 제외하며,
 Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 수 있습니다. 해석된
 미지원 간접 이미지와 더 작아지지 않는encoding은 건너뛰며 inline 이미지는 집계하지
-않습니다. 같은 설정의 반복 호출은 멱등입니다.
+않습니다. 한 번의 호출에서 해석하는 간접raster placement가65,536개를 초과하면
+거부합니다. 같은 설정의 반복 호출은 멱등입니다.
 
 ## Page { #page }
 

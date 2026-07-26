@@ -3572,9 +3572,10 @@ class Document:
         predictor or a consistent PNG predictor. Unsupported interpreted
         indirect images and outputs that would not be smaller are counted as
         ``skipped``; inline images are not considered. The operation releases
-        the GIL, is atomic on decoding errors, rejects more than 16,384 unique
-        image objects or 250 million eligible source pixels, and skips an
-        individual source above 64 million pixels.
+        the GIL, is atomic on decoding errors, rejects more than 65,536
+        interpreted indirect image placements, 16,384 unique image objects, or
+        250 million eligible source pixels, and skips an individual source
+        above 64 million pixels.
 
         Byte totals compare rewritten source payloads with their resulting JPEG
         payloads, not complete PDF serialization. Save to a new output and

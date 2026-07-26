@@ -42,8 +42,8 @@ password input上限为127个UTF-8 byte。
 编辑lopdf副本。`dpi=None`时不缩小，仅按quality重压缩。保守边界仅包含无mask或自定义
 decode array的直接单filter 8-bit DeviceGray/DeviceRGB DCT/Flate stream。DCT decode
 parameter不受支持；Flate可无predictor或使用与字典一致的PNG predictor。已解释但
-不支持的间接图像以及不会变小的编码会被跳过；inline图像不计入统计。用相同设置重复
-调用是幂等的。
+不支持的间接图像以及不会变小的编码会被跳过；inline图像不计入统计。单次调用解释
+超过65,536个间接raster placement时会被拒绝。用相同设置重复调用是幂等的。
 
 ## Page { #page }
 
