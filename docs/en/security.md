@@ -62,6 +62,7 @@ per-stream budget and cannot be combined with `limits=`.
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
+`embedded_file_input_size`, `form_field_input_size`,
 `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
@@ -177,9 +178,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   `embfile_get()` applies the same default to every decoded filter layer. Raise
   `max_size=` for a known large attachment; `max_size=None` explicitly accepts
   unbounded input or materialization. Attachment name trees are rejected above
-  4,096 entries/nodes, 32 levels, or 1 MiB of encoded or decoded names. Adds
-  cap aggregate key/filename/description input at 1 MiB. Edits validate inline
-  FileSpecs before cloning above 4,096 direct objects,
+  4,096 entries/nodes, 32 levels, or 1 MiB of encoded or decoded names. Caller
+  lookup/deletion names and aggregate add-time key/filename/description text
+  stop at 1 MiB before traversal or data copying with
+  `embedded_file_input_size`. Edits validate inline FileSpecs before cloning
+  above 4,096 direct objects,
   32 levels, or 1 MiB of direct string/name/stream data, and preflight the
   Catalog write target instead of cloning the complete document for rollback.
 - `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied
@@ -196,7 +199,8 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
   or 4,096 choice-value items. Reference cycles are visited once, inherited
   values are charged per returned leaf, and fills enforce the same tree plus
-  1 MiB input-value boundary atomically.
+  1 MiB caller name/value input atomically. Caller input stops before font
+  discovery, button lookup, or file reads with `form_field_input_size`.
 - AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
   state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
   state-name text. Fills budget missing `Off` and on-state keys before mutation.

@@ -55,6 +55,7 @@ Web预设目前独立应用以下上限：
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
+`embedded_file_input_size`、`form_field_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -142,7 +143,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   `embfile_get()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
   `max_size=`；`max_size=None`会显式接受无限制输入或materialization。附件name tree
   超过4,096个entry/node、32层或encoded/decoded名称合计1 MiB时也会拒绝。
-  添加时key/filename/description输入合计上限为1 MiB。编辑会在clone inline
+  caller查找／删除名称与添加时key/filename/description输入会在tree遍历或data copy前
+  以1 MiB停止，并使用`embedded_file_input_size`。编辑会在clone inline
   FileSpec之前检查4,096个direct object、32层和1 MiB direct string/name/stream
   data上限，并预检Catalog写入目标，无需为rollback clone整个文档。
 - `Document.get_pdfa_claim()`默认将每个filter层的XMP解码输出限制为1 MiB。
@@ -157,7 +159,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - AcroForm field tree会拒绝超过4,096个entry/node、8,192条edge、64层、1 MiB
   encoded/decoded/returned名称或值、或4,096个choice value item的部分结果。
   引用cycle只访问一次，继承值按每个返回leaf计入预算；填写也原子地执行相同的
-  tree上限与1 MiB输入值上限。
+  tree上限与1 MiB caller名称／值上限。caller输入会在font发现、button lookup或
+  file读取前以`form_field_input_size`拒绝。
 - AcroForm button field会拒绝超过4,096个widget、8,192个normal appearance
   state entry、4,096个唯一返回state name或1 MiB encoded/returned state-name文本。
   填写会在修改前计入缺少的`Off`/on state key。

@@ -552,8 +552,10 @@ known-limit behavior are polished together.
       rejects excessive entries, nodes, depth, or name bytes; failed additions
       cannot create an unreadable tree. Edits preflight the Catalog write target
       instead of cloning the full document, cap new key/filename/description
-      input at 1 MiB, and validate bounded direct object count/depth/data before
-      cloning an inline FileSpec.
+      input at 1 MiB before attachment-data copying, bound lookup/deletion names
+      before traversal, repeat both caller-input checks in Rust with
+      `embedded_file_input_size`, and validate bounded direct object
+      count/depth/data before cloning an inline FileSpec.
 - [x] Bound XMP PDF/A self-claim inspection before metadata materialization.
       `get_pdfa_claim(max_size=1 MiB)` shares the layered decoder contract,
       reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.
@@ -568,8 +570,9 @@ known-limit behavior are polished together.
       object shapes, visit cycles once, release the GIL, and reject partial
       output above field/node/edge/depth and aggregate name/value budgets.
       Inherited values remain shared during traversal and are charged per
-      returned leaf; fills enforce the same tree and input-value boundary
-      atomically.
+      returned leaf; fills reject 1 MiB caller field-name/value input before
+      font discovery, button lookup, or file reads, repeat the boundary with
+      `form_field_input_size`, and enforce the same tree atomically.
 - [x] Bound AcroForm button-state interpretation and synthesis. Widget and
       normal-appearance state counts plus encoded/returned state-name text are
       capped before cloning or mutation. Boolean lookup now releases the GIL

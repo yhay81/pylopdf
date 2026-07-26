@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successful default write remains readable with default `embfile_get()`.
   Direct Rust calls repeat the boundary, refusals are atomic and use
   `embedded_file_size`, and `None` explicitly opts trusted input out.
+- AcroForm field names and values now stop at 1 MiB of UTF-8 before font
+  discovery, button-state lookup, file reads, or the Rust boundary. Attachment
+  lookup/deletion names and aggregate add-time name, filename, and description
+  text use the same pre-copy boundary. Direct Rust calls repeat the checks,
+  refusals are atomic, and stable codes are `form_field_input_size` and
+  `embedded_file_input_size`.
 - `Page.insert_text(..., max_text_size=1024 * 1024)` and
   `Page.insert_textbox(..., max_text_size=1024 * 1024)` now bound aggregate
   generated UTF-8 text before PyO3 copying or PDF mutation. Textbox tab

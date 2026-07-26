@@ -32,8 +32,8 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete/insert batch는4,096 entry로 제한 |
 | `get_toc()` / `set_toc(toc)` | cycle을 처리하는 제한된 목차（페이지는 1부터, 4,096 entry/node, 8,192 edge, 깊이64, text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
-| `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
+| `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=` `deflate=` `object_streams=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |

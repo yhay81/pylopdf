@@ -62,7 +62,9 @@ risky. When processing untrusted files:
   default and raises `LimitError` with code `embedded_file_size`. Raise
   `max_size=` for a known large attachment; `None` is an explicit unbounded
   opt-out. Attachment name trees are also rejected above 4,096 entries/nodes,
-  32 levels, or 1 MiB of encoded or decoded names.
+  32 levels, or 1 MiB of encoded or decoded names. Caller lookup/deletion names
+  and aggregate add-time name/filename/description text stop at 1 MiB before
+  tree traversal or attachment-data copying, using `embedded_file_input_size`.
 - `Document.get_pdfa_claim()` bounds every XMP metadata decoding layer to 1 MiB
   by default and raises `LimitError` with code `xmp_metadata_size`. Raise
   `max_size=` for a known large packet; `None` explicitly accepts unbounded
@@ -74,7 +76,8 @@ risky. When processing untrusted files:
   8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
   or 4,096 choice-value items. Reference cycles are visited once, inherited
   values are charged for every returned leaf, and fills enforce the same tree
-  plus 1 MiB input-value boundary atomically.
+  plus 1 MiB caller name/value input atomically. Caller input is rejected before
+  font discovery, button lookup, or file reads with `form_field_input_size`.
 - AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
   state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
   state-name text. Fills budget missing `Off` and on-state keys before mutation.

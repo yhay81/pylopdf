@@ -324,6 +324,27 @@ def test_embfile_add_bounds_input_metadata_atomically(
     doc = pylopdf.open(stream=build_pdf(["Hello"]))
     before = doc.tobytes()
 
-    with pytest.raises(pylopdf.PdfError, match="1048576-byte input-text safety limit"):
+    with pytest.raises(pylopdf.LimitError) as caught:
         doc.embfile_add("x", b"x", filename=filename, desc=desc)
+    assert caught.value.code == "embedded_file_input_size"
+    assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize("method", ["get", "del"])
+def test_embfile_lookup_bounds_name_input_before_traversal(method: str) -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc.embfile_add("x", b"x")
+    before = doc.tobytes()
+    name = "é" * (512 * 1024 + 1)
+
+    def call() -> None:
+        if method == "get":
+            doc.embfile_get(name)
+        else:
+            doc.embfile_del(name)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        call()
+
+    assert caught.value.code == "embedded_file_input_size"
     assert doc.tobytes() == before

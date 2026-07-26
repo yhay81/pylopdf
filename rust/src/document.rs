@@ -1039,6 +1039,61 @@ fn generated_text_err(error: String) -> PyErr {
     }
 }
 
+fn validate_form_field_input(name: &str, value: Option<&str>) -> PyResult<()> {
+    for (label, text, limit) in [
+        ("form field name", Some(name), MAX_FORM_FIELD_NAME_BYTES),
+        ("form field value", value, MAX_FORM_FIELD_VALUE_BYTES),
+    ] {
+        if text.is_some_and(|text| text.len() > limit) {
+            return Err(limit_err(
+                "form_field_input_size",
+                format!("{label} exceeds the {limit}-byte UTF-8 safety limit"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_embedded_file_lookup_name(name: &str) -> PyResult<()> {
+    if name.len() > MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES {
+        return Err(limit_err(
+            "embedded_file_input_size",
+            format!(
+                "attachment lookup name exceeds the {MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES}-byte UTF-8 safety limit"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_embedded_file_input_text(
+    name: &str,
+    filename: Option<&str>,
+    desc: Option<&str>,
+) -> PyResult<()> {
+    let fname = filename.unwrap_or(name);
+    let input_text_bytes = name
+        .len()
+        .checked_add(fname.len())
+        .and_then(|total| desc.map_or(Some(total), |text| total.checked_add(text.len())))
+        .ok_or_else(|| {
+            limit_err(
+                "embedded_file_input_size",
+                "attachment input text exceeds the platform size limit",
+            )
+        })?;
+    if input_text_bytes > MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES {
+        return Err(limit_err(
+            "embedded_file_input_size",
+            format!(
+                "attachment name, filename, and description exceed the \
+                 {MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES}-byte UTF-8 safety limit"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_password_input(password: Option<&str>, label: &str) -> PyResult<()> {
     if let Some(password) = password
         && password.len() > MAX_PASSWORD_INPUT_BYTES
@@ -6840,6 +6895,7 @@ impl _Document {
 
     /// Return checkbox/radio state names from widget `AP /N` keys.
     fn form_button_states(&self, py: Python<'_>, name: &str) -> PyResult<Vec<String>> {
+        validate_form_field_input(name, None)?;
         py.detach(|| {
             let (field_id, ft) = self
                 .collect_form_fields()?
@@ -6895,12 +6951,8 @@ impl _Document {
         font_index: u32,
         max_font_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_form_field_input(name, Some(value))?;
         validate_font_input(font_data.as_deref(), max_font_size)?;
-        if value.len() > MAX_FORM_FIELD_VALUE_BYTES {
-            return Err(PdfError::new_err(format!(
-                "form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
-            )));
-        }
         let encoded_value = form_text_string(value);
         if encoded_value
             .as_str()
@@ -6943,6 +6995,7 @@ impl _Document {
         font_index: u32,
         max_font_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_form_field_input(name, Some(value))?;
         validate_font_input(None, max_font_size)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;
         self.set_form_field(py, name, value, Some(data), font_index, max_font_size)
@@ -6968,6 +7021,7 @@ impl _Document {
         name: &str,
         max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
+        validate_embedded_file_lookup_name(name)?;
         py.detach(|| {
             let filespec_obj = visit_embedded_files(&self.doc, |entry_name, value| {
                 Ok((entry_name == name).then_some(value))
@@ -7027,6 +7081,7 @@ impl _Document {
         desc: Option<String>,
         max_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_embedded_file_input_text(&name, filename.as_deref(), desc.as_deref())?;
         if max_size == Some(0) {
             return Err(PyValueError::new_err(
                 "max_size must be a positive integer or None",
@@ -7045,23 +7100,6 @@ impl _Document {
         }
         let result = py.detach(|| {
             let target = embedded_files_write_target(&self.doc)?;
-            let fname = filename.as_deref().unwrap_or(&name);
-            let input_text_bytes = name
-                .len()
-                .checked_add(fname.len())
-                .and_then(|total| {
-                    desc.as_ref()
-                        .map_or(Some(total), |text| total.checked_add(text.len()))
-                })
-                .ok_or_else(|| {
-                    PdfError::new_err("attachment input text exceeds the platform size limit")
-                })?;
-            if input_text_bytes > MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES {
-                return Err(PdfError::new_err(format!(
-                    "attachment name, filename, and description exceed the \
-                     {MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES}-byte input-text safety limit"
-                )));
-            }
             let entries = collect_embedded_files(&self.doc)?;
             if entries.iter().any(|(n, _)| *n == name) {
                 return Err(PdfError::new_err(format!(
@@ -7144,6 +7182,7 @@ impl _Document {
 
     /// Delete an attachment, raising an error when absent.
     fn embfile_del(&mut self, py: Python<'_>, name: &str) -> PyResult<()> {
+        validate_embedded_file_lookup_name(name)?;
         let result = py.detach(|| {
             let target = embedded_files_write_target(&self.doc)?;
             let entries = collect_embedded_files(&self.doc)?;
