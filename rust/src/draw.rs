@@ -30,6 +30,16 @@ pub struct ImageParts {
     pub alpha: Option<Vec<u8>>,
 }
 
+/// Return the PNG IHDR pixel count without allocating decoded storage.
+pub fn png_pixel_count(data: &[u8]) -> Option<u64> {
+    if data.len() < 24 || !data.starts_with(b"\x89PNG\r\n\x1a\n") || &data[12..16] != b"IHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes(data[16..20].try_into().ok()?);
+    let height = u32::from_be_bytes(data[20..24].try_into().ok()?);
+    Some(u64::from(width) * u64::from(height))
+}
+
 /// Detect image format from magic bytes and convert it to XObject data.
 ///
 /// JPEG passes through with DCTDecode; PNG is decoded and Flate-compressed.

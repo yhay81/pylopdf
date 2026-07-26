@@ -297,6 +297,12 @@ overview.
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an
   optional soft mask; fully opaque Pixmaps must not create a mask.
+  Encoded `insert_image` input defaults to 64 MiB and PNG decode to 64,000,000
+  pixels. `filename=` reads through a bounded Rust path with the GIL released;
+  `stream=` is checked in Python before PyO3 copying and again in Rust. Preflight
+  PNG IHDR dimensions before allocating decoded storage. `max_size=None` and
+  `max_pixels=None` are explicit trusted-input opt-outs; failures use
+  `image_input_size` and `image_pixel_count`.
   `insert_image(rotate=)` rotates every source clockwise in normalized
   right-angle steps, swaps the aspect ratio for 90/270, and composes with target
   page rotation in display space. Same-document `show_pdf_page` must clone the

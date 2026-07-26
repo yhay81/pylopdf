@@ -192,6 +192,19 @@ class _Document:
         image_rotation: int,
         keep_proportion: bool,
         overlay: bool,
+        max_size: int | None = 67108864,
+        max_pixels: int | None = 64000000,
+    ) -> None: ...
+    def insert_image_file(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        path: str,
+        image_rotation: int,
+        keep_proportion: bool,
+        overlay: bool,
+        max_size: int | None = 67108864,
+        max_pixels: int | None = 64000000,
     ) -> None: ...
     def insert_pixmap(
         self,

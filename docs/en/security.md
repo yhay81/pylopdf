@@ -61,7 +61,8 @@ per-stream budget and cannot be combined with `limits=`.
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
-`replacement_output_size`, `pdf_output_size`, or
+`replacement_output_size`, `pdf_output_size`, `image_input_size`,
+`image_pixel_count`, or
 `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
@@ -94,6 +95,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   in the target directory and atomically replaces the requested path only
   after PNG encoding and the complete write succeed. Replacement failures
   preserve existing output and remove the temporary file.
+- `Page.insert_image()` defaults encoded JPEG/PNG input to 64 MiB and decoded
+  PNG input to 64,000,000 pixels. Filename input is read under the released GIL
+  through the same bounded Rust boundary used by direct core calls; PNG
+  dimensions are checked before decoded storage is allocated. `max_size=None`
+  and `max_pixels=None` explicitly opt trusted workloads out.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

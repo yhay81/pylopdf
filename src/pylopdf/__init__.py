@@ -91,6 +91,8 @@ _DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_SVG_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
+_DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -1091,18 +1093,26 @@ def _validate_textbox_options(
     return resolved_fontsize, resolved_lineheight
 
 
-def _read_image_source(
+def _image_input_limit_error(size: int, max_size: int) -> LimitError:
+    """Build the public error for an oversized encoded image source."""
+    return LimitError(
+        "image_input_size",
+        f"encoded image input is {size} bytes, exceeding the {max_size}-byte limit",
+    )
+
+
+def _resolve_image_source(
     filename: str | os.PathLike[str] | None,
     stream: bytes | None,
     pixmap: Pixmap | None,
-) -> bytes | Pixmap:
+) -> Path | bytes | Pixmap:
     """Resolve exactly one encoded-image or rendered-Pixmap source."""
     source_count = sum(source is not None for source in (filename, stream, pixmap))
     if source_count != 1:
         msg = "specify exactly one of filename, stream, or pixmap"
         raise ValueError(msg)
     if filename is not None:
-        return Path(filename).read_bytes()
+        return Path(filename)
     if stream is not None:
         return bytes(stream)
     if not isinstance(pixmap, Pixmap):
@@ -1655,6 +1665,8 @@ class Page:
         rotate: int = 0,
         keep_proportion: bool = True,
         overlay: bool = True,
+        max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
+        max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
     ) -> None:
         """Draw an image into ``rect`` in top-left-origin display coordinates.
 
@@ -1668,10 +1680,19 @@ class Page:
         :meth:`search_for` and :meth:`get_text`, so search results can be used
         directly. ``keep_proportion`` centers the rotated image while preserving
         its aspect ratio. ``overlay=False`` draws below existing content.
-        Existing page content is never rewritten.
+        Existing page content is never rewritten. Encoded ``filename`` and
+        ``stream`` input defaults to a 64 MiB limit, and decoded PNG input
+        defaults to 64,000,000 pixels. ``None`` explicitly opts out of either
+        boundary for trusted workloads. Refusals raise :class:`LimitError` with
+        code ``image_input_size`` or ``image_pixel_count``. The limits do not
+        apply to an already bounded :class:`Pixmap`.
         """
+        _validate_optional_positive_int("max_size", max_size)
+        _validate_optional_positive_int("max_pixels", max_pixels)
         image_rotation = _validate_image_rotation(rotate)
-        source = _read_image_source(filename, stream, pixmap)
+        source = _resolve_image_source(filename, stream, pixmap)
+        if isinstance(source, bytes) and max_size is not None and len(source) > max_size:
+            raise _image_input_limit_error(len(source), max_size)
         x0, y0, x1, y1 = _validate_rect(rect)
         if isinstance(source, Pixmap):
             self._document._doc.insert_pixmap(
@@ -1682,6 +1703,17 @@ class Page:
                 keep_proportion,
                 overlay,
             )
+        elif isinstance(source, Path):
+            self._document._doc.insert_image_file(
+                self._page_number(),
+                (x0, y0, x1, y1),
+                str(source),
+                image_rotation,
+                keep_proportion,
+                overlay,
+                max_size,
+                max_pixels,
+            )
         else:
             self._document._doc.insert_image(
                 self._page_number(),
@@ -1690,6 +1722,8 @@ class Page:
                 image_rotation,
                 keep_proportion,
                 overlay,
+                max_size,
+                max_pixels,
             )
 
     def show_pdf_page(

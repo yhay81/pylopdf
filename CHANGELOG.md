@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.insert_image(..., max_size=64 * 1024 * 1024,
+  max_pixels=64_000_000)` now bounds JPEG/PNG encoded input and PNG decode
+  amplification before mutation. `filename=` is read under the released GIL
+  through a one-byte-overrun bounded Rust path rather than Python
+  `Path.read_bytes()`, while `stream=` is rejected before its PyO3 copy.
+  Limits are repeated at the direct Rust boundary, use stable
+  `LimitError.code` values `image_input_size` and `image_pixel_count`, and
+  accept `None` as the explicit trusted-input opt-out. `pixmap=` remains
+  outside these limits because rendered Pixmaps are already bounded.
 - `Pixmap.save(path)` now writes its completed PNG to an unpredictable,
   exclusively created same-directory sibling before atomically replacing the
   requested path. Replacement failures preserve existing output and remove the
