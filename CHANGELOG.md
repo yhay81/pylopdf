@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   password at 127 UTF-8 bytes before PyO3 copying or password-KDF work. Direct
   Rust calls repeat the boundary, refusals use `password_input_size`, and save
   rejection precedes document mutation or output creation.
+- `DocumentLimits.max_interpretation_size` can now bound the complete PDF byte
+  snapshot consumed by rendering and extraction. It covers retained original
+  input plus bounded reserialization after edits, decryption, or AcroForm state
+  selection, preflights state-normalization copies, fails without a partial
+  hayro cache using `interpretation_size`, and is repeated by the Rust
+  boundary. The compatible default is `None`; `DocumentLimits.web()` sets
+  64 MiB.
 
 ### Fixed
 - AES-256 output no longer accepts passwords above the PDF 2.0 127-byte

@@ -15,6 +15,7 @@ _LIMITS = pylopdf.DocumentLimits(
     max_total_decompressed_size=32 * _MIB,
     max_object_depth=64,
     max_text_size=512 * 1024,
+    max_interpretation_size=16 * _MIB,
 )
 
 

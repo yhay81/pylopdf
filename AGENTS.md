@@ -227,7 +227,12 @@ overview.
   lopdf serialization only when hayro rejects them or reports a different page
   count. Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path; edited state must always be reflected in
-  rendering.
+  rendering. `DocumentLimits.max_interpretation_size` bounds both retained
+  original input and the complete reserialization after edits, decryption, or
+  state-appearance normalization. Under a finite limit, serialize before
+  constructing the state-normalized render copy. The bounded writer must not
+  install a partial hayro cache; failures use `interpretation_size`. Its
+  compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual

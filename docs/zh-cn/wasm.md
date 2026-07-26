@@ -64,10 +64,11 @@ curl --request POST \
 module-scope 的 `import pylopdf` 必须在不依赖启动阶段不可用的 entropy 或
 request 专用 runtime state 的情况下完成。
 
-example 将输入限制为 4 MiB，并对结构和解压后数据采用比 `DocumentLimits.web()` 更严格的
-budget。由于 pylopdf 当前接受 path 或完整 bytes，request body 必须完整缓冲。Cloudflare
-的 128 MiB isolate budget 还包含 Python、JavaScript、WebAssembly linear memory 和
-request buffer；周边代码需要更多空间时应进一步降低 file budget。
+example将输入限制为4 MiB，将完整rendering／extraction PDF snapshot限制为16 MiB，
+并对结构和解压后数据采用比`DocumentLimits.web()`更严格的budget。由于pylopdf当前接受
+path或完整bytes，request body必须完整缓冲。Cloudflare的128 MiB isolate budget还包含
+Python、JavaScript、WebAssembly linear memory和request buffer；周边代码需要更多空间时
+应进一步降低file和interpretation budget。
 
 ## 直接使用 Pyodide
 

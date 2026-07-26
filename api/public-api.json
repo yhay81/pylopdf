@@ -1013,6 +1013,7 @@
       "annotations": {
         "max_decompressed_size": "int | None",
         "max_file_size": "int | None",
+        "max_interpretation_size": "int | None",
         "max_object_depth": "int | None",
         "max_objects": "int | None",
         "max_page_content_size": "int | None",
@@ -1028,7 +1029,8 @@
         "max_page_content_size",
         "max_total_decompressed_size",
         "max_object_depth",
-        "max_text_size"
+        "max_text_size",
+        "max_interpretation_size"
       ],
       "kind": "class",
       "members": {
@@ -1036,6 +1038,9 @@
           "kind": "property"
         },
         "max_file_size": {
+          "kind": "property"
+        },
+        "max_interpretation_size": {
           "kind": "property"
         },
         "max_object_depth": {
@@ -1113,6 +1118,12 @@
             "default": null,
             "kind": "positional_or_keyword",
             "name": "max_text_size"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "max_interpretation_size"
           }
         ],
         "returns": "None"

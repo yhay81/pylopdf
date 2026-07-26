@@ -39,6 +39,7 @@ def test_web_profile_has_bounded_worker_defaults() -> None:
     assert limits.max_pages == 200
     assert limits.max_page_content_size == 10 * 1024 * 1024
     assert limits.max_text_size == 1024 * 1024
+    assert limits.max_interpretation_size == 64 * 1024 * 1024
 
 
 def test_limit_error_is_machine_readable_pdf_error() -> None:
@@ -174,6 +175,43 @@ def test_text_budget_remains_active_on_generated_documents() -> None:
     with pytest.raises(pylopdf.LimitError) as text:
         page.get_text()
     assert _error_code(text.value) == "text_size"
+
+
+def test_interpretation_budget_bounds_original_and_edited_snapshots() -> None:
+    source = build_pdf(["one"])
+    exact_source = pylopdf.open(
+        stream=source,
+        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source)),
+    )
+    assert "one" in exact_source[0].get_text()
+
+    bounded_source = pylopdf.open(
+        stream=source,
+        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
+    )
+    assert bounded_source.page_count == 1
+    with pytest.raises(pylopdf.LimitError) as source_error:
+        bounded_source[0].get_text()
+    assert _error_code(source_error.value) == "interpretation_size"
+
+    baseline = pylopdf.Document()
+    baseline.new_page()
+    snapshot_size = len(baseline.tobytes(max_size=None))
+
+    exact_edited = pylopdf.Document(
+        limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size),
+    )
+    exact_edited.new_page()
+    assert exact_edited[0].get_text() == ""
+
+    bounded_edited = pylopdf.Document(
+        limits=pylopdf.DocumentLimits(max_interpretation_size=snapshot_size - 1),
+    )
+    bounded_edited.new_page()
+    with pytest.raises(pylopdf.LimitError) as edited_error:
+        bounded_edited[0].get_text()
+    assert _error_code(edited_error.value) == "interpretation_size"
+    assert bounded_edited.page_count == 1
 
 
 def test_limits_revalidate_after_authentication() -> None:

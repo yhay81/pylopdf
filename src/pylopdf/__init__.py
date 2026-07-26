@@ -279,6 +279,8 @@ class DocumentLimits:
 
     ``None`` leaves an individual budget unlimited. :meth:`web` supplies a
     conservative starting profile for memory-bounded web and queue workers.
+    ``max_interpretation_size`` caps the complete PDF byte snapshot handed to
+    rendering and extraction, including a reserialization after edits.
     """
 
     max_file_size: int | None = None
@@ -289,6 +291,7 @@ class DocumentLimits:
     max_total_decompressed_size: int | None = None
     max_object_depth: int | None = None
     max_text_size: int | None = None
+    max_interpretation_size: int | None = None
 
     def __post_init__(self) -> None:
         """Reject booleans, non-integers, zero, and negative budgets."""
@@ -301,6 +304,7 @@ class DocumentLimits:
             ("max_total_decompressed_size", self.max_total_decompressed_size),
             ("max_object_depth", self.max_object_depth),
             ("max_text_size", self.max_text_size),
+            ("max_interpretation_size", self.max_interpretation_size),
         )
         for name, value in values:
             _validate_optional_positive_int(name, value)
@@ -318,6 +322,7 @@ class DocumentLimits:
             max_total_decompressed_size=128 * mib,
             max_object_depth=64,
             max_text_size=mib,
+            max_interpretation_size=64 * mib,
         )
 
 
@@ -332,6 +337,7 @@ def _document_limit_args(limits: DocumentLimits) -> tuple[int | None, ...]:
         limits.max_total_decompressed_size,
         limits.max_object_depth,
         limits.max_text_size,
+        limits.max_interpretation_size,
     )
 
 
@@ -2398,9 +2404,10 @@ class Document:
         PDFs with an empty user password decrypt automatically. Otherwise pass
         ``password`` or call :meth:`authenticate` after opening.
         Password input is capped at 127 UTF-8 bytes.
-        ``limits`` applies structural, decompression, and interpreted-text
-        budgets before expensive work. :meth:`DocumentLimits.web` is a
-        conservative starting profile for untrusted uploads.
+        ``limits`` applies structural, decompression, interpretation-snapshot,
+        and interpreted-text budgets before expensive work.
+        :meth:`DocumentLimits.web` is a conservative starting profile for
+        untrusted uploads.
         ``max_decompressed_size`` remains as the compatible single-budget
         shorthand and cannot be combined with ``limits``.
         """
@@ -2429,7 +2436,10 @@ class Document:
             if needs_pass and password is not None:
                 doc = _Document.load(path, password, *limit_args)
         else:
-            doc = _Document(resolved_limits.max_text_size)
+            doc = _Document(
+                resolved_limits.max_text_size,
+                resolved_limits.max_interpretation_size,
+            )
             needs_pass = False
         self._doc = doc
         self._closed = False

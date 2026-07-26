@@ -22,7 +22,9 @@ risky. When processing untrusted files:
 - Pass `limits=pylopdf.DocumentLimits.web()` to `pylopdf.open()`. The profile
   bounds input bytes, pages, indirect objects, direct object nesting, individual
   and cumulative decompression, page-content decompression, and interpreted
-  Unicode text. `LimitError.code` identifies the rejected resource.
+  Unicode text. It also caps the complete PDF snapshot passed to rendering and
+  extraction at 64 MiB, including reserialization after edits or decryption.
+  `LimitError.code` identifies the rejected resource.
 - Inspect `doc.complexity` before heavy work. It reports page, object, and stream
   counts, encoded stream bytes, and direct object depth without decoding streams
   or rendering.
@@ -30,6 +32,9 @@ risky. When processing untrusted files:
   complete policy is preferred for user uploads.
 - Rendering is bounded to 64 megapixels per page. Embedded JavaScript is never
   executed (unsupported by design).
+- `DocumentLimits.max_interpretation_size` rejects retained or reserialized
+  rendering/extraction input before hayro parses it. The stable code is
+  `interpretation_size`; `None` is the compatible unbounded default.
 - Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and

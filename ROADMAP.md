@@ -831,6 +831,12 @@ rather than waiting automatically for v1.x.
   pages, and Flate/RunLength bombs. CPU
   deadlines remain an explicit host responsibility; application-level
   parallelism must retain the library's bounded admissions.
+- [x] Bound the complete renderer/extractor PDF snapshot (2026-07-26).
+  `DocumentLimits.max_interpretation_size` covers retained original input and
+  bounded reserialization after edits, decryption, or AcroForm state
+  normalization. Failures use `interpretation_size` without installing a
+  partial hayro cache; the compatible default is `None`, the web profile uses
+  64 MiB, and the Cloudflare example uses 16 MiB.
 - [x] Measure and refine the PyEmscripten distribution (2026-07-26).
   Emscripten now omits the unsupported RTen inference runtime while preserving
   an explicit `OcrError` capability boundary and external OCR text-layer

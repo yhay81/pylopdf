@@ -64,11 +64,12 @@ requirementだけを直前にbuildしたwheelへ差し替え、`workers-py`で�
 requestします。そのためmodule-scopeの`import pylopdf`は、startup時に使えない
 entropyやrequest固有のruntime stateに依存せず完了しなければなりません。
 
-exampleは入力を4 MiBに制限し、structureと展開後dataには`DocumentLimits.web()`より
-厳しいbudgetを設定します。pylopdfの入力はpathまたは完全なbytesなので、request bodyは
-全体をbufferします。Cloudflareの128 MiB isolate budgetにはPython、JavaScript、
-WebAssembly linear memory、request bufferも含まれるため、周辺処理がmemoryを使う場合は
-file budgetをさらに下げてください。
+exampleは入力を4 MiB、rendering／extraction用の完全なPDF snapshotを16 MiBに制限し、
+structureと展開後dataには`DocumentLimits.web()`より厳しいbudgetを設定します。
+pylopdfの入力はpathまたは完全なbytesなので、request bodyは全体をbufferします。
+Cloudflareの128 MiB isolate budgetにはPython、JavaScript、WebAssembly linear
+memory、request bufferも含まれるため、周辺処理がmemoryを使う場合はfileと
+interpretationのbudgetをさらに下げてください。
 
 ## Pyodideから直接使う
 

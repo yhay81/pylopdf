@@ -558,6 +558,7 @@ struct DocumentLimits {
     max_total_decompressed_size: Option<usize>,
     max_object_depth: Option<usize>,
     max_text_size: Option<usize>,
+    max_interpretation_size: Option<usize>,
 }
 
 /// Cheap structural facts that require neither stream decoding nor rendering.
@@ -894,6 +895,16 @@ fn validate_input_size(data: &[u8], max_file_size: Option<usize>) -> PyResult<()
     Ok(())
 }
 
+/// Validate the renderer/extractor snapshot budget at the private boundary.
+fn validate_interpretation_limit(max_interpretation_size: Option<usize>) -> PyResult<()> {
+    if max_interpretation_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_interpretation_size must be a positive integer or None",
+        ));
+    }
+    Ok(())
+}
+
 /// Read encoded image input without admitting more than one byte beyond its budget.
 fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     read_bounded_input(
@@ -1172,10 +1183,12 @@ impl Write for BoundedPdfOutput {
 }
 
 /// Serialize through a writer that never retains bytes beyond `max_size`.
-fn serialize_pdf(
+fn serialize_pdf_with_limit(
     document: &mut Document,
     options: Option<SaveOptions>,
     max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
 ) -> PyResult<Vec<u8>> {
     if max_size == Some(0) {
         return Err(PyValueError::new_err(
@@ -1190,12 +1203,27 @@ fn serialize_pdf(
     if output.exceeded {
         let limit = max_size.expect("an output can exceed only a configured limit");
         return Err(limit_err(
-            "pdf_output_size",
-            format!("serialized PDF exceeds the configured {limit}-byte output limit"),
+            limit_code,
+            format!("{size_label} exceeds the configured {limit}-byte limit"),
         ));
     }
     result.map_err(|error| PdfError::new_err(error.to_string()))?;
     Ok(output.bytes)
+}
+
+/// Serialize public PDF output through its stable output-size boundary.
+fn serialize_pdf(
+    document: &mut Document,
+    options: Option<SaveOptions>,
+    max_size: Option<usize>,
+) -> PyResult<Vec<u8>> {
+    serialize_pdf_with_limit(
+        document,
+        options,
+        max_size,
+        "pdf_output_size",
+        "serialized PDF output",
+    )
 }
 
 /// Return a page dictionary with inherited parent-tree attributes materialized.
@@ -2525,6 +2553,8 @@ pub struct _Document {
     table_page_order: VecDeque<u32>,
     /// Configured cumulative Unicode glyph payload across interpreted pages.
     max_text_size: Option<usize>,
+    /// Serialized PDF bytes admitted to the renderer/extractor snapshot.
+    max_interpretation_size: Option<usize>,
     /// Glyph payload already admitted for each interpreted page.
     interpreted_text_sizes: HashMap<u32, usize>,
     /// Pages whose existing contents were isolated during this document lifetime.
@@ -2542,8 +2572,15 @@ impl _Document {
         doc: Document,
         hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
+        max_interpretation_size: Option<usize>,
     ) -> Self {
-        Self::from_loaded_doc(doc, hayro_source, max_text_size, false)
+        Self::from_loaded_doc(
+            doc,
+            hayro_source,
+            max_text_size,
+            max_interpretation_size,
+            false,
+        )
     }
 
     /// Construct from a loaded document and retain visible recovery state.
@@ -2551,6 +2588,7 @@ impl _Document {
         doc: Document,
         hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
+        max_interpretation_size: Option<usize>,
         is_repaired: bool,
     ) -> Self {
         let pending = if is_repaired {
@@ -2568,6 +2606,7 @@ impl _Document {
             table_pages: HashMap::new(),
             table_page_order: VecDeque::new(),
             max_text_size,
+            max_interpretation_size,
             interpreted_text_sizes: HashMap::new(),
             isolated_content_pages: HashSet::new(),
             is_repaired,
@@ -2657,7 +2696,30 @@ impl _Document {
 
     /// Serialize current edit state to bytes for rendering.
     fn current_bytes(&mut self) -> PyResult<Vec<u8>> {
-        serialize_pdf(&mut self.doc, None, None)
+        serialize_pdf_with_limit(
+            &mut self.doc,
+            None,
+            self.max_interpretation_size,
+            "interpretation_size",
+            "serialized rendering and extraction snapshot",
+        )
+    }
+
+    /// Reject a retained source before the renderer or extractor parses it.
+    fn validate_interpretation_source(&self, data: &[u8]) -> PyResult<()> {
+        validate_interpretation_limit(self.max_interpretation_size)?;
+        if let Some(limit) = self.max_interpretation_size
+            && data.len() > limit
+        {
+            return Err(limit_err(
+                "interpretation_size",
+                format!(
+                    "rendering and extraction source is {} bytes, exceeding the configured limit of {limit}",
+                    data.len()
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Drop cached views; call at the start of every editing method.
@@ -3783,6 +3845,9 @@ impl _Document {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.get_pages().len();
             let normalize_state_appearances = has_state_appearances(&self.doc);
+            if !normalize_state_appearances && let Some(data) = self.hayro_source.as_deref() {
+                self.validate_interpretation_source(data)?;
+            }
             let source_pdf = (!normalize_state_appearances)
                 .then(|| self.hayro_source.take())
                 .flatten()
@@ -3791,18 +3856,30 @@ impl _Document {
             let pdf = match source_pdf {
                 Some(pdf) => pdf,
                 None => {
-                    let mut render_doc = normalize_state_appearances.then(|| {
-                        let mut doc = self.doc.clone();
+                    let mut render_doc = if normalize_state_appearances {
+                        let mut doc = if self.max_interpretation_size.is_some() {
+                            let data = self.current_bytes()?;
+                            Document::load_mem(&data).map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to prepare bounded PDF for rendering: {error}"
+                                ))
+                            })?
+                        } else {
+                            self.doc.clone()
+                        };
                         normalize_state_appearances_for_render(&mut doc);
-                        doc
-                    });
+                        Some(doc)
+                    } else {
+                        None
+                    };
                     let data = match render_doc.as_mut() {
-                        Some(doc) => {
-                            let mut data = Vec::new();
-                            doc.save_to(&mut data)
-                                .map_err(|error| PdfError::new_err(error.to_string()))?;
-                            data
-                        }
+                        Some(doc) => serialize_pdf_with_limit(
+                            doc,
+                            None,
+                            self.max_interpretation_size,
+                            "interpretation_size",
+                            "serialized rendering and extraction snapshot",
+                        )?,
                         None => self.current_bytes()?,
                     };
                     Pdf::new(data).map_err(|e| {
@@ -4625,9 +4702,15 @@ fn write_embedded_files(
 impl _Document {
     /// Create an empty PDF document.
     #[new]
-    #[pyo3(signature = (max_text_size=None))]
-    fn new(max_text_size: Option<usize>) -> PyResult<Self> {
-        let mut document = Self::from_doc(Document::with_version("1.7"), None, max_text_size);
+    #[pyo3(signature = (max_text_size=None, max_interpretation_size=None))]
+    fn new(max_text_size: Option<usize>, max_interpretation_size: Option<usize>) -> PyResult<Self> {
+        validate_interpretation_limit(max_interpretation_size)?;
+        let mut document = Self::from_doc(
+            Document::with_version("1.7"),
+            None,
+            max_text_size,
+            max_interpretation_size,
+        );
         document.ensure_page_tree().map_err(to_py_err)?;
         Ok(document)
     }
@@ -4647,7 +4730,8 @@ impl _Document {
         max_objects=None,
         max_total_decompressed_size=None,
         max_object_depth=None,
-        max_text_size=None
+        max_text_size=None,
+        max_interpretation_size=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn load(
@@ -4662,8 +4746,10 @@ impl _Document {
         max_total_decompressed_size: Option<usize>,
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
+        max_interpretation_size: Option<usize>,
     ) -> PyResult<Self> {
         validate_password_input(password.as_deref(), "password")?;
+        validate_interpretation_limit(max_interpretation_size)?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4673,6 +4759,7 @@ impl _Document {
             max_total_decompressed_size,
             max_object_depth,
             max_text_size,
+            max_interpretation_size,
         };
         let (decoder_bound, decoder_limit_code) = match (
             limits.max_decompressed_size,
@@ -4716,6 +4803,7 @@ impl _Document {
                 doc,
                 hayro_source,
                 limits.max_text_size,
+                limits.max_interpretation_size,
                 is_repaired,
             ))
         })
@@ -4733,7 +4821,8 @@ impl _Document {
         max_objects=None,
         max_total_decompressed_size=None,
         max_object_depth=None,
-        max_text_size=None
+        max_text_size=None,
+        max_interpretation_size=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn load_bytes(
@@ -4748,8 +4837,10 @@ impl _Document {
         max_total_decompressed_size: Option<usize>,
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
+        max_interpretation_size: Option<usize>,
     ) -> PyResult<Self> {
         validate_password_input(password.as_deref(), "password")?;
+        validate_interpretation_limit(max_interpretation_size)?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4759,6 +4850,7 @@ impl _Document {
             max_total_decompressed_size,
             max_object_depth,
             max_text_size,
+            max_interpretation_size,
         };
         validate_input_size(data, limits.max_file_size)?;
         let (decoder_bound, decoder_limit_code) = match (
@@ -4800,6 +4892,7 @@ impl _Document {
                 doc,
                 hayro_source,
                 limits.max_text_size,
+                limits.max_interpretation_size,
                 is_repaired,
             ))
         })
@@ -7141,7 +7234,7 @@ impl _Document {
         })?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None);
+        let source = Self::from_doc(generated_doc, Some(generated), None, None);
         self.show_pdf_page(
             py,
             page_number,
@@ -7261,7 +7354,7 @@ impl _Document {
         self.preflight_page_content(page_number)?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None);
+        let source = Self::from_doc(generated_doc, Some(generated), None, None);
         self.show_pdf_page(
             py,
             page_number,
