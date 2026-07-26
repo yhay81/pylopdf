@@ -19,6 +19,12 @@ Sans/Serif JP package:
 pip install pylopdf[cjk]
 ```
 
+Release CI installs every native platform wheel on an architecture-matched
+runner and exercises PDF creation, saving, reopening, extraction, rendering,
+and immutable Pixmap storage. This covers all five `abi3-py310` and all five
+CPython 3.14t artifacts; the sdist and PyEmscripten wheel have separate
+environment-specific gates.
+
 ## Open, inspect, save { #open-inspect-save }
 
 ```python

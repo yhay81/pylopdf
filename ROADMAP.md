@@ -522,8 +522,15 @@ known-limit behavior are polished together.
 - [x] Publish an explicit support and concurrency contract covering GIL-enabled,
       free-threaded, single-document, and multi-document use, plus the supported
       `render_pages` boundary and immutable Pixmap buffer behavior.
-- Validate installation and core workflows from every published wheel and the
-  sdist, and publish release provenance alongside the artifacts.
+- [x] Validate installation and core workflows from every published wheel and
+      the sdist, and publish release provenance alongside the artifacts
+      (2026-07-26). Architecture-matched standard runners now build and
+      install-smoke all five `abi3-py310` and all five CPython 3.14t wheels;
+      Linux aarch64 and macOS x86_64 are no longer unexecuted cross-builds.
+      Manual release run
+      [30199414878](https://github.com/yhay81/pylopdf/actions/runs/30199414878)
+      passed all ten wheel jobs, the sdist, and PyEmscripten while correctly
+      skipping tag-only publication.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
 - [x] Make public file saving failure-atomic across normal, object/xref-stream,
