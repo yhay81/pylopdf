@@ -191,6 +191,9 @@ overview.
   Candidate JPEG bytes and Flate streams remain borrowed through admission,
   decode, resize, and re-encode; release those borrows before mutating the cloned
   lopdf document rather than cloning complete encoded sources per candidate.
+  JPEG encoding writes through a boundary one byte below the source payload and
+  stops as soon as the result cannot be smaller rather than materializing a
+  complete rejected encoding.
   Actual rewrites invalidate hayro and derived interpretation caches without
   making existing `Page` views stale; no-op calls preserve all caches. Reject
   more than 65,536 interpreted indirect raster placements, 16,384 unique

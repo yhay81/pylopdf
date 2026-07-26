@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::f64::consts::PI;
+use std::io::{self, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use jpeg_encoder::{ColorType as JpegColorType, Encoder as JpegEncoder};
@@ -518,24 +519,69 @@ fn resize_pixels(
     }
 }
 
+struct SmallerJpegOutput {
+    bytes: Vec<u8>,
+    max_size: usize,
+    exceeded: bool,
+}
+
+impl SmallerJpegOutput {
+    fn new(max_size: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_size,
+            exceeded: false,
+        }
+    }
+}
+
+impl Write for SmallerJpegOutput {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let Some(new_len) = self.bytes.len().checked_add(buf.len()) else {
+            self.exceeded = true;
+            return Err(io::Error::other("compressed JPEG size overflowed"));
+        };
+        if new_len > self.max_size {
+            self.exceeded = true;
+            return Err(io::Error::other(
+                "compressed JPEG would not be smaller than its source",
+            ));
+        }
+        self.bytes.try_reserve(buf.len()).map_err(|error| {
+            io::Error::other(format!("failed to allocate compressed JPEG: {error}"))
+        })?;
+        self.bytes.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 fn encode_jpeg(
     pixels: &[u8],
     width: u32,
     height: u32,
     color: ColorModel,
     quality: u8,
-) -> Result<Vec<u8>, String> {
+    max_size: usize,
+) -> Result<Option<Vec<u8>>, String> {
     let width =
         u16::try_from(width).map_err(|_| "compressed JPEG width exceeds 65535".to_owned())?;
     let height =
         u16::try_from(height).map_err(|_| "compressed JPEG height exceeds 65535".to_owned())?;
-    let mut output = Vec::new();
-    let mut encoder = JpegEncoder::new(&mut output, quality);
-    encoder.set_optimized_huffman_tables(true);
-    encoder
-        .encode(pixels, width, height, color.jpeg_color())
-        .map_err(|error| format!("failed to encode JPEG: {error}"))?;
-    Ok(output)
+    let mut output = SmallerJpegOutput::new(max_size);
+    let result = {
+        let mut encoder = JpegEncoder::new(&mut output, quality);
+        encoder.set_optimized_huffman_tables(true);
+        encoder.encode(pixels, width, height, color.jpeg_color())
+    };
+    if output.exceeded {
+        return Ok(None);
+    }
+    result.map_err(|error| format!("failed to encode JPEG: {error}"))?;
+    Ok(Some(output.bytes))
 }
 
 /// Rewrite safe JPEG or Flate XObjects when the encoded result is smaller.
@@ -584,17 +630,18 @@ pub(crate) fn compress_images(
                 (target_width, target_height),
                 candidate.color,
             )?;
-            let encoded = encode_jpeg(
+            let source_len = candidate.source.encoded_len();
+            let Some(encoded) = encode_jpeg(
                 &pixels,
                 target_width,
                 target_height,
                 candidate.color,
                 quality,
-            )?;
-            let source_len = candidate.source.encoded_len();
-            if encoded.len() >= source_len {
+                source_len.saturating_sub(1),
+            )?
+            else {
                 continue;
-            }
+            };
             (
                 target_width,
                 target_height,
