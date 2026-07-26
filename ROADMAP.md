@@ -519,6 +519,11 @@ known-limit behavior are polished together.
       Inherited values remain shared during traversal and are charged per
       returned leaf; fills enforce the same tree and input-value boundary
       atomically.
+- [x] Bound AcroForm button-state interpretation and synthesis. Widget and
+      normal-appearance state counts plus encoded/returned state-name text are
+      capped before cloning or mutation. Boolean lookup now releases the GIL
+      and deduplicates linearly; fills preflight missing `Off`/on keys so they
+      cannot create output the next call rejects.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

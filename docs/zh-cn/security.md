@@ -83,6 +83,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   encoded/decoded/returned名称或值、或4,096个choice value item的部分结果。
   引用cycle只访问一次，继承值按每个返回leaf计入预算；填写也原子地执行相同的
   tree上限与1 MiB输入值上限。
+- AcroForm button field会拒绝超过4,096个widget、8,192个normal appearance
+  state entry、4,096个唯一返回state name或1 MiB encoded/returned state-name文本。
+  填写会在修改前计入缺少的`Off`/on state key。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的

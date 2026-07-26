@@ -50,6 +50,9 @@ risky. When processing untrusted files:
   or 4,096 choice-value items. Reference cycles are visited once, inherited
   values are charged for every returned leaf, and fills enforce the same tree
   plus 1 MiB input-value boundary atomically.
+- AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
+  state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
+  state-name text. Fills budget missing `Off` and on-state keys before mutation.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

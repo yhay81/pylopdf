@@ -88,6 +88,26 @@ def _build_form_pdf(*, checkbox_on_content: str = "", text_widget_extra: str = "
     return bytes(out)
 
 
+def _build_button_state_pdf(states: str, *, indirect_kids: bool = False) -> bytes:
+    """Build one checkbox with a caller-provided normal-state dictionary."""
+    kids = "8 0 R" if indirect_kids else "[6 0 R]"
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [6 0 R] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: f"<< /FT /Btn /T (button) /V /Off /Kids {kids} >>",
+        6: (
+            "<< /Parent 5 0 R /Type /Annot /Subtype /Widget /Rect [10 10 30 30]"
+            f" /AS /Off /AP << /N << {states} >> >> >>"
+        ),
+        7: _form_stream(""),
+    }
+    if indirect_kids:
+        objects[8] = "[6 0 R]"
+    return build_raw_pdf(objects)
+
+
 def _opaque_pixels(doc: pylopdf.Document, clip: tuple[float, float, float, float]) -> int:
     pix = doc[0].get_pixmap(clip=clip)
     return sum(alpha != 0 for alpha in pix.samples[3::4])
@@ -423,3 +443,71 @@ def test_form_field_tree_bounds_inherited_returned_values() -> None:
     doc = pylopdf.open(stream=build_raw_pdf(objects))
     with pytest.raises(pylopdf.PdfError, match=r"returned field-value.*1048576-byte safety limit"):
         doc.get_form_fields()
+
+
+def test_form_field_tree_rejects_excessive_widgets_atomically() -> None:
+    widgets = "6 0 R " * 4097
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< /FT /Btn /T (button) /Kids [{widgets}] >>",
+            6: "<< /Parent 5 0 R /Type /Annot /Subtype /Widget /Rect [10 10 30 30] >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="4096-widget safety limit"):
+        doc.get_form_fields()
+    with pytest.raises(pylopdf.PdfError, match="4096-widget safety limit"):
+        doc.set_form_field("button", "Yes")
+    assert doc.tobytes() == before
+
+
+def test_form_button_states_reject_excessive_entries_atomically() -> None:
+    states = " ".join(f"/S{index} 7 0 R" for index in range(8193))
+    doc = pylopdf.open(stream=_build_button_state_pdf(states))
+    assert doc.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Off"}]
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="8192-entry safety limit"):
+        doc.set_form_field("button", True)
+    with pytest.raises(pylopdf.PdfError, match="8192-entry safety limit"):
+        doc.set_form_field("button", "S0")
+    assert doc.tobytes() == before
+
+
+def test_form_button_states_reject_excessive_unique_names() -> None:
+    states = " ".join(f"/S{index} 7 0 R" for index in range(4097))
+    doc = pylopdf.open(stream=_build_button_state_pdf(states))
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="4096-name safety limit"):
+        doc.set_form_field("button", True)
+    assert doc.tobytes() == before
+
+
+def test_form_button_states_reject_excessive_name_bytes() -> None:
+    states = " ".join(f"/S{index}{'x' * 1024} 7 0 R" for index in range(1024))
+    doc = pylopdf.open(stream=_build_button_state_pdf(states))
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match=r"button-state name.*1048576-byte safety limit"):
+        doc.set_form_field("button", True)
+    with pytest.raises(pylopdf.PdfError, match=r"button-state name.*1048576-byte safety limit"):
+        doc.set_form_field("button", "S0")
+    assert doc.tobytes() == before
+
+
+def test_form_button_state_update_refuses_over_limit_output_atomically() -> None:
+    states = " ".join(f"/S{index} 7 0 R" for index in range(8192))
+    doc = pylopdf.open(stream=_build_button_state_pdf(states))
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="update exceeds the 8192-entry safety limit"):
+        doc.set_form_field("button", "S0")
+    assert doc.tobytes() == before
+
+
+def test_form_button_supports_indirect_kids_array() -> None:
+    doc = pylopdf.open(stream=_build_button_state_pdf("/Off 7 0 R /Yes 7 0 R", indirect_kids=True))
+    doc.set_form_field("button", True)
+    assert doc.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Yes"}]

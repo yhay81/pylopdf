@@ -290,6 +290,12 @@ overview.
   4,096 choice-value items. Inherited values use shared storage during the walk
   and count once per returned leaf. `set_form_field` must enforce the same tree
   and 1 MiB input-value boundary while preserving its atomic rollback contract.
+- AcroForm button handling rejects more than 4,096 widgets, 8,192 `/AP /N`
+  state entries, 4,096 unique returned names, or 1 MiB of encoded/returned
+  state-name text. Borrow and preflight state dictionaries before cloning them.
+  Appearance synchronization must budget missing `Off`/on keys before mutation
+  so a successful fill remains readable under the same limits. Resolve indirect
+  field `/Kids` arrays consistently.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
