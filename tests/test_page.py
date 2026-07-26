@@ -31,7 +31,9 @@ def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
     page = doc[1]
     assert "Page two" in page.get_text()
     assert page.render() == doc.render_page(1)
-    assert page.render_svg() == doc.render_page_svg(1)
+    svg = page.render_svg(max_size=None)
+    assert svg == doc.render_page_svg(1, max_size=None)
+    assert page.render_svg(max_size=len(svg.encode())) == svg
 
 
 def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:

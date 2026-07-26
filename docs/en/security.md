@@ -60,7 +60,8 @@ per-stream budget and cannot be combined with `limits=`.
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
-`markdown_output_size`, or `decompression_unverifiable`. The same code is also
+`markdown_output_size`, `svg_output_size`, or `decompression_unverifiable`.
+The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
 
@@ -78,6 +79,10 @@ The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
 probe's `repaired` key), and saving rewrites normalized xref data.
 
 - Rendering is capped at 64 megapixels per page.
+- `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
+  limit and reject over-limit output before PyO3 creates the Python string;
+  `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal
+  Rust string before pylopdf can enforce this boundary.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.

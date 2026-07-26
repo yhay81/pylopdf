@@ -374,7 +374,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
 | `render_pages(pages=None, scale=1.0, workers=None, max_size=512 MiB, ...)` | Render up to 4,096 ordered PNGs from one immutable snapshot; up to 4 workers by default, ~512 MB estimated live-work concurrency, and a cumulative encoded-output cap (`None` opts out) |
-| `render_page_svg(pno)` | Render a page to an SVG string |
+| `render_page_svg(pno, max_size=64 MiB)` | Render bounded UTF-8 SVG; over-limit output is rejected before Python string conversion, `None` opts out |
 | `compress_images(dpi=150, quality=75)` | Lossily downsample and JPEG-recompress safe unmasked DeviceGray/DeviceRGB DCT or Flate XObjects; preserves the largest reuse, skips non-smaller output, and returns typed byte/count statistics |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
 | `select(page_numbers)` | Keep only the given pages, in the given order (repeats duplicate the page) |
@@ -414,7 +414,7 @@ signed_pdf: bytes = out.getvalue()
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed up to 4,096 `search_for` results directly; appearance stream included; 1 MiB subtype/content budget |
 | `add_link_annot(rect, uri)` | URI link annotation (no border; 1 MiB subtype/URI budget) |
 | `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
-| `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
+| `render(scale, dpi=, background=)` / `render_svg(max_size=64 MiB)` | PNG / bounded UTF-8 SVG rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |
 | `set_mediabox(rect)` / `set_cropbox(rect)` | Set page boxes |

@@ -25,7 +25,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 按页两pass Markdown转换；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
-| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(...)` | PNG、带4,096页及累计encoded output上限的保序并行PNG批次（`None`取消）或SVG |
+| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG、带4,096页及累计encoded output上限的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
@@ -56,7 +56,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 使用相同表格及UTF-8输出控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG）；超过4,096个placement、累计64,000,000像素或64 MiB payload时拒绝部分结果 |
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
+| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg(max_size=64 MiB)` | PNG / 有上限的UTF-8 SVG渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | 绘制JPEG/PNG或复用已渲染的RGBA `Pixmap`；`rotate`按90度顺时针旋转 |

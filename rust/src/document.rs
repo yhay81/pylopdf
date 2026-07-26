@@ -5060,7 +5060,16 @@ impl _Document {
     }
 
     /// Render a one-based page to an SVG string.
-    fn render_page_svg(&mut self, py: Python<'_>, page_number: u32) -> PyResult<String> {
+    ///
+    /// hayro-svg 0.7 materializes its internal String before returning, so the
+    /// limit prevents conversion to a second Python string rather than bounding
+    /// the converter's temporary allocation.
+    fn render_page_svg(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        max_output_size: Option<usize>,
+    ) -> PyResult<String> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
@@ -5071,12 +5080,16 @@ impl _Document {
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
             let cache = hayro_svg::RenderCache::new();
             let settings = hayro_svg::SvgRenderSettings::default();
-            Ok(hayro_svg::convert(
-                page,
-                &cache,
-                &interpreter_settings,
-                &settings,
-            ))
+            let svg = hayro_svg::convert(page, &cache, &interpreter_settings, &settings);
+            if let Some(limit) = max_output_size
+                && svg.len() > limit
+            {
+                return Err(limit_err(
+                    "svg_output_size",
+                    format!("rendered SVG exceeds the {limit}-byte UTF-8 output limit"),
+                ));
+            }
+            Ok(svg)
         })
     }
 

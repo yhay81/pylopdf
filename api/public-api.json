@@ -590,6 +590,12 @@
                 "annotation": "int",
                 "kind": "positional_or_keyword",
                 "name": "pno"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "str"
@@ -2049,6 +2055,12 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "str"

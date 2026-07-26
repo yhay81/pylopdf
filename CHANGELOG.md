@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.render_page_svg(..., max_size=64 * 1024 * 1024)` and
+  `Page.render_svg()` now reject UTF-8 output above the configured boundary
+  before PyO3 creates the Python string, using `LimitError.code ==
+  "svg_output_size"`. `max_size=None` explicitly opts out. hayro-svg 0.7 still
+  materializes one internal Rust string before pylopdf can enforce the limit.
 - `Document.to_markdown(..., max_size=64 * 1024 * 1024)` and the page form now
   cap UTF-8 output with `LimitError.code == "markdown_output_size"` and stop
   page iterable materialization above 4,096 entries. Document conversion no

@@ -458,9 +458,35 @@ def test_render_page_rejects_oversized_page(page_size: tuple[int, int], message:
 
 def test_render_page_svg(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
-    svg = doc.render_page_svg(0)
+    svg = doc.render_page_svg(0, max_size=None)
     assert svg.lstrip().startswith("<")
     assert "svg" in svg[:200]
+    exact_size = len(svg.encode())
+
+    assert doc.render_page_svg(0, max_size=exact_size) == svg
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.render_page_svg(0, max_size=exact_size - 1)
+    assert caught.value.code == "svg_output_size"
+
+
+@pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
+def test_render_page_svg_rejects_non_integer_size_limits(
+    one_page_pdf: bytes,
+    max_size: object,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(TypeError, match="max_size"):
+        doc.render_page_svg(0, max_size=max_size)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("max_size", [0, -1])
+def test_render_page_svg_rejects_non_positive_size_limits(
+    one_page_pdf: bytes,
+    max_size: int,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="max_size"):
+        doc.render_page_svg(0, max_size=max_size)
 
 
 def test_render_page_cache_reflects_edits(three_page_pdf: bytes) -> None:
