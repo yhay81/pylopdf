@@ -54,7 +54,7 @@ Web预设目前独立应用以下上限：
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`embedded_file_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
-`svg_output_size`或
+`svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
@@ -77,6 +77,11 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   `/Contents`的raw array和引用chain。raw array上限为4,096个entry，chain深度为
   32，最终array上限为4,096个stream引用（包括只添加一次的`q`/`Q` isolation
   pair）。失败时不修改document。
+- `Page.replace_text()`将search、replacement和fallback的合计限制为4,096个
+  UTF-8 byte，并为解码page content、font encoding data、替换增长和最终stream
+  设置64 MiB默认上限。它在commit前准备page专用stream，因此不会修改复制page的
+  共享content；no-match/error会保留document和cache。可信输入可用
+  `max_size=None`显式解除。
 - `delete_pages()`、`select()`和`insert_pdf()`在Python与Rust中每次call最多接受
   4,096个page entry。iterable会在第4,097个item、graph修改前停止。空delete保留
   cache、generation及现有`Page` view。

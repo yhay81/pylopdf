@@ -65,7 +65,7 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準14または字形処理済みsubsetを印字。`pylopdf[cjk]`導入時は日本語・漢字にJP fontを自動選択 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14、明示OpenType、または自動選択JP fontの実幅でUAX #14折り返し。残り高さを返し、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
-| `replace_text(search, replacement, default_char=)` | 単純エンコーディングのテキスト置換 |
+| `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取り、1 call 1回のcycle-aware named-destination index、作成 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの

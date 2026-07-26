@@ -282,6 +282,16 @@ overview.
   safely source itself without serialization or mutable aliasing. Annotations
   must always include an appearance stream at `AP /N`, because hayro does not
   render annotations without one. `render_annotations` defaults to true.
+- Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
+  Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
+  page content, aggregate font encoding data, intermediate growth, and the
+  final content stream share the public `max_size` boundary. Re-encoding uses
+  a calculated upper bound before allocation and linear per-character
+  fallback. Commit one new page-owned stream only after all fallible work
+  succeeds so copied pages do not mutate shared `/Contents`; no-match and
+  failure paths must preserve document bytes and caches. A successful
+  replacement materializes inherited page attributes and clears the drawing
+  isolation marker for that page.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and

@@ -60,7 +60,8 @@ per-stream budget and cannot be combined with `limits=`.
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
-`markdown_output_size`, `svg_output_size`, or `decompression_unverifiable`.
+`markdown_output_size`, `svg_output_size`, `replacement_input_size`,
+`replacement_output_size`, or `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
@@ -88,6 +89,12 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   arrays stop at 4,096 entries, chains at 32 levels, and the final array at
   4,096 stream references including the one-time `q`/`Q` isolation pair.
   Failures do not mutate the document.
+- `Page.replace_text()` caps aggregate search/replacement/fallback input at
+  4,096 UTF-8 bytes and defaults decoded page content, font encoding data,
+  replacement growth, and final stream output to 64 MiB. It prepares a
+  page-owned stream before committing, so copied pages cannot edit shared
+  content and no-match/error calls preserve the document and caches.
+  `max_size=None` explicitly opts out for trusted input.
 - `delete_pages()`, `select()`, and `insert_pdf()` accept at most 4,096 page
   entries per call in both Python and Rust. Iterable reads stop at item 4,097
   before graph mutation. Empty deletion preserves caches, generation, and

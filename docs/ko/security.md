@@ -57,7 +57,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
-`markdown_output_size`, `svg_output_size`, `decompression_unverifiable` 중
+`markdown_output_size`, `svg_output_size`, `replacement_input_size`,
+`replacement_output_size`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -82,6 +83,11 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   `/Contents`의raw array와 참조chain을 검사합니다. raw array는4,096 entry,
   chain은 깊이32, 최종array는 한 번만 추가되는`q`/`Q` isolation pair를 포함해
   4,096 stream 참조로 제한됩니다. 실패하면document를 변경하지 않습니다.
+- `Page.replace_text()`는search, replacement, fallback의 합계를4,096 UTF-8
+  byte로 제한하고 디코딩한page content, font encoding data, 교체 증가분, 최종
+  stream에64 MiB 기본 상한을 적용합니다. commit 전에page 전용stream을 준비하므로
+  복사한page의 공유content를 변경하지 않으며 no-match/error에서document와cache를
+  보존합니다. 신뢰할 수 있는 입력은`max_size=None`으로 명시적으로 해제할 수 있습니다.
 - `delete_pages()`, `select()`, `insert_pdf()`는Python과Rust 모두에서call당
   4,096 page entry를 허용합니다. iterable은graph 변경 전4,097번째item에서
   중단됩니다. 빈delete는cache, generation 및기존`Page` view를 유지합니다.

@@ -31,6 +31,7 @@ use crate::generate;
 use crate::image_compression;
 use crate::ocr;
 use crate::pixmap::Pixmap;
+use crate::text_replace::{self, TextReplacementError};
 
 /// Bound interpreted text-page memory on long documents while retaining the
 /// common search/extract/annotate working set.
@@ -91,6 +92,9 @@ const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
 /// Bound generated invisible OCR-layer content per call.
 const MAX_OCR_LAYER_WORDS: usize = 4_096;
 const MAX_OCR_LAYER_TEXT_BYTES: usize = 1024 * 1024;
+
+/// Bound lopdf's simple-font replacement inputs before encoding work.
+const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 
 /// Bound one page-structure mutation batch before cloning or importing graphs.
 const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
@@ -6660,9 +6664,10 @@ impl _Document {
 
     /// Replace text on a one-based page and return the replacement count.
     ///
-    /// Thinly expose lopdf `replace_partial_text`. It supports simply encoded
-    /// fonts only and round-trips content through lopdf's parser. Python's
-    /// docstring documents the limitations.
+    /// Prepare bounded, copy-on-write replacement for simply encoded fonts.
+    ///
+    /// The replacement model follows lopdf `replace_partial_text`, while
+    /// Python's docstring documents its limitations and public budgets.
     fn replace_text_on_page(
         &mut self,
         py: Python<'_>,
@@ -6670,15 +6675,147 @@ impl _Document {
         search: &str,
         replacement: &str,
         default_char: Option<String>,
+        max_size: Option<usize>,
     ) -> PyResult<usize> {
-        self.invalidate_hayro_pdf();
+        if search.is_empty() {
+            return Err(PyValueError::new_err("search must be at least 1 character"));
+        }
+        if max_size == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_size must be a positive integer or None",
+            ));
+        }
+        if default_char
+            .as_deref()
+            .is_some_and(|value| value.chars().count() != 1)
+        {
+            return Err(PyValueError::new_err(
+                "default_char must contain exactly one character",
+            ));
+        }
+        let input_size = search
+            .len()
+            .checked_add(replacement.len())
+            .and_then(|size| size.checked_add(default_char.as_deref().map_or(0, str::len)))
+            .ok_or_else(|| {
+                limit_err(
+                    "replacement_input_size",
+                    "text replacement input size overflow",
+                )
+            })?;
+        if input_size > MAX_TEXT_REPLACEMENT_INPUT_BYTES {
+            return Err(limit_err(
+                "replacement_input_size",
+                format!(
+                    "text replacement inputs total {input_size} UTF-8 bytes, exceeding the \
+                     {MAX_TEXT_REPLACEMENT_INPUT_BYTES}-byte safety limit"
+                ),
+            ));
+        }
+
         let page_id = self.page_id(page_number)?;
-        py.detach(|| {
-            // lopdf get_page_fonts ignores inheritance, so materialize it first.
-            self.bake_page_attrs(page_id)?;
+        let streams = draw::inspect_page_contents(&self.doc, page_id).map_err(PdfError::new_err)?;
+        let default_char = default_char.as_deref().unwrap_or("?");
+        let replacement_count = py.detach(|| {
+            // lopdf font lookup misses direct Resources inherited from a page
+            // tree, so prepare the same materialized dictionary we will commit.
+            let mut page = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            let content_data = match max_size {
+                Some(limit) => {
+                    let decode_limit = limit.saturating_sub(streams.len());
+                    let content = self
+                        .doc
+                        .get_page_content_with_limit(page_id, decode_limit)
+                        .map_err(|error| match error {
+                            lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded {
+                                ..
+                            }) => limit_err(
+                                "replacement_output_size",
+                                format!(
+                                    "page content exceeds the configured text replacement limit of \
+                                     {limit} bytes"
+                                ),
+                            ),
+                            _ => {
+                                lopdf_err(Some("text replacement content decoding failed"), &error)
+                            }
+                        })?;
+                    if content.len() > limit {
+                        return Err(limit_err(
+                            "replacement_output_size",
+                            format!(
+                                "page content is {} bytes, exceeding the configured text \
+                                 replacement limit of {limit}",
+                                content.len()
+                            ),
+                        ));
+                    }
+                    content
+                }
+                None => self.doc.get_page_content(page_id),
+            };
+
+            let prepared = text_replace::prepare(
+                &self.doc,
+                &page,
+                &content_data,
+                search,
+                replacement,
+                default_char,
+                max_size,
+            )
+            .map_err(|error| match error {
+                TextReplacementError::Pdf(lopdf::Error::Decompress(
+                    DecompressError::MemoryLimitExceeded { .. },
+                ))
+                | TextReplacementError::OutputSize => limit_err(
+                    "replacement_output_size",
+                    match max_size {
+                        Some(limit) => format!(
+                            "text replacement would exceed the configured limit of {limit} bytes"
+                        ),
+                        None => "text replacement output size overflow".to_owned(),
+                    },
+                ),
+                TextReplacementError::Pdf(error) => {
+                    lopdf_err(Some("text replacement failed"), &error)
+                }
+                TextReplacementError::OperandDepth => PdfError::new_err(
+                    "text replacement content exceeds the 64-level operand-depth safety limit",
+                ),
+                TextReplacementError::TooManyFonts => {
+                    PdfError::new_err("text replacement exceeds the 4096-font page safety limit")
+                }
+            })?;
+            let Some((count, encoded)) = prepared else {
+                return Ok(0);
+            };
+
+            let new_object_number = self
+                .doc
+                .max_id
+                .checked_add(1)
+                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+            let new_content_id = (new_object_number, 0);
+            let mut stream = Stream::new(Dictionary::new(), encoded);
+            stream
+                .compress()
+                .map_err(|error| lopdf_err(Some("text replacement compression failed"), &error))?;
+            page.set("Contents", new_content_id);
+
+            // Everything above is fallible. Commit the page-owned stream and
+            // resolved page dictionary only after preparation succeeds.
             self.doc
-                .replace_partial_text(page_number, search, replacement, default_char.as_deref())
-                .map_err(|e| lopdf_err(Some("text replacement failed"), &e))
-        })
+                .objects
+                .insert(new_content_id, Object::Stream(stream));
+            self.doc.max_id = new_object_number;
+            self.doc.objects.insert(page_id, Object::Dictionary(page));
+            Ok(count)
+        })?;
+        if replacement_count > 0 {
+            self.isolated_content_pages.remove(&page_id);
+            self.invalidate_hayro_pdf();
+        }
+        Ok(replacement_count)
     }
 }
