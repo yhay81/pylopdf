@@ -255,8 +255,8 @@ pre-1.0 APIs.
   now cover Type 3 fonts, JPX nested behind LZW, transparency groups, soft
   masks, and existing annotations/links; a runtime-derived truncated classic
   xref covers controlled refusal. The current hayro 0.7.1 Type 3 raster
-  omission is retained as a strict xfail while its SVG device is positively
-  covered.
+  variation is retained as a conditional xfail on affected renderer targets
+  while its SVG device is positively covered.
 - [x] Recover an incorrect final classic `startxref` only when an intact table
   in the final revision passes a complete bounded retry. Surface recovery
   through warnings, `Document.is_repaired`, and metadata probes; normalize on
@@ -751,8 +751,8 @@ rather than waiting automatically for v1.x.
 - [x] Expand the corpus with independent, redistributable fixtures for a
       truncated classic xref table, Type 3 stencil glyphs, JPX nested behind
       LZW, transparency groups/soft masks, and existing annotations/links
-      (2026-07-26). Type 3 raster output remains an explicit hayro 0.7.1
-      upgrade gate rather than a silent claim of support.
+      (2026-07-26). Type 3 raster output remains an explicit conditional
+      hayro 0.7.1 limitation rather than a silent claim of support.
 - [x] Normalize rotated-page extraction into display space (2026-07-23) by
       passing the renderer's `initial_transform(true)` to extraction. Reading
       order, search, words, image bboxes, and OCR layers now use display
