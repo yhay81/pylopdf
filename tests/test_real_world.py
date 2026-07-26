@@ -1,8 +1,8 @@
-"""Regression tests over real-world PDFs.
+"""Regression tests over real-world and independent interoperability PDFs.
 
 Run open, metadata, extraction, editing, saving, and rendering over every PDF
-produced by real toolchains in ``tests/assets/real_world``. This catches lopdf
-and hayro limitations early. The adjacent README records sources and licenses.
+in ``tests/assets/real_world``. This catches lopdf and hayro limitations early.
+The adjacent README records sources and licenses.
 """
 
 from __future__ import annotations
@@ -48,6 +48,15 @@ CASES = [
         snippet="NICS Firearm Background Checks",
     ),
     Case("senate-expenditures.pdf", pages=1, version="PDF 1.3", snippet="BAIN, J MATTHEW"),
+    Case("pdfium-type3.pdf", pages=1, version="PDF 1.7", snippet=None),
+    Case("pdfium-smask-blend.pdf", pages=1, version="PDF 1.7", snippet=None),
+    Case("pdfium-jpx-lzw.pdf", pages=1, version="PDF 1.7", snippet=None),
+    Case(
+        "pdfium-links-highlights-annots.pdf",
+        pages=1,
+        version="PDF 1.7",
+        snippet="Link Annotations",
+    ),
 ]
 
 ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
@@ -67,6 +76,19 @@ def _with_incorrect_startxref(data: bytes) -> bytes:
         number_end += 1
     assert number_end > number_start
     return data[:number_start] + b"0" + data[number_end:]
+
+
+def _rgba_pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int, int]:
+    """Return one rendered pixel over a white background."""
+    pixmap = page.get_pixmap(background=(255, 255, 255))
+    samples = pixmap.samples
+    offset = (y * pixmap.width + x) * 4
+    return (
+        samples[offset],
+        samples[offset + 1],
+        samples[offset + 2],
+        samples[offset + 3],
+    )
 
 
 @ALL
@@ -148,6 +170,19 @@ def test_previous_classic_xref_is_not_used_for_later_revision() -> None:
         pylopdf.open(stream=later_revision)
 
 
+def test_truncated_classic_xref_is_rejected() -> None:
+    """Do not treat a stream cut inside the final xref table as a document."""
+    raw = (ASSETS / "pdf20-simple.pdf").read_bytes()
+    startxref = raw.rfind(b"startxref")
+    xref = raw.rfind(b"xref\r\n", 0, startxref)
+    entry = raw.find(b"0000000096 00000 n", xref, startxref)
+    assert xref >= 0
+    assert entry >= 0
+
+    with pytest.raises(pylopdf.PdfError):
+        pylopdf.open(stream=raw[: entry + 8])
+
+
 def test_max_decompressed_size_guards_against_bombs() -> None:
     """A tiny decompression limit rejects PDFs containing object streams."""
     path = ASSETS / "f1040.pdf"
@@ -224,6 +259,67 @@ def test_pdf20_comment_streams_extract() -> None:
     """
     doc = pylopdf.open(ASSETS / "pdf20-simple.pdf")
     assert "Hello World" in doc.get_page_text(0)
+
+
+def test_pdfium_type3_svg_retains_stencil_glyphs() -> None:
+    """Exercise the independent Type 3 glyph program through the SVG device."""
+    svg = pylopdf.open(ASSETS / "pdfium-type3.pdf").render_page_svg(0)
+
+    assert '<defs id="type3-glyph">' in svg
+    assert svg.count("<image ") == 3
+
+
+def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
+    """Expose the current platform-dependent Type 3 raster behavior."""
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+    pixmap = page.get_pixmap(background=(255, 255, 255))
+    samples = pixmap.samples
+    has_ink = any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
+
+    if not has_ink:
+        pytest.xfail("hayro 0.7.1 omits these Type 3 stencil glyphs on this renderer target")
+
+
+def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
+    """Decode an ASCIIHex/LZW/JPX image chain through both image APIs."""
+    page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf")[0]
+    images = page.get_images()
+
+    assert [(image["width"], image["height"], image["ext"]) for image in images] == [(612, 792, "png")]
+    assert images[0]["image"].startswith(b"\x89PNG\r\n\x1a\n")
+    assert _rgba_pixel(page, 300, 300) == (255, 0, 0, 255)
+
+
+def test_pdfium_soft_mask_and_blend_render_expected_region() -> None:
+    """Apply a form soft mask and Screen blend without losing its opacity."""
+    page = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf")[0]
+
+    assert _rgba_pixel(page, 75, 150) == (102, 102, 102, 255)
+    assert _rgba_pixel(page, 25, 150) == (255, 255, 255, 255)
+    assert _rgba_pixel(page, 75, 50) == (255, 255, 255, 255)
+
+
+def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
+    """Read independent Widget, Link, and Highlight dictionaries in source order."""
+    page = pylopdf.open(ASSETS / "pdfium-links-highlights-annots.pdf")[0]
+    annotations = page.annots()
+
+    assert [annotation["type"] for annotation in annotations] == [
+        "Widget",
+        "Widget",
+        "Widget",
+        "Widget",
+        "Link",
+        "Highlight",
+    ]
+    assert annotations[4]["uri"] == "https://www.google.com/"
+    assert page.get_links() == [
+        {
+            "kind": 2,
+            "from": pylopdf.Rect(69.0, 139.0, 542.0, 159.0),
+            "uri": "https://www.google.com/",
+        }
+    ]
 
 
 def test_f1040_metadata_title() -> None:

@@ -1,1 +1,2 @@
+*.pdf binary
 models/pylopdf-ocr-models/src/pylopdf_ocr_models/ppocrv6_dict.txt text eol=lf

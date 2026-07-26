@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The redistributable interoperability corpus now includes four pinned PDFium
+  fixtures covering Type 3 stencil glyphs, JPX nested behind LZW, form soft
+  masks and blending, and existing Widget/Link/Highlight annotations. A
+  runtime-derived truncated classic xref adds controlled-refusal coverage.
+  Type 3 SVG conversion is positively covered; the current hayro 0.7.1 raster
+  variation is an explicit conditional xfail on affected renderer targets.
 - Info metadata, TOC title, and page-label style/prefix writes now preflight
   both aggregate caller UTF-8 and exact ASCII/UTF-16BE PDF text size before
   PyO3 copying. Direct Rust calls repeat all three 1 MiB boundaries, failures

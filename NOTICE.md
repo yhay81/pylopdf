@@ -52,6 +52,13 @@ data separately from the core wheel. Model copyright is held by Baidu;
 provenance, source hashes, and Apache-2.0 notices are included in that
 distribution.
 
+The interoperability corpus includes four minimal PDFium test fixtures.
+PDFium is copyright The PDFium Authors and available under the BSD 3-Clause
+license reproduced in `LICENSES/PDFium-BSD-3-Clause.txt`.
+
+- Source: <https://github.com/chromium/pdfium>
+- Pinned revision: `a84323421e94f484faca52dd9d027934eba42ab8`
+
 The following acknowledgements are reproduced from krilla's `NOTICE.md`.
 
 ## krilla acknowledgements
