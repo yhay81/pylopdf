@@ -121,9 +121,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.
-- `Document.embfile_get()`은 각filter layer의 디코딩 출력을 기본64 MiB로 제한합니다.
-  크기를 알고 있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은
-  무제한materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
+- `Document.embfile_add()`는PyO3 copy 전에64 MiB를 넘는 입력을 거부하고,
+  `embfile_get()`은 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
+  있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은 무제한 입력
+  또는materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
   깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다. 추가하는key/
   filename/description 입력 합계는1 MiB로 제한합니다. 편집은inline FileSpec
   clone 전에direct object 4,096개, 깊이32, direct string/name/stream data 1 MiB

@@ -120,8 +120,9 @@ xref dataを正規化します。
 - `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
   64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
   上限までしか展開しません。
-- `Document.embfile_get()`は各filter層の展開結果を既定で64 MiBに制限します。
-  既知の大容量添付では`max_size=`を増やせます。`max_size=None`は無制限の
+- `Document.embfile_add()`はPyO3 copy前に64 MiB超の入力を拒否し、
+  `embfile_get()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量
+  添付では`max_size=`を増やせます。`max_size=None`は無制限の入力または
   materializationを明示的に許可します。添付名treeも4,096 entry/node、深さ32、
   encoded/decoded name合計1 MiBを超えると拒否します。追加時のkey/filename/
   description入力は合計1 MiBまでです。編集時はinline FileSpecのclone前に、直接

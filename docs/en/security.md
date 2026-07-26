@@ -134,12 +134,13 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
-- `Document.embfile_get()` defaults to a 64 MiB decoded-size limit applied to
-  every filter layer. Raise `max_size=` for a known large attachment;
-  `max_size=None` explicitly accepts unbounded materialization. Attachment name
-  trees are rejected above 4,096 entries/nodes, 32 levels, or 1 MiB of encoded
-  or decoded names. Adds cap aggregate key/filename/description input at 1 MiB.
-  Edits validate inline FileSpecs before cloning above 4,096 direct objects,
+- `Document.embfile_add()` rejects input above 64 MiB before its PyO3 copy, and
+  `embfile_get()` applies the same default to every decoded filter layer. Raise
+  `max_size=` for a known large attachment; `max_size=None` explicitly accepts
+  unbounded input or materialization. Attachment name trees are rejected above
+  4,096 entries/nodes, 32 levels, or 1 MiB of encoded or decoded names. Adds
+  cap aggregate key/filename/description input at 1 MiB. Edits validate inline
+  FileSpecs before cloning above 4,096 direct objects,
   32 levels, or 1 MiB of direct string/name/stream data, and preflight the
   Catalog write target instead of cloning the complete document for rollback.
 - `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied

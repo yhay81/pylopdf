@@ -41,6 +41,7 @@ const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
 const TABLE_PAGE_CACHE_CAPACITY: usize = 8;
 
 /// Bound attachment name-tree traversal and returned metadata.
+const DEFAULT_MAX_EMBEDDED_FILE_SIZE: usize = 64 * 1024 * 1024;
 const MAX_EMBEDDED_FILE_ENTRIES: usize = 4_096;
 const MAX_EMBEDDED_FILE_TREE_NODES: usize = 4_096;
 const MAX_EMBEDDED_FILE_NAME_BYTES: usize = 1024 * 1024;
@@ -6656,6 +6657,13 @@ impl _Document {
     }
 
     /// Add an attachment, rejecting duplicate names.
+    #[pyo3(signature = (
+        name,
+        data,
+        filename,
+        desc,
+        max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)
+    ))]
     fn embfile_add(
         &mut self,
         py: Python<'_>,
@@ -6663,7 +6671,24 @@ impl _Document {
         data: Vec<u8>,
         filename: Option<String>,
         desc: Option<String>,
+        max_size: Option<usize>,
     ) -> PyResult<()> {
+        if max_size == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_size must be a positive integer or None",
+            ));
+        }
+        if let Some(limit) = max_size
+            && data.len() > limit
+        {
+            return Err(limit_err(
+                "embedded_file_size",
+                format!(
+                    "attachment input is {} bytes, exceeding the {limit}-byte limit",
+                    data.len()
+                ),
+            ));
+        }
         let result = py.detach(|| {
             let target = embedded_files_write_target(&self.doc)?;
             let fname = filename.as_deref().unwrap_or(&name);

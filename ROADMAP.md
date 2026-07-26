@@ -543,15 +543,17 @@ known-limit behavior are polished together.
       count, cumulative source pixels, returned payload bytes, and the
       Flate-to-DCT fast path. Repeated reuse now fails atomically instead of
       multiplying one source into unbounded Python-owned byte strings.
-- [x] Bound attachment retrieval before Python-byte materialization. The public
-      `embfile_get(max_size=64 MiB)` default caps every decoder layer, uses a
-      stable `embedded_file_size` rejection code, and requires an explicit
-      opt-out for unbounded reads. Name-tree traversal now borrows direct object
-      shapes, visits cycles once, and rejects excessive entries, nodes, depth,
-      or name bytes; failed additions cannot create an unreadable tree. Edits
-      preflight the Catalog write target instead of cloning the full document,
-      cap new key/filename/description input at 1 MiB, and validate bounded
-      direct object count/depth/data before cloning an inline FileSpec.
+- [x] Bound attachment insertion and retrieval (completed symmetrically on
+      2026-07-26). `embfile_add` rejects data above its 64 MiB default before
+      the PyO3 copy, while `embfile_get` applies the same default to every
+      decoder layer; direct Rust calls repeat the check, both paths use stable
+      code `embedded_file_size`, and `None` is the explicit unbounded opt-out.
+      Name-tree traversal borrows direct object shapes, visits cycles once, and
+      rejects excessive entries, nodes, depth, or name bytes; failed additions
+      cannot create an unreadable tree. Edits preflight the Catalog write target
+      instead of cloning the full document, cap new key/filename/description
+      input at 1 MiB, and validate bounded direct object count/depth/data before
+      cloning an inline FileSpec.
 - [x] Bound XMP PDF/A self-claim inspection before metadata materialization.
       `get_pdfa_claim(max_size=1 MiB)` shares the layered decoder contract,
       reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.

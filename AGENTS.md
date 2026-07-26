@@ -141,9 +141,10 @@ overview.
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
   never return a partial list.
-- `Document.embfile_get` releases the GIL and defaults to a 64 MiB decoded-size
-  limit applied to every filter layer. `max_size=None` is the explicit
-  unbounded opt-out; limit failures use `LimitError.code ==
+- `Document.embfile_add` and `embfile_get` share a 64 MiB default attachment
+  boundary. Adds reject byte input before its PyO3 copy and repeat the check in
+  Rust; gets apply the decoded-size limit to every filter layer. `max_size=None`
+  is the explicit unbounded opt-out; limit failures use `LimitError.code ==
   "embedded_file_size"`, while malformed or unsupported filters must not fall
   back to encoded bytes. EmbeddedFiles name-tree traversal borrows direct
   shapes, visits indirect cycles once, and rejects more than 4,096 entries or

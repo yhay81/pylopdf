@@ -2714,21 +2714,29 @@ class Document:
         *,
         filename: str | None = None,
         desc: str | None = None,
+        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
     ) -> None:
         """Add an EmbeddedFiles attachment.
 
         ``name`` is the unique key used for listing and retrieval. ``filename``
         is the viewer-facing file name and defaults to ``name``; ``desc`` is a
         description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
-        Their aggregate input text is capped at 1 MiB. Existing inline
-        FileSpecs are cloned only after bounded shape validation.
+        ``max_size`` bounds attachment data and defaults to 64 MiB, matching
+        :meth:`embfile_get`; ``None`` explicitly accepts unbounded input.
+        Their aggregate input text is capped at 1 MiB. Existing inline FileSpecs
+        are cloned only after bounded shape validation.
         This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
         """
         self._ensure_open()
         if not name:
             msg = "name must be at least 1 character"
             raise ValueError(msg)
-        self._doc.embfile_add(name, bytes(data), filename, desc)
+        _validate_optional_positive_int("max_size", max_size)
+        if max_size is not None and len(data) > max_size:
+            limit_code = "embedded_file_size"
+            msg = f"attachment input is {len(data)} bytes, exceeding the {max_size}-byte limit"
+            raise LimitError(limit_code, msg)
+        self._doc.embfile_add(name, bytes(data), filename, desc, max_size)
 
     def embfile_names(self) -> list[str]:
         """Return sorted attachment names."""
