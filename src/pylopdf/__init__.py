@@ -818,7 +818,7 @@ class Table:
     strategy: Literal["lines", "text"]
     confidence: float
 
-    def __init__(  # noqa: PLR0913 - internal owned result constructor
+    def __init__(  # noqa: PLR0913, PLR0917 - internal owned result constructor
         self,
         page: Page,
         bbox: Rect,

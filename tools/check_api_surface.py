@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT_PATH = ROOT / "api" / "public-api.json"
 PUBLIC_DUNDERS = frozenset({"__enter__", "__exit__", "__getitem__", "__iter__", "__len__"})
 
-JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"] | None
 JsonObject: TypeAlias = dict[str, JsonValue]
 
 

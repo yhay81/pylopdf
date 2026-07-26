@@ -54,7 +54,7 @@ dev = [
     "mypy>=1.14",
     "pre-commit>=4.6.1",
     "pytest>=8.3",
-    "ruff>=0.9",
+    "ruff>=0.16.0",
 ]
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
@@ -121,12 +121,15 @@ ignore_missing_imports = true
 line-length = 120
 src = ["src"]
 target-version = "py310"
-# python/ and lambda_test/ are unrelated colocated work.
-extend-exclude = ["python", "lambda_test"]
+# python/ and lambda_test/ are unrelated colocated work. Keep Markdown examples
+# hand-aligned and validate them through the documentation build.
+extend-exclude = ["python", "lambda_test", "*.md"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    # The repository-level license covers source files without repeated headers.
+    "CPY001",
     "D100",
     "D104",
     # Rules that conflict with ruff format.
