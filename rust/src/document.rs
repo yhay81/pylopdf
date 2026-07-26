@@ -1882,6 +1882,194 @@ fn has_state_appearances(doc: &Document) -> bool {
     })
 }
 
+struct HighlightAppearancePlan {
+    annotation_id: ObjectId,
+    quads: Vec<[(f64, f64); 4]>,
+    color: (f64, f64, f64),
+    opacity: f64,
+}
+
+fn finite_number(doc: &Document, object: &Object) -> Option<f64> {
+    let value = f64::from(deref_object(doc, object).as_float().ok()?);
+    value.is_finite().then_some(value)
+}
+
+fn annotation_has_normal_appearance(doc: &Document, annotation: &Dictionary) -> bool {
+    annotation
+        .get(b"AP")
+        .ok()
+        .and_then(|appearance| deref_dict(doc, appearance))
+        .and_then(|appearance| appearance.get(b"N").ok().cloned())
+        .is_some_and(|normal| {
+            let resolved = deref_object(doc, &normal);
+            resolved.as_stream().is_ok() || resolved.as_dict().is_ok()
+        })
+}
+
+/// Collect bounded Highlight annotations that need a render-only appearance.
+///
+/// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
+/// but hayro 0.7 requires `/AP /N`. Keep this compatibility work outside the
+/// editable document and refuse aggregate geometry amplification.
+fn missing_highlight_appearance_plans(doc: &Document) -> Option<Vec<HighlightAppearancePlan>> {
+    let mut plans = Vec::new();
+    let mut total_quads = 0usize;
+    for (&annotation_id, object) in &doc.objects {
+        let Ok(annotation) = object.as_dict() else {
+            continue;
+        };
+        let is_highlight = annotation
+            .get(b"Subtype")
+            .ok()
+            .and_then(|subtype| deref_object(doc, subtype).as_name().ok())
+            .is_some_and(|subtype| subtype == b"Highlight");
+        if !is_highlight || annotation_has_normal_appearance(doc, annotation) {
+            continue;
+        }
+
+        let Ok(quad_points) = annotation
+            .get(b"QuadPoints")
+            .map(|points| deref_object(doc, points))
+            .and_then(Object::as_array)
+        else {
+            continue;
+        };
+        if quad_points.is_empty() || quad_points.len() % 8 != 0 {
+            continue;
+        }
+        let quad_count = quad_points.len() / 8;
+        total_quads = total_quads.checked_add(quad_count)?;
+        if total_quads > MAX_HIGHLIGHT_RECTS {
+            return None;
+        }
+
+        let mut quads = Vec::with_capacity(quad_count);
+        let mut valid = true;
+        for chunk in quad_points.chunks_exact(8) {
+            let mut values = [0.0f64; 8];
+            for (slot, value) in values.iter_mut().zip(chunk) {
+                let Some(number) = finite_number(doc, value) else {
+                    valid = false;
+                    break;
+                };
+                *slot = number;
+            }
+            if !valid {
+                break;
+            }
+            quads.push([
+                (values[0], values[1]),
+                (values[2], values[3]),
+                (values[4], values[5]),
+                (values[6], values[7]),
+            ]);
+        }
+        if !valid {
+            continue;
+        }
+
+        let Some(color) = annotation
+            .get(b"C")
+            .ok()
+            .map(|color| deref_object(doc, color))
+            .and_then(|color| color.as_array().ok())
+            .filter(|color| color.len() == 3)
+            .and_then(|color| {
+                Some((
+                    finite_number(doc, &color[0])?,
+                    finite_number(doc, &color[1])?,
+                    finite_number(doc, &color[2])?,
+                ))
+            })
+            .filter(|color| {
+                [color.0, color.1, color.2]
+                    .into_iter()
+                    .all(|component| (0.0..=1.0).contains(&component))
+            })
+        else {
+            continue;
+        };
+        let opacity = if let Ok(opacity) = annotation.get(b"CA") {
+            let Some(opacity) = finite_number(doc, opacity) else {
+                continue;
+            };
+            opacity
+        } else {
+            1.0
+        };
+        if !(0.0..=1.0).contains(&opacity) {
+            continue;
+        }
+
+        let points: Vec<(f64, f64)> = quads.iter().flatten().copied().collect();
+        let bbox = draw::bounding_rect(&points);
+        if bbox.iter().any(|value| !value.is_finite()) || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
+            continue;
+        }
+        plans.push(HighlightAppearancePlan {
+            annotation_id,
+            quads,
+            color,
+            opacity,
+        });
+    }
+    Some(plans)
+}
+
+fn has_missing_highlight_appearances(doc: &Document) -> bool {
+    missing_highlight_appearance_plans(doc).is_some_and(|plans| !plans.is_empty())
+}
+
+/// Add bounded Highlight appearances to a rendering clone only.
+fn synthesize_missing_highlight_appearances_for_render(doc: &mut Document) -> bool {
+    let Some(plans) = missing_highlight_appearance_plans(doc) else {
+        return false;
+    };
+    let Ok(object_count) = u32::try_from(plans.len()).map(|count| count.saturating_mul(2)) else {
+        return false;
+    };
+    if doc.max_id.checked_add(object_count).is_none() {
+        return false;
+    }
+
+    let mut changed = false;
+    for plan in plans {
+        let points: Vec<(f64, f64)> = plan.quads.iter().flatten().copied().collect();
+        let bbox = draw::bounding_rect(&points);
+        let gs_id = doc.add_object(dictionary! {
+            "Type" => "ExtGState",
+            "BM" => Object::Name(b"Multiply".to_vec()),
+            "CA" => Object::Real(plan.opacity as f32),
+            "ca" => Object::Real(plan.opacity as f32),
+            "AIS" => Object::Boolean(false),
+        });
+        let form_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => Object::Array(bbox.iter().map(|&value| Object::Real(value as f32)).collect()),
+            "Resources" => dictionary! {
+                "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
+            },
+        };
+        let appearance_id = doc.add_object(
+            Stream::new(form_dict, draw::highlight_ap_ops(&plan.quads, plan.color))
+                .with_compression(false),
+        );
+        if let Ok(annotation) = doc
+            .get_object_mut(plan.annotation_id)
+            .and_then(Object::as_dict_mut)
+        {
+            annotation.set(
+                "AP",
+                dictionary! { "N" => Object::Reference(appearance_id) },
+            );
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Read an integer while allowing an indirect reference.
 fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     match obj {
@@ -4099,11 +4287,12 @@ impl _Document {
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.get_pages().len();
-            let normalize_state_appearances = has_state_appearances(&self.doc);
-            if !normalize_state_appearances && let Some(data) = self.hayro_source.as_deref() {
+            let prepare_appearances =
+                has_state_appearances(&self.doc) || has_missing_highlight_appearances(&self.doc);
+            if !prepare_appearances && let Some(data) = self.hayro_source.as_deref() {
                 self.validate_interpretation_source(data)?;
             }
-            let source_pdf = (!normalize_state_appearances)
+            let source_pdf = (!prepare_appearances)
                 .then(|| self.hayro_source.take())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
@@ -4111,7 +4300,7 @@ impl _Document {
             let pdf = match source_pdf {
                 Some(pdf) => pdf,
                 None => {
-                    let mut render_doc = if normalize_state_appearances {
+                    let mut render_doc = if prepare_appearances {
                         let mut doc = if self.max_interpretation_size.is_some() {
                             let data = self.current_bytes()?;
                             Document::load_mem(&data).map_err(|error| {
@@ -4123,6 +4312,7 @@ impl _Document {
                             self.doc.clone()
                         };
                         normalize_state_appearances_for_render(&mut doc);
+                        synthesize_missing_highlight_appearances_for_render(&mut doc);
                         Some(doc)
                     } else {
                         None
@@ -6770,13 +6960,13 @@ impl _Document {
             "BM" => Object::Name(b"Multiply".to_vec()),
             "CA" => Object::Real(opacity as f32),
             "ca" => Object::Real(opacity as f32),
+            "AIS" => Object::Boolean(false),
         });
         let form_dict = dictionary! {
             "Type" => "XObject",
             "Subtype" => "Form",
             "FormType" => 1,
             "BBox" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
-            "Group" => dictionary! { "Type" => "Group", "S" => "Transparency" },
             "Resources" => dictionary! {
                 "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
             },

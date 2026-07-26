@@ -180,8 +180,10 @@ Released as v0.8.0 on 2026-07-23.
 - [x] Read annotations and create highlight/link annotations. Search results can
       be passed directly for “search and mark.” Highlights always include an
       `AP /N` appearance stream with Multiply blending. hayro renders
-      annotations with appearances when `render_annotations` is true by default,
-      enabling pixel-level tests. It does not render annotations without `AP`.
+      annotations with appearances when `render_annotations` is true by
+      default. The current rendering snapshot also supplies a bounded normal
+      appearance for valid existing RGB Highlight annotations without `AP`,
+      while the editable and saved PDF remain unchanged.
 
 ### v0.9 — document finishing
 

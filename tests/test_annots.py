@@ -108,6 +108,48 @@ def test_highlight_on_rotated_page_uses_display_coordinates() -> None:
     assert abs(annot_rect.y1 - target.y1) < 1
 
 
+def test_missing_highlight_appearance_rejects_malformed_opacity() -> None:
+    """Do not invent an appearance when an authored opacity is malformed."""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R] >>"),
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] "
+                "/QuadPoints [10 20 30 20 10 10 30 10] /C [1 1 0] /CA /Invalid >>"
+            ),
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+
+    assert not _has_yellowish(_region_pixels(page, page.rect))
+
+
+def test_missing_highlight_appearance_budget_is_atomic() -> None:
+    """Do not synthesize a partial set above the aggregate quad budget."""
+    excessive_quads = "10 20 30 20 10 10 30 10 " * 4096
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R 6 0 R] >>"),
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] "
+                "/QuadPoints [10 20 30 20 10 10 30 10] /C [1 1 0] >>"
+            ),
+            6: (
+                f"<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] /QuadPoints [{excessive_quads}] /C [1 1 0] >>"
+            ),
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+
+    assert not _has_yellowish(_region_pixels(page, page.rect))
+
+
 def test_add_link_annot_reads_back() -> None:
     doc = pylopdf.open(stream=build_pdf(["Visit example"]))
     page = doc[0]
