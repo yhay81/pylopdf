@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builds a temporary string vector, and each path is transformed, bounded, and
   converted to return geometry in one element pass without cloning the complete
   path.
+- `Page.get_images()` now encodes every PNG fallback directly into the remaining
+  64 MiB page payload budget instead of allocating a completed over-limit PNG
+  before refusal. Separate RGB/gray and alpha planes are stream-interleaved
+  through a 4 KiB scratch buffer rather than a complete additional raster.
 
 ## [0.12.0] - 2026-07-26
 
