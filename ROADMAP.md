@@ -799,9 +799,13 @@ rather than waiting automatically for v1.x.
   code section fell 21.92%, and the tested Cloudflare gzip upload fell from
   4.570 to 3.882 MiB. CI records machine-readable artifact sections, staged
   Pyodide startup/workload timings, linear-memory checkpoints, and Wrangler
-  bundle sizes. The complete core fits Cloudflare's paid-plan limits but not
-  its Free compressed-size limit; removing coherent PDF features for the Free
-  tier would fragment the API without establishing a credible workload, so no
+  bundle sizes. A feature-preserving follow-up applies fat LTO only to the
+  PyEmscripten artifact, reducing the wheel by another 2.78%, the installed
+  extension by 5.83%, and observed Wasm linear-memory high water by 0.812 MiB;
+  exact compatibility hashes and the module-scope `workerd` gate remain
+  unchanged. The complete core fits Cloudflare's paid-plan limits but not its
+  Free compressed-size limit; removing coherent PDF features for the Free tier
+  would fragment the API without establishing a credible workload, so no
   separate lightweight distribution is planned.
 - [x] Publish the end-to-end WebAssembly installation and operations guide
   (2026-07-26). A tested `examples/cloudflare-worker` is the source used by CI

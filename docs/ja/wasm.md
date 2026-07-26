@@ -156,15 +156,16 @@ capability判定を決定的にするため`OcrEngine()`自体は存在します
 
 ## 実測したdeployment範囲
 
-固定CI artifactは3.834 MiBのwheelと10.404 MiBの展開後Wasm extensionです。検証した
-Worker bundleは圧縮後3.882 MiB、展開後10.844 MiBでした。そのためCloudflare Workers
+固定CI artifactは3.772 MiBのwheelと9.910 MiBの展開後Wasm extensionです。検証した
+Worker bundleは圧縮後3.817 MiB、展開後10.383 MiBでした。そのためCloudflare Workers
 Freeの圧縮後3 MB上限は超えますが、paid planの圧縮後10 MBと共通の展開後64 MB上限には
 収まります。pylopdfはpaid planへのdeploy経路をsupportし、機能を減らした別distributionは
-配布しません。
+配布しません。fat LTOと1 codegen unitはPyEmscripten artifactだけに適用し、nativeの
+release profileは変更しません。
 
-Node/Pyodide harnessではForm 1040の初回open・extractが116.267 ms、5回反復のmedianが
-26.893 msでした。Wasm linear memoryはinstall後40.375 MiB、互換性・resource suite完了後
-70.625 MiBです。これらは再現可能なCI trendであり、Cloudflareのrequest latencyやisolate
+Node/Pyodide harnessではForm 1040の初回open・extractが117.634 ms、5回反復のmedianが
+28.506 msでした。Wasm linear memoryはinstall後39.688 MiB、互換性・resource suite完了後
+70.000 MiBです。これらは再現可能なCI trendであり、Cloudflareのrequest latencyやisolate
 resident memoryの測定ではありません。詳細は
 [size・startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)
 を参照してください。

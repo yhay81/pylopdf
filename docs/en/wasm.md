@@ -171,16 +171,17 @@ externally recognized OCR text.
 
 ## Measured deployment envelope
 
-The pinned CI artifact is a 3.834 MiB wheel with a 10.404 MiB uncompressed Wasm
-extension. The tested Worker bundle is 3.882 MiB compressed and 10.844 MiB
+The pinned CI artifact is a 3.772 MiB wheel with a 9.910 MiB uncompressed Wasm
+extension. The tested Worker bundle is 3.817 MiB compressed and 10.383 MiB
 uncompressed. It therefore exceeds Cloudflare Workers Free's 3 MB compressed
 limit but fits the paid-plan 10 MB compressed and shared 64 MB uncompressed
 limits. pylopdf supports the paid-plan deployment path and does not publish a
-separate reduced-feature distribution.
+separate reduced-feature distribution. The artifact uses fat LTO with one
+codegen unit only for PyEmscripten; native release profiles are unchanged.
 
 In the Node/Pyodide harness, the first Form 1040 open and extraction took
-116.267 ms; five repeated runs had a 26.893 ms median. Wasm linear memory
-reached 40.375 MiB after installation and 70.625 MiB after the full
+117.634 ms; five repeated runs had a 28.506 ms median. Wasm linear memory
+reached 39.688 MiB after installation and 70.000 MiB after the full
 compatibility and resource suites. These are reproducible CI trends, not
 Cloudflare request latency or isolate resident-memory measurements. See the
 [complete size and startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md).

@@ -453,6 +453,9 @@ overview.
   `cp310-abi3-pyemscripten_2025_0_wasm32` publication tag. Only the latter may
   remain in the release artifact directory because PyPI no longer accepts the
   legacy tag. Rust v0 symbol mangling avoids invalid legacy Emscripten exports.
+  The PyEmscripten-only release profile uses fat LTO and one codegen unit for
+  the single extension module; native maturin builds retain Cargo's default
+  release profile.
   The wheel must import `env.__cpp_exception` and must not require a
   wasm-bindgen shim. CI and release builds must also pass
   `tools/smoke_cloudflare.py`, which pins workers-py 1.15.0 and Wrangler
@@ -469,8 +472,8 @@ overview.
   `OcrError` and directs callers to external OCR plus
   `Page.insert_ocr_text_layer()`. Keep artifact sections, staged Pyodide
   startup/workload timing, linear-memory checkpoints, and Wrangler bundle
-  measurements in CI. The 2026-07-26 baseline is a 3.834 MiB wheel and
-  3.882 MiB compressed Cloudflare bundle; it fits the paid plan, not the Free
+  measurements in CI. The 2026-07-26 LTO artifact is a 3.772 MiB wheel and
+  3.817 MiB compressed Cloudflare bundle; it fits the paid plan, not the Free
   compressed-size limit. Preserve one complete Wasm distribution unless a
   coherent deployment need justifies a variant.
 - `tools/pyodide_compat.py` is the shared native/Pyodide functional contract.

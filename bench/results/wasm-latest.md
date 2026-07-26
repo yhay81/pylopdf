@@ -1,15 +1,56 @@
-# pylopdf PyEmscripten size and startup baseline
+# pylopdf PyEmscripten size and startup report
 
-- Run at: 2026-07-25 22:19 UTC
-- CI run: [GitHub Actions 30177351000](https://github.com/yhay81/pylopdf/actions/runs/30177351000)
-- Source head: `c82ee42059b1a660ceb0f80a2628e2a581e2437f`
-- Measurement merge ref: `66dcdebe6e4eda9374581666e79b7f66fc77d80b`
+- Updated at: 2026-07-26 10:45 UTC
+- Whole-program LTO comparison:
+  [baseline run 30198436402](https://github.com/yhay81/pylopdf/actions/runs/30198436402)
+  versus
+  [LTO run 30198651300](https://github.com/yhay81/pylopdf/actions/runs/30198651300)
+- LTO source head: `1b34373bdc0816764023cea9bed1c9adbb883c95`
+- Original RTen-removal measurement:
+  [run 30177351000](https://github.com/yhay81/pylopdf/actions/runs/30177351000),
+  source `c82ee42059b1a660ceb0f80a2628e2a581e2437f`
 - Runtime: Pyodide 0.28.3 / CPython 3.13.2 / Emscripten 4.0.9 /
   Emscripten Node.js 20.18.0
 - Cloudflare tooling: workers-py 1.15.0 / Wrangler 4.114.0 /
   compatibility date 2026-07-26
 - Representative document: public-domain IRS Form 1040 from
   `tests/assets/real_world/f1040.pdf`
+
+## Whole-program LTO follow-up
+
+The post-v0.11.1 Emscripten build applies fat LTO with one codegen unit to the
+single extension module. This is a PyEmscripten-only build setting: native
+maturin builds retain Cargo's default release profile and compile-time
+tradeoff. The paired CI runs used the same pinned builder, corpus, compatibility
+suites, and deployment harness.
+
+| Measurement | Default release profile | Fat LTO | Change |
+|---|---:|---:|---:|
+| PyEmscripten wheel | 4,068,255 bytes (3.880 MiB) | 3,955,120 bytes (3.772 MiB) | -113,135 bytes (-2.78%) |
+| Installed Wasm extension | 11,034,960 bytes (10.524 MiB) | 10,391,906 bytes (9.910 MiB) | -643,054 bytes (-5.83%) |
+| Wasm code section | 8,507,042 bytes (8.113 MiB) | 8,104,630 bytes (7.729 MiB) | -402,412 bytes (-4.73%) |
+| Wasm data section | 2,476,154 bytes (2.361 MiB) | 2,274,906 bytes (2.170 MiB) | -201,248 bytes (-8.13%) |
+| Cloudflare total upload | 11,530,906 bytes (10.997 MiB) | 10,887,854 bytes (10.383 MiB) | -643,052 bytes (-5.58%) |
+| Cloudflare gzip upload | 4,116,972 bytes (3.926 MiB) | 4,002,529 bytes (3.817 MiB) | -114,443 bytes (-2.78%) |
+| Wasm linear-memory high water | 74,252,288 bytes (70.812 MiB) | 73,400,320 bytes (70.000 MiB) | -851,968 bytes (-1.15%) |
+
+The full native/Pyodide compatibility hashes remained exact. Wheel metadata,
+the publication tag, runtime resource checks, and the module-scope import under
+local `workerd` all passed. The repeated Form 1040 open-and-extract median was
+effectively unchanged at 28.618 ms before and 28.506 ms after. The first
+open-and-extract measurement moved from 124.101 to 117.634 ms and pylopdf import
+from 103.150 to 95.205 ms; these one-process observations are treated as trend
+noise rather than claimed latency improvements.
+
+The paired Pyodide CI job grew from 2m03s to 4m40s because the final link
+performs whole-program optimization. That remains below the slowest native
+release jobs while saving 113 KB of wheel transfer, 643 KB of installed
+extension and Worker upload, and 0.812 MiB of observed Wasm linear capacity.
+The complete artifact still exceeds Cloudflare Workers Free's compressed-size
+limit, so the paid-plan deployment boundary is unchanged.
+
+The remaining controlled comparison preserves the original RTen-removal
+measurement that established the supported Emscripten capability boundary.
 
 The change under test omits RTen and its tensor runtime from Emscripten. Native
 builds retain the complete `pylopdf[ocr]` implementation. The Emscripten module
@@ -161,8 +202,8 @@ Do not add a separate lightweight distribution now.
 
 The optimized complete PDF core fits the paid Cloudflare compressed and
 uncompressed bundle limits with substantial headroom. A Free-plan artifact
-would need to remove at least another 1.07 MB from the compressed upload, and
-the plan's 10 ms CPU budget is also below this Node trend's 26.893 ms warm
+would need to remove at least another 1.00 MB from the compressed upload, and
+the plan's 10 ms CPU budget is also below this Node trend's 28.506 ms warm
 median for one representative extraction. Removing rendering, generation, or
 extraction subcomponents merely to cross that boundary would fragment the
 public API without establishing a credible PDF workload on the Free plan.
