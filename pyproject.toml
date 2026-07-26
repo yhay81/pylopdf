@@ -59,7 +59,7 @@ dev = [
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
     "typst>=0.15",
-    "pyhanko>=0.35",
+    "pyhanko>=0.36.1",
 ]
 # Comparison libraries for reproducible benchmarks; manual only, not installed in CI.
 bench = [
