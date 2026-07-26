@@ -86,6 +86,7 @@ _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_SVG_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -94,6 +95,7 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 _MAX_RENDER_BATCH_PAGES = 4096
 _MAX_MARKDOWN_PAGES = 4096
 _MAX_STRUCTURAL_PAGE_BATCH = 4096
+_MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -1801,19 +1803,52 @@ class Page:
         resolved_rotation = _validate_ocr_rotation(rotation)
         self._document._doc.insert_ocr_layer(self._page_number(), payload, resolved_rotation)
 
-    def replace_text(self, search: str, replacement: str, *, default_char: str | None = None) -> int:
+    def replace_text(
+        self,
+        search: str,
+        replacement: str,
+        *,
+        default_char: str | None = None,
+        max_size: int | None = _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE,
+    ) -> int:
         """Replace text on the page and return the number of replacements.
 
-        This is a thin wrapper over lopdf's constrained ``replace_partial_text``.
-        It works only with simply encoded fonts such as WinAnsi, not CID/CJK
-        fonts. Characters absent from the font become ``default_char`` (``"?"``
-        by default). Widths are not recalculated, so differing text lengths may
-        shift layout.
+        This follows lopdf's constrained simple-font replacement model. It
+        works only with simply encoded fonts such as WinAnsi, not CID/CJK fonts.
+        Characters absent from the font become ``default_char`` (``"?"`` by
+        default). Widths are not recalculated, so differing text lengths may
+        shift layout. ``max_size`` bounds decoded page/font data and the
+        re-encoded content stream; ``None`` opts out for trusted input.
+
+        Search, replacement, and fallback text are limited to 4,096 aggregate
+        UTF-8 bytes. Resource refusals raise :class:`LimitError` with code
+        ``replacement_input_size`` or ``replacement_output_size``. A no-match
+        result and every refusal leave the document and its caches unchanged.
         """
         if not search:
             msg = "search must be at least 1 character"
             raise ValueError(msg)
-        return self._document._doc.replace_text_on_page(self._page_number(), search, replacement, default_char)
+        if default_char is not None and len(default_char) != 1:
+            msg = "default_char must contain exactly one character"
+            raise ValueError(msg)
+        _validate_optional_positive_int("max_size", max_size)
+        input_size = len(search.encode()) + len(replacement.encode())
+        if default_char is not None:
+            input_size += len(default_char.encode())
+        if input_size > _MAX_TEXT_REPLACEMENT_INPUT_BYTES:
+            limit_code = "replacement_input_size"
+            msg = (
+                f"text replacement inputs total {input_size} UTF-8 bytes, exceeding the "
+                f"{_MAX_TEXT_REPLACEMENT_INPUT_BYTES}-byte safety limit"
+            )
+            raise LimitError(limit_code, msg)
+        return self._document._doc.replace_text_on_page(
+            self._page_number(),
+            search,
+            replacement,
+            default_char,
+            max_size,
+        )
 
     def get_label(self) -> str:
         """Return the display label, such as ``"iv"`` or ``"A-2"``, or empty."""

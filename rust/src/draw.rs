@@ -814,16 +814,11 @@ fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
             .is_some_and(|&id| content_is_exact_stream(doc, id, b"Q\n"))
 }
 
-/// Reject a page whose content shape would amplify one drawing insertion.
+/// Inspect a page's bounded raw content-stream shape.
 ///
-/// Inspect the raw array before lopdf materializes its reference list. The
-/// final count includes q/Q isolation streams when the existing contents have
-/// not already been wrapped.
-pub fn preflight_push_content(
-    doc: &Document,
-    page_id: ObjectId,
-    already_isolated: bool,
-) -> Result<(), String> {
+/// This checks arrays before lopdf materializes their reference list and also
+/// rejects cyclic or excessively deep indirect `/Contents` chains.
+pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>, String> {
     let page = doc
         .get_dictionary(page_id)
         .map_err(|error| format!("cannot inspect page Contents: {error}"))?;
@@ -864,6 +859,24 @@ pub fn preflight_push_content(
     }
 
     let streams = doc.get_page_contents(page_id);
+    if streams.len() > MAX_PAGE_CONTENT_STREAMS {
+        return Err(format!(
+            "page Contents exceeds the {MAX_PAGE_CONTENT_STREAMS}-stream safety limit"
+        ));
+    }
+    Ok(streams)
+}
+
+/// Reject a page whose content shape would amplify one drawing insertion.
+///
+/// The final count includes q/Q isolation streams when the existing contents
+/// have not already been wrapped.
+pub fn preflight_push_content(
+    doc: &Document,
+    page_id: ObjectId,
+    already_isolated: bool,
+) -> Result<(), String> {
+    let streams = inspect_page_contents(doc, page_id)?;
     let already_wrapped = already_isolated || contents_have_outer_wrapper(doc, &streams);
     let additions = if streams.is_empty() || already_wrapped {
         1

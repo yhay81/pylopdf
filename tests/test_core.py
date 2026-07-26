@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pylopdf.pylopdf_core import _Document
+from pylopdf.pylopdf_core import LimitError, _Document
 
 
 def test_new_document_is_empty() -> None:
@@ -118,6 +118,21 @@ def test_structural_batches_are_bounded_in_core(one_page_pdf: bytes) -> None:
     with pytest.raises(ValueError, match="4096 page entries"):
         merging.merge_pages(source, too_many, None)
     assert merging.page_count() == 1
+
+
+def test_text_replacement_is_bounded_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+
+    with pytest.raises(LimitError) as input_limit:
+        doc.replace_text_on_page(1, "PDF", "x" * 4094, None, 64 * 1024 * 1024)
+    assert input_limit.value.args[0] == "replacement_input_size"
+    with pytest.raises(LimitError) as output_limit:
+        doc.replace_text_on_page(1, "PDF", "Cat", None, 16)
+    assert output_limit.value.args[0] == "replacement_output_size"
+    with pytest.raises(ValueError, match="exactly one character"):
+        doc.replace_text_on_page(1, "PDF", "Cat", "??", 64 * 1024 * 1024)
+    assert doc.save_bytes() == before
 
 
 def test_merge_into_empty(three_page_pdf: bytes) -> None:

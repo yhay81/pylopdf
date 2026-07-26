@@ -183,7 +183,7 @@ page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough,
 page.insert_image(page.search_for("Approved")[0], stream=stamp_png)  # stamp at a search hit
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
 page.show_pdf_page(page.rect, letterhead)  # vector overlay; same-document sources also work
-page.replace_text("DRAFT", "FINAL")        # text replacement (simple-encoded fonts only)
+page.replace_text("DRAFT", "FINAL")        # bounded, atomic simple-font replacement
 
 # Headers / footers / page numbers (standard-14 fonts, WinAnsi range)
 for i, p in enumerate(doc):
@@ -413,7 +413,7 @@ signed_pdf: bytes = out.getvalue()
 | `annots()` / `get_links()` | Bounded annotation/link reads, including one cycle-aware named-destination index per call (4,096 annotations and 1 MiB aggregate metadata text; display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed up to 4,096 `search_for` results directly; appearance stream included; 1 MiB subtype/content budget |
 | `add_link_annot(rect, uri)` | URI link annotation (no border; 1 MiB subtype/URI budget) |
-| `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
+| `replace_text(search, replacement, default_char=None, max_size=64 MiB)` | Atomic copy-on-write text replacement (simple-encoded fonts only; bounded input/output; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg(max_size=64 MiB)` | PNG / bounded UTF-8 SVG rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |

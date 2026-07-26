@@ -782,10 +782,103 @@ def test_replace_text_replaces_and_counts() -> None:
 
 def test_replace_text_returns_zero_when_absent() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
-    assert doc[0].replace_text("XYZ", "abc") == 0
+    page = doc[0]
+    assert "Hello PDF" in page.get_text()
+    before = doc.tobytes()
+
+    assert page.replace_text("XYZ", "abc") == 0
+    assert doc.tobytes() == before
+    assert "Hello PDF" in page.get_text()
 
 
 def test_replace_text_requires_needle() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     with pytest.raises(ValueError, match="search"):
         doc[0].replace_text("", "abc")
+
+
+def test_replace_text_detaches_shared_page_contents() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    doc.copy_page(0)
+
+    assert doc[0].replace_text("PDF", "Cat") == 1
+    assert "Hello Cat" in doc[0].get_text()
+    assert "Hello PDF" in doc[1].get_text()
+
+
+def test_replace_text_validates_input_without_mutation() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    page = doc[0]
+    before = doc.tobytes()
+
+    with pytest.raises(ValueError, match="exactly one character"):
+        page.replace_text("PDF", "Cat", default_char="??")
+    with pytest.raises(pylopdf.LimitError) as caught:
+        page.replace_text("PDF", "x" * 4094)
+    assert caught.value.code == "replacement_input_size"
+    assert doc.tobytes() == before
+
+
+def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
+    boundary = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    assert boundary[0].replace_text("PDF", "x" * 4093) == 1
+
+    fallback = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    assert fallback[0].replace_text("PDF", "🦀", default_char="!") == 1
+    assert "Hello !" in fallback[0].get_text()
+
+
+@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
+def test_replace_text_validates_output_budget(max_size: object) -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        doc[0].replace_text("PDF", "Cat", max_size=max_size)  # type: ignore[arg-type]
+
+
+def test_replace_text_bounds_content_and_preserves_document() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    page = doc[0]
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        page.replace_text("PDF", "Cat", max_size=16)
+    assert caught.value.code == "replacement_output_size"
+    assert doc.tobytes() == before
+
+
+def test_replace_text_bounds_replacement_growth_before_mutation() -> None:
+    doc = pylopdf.open(stream=build_pdf(["A" * 100]))
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].replace_text("A", "BBBBBBBB", max_size=256)
+    assert caught.value.code == "replacement_output_size"
+    assert doc.tobytes() == before
+
+
+def test_replace_text_rejects_oversized_contents_shape_before_mutation() -> None:
+    doc = _many_contents_doc(4097)
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="4096-entry"):
+        doc[0].replace_text("x", "y")
+    assert doc.tobytes() == before
+
+
+def test_replace_text_error_is_atomic() -> None:
+    stream = b"Tf (Hello) Tj"
+    doc = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+                4: f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream",
+            }
+        )
+    )
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="text replacement failed"):
+        doc[0].replace_text("Hello", "Goodbye")
+    assert doc.tobytes() == before

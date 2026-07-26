@@ -58,7 +58,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
-`markdown_output_size`、`svg_output_size`、`decompression_unverifiable`の
+`markdown_output_size`、`svg_output_size`、`replacement_input_size`、
+`replacement_output_size`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -83,6 +84,11 @@ xref dataを正規化します。
   `/Contents`のraw arrayと参照chainを検査します。raw arrayは4,096 entry、
   chainは深さ32、最終arrayは一度だけ追加する`q`/`Q` isolation pair込みで
   4,096 stream参照が上限です。失敗時はdocumentを変更しません。
+- `Page.replace_text()`はsearch・replacement・fallbackの合計を4,096 UTF-8
+  byteに制限し、展開page content、font encoding data、置換増幅、最終streamの
+  既定上限を64 MiBにします。page専用streamをcommit前に準備するため、複製pageの
+  共有contentを変更せず、no-match/errorではdocumentとcacheを保持します。
+  信頼できる入力では`max_size=None`で明示的に解除できます。
 - `delete_pages()`・`select()`・`insert_pdf()`はPythonとRustの双方で1 call
   4,096 page entryが上限です。iterableは4,097 item目でgraph変更前に停止します。
   空deleteはcache・generation・既存`Page` viewを保持します。

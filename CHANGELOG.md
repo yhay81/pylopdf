@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.replace_text(..., max_size=64 * 1024 * 1024)` now bounds decoded page
+  content, font encoding data, replacement growth, and the final re-encoded
+  stream. Aggregate search/replacement/fallback input stops at 4,096 UTF-8
+  bytes. Replacement preparation is linear in input text, releases the GIL,
+  and commits one page-owned content stream only after every fallible step
+  succeeds. This fixes edits leaking through shared `/Contents` after
+  `copy_page()` or repeated selection. No-match calls and all refusals preserve
+  the document and caches; stable limit codes are `replacement_input_size` and
+  `replacement_output_size`, and `max_size=None` is the trusted-input opt-out.
 - `delete_pages()`, `select()`, and `insert_pdf()` now cap one structural batch
   at 4,096 page entries before iterable materialization or graph import. The
   Rust core enforces the same boundary. Generators stop at the 4,097th item,

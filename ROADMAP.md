@@ -169,7 +169,9 @@ Released as v0.8.0 on 2026-07-23.
       self-contained CJK `insert_text`; that path shipped in the later v0.11
       work.
 - [x] Publish lopdf's simple-encoding partial text replacement as
-      `Page.replace_text`, explicitly excluding CJK.
+      `Page.replace_text`, explicitly excluding CJK. The current v0.11 work
+      makes it atomic copy-on-write, bounds input/font/content/output work, and
+      preserves documents and caches on no-match or refusal.
 - [x] Add `Page.insert_text` for headers, footers, page numbers, and Bates
       numbers using Standard 14 fonts and WinAnsi. CJK input points to the typst
       recipe. Rotated pages remain upright through display-space `Tm`.

@@ -295,7 +295,12 @@ class _Document:
         overlay: bool,
     ) -> float: ...
     def replace_text_on_page(
-        self, page_number: int, search: str, replacement: str, default_char: str | None
+        self,
+        page_number: int,
+        search: str,
+        replacement: str,
+        default_char: str | None,
+        max_size: int | None,
     ) -> int: ...
     def merge(self, other: _Document) -> None: ...
     def merge_pages(self, other: _Document, page_numbers: list[int], position: int | None) -> None: ...

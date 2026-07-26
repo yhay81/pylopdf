@@ -67,7 +67,7 @@ images are not considered. Repeating the same settings is idempotent.
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi or shaped subset text; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 wrapping with Core 14, explicit OpenType, or auto-selected JP metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
-| `replace_text(search, replacement, default_char=)` | simple-encoded text replacement |
+| `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads, one cycle-aware named-destination index per call, and creation |
 
 `get_drawings()` returns `DrawingInfo` dictionaries with `type="f"`, `"s"`,

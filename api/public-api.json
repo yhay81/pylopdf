@@ -2089,6 +2089,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "default_char"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "int"

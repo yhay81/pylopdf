@@ -13,6 +13,7 @@ mod ocr_engine;
 #[path = "ocr_engine_emscripten.rs"]
 mod ocr_engine;
 mod pixmap;
+mod text_replace;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;
