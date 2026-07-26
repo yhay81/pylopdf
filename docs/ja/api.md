@@ -34,7 +34,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field tree・名前・値・button stateに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 展開・追加metadata・inline FileSpec clone形状に上限を持つ添付ファイル操作。`max_size=None`で明示的に展開上限を解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
-| `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | fileへのstream出力／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される

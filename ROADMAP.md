@@ -95,7 +95,9 @@ completed releases remain below as historical evidence.
 - [x] Add `dpi=` and `background=` to `render_page`.
 - [x] Add `garbage=`, `deflate=`, and `object_streams=` to `save` and `tobytes`
       through lopdf `SaveOptions`. The measured reduction on already-compressed
-      `bill-hr815.pdf` is 13%.
+      `bill-hr815.pdf` is 13%. Current v0.11 hardening also bounds all
+      `tobytes` serialization paths at the writer with an explicit `None`
+      opt-out.
 - [x] Make the repository public and configure its description and topics
       (2026-07-22).
 - [x] Add encryption and CJK rows to the README comparison table (2026-07-23).

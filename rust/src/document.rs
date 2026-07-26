@@ -4,7 +4,7 @@
 //! `pylopdf.Document` provides the ergonomic API.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -951,6 +951,77 @@ fn modern_save_options() -> SaveOptions {
         use_xref_streams: true,
         ..Default::default()
     }
+}
+
+/// A serialization sink that refuses the write crossing one byte budget.
+struct BoundedPdfOutput {
+    bytes: Vec<u8>,
+    max_size: Option<usize>,
+    exceeded: bool,
+}
+
+impl BoundedPdfOutput {
+    fn new(max_size: Option<usize>) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_size,
+            exceeded: false,
+        }
+    }
+}
+
+impl Write for BoundedPdfOutput {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> std::io::Result<()> {
+        if self.max_size.is_some_and(|limit| {
+            self.bytes
+                .len()
+                .checked_add(buffer.len())
+                .is_none_or(|size| size > limit)
+        }) {
+            self.exceeded = true;
+            return Err(std::io::Error::other(
+                "serialized PDF output size limit exceeded",
+            ));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Serialize through a writer that never retains bytes beyond `max_size`.
+fn serialize_pdf(
+    document: &mut Document,
+    options: Option<SaveOptions>,
+    max_size: Option<usize>,
+) -> PyResult<Vec<u8>> {
+    if max_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    let mut output = BoundedPdfOutput::new(max_size);
+    let result = match options {
+        Some(options) => document.save_with_options(&mut output, options).map(|_| ()),
+        None => document.save_to(&mut output).map(|_| ()),
+    };
+    if output.exceeded {
+        let limit = max_size.expect("an output can exceed only a configured limit");
+        return Err(limit_err(
+            "pdf_output_size",
+            format!("serialized PDF exceeds the configured {limit}-byte output limit"),
+        ));
+    }
+    result.map_err(|error| PdfError::new_err(error.to_string()))?;
+    Ok(output.bytes)
 }
 
 /// Return a page dictionary with inherited parent-tree attributes materialized.
@@ -2359,11 +2430,7 @@ impl _Document {
 
     /// Serialize current edit state to bytes for rendering.
     fn current_bytes(&mut self) -> PyResult<Vec<u8>> {
-        let mut buffer = Vec::new();
-        self.doc
-            .save_to(&mut buffer)
-            .map_err(|e| PdfError::new_err(e.to_string()))?;
-        Ok(buffer)
+        serialize_pdf(&mut self.doc, None, None)
     }
 
     /// Drop cached views; call at the start of every editing method.
@@ -4641,14 +4708,9 @@ impl _Document {
     }
 
     /// Serialize to bytes.
-    fn save_bytes(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
-        py.detach(|| {
-            let mut buffer = Vec::new();
-            self.doc
-                .save_to(&mut buffer)
-                .map_err(|e| PdfError::new_err(e.to_string()))?;
-            Ok(buffer)
-        })
+    #[pyo3(signature = (max_size=None))]
+    fn save_bytes(&mut self, py: Python<'_>, max_size: Option<usize>) -> PyResult<Vec<u8>> {
+        py.detach(|| serialize_pdf(&mut self.doc, None, max_size))
     }
 
     /// Save with PDF 1.5+ object and xref streams.
@@ -4672,15 +4734,14 @@ impl _Document {
     }
 
     /// Serialize with PDF 1.5+ object and xref streams.
-    fn save_bytes_with_object_streams(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
+    #[pyo3(signature = (max_size=None))]
+    fn save_bytes_with_object_streams(
+        &mut self,
+        py: Python<'_>,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
         self.invalidate_hayro_pdf();
-        py.detach(|| {
-            let mut buffer = Vec::new();
-            self.doc
-                .save_with_options(&mut buffer, modern_save_options())
-                .map_err(|e| PdfError::new_err(e.to_string()))?;
-            Ok(buffer)
-        })
+        py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
     }
 
     /// Return the page count.
@@ -5291,6 +5352,13 @@ impl _Document {
     }
 
     /// Serialize an AES-256 encrypted clone while this document stays plaintext.
+    #[pyo3(signature = (
+        user_password,
+        owner_password,
+        permissions,
+        file_encryption_key,
+        max_size=None
+    ))]
     fn save_bytes_encrypted(
         &self,
         py: Python<'_>,
@@ -5298,6 +5366,7 @@ impl _Document {
         owner_password: &str,
         permissions: u64,
         file_encryption_key: &[u8],
+        max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
         py.detach(|| {
             let mut cloned = self.encrypted_clone(
@@ -5306,11 +5375,7 @@ impl _Document {
                 permissions,
                 file_encryption_key,
             )?;
-            let mut buffer = Vec::new();
-            cloned
-                .save_to(&mut buffer)
-                .map_err(|e| PdfError::new_err(e.to_string()))?;
-            Ok(buffer)
+            serialize_pdf(&mut cloned, None, max_size)
         })
     }
 

@@ -59,7 +59,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
-`replacement_output_size`、`decompression_unverifiable`の
+`replacement_output_size`、`pdf_output_size`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -76,6 +76,12 @@ classic xref tableがあり、元の上限で全体parseが成功した場合に
 xref dataを正規化します。
 
 - レンダリングは1ページ64メガピクセルまでです。
+- `Document.tobytes()`は通常・object/xref stream・暗号化出力すべてに512 MiBの
+  既定serialization上限を適用します。Rust writerがPython `bytes`変換前に境界を
+  越えるwriteを拒否し、`max_size=None`で明示的に解除できます。fileへstreamする
+  `save()`はこのin-memory上限の対象外です。`garbage`、`deflate`、
+  `object_streams`などのsave optionは、その後serializationが拒否されても文書化済み
+  のmutation semanticsを維持します。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
