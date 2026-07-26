@@ -7,7 +7,10 @@ depend on CJK fallback fonts.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
+from conftest import build_pdf
 
 import pylopdf
 
@@ -174,3 +177,40 @@ def test_ocr_layer_rejects_empty() -> None:
         doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "")])
     with pytest.raises(pylopdf.OcrError, match="rotation"):
         doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # type: ignore[arg-type]
+
+
+def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    before = doc.tobytes()
+    consumed = 0
+
+    def words() -> Iterator[tuple[int, int, int, int, str]]:
+        nonlocal consumed
+        for index in range(5000):
+            consumed += 1
+            yield (10, 10, 50, 20, f"word-{index}")
+
+    with pytest.raises(ValueError, match="4096 non-empty entries"):
+        doc[0].insert_ocr_text_layer(words())
+    assert consumed == 4097
+    assert doc.tobytes() == before
+
+
+def test_ocr_layer_bounds_utf8_text_before_mutation() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    before = doc.tobytes()
+
+    with pytest.raises(ValueError, match="1048576 UTF-8 bytes"):
+        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "é" * (512 * 1024 + 1))])
+    assert doc.tobytes() == before
+
+
+def test_ocr_layer_bounds_distinct_cids_before_mutation() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    before = doc.tobytes()
+    text = "".join(chr(codepoint) for codepoint in range(1, 0x11000) if not 0xD800 <= codepoint <= 0xDFFF)
+    text = text[:65_535]
+
+    with pytest.raises(pylopdf.PdfError, match="65,534 per call"):
+        doc[0].insert_ocr_text_layer([(10, 10, 290, 20, text)])
+    assert doc.tobytes() == before

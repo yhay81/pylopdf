@@ -64,7 +64,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 또는 shaping한 subset 텍스트. `pylopdf[cjk]`는 일본어／한자에 JP font 자동 선택 |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14, 명시적 OpenType 또는 자동 JP font 폭으로 UAX #14 줄바꿈. 남은 높이를 반환하며 넘치면 그리지 않음 |
-| `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
+| `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기, call당 하나의cycle-aware named-destination index 및 생성 |
 

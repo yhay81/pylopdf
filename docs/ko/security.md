@@ -86,6 +86,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Document.get_pdfa_claim()`은 각filter layer의XMP 디코딩 출력을 기본1 MiB로
   제한합니다. 크기를 알고 있는 대용량packet은`max_size=`를 늘릴 수 있고,
   `max_size=None`은 무제한materialization을 명시적으로 허용합니다.
+- `Page.insert_ocr_text_layer()`는 비어 있지 않은word 4,096개 또는UTF-8 text 합계
+  1 MiB를 넘는 시점에iterable materialization을 중지합니다. core 직접 호출도 같은
+  상한을 적용하고65,535번째 고유CID 할당 전에 중지하며 입력 기반buffer를PDF 변경
+  전에 준비합니다.
 - 페이지 레이블number tree는4,096 entry/node, 깊이32, encoded/decoded
   style·prefix text 합계1 MiB를 넘는 부분 결과를 거부합니다. 참조cycle은 한 번만
   방문하며 쓰기도 같은entry/text 상한을 적용합니다.

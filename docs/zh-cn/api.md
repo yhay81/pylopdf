@@ -63,7 +63,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14或shape后的subset文本；`pylopdf[cjk]`可为日文／汉字自动选择JP font |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 使用Core 14、显式OpenType或自动JP font宽度进行UAX #14换行；返回剩余高度，溢出时不绘制 |
-| `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层（可搜索PDF） |
+| `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=)` | 替换简单编码的文本 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取、每次call一个cycle-aware named-destination index与创建 |
 

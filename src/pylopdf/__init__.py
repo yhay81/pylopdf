@@ -85,6 +85,8 @@ _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
+_MAX_OCR_LAYER_WORDS = 4096
+_MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -1752,13 +1754,27 @@ class Page:
         APIs, Tesseract, or any equivalent source. ``rotation`` describes the
         clockwise correction used to read sideways input and orients the
         invisible baseline while retaining the supplied display-coordinate
-        boxes.
+        boxes. One call accepts at most 4,096 non-empty words and 1 MiB of
+        aggregate UTF-8 text.
         """
         payload: list[tuple[float, float, float, float, str]] = []
+        text_bytes = 0
         for entry in words:
             x0, y0, x1, y1 = _validate_rect(entry[:4])
             text = str(entry[4])
             if text:
+                if len(payload) >= _MAX_OCR_LAYER_WORDS:
+                    msg = f"words cannot contain more than {_MAX_OCR_LAYER_WORDS} non-empty entries"
+                    raise ValueError(msg)
+                remaining = _MAX_OCR_LAYER_TEXT_BYTES - text_bytes
+                if len(text) > remaining:
+                    msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
+                    raise ValueError(msg)
+                encoded_bytes = len(text.encode())
+                if encoded_bytes > remaining:
+                    msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
+                    raise ValueError(msg)
+                text_bytes += encoded_bytes
                 payload.append((x0, y0, x1, y1, text))
         if not payload:
             msg = "words must contain at least one word with text"

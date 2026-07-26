@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.insert_ocr_text_layer()` now stops iterable materialization at 4,096
+  non-empty words and rejects aggregate UTF-8 text above 1 MiB. Rust enforces
+  the same boundaries for direct core calls and stops CID assignment before a
+  65,535th distinct character. CID mapping, ToUnicode, and content operators
+  are prepared before PDF mutation, while failed input no longer invalidates
+  rendering and interpretation caches. Cache invalidation still precedes the
+  first PDF mutation so malformed resource failures cannot leave stale views.
 - Drawing insertions now compare existing leading/trailing page-content streams
   against the `q`/`Q` isolation sentinels by borrowing their bytes. The shared
   path no longer clones both complete streams merely to test exact three-byte
