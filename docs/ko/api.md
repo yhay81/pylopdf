@@ -122,7 +122,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentLimits` / `DocumentComplexity` | 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
-| `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
+| `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG 전용 `save(path)`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |

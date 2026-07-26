@@ -102,7 +102,10 @@ overview.
   from prose and heading inference while retaining words outside a table on the
   same physical line, and normalizes physical table matrices to the dominant
   logical text direction on right-angle rotations. Merged spans expand from the
-  internal anchor map rather than guessing from adjacent empty slots.
+  internal anchor map rather than guessing from adjacent empty slots. Document
+  conversion passes each table the remaining aggregate Markdown budget before
+  page assembly. Direct `Table.to_markdown` calls preflight exact escaped UTF-8
+  size, including merged-cell expansion, and default to the same 64 MiB limit.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated

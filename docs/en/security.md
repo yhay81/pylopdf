@@ -163,8 +163,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - `Document.to_markdown()` accepts at most 4,096 page entries and defaults to a
   64 MiB cumulative UTF-8 output limit. It keeps only one page's interpreted
   layout, tables, and words at a time across a heading-count pass and a render
-  pass. Over-limit conversions return no partial string;
-  `max_size=None` explicitly opts out.
+  pass. Each table receives the remaining aggregate budget before page output
+  is assembled. Direct `Table.to_markdown()` calls default to the same limit
+  and preflight exact escaped UTF-8 size, including merged-cell expansion.
+  Over-limit conversions return no partial string; `max_size=None` explicitly
+  opts out.
 - Enforce CPU deadlines in the Worker, process, or container host. Resource
   budgets prevent documented allocations and output growth; they do not
   interrupt an in-progress parser or interpreter by wall-clock time.
