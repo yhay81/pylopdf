@@ -34,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Page.get_pixmap()` now moves its completed RGBA `Vec<u8>` into shared
   immutable storage without copying the complete raster into a slice Arc.
   Straight-alpha conversion and cropped output also use fallible exact
-  reservation so allocation refusal becomes a `PdfError`.
+  reservation so allocation refusal becomes a `PdfError`. `clip=` converts
+  only selected hayro pixels instead of first materializing full-page RGBA.
 
 ## [0.12.0] - 2026-07-26
 
