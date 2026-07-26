@@ -103,8 +103,8 @@ pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语
 
 | 模式 | Workers | 时间 | 加速比 |
 |---|---:|---:|---:|
-| 串行 | 1 | 280.3 ms | 1.00倍 |
-| 并行 | 2 | 160.8 ms | 1.74倍 |
+| 串行 | 1 | 400.8 ms | 1.00倍 |
+| 并行 | 2 | 235.5 ms | 1.70倍 |
 
 每次运行中两个副本的输出都完全一致，并且解释器确认导入后GIL仍保持禁用。
 
@@ -117,12 +117,17 @@ uv sync --all-extras --group bench
 uv run python bench/run.py
 uv run python tools/pyodide_compat.py --root . --benchmark-only \
   --benchmark-output .tmp/limits-benchmark.json
-# 使用free-threaded CPython 3.14解释器：
+# 在Windows上使用free-threaded CPython 3.14解释器：
+py -3.14t bench/free_threaded.py
+# 在POSIX上：
 python3.14t bench/free_threaded.py
 ```
 
 生成的原始报告提交在
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)。
+单独生成的free-threaded报告提交在
+[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)；
+重新运行`bench/run.py`不会覆盖CPython 3.14t证据。
 native／Pyodide资源策略基准另行提交在
 [`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)。
 第二条command测量有界open/extract和受控拒绝。CI还会在Pyodide中运行相同case并

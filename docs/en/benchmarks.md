@@ -106,8 +106,8 @@ paired runs, alternating which mode runs first:
 
 | Mode | Workers | Time | Speedup |
 |---|---:|---:|---:|
-| Sequential | 1 | 280.3 ms | 1.00× |
-| Parallel | 2 | 160.8 ms | 1.74× |
+| Sequential | 1 | 400.8 ms | 1.00× |
+| Parallel | 2 | 235.5 ms | 1.70× |
 
 Both copies produced exactly the same output in every run, and the interpreter
 reported that the GIL remained disabled after import.
@@ -122,12 +122,17 @@ uv sync --all-extras --group bench
 uv run python bench/run.py
 uv run python tools/pyodide_compat.py --root . --benchmark-only \
   --benchmark-output .tmp/limits-benchmark.json
-# With a free-threaded CPython 3.14 interpreter:
+# With a free-threaded CPython 3.14 interpreter on Windows:
+py -3.14t bench/free_threaded.py
+# On POSIX:
 python3.14t bench/free_threaded.py
 ```
 
 The generated source report is committed at
 [`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md).
+The separately generated free-threaded report is committed at
+[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md);
+rerunning `bench/run.py` cannot overwrite its CPython 3.14t evidence.
 The native/Pyodide resource-policy baseline is committed separately at
 [`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md).
 The second command measures bounded open/extract and controlled rejection.

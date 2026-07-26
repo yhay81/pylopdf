@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The free-threaded extraction benchmark now writes a standalone
+  `bench/results/free-threaded-latest.md` report with its version, environment,
+  workload, equality check, and reproduction command. The normal benchmark no
+  longer relies on a manually appended section that `bench/run.py` would erase,
+  and report formatting has regression coverage.
+
 ## [0.11.1] - 2026-07-26
 
 ### Added

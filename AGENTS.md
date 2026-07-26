@@ -29,6 +29,10 @@ overview.
 - `uv sync --group bench && uv run python bench/run.py` — run reproducible
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
   losses together.
+- `py -3.14t bench/free_threaded.py` — measure independent-document extraction
+  without the GIL. Results are written separately to
+  `bench/results/free-threaded-latest.md` so regular benchmark runs cannot
+  discard them.
 - `uv sync --all-extras && uv run python bench/ocr.py` — reproduce native OCR
   strict/NFKC CER and elapsed time on two licensed Japanese fixtures, plus a
   bounded shared-engine concurrency check. Results are written to
