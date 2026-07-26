@@ -55,7 +55,7 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
 | `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines")` | ドキュメントと同じ表制御を持つ 1 ページ分の Markdown |
-| `get_images()` | 描画された画像（`bbox` 付き。JPEG パススルー / PNG） |
+| `get_images()` | 描画された画像（`bbox`付き、JPEG passthrough / PNG）。4,096配置、累積64,000,000画素、payload 64 MiBを超える部分結果は拒否 |
 | `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | レンダリング。`clip` は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |

@@ -493,6 +493,10 @@ known-limit behavior are polished together.
   sdist, and publish release provenance alongside the artifacts.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
+- [x] Bound `Page.get_images()` output amplification per page across placement
+      count, cumulative source pixels, returned payload bytes, and the
+      Flate-to-DCT fast path. Repeated reuse now fails atomically instead of
+      multiplying one source into unbounded Python-owned byte strings.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

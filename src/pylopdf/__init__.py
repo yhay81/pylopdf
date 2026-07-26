@@ -1400,7 +1400,9 @@ class Page:
         DCTDecode, returns its JPEG payload with ``ext="jpeg"``. Other formats,
         including CCITT, JBIG2, and Flate, are decoded to PNG with
         ``ext="png"``. ``bbox`` is the drawn location as a top-left-origin
-        :class:`Rect`.
+        :class:`Rect`. Extraction rejects rather than returns a partial result
+        above 4,096 placements, 64,000,000 cumulative source pixels, or 64 MiB
+        of encoded image payloads on one page.
         """
         raw = self._document._doc.extract_images(self._page_number())
         self._document._emit_warnings()

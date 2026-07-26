@@ -73,6 +73,9 @@ classic xref tableがあり、元の上限で全体parseが成功した場合に
 xref dataを正規化します。
 
 - レンダリングは1ページ64メガピクセルまでです。
+- `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
+  64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
+  上限までしか展開しません。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

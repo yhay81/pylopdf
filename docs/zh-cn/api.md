@@ -54,7 +54,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown(table_strategy="lines")` | 使用相同表格控制的单页Markdown |
-| `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG） |
+| `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG）；超过4,096个placement、累计64,000,000像素或64 MiB payload时拒绝部分结果 |
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |

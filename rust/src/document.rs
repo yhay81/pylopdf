@@ -3385,7 +3385,7 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            Ok(crate::extract::extract_page_images(pdf, page, settings))
+            crate::extract::extract_page_images(pdf, page, settings).map_err(PdfError::new_err)
         })
     }
 

@@ -401,7 +401,7 @@ signed_pdf: bytes = out.getvalue()
 | `to_markdown(table_strategy="lines")` | Markdown conversion of this page with the same table controls as the document method |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
-| `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG) |
+| `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads per page |
 | `get_drawings()` | Extract interpreted vector fill/stroke paths as typed pymupdf-style dictionaries with display-space line/cubic geometry, RGB/opacity, fill rule, width, cap, join, and dashes |
 | `get_pixmap(scale, dpi=, background=, clip=None)` | Render to an immutable `Pixmap`; `clip` is a display-coordinate rectangle (straight RGBA8: `samples` / `width` / `height` / `stride` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()`) |
 | `insert_image(rect, filename=/stream=/pixmap=, rotate=0, keep_proportion=True, overlay=True)` | Draw JPEG without recompression, PNG with alpha, or a rendered RGBA `Pixmap` without a PNG round trip; optional clockwise right-angle rotation and rect use display coordinates |
