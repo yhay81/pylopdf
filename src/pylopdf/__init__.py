@@ -104,6 +104,7 @@ _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_SEARCH_INPUT_BYTES = 4096
 _DEFAULT_MAX_SEARCH_HITS = 4096
+_MAX_PASSWORD_INPUT_BYTES = 127
 _MAX_TOC_ENTRIES = 4096
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
@@ -1200,6 +1201,17 @@ def _validate_utf8_text_input(
             column = 0 if char in {"\n", "\r"} else column + 1
         if size > max_text_size:
             raise_limit()
+
+
+def _validate_password_input(password: str | None, label: str = "password") -> None:
+    """Bound password KDF input before crossing the Python/Rust boundary."""
+    if password is not None:
+        _validate_utf8_text_input(
+            password,
+            _MAX_PASSWORD_INPUT_BYTES,
+            limit_code="password_input_size",
+            input_label=label,
+        )
 
 
 def _resolve_font_source(
@@ -2385,6 +2397,7 @@ class Document:
 
         PDFs with an empty user password decrypt automatically. Otherwise pass
         ``password`` or call :meth:`authenticate` after opening.
+        Password input is capped at 127 UTF-8 bytes.
         ``limits`` applies structural, decompression, and interpreted-text
         budgets before expensive work. :meth:`DocumentLimits.web` is a
         conservative starting profile for untrusted uploads.
@@ -2394,6 +2407,7 @@ class Document:
         if filename is not None and stream is not None:
             msg = "filename and stream cannot both be specified"
             raise ValueError(msg)
+        _validate_password_input(password)
         if limits is not None and not isinstance(limits, DocumentLimits):
             msg = f"limits must be a DocumentLimits instance or None: {limits!r}"
             raise TypeError(msg)
@@ -2452,11 +2466,13 @@ class Document:
 
         Return pymupdf-compatible codes: 0 for failure, 1 when authentication is
         unnecessary, 2 for a matching user password, 4 for a matching owner
-        password, and 6 when both match.
+        password, and 6 when both match. Password input is capped at 127 UTF-8
+        bytes before the encryption KDF.
         """
         self._ensure_not_closed()
         if not self._doc.is_encrypted():
             return 1
+        _validate_password_input(password)
         code = 0
         if self._doc.authenticate_user_password(password):
             code |= 2
@@ -3355,10 +3371,11 @@ class Document:
         Providing ``user_pw`` or ``owner_pw`` writes AES-256 PDF 2.0 encryption
         while the in-memory document stays plaintext. ``owner_pw`` defaults to
         ``user_pw``. An empty user password plus an owner password permits
-        unrestricted opening with permission controls. ``permissions`` combines
-        :class:`Permissions` and defaults to all. Encryption cannot be combined
-        with object streams. Every mode streams to a same-directory temporary
-        file and replaces ``filename`` only after a complete successful write.
+        unrestricted opening with permission controls. Each password is capped
+        at 127 UTF-8 bytes. ``permissions`` combines :class:`Permissions` and
+        defaults to all. Encryption cannot be combined with object streams.
+        Every mode streams to a same-directory temporary file and replaces
+        ``filename`` only after a complete successful write.
         """
         self._ensure_open()
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
@@ -3395,6 +3412,7 @@ class Document:
         ``max_size`` limits serialization before converting the Rust buffer to
         Python ``bytes``. ``None`` explicitly opts out for trusted workloads.
         Refusal raises :class:`LimitError` with code ``pdf_output_size``.
+        Encryption passwords are capped at 127 UTF-8 bytes.
         """
         self._ensure_open()
         _validate_optional_positive_int("max_size", max_size)
@@ -3428,6 +3446,8 @@ class Document:
         if object_streams:
             msg = "encryption (user_pw / owner_pw) and object_streams cannot both be specified"
             raise ValueError(msg)
+        _validate_password_input(user_pw, "user password")
+        _validate_password_input(owner_pw, "owner password")
         user = user_pw if user_pw is not None else ""
         owner = owner_pw if owner_pw is not None else user
         return (user, owner, int(permissions))
@@ -3517,12 +3537,13 @@ def peek_metadata(
     and boolean ``encrypted`` / ``repaired`` facts. This is suitable for
     scanning many PDFs. ``max_file_size`` rejects oversized path or byte input
     before metadata parsing; ``None`` leaves it unbounded. Returned standard
-    Info text is capped at 1 MiB.
+    Info text is capped at 1 MiB. Password input is capped at 127 UTF-8 bytes.
     """
     if (filename is None) == (stream is None):
         msg = "specify exactly one of filename or stream"
         raise ValueError(msg)
     _validate_optional_positive_int("max_file_size", max_file_size)
+    _validate_password_input(password)
     if stream is not None:
         raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(
             stream,

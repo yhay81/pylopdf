@@ -63,7 +63,7 @@ per-stream budget and cannot be combined with `limits=`.
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`,
-`search_input_size`, `search_hit_count`, `pixmap_output_size`,
+`search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, or `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
@@ -122,6 +122,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   copying and the Rust boundary repeats both limits. `max_hits=None` explicitly
   opts trusted result sets out; refusals use `search_input_size` or
   `search_hit_count` and never return a partial list.
+- Passwords used by open, authenticate, fast metadata probes, and AES-256
+  output stop at 127 UTF-8 bytes before PyO3 copying or password-KDF work.
+  Direct Rust calls repeat the boundary. Refusals use `password_input_size`;
+  save rejection occurs before document mutation or output creation.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

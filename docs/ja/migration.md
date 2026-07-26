@@ -21,7 +21,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
 | `import pymupdf`（`fitz` は旧名） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=` も同じ |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=`も同じ。UTF-8 127 byte上限 |
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
@@ -35,7 +35,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` は bool |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 のみ |
+| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256のみ。各passwordはUTF-8 127 byte上限 |
 | `doc.needs_pass` / `authenticate()` | 同じ | 戻り値の意味（0/1/2/4/6）も同じ |
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 同じ | JPEGパススルー、PNG透過、RGBA `Pixmap`の直接再利用、時計回りの右角回転。その他の符号化形式はPillowで変換 |

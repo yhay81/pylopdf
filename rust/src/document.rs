@@ -104,6 +104,9 @@ const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 const MAX_SEARCH_INPUT_BYTES: usize = 4_096;
 const DEFAULT_MAX_SEARCH_HITS: usize = 4_096;
 
+/// Bound password KDF input before potentially expensive encryption work.
+const MAX_PASSWORD_INPUT_BYTES: usize = 127;
+
 /// Default public boundaries for encoded and decoded image insertion input.
 const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
@@ -959,6 +962,18 @@ fn validate_generated_text_input<'a>(
                 format!("text input exceeds the {limit}-byte UTF-8 limit"),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_password_input(password: Option<&str>, label: &str) -> PyResult<()> {
+    if let Some(password) = password
+        && password.len() > MAX_PASSWORD_INPUT_BYTES
+    {
+        return Err(limit_err(
+            "password_input_size",
+            format!("{label} exceeds the {MAX_PASSWORD_INPUT_BYTES}-byte UTF-8 safety limit"),
+        ));
     }
     Ok(())
 }
@@ -4077,6 +4092,8 @@ impl _Document {
         permissions: u64,
         file_encryption_key: &[u8],
     ) -> PyResult<Document> {
+        validate_password_input(Some(user_password), "user password")?;
+        validate_password_input(Some(owner_password), "owner password")?;
         if file_encryption_key.len() != 32 {
             return Err(PdfError::new_err(format!(
                 "file_encryption_key must be 32 bytes ({} bytes given)",
@@ -4646,6 +4663,7 @@ impl _Document {
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<Self> {
+        validate_password_input(password.as_deref(), "password")?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4731,6 +4749,7 @@ impl _Document {
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<Self> {
+        validate_password_input(password.as_deref(), "password")?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4802,6 +4821,7 @@ impl _Document {
         password: Option<String>,
         max_file_size: Option<usize>,
     ) -> PyResult<MetadataTuple> {
+        validate_password_input(password.as_deref(), "password")?;
         py.detach(|| {
             let data = read_input(path, max_file_size)?;
             let (meta, repaired) = load_metadata_with_recovery(&data, password.as_deref())
@@ -4820,6 +4840,7 @@ impl _Document {
         password: Option<String>,
         max_file_size: Option<usize>,
     ) -> PyResult<MetadataTuple> {
+        validate_password_input(password.as_deref(), "password")?;
         validate_input_size(data, max_file_size)?;
         py.detach(|| {
             let (meta, repaired) =
@@ -4928,13 +4949,15 @@ impl _Document {
     }
 
     /// Check a user password without decrypting.
-    fn authenticate_user_password(&self, password: &str) -> bool {
-        self.doc.authenticate_user_password(password).is_ok()
+    fn authenticate_user_password(&self, password: &str) -> PyResult<bool> {
+        validate_password_input(Some(password), "password")?;
+        Ok(self.doc.authenticate_user_password(password).is_ok())
     }
 
     /// Check an owner password without decrypting.
-    fn authenticate_owner_password(&self, password: &str) -> bool {
-        self.doc.authenticate_owner_password(password).is_ok()
+    fn authenticate_owner_password(&self, password: &str) -> PyResult<bool> {
+        validate_password_input(Some(password), "password")?;
+        Ok(self.doc.authenticate_owner_password(password).is_ok())
     }
 
     /// Save to a file path.

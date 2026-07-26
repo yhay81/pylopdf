@@ -370,11 +370,11 @@ signed_pdf: bytes = out.getvalue()
 
 | Method / property | Description |
 |---|---|
-| `Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` | Open from a path or bytes; empty document if both are None. Use `limits=DocumentLimits.web()` for a complete untrusted-upload policy; `max_decompressed_size` remains the compatible per-stream shorthand |
+| `Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` | Open from a path or bytes; empty document if both are None. Passwords stop at 127 UTF-8 bytes. Use `limits=DocumentLimits.web()` for a complete untrusted-upload policy; `max_decompressed_size` remains the compatible per-stream shorthand |
 | `doc[i]` / `load_page(pno)` / `for page in doc` | Get a Page view (negative indices count from the end; re-fetch after structural changes) |
 | `needs_pass` / `is_encrypted` | Encryption status (pymupdf-compatible semantics) |
 | `is_repaired` | Whether opening repaired an incorrect final classic `startxref`; a `PylopdfWarning` is also emitted and saving normalizes the xref data |
-| `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |
+| `authenticate(password)` | Decrypt with a password of at most 127 UTF-8 bytes (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
 | `limits` / `complexity` | Immutable open-time resource policy / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
 | `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
@@ -395,7 +395,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=, max_size=64 MiB)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / retrieve / delete attachments under symmetric data/decode defaults; `max_size=None` explicitly opts out, name trees are capped at 4,096 entries/nodes, and add metadata plus inline FileSpec clone shapes are bounded |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
-| `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same, max_size=512 MiB)` | Atomically replace a file after a complete same-directory streamed write, or return bounded PDF bytes; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw`; `max_size=None` opts out of the byte-return limit |
+| `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same, max_size=512 MiB)` | Atomically replace a file after a complete same-directory streamed write, or return bounded PDF bytes; prune / compress / object streams, or AES-256 encryption via 127-byte-bounded `user_pw` / `owner_pw`; `max_size=None` opts out of the byte-return limit |
 | `close()` | Close (supports `with`) |
 
 `pylopdf.Page` (obtained via `doc[i]`):
@@ -436,7 +436,7 @@ Module level:
 
 | Name | Description |
 |---|---|
-| `peek_metadata(filename/stream, password=None, *, max_file_size=None)` | Fast metadata / page-count / encryption probe; optional input-size rejection; `repaired` reports bounded classic-`startxref` recovery |
+| `peek_metadata(filename/stream, password=None, *, max_file_size=None)` | Fast metadata / page-count / encryption probe; optional input-size rejection and 127-byte password boundary; `repaired` reports bounded classic-`startxref` recovery |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
 | `ImageCompressionResult` | Typed counts and rewritten source/result byte totals from `compress_images()` |

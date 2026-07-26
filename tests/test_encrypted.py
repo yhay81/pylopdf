@@ -195,3 +195,53 @@ def test_permissions_flags() -> None:
     perms = pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY
     assert int(perms) == (1 << 2) | (1 << 4)
     assert pylopdf.Permissions.MODIFY in pylopdf.Permissions.ALL
+
+
+def test_password_input_boundary_is_exact(one_page_pdf: bytes) -> None:
+    password = "é" * 63 + "a"
+    doc = pylopdf.Document(stream=one_page_pdf, password=password)
+    assert doc.page_count == 1
+    assert pylopdf.peek_metadata(stream=one_page_pdf, password=password)["page_count"] == 1
+
+    encrypted = doc.tobytes(user_pw=password)
+    assert pylopdf.Document(stream=encrypted, password=password).page_count == 1
+
+
+def test_password_input_is_bounded_before_open_authenticate_and_probe(one_page_pdf: bytes) -> None:
+    password = "é" * 64
+
+    for call in (
+        lambda: pylopdf.Document(stream=one_page_pdf, password=password),
+        lambda: pylopdf.peek_metadata(stream=one_page_pdf, password=password),
+    ):
+        with pytest.raises(pylopdf.LimitError) as caught:
+            call()
+        assert caught.value.code == "password_input_size"
+
+    locked = pylopdf.Document(ASSETS / "user-aes-256.pdf")
+    with pytest.raises(pylopdf.LimitError) as authenticate_limit:
+        locked.authenticate(password)
+    assert authenticate_limit.value.code == "password_input_size"
+    assert locked.is_encrypted
+
+
+@pytest.mark.parametrize("password_field", ["user_pw", "owner_pw"])
+def test_password_input_is_bounded_before_save_mutation(
+    password_field: str,
+    three_page_pdf: bytes,
+    tmp_path: Path,
+) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    before = doc.tobytes()
+    kwargs = {password_field: "é" * 64}
+
+    with pytest.raises(pylopdf.LimitError) as memory_limit:
+        doc.tobytes(garbage=True, **kwargs)  # type: ignore[arg-type]
+    assert memory_limit.value.code == "password_input_size"
+    assert doc.tobytes() == before
+
+    output = tmp_path / "oversized-password.pdf"
+    with pytest.raises(pylopdf.LimitError) as file_limit:
+        doc.save(output, **kwargs)  # type: ignore[arg-type]
+    assert file_limit.value.code == "password_input_size"
+    assert not output.exists()

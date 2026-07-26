@@ -60,7 +60,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`,
-`search_input_size`, `search_hit_count`, `pixmap_output_size`,
+`search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
@@ -113,6 +113,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   다시 검사합니다. 신뢰 가능한 결과 집합은`max_hits=None`으로 명시적으로 해제할
   수 있고 거부code는`search_input_size`／`search_hit_count`입니다. partial list는
   반환하지 않습니다.
+- open, authenticate, 빠른metadata probe 및AES-256 출력의password는PyO3 copy나
+  password KDF 전에UTF-8 127 byte로 제한됩니다. Rust 직접 호출도 경계를 반복하며
+  거부code는`password_input_size`입니다. 저장 거부는document mutation 또는output
+  생성 전에 발생합니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로

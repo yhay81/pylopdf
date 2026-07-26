@@ -61,7 +61,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、
-`search_input_size`、`search_hit_count`、`pixmap_output_size`、
+`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
@@ -110,6 +110,9 @@ xref dataを正規化します。
   PythonはPyO3 copy前に検索語を拒否し、Rust境界も両方の上限を再検査します。
   信頼できる結果集合は`max_hits=None`で明示解除でき、拒否codeは
   `search_input_size`／`search_hit_count`です。partial listは返しません。
+- open、authenticate、高速metadata probe、AES-256出力のpasswordはUTF-8 127 byteで
+  PyO3 copy／password KDF前に拒否します。Rust直呼びも再検査し、codeは
+  `password_input_size`です。保存拒否はdocument mutation／output作成より前です。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
