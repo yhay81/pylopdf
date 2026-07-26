@@ -571,6 +571,11 @@ known-limit behavior are polished together.
       `show_pdf_page` now clones the current lopdf graph under the released GIL
       and imports from that pre-edit snapshot, supporting both another page and
       the target page itself without aliasing mutable state.
+- [x] Bound drawing append amplification before mutation. Raw page `/Contents`
+      arrays stop at 4,096 entries, reference chains at 32 levels, and the
+      post-insertion array at 4,096 stream references including the one-time
+      `q`/`Q` isolation pair. Verified in-memory page state fixes repeated nested
+      wrapping without trusting a spoofable persistent PDF marker (2026-07-26).
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

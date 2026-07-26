@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Drawing insertions now preflight raw page `/Contents` arrays and reference
+  chains before cache invalidation, image decoding, or dependent PDF-object
+  creation. The resulting array is capped at 4,096 stream references, including
+  the initial `q`/`Q` isolation pair. Verified page IDs retain that state only
+  inside the current `_Document`, so untrusted PDF keys cannot spoof it; this
+  fixes the previous behavior that nested another pair on later insertions.
+  Over-limit calls leave the document byte-for-byte unchanged in memory.
 - `Document.render_page_svg(..., max_size=64 * 1024 * 1024)` and
   `Page.render_svg()` now reject UTF-8 output above the configured boundary
   before PyO3 creates the Python string, using `LimitError.code ==

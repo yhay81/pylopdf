@@ -419,6 +419,11 @@ signed_pdf: bytes = out.getvalue()
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |
 | `set_mediabox(rect)` / `set_cropbox(rect)` | Set page boxes |
 
+Drawing insertions preflight page `/Contents` before decoding inputs or creating
+dependent objects. The resulting array is capped at 4,096 stream references;
+the one-time `q`/`Q` isolation pair is included in that total, and failures do
+not mutate the document.
+
 Module level:
 
 | Name | Description |

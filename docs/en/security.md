@@ -83,6 +83,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal
   Rust string before pylopdf can enforce this boundary.
+- Drawing insertions preflight raw page `/Contents` arrays and reference chains
+  before cache invalidation, input decoding, or dependent object creation. Raw
+  arrays stop at 4,096 entries, chains at 32 levels, and the final array at
+  4,096 stream references including the one-time `q`/`Q` isolation pair.
+  Failures do not mutate the document.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.

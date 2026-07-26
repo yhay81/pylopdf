@@ -79,6 +79,10 @@ xref dataを正規化します。
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
   制限を適用する前の内部Rust string 1つはこの境界の対象外です。
+- 描画挿入はcache無効化・入力decode・dependent object作成の前に、page
+  `/Contents`のraw arrayと参照chainを検査します。raw arrayは4,096 entry、
+  chainは深さ32、最終arrayは一度だけ追加する`q`/`Q` isolation pair込みで
+  4,096 stream参照が上限です。失敗時はdocumentを変更しません。
 - `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
   64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
   上限までしか展開しません。
