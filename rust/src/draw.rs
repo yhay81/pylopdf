@@ -607,6 +607,7 @@ pub fn standard_textbox_layout(
     font_size: f64,
     line_height: f64,
     justify: bool,
+    max_lines: Option<usize>,
 ) -> Result<TextBoxLayout, String> {
     let font = base14_font(base_font)
         .ok_or_else(|| format!("unsupported Standard 14 font: {base_font}"))?;
@@ -631,6 +632,7 @@ pub fn standard_textbox_layout(
         ascent,
         descent,
         justify,
+        max_lines,
         |line| standard_text_width(line, font, font_size),
     )
 }

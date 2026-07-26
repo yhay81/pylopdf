@@ -61,7 +61,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `interpretation_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`,
+`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
@@ -121,11 +121,13 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   OpenType input은 기본64 MiB입니다. buffer는PyO3 copy 전에 거부하고 filename은GIL을
   해제한 상한 적용Rust path에서 읽습니다. 신뢰 가능한workload는
   `max_font_size=None`으로 명시적으로 해제할 수 있습니다.
-- `insert_text()`와`insert_textbox()`의 생성text input은 기본UTF-8 1 MiB입니다.
-  Python은PyO3 copy 전에 검사하고Rust 경계도 다시 검사합니다. textbox는확장된
-  string을 할당하기 전에tab 확장량을 미리 검사합니다. 신뢰 가능한input은
-  `max_text_size=None`으로 명시적으로 해제할 수 있고 거부code는
-  `text_input_size`입니다.
+- `insert_text()`와`insert_textbox()`의 생성text input은 기본UTF-8 1 MiB이며
+  물리줄과 줄바꿈 후layout은4,096줄로 제한됩니다. Python은PyO3 copy 전에 물리줄을
+  검사하고Rust 경계도 다시 검사하여mutation 전에 줄바꿈layout을 중단합니다.
+  textbox는확장된string을 할당하기 전에tab 확장량을 미리 검사합니다. 신뢰 가능한
+  삽입input은`max_text_size=None`으로 명시적으로 해제할 수 있고 거부code는
+  `text_input_size` 또는`text_line_count`입니다. AcroForm text／choice appearance는
+  고정4,096줄layout 상한을 유지합니다.
 - `search_for()`의 검색어는UTF-8 4,096 byte, 반환geometry는 기본4,096건으로
   제한됩니다. Python은PyO3 copy 전에 초과 검색어를 거부하고Rust 경계도 두 제한을
   다시 검사합니다. 신뢰 가능한 결과 집합은`max_hits=None`으로 명시적으로 해제할

@@ -1009,6 +1009,36 @@ fn validate_generated_text_input<'a>(
     Ok(())
 }
 
+fn validate_generated_text_line_count(
+    line_count: usize,
+    max_text_size: Option<usize>,
+) -> PyResult<()> {
+    if max_text_size.is_some() && line_count > crate::layout::MAX_GENERATED_TEXT_LINES {
+        return Err(limit_err(
+            "text_line_count",
+            format!(
+                "text input exceeds the {}-line safety limit",
+                crate::layout::MAX_GENERATED_TEXT_LINES
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn generated_text_err(error: String) -> PyErr {
+    if error == crate::layout::TEXT_LINE_LIMIT_ERROR {
+        limit_err(
+            "text_line_count",
+            format!(
+                "text layout exceeds the {}-line safety limit",
+                crate::layout::MAX_GENERATED_TEXT_LINES
+            ),
+        )
+    } else {
+        PdfError::new_err(error)
+    }
+}
+
 fn validate_password_input(password: Option<&str>, label: &str) -> PyResult<()> {
     if let Some(password) = password
         && password.len() > MAX_PASSWORD_INPUT_BYTES
@@ -3570,7 +3600,7 @@ impl _Document {
                         (0.0, 0.0, 0.0),
                     ),
                 }
-                .map_err(PdfError::new_err)?;
+                .map_err(generated_text_err)?;
                 let generated_doc = Document::load_mem(&generated).map_err(|error| {
                     lopdf_err(Some("failed to import generated form appearance"), &error)
                 })?;
@@ -3606,7 +3636,7 @@ impl _Document {
                         "Helv",
                     ),
                 }
-                .map_err(PdfError::new_err)?;
+                .map_err(generated_text_err)?;
                 if text_ops.is_empty() {
                     (None, text_ops)
                 } else {
@@ -7221,6 +7251,7 @@ impl _Document {
         overlay: bool,
         max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.preflight_page_content(page_number)?;
@@ -7279,6 +7310,7 @@ impl _Document {
         overlay: bool,
         max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         let rect = [rect.0, rect.1, rect.2, rect.3];
         let layout = py.detach(|| {
@@ -7289,8 +7321,9 @@ impl _Document {
                 fontsize,
                 line_height,
                 align == 3,
+                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
             )
-            .map_err(PdfError::new_err)
+            .map_err(generated_text_err)
         })?;
         if !layout.fits() {
             return Ok(layout.spare_height);
@@ -7357,6 +7390,7 @@ impl _Document {
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
@@ -7415,6 +7449,7 @@ impl _Document {
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(None, max_font_size)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;
@@ -7465,6 +7500,7 @@ impl _Document {
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
@@ -7486,8 +7522,9 @@ impl _Document {
                 line_height,
                 align,
                 color,
+                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
             )
-            .map_err(PdfError::new_err)
+            .map_err(generated_text_err)
         })?;
         let Some(generated) = generated else {
             return Ok(spare_height);
@@ -7540,6 +7577,7 @@ impl _Document {
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(None, max_font_size)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;

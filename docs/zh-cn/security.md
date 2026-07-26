@@ -58,7 +58,7 @@ Web预设目前独立应用以下上限：
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
-`font_input_size`、`text_input_size`、`search_input_size`、`search_hit_count`、
+`font_input_size`、`text_input_size`、`text_line_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
@@ -108,10 +108,11 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - `insert_text`、`insert_textbox`、`set_form_field`与`set_fallback_font`的
   显式／自动OpenType input默认限制为64 MiB。buffer在PyO3 copy前拒绝，filename
   通过释放GIL的有界Rust path读取。可信workload可用`max_font_size=None`显式取消。
-- `insert_text()`与`insert_textbox()`的生成文本输入默认限制为1 MiB UTF-8。
-  Python在PyO3 copy前检查，Rust边界再次检查；textbox会在分配展开后的string前
-  预检tab展开量。可信input可用`max_text_size=None`显式取消，拒绝code为
-  `text_input_size`。
+- `insert_text()`与`insert_textbox()`的生成文本输入默认限制为1 MiB UTF-8，
+  物理行与换行后layout限制为4,096行。Python在PyO3 copy前检查物理行，Rust边界
+  再次检查并在mutation前停止换行layout；textbox会在分配展开后的string前预检tab
+  展开量。可信插入input可用`max_text_size=None`显式取消，拒绝code为
+  `text_input_size`或`text_line_count`。AcroForm文本／选项外观保留固定4,096行上限。
 - `search_for()`将搜索词限制为4,096 UTF-8 byte，返回geometry默认限制为4,096项。
   Python在PyO3 copy前拒绝超限搜索词，Rust边界再次检查两项限制。可信结果集可用
   `max_hits=None`显式取消；拒绝code为`search_input_size`或

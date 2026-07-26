@@ -62,7 +62,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `text_glyph_count`、`interpretation_size`、`embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`text_input_size`、
+`image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
@@ -120,10 +120,12 @@ xref dataを正規化します。
   明示／自動OpenType inputは既定64 MiBです。bufferはPyO3 copy前に拒否し、
   filenameはGILを解放した上限付きRust pathで読みます。信頼できるworkloadは
   `max_font_size=None`で明示解除できます。
-- `insert_text()`と`insert_textbox()`の生成text inputは既定でUTF-8 1 MiBです。
-  PythonはPyO3 copy前に検査し、Rust境界も再検査します。textboxのtab展開量は
-  展開済みstringを確保する前に計算します。信頼できるinputは
-  `max_text_size=None`で明示解除でき、拒否codeは`text_input_size`です。
+- `insert_text()`と`insert_textbox()`の生成text inputは既定でUTF-8 1 MiB、
+  物理行・折り返し後layoutは4,096行が上限です。PythonはPyO3 copy前に物理行を
+  検査し、Rust境界も再検査してmutation前に折り返し行を止めます。textboxのtab
+  展開量は展開済みstringを確保する前に計算します。信頼できる挿入inputは
+  `max_text_size=None`で明示解除でき、拒否codeは`text_input_size`または
+  `text_line_count`です。AcroFormのtext／choice外観は固定4,096行上限を維持します。
 - `search_for()`の検索語はUTF-8 4,096 byte、返却geometryは既定4,096件が上限です。
   PythonはPyO3 copy前に検索語を拒否し、Rust境界も両方の上限を再検査します。
   信頼できる結果集合は`max_hits=None`で明示解除でき、拒否codeは

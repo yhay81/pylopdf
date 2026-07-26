@@ -639,15 +639,19 @@ known-limit behavior are polished together.
       with the GIL released, direct core calls repeat the boundary, and failed
       reads preserve document and fallback-cache state. `font_input_size` is the
       stable code and `None` is the trusted-input opt-out (2026-07-26).
-- [x] Bound generated text and remove wide-line prefix amplification
+- [x] Bound generated text, logical-line materialization, and wrapping work
       (2026-07-26). `insert_text` and `insert_textbox` default aggregate UTF-8
       input to 1 MiB, reject before PyO3 copying or mutation, repeat the
       boundary in direct Rust calls, and preflight textbox tab expansion
       without allocating the expanded string. `text_input_size` is stable and
-      `None` is the trusted-input opt-out. The layout engine now measures a
-      complete paragraph first when it fits: on a 1,000,000,000-point-wide
-      page, one warmup plus five runs of `"word " * 10_000` fell from a
-      928.7 ms median to 31.1 ms (29.9x) while retaining one-line semantics.
+      `None` is the trusted-input opt-out. Configured insertion budgets and
+      AcroForm appearances stop before a 4,097th physical or wrapped line with
+      `text_line_count`. The layout engine measures a complete fitting
+      paragraph once, otherwise collects break/grapheme boundaries once and
+      uses local galloping probes with binary refinement. On a
+      1,000,000,000-point-wide page, one warmup plus five runs of
+      `"word " * 10_000` fell from a 928.7 ms median to 31.1 ms (29.9x) while
+      retaining one-line semantics.
 - [x] Bound search geometry and linearize dense-hit indexing (2026-07-26).
       `search_for` rejects terms above 4,096 UTF-8 bytes before PyO3 copying
       and defaults output to 4,096 rectangles; direct Rust calls repeat both

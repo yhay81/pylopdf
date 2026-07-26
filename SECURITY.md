@@ -45,6 +45,12 @@ risky. When processing untrusted files:
   budget. Inferred spaces plus line endings cannot outnumber non-empty glyphs.
   The batch accepts at most 4,096 page entries and rejects repeated-page
   amplification with `text_size`.
+- `Page.insert_text()` and `Page.insert_textbox()` default to 1 MiB of UTF-8
+  and 4,096 physical or final wrapped lines. Python rejects physical-line
+  amplification before splitting or font resolution, and Rust stops wrapped
+  layout before mutation. `max_text_size=None` opts trusted insertion input out;
+  refusals use `text_input_size` or `text_line_count`. AcroForm text and choice
+  appearances retain the 4,096-line layout cap.
 - Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and

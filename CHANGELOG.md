@@ -21,9 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Page.insert_textbox(..., max_text_size=1024 * 1024)` now bound aggregate
   generated UTF-8 text before PyO3 copying or PDF mutation. Textbox tab
   expansion is preflighted without materializing the expanded string, direct
-  Rust calls repeat the boundary, exact limits succeed, and refusals use
-  `LimitError.code == "text_input_size"`. `None` explicitly opts trusted input
-  out.
+  Rust calls repeat the boundary, and exact limits succeed. A configured
+  insertion budget also caps physical and final wrapped layout at 4,096 lines;
+  AcroForm text and choice appearances always enforce the same layout cap.
+  Refusals occur before mutation and use `LimitError.code` values
+  `"text_input_size"` or `"text_line_count"`; `None` explicitly opts trusted
+  insertion input out of both limits.
 - `Page.search_for(..., max_hits=4096)` now rejects result amplification
   instead of returning an unbounded partial geometry list. Search terms stop at
   4,096 UTF-8 bytes before PyO3 copying, direct Rust calls repeat both
@@ -75,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local 50,000-character Standard 14 wide-line benchmark, median insertion
   fell from 928.7 ms to 31.1 ms (29.9x faster) while preserving layout
   semantics.
+- Wrapped paragraphs now collect UAX #14 and grapheme boundaries once, then
+  use local galloping probes with binary refinement. Long unbreakable runs no
+  longer rescan the remaining paragraph or measure every growing grapheme
+  prefix for each emitted line.
 - `Page.search_for(max_hits=None)` now advances byte-to-character positions
   once and reads the first/last mapped glyph without allocating a temporary
   vector for every match. On the paired cached 100,000-match single-line

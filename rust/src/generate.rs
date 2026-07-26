@@ -92,6 +92,7 @@ pub fn embedded_textbox_page(
     line_height: f64,
     align: u8,
     color: (f64, f64, f64),
+    max_lines: Option<usize>,
 ) -> Result<(Option<Vec<u8>>, f64), String> {
     let width = finite_f32(page_size.0, "page width")?;
     let height = finite_f32(page_size.1, "page height")?;
@@ -112,6 +113,7 @@ pub fn embedded_textbox_page(
         ascent,
         descent,
         align == 3,
+        max_lines,
         |line| {
             let glyphs = shape_line(line, &shaper)?;
             Ok(glyphs
@@ -231,6 +233,7 @@ pub fn embedded_widget_text_page(
             ascent,
             descent,
             false,
+            Some(crate::layout::MAX_GENERATED_TEXT_LINES),
             |line| {
                 let glyphs = shape_line(line, &shaper)?;
                 Ok(glyphs
