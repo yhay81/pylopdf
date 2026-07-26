@@ -34,7 +34,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 有界地列出与填写AcroForm，并生成有界的原生widget外观 |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对解码、添加metadata及inline FileSpec clone形状设有上限的附件；`max_size=None`可显式取消解码上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | file流式输出／有上限的PDF byte；`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`；`max_size=None`取消上限 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |
 
 `compress_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地

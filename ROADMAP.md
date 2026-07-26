@@ -508,6 +508,11 @@ known-limit behavior are polished together.
   sdist, and publish release provenance alongside the artifacts.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
+- [x] Make public file saving failure-atomic across normal, object/xref-stream,
+      and encrypted output. `Document.save()` now streams to a securely created
+      same-directory sibling, preserves an existing target on serialization or
+      replacement failure, cleans up failed temporaries, and keeps errors under
+      `PdfError` without changing save-option mutation semantics (2026-07-26).
 - [x] Bound `Page.get_images()` output amplification per page across placement
       count, cumulative source pixels, returned payload bytes, and the
       Flate-to-DCT fast path. Repeated reuse now fails atomically instead of

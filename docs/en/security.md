@@ -84,10 +84,12 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - `Document.tobytes()` defaults to a 512 MiB serialized-output limit across
   normal, object/xref-stream, and encrypted output. Its Rust writer refuses
   the write crossing the boundary before Python `bytes` conversion;
-  `max_size=None` explicitly opts out. `save()` streams to a file and is not
-  governed by this in-memory output budget. Save options such as `garbage`,
-  `deflate`, and `object_streams` retain their documented mutation semantics
-  even when later serialization is refused.
+  `max_size=None` explicitly opts out. `save()` streams to a securely created
+  sibling in the target directory and atomically replaces the requested path
+  only after a complete write, so serialization or replacement failures
+  preserve an existing file. It is not governed by the in-memory output
+  budget. Save options such as `garbage`, `deflate`, and `object_streams`
+  retain their documented mutation semantics even when later I/O fails.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

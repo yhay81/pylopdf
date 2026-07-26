@@ -34,7 +34,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field/button state가 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 디코딩, 추가metadata 및inline FileSpec clone 형상에 상한이 있는 첨부 파일. `max_size=None`은 디코딩 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | file stream 출력／상한이 있는PDF byte; `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`; `max_size=None`으로 해제 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte; `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |
 
 `compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를

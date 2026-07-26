@@ -78,10 +78,11 @@ xref dataを正規化します。
 - レンダリングは1ページ64メガピクセルまでです。
 - `Document.tobytes()`は通常・object/xref stream・暗号化出力すべてに512 MiBの
   既定serialization上限を適用します。Rust writerがPython `bytes`変換前に境界を
-  越えるwriteを拒否し、`max_size=None`で明示的に解除できます。fileへstreamする
-  `save()`はこのin-memory上限の対象外です。`garbage`、`deflate`、
-  `object_streams`などのsave optionは、その後serializationが拒否されても文書化済み
-  のmutation semanticsを維持します。
+  越えるwriteを拒否し、`max_size=None`で明示的に解除できます。`save()`はtargetと
+  同じdirectoryに安全に作成したsiblingへstreamし、完全なwrite後だけ要求pathを
+  原子的に置換するため、serialization/置換失敗時も既存fileを保持します。この
+  in-memory上限の対象外です。`garbage`、`deflate`、`object_streams`などのsave
+  optionは、その後I/Oが失敗しても文書化済みのmutation semanticsを維持します。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
