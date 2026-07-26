@@ -93,6 +93,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - AcroForm button field는4,096 widget, 8,192 normal appearance state entry,
   4,096 unique returned state name 또는encoded/returned state-name text 1 MiB를
   넘으면 거부합니다. 입력은 누락된`Off`/on state key를 변경 전에 예산에 포함합니다.
+- 주석과link 읽기는4,096 `/Annots` entry 또는call당aggregate encoded/returned
+  metadata text 1 MiB를 넘는 부분 결과를 거부합니다. 추가는dependent object 생성과
+  cache 무효화 전에 같은page 수, 생성subtype과Contents/URI 입력 합계1 MiB,
+  highlight 4,096 rect를 검사합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.

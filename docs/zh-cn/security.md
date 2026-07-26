@@ -86,6 +86,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - AcroForm button field会拒绝超过4,096个widget、8,192个normal appearance
   state entry、4,096个唯一返回state name或1 MiB encoded/returned state-name文本。
   填写会在修改前计入缺少的`Off`/on state key。
+- 批注与link读取会拒绝超过4,096个`/Annots` entry或每次调用aggregate
+  encoded/returned metadata文本1 MiB的部分结果。添加会在创建dependent object和
+  失效cache之前检查相同的页面数量、生成subtype加Contents/URI输入合计1 MiB与
+  4,096个highlight矩形。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的

@@ -296,6 +296,13 @@ overview.
   Appearance synchronization must budget missing `Off`/on keys before mutation
   so a successful fill remains readable under the same limits. Resolve indirect
   field `/Kids` arrays consistently.
+- Page annotation and link reads borrow direct/indirect `/Annots` arrays,
+  release the GIL, and reject complete results above 4,096 array entries or
+  1 MiB of aggregate encoded/returned subtype, Contents, URI, file, and
+  destination text per call. Creation must preflight the same page count,
+  1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
+  highlight rectangles before creating dependent objects or invalidating
+  caches. Successful output must remain readable under the same budget.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

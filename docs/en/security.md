@@ -100,6 +100,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
   state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
   state-name text. Fills budget missing `Off` and on-state keys before mutation.
+- Annotation and link reads reject partial output above 4,096 `/Annots` entries
+  or 1 MiB of aggregate encoded/returned metadata text per call. Adds enforce
+  the same page count, 1 MiB generated subtype plus Contents/URI input, and
+  4,096 highlight rectangles before creating dependent objects or invalidating
+  caches.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

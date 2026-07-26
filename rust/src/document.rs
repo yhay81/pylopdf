@@ -63,6 +63,11 @@ const MAX_FORM_BUTTON_STATE_ENTRIES: usize = 8_192;
 const MAX_FORM_BUTTON_STATE_NAMES: usize = 4_096;
 const MAX_FORM_BUTTON_STATE_NAME_BYTES: usize = 1024 * 1024;
 
+/// Bound page annotation/link interpretation and generated annotation input.
+const MAX_PAGE_ANNOTATIONS: usize = 4_096;
+const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
+const MAX_HIGHLIGHT_RECTS: usize = 4_096;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -184,18 +189,6 @@ fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Object> {
         return Some(deref_object(doc, found));
     }
     None
-}
-
-/// Extract a display name from a string or FileSpec dictionary with `/UF`/`/F`.
-fn filespec_name(doc: &Document, obj: &Object) -> Option<String> {
-    match deref_object(doc, obj) {
-        Object::Dictionary(d) => d
-            .get(b"UF")
-            .or_else(|_| d.get(b"F"))
-            .ok()
-            .and_then(|o| decode_text_string(deref_object(doc, o)).ok()),
-        other => decode_text_string(other).ok(),
-    }
 }
 
 /// One field-tree traversal node: object, prefix, inherited FT/Ff/value, depth.
@@ -1761,6 +1754,72 @@ fn bounded_form_value(
     }
 }
 
+/// Add to one annotation metadata budget without overflow or partial output.
+fn add_annotation_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
+    *total = total
+        .checked_add(amount)
+        .ok_or_else(|| PdfError::new_err("annotation metadata exceeds the platform size limit"))?;
+    if *total > MAX_ANNOTATION_METADATA_BYTES {
+        return Err(PdfError::new_err(format!(
+            "annotation {label} exceeds the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
+        )));
+    }
+    Ok(())
+}
+
+/// Materialize lossy UTF-8 only after charging the encoded annotation bytes.
+fn bounded_annotation_bytes(
+    bytes: &[u8],
+    encoded_bytes: &mut usize,
+    returned_bytes: &mut usize,
+    label: &str,
+) -> PyResult<String> {
+    add_annotation_budget(encoded_bytes, bytes.len(), &format!("encoded {label}"))?;
+    let text = String::from_utf8_lossy(bytes).into_owned();
+    add_annotation_budget(returned_bytes, text.len(), &format!("returned {label}"))?;
+    Ok(text)
+}
+
+/// Decode a PDF text string under aggregate annotation metadata budgets.
+fn bounded_annotation_text(
+    doc: &Document,
+    object: &Object,
+    encoded_bytes: &mut usize,
+    returned_bytes: &mut usize,
+    label: &str,
+) -> PyResult<Option<String>> {
+    let object = deref_object(doc, object);
+    let Object::String(encoded, _) = object else {
+        return Ok(None);
+    };
+    add_annotation_budget(encoded_bytes, encoded.len(), &format!("encoded {label}"))?;
+    let Ok(text) = decode_text_string(object) else {
+        return Ok(None);
+    };
+    add_annotation_budget(returned_bytes, text.len(), &format!("returned {label}"))?;
+    Ok(Some(text))
+}
+
+/// Decode a FileSpec display name under annotation metadata budgets.
+fn bounded_annotation_filespec_name(
+    doc: &Document,
+    object: &Object,
+    encoded_bytes: &mut usize,
+    returned_bytes: &mut usize,
+) -> PyResult<Option<String>> {
+    let object = deref_object(doc, object);
+    let name = match object {
+        Object::Dictionary(filespec) => filespec.get(b"UF").or_else(|_| filespec.get(b"F")).ok(),
+        _ => Some(object),
+    };
+    match name {
+        Some(name) => {
+            bounded_annotation_text(doc, name, encoded_bytes, returned_bytes, "file name")
+        }
+        None => Ok(None),
+    }
+}
+
 /// Python class holding a `lopdf::Document`.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct _Document {
@@ -2810,8 +2869,66 @@ impl _Document {
         self.set_need_appearances(!self.form_appearances_complete()?)
     }
 
+    /// Borrow a page annotation array and reject partial reads above the cap.
+    fn page_annotation_items(&self, page_id: ObjectId) -> PyResult<Option<&[Object]>> {
+        let page = self
+            .doc
+            .get_object(page_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let annots = match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_array)
+                .ok()
+                .map(Vec::as_slice),
+            Ok(Object::Array(items)) => Some(items.as_slice()),
+            _ => None,
+        };
+        if annots.is_some_and(|items| items.len() > MAX_PAGE_ANNOTATIONS) {
+            return Err(PdfError::new_err(format!(
+                "page annotations exceed the {MAX_PAGE_ANNOTATIONS}-entry safety limit"
+            )));
+        }
+        Ok(annots)
+    }
+
+    /// Preflight an annotation append before adding any dependent objects.
+    fn ensure_page_annotation_capacity(
+        &self,
+        page_id: ObjectId,
+        additional: usize,
+    ) -> PyResult<()> {
+        let page = self
+            .doc
+            .get_object(page_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let existing = match page.get(b"Annots") {
+            Ok(Object::Reference(id)) => self
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_array)
+                .map_err(to_py_err)?
+                .len(),
+            Ok(Object::Array(items)) => items.len(),
+            _ => 0,
+        };
+        let total = existing
+            .checked_add(additional)
+            .ok_or_else(|| PdfError::new_err("page annotations exceed the platform size limit"))?;
+        if total > MAX_PAGE_ANNOTATIONS {
+            return Err(PdfError::new_err(format!(
+                "page annotations exceed the {MAX_PAGE_ANNOTATIONS}-entry safety limit"
+            )));
+        }
+        Ok(())
+    }
+
     /// Add an annotation reference to page `/Annots`, including indirect arrays.
     fn push_page_annotation(&mut self, page_id: ObjectId, annot_id: ObjectId) -> PyResult<()> {
+        self.ensure_page_annotation_capacity(page_id, 1)?;
         let array_ref = {
             let page = self
                 .doc
@@ -3239,26 +3356,33 @@ impl _Document {
         &self,
         dest: &Object,
         page_map: &BTreeMap<ObjectId, u32>,
-    ) -> ResolvedDestination {
+        encoded_bytes: &mut usize,
+        returned_bytes: &mut usize,
+    ) -> PyResult<ResolvedDestination> {
         let doc = &self.doc;
         let mut nameddest = None;
         let mut resolved = deref_object(doc, dest);
         if let Object::Name(name) | Object::String(name, _) = resolved {
-            nameddest = Some(String::from_utf8_lossy(name).into_owned());
+            nameddest = Some(bounded_annotation_bytes(
+                name,
+                encoded_bytes,
+                returned_bytes,
+                "named destination",
+            )?);
             match lookup_named_dest(doc, name) {
                 Some(found) => resolved = found,
-                None => return (None, None, None, nameddest),
+                None => return Ok((None, None, None, nameddest)),
             }
         }
         // A named destination value may be a dictionary containing `/D`.
         if let Object::Dictionary(d) = resolved {
             match d.get(b"D") {
                 Ok(inner) => resolved = deref_object(doc, inner),
-                Err(_) => return (None, None, None, nameddest),
+                Err(_) => return Ok((None, None, None, nameddest)),
             }
         }
         let Object::Array(arr) = resolved else {
-            return (None, None, None, nameddest);
+            return Ok((None, None, None, nameddest));
         };
         // Element 0 should be a page reference, but some producers write a
         // zero-based integer. Keep references unresolved for reverse lookup.
@@ -3298,7 +3422,7 @@ impl _Document {
                 _ => {}
             }
         }
-        (page, to, zoom, nameddest)
+        Ok((page, to, zoom, nameddest))
     }
 }
 
@@ -4757,238 +4881,281 @@ impl _Document {
     ///
     /// Each item is `(Subtype, display Rect, Contents, URI)`. Rect uses rotated
     /// top-left-origin display space; Contents/URI are optional.
-    fn read_annotations(&self, page_number: u32) -> PyResult<Vec<AnnotationTuple>> {
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.page_id(page_number)?;
-        let page = self
-            .doc
-            .get_object(page_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
-        let annots = match page.get(b"Annots") {
-            Ok(Object::Reference(id)) => {
-                match self.doc.get_object(*id).and_then(Object::as_array) {
-                    Ok(arr) => arr.clone(),
-                    Err(_) => return Ok(Vec::new()),
-                }
-            }
-            Ok(Object::Array(arr)) => arr.clone(),
-            _ => return Ok(Vec::new()),
-        };
-        let mut out = Vec::new();
-        for item in annots {
-            let dict = match &item {
-                Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                },
-                Object::Dictionary(d) => d,
-                _ => continue,
+    fn read_annotations(&self, py: Python<'_>, page_number: u32) -> PyResult<Vec<AnnotationTuple>> {
+        py.detach(|| {
+            let (crop, rotation) = self.page_display_geometry(page_number)?;
+            let page_id = self.page_id(page_number)?;
+            let Some(annots) = self.page_annotation_items(page_id)? else {
+                return Ok(Vec::new());
             };
-            let subtype = match dict.get(b"Subtype").and_then(Object::as_name) {
-                Ok(name) => String::from_utf8_lossy(name).into_owned(),
-                Err(_) => continue,
-            };
-            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
-                continue;
-            };
-            let display = draw::pdf_rect_to_display(crop, rotation, rect);
-            let contents = dict
-                .get(b"Contents")
-                .ok()
-                .map(|o| match o {
-                    Object::Reference(id) => self.doc.get_object(*id).unwrap_or(o),
-                    other => other,
-                })
-                .and_then(|o| decode_text_string(o).ok());
-            let uri = dict
-                .get(b"A")
-                .ok()
-                .and_then(|a| match a {
+            let mut out = Vec::new();
+            let mut encoded_bytes = 0usize;
+            let mut returned_bytes = 0usize;
+            for item in annots {
+                let dict = match item {
                     Object::Reference(id) => {
-                        self.doc.get_object(*id).and_then(Object::as_dict).ok()
+                        match self.doc.get_object(*id).and_then(Object::as_dict) {
+                            Ok(dict) => dict,
+                            Err(_) => continue,
+                        }
                     }
-                    Object::Dictionary(d) => Some(d),
-                    _ => None,
-                })
-                .filter(|action| matches!(action.get(b"S").and_then(Object::as_name), Ok(b"URI")))
-                .and_then(|action| action.get(b"URI").ok())
-                .and_then(|o| o.as_str().ok())
-                .map(|s| String::from_utf8_lossy(s).into_owned());
-            out.push((
-                subtype,
-                (display[0], display[1], display[2], display[3]),
-                contents,
-                uri,
-            ));
-        }
-        Ok(out)
+                    Object::Dictionary(dict) => dict,
+                    _ => continue,
+                };
+                let subtype = match dict.get(b"Subtype").and_then(Object::as_name) {
+                    Ok(name) => bounded_annotation_bytes(
+                        name,
+                        &mut encoded_bytes,
+                        &mut returned_bytes,
+                        "subtype text",
+                    )?,
+                    Err(_) => continue,
+                };
+                let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+                    continue;
+                };
+                let display = draw::pdf_rect_to_display(crop, rotation, rect);
+                let contents = match dict.get(b"Contents") {
+                    Ok(object) => bounded_annotation_text(
+                        &self.doc,
+                        object,
+                        &mut encoded_bytes,
+                        &mut returned_bytes,
+                        "Contents text",
+                    )?,
+                    Err(_) => None,
+                };
+                let uri_bytes = dict
+                    .get(b"A")
+                    .ok()
+                    .and_then(|action| deref_object(&self.doc, action).as_dict().ok())
+                    .filter(|action| {
+                        matches!(action.get(b"S").and_then(Object::as_name), Ok(b"URI"))
+                    })
+                    .and_then(|action| action.get(b"URI").ok())
+                    .map(|object| deref_object(&self.doc, object))
+                    .and_then(|object| object.as_str().ok());
+                let uri = match uri_bytes {
+                    Some(bytes) => Some(bounded_annotation_bytes(
+                        bytes,
+                        &mut encoded_bytes,
+                        &mut returned_bytes,
+                        "URI text",
+                    )?),
+                    None => None,
+                };
+                out.push((
+                    subtype,
+                    (display[0], display[1], display[2], display[3]),
+                    contents,
+                    uri,
+                ));
+            }
+            Ok(out)
+        })
     }
 
     /// Read link annotations from a one-based page and resolve destinations.
     ///
     /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
     /// Resolve GoTo names from `/Names` trees and legacy `/Dests`.
-    fn read_links(&self, page_number: u32) -> PyResult<Vec<LinkTuple>> {
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.page_id(page_number)?;
-        let page = self
-            .doc
-            .get_object(page_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
-        let annots = match page.get(b"Annots") {
-            Ok(Object::Reference(id)) => {
-                match self.doc.get_object(*id).and_then(Object::as_array) {
-                    Ok(arr) => arr.clone(),
-                    Err(_) => return Ok(Vec::new()),
-                }
-            }
-            Ok(Object::Array(arr)) => arr.clone(),
-            _ => return Ok(Vec::new()),
-        };
-        // Build ObjectId → lopdf page-number lookup for destination resolution.
-        let page_map: BTreeMap<ObjectId, u32> = self
-            .doc
-            .get_pages()
-            .into_iter()
-            .map(|(number, id)| (id, number))
-            .collect();
-        let mut out = Vec::new();
-        for item in annots {
-            let dict = match &item {
-                Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                },
-                Object::Dictionary(d) => d,
-                _ => continue,
+    fn read_links(&self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkTuple>> {
+        py.detach(|| {
+            let (crop, rotation) = self.page_display_geometry(page_number)?;
+            let page_id = self.page_id(page_number)?;
+            let Some(annots) = self.page_annotation_items(page_id)? else {
+                return Ok(Vec::new());
             };
-            if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
-                continue;
-            }
-            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
-                continue;
-            };
-            let display = draw::pdf_rect_to_display(crop, rotation, rect);
-            let rect_tuple = (display[0], display[1], display[2], display[3]);
-
-            let action = dict.get(b"A").ok().and_then(|a| match a {
-                Object::Reference(id) => self.doc.get_object(*id).and_then(Object::as_dict).ok(),
-                Object::Dictionary(d) => Some(d),
-                _ => None,
-            });
-            if let Some(action) = action {
-                match action.get(b"S").and_then(Object::as_name) {
-                    Ok(b"URI") => {
-                        let uri = action
-                            .get(b"URI")
-                            .ok()
-                            .and_then(|o| deref_object(&self.doc, o).as_str().ok())
-                            .map(|s| String::from_utf8_lossy(s).into_owned());
-                        out.push((
-                            "uri".to_string(),
-                            rect_tuple,
-                            uri,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        ));
+            // Build ObjectId → lopdf page-number lookup for destination resolution.
+            let page_map: BTreeMap<ObjectId, u32> = self
+                .doc
+                .get_pages()
+                .into_iter()
+                .map(|(number, id)| (id, number))
+                .collect();
+            let mut out = Vec::new();
+            let mut encoded_bytes = 0usize;
+            let mut returned_bytes = 0usize;
+            for item in annots {
+                let dict = match item {
+                    Object::Reference(id) => {
+                        match self.doc.get_object(*id).and_then(Object::as_dict) {
+                            Ok(dict) => dict,
+                            Err(_) => continue,
+                        }
                     }
-                    Ok(b"GoTo") => {
-                        if let Ok(dest) = action.get(b"D") {
-                            let (page, to, zoom, name) = self.resolve_dest(dest, &page_map);
+                    Object::Dictionary(dict) => dict,
+                    _ => continue,
+                };
+                if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
+                    continue;
+                }
+                let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+                    continue;
+                };
+                let display = draw::pdf_rect_to_display(crop, rotation, rect);
+                let rect_tuple = (display[0], display[1], display[2], display[3]);
+
+                let action = dict
+                    .get(b"A")
+                    .ok()
+                    .and_then(|action| deref_object(&self.doc, action).as_dict().ok());
+                if let Some(action) = action {
+                    match action.get(b"S").and_then(Object::as_name) {
+                        Ok(b"URI") => {
+                            let uri = match action
+                                .get(b"URI")
+                                .ok()
+                                .map(|object| deref_object(&self.doc, object))
+                                .and_then(|object| object.as_str().ok())
+                            {
+                                Some(bytes) => Some(bounded_annotation_bytes(
+                                    bytes,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                    "URI text",
+                                )?),
+                                None => None,
+                            };
                             out.push((
-                                "goto".to_string(),
+                                "uri".to_string(),
+                                rect_tuple,
+                                uri,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                            ));
+                        }
+                        Ok(b"GoTo") => {
+                            if let Ok(dest) = action.get(b"D") {
+                                let (page, to, zoom, name) = self.resolve_dest(
+                                    dest,
+                                    &page_map,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                )?;
+                                out.push((
+                                    "goto".to_string(),
+                                    rect_tuple,
+                                    None,
+                                    page,
+                                    to,
+                                    zoom,
+                                    None,
+                                    name,
+                                ));
+                            }
+                        }
+                        Ok(b"GoToR") => {
+                            let file = match action.get(b"F") {
+                                Ok(object) => bounded_annotation_filespec_name(
+                                    &self.doc,
+                                    object,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                )?,
+                                Err(_) => None,
+                            };
+                            // External-document destinations retain names without page resolution.
+                            let name_bytes = action.get(b"D").ok().and_then(|destination| {
+                                match deref_object(&self.doc, destination) {
+                                    Object::Name(name) | Object::String(name, _) => {
+                                        Some(name.as_slice())
+                                    }
+                                    _ => None,
+                                }
+                            });
+                            let name = match name_bytes {
+                                Some(bytes) => Some(bounded_annotation_bytes(
+                                    bytes,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                    "named destination",
+                                )?),
+                                None => None,
+                            };
+                            out.push((
+                                "gotor".to_string(),
                                 rect_tuple,
                                 None,
-                                page,
-                                to,
-                                zoom,
+                                None,
+                                None,
+                                None,
+                                file,
+                                name,
+                            ));
+                        }
+                        Ok(b"Launch") => {
+                            let file = match action.get(b"F") {
+                                Ok(object) => bounded_annotation_filespec_name(
+                                    &self.doc,
+                                    object,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                )?,
+                                Err(_) => None,
+                            };
+                            out.push((
+                                "launch".to_string(),
+                                rect_tuple,
+                                None,
+                                None,
+                                None,
+                                None,
+                                file,
+                                None,
+                            ));
+                        }
+                        Ok(b"Named") => {
+                            let name_bytes = action
+                                .get(b"N")
+                                .ok()
+                                .and_then(|object| deref_object(&self.doc, object).as_name().ok());
+                            let name = match name_bytes {
+                                Some(bytes) => Some(bounded_annotation_bytes(
+                                    bytes,
+                                    &mut encoded_bytes,
+                                    &mut returned_bytes,
+                                    "named action",
+                                )?),
+                                None => None,
+                            };
+                            out.push((
+                                "named".to_string(),
+                                rect_tuple,
+                                None,
+                                None,
+                                None,
+                                None,
                                 None,
                                 name,
                             ));
                         }
+                        _ => {}
                     }
-                    Ok(b"GoToR") => {
-                        let file = action
-                            .get(b"F")
-                            .ok()
-                            .and_then(|o| filespec_name(&self.doc, o));
-                        // External-document destinations retain names without page resolution.
-                        let name =
-                            action
-                                .get(b"D")
-                                .ok()
-                                .and_then(|d| match deref_object(&self.doc, d) {
-                                    Object::Name(n) | Object::String(n, _) => {
-                                        Some(String::from_utf8_lossy(n).into_owned())
-                                    }
-                                    _ => None,
-                                });
-                        out.push((
-                            "gotor".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            file,
-                            name,
-                        ));
-                    }
-                    Ok(b"Launch") => {
-                        let file = action
-                            .get(b"F")
-                            .ok()
-                            .and_then(|o| filespec_name(&self.doc, o));
-                        out.push((
-                            "launch".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            file,
-                            None,
-                        ));
-                    }
-                    Ok(b"Named") => {
-                        let name = action
-                            .get(b"N")
-                            .ok()
-                            .and_then(|o| deref_object(&self.doc, o).as_name().ok())
-                            .map(|n| String::from_utf8_lossy(n).into_owned());
-                        out.push((
-                            "named".to_string(),
-                            rect_tuple,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            name,
-                        ));
-                    }
-                    _ => {}
+                } else if let Ok(dest) = dict.get(b"Dest") {
+                    let (page, to, zoom, name) = self.resolve_dest(
+                        dest,
+                        &page_map,
+                        &mut encoded_bytes,
+                        &mut returned_bytes,
+                    )?;
+                    out.push((
+                        "goto".to_string(),
+                        rect_tuple,
+                        None,
+                        page,
+                        to,
+                        zoom,
+                        None,
+                        name,
+                    ));
                 }
-            } else if let Ok(dest) = dict.get(b"Dest") {
-                let (page, to, zoom, name) = self.resolve_dest(dest, &page_map);
-                out.push((
-                    "goto".to_string(),
-                    rect_tuple,
-                    None,
-                    page,
-                    to,
-                    zoom,
-                    None,
-                    name,
-                ));
             }
-        }
-        Ok(out)
+            Ok(out)
+        })
     }
 
     /// Add a highlight annotation to a one-based page.
@@ -5003,9 +5170,41 @@ impl _Document {
         opacity: f64,
         content: Option<String>,
     ) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        if rects.is_empty() || rects.len() > MAX_HIGHLIGHT_RECTS {
+            return Err(PdfError::new_err(format!(
+                "highlight annotations require 1 to {MAX_HIGHLIGHT_RECTS} rectangles"
+            )));
+        }
+        let encoded_content = match content {
+            Some(content) => {
+                if content
+                    .len()
+                    .checked_add(b"Highlight".len())
+                    .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
+                {
+                    return Err(PdfError::new_err(format!(
+                        "annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
+                    )));
+                }
+                let encoded = text_string(&content);
+                if encoded.as_str().is_ok_and(|bytes| {
+                    bytes
+                        .len()
+                        .checked_add(b"Highlight".len())
+                        .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
+                }) {
+                    return Err(PdfError::new_err(format!(
+                        "encoded annotation subtype and content exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
+                    )));
+                }
+                Some(encoded)
+            }
+            None => None,
+        };
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
+        self.ensure_page_annotation_capacity(page_id, 1)?;
+        self.invalidate_hayro_pdf();
 
         let quads: Vec<[(f64, f64); 4]> = rects
             .iter()
@@ -5056,8 +5255,8 @@ impl _Document {
             "P" => page_id,
             "AP" => dictionary! { "N" => Object::Reference(ap_id) },
         };
-        if let Some(text) = content {
-            annot.set("Contents", text_string(&text));
+        if let Some(encoded_content) = encoded_content {
+            annot.set("Contents", encoded_content);
         }
         let annot_id = self.doc.add_object(annot);
         self.push_page_annotation(page_id, annot_id)
@@ -5070,9 +5269,19 @@ impl _Document {
         rect: (f64, f64, f64, f64),
         uri: String,
     ) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        if uri
+            .len()
+            .checked_add(b"Link".len())
+            .is_none_or(|size| size > MAX_ANNOTATION_METADATA_BYTES)
+        {
+            return Err(PdfError::new_err(format!(
+                "annotation subtype and URI exceed the {MAX_ANNOTATION_METADATA_BYTES}-byte safety limit"
+            )));
+        }
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
+        self.ensure_page_annotation_capacity(page_id, 1)?;
+        self.invalidate_hayro_pdf();
         let quad = draw::display_rect_quad_pdf(crop, rotation, [rect.0, rect.1, rect.2, rect.3]);
         let bbox = draw::bounding_rect(&quad);
         let annot_id = self.doc.add_object(dictionary! {

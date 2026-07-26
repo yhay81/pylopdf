@@ -83,6 +83,7 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
+_MAX_HIGHLIGHT_RECTS = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -1799,7 +1800,8 @@ class Page:
         ``type`` is the PDF Subtype name, such as ``"Highlight"`` or
         ``"Link"``; ``rect`` is a display-coordinate :class:`Rect`;
         ``contents`` is annotation text; and ``uri`` is the URI action target or
-        ``None``.
+        ``None``. Reads reject partial output above 4,096 annotations or 1 MiB
+        of aggregate encoded or returned metadata text per call.
         """
         raw = self._document._doc.read_annotations(self._page_number())
         return [
@@ -1821,7 +1823,8 @@ class Page:
         - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
 
         GoTo named destinations resolve from both the ``/Names`` name tree and
-        the legacy ``/Dests`` dictionary.
+        the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
+        1 MiB aggregate metadata-text boundaries with :meth:`annots`.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {
@@ -1869,12 +1872,16 @@ class Page:
         Pass :meth:`search_for` output directly to highlight search results.
         The annotation includes QuadPoints and an appearance stream using
         Multiply blending, so it looks consistent in pylopdf's renderer and
-        other viewers. Multiple rectangles form one annotation. ``content`` is
-        the popup annotation text.
+        other viewers. Multiple rectangles form one annotation, with at most
+        4,096 rectangles; its subtype and popup ``content`` share a 1 MiB text
+        budget.
         """
         seq = list(rects)
         if not seq:
             msg = "rects must contain at least one rect"
+            raise ValueError(msg)
+        if len(seq) > _MAX_HIGHLIGHT_RECTS:
+            msg = f"rects cannot contain more than {_MAX_HIGHLIGHT_RECTS} rectangles"
             raise ValueError(msg)
         rect_list = [seq] if isinstance(seq[0], (int, float)) else seq
         validated = [_validate_rect(r) for r in rect_list]  # type: ignore[arg-type]
@@ -1889,7 +1896,7 @@ class Page:
 
         This supports search-then-link workflows using :meth:`search_for`.
         For new documents, links are usually better created in typst; see the
-        README ecosystem recipe.
+        README ecosystem recipe. Its subtype and URI share a 1 MiB text budget.
         """
         if not uri:
             msg = "uri must be at least 1 character"

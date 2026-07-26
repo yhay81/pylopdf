@@ -524,6 +524,11 @@ known-limit behavior are polished together.
       capped before cloning or mutation. Boolean lookup now releases the GIL
       and deduplicates linearly; fills preflight missing `Off`/on keys so they
       cannot create output the next call rejects.
+- [x] Bound page annotation and link interpretation plus creation. Reads now
+      borrow `/Annots`, release the GIL, and share fixed entry and aggregate
+      metadata-text budgets. Adds preflight page capacity, Contents/URI text,
+      and highlight rectangle count before creating dependent appearance
+      objects, preserving document bytes and caches on refusal.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

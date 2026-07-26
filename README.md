@@ -410,9 +410,9 @@ signed_pdf: bytes = out.getvalue()
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 or shaped subset font; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap with UAX #14 and Core 14, explicit OpenType, or auto-selected JP font metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=0)` | Write OCR results as an orientation-aware invisible text layer (searchable PDFs; no font embedding, near-zero size) |
-| `annots()` | Read annotations (`{"type", "rect", "contents", "uri"}` dicts; rect in display coordinates) |
-| `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed `search_for` results directly; appearance stream included |
-| `add_link_annot(rect, uri)` | URI link annotation (no border) |
+| `annots()` / `get_links()` | Bounded annotation/link reads (4,096 entries and 1 MiB aggregate metadata text per call; display coordinates) |
+| `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed up to 4,096 `search_for` results directly; appearance stream included; 1 MiB subtype/content budget |
+| `add_link_annot(rect, uri)` | URI link annotation (no border; 1 MiB subtype/URI budget) |
 | `replace_text(search, replacement, default_char=None)` | Replace text (simple-encoded fonts only; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg()` | Rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
