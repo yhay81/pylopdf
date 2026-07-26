@@ -105,6 +105,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   the same page count, 1 MiB generated subtype plus Contents/URI input, and
   4,096 highlight rectangles before creating dependent objects or invalidating
   caches.
+- Named-destination lookup visits reference cycles once and rejects traversal
+  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
+  instead of silently reporting a truncated tree as unresolved.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

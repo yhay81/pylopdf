@@ -97,6 +97,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   metadata text 1 MiB를 넘는 부분 결과를 거부합니다. 추가는dependent object 생성과
   cache 무효화 전에 같은page 수, 생성subtype과Contents/URI 입력 합계1 MiB,
   highlight 4,096 rect를 검사합니다.
+- named destination lookup은 참조cycle을 한 번만 방문하고4,096 entry/node,
+  8,192 edge, 깊이32 또는key byte 1 MiB를 넘는tree를 단순 미해결로 조용히
+  처리하지 않고 거부합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.

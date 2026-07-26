@@ -58,6 +58,9 @@ risky. When processing untrusted files:
   the same page count, 1 MiB generated subtype plus Contents/URI input, and
   4,096 highlight rectangles before adding dependent objects or invalidating
   caches.
+- Named-destination lookup visits reference cycles once and rejects traversal
+  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
+  instead of silently reporting a truncated tree as unresolved.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

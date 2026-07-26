@@ -68,6 +68,13 @@ const MAX_PAGE_ANNOTATIONS: usize = 4_096;
 const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 
+/// Bound named-destination name-tree lookup used by link resolution.
+const MAX_NAMED_DEST_ENTRIES: usize = 4_096;
+const MAX_NAMED_DEST_TREE_NODES: usize = 4_096;
+const MAX_NAMED_DEST_TREE_EDGES: usize = 8_192;
+const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
+const MAX_NAMED_DEST_NAME_BYTES: usize = 1024 * 1024;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -135,60 +142,106 @@ fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     }
 }
 
-/// Linearly search a `/Names` plus `/Kids` name tree for `name`.
-/// `depth` limits recursion against cycles.
+/// Search a named-destination tree with complete node-local safety budgets.
 fn search_name_tree<'a>(
     doc: &'a Document,
-    node: &'a Object,
+    root: &'a Object,
     name: &[u8],
-    depth: u8,
-) -> Option<&'a Object> {
-    if depth > 16 {
-        return None;
-    }
-    let dict = deref_object(doc, node).as_dict().ok()?;
-    if let Ok(names) = dict.get(b"Names")
-        && let Ok(arr) = deref_object(doc, names).as_array()
-    {
-        for pair in arr.chunks(2) {
-            if pair.len() == 2
-                && let Ok(key) = deref_object(doc, &pair[0]).as_str()
-                && key == name
-            {
-                return Some(deref_object(doc, &pair[1]));
+) -> PyResult<Option<&'a Object>> {
+    let mut stack = vec![(root, 1usize)];
+    let mut visited = HashSet::new();
+    let mut nodes = 0usize;
+    let mut edges = 0usize;
+    let mut entries = 0usize;
+    let mut name_bytes = 0usize;
+    while let Some((node_object, depth)) = stack.pop() {
+        if let Object::Reference(id) = node_object
+            && !visited.insert(*id)
+        {
+            continue;
+        }
+        let Ok(node) = deref_object(doc, node_object).as_dict() else {
+            continue;
+        };
+        nodes = nodes.saturating_add(1);
+        if nodes > MAX_NAMED_DEST_TREE_NODES {
+            return Err(PdfError::new_err(format!(
+                "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_NODES}-node safety limit"
+            )));
+        }
+        if let Ok(names_object) = node.get(b"Names")
+            && let Ok(names) = deref_object(doc, names_object).as_array()
+        {
+            entries = entries
+                .checked_add(names.len().div_ceil(2))
+                .ok_or_else(|| {
+                    PdfError::new_err("named-destination tree exceeds the platform size limit")
+                })?;
+            if entries > MAX_NAMED_DEST_ENTRIES {
+                return Err(PdfError::new_err(format!(
+                    "named-destination tree exceeds the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
+                )));
+            }
+            for pair in names.chunks(2) {
+                let [key, value] = pair else { continue };
+                let Ok(key) = deref_object(doc, key).as_str() else {
+                    continue;
+                };
+                name_bytes = name_bytes.saturating_add(key.len());
+                if name_bytes > MAX_NAMED_DEST_NAME_BYTES {
+                    return Err(PdfError::new_err(format!(
+                        "named-destination keys exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
+                    )));
+                }
+                if key == name {
+                    return Ok(Some(deref_object(doc, value)));
+                }
+            }
+        }
+        if let Ok(kids_object) = node.get(b"Kids")
+            && let Ok(kids) = deref_object(doc, kids_object).as_array()
+        {
+            if !kids.is_empty() && depth >= MAX_NAMED_DEST_TREE_DEPTH {
+                return Err(PdfError::new_err(format!(
+                    "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_DEPTH}-level safety limit"
+                )));
+            }
+            edges = edges.checked_add(kids.len()).ok_or_else(|| {
+                PdfError::new_err("named-destination tree exceeds the platform size limit")
+            })?;
+            if edges > MAX_NAMED_DEST_TREE_EDGES {
+                return Err(PdfError::new_err(format!(
+                    "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_EDGES}-edge safety limit"
+                )));
+            }
+            for kid in kids.iter().rev() {
+                stack.push((kid, depth + 1));
             }
         }
     }
-    if let Ok(kids) = dict.get(b"Kids")
-        && let Ok(arr) = deref_object(doc, kids).as_array()
-    {
-        for kid in arr {
-            if let Some(found) = search_name_tree(doc, kid, name, depth + 1) {
-                return Some(found);
-            }
-        }
-    }
-    None
+    Ok(None)
 }
 
 /// Resolve a named destination from the catalog.
 /// Search both the PDF 1.2+ `/Names` → `/Dests` tree and legacy `/Dests`.
-fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Object> {
-    let catalog = doc.catalog().ok()?;
+fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> PyResult<Option<&'a Object>> {
+    let Ok(catalog) = doc.catalog() else {
+        return Ok(None);
+    };
     if let Ok(names) = catalog.get(b"Names")
         && let Ok(names) = deref_object(doc, names).as_dict()
         && let Ok(dests) = names.get(b"Dests")
-        && let Some(found) = search_name_tree(doc, dests, name, 0)
+        && let Some(found) = search_name_tree(doc, dests, name)?
     {
-        return Some(found);
+        return Ok(Some(found));
     }
     if let Ok(dests) = catalog.get(b"Dests")
         && let Ok(dests) = deref_object(doc, dests).as_dict()
         && let Ok(found) = dests.get(name)
     {
-        return Some(deref_object(doc, found));
+        return Ok(Some(deref_object(doc, found)));
     }
-    None
+    Ok(None)
 }
 
 /// One field-tree traversal node: object, prefix, inherited FT/Ff/value, depth.
@@ -3369,7 +3422,7 @@ impl _Document {
                 returned_bytes,
                 "named destination",
             )?);
-            match lookup_named_dest(doc, name) {
+            match lookup_named_dest(doc, name)? {
                 Some(found) => resolved = found,
                 None => return Ok((None, None, None, nameddest)),
             }

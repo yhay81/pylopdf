@@ -90,6 +90,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   encoded/returned metadata文本1 MiB的部分结果。添加会在创建dependent object和
   失效cache之前检查相同的页面数量、生成subtype加Contents/URI输入合计1 MiB与
   4,096个highlight矩形。
+- named destination lookup只访问引用cycle一次，并拒绝超过4,096个entry/node、
+  8,192条edge、32层或1 MiB key byte的tree，而不会静默地将截断结果报告为未解析。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的
