@@ -83,6 +83,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   기존file을 보존합니다. 이in-memory 예산의 대상은 아닙니다. `garbage`, `deflate`,
   `object_streams` 같은save option은 이후I/O가 실패해도 문서화된mutation semantics를
   유지합니다.
+- `Pixmap.save()`도target directory 안에 예측할 수 없고 배타적으로 생성한sibling에
+  쓰며, PNG encode와 완전한write가 성공한 뒤에만 요청path를 원자적으로 교체합니다.
+  교체 실패 시 기존output을 보존하고 임시file을 삭제합니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로

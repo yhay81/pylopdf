@@ -380,7 +380,10 @@ deadline, only accurate, measurable, coherent boundaries.
 - [x] Add `Pixmap.save(path)` for direct PNG output from immutable rendered
       pixels. Encoding and filesystem I/O release the GIL, strings and path-like
       objects are accepted, non-PNG extensions are rejected, and failures remain
-      inside the `PdfError` hierarchy.
+      inside the `PdfError` hierarchy. Saving now uses an unpredictable,
+      exclusively created same-directory sibling and atomically replaces the
+      requested path only after a complete write; replacement failures preserve
+      existing output and clean up the temporary (2026-07-26).
 - [x] Build and test version-specific cp314t wheels after the mutable `Document`
       concurrency audit. Import keeps the GIL disabled; immutable Pixmaps expose
       a read-only zero-copy buffer; distinct-document extraction is tested for
@@ -509,10 +512,11 @@ known-limit behavior are polished together.
 - Review every documented limitation. Improve high-value limits before release;
   keep only those backed by a clear architectural or ecosystem boundary.
 - [x] Make public file saving failure-atomic across normal, object/xref-stream,
-      and encrypted output. `Document.save()` now streams to a securely created
-      same-directory sibling, preserves an existing target on serialization or
-      replacement failure, cleans up failed temporaries, and keeps errors under
-      `PdfError` without changing save-option mutation semantics (2026-07-26).
+      encrypted PDF, and rendered PNG output. `Document.save()` and
+      `Pixmap.save()` now use securely created same-directory siblings, preserve
+      an existing target on serialization, encoding, or replacement failure,
+      clean up failed temporaries, and keep errors under `PdfError` without
+      changing save-option mutation semantics (2026-07-26).
 - [x] Bound `Page.get_images()` output amplification per page across placement
       count, cumulative source pixels, returned payload bytes, and the
       Flate-to-DCT fast path. Repeated reuse now fails atomically instead of

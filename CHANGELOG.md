@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Pixmap.save(path)` now writes its completed PNG to an unpredictable,
+  exclusively created same-directory sibling before atomically replacing the
+  requested path. Replacement failures preserve existing output and remove the
+  temporary file, existing regular-file permissions are retained, and a final
+  symlink remains in place while its target is updated. Encoding and I/O still
+  release the GIL and errors remain under `PdfError`.
 - `Document.save()` now streams normal, object/xref-stream, and AES-256 output
   to a securely created same-directory sibling and atomically replaces the
   requested path only after a complete successful write. Serialization and

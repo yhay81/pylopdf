@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gc
+import os
+import stat
 import sysconfig
 import warnings
 from pathlib import Path
@@ -64,9 +66,51 @@ def test_pixmap_tobytes_is_png(one_page_pdf: bytes) -> None:
 def test_pixmap_save_writes_png_to_pathlike(one_page_pdf: bytes, tmp_path: Path) -> None:
     pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
     target = tmp_path / "rendered page.png"
+    target.write_bytes(b"existing output")
 
     pix.save(target)
     assert target.read_bytes() == pix.tobytes()
+    assert list(tmp_path.glob(".pylopdf-*.tmp")) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows mode bits do not expose the POSIX contract")
+def test_pixmap_save_preserves_existing_file_mode(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    target = tmp_path / "page.png"
+    target.write_bytes(b"existing output")
+    target.chmod(0o640)
+
+    pix.save(target)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink creation needs host configuration")
+def test_pixmap_save_atomically_updates_a_symlink_target(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    target = tmp_path / "target.png"
+    target.write_bytes(b"existing output")
+    link = tmp_path / "page.png"
+    link.symlink_to(target.name)
+
+    pix.save(link)
+
+    assert link.is_symlink()
+    assert target.read_bytes() == pix.tobytes()
+
+
+def test_pixmap_save_cleans_up_after_replace_failure(one_page_pdf: bytes, tmp_path: Path) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    target = tmp_path / "page.png"
+    target.mkdir()
+    marker = target / "existing"
+    marker.write_bytes(b"preserved")
+
+    with pytest.raises(pylopdf.PdfError, match="failed to save PNG"):
+        pix.save(target)
+
+    assert marker.read_bytes() == b"preserved"
+    assert list(tmp_path.glob(".pylopdf-*.tmp")) == []
 
 
 def test_pixmap_save_reports_io_error(one_page_pdf: bytes, tmp_path: Path) -> None:

@@ -15,9 +15,75 @@ use std::{
     ffi::{CString, c_int, c_void},
     ptr,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use crate::document::PdfError;
+
+const TEMPORARY_PATH_ATTEMPTS: usize = 100;
+const MAX_SYMLINK_DEPTH: usize = 40;
+
+fn save_error(path: &Path, error: impl std::fmt::Display) -> PyErr {
+    PdfError::new_err(format!("failed to save PNG to {}: {error}", path.display()))
+}
+
+fn resolve_final_symlink(path: &Path) -> io::Result<PathBuf> {
+    let mut resolved = path.to_path_buf();
+    for _ in 0..MAX_SYMLINK_DEPTH {
+        match fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let destination = fs::read_link(&resolved)?;
+                resolved = if destination.is_absolute() {
+                    destination
+                } else {
+                    resolved
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(destination)
+                };
+            }
+            Ok(_) => return Ok(resolved),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(resolved),
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "too many levels of symbolic links",
+    ))
+}
+
+fn temporary_sibling(target: &Path) -> io::Result<(PathBuf, File)> {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    for _ in 0..TEMPORARY_PATH_ATTEMPTS {
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random)?;
+        let mut encoded = [0_u8; 32];
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        for (index, byte) in random.iter().copied().enumerate() {
+            encoded[index * 2] = HEX[usize::from(byte >> 4)];
+            encoded[index * 2 + 1] = HEX[usize::from(byte & 0x0f)];
+        }
+        let suffix = std::str::from_utf8(&encoded).expect("hex digits are valid UTF-8");
+        let path = parent.join(format!(".pylopdf-{suffix}.tmp"));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!(
+            "failed to create a unique temporary output beside {}",
+            target.display()
+        ),
+    ))
+}
 
 /// Pixel map for a rendered page.
 ///
@@ -83,7 +149,7 @@ impl Pixmap {
         py.detach(|| self.encode_png())
     }
 
-    /// Encode and save PNG data directly to a filesystem path.
+    /// Encode PNG data and failure-atomically replace a filesystem path.
     fn save(&self, py: Python<'_>, path: PathBuf) -> PyResult<()> {
         let is_png = path
             .extension()
@@ -95,10 +161,31 @@ impl Pixmap {
             ));
         }
         py.detach(|| {
-            let png = self.encode_png()?;
-            std::fs::write(&path, png).map_err(|e| {
-                PdfError::new_err(format!("failed to save PNG to {}: {e}", path.display()))
-            })
+            let target = resolve_final_symlink(&path).map_err(|error| save_error(&path, error))?;
+            let permissions = fs::metadata(&target)
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| metadata.permissions());
+            let (temporary, mut output) =
+                temporary_sibling(&target).map_err(|error| save_error(&path, error))?;
+
+            let result = self.encode_png().and_then(|png| {
+                output
+                    .write_all(&png)
+                    .map_err(|error| save_error(&path, error))
+            });
+            drop(output);
+            let result = result.and_then(|()| {
+                if let Some(permissions) = permissions {
+                    fs::set_permissions(&temporary, permissions)
+                        .map_err(|error| save_error(&path, error))?;
+                }
+                fs::rename(&temporary, &target).map_err(|error| save_error(&path, error))
+            });
+            if result.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            result
         })
     }
 

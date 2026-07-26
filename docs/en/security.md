@@ -90,6 +90,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   preserve an existing file. It is not governed by the in-memory output
   budget. Save options such as `garbage`, `deflate`, and `object_streams`
   retain their documented mutation semantics even when later I/O fails.
+- `Pixmap.save()` also writes to an unpredictable, exclusively created sibling
+  in the target directory and atomically replaces the requested path only
+  after PNG encoding and the complete write succeed. Replacement failures
+  preserve existing output and remove the temporary file.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

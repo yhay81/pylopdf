@@ -83,6 +83,9 @@ xref dataを正規化します。
   原子的に置換するため、serialization/置換失敗時も既存fileを保持します。この
   in-memory上限の対象外です。`garbage`、`deflate`、`object_streams`などのsave
   optionは、その後I/Oが失敗しても文書化済みのmutation semanticsを維持します。
+- `Pixmap.save()`もtarget directory内に予測不能かつ排他的に作成したsiblingへ
+  書き込み、PNG encodeと完全なwriteが成功した後だけ要求pathを原子的に置換します。
+  置換失敗時は既存outputを保持し、一時fileを削除します。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
