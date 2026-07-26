@@ -1,7 +1,7 @@
 """Tests for Page annotation APIs.
 
-Highlights generate appearance streams, so Hayro renders them. Visual
-correctness is checked through rendered pixels.
+Created Highlights and render-only existing text markup appearances are checked
+through rendered pixels.
 """
 
 from __future__ import annotations
@@ -33,6 +33,13 @@ def _region_pixels(page: pylopdf.Page, rect: pylopdf.Rect) -> list[tuple[int, in
 def _has_yellowish(pixels: list[tuple[int, int, int]]) -> bool:
     """Return whether the sample contains yellowish pixels."""
     return any(r > WHITE_MIN and g > WHITE_MIN and b < YELLOWISH_BLUE_MAX for r, g, b in pixels)
+
+
+def _has_dominant_color(pixels: list[tuple[int, int, int]], channel: int) -> bool:
+    """Return whether one RGB channel visibly dominates in the sample."""
+    return any(
+        pixel[channel] > 220 and all(pixel[index] < 180 for index in range(3) if index != channel) for pixel in pixels
+    )
 
 
 def test_search_and_highlight() -> None:
@@ -127,7 +134,63 @@ def test_missing_highlight_appearance_rejects_malformed_opacity() -> None:
     assert not _has_yellowish(_region_pixels(page, page.rect))
 
 
-def test_missing_highlight_appearance_budget_is_atomic() -> None:
+def test_missing_text_markup_appearances_render_without_mutating_source() -> None:
+    """Render Underline, StrikeOut, and Squiggly dictionaries without `/AP`."""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R 6 0 R 7 0 R] >>"),
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Underline /Rect [10 70 40 80] "
+                "/QuadPoints [10 80 40 80 10 70 40 70] /C [1 0 0] >>"
+            ),
+            6: (
+                "<< /Type /Annot /Subtype /StrikeOut /Rect [10 50 40 60] "
+                "/QuadPoints [10 60 40 60 10 50 40 50] /C [0 1 0] >>"
+            ),
+            7: (
+                "<< /Type /Annot /Subtype /Squiggly /Rect [10 30 40 40] "
+                "/QuadPoints [10 40 40 40 10 30 40 30] /C [0 0 1] >>"
+            ),
+        }
+    )
+    document = pylopdf.open(stream=pdf)
+    page = document[0]
+
+    assert [annotation["type"] for annotation in page.annots()] == [
+        "Underline",
+        "StrikeOut",
+        "Squiggly",
+    ]
+    assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(8, 18, 43, 32)), 0)
+    assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(8, 38, 43, 52)), 1)
+    assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(8, 58, 43, 72)), 2)
+    assert b"/AP" not in document.tobytes()
+
+
+def test_missing_underline_appearance_follows_slanted_quad() -> None:
+    """Keep the lower QuadPoints edge instead of flattening the underline."""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R] >>"),
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Underline /Rect [10 60 40 80] "
+                "/QuadPoints [10 80 40 70 10 70 40 60] /C [1 0 0] >>"
+            ),
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+
+    assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(8, 26, 16, 34)), 0)
+    assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(34, 35, 43, 43)), 0)
+
+
+def test_missing_text_markup_quad_budget_is_atomic() -> None:
     """Do not synthesize a partial set above the aggregate quad budget."""
     excessive_quads = "10 20 30 20 10 10 30 10 " * 4096
     pdf = build_raw_pdf(
@@ -142,6 +205,29 @@ def test_missing_highlight_appearance_budget_is_atomic() -> None:
             ),
             6: (
                 f"<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] /QuadPoints [{excessive_quads}] /C [1 1 0] >>"
+            ),
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+
+    assert not _has_yellowish(_region_pixels(page, page.rect))
+
+
+def test_missing_text_markup_segment_budget_is_atomic() -> None:
+    """Do not amplify an extreme Squiggly width or synthesize its peer."""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Annots [5 0 R 6 0 R] >>"),
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+            5: (
+                "<< /Type /Annot /Subtype /Highlight /Rect [10 10 30 20] "
+                "/QuadPoints [10 20 30 20 10 10 30 10] /C [1 1 0] >>"
+            ),
+            6: (
+                "<< /Type /Annot /Subtype /Squiggly /Rect [0 30 200000 40] "
+                "/QuadPoints [0 40 200000 40 0 30 200000 30] /C [1 0 0] >>"
             ),
         }
     )

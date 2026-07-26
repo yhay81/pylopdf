@@ -58,9 +58,10 @@ reconstructed conservatively and ordered right-to-left; ruby, warichu, and
 mixed-orientation Japanese typography are not interpreted semantically. There
 is no general-purpose regeneration of arbitrary existing annotation
 appearances; the rendering snapshot does conservatively supply missing
-appearances for RGB Highlight annotations with valid `QuadPoints`. AcroForm
-filling generates appearances for text, choice, checkbox, radio, and comb text
-fields, but rich text, pushbuttons, and signature fields remain out of scope.
+appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly
+annotations with valid `QuadPoints`. AcroForm filling generates appearances for
+text, choice, checkbox, radio, and comb text fields, but rich text, pushbuttons,
+and signature fields remain out of scope.
 Typesetting, PDF/A output, and digital signatures are covered by the ecosystem
 recipes below. Native OCR returns axis-aligned word boxes; automatic page
 orientation, arbitrary deskew, ruby, warichu, and mixed-orientation typography

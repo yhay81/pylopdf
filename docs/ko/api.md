@@ -67,7 +67,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType 또는 자동JP font 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
 
 `get_drawings()`는`type="f"` / `"s"` / `"fs"`, 자체 완결형line/cubic `items`,
 `rect`, RGB/opacity, fill rule, width, cap, join, dashes를 포함한`DrawingInfo`
