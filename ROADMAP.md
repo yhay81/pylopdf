@@ -499,10 +499,11 @@ that gap without broadening the mandatory Python dependency set.
 
 ### v0.12 — bounded interpretation and interoperability
 
-The v0.12 line makes resource behavior more predictable across the complete
-public workflow rather than treating individual parsers or writers in
-isolation. It also strengthens release-artifact execution and real-producer
-compatibility while preserving v1.0 as a later product-quality decision.
+Released as v0.12.0 on 2026-07-26. The v0.12 line makes resource behavior more
+predictable across the complete public workflow rather than treating individual
+parsers or writers in isolation. It also strengthens release-artifact execution
+and real-producer compatibility while preserving v1.0 as a later
+product-quality decision.
 
 - [x] Apply stable, pre-copy limits to metadata, TOC, page labels, annotations,
       attachments, form values, generated text, search, and passwords. Repeat
