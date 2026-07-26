@@ -59,7 +59,7 @@ per-stream budget and cannot be combined with `limits=`.
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
-`text_size`, `embedded_file_size`, `xmp_metadata_size`, or
+`text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`, or
 `decompression_unverifiable`. The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
@@ -126,8 +126,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   Python output. `peek_metadata()` caps returned standard text too. Writes
   preflight 1 MiB aggregate source/encoded text and apply atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
-- `render_pages()` keeps its normal bounded-memory worker admission; do not add
-  unbounded application-level parallelism around it.
+- `render_pages()` accepts at most 4,096 page entries and defaults to a 512 MiB
+  cumulative encoded-PNG limit. Completed parallel results share one atomic
+  budget and failures return no partial list; `max_size=None` explicitly opts
+  out. Worker admission separately caps estimated live raster/conversion
+  buffers, so do not add unbounded application-level parallelism around it.
 - Enforce CPU deadlines in the Worker, process, or container host. Resource
   budgets prevent documented allocations and output growth; they do not
   interrupt an in-progress parser or interpreter by wall-clock time.

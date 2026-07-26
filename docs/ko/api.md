@@ -25,7 +25,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown 변환(제목, CJK 연결, 강조, 목록, 다단 및 보수적인 세로쓰기 순서, 기본 테두리 표, `"text"`로 테두리 없는 표 추가, `None`으로 표 변환 비활성화) |
-| `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG, 순서 보장 병렬 PNG 묶음, SVG |
+| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(...)` | PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음(`None`으로 해제), SVG |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |

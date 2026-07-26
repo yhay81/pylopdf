@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Read;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
@@ -546,6 +547,7 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 
 /// Maximum PNG render pixels, approximately a 256 MB RGBA bitmap.
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
+const MAX_RENDER_BATCH_PAGES: usize = 4_096;
 
 /// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
 #[cfg(not(target_os = "emscripten"))]
@@ -4944,12 +4946,18 @@ impl _Document {
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
         workers: usize,
+        max_output_size: Option<usize>,
     ) -> PyResult<Vec<Vec<u8>>> {
         if workers == 0 || workers > 64 {
             return Err(PyValueError::new_err("workers must be between 1 and 64"));
         }
         if page_numbers.is_empty() {
             return Ok(Vec::new());
+        }
+        if page_numbers.len() > MAX_RENDER_BATCH_PAGES {
+            return Err(PdfError::new_err(format!(
+                "cannot render more than {MAX_RENDER_BATCH_PAGES} pages per batch"
+            )));
         }
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
@@ -4963,15 +4971,32 @@ impl _Document {
                 .into_iter()
                 .max()
                 .expect("empty page lists return before rendering");
-            let render_one = |&page_number: &u32| {
-                render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
-                    .and_then(rendered_png)
+            let output_bytes = AtomicUsize::new(0);
+            let render_one = |&page_number: &u32| -> PyResult<Vec<u8>> {
+                let png =
+                    render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
+                        .and_then(rendered_png)
+                        .map_err(PdfError::new_err)?;
+                if let Some(limit) = max_output_size
+                    && output_bytes
+                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
+                            total
+                                .checked_add(png.len())
+                                .filter(|&new_total| new_total <= limit)
+                        })
+                        .is_err()
+                {
+                    return Err(limit_err(
+                        "render_output_size",
+                        format!("rendered PNG batch exceeds the {limit}-byte encoded-output limit"),
+                    ));
+                }
+                Ok(png)
             };
             #[cfg(target_os = "emscripten")]
-            let rendered: Result<Vec<Vec<u8>>, String> =
-                page_numbers.iter().map(render_one).collect();
+            let rendered: PyResult<Vec<Vec<u8>>> = page_numbers.iter().map(render_one).collect();
             #[cfg(not(target_os = "emscripten"))]
-            let rendered: Result<Vec<Vec<u8>>, String> = {
+            let rendered: PyResult<Vec<Vec<u8>>> = {
                 let estimated_page_bytes =
                     max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
                 let memory_limited_workers =
@@ -4993,7 +5018,7 @@ impl _Document {
                     pool.install(|| page_numbers.par_iter().map(render_one).collect())
                 }
             };
-            rendered.map_err(PdfError::new_err)
+            rendered
         })
     }
 

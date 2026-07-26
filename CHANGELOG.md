@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.render_pages(..., max_size=512 * 1024 * 1024)` now stops page
+  iterable materialization above 4,096 entries and atomically charges each
+  completed PNG against one cumulative encoded-output budget across serial,
+  rayon, and PyEmscripten execution. Over-limit batches return no partial list
+  and raise `LimitError` with code `render_output_size`; `max_size=None` is the
+  explicit unbounded opt-out.
 - `Page.insert_ocr_text_layer()` now stops iterable materialization at 4,096
   non-empty words and rejects aggregate UTF-8 text above 1 MiB. Rust enforces
   the same boundaries for direct core calls and stops CID assignment before a

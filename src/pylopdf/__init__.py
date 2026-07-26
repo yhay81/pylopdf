@@ -82,11 +82,13 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
+_DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
+_MAX_RENDER_BATCH_PAGES = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -174,6 +176,18 @@ _limit_error_type.code = property(_limit_error_code)
 _limit_error_type.__str__ = _limit_error_str
 
 
+def _validate_optional_positive_int(name: str, value: int | None) -> None:
+    """Validate one optional positive integer resource budget."""
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"{name} must be a positive integer or None: {value!r}"
+        raise TypeError(msg)
+    if value <= 0:
+        msg = f"{name} must be a positive integer or None: {value!r}"
+        raise ValueError(msg)
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentLimits:
     """Optional resource budgets for opening and interpreting untrusted PDFs.
@@ -204,14 +218,7 @@ class DocumentLimits:
             ("max_text_size", self.max_text_size),
         )
         for name, value in values:
-            if value is None:
-                continue
-            if isinstance(value, bool) or not isinstance(value, int):
-                msg = f"{name} must be a positive integer or None: {value!r}"
-                raise TypeError(msg)
-            if value <= 0:
-                msg = f"{name} must be a positive integer or None: {value!r}"
-                raise ValueError(msg)
+            _validate_optional_positive_int(name, value)
 
     @classmethod
     def web(cls) -> DocumentLimits:
@@ -2420,13 +2427,7 @@ class Document:
         content raises :class:`LimitError` with code ``embedded_file_size``.
         """
         self._ensure_open()
-        if max_size is not None:
-            if isinstance(max_size, bool) or not isinstance(max_size, int):
-                msg = f"max_size must be a positive integer or None: {max_size!r}"
-                raise TypeError(msg)
-            if max_size <= 0:
-                msg = f"max_size must be a positive integer or None: {max_size!r}"
-                raise ValueError(msg)
+        _validate_optional_positive_int("max_size", max_size)
         return self._doc.embfile_get(name, max_size)
 
     def embfile_del(self, name: str) -> None:
@@ -2450,13 +2451,7 @@ class Document:
         intentionally accepting unbounded materialization.
         """
         self._ensure_open()
-        if max_size is not None:
-            if isinstance(max_size, bool) or not isinstance(max_size, int):
-                msg = f"max_size must be a positive integer or None: {max_size!r}"
-                raise TypeError(msg)
-            if max_size <= 0:
-                msg = f"max_size must be a positive integer or None: {max_size!r}"
-                raise ValueError(msg)
+        _validate_optional_positive_int("max_size", max_size)
         claim = self._doc.pdfa_claim(max_size)
         return None if claim is None else (int(claim[0]), claim[1])
 
@@ -2738,7 +2733,7 @@ class Document:
         self._emit_warnings()
         return result
 
-    def render_pages(
+    def render_pages(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,
         pages: Iterable[int] | None = None,
         scale: float = 1.0,
@@ -2746,6 +2741,7 @@ class Document:
         dpi: float | None = None,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         workers: int | None = None,
+        max_size: int | None = _DEFAULT_MAX_RENDER_BATCH_SIZE,
     ) -> list[bytes]:
         """Render pages to PNG concurrently while preserving input order.
 
@@ -2754,7 +2750,9 @@ class Document:
         values must be between 1 and 64. Actual concurrency is also capped to
         roughly 512 MB of estimated live raster and conversion buffers. A
         dedicated bounded worker pool renders one immutable snapshot of the
-        document while the GIL is released.
+        document while the GIL is released. One call accepts up to 4,096 page
+        entries. ``max_size`` caps their cumulative encoded PNG bytes and
+        defaults to 512 MiB; pass ``None`` only to accept unbounded output.
 
         Do not edit or call other methods on this same :class:`Document` from
         another thread during the operation. Such calls are not part of the
@@ -2775,13 +2773,19 @@ class Document:
         if not 1 <= workers <= _MAX_RENDER_WORKERS:
             msg = f"workers must be between 1 and {_MAX_RENDER_WORKERS}"
             raise ValueError(msg)
-        page_indices = list(range(self.page_count)) if pages is None else list(pages)
-        page_numbers = [self._lopdf_page_number(pno) for pno in page_indices]
+        _validate_optional_positive_int("max_size", max_size)
+        page_numbers: list[int] = []
+        page_iter = range(self.page_count) if pages is None else pages
+        for pno in page_iter:
+            if len(page_numbers) >= _MAX_RENDER_BATCH_PAGES:
+                msg = f"pages cannot contain more than {_MAX_RENDER_BATCH_PAGES} entries"
+                raise ValueError(msg)
+            page_numbers.append(self._lopdf_page_number(pno))
         rgba = _normalize_background(background)
         if not page_numbers:
             return []
         self._ensure_fallback_fonts()
-        result = self._doc.render_pages_png(page_numbers, scale, rgba, workers)
+        result = self._doc.render_pages_png(page_numbers, scale, rgba, workers, max_size)
         self._emit_warnings()
         return result
 

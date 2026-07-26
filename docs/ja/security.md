@@ -57,7 +57,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
-`embedded_file_size`、`xmp_metadata_size`、`decompression_unverifiable`の
+`embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
+`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -118,8 +119,11 @@ xref dataを正規化します。
   `peek_metadata()`もreturned standard textを制限し、書き込みはsource/encoded
   text 1 MiBを変更前に検査して原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
-- `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
-  並列呼び出しを重ねないでください。
+- `render_pages()`は最大4,096 page entryで、累積encoded PNG上限は既定512 MiB
+  です。並列結果は1つのatomic budgetを共有し、失敗時に部分listを返しません。
+  `max_size=None`で明示的に解除できます。worker admissionはlive raster/
+  conversion bufferを別に制御するため、application側で無制限の並列呼び出しを
+  重ねないでください。
 - CPU deadlineはWorker、process、container側で設定してください。資源上限は
   文書化したallocationと出力量を抑えますが、実行中のparserやinterpreterを
   wall-clock時間で中断する機能ではありません。

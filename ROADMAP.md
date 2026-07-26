@@ -356,8 +356,10 @@ deadline, only accurate, measurable, coherent boundaries.
 - [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
   with deterministic input order, a dedicated 1–64 worker pool, four-worker
   default, GIL release, and a ~512 MB estimated working-memory concurrency cap.
-  Document mutation/other same-document calls from external threads remain
-  outside the contract. Published scaling on 12 usrguide pages at 2x:
+  The current boundary also stops iterable materialization at 4,096 pages and
+  atomically caps cumulative encoded PNG output at 512 MiB by default without
+  partial results. Document mutation/other same-document calls from external
+  threads remain outside the contract. Published scaling on 12 usrguide pages at 2x:
   1/2/4/8 workers = 400.8/200.5/118.5/83.6 ms.
 - [x] Add `get_pixmap(clip=)` in rotation-resolved display coordinates with
   outward pixel rounding, page intersection, and explicit non-intersection

@@ -207,8 +207,11 @@ overview.
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
-  Other simultaneous calls or edits on the same `Document` are outside the
-  contract.
+  One call accepts at most 4,096 page entries. Completed PNGs atomically share
+  the default 512 MiB cumulative encoded-output budget across serial, rayon,
+  and PyEmscripten execution; `max_size=None` is the explicit unbounded opt-out
+  and limit failures return no partial list. Other simultaneous calls or edits
+  on the same `Document` are outside the contract.
 - `Page.get_pixmap(clip=)` accepts rotation-resolved display coordinates,
   intersects them with the page, and rounds outward to pixel boundaries.
   hayro 0.7 lacks an offset viewport, so clipping crops a full-page raster and

@@ -632,6 +632,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "workers"
+              },
+              {
+                "annotation": "int | None",
+                "default": 536870912,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "list[bytes]"

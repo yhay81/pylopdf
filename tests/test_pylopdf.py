@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -367,6 +368,55 @@ def test_render_pages_reflects_structural_edits(three_page_pdf: bytes) -> None:
     doc.select([2, 0])
 
     assert doc.render_pages(workers=2) == [original_last_page, doc.render_page(1)]
+
+
+def test_render_pages_bounds_page_iterable_before_full_materialization(
+    one_page_pdf: bytes,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    consumed = 0
+
+    def pages() -> Iterator[int]:
+        nonlocal consumed
+        for _ in range(5000):
+            consumed += 1
+            yield 0
+
+    with pytest.raises(ValueError, match="4096 entries"):
+        doc.render_pages(pages(), workers=2)
+    assert consumed == 4097
+
+
+def test_render_pages_bounds_cumulative_png_output(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    expected = [doc.render_page(0), doc.render_page(1)]
+    total_size = sum(map(len, expected))
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.render_pages([0, 1], workers=2, max_size=total_size - 1)
+    assert caught.value.code == "render_output_size"
+    assert doc.render_pages([0, 1], workers=2, max_size=total_size) == expected
+    assert doc.render_pages([0, 1], workers=2, max_size=None) == expected
+
+
+@pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
+def test_render_pages_rejects_non_integer_size_limits(
+    one_page_pdf: bytes,
+    max_size: object,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(TypeError, match="max_size"):
+        doc.render_pages(max_size=max_size)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("max_size", [0, -1])
+def test_render_pages_rejects_non_positive_size_limits(
+    one_page_pdf: bytes,
+    max_size: int,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="max_size"):
+        doc.render_pages(max_size=max_size)
 
 
 def test_render_page_reflects_edits(three_page_pdf: bytes) -> None:
