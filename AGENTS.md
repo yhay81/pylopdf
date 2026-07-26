@@ -564,14 +564,14 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.11.0 is release-prepared on 2026-07-26 after v0.10.0 shipped
-  on 2026-07-25. It completes `insert_textbox`, AcroForm appearances, typed
+- Current phase: v0.11.1 is release-prepared on 2026-07-26 after v0.11.0 shipped
+  earlier that day. The 0.11 line completes `insert_textbox`, AcroForm appearances, typed
   public mapping contracts, vector and table extraction depth, image
   compression, native OCR, the PyEmscripten artifact, and Cloudflare deployment
   gates. Its documented 0.11 candidate API surface is now checked
   deterministically across every native Python test lane, with the post-v1.0
   SemVer and deprecation contract published in four languages. The first
-  separately versioned OCR model package must be published before the main tag.
+  separately versioned OCR model package is published and independently gated.
   Incremental save was rejected after OSS analysis and remains on the
   watchlist. v1.0 is targeted no earlier than 2026-08, after field feedback and
   further product refinement rather than as a deadline-driven API freeze.
