@@ -1453,9 +1453,10 @@ fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Result<u64, St
     Ok(total_pixels)
 }
 
-/// Render one page from an immutable hayro snapshot.
-fn render_pdf_page(
-    pdf: &Pdf,
+/// Render one page from an immutable hayro snapshot and caller-owned cache.
+fn render_pdf_page<'a>(
+    pdf: &'a Pdf,
+    cache: &RenderCache<'a>,
     interpreter_settings: &InterpreterSettings,
     page_number: u32,
     scale: f32,
@@ -1475,8 +1476,7 @@ fn render_pdf_page(
     if let Some((r, g, b, a)) = background {
         render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
     }
-    let cache = RenderCache::new();
-    Ok(render(page, &cache, interpreter_settings, &render_settings))
+    Ok(render(page, cache, interpreter_settings, &render_settings))
 }
 
 /// Convert a rendered pixmap into the bounded fast PNG representation used publicly.
@@ -1503,6 +1503,47 @@ fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> Py
         Err(crate::extract::PngEncodeError::Encoding(error)) => {
             Err(PdfError::new_err(format!("failed to encode PNG: {error}")))
         }
+    }
+}
+
+struct BatchRenderer<'pdf, 'shared> {
+    pdf: &'pdf Pdf,
+    interpreter_settings: &'shared InterpreterSettings,
+    scale: f32,
+    background: Option<(u8, u8, u8, u8)>,
+    max_output_size: Option<usize>,
+    output_bytes: &'shared AtomicUsize,
+}
+
+impl<'pdf> BatchRenderer<'pdf, '_> {
+    /// Render and encode one page while atomically charging the output budget.
+    fn render(&self, cache: &RenderCache<'pdf>, page_number: u32) -> PyResult<Vec<u8>> {
+        let pixmap = render_pdf_page(
+            self.pdf,
+            cache,
+            self.interpreter_settings,
+            page_number,
+            self.scale,
+            self.background,
+        )
+        .map_err(PdfError::new_err)?;
+        let png = rendered_png(pixmap, self.max_output_size)?;
+        if let Some(limit) = self.max_output_size
+            && self
+                .output_bytes
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
+                    total
+                        .checked_add(png.len())
+                        .filter(|&new_total| new_total <= limit)
+                })
+                .is_err()
+        {
+            return Err(limit_err(
+                "render_output_size",
+                format!("rendered PNG batch exceeds the {limit}-byte encoded-output limit"),
+            ));
+        }
+        Ok(png)
     }
 }
 
@@ -3839,8 +3880,16 @@ impl _Document {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
-            render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
-                .map_err(PdfError::new_err)
+            let cache = RenderCache::new();
+            render_pdf_page(
+                pdf,
+                &cache,
+                &interpreter_settings,
+                page_number,
+                scale,
+                background,
+            )
+            .map_err(PdfError::new_err)
         })
     }
 
@@ -5276,29 +5325,22 @@ impl _Document {
                 .max()
                 .expect("empty page lists return before rendering");
             let output_bytes = AtomicUsize::new(0);
-            let render_one = |&page_number: &u32| -> PyResult<Vec<u8>> {
-                let pixmap =
-                    render_pdf_page(pdf, &interpreter_settings, page_number, scale, background)
-                        .map_err(PdfError::new_err)?;
-                let png = rendered_png(pixmap, max_output_size)?;
-                if let Some(limit) = max_output_size
-                    && output_bytes
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
-                            total
-                                .checked_add(png.len())
-                                .filter(|&new_total| new_total <= limit)
-                        })
-                        .is_err()
-                {
-                    return Err(limit_err(
-                        "render_output_size",
-                        format!("rendered PNG batch exceeds the {limit}-byte encoded-output limit"),
-                    ));
-                }
-                Ok(png)
+            let renderer = BatchRenderer {
+                pdf,
+                interpreter_settings: &interpreter_settings,
+                scale,
+                background,
+                max_output_size,
+                output_bytes: &output_bytes,
             };
             #[cfg(target_os = "emscripten")]
-            let rendered: PyResult<Vec<Vec<u8>>> = page_numbers.iter().map(render_one).collect();
+            let rendered: PyResult<Vec<Vec<u8>>> = {
+                let cache = RenderCache::new();
+                page_numbers
+                    .iter()
+                    .map(|&page_number| renderer.render(&cache, page_number))
+                    .collect()
+            };
             #[cfg(not(target_os = "emscripten"))]
             let rendered: PyResult<Vec<Vec<u8>>> = {
                 let estimated_page_bytes =
@@ -5308,7 +5350,11 @@ impl _Document {
                         .unwrap_or(usize::MAX);
                 let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
                 if worker_count == 1 {
-                    page_numbers.iter().map(render_one).collect()
+                    let cache = RenderCache::new();
+                    page_numbers
+                        .iter()
+                        .map(|&page_number| renderer.render(&cache, page_number))
+                        .collect()
                 } else {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(worker_count)
@@ -5319,7 +5365,33 @@ impl _Document {
                                 "failed to create render worker pool: {error}"
                             ))
                         })?;
-                    pool.install(|| page_numbers.par_iter().map(render_one).collect())
+                    let next_page = AtomicUsize::new(0);
+                    let groups = pool.install(|| {
+                        (0..worker_count)
+                            .into_par_iter()
+                            .map(|_| {
+                                let cache = RenderCache::new();
+                                let mut rendered = Vec::new();
+                                loop {
+                                    let index = next_page.fetch_add(1, Ordering::Relaxed);
+                                    let Some(&page_number) = page_numbers.get(index) else {
+                                        break;
+                                    };
+                                    rendered.push((index, renderer.render(&cache, page_number)?));
+                                }
+                                Ok(rendered)
+                            })
+                            .collect::<PyResult<Vec<_>>>()
+                    });
+                    let mut ordered = Vec::with_capacity(page_numbers.len());
+                    ordered.resize_with(page_numbers.len(), || None);
+                    for (index, png) in groups?.into_iter().flatten() {
+                        ordered[index] = Some(png);
+                    }
+                    Ok(ordered
+                        .into_iter()
+                        .map(|png| png.expect("every claimed page is rendered"))
+                        .collect())
                 }
             };
             rendered

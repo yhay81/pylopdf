@@ -219,6 +219,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Hangul, locale-specific Chinese typography, other scripts, and alternate
   typefaces still require `fontfile=` or `fontbuffer=`.
 
+### Performance
+- `Document.render_pages()` now reuses one hayro render cache across serial and
+  PyEmscripten batches and one worker-local cache per native worker task. Native
+  workers dynamically claim page indexes before the completed PNGs are restored
+  to input order in linear time, retaining load balancing across pages of
+  unequal complexity without sharing hayro's non-thread-safe cache. An
+  interleaved before/after benchmark over eight paired runs on the first 12
+  `usrguide.pdf` pages at 2x reduced 1/2/4/8-worker medians from
+  362.9/196.7/111.7/91.3 ms to 324.4/178.7/104.6/87.5 ms
+  (10.6%/9.2%/6.3%/4.2%). Rendering bytes and public behavior are unchanged.
+
 ## [0.11.0] - 2026-07-26
 
 ### Documentation

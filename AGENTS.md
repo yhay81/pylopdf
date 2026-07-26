@@ -221,6 +221,10 @@ overview.
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
+  Serial and PyEmscripten execution reuse one local hayro `RenderCache` for the
+  complete call. Native parallel execution gives each bounded worker its own
+  cache and uses an atomic page queue to retain dynamic load balancing; a cache
+  never crosses a thread.
   One call accepts at most 4,096 page entries. Completed PNGs atomically share
   the default 512 MiB cumulative encoded-output budget across serial, rayon,
   and PyEmscripten execution; `max_size=None` is the explicit unbounded opt-out
