@@ -6,8 +6,7 @@ JavaScript PDF 实现或 wasm-bindgen shim。
 
 !!! note "发布状态"
 
-    WebAssembly wheel 将从 pylopdf 0.11 开始发布。v0.10.0 仅包含原生 wheel。
-    在 v0.11 发布前，本文中的公开安装命令不会解析到可用版本。
+    WebAssembly wheel 已从 pylopdf 0.11 开始发布。v0.10.0 仅包含原生 wheel。
 
 ## 已验证环境
 
@@ -29,7 +28,7 @@ release SBOM。
 
 | 环境 | 状态 | 说明 |
 |---|---|---|
-| Cloudflare Python Workers | 支持并有发布 gate | CI 用固定 SDK 解析 PEP 783 wheel，并 dry-run Wrangler bundle。tag 发布会从 PyPI 重复验证后再创建 GitHub Release。 |
+| Cloudflare Python Workers | 支持并有发布 gate | CI 用固定 SDK 解析 PEP 783 wheel，构建 Wrangler bundle，启动本地 `workerd`，并通过 `/health` 验证 module-scope import。tag 发布会从 PyPI 重复验证后再创建 GitHub Release。 |
 | Node.js 中的 Pyodide 0.28.3 | runtime 兼容 gate | CI 将 runtime-tagged 本地 wheel 安装进精确固定的 runtime，执行完整共享兼容 suite。 |
 | 从 PyPI 直接安装到 browser | Pyodide 0.28.3 不支持 | 该版本 `micropip` 早于 PyPI 要求的 PEP 783 `pyemscripten_*` tag。binary 兼容，但 frontend 安装路径不兼容。 |
 | 其他 Pyodide / Python-Wasm 版本 | 未测试 | 扩大 wheel tag 或支持范围前必须验证 platform 和 ABI。 |
@@ -50,6 +49,8 @@ uv run pywrangler dev
 在另一个 terminal 中发送 PDF：
 
 ```bash
+curl http://localhost:8787/health
+
 curl --request POST \
   --header "content-type: application/pdf" \
   --data-binary @document.pdf \
@@ -59,7 +60,9 @@ curl --request POST \
 确认所选 Cloudflare plan 的上限和 compatibility date 后，再运行
 `uv run pywrangler deploy`。CI 会复制这个实际 example，只将公开 pylopdf requirement
 替换为刚构建的 wheel，再通过 `workers-py` 解析并运行
-`wrangler deploy --dry-run`。
+`wrangler deploy --dry-run`，随后启动本地 `workerd` 并请求 `/health`。因此
+module-scope 的 `import pylopdf` 必须在不依赖启动阶段不可用的 entropy 或
+request 专用 runtime state 的情况下完成。
 
 example 将输入限制为 4 MiB，并对结构和解压后数据采用比 `DocumentLimits.web()` 更严格的
 budget。由于 pylopdf 当前接受 path 或完整 bytes，request body 必须完整缓冲。Cloudflare
@@ -168,8 +171,8 @@ latency 或 isolate resident-memory 测量。参见
 - 当前 renderer 会缓冲完整 raster output；大页面或高 DPI 即使源 PDF 很小也可能主导内存。
 - native OCR 和独立 OCR model package 不在 WebAssembly 兼容契约内。
 - 不覆盖外部 CJK fallback font 自动发现。已验证 embedded CJK，应用也可显式传入 font bytes。
-- 当前 gate 证明 Cloudflare bundle 可构建，不代表已认证 production deploy 或特定 workload
-  latency。
+- 当前 gate 证明 Cloudflare bundle 可构建，并能以 module-scope import 启动本地
+  `workerd`。它不代表已认证 production deploy 或特定 workload latency。
 
 同一 matrix 会在 native 与 Wasm 中验证 `DocumentLimits`、`doc.complexity`、Web budget
 内的 vector/scan 输入以及 stable file/page/text rejection code。定期 native Atheris
@@ -184,8 +187,10 @@ native Python 通过就假设 Wasm 有更大 memory budget；两端都应使用�
 2. native/Pyodide 共享逻辑兼容 suite；
 3. untrusted input 拒绝与 resource trend 检查；
 4. wheel、Wasm section、startup/workload 和 linear memory 测量；
-5. 从本地 wheel 解析依赖并 dry-run Cloudflare Wrangler；
-6. 最终创建 GitHub Release 前，从 PyPI artifact 重复相同解析和 dry-run。
+5. 从本地 wheel 解析依赖、dry-run Cloudflare Wrangler、启动本地 `workerd`，
+   并执行 module-scope-import health request；
+6. 最终创建 GitHub Release 前，从 PyPI artifact 重复相同解析、bundle 与
+   runtime health gate。
 
 runtime 更新会作为新的验证 matrix，而不会自动假设兼容。固定版本在对应 pylopdf minor
 release 中受到支持；新的 Pyodide、PyEmscripten、Emscripten、`workers-py` 或 Wrangler

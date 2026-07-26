@@ -64,6 +64,10 @@ rten-tensor = "0.24.0"
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
 lopdf = { version = "0.44.0", default-features = false }
+# PyO3 builds class descriptors with a HashMap while the extension is imported.
+# Rust's Emscripten RandomState requests entropy, which Cloudflare workerd denies
+# during module startup. hashbrown uses foldhash and keeps import side-effect-safe.
+pyo3 = { version = "0.29.0", features = ["hashbrown"] }
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"

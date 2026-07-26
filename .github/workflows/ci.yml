@@ -120,7 +120,7 @@ jobs:
           python tools/wasm_artifact_metrics.py
           dist/pyodide-0.28.3/*.whl
           --output pyodide-compat/artifact-metrics.json
-      - name: Dry-run Cloudflare Workers bundle
+      - name: Bundle and launch Cloudflare Workers smoke
         run: >-
           python tools/smoke_cloudflare.py
           --wheel dist/pyodide-0.28.3/*.whl

@@ -6,8 +6,8 @@ JavaScript PDF 구현이나 wasm-bindgen shim을 사용하지 않습니다.
 
 !!! note "릴리스 상태"
 
-    WebAssembly wheel은 pylopdf 0.11에서 처음 배포됩니다. v0.10.0은 native wheel만
-    포함합니다. v0.11이 공개되기 전에는 이 문서의 공개 설치 명령이 해결되지 않습니다.
+    WebAssembly wheel은 pylopdf 0.11부터 배포되었습니다. v0.10.0은 native wheel만
+    포함합니다.
 
 ## 검증한 환경
 
@@ -29,7 +29,7 @@ release SBOM에 포함됩니다.
 
 | 환경 | 상태 | 세부 내용 |
 |---|---|---|
-| Cloudflare Python Workers | 지원, release gate 적용 | CI가 고정 SDK로 PEP 783 wheel을 해석하고 Wrangler bundle을 dry-run합니다. tag 릴리스는 PyPI에서 같은 검증을 반복한 뒤 GitHub Release를 만듭니다. |
+| Cloudflare Python Workers | 지원, release gate 적용 | CI가 고정 SDK로 PEP 783 wheel을 해석하고 Wrangler bundle을 만든 뒤 local `workerd`를 시작하여 `/health`로 module-scope import를 검증합니다. tag 릴리스는 PyPI에서 같은 검증을 반복한 뒤 GitHub Release를 만듭니다. |
 | Node.js의 Pyodide 0.28.3 | runtime 호환 gate 적용 | CI가 runtime-tagged local wheel을 정확히 고정한 runtime에 설치하고 전체 공유 호환성 suite를 실행합니다. |
 | PyPI에서 browser로 직접 설치 | Pyodide 0.28.3에서는 미지원 | 이 버전의 `micropip`은 PyPI가 요구하는 PEP 783 `pyemscripten_*` tag보다 오래되었습니다. binary는 호환되지만 frontend 설치 경로는 호환되지 않습니다. |
 | 다른 Pyodide / Python-Wasm 버전 | 미검증 | wheel tag나 지원 범위를 넓히기 전에 platform과 ABI를 검증해야 합니다. |
@@ -50,6 +50,8 @@ uv run pywrangler dev
 다른 terminal에서 PDF를 보냅니다.
 
 ```bash
+curl http://localhost:8787/health
+
 curl --request POST \
   --header "content-type: application/pdf" \
   --data-binary @document.pdf \
@@ -59,7 +61,9 @@ curl --request POST \
 선택한 Cloudflare plan의 제한과 compatibility date를 검토한 다음
 `uv run pywrangler deploy`를 사용하십시오. CI는 이 example 자체를 복사하고 공개
 pylopdf requirement만 방금 빌드한 wheel로 교체한 뒤 `workers-py`로 해결하고
-`wrangler deploy --dry-run`을 실행합니다.
+`wrangler deploy --dry-run`을 실행한 다음 local `workerd`를 시작하고 `/health`를
+요청합니다. 따라서 module-scope `import pylopdf`는 시작 시 사용할 수 없는 entropy나
+request 전용 runtime state에 의존하지 않고 완료되어야 합니다.
 
 example은 입력을 4 MiB로 제한하고 structure와 압축 해제 data에
 `DocumentLimits.web()`보다 엄격한 budget을 둡니다. pylopdf는 현재 path 또는 완전한
@@ -178,8 +182,8 @@ latency나 isolate resident-memory 측정은 아닙니다.
 - native OCR와 별도 OCR model package는 WebAssembly 호환 계약에 포함되지 않습니다.
 - 외부 CJK fallback font 자동 탐색은 대상이 아닙니다. embedded CJK는 검증하며
   application이 font bytes를 명시적으로 공급할 수 있습니다.
-- 현재 gate는 Cloudflare bundle 생성을 증명하며 인증된 production deploy나
-  workload별 latency를 보장하지 않습니다.
+- 현재 gate는 Cloudflare bundle 생성과 module-scope import를 포함한 local `workerd`
+  시작을 증명합니다. 인증된 production deploy나 workload별 latency는 보장하지 않습니다.
 
 같은 matrix가 native와 Wasm에서 `DocumentLimits`, `doc.complexity`, Web budget 내
 vector/scan 입력, stable file/page/text rejection code를 검증합니다. 정기 native
@@ -195,8 +199,9 @@ Wasm wheel을 배포하는 각 pylopdf release는 다음을 모두 통과해야 
 2. native/Pyodide 공유 논리 호환 suite
 3. untrusted input 거부 및 resource trend 검사
 4. wheel, Wasm section, startup/workload, linear memory 측정
-5. local wheel dependency resolution 및 Cloudflare Wrangler dry-run
-6. GitHub Release 확정 전 PyPI artifact에서 같은 resolution과 dry-run
+5. local wheel dependency resolution, Cloudflare Wrangler dry-run, local
+   `workerd` 시작 및 module-scope-import health request
+6. GitHub Release 확정 전 PyPI artifact에서 같은 resolution, bundle 및 runtime health gate
 
 runtime 업데이트는 호환성을 가정하지 않고 새로운 검증 matrix로 다룹니다. 고정 version은
 해당 pylopdf minor release에서 지원하며 새로운 Pyodide, PyEmscripten, Emscripten,

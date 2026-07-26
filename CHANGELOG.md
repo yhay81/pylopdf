@@ -219,6 +219,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Hangul, locale-specific Chinese typography, other scripts, and alternate
   typefaces still require `fontfile=` or `fontbuffer=`.
 
+### Fixed
+- The PyEmscripten wheel no longer requests OS entropy while PyO3 registers
+  classes during a module-scope import. Emscripten alone uses PyO3's
+  foldhash-backed `hashbrown` class-builder maps, allowing Cloudflare
+  `workerd` to initialize a Worker before request-scoped entropy is available;
+  native targets retain their existing backend. The Cloudflare release gate
+  now starts local `workerd` after bundling and requires the example's
+  module-scope `import pylopdf` to serve `/health`, rather than stopping at a
+  Wrangler dry run.
+
 ### Performance
 - `Document.render_pages()` now reuses one hayro render cache across serial and
   PyEmscripten batches and one worker-local cache per native worker task. Native

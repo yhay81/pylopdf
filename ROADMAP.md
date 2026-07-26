@@ -268,10 +268,10 @@ pre-1.0 APIs.
 
 ### v0.11 — layout, creation, and concurrency depth
 
-v0.11 completes its implementation and validation boundary before v1.0.
-Layout, creation, form appearances, typed mapping contracts, concurrency,
-native OCR, and the PyEmscripten deployment path are release-ready. Publishing
-the first OCR model artifact remains the prerequisite for the main v0.11 tag.
+Released as v0.11.0 on 2026-07-26 after its implementation and validation
+boundary completed. Layout, creation, form appearances, typed mapping
+contracts, concurrency, native OCR, and the PyEmscripten deployment path now
+have a published field-use baseline.
 Work beyond this release keeps the same rule: no arbitrary feature-count
 deadline, only accurate, measurable, coherent boundaries.
 
@@ -480,8 +480,8 @@ that gap without broadening the mandatory Python dependency set.
   changing PDF page rotation. Arbitrary skew, automatic sideways-page
   detection, ruby, warichu, and mixed-orientation typography remain explicit
   depth. Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
-- [ ] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher and publish
-      model v0.1.0 before the main v0.11 release.
+- [x] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher, publish
+      model v0.1.0, then publish pylopdf v0.11.0 (2026-07-26).
 - [x] Extend field validation to a licensed, image-only Japanese archival scan
       with 384 manually verified characters. It measured 1.823% / 1.302% strict
       CER and 1.562% / 1.042% NFKC CER at 150 / 300 dpi. A shared-engine,
@@ -750,13 +750,18 @@ rather than waiting automatically for v1.x.
   build environment.
 - [x] Automate PyEmscripten wheel CI and release gates (2026-07-26).
   Pull requests build the wheel, run the pinned Pyodide smoke suite, verify its
-  PEP 783 metadata, and dry-run a Cloudflare Workers bundle with pinned
-  `workers-py` and Wrangler versions. Tagged releases attach build provenance,
-  include the artifact in the PyPI upload and SBOM, then resolve it back from
-  PyPI and repeat the Cloudflare dry run before creating the immutable GitHub
-  release. Actual PyPI publication remains pending the next package release;
-  compatibility breadth, resource-limit tests, size investigation, and user
-  documentation continue in #20 through #23 under the #24 epic.
+  PEP 783 metadata, bundle a Cloudflare Python Worker with pinned `workers-py`
+  and Wrangler versions, start local `workerd`, and request `/health`. Tagged
+  releases attach build provenance, include the artifact in the PyPI upload and
+  SBOM, then resolve it back from PyPI and repeat the runtime gate before
+  creating the immutable GitHub release. v0.11.0 and the first model artifact
+  were published on 2026-07-26; #20 through #24 are complete.
+- [x] Extend the Cloudflare gate from bundle-only validation to an actual local
+  `workerd` startup and `/health` request (2026-07-26). The example imports
+  pylopdf at module scope. Emscripten selects PyO3's foldhash-backed
+  `hashbrown` class-builder maps so import does not request entropy that
+  Cloudflare makes available only after startup. The same runtime gate runs
+  against both the locally built wheel and the PyPI artifact.
 - [x] Establish the native/Pyodide functional compatibility matrix (2026-07-26).
   One shared suite now checks bytes-only input, PDF 2.0, text and document
   Markdown, embedded and vertical CJK, multicolumn order, bordered/borderless

@@ -452,7 +452,12 @@ overview.
   The wheel must import `env.__cpp_exception` and must not require a
   wasm-bindgen shim. CI and release builds must also pass
   `tools/smoke_cloudflare.py`, which pins workers-py 1.15.0 and Wrangler
-  4.114.0. Emscripten excludes lopdf's `chrono` and `rayon` features: browser
+  4.114.0, builds the bundle, starts local `workerd`, and requires the
+  module-scope `import pylopdf` in the example to serve `/health`. Emscripten
+  enables PyO3's foldhash-backed `hashbrown` maps because its normal class
+  builder uses Rust `RandomState`, while Cloudflare denies entropy during
+  module startup. Native targets retain PyO3's standard backend. Emscripten
+  excludes lopdf's `chrono` and `rayon` features: browser
   clocks pull in js-sys imports, and the global rayon pool cannot create
   workers there. `render_pages` keeps its public contract but runs serially;
   native targets retain bounded rayon execution. Emscripten also omits RTen

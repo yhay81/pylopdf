@@ -1,15 +1,21 @@
-"""Bundle a pylopdf PyEmscripten wheel into a Cloudflare Python Worker."""
+"""Bundle and launch a pylopdf PyEmscripten Cloudflare Python Worker."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import re
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 _PYEMSCRIPTEN_TAG = "cp310-abi3-pyemscripten_2025_0_wasm32"
@@ -19,6 +25,8 @@ _COMPATIBILITY_DATE = "2026-07-26"
 _EXAMPLE_REQUIREMENT = "pylopdf>=0.11,<0.12"
 _EXAMPLE_ROOT = Path(__file__).resolve().parents[1] / "examples" / "cloudflare-worker"
 _UPLOAD_RE = re.compile(r"Total Upload:\s+([0-9.]+)\s+KiB\s+/\s+gzip:\s+([0-9.]+)\s+KiB")
+_RUNTIME_TIMEOUT_SECONDS = 60.0
+_HTTP_OK = 200
 
 
 def _require_command(name: str) -> str:
@@ -63,6 +71,113 @@ def _verify_vendored_wheel(root: Path) -> Path:
         msg = f"vendored wheel metadata does not contain Tag: {_PYEMSCRIPTEN_TAG}"
         raise RuntimeError(msg)
     return extensions[0]
+
+
+def _reserve_local_port() -> int:
+    """Return a currently unused loopback TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Stop Wrangler and the workerd child process it launched."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        taskkill = _require_command("taskkill")
+        subprocess.run(  # noqa: S603
+            [taskkill, "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+        )
+        return
+
+    killpg = os.killpg  # type: ignore[attr-defined]
+    try:
+        killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            killpg(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+        process.wait(timeout=5)
+
+
+def _runtime_smoke(root: Path) -> float:
+    """Start workerd and verify a module-scope pylopdf import through health."""
+    port = _reserve_local_port()
+    command = [
+        _require_command("npx"),
+        "--yes",
+        f"wrangler@{_WRANGLER_VERSION}",
+        "dev",
+        "--ip",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--show-interactive-dev-session",
+        "false",
+        "--log-level",
+        "debug",
+    ]
+    started = time.monotonic()
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as log:
+        if os.name == "nt":
+            process = subprocess.Popen(  # noqa: S603
+                command,
+                cwd=root,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        else:
+            process = subprocess.Popen(  # noqa: S603
+                command,
+                cwd=root,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        try:
+            deadline = started + _RUNTIME_TIMEOUT_SECONDS
+            last_error = "workerd did not accept a connection"
+            while time.monotonic() < deadline:
+                return_code = process.poll()
+                if return_code is not None:
+                    last_error = f"Wrangler exited with status {return_code}"
+                    break
+                try:
+                    with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/health",
+                        timeout=2,
+                    ) as response:
+                        payload = json.load(response)
+                        if response.status != _HTTP_OK:
+                            last_error = f"health returned HTTP {response.status}"
+                        elif not isinstance(payload, dict) or payload.get("status") != "ok":
+                            last_error = f"health returned an unexpected payload: {payload!r}"
+                        elif not payload.get("pylopdf"):
+                            last_error = "health did not report the imported pylopdf version"
+                        else:
+                            return (time.monotonic() - started) * 1000
+                except (
+                    ConnectionError,
+                    TimeoutError,
+                    json.JSONDecodeError,
+                    urllib.error.URLError,
+                ) as error:
+                    last_error = str(error)
+                time.sleep(0.25)
+            log.flush()
+            log.seek(0)
+            details = log.read()
+            msg = f"Cloudflare runtime smoke failed: {last_error}\n{details}"
+            raise RuntimeError(msg)
+        finally:
+            _stop_process_group(process)
 
 
 def _run_attempt(root: Path, requirement: str) -> dict[str, object]:
@@ -113,6 +228,7 @@ def _run_attempt(root: Path, requirement: str) -> dict[str, object]:
         msg = "Wrangler output did not report total and gzip upload sizes"
         raise RuntimeError(msg)
     output_bytes, output_files = _tree_size(output)
+    runtime_health_ms = _runtime_smoke(root)
     return {
         "schema": 1,
         "workers_py": _WORKERS_PY_VERSION,
@@ -125,6 +241,7 @@ def _run_attempt(root: Path, requirement: str) -> dict[str, object]:
         "dry_run_output_files": output_files,
         "total_upload_bytes": round(float(match.group(1)) * 1024),
         "gzip_upload_bytes": round(float(match.group(2)) * 1024),
+        "runtime_health_ms": round(runtime_health_ms, 3),
     }
 
 
@@ -134,7 +251,7 @@ def smoke_cloudflare(
     attempts: int,
     retry_delay: float,
 ) -> dict[str, object]:
-    """Resolve, vendor, and dry-run bundle a package requirement."""
+    """Resolve, bundle, and runtime-smoke a package requirement."""
     last_error: subprocess.CalledProcessError | RuntimeError | None = None
     for attempt in range(1, attempts + 1):
         with tempfile.TemporaryDirectory(prefix="pylopdf-cloudflare-") as directory:
@@ -145,7 +262,8 @@ def smoke_cloudflare(
             else:
                 sys.stdout.write(
                     "Cloudflare Workers smoke test passed "
-                    f"with workers-py {_WORKERS_PY_VERSION} and Wrangler {_WRANGLER_VERSION}\n"
+                    f"with module-scope import, workers-py {_WORKERS_PY_VERSION}, "
+                    f"and Wrangler {_WRANGLER_VERSION}\n"
                 )
                 return metrics
         if attempt < attempts:

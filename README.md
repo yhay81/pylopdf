@@ -93,9 +93,11 @@ controls, searchable-layer behavior, and current layout boundaries.
 
 pylopdf 0.11 adds a static PyEmscripten wheel for the pinned Python 3.13 /
 Pyodide 0.28.3 ABI. Cloudflare Python Workers are the supported public
-installation path: every release resolves the wheel from PyPI and dry-runs the
+installation path: every release resolves the wheel from PyPI, bundles the
 repository's
-[bounded PDF extraction Worker](examples/cloudflare-worker/README.md).
+[bounded PDF extraction Worker](examples/cloudflare-worker/README.md), starts
+local `workerd`, and verifies that a module-scope `import pylopdf` can serve
+`/health`.
 
 Pyodide 0.28.3 itself is runtime-tested, but its older `micropip` cannot install
 PyPI's PEP 783 wheel tag directly. Native OCR inference is intentionally absent
