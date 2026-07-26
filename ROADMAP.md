@@ -747,7 +747,11 @@ rather than waiting automatically for v1.x.
 - [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
   are automatic, borderless candidates remain opt-in, table text is suppressed
   from prose and heading inference, and reading order is covered at all four
-  right-angle rotations plus the public-domain IRS Form 1040 corpus.
+  right-angle rotations plus the public-domain IRS Form 1040 corpus. Conversion
+  now stops page iterable materialization above 4,096 entries, defaults to a
+  64 MiB cumulative UTF-8 output cap, and uses page-at-a-time heading-count and
+  rendering passes instead of retaining every page interpretation together
+  (2026-07-26).
 - [x] Expand independent table corpora and quality evaluation beyond synthetic
   and IRS coverage. Public-domain FBI NICS and US Senate fixtures now protect
   sparse internal rules, dense numeric records, merged headers, borderless

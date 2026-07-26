@@ -59,8 +59,8 @@ per-stream budget and cannot be combined with `limits=`.
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
-`text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`, or
-`decompression_unverifiable`. The same code is also
+`text_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
+`markdown_output_size`, or `decompression_unverifiable`. The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
 
@@ -131,6 +131,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   budget and failures return no partial list; `max_size=None` explicitly opts
   out. Worker admission separately caps estimated live raster/conversion
   buffers, so do not add unbounded application-level parallelism around it.
+- `Document.to_markdown()` accepts at most 4,096 page entries and defaults to a
+  64 MiB cumulative UTF-8 output limit. It keeps only one page's interpreted
+  layout, tables, and words at a time across a heading-count pass and a render
+  pass. Over-limit conversions return no partial string;
+  `max_size=None` explicitly opts out.
 - Enforce CPU deadlines in the Worker, process, or container host. Resource
   budgets prevent documented allocations and output growth; they do not
   interrupt an in-progress parser or interpreter by wall-clock time.

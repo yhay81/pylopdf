@@ -94,7 +94,11 @@ overview.
   minimum gutter, and row-gap variation.
   `Document.to_markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
-  candidates or `None` to disable table conversion. It removes contained text
+  candidates or `None` to disable table conversion. Document conversion stops
+  page iterable materialization at 4,096 entries and defaults to a 64 MiB
+  cumulative UTF-8 output cap. It uses a page-at-a-time heading-count pass and
+  a page-at-a-time rendering pass rather than retaining every page layout,
+  table, and word list together. It removes contained text
   from prose and heading inference while retaining words outside a table on the
   same physical line, and normalizes physical table matrices to the dominant
   logical text direction on right-angle rotations. Merged spans expand from the

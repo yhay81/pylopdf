@@ -852,6 +852,12 @@
                 "default": "lines",
                 "kind": "keyword_only",
                 "name": "table_strategy"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "str"
@@ -2201,6 +2207,12 @@
                 "default": "lines",
                 "kind": "keyword_only",
                 "name": "table_strategy"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "str"
