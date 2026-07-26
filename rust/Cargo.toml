@@ -24,7 +24,7 @@ krilla = { version = "=0.8.2", default-features = false }
 # Shape Unicode text without krilla's deprecated rustybuzz/ttf-parser path.
 harfrust = "0.12.0"
 # Read vertical metrics from the same font model used by HarfRust.
-read-fonts = "0.41.0"
+read-fonts = "0.42.1"
 # Measure the PDF Core 14 fonts from Adobe's canonical AFM data.
 pdf-base14-metrics = "0.0.1"
 # Apply UAX #14 wrapping to Latin, CJK, and mixed-script text.
