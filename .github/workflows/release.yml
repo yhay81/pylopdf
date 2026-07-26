@@ -43,12 +43,11 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, smoke: true }
-          - { runner: ubuntu-latest, target: aarch64-unknown-linux-gnu, smoke: false }
-          - { runner: macos-latest, target: aarch64-apple-darwin, smoke: true }
-          # Cross-compile x86_64 on arm64 because Intel runner queues are slow.
-          - { runner: macos-latest, target: x86_64-apple-darwin, smoke: false }
-          - { runner: windows-latest, target: x86_64-pc-windows-msvc, smoke: true }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,11 +58,9 @@ jobs:
           args: --release --out dist
           manylinux: auto
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: matrix.platform.smoke
         with:
           python-version: "3.14"
       - name: Smoke-test installed wheel
-        if: matrix.platform.smoke
         run: python tools/smoke_artifact.py dist --pattern "*.whl"
       - name: Attest wheel build provenance
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
@@ -88,12 +85,11 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, smoke: true }
-          - { runner: ubuntu-latest, target: aarch64-unknown-linux-gnu, smoke: false }
-          - { runner: macos-latest, target: aarch64-apple-darwin, smoke: true }
-          # Cross-compile x86_64 on arm64 because Intel runner queues are slow.
-          - { runner: macos-latest, target: x86_64-apple-darwin, smoke: false }
-          - { runner: windows-latest, target: x86_64-pc-windows-msvc, smoke: true }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,7 +103,6 @@ jobs:
           args: --release --out dist -i python3.14t
           manylinux: auto
       - name: Smoke-test installed free-threaded wheel
-        if: matrix.platform.smoke
         run: python tools/smoke_artifact.py dist --pattern "*cp314t*.whl"
       - name: Attest free-threaded wheel build provenance
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
