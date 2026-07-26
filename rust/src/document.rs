@@ -4,7 +4,7 @@
 //! `pylopdf.Document` provides the ergonomic API.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -1762,6 +1762,102 @@ fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> Py
     }
 }
 
+struct BatchPngOutput<'a> {
+    bytes: Vec<u8>,
+    max_size: usize,
+    output_bytes: &'a AtomicUsize,
+    exceeded: bool,
+    committed: bool,
+}
+
+impl<'a> BatchPngOutput<'a> {
+    fn new(max_size: usize, output_bytes: &'a AtomicUsize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_size,
+            output_bytes,
+            exceeded: false,
+            committed: false,
+        }
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        self.committed = true;
+        std::mem::take(&mut self.bytes)
+    }
+}
+
+impl Write for BatchPngOutput<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
+        if self
+            .output_bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
+                total
+                    .checked_add(buffer.len())
+                    .filter(|&new_total| new_total <= self.max_size)
+            })
+            .is_err()
+        {
+            self.exceeded = true;
+            return Err(io::Error::other("PNG batch output size limit exceeded"));
+        }
+        if let Err(error) = self.bytes.try_reserve(buffer.len()) {
+            self.output_bytes.fetch_sub(buffer.len(), Ordering::Relaxed);
+            return Err(io::Error::other(format!(
+                "failed to allocate rendered PNG: {error}"
+            )));
+        }
+        self.bytes.extend_from_slice(buffer);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for BatchPngOutput<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.output_bytes
+                .fetch_sub(self.bytes.len(), Ordering::Relaxed);
+        }
+    }
+}
+
+/// Encode one batch page while charging each retained PNG chunk atomically.
+fn rendered_batch_png(
+    pixmap: hayro::vello_cpu::Pixmap,
+    max_size: usize,
+    output_bytes: &AtomicUsize,
+) -> PyResult<Vec<u8>> {
+    let width = u32::from(pixmap.width());
+    let height = u32::from(pixmap.height());
+    let data = rgba_bytes(pixmap);
+    let mut output = BatchPngOutput::new(max_size, output_bytes);
+    let result = crate::extract::write_png(
+        &mut output,
+        width,
+        height,
+        png::ColorType::Rgba,
+        &data,
+        png::Compression::Fast,
+    );
+    if output.exceeded {
+        return Err(limit_err(
+            "render_output_size",
+            format!("rendered PNG batch exceeds the {max_size}-byte encoded-output limit"),
+        ));
+    }
+    result.map_err(|error| PdfError::new_err(format!("failed to encode PNG: {error}")))?;
+    Ok(output.finish())
+}
+
 struct BatchRenderer<'pdf, 'shared> {
     pdf: &'pdf Pdf,
     interpreter_settings: &'shared InterpreterSettings,
@@ -1772,7 +1868,7 @@ struct BatchRenderer<'pdf, 'shared> {
 }
 
 impl<'pdf> BatchRenderer<'pdf, '_> {
-    /// Render and encode one page while atomically charging the output budget.
+    /// Render and encode one page through the shared output budget.
     fn render(&self, cache: &RenderCache<'pdf>, page_number: u32) -> PyResult<Vec<u8>> {
         let pixmap = render_pdf_page(
             self.pdf,
@@ -1783,23 +1879,10 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
             self.background,
         )
         .map_err(PdfError::new_err)?;
-        let png = rendered_png(pixmap, self.max_output_size)?;
-        if let Some(limit) = self.max_output_size
-            && self
-                .output_bytes
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
-                    total
-                        .checked_add(png.len())
-                        .filter(|&new_total| new_total <= limit)
-                })
-                .is_err()
-        {
-            return Err(limit_err(
-                "render_output_size",
-                format!("rendered PNG batch exceeds the {limit}-byte encoded-output limit"),
-            ));
+        match self.max_output_size {
+            Some(limit) => rendered_batch_png(pixmap, limit, self.output_bytes),
+            None => rendered_png(pixmap, None),
         }
-        Ok(png)
     }
 }
 

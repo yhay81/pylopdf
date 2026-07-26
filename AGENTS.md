@@ -265,11 +265,12 @@ overview.
   complete call. Native parallel execution gives each bounded worker its own
   cache and uses an atomic page queue to retain dynamic load balancing; a cache
   never crosses a thread.
-  One call accepts at most 4,096 page entries. Completed PNGs atomically share
-  the default 512 MiB cumulative encoded-output budget across serial, rayon,
-  and PyEmscripten execution; `max_size=None` is the explicit unbounded opt-out
-  and limit failures return no partial list. Other simultaneous calls or edits
-  on the same `Document` are outside the contract.
+  One call accepts at most 4,096 page entries. PNG writer chunks atomically
+  share the default 512 MiB cumulative encoded-output budget across serial,
+  rayon, and PyEmscripten execution, refusing the first crossing write before
+  retaining it; `max_size=None` is the explicit unbounded opt-out and limit
+  failures return no partial list. Other simultaneous calls or edits on the same
+  `Document` are outside the contract.
 - `Document.render_page`, `Page.render`, and `Pixmap.tobytes` default to a
   64 MiB encoded-PNG output boundary. The shared PNG writer refuses the write
   crossing the limit before Python bytes conversion. `max_size=None` is the

@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complete encoded source, including sources skipped by the 64-million-pixel
   per-image boundary. JPEG encoding also stops at one byte below the source
   payload instead of materializing a complete result that cannot be adopted.
+- `Document.render_pages()` now charges the shared cumulative PNG budget on
+  every encoder write across workers, refusing the first crossing chunk before
+  retention instead of letting each parallel page finish against the complete
+  batch limit.
 
 ## [0.12.0] - 2026-07-26
 
