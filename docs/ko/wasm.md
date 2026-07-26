@@ -65,12 +65,13 @@ pylopdf requirement만 방금 빌드한 wheel로 교체한 뒤 `workers-py`로 �
 요청합니다. 따라서 module-scope `import pylopdf`는 시작 시 사용할 수 없는 entropy나
 request 전용 runtime state에 의존하지 않고 완료되어야 합니다.
 
-example은 입력을4 MiB, 전체 rendering／extraction PDF snapshot을16 MiB로 제한하고
-structure와 압축 해제 data에`DocumentLimits.web()`보다 엄격한 budget을 둡니다.
+example은 입력을4 MiB, 전체 rendering／extraction PDF snapshot을16 MiB,
+누적 위치text를16,384 glyph record로 제한하고 structure와 압축 해제 data에도
+`DocumentLimits.web()`보다 엄격한 budget을 둡니다.
 pylopdf는 현재 path 또는 완전한 bytes를 받으므로 request body 전체를 buffer합니다.
 Cloudflare의128 MiB isolate budget에는 Python, JavaScript, WebAssembly linear
 memory, request buffer도 포함되므로 주변 코드가 더 많은 공간을 사용하면 file과
-interpretation budget을 더 낮추십시오.
+interpretation／text budget을 더 낮추십시오.
 
 ## Pyodide에서 직접 사용
 

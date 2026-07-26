@@ -62,8 +62,9 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError`로
   구체화됩니다. `except ValueError`도 계속 동작합니다.
 - **리소스 정책**: `DocumentLimits.web()`은 rendering／extraction에 전달되는 전체
-  PDF snapshot을64 MiB로 제한합니다. 사용자 정책은`max_interpretation_size`를
-  설정할 수 있고`None`은 호환되는 무제한 동작을 유지합니다.
+  PDF snapshot을64 MiB, 누적 위치text를65,536 glyph record로 제한합니다. 사용자
+  정책은`max_interpretation_size`와`max_text_glyphs`를 설정할 수 있고`None`은 호환되는
+  무제한 동작을 유지합니다.
 - **`get_text` 옵션**은 `text` / `words` / `blocks` / `dict`로 제한됩니다
   (`html` / `rawdict` / `xml` 없음). 포함 글꼴의 span dict에는 `font`와
   pymupdf 방식의 `flags`(bold/italic/serif/mono)가 들어갑니다.

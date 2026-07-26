@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hayro cache using `interpretation_size`, and is repeated by the Rust
   boundary. The compatible default is `None`; `DocumentLimits.web()` sets
   64 MiB.
+- `DocumentLimits.max_text_glyphs` now bounds cumulative positioned glyph
+  records before text-page caching or Python word/span materialization. Normal
+  text and table interpretations of the same page share one admission, failed
+  pages consume no budget, direct Rust calls repeat the check, and refusals use
+  `text_glyph_count`. The compatible default is `None`;
+  `DocumentLimits.web()` sets 65,536.
 
 ### Fixed
 - AES-256 output no longer accepts passwords above the PDF 2.0 127-byte

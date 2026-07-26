@@ -1018,6 +1018,7 @@
         "max_objects": "int | None",
         "max_page_content_size": "int | None",
         "max_pages": "int | None",
+        "max_text_glyphs": "int | None",
         "max_text_size": "int | None",
         "max_total_decompressed_size": "int | None"
       },
@@ -1030,7 +1031,8 @@
         "max_total_decompressed_size",
         "max_object_depth",
         "max_text_size",
-        "max_interpretation_size"
+        "max_interpretation_size",
+        "max_text_glyphs"
       ],
       "kind": "class",
       "members": {
@@ -1053,6 +1055,9 @@
           "kind": "property"
         },
         "max_pages": {
+          "kind": "property"
+        },
+        "max_text_glyphs": {
           "kind": "property"
         },
         "max_text_size": {
@@ -1124,6 +1129,12 @@
             "default": null,
             "kind": "positional_or_keyword",
             "name": "max_interpretation_size"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "max_text_glyphs"
           }
         ],
         "returns": "None"

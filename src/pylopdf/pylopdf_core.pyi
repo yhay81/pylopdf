@@ -47,6 +47,7 @@ class _Document:
         self,
         max_text_size: int | None = None,
         max_interpretation_size: int | None = None,
+        max_text_glyphs: int | None = None,
     ) -> None: ...
     @staticmethod
     def load(
@@ -61,6 +62,7 @@ class _Document:
         max_object_depth: int | None = None,
         max_text_size: int | None = None,
         max_interpretation_size: int | None = None,
+        max_text_glyphs: int | None = None,
     ) -> _Document: ...
     @staticmethod
     def load_bytes(
@@ -75,6 +77,7 @@ class _Document:
         max_object_depth: int | None = None,
         max_text_size: int | None = None,
         max_interpretation_size: int | None = None,
+        max_text_glyphs: int | None = None,
     ) -> _Document: ...
     @staticmethod
     def load_metadata(

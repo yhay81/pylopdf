@@ -68,11 +68,12 @@ requests `/health`. The module-scope `import pylopdf` must therefore complete
 without startup-only entropy or other request-bound runtime state.
 
 The example caps its input at 4 MiB, its complete rendering/extraction PDF
-snapshot at 16 MiB, and sets tighter structural and decoded-data budgets than
-`DocumentLimits.web()`. The complete request body is buffered because pylopdf
-currently accepts paths or complete byte strings. Cloudflare's 128 MiB isolate
-budget also includes Python, JavaScript, WebAssembly linear memory, and request
-buffers, so production applications should reduce the file and interpretation
+snapshot at 16 MiB, cumulative positioned text at 16,384 glyphs, and sets
+tighter structural and decoded-data budgets than `DocumentLimits.web()`. The
+complete request body is buffered because pylopdf currently accepts paths or
+complete byte strings. Cloudflare's 128 MiB isolate budget also includes
+Python, JavaScript, WebAssembly linear memory, and request buffers, so
+production applications should reduce the file, interpretation, and text
 budgets when their surrounding code needs more headroom.
 
 ## Direct Pyodide use

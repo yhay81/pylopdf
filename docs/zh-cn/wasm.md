@@ -65,10 +65,11 @@ module-scope 的 `import pylopdf` 必须在不依赖启动阶段不可用的 ent
 request 专用 runtime state 的情况下完成。
 
 example将输入限制为4 MiB，将完整rendering／extraction PDF snapshot限制为16 MiB，
-并对结构和解压后数据采用比`DocumentLimits.web()`更严格的budget。由于pylopdf当前接受
+将累计带位置文本限制为16,384个glyph record，并对结构和解压后数据采用比
+`DocumentLimits.web()`更严格的budget。由于pylopdf当前接受
 path或完整bytes，request body必须完整缓冲。Cloudflare的128 MiB isolate budget还包含
 Python、JavaScript、WebAssembly linear memory和request buffer；周边代码需要更多空间时
-应进一步降低file和interpretation budget。
+应进一步降低file、interpretation和text budget。
 
 ## 直接使用 Pyodide
 

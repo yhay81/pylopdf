@@ -78,6 +78,11 @@ overview.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
   than interleaving or deduplicating their glyphs.
+  `DocumentLimits.max_text_glyphs` bounds cumulative positioned glyph records
+  before caching or structured Python output. Text and table interpretations
+  of one page share one admission, failed pages consume no budget, and
+  refusals use `text_glyph_count`. The compatible default is `None`;
+  `DocumentLimits.web()` sets 65,536.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. `find_tables` uses a
