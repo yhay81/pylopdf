@@ -57,8 +57,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
-`embedded_file_size`、`decompression_unverifiable`のいずれかです。同じ値を
-`error.args[0]`でも取得できます。
+`embedded_file_size`、`xmp_metadata_size`、`decompression_unverifiable`の
+いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
 `doc.complexity`はstreamを展開せずrendererも呼ばずに、ページ数、object数、
@@ -81,6 +81,9 @@ xref dataを正規化します。
   既知の大容量添付では`max_size=`を増やせます。`max_size=None`は無制限の
   materializationを明示的に許可します。添付名treeも4,096 entry/node、深さ32、
   encoded/decoded name合計1 MiBを超えると拒否します。
+- `Document.get_pdfa_claim()`は各filter層のXMP展開結果を既定で1 MiBに制限します。
+  既知の大容量packetでは`max_size=`を増やせます。`max_size=None`は無制限の
+  materializationを明示的に許可します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

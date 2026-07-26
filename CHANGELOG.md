@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.get_pdfa_claim(*, max_size=1024 * 1024)` now bounds every XMP
+  metadata decoding layer before inspecting a PDF/A self-declaration. Known
+  larger packets can raise the positive limit or use `None` as an explicit
+  unbounded opt-out; rejection uses `LimitError.code == "xmp_metadata_size"`.
+  Decode failures no longer fall back to encoded bytes, work releases the GIL,
+  and token-aware matching rejects lookalike prefixes, quoted attribute values,
+  comments, and CDATA instead of misreporting them as `pdfaid` claims.
 - `Document.embfile_get(name, *, max_size=64 * 1024 * 1024)` now bounds every
   attachment decoding layer before materializing Python bytes. Callers can raise
   the positive limit for a known large file or pass `None` as an explicit

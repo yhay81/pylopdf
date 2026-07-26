@@ -81,6 +81,7 @@ __all__ = [
 __all__ += ["Pixmap", "PylopdfWarning"]
 
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -2388,16 +2389,30 @@ class Document:
         self._ensure_open()
         self._doc.embfile_del(name)
 
-    def get_pdfa_claim(self) -> tuple[int, str] | None:
+    def get_pdfa_claim(
+        self,
+        *,
+        max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE,
+    ) -> tuple[int, str] | None:
         """Read the XMP PDF/A claim from ``pdfaid:part`` and conformance.
 
         Return ``(part, conformance)``, for example ``(2, "B")`` for a
         PDF/A-2b claim. PDF/A-4 without conformance uses an empty string. Return
         ``None`` when absent. This reads a self-declaration; it does not validate
-        compliance. Use veraPDF or another external validator.
+        compliance. Use veraPDF or another external validator. ``max_size``
+        bounds every XMP decoding layer and defaults to 1 MiB. Pass a larger
+        positive integer for known large metadata or ``None`` only when
+        intentionally accepting unbounded materialization.
         """
         self._ensure_open()
-        claim = self._doc.pdfa_claim()
+        if max_size is not None:
+            if isinstance(max_size, bool) or not isinstance(max_size, int):
+                msg = f"max_size must be a positive integer or None: {max_size!r}"
+                raise TypeError(msg)
+            if max_size <= 0:
+                msg = f"max_size must be a positive integer or None: {max_size!r}"
+                raise ValueError(msg)
+        claim = self._doc.pdfa_claim(max_size)
         return None if claim is None else (int(claim[0]), claim[1])
 
     @overload

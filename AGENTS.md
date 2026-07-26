@@ -285,6 +285,13 @@ overview.
   Retain the original-byte fast path when no selected state stream can be
   resolved.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- `Document.get_pdfa_claim` releases the GIL and defaults to a 1 MiB decoded
+  XMP limit applied to every filter layer. `max_size=None` is the explicit
+  unbounded opt-out and failures use `LimitError.code == "xmp_metadata_size"`;
+  malformed or unsupported filters must not fall back to encoded bytes. Match
+  exact `pdfaid:part` / `pdfaid:conformance` XML elements or attributes, not
+  lookalike prefixes, quoted values, comments, or CDATA. This remains a
+  self-declaration read rather than PDF/A validation.
 - `api/public-api.json` is the reviewed candidate public surface. It covers
   `__all__`, signatures and defaults, documented members, TypedDict keys, type
   aliases, NamedTuple fields, enum/constant values, and exception inheritance.

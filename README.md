@@ -220,7 +220,7 @@ md = doc.to_markdown()
 md_with_borderless_tables = doc.to_markdown(table_strategy="text")
 md_p1 = doc[0].to_markdown()
 
-# Read the PDF/A self-declaration (validation belongs to veraPDF)
+# Read the PDF/A self-declaration (1 MiB XMP cap; validation belongs to veraPDF)
 print(doc.get_pdfa_claim())  # e.g. (2, "B") for PDF/A-2b; None if absent
 
 # Forms (AcroForm): read and fill
@@ -384,7 +384,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_toc()` / `set_toc(toc)` | Read/write outlines as `[[level, title, page], ...]` (page numbers are 1-based here) |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; complete bordered tables by default, `"text"` adds conservative borderless tables, `None` disables tables) |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; checkboxes take bool |
-| `get_pdfa_claim()` | Read the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation) |
+| `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete file attachments; `max_size=None` explicitly opts out, and name trees are capped at 4,096 entries/nodes |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |

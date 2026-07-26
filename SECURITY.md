@@ -38,6 +38,10 @@ risky. When processing untrusted files:
   `max_size=` for a known large attachment; `None` is an explicit unbounded
   opt-out. Attachment name trees are also rejected above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded names.
+- `Document.get_pdfa_claim()` bounds every XMP metadata decoding layer to 1 MiB
+  by default and raises `LimitError` with code `xmp_metadata_size`. Raise
+  `max_size=` for a known large packet; `None` explicitly accepts unbounded
+  materialization.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.
