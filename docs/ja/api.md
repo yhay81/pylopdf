@@ -25,7 +25,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
-| `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |
+| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(...)` | PNG、4,096 page・累積encoded output上限付き順序保証並列PNG群（`None`で解除）、SVG |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |

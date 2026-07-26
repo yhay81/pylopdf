@@ -373,7 +373,7 @@ signed_pdf: bytes = out.getvalue()
 | `set_metadata(dict)` | Atomically set standard metadata under the 1 MiB input/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
-| `render_pages(pages=None, scale=1.0, workers=None, ...)` | Render ordered PNGs from one immutable snapshot; up to 4 workers by default, with a ~512 MB estimated working-memory concurrency cap |
+| `render_pages(pages=None, scale=1.0, workers=None, max_size=512 MiB, ...)` | Render up to 4,096 ordered PNGs from one immutable snapshot; up to 4 workers by default, ~512 MB estimated live-work concurrency, and a cumulative encoded-output cap (`None` opts out) |
 | `render_page_svg(pno)` | Render a page to an SVG string |
 | `compress_images(dpi=150, quality=75)` | Lossily downsample and JPEG-recompress safe unmasked DeviceGray/DeviceRGB DCT or Flate XObjects; preserves the largest reuse, skips non-smaller output, and returns typed byte/count statistics |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |

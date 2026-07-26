@@ -56,7 +56,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
-`embedded_file_size`, `xmp_metadata_size`, `decompression_unverifiable` 중
+`embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
+`decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -117,7 +118,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   않습니다. `peek_metadata()`도returned 표준text를 제한하고, 쓰기는 변경 전에
   source/encoded text 1 MiB를 검사해 원자적으로 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
-- `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
+- `render_pages()`는 최대4,096 page entry를 허용하고 누적encoded PNG 기본 상한은
+  512 MiB입니다. 병렬 결과는 하나의atomic budget을 공유하며 실패 시 부분list를
+  반환하지 않습니다. `max_size=None`으로 명시적으로 해제할 수 있습니다. worker
+  admission은live raster/conversion buffer를 별도로 제한하므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.
 - CPU deadline은 Worker, process 또는 container host에서 적용하세요. 리소스
   예산은 문서화된 allocation과 출력 증가를 제한하지만 실행 중인 parser나
