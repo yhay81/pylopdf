@@ -755,7 +755,8 @@ rather than waiting automatically for v1.x.
   releases attach build provenance, include the artifact in the PyPI upload and
   SBOM, then resolve it back from PyPI and repeat the runtime gate before
   creating the immutable GitHub release. v0.11.0 and the first model artifact
-  were published on 2026-07-26; #20 through #24 are complete.
+  were published on 2026-07-26; the v0.11.1 gate additionally proves
+  module-scope import under `workerd`, and #20 through #24 are complete.
 - [x] Extend the Cloudflare gate from bundle-only validation to an actual local
   `workerd` startup and `/health` request (2026-07-26). The example imports
   pylopdf at module scope. Emscripten selects PyO3's foldhash-backed

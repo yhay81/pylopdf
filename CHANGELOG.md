@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-26
+
 ### Added
 - `Document.render_page()`, `Page.render()`, and
   `Pixmap.tobytes(max_size=64 * 1024 * 1024)` now bound a single encoded PNG
