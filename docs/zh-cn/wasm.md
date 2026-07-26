@@ -152,14 +152,16 @@ RTen inference runtime 不会移除 PDF 抽取、rendering、生成或外部 OCR
 
 ## 实测 deployment 范围
 
-固定 CI artifact 是 3.834 MiB wheel 和 10.404 MiB 解压后 Wasm extension。测试的
-Worker bundle 压缩后为 3.882 MiB，解压后为 10.844 MiB。因此它超过 Cloudflare
+固定 CI artifact 是 3.772 MiB wheel 和 9.910 MiB 解压后 Wasm extension。测试的
+Worker bundle 压缩后为 3.817 MiB，解压后为 10.383 MiB。因此它超过 Cloudflare
 Workers Free 的 3 MB 压缩限制，但符合 paid plan 的 10 MB 压缩限制和共享的 64 MB
 未压缩限制。pylopdf 支持 paid-plan deployment 路径，不发布功能削减的独立 distribution。
+fat LTO 与单个 codegen unit 仅用于 PyEmscripten artifact；native release profile
+保持不变。
 
-在 Node/Pyodide harness 中，首次打开并抽取 Form 1040 用时 116.267 ms；五次重复运行的
-median 为 26.893 ms。Wasm linear memory 在安装后达到 40.375 MiB，在完整兼容与
-resource suite 后达到 70.625 MiB。这些是可复现 CI trend，不是 Cloudflare request
+在 Node/Pyodide harness 中，首次打开并抽取 Form 1040 用时 117.634 ms；五次重复运行的
+median 为 28.506 ms。Wasm linear memory 在安装后达到 39.688 MiB，在完整兼容与
+resource suite 后达到 70.000 MiB。这些是可复现 CI trend，不是 Cloudflare request
 latency 或 isolate resident-memory 测量。参见
 [完整 size 与 startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)。
 

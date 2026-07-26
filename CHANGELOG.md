@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer relies on a manually appended section that `bench/run.py` would erase,
   and report formatting has regression coverage.
 
+### Performance
+- PyEmscripten builds now apply fat LTO with one codegen unit while native
+  builds retain Cargo's default release profile. In paired pinned CI runs this
+  reduced the wheel by 113,135 bytes (2.78%), the installed extension by
+  643,054 bytes (5.83%), and the observed Wasm linear-memory high water by
+  851,968 bytes (1.15%) with exact compatibility results. The Pyodide CI job
+  increased from 2m03s to 4m40s.
+
 ## [0.11.1] - 2026-07-26
 
 ### Added
