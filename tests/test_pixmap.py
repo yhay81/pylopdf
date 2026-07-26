@@ -63,6 +63,24 @@ def test_pixmap_tobytes_is_png(one_page_pdf: bytes) -> None:
     assert pix.tobytes().startswith(b"\x89PNG\r\n\x1a\n")
 
 
+def test_pixmap_tobytes_bounds_encoded_output(one_page_pdf: bytes) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+    expected = pix.tobytes(max_size=None)
+
+    assert pix.tobytes(max_size=len(expected)) == expected
+    with pytest.raises(pylopdf.LimitError) as caught:
+        pix.tobytes(max_size=len(expected) - 1)
+    assert caught.value.code == "pixmap_output_size"
+
+
+@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
+def test_pixmap_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: object) -> None:
+    pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
+
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        pix.tobytes(max_size=max_size)  # type: ignore[arg-type]
+
+
 def test_pixmap_save_writes_png_to_pathlike(one_page_pdf: bytes, tmp_path: Path) -> None:
     pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
     target = tmp_path / "rendered page.png"

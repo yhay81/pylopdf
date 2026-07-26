@@ -27,7 +27,7 @@ deliberately does not implement.
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | same | returns `list[Rect]`; no `quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
-| `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's `tobytes()` and `save(path)` produce PNG, and `save` requires `.png` |
+| `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |

@@ -421,6 +421,24 @@ def test_render_page_png(one_page_pdf: bytes) -> None:
     assert (width, height) == (612, 792)
 
 
+def test_render_page_png_bounds_encoded_output(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    expected = doc.render_page(0, max_size=None)
+
+    assert doc.render_page(0, max_size=len(expected)) == expected
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.render_page(0, max_size=len(expected) - 1)
+    assert caught.value.code == "render_output_size"
+
+
+@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
+def test_render_page_png_validates_output_limit(one_page_pdf: bytes, max_size: object) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        doc.render_page(0, max_size=max_size)  # type: ignore[arg-type]
+
+
 def test_render_page_png_scale(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     width, height = _png_size(doc.render_page(0, scale=2.0))

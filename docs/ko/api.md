@@ -25,7 +25,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 최대4,096 page 및 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
-| `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
+| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 상한이 있는PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 임베드되지 않은 글꼴의 상한이 있는CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete/insert batch는4,096 entry로 제한 |
@@ -57,7 +57,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg(max_size=64 MiB)` | PNG / 상한이 있는UTF-8 SVG 렌더링. `clip`은 표시 좌표 사용 |
+| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 상한이 있는PNG / UTF-8 SVG 렌더링. `clip`은 표시 좌표 사용 |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전 |
@@ -124,7 +124,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
-| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / 실패 시 기존file을 보존하는PNG 전용`save(path)`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 
 `TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의

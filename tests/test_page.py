@@ -30,7 +30,12 @@ def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     page = doc[1]
     assert "Page two" in page.get_text()
-    assert page.render() == doc.render_page(1)
+    png = page.render(max_size=None)
+    assert png == doc.render_page(1)
+    assert page.render(max_size=len(png)) == png
+    with pytest.raises(pylopdf.LimitError) as caught:
+        page.render(max_size=len(png) - 1)
+    assert caught.value.code == "render_output_size"
     svg = page.render_svg(max_size=None)
     assert svg == doc.render_page_svg(1, max_size=None)
     assert page.render_svg(max_size=len(svg.encode())) == svg
