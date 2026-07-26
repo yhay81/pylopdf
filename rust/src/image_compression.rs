@@ -53,23 +53,25 @@ impl ColorModel {
     }
 }
 
-struct Candidate {
-    source: CandidateSource,
+#[derive(Clone, Copy)]
+struct Candidate<'a> {
+    source: CandidateSource<'a>,
     width: u32,
     height: u32,
     color: ColorModel,
     previous_quality: Option<u8>,
 }
 
-enum CandidateSource {
-    Jpeg(Vec<u8>),
+#[derive(Clone, Copy)]
+enum CandidateSource<'a> {
+    Jpeg(&'a [u8]),
     Flate {
-        stream: Stream,
+        stream: &'a Stream,
         max_decoded_bytes: usize,
     },
 }
 
-impl CandidateSource {
+impl CandidateSource<'_> {
     fn encoded_len(&self) -> usize {
         match self {
             Self::Jpeg(data) => data.len(),
@@ -133,11 +135,11 @@ fn safe_flate_decode_limit(
     samples.checked_add(height as usize)
 }
 
-fn is_safe_image_stream(
-    doc: &Document,
+fn is_safe_image_stream<'a>(
+    doc: &'a Document,
     usage: ImageUsage,
     mask_ids: &HashSet<ObjectId>,
-) -> Option<Candidate> {
+) -> Option<Candidate<'a>> {
     if mask_ids.contains(&usage.object_id) {
         return None;
     }
@@ -185,16 +187,13 @@ fn is_safe_image_stream(
             let previous_quality = direct_integer(&stream.dict, b"PylopdfQuality")
                 .and_then(|value| u8::try_from(value).ok())
                 .filter(|value| (1..=100).contains(value));
-            (
-                CandidateSource::Jpeg(stream.content.clone()),
-                previous_quality,
-            )
+            (CandidateSource::Jpeg(&stream.content), previous_quality)
         }
         b"FlateDecode" | b"Fl" => {
             let max_decoded_bytes = safe_flate_decode_limit(&stream.dict, width, height, color)?;
             (
                 CandidateSource::Flate {
-                    stream: stream.clone(),
+                    stream,
                     max_decoded_bytes,
                 },
                 None,
@@ -228,8 +227,8 @@ fn target_dimension(original: u32, min_dpi: Option<f64>, target_dpi: Option<f64>
     (stable as u32).clamp(1, original)
 }
 
-fn decode_jpeg(candidate: &Candidate) -> Result<Vec<u8>, String> {
-    let CandidateSource::Jpeg(data) = &candidate.source else {
+fn decode_jpeg(candidate: &Candidate<'_>) -> Result<Vec<u8>, String> {
+    let CandidateSource::Jpeg(data) = candidate.source else {
         return Err("internal image source mismatch".to_owned());
     };
     let options = DecoderOptions::default()
@@ -238,7 +237,7 @@ fn decode_jpeg(candidate: &Candidate) -> Result<Vec<u8>, String> {
         .set_strict_mode(true)
         .jpeg_set_out_colorspace(candidate.color.zune_color());
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(data.as_slice()), options);
+        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(data), options);
         decoder
             .decode_headers()
             .map_err(|error| format!("failed to read JPEG headers: {error}"))?;
@@ -268,17 +267,17 @@ fn decode_jpeg(candidate: &Candidate) -> Result<Vec<u8>, String> {
     Ok(pixels)
 }
 
-fn decode_flate(candidate: &Candidate) -> Result<Vec<u8>, String> {
+fn decode_flate(candidate: &Candidate<'_>) -> Result<Vec<u8>, String> {
     let CandidateSource::Flate {
         stream,
         max_decoded_bytes,
-    } = &candidate.source
+    } = candidate.source
     else {
         return Err("internal image source mismatch".to_owned());
     };
     let result = catch_unwind(AssertUnwindSafe(|| {
         stream
-            .decompressed_content_with_limit(*max_decoded_bytes)
+            .decompressed_content_with_limit(max_decoded_bytes)
             .map_err(|error| format!("failed to decode Flate image: {error}"))
     }));
     let pixels = result.map_err(|_| "Flate decoder panicked on malformed input".to_owned())??;
@@ -293,8 +292,8 @@ fn decode_flate(candidate: &Candidate) -> Result<Vec<u8>, String> {
     Ok(pixels)
 }
 
-fn decode_pixels(candidate: &Candidate) -> Result<Vec<u8>, String> {
-    match &candidate.source {
+fn decode_pixels(candidate: &Candidate<'_>) -> Result<Vec<u8>, String> {
+    match candidate.source {
         CandidateSource::Jpeg(_) => decode_jpeg(candidate),
         CandidateSource::Flate { .. } => decode_flate(candidate),
     }
@@ -555,45 +554,55 @@ pub(crate) fn compress_images(
     let mut total_pixels = 0u64;
 
     for usage in usages {
-        let Some(candidate) = is_safe_image_stream(doc, *usage, &mask_ids) else {
-            continue;
+        let (target_width, target_height, previous_quality, source_len, encoded) = {
+            let Some(candidate) = is_safe_image_stream(doc, *usage, &mask_ids) else {
+                continue;
+            };
+            let target_width = target_dimension(candidate.width, usage.min_dpi_x, target_dpi);
+            let target_height = target_dimension(candidate.height, usage.min_dpi_y, target_dpi);
+            if (target_width, target_height) == (candidate.width, candidate.height)
+                && candidate
+                    .previous_quality
+                    .is_some_and(|previous| previous <= quality)
+            {
+                continue;
+            }
+            let image_pixels = u64::from(candidate.width) * u64::from(candidate.height);
+            if image_pixels > MAX_IMAGE_PIXELS {
+                continue;
+            }
+            total_pixels = total_pixels
+                .checked_add(image_pixels)
+                .ok_or_else(|| "image compression pixel count overflowed".to_owned())?;
+            if total_pixels > MAX_TOTAL_IMAGE_PIXELS {
+                return Err("image compression exceeds the 250000000-pixel safety limit".to_owned());
+            }
+            let pixels = decode_pixels(&candidate)?;
+            let pixels = resize_pixels(
+                pixels,
+                (candidate.width, candidate.height),
+                (target_width, target_height),
+                candidate.color,
+            )?;
+            let encoded = encode_jpeg(
+                &pixels,
+                target_width,
+                target_height,
+                candidate.color,
+                quality,
+            )?;
+            let source_len = candidate.source.encoded_len();
+            if encoded.len() >= source_len {
+                continue;
+            }
+            (
+                target_width,
+                target_height,
+                candidate.previous_quality,
+                source_len,
+                encoded,
+            )
         };
-        let target_width = target_dimension(candidate.width, usage.min_dpi_x, target_dpi);
-        let target_height = target_dimension(candidate.height, usage.min_dpi_y, target_dpi);
-        if (target_width, target_height) == (candidate.width, candidate.height)
-            && candidate
-                .previous_quality
-                .is_some_and(|previous| previous <= quality)
-        {
-            continue;
-        }
-        let image_pixels = u64::from(candidate.width) * u64::from(candidate.height);
-        if image_pixels > MAX_IMAGE_PIXELS {
-            continue;
-        }
-        total_pixels = total_pixels
-            .checked_add(image_pixels)
-            .ok_or_else(|| "image compression pixel count overflowed".to_owned())?;
-        if total_pixels > MAX_TOTAL_IMAGE_PIXELS {
-            return Err("image compression exceeds the 250000000-pixel safety limit".to_owned());
-        }
-        let pixels = decode_pixels(&candidate)?;
-        let pixels = resize_pixels(
-            pixels,
-            (candidate.width, candidate.height),
-            (target_width, target_height),
-            candidate.color,
-        )?;
-        let encoded = encode_jpeg(
-            &pixels,
-            target_width,
-            target_height,
-            candidate.color,
-            quality,
-        )?;
-        if encoded.len() >= candidate.source.encoded_len() {
-            continue;
-        }
 
         let stream = doc
             .get_object_mut(usage.object_id)
@@ -608,18 +617,14 @@ pub(crate) fn compress_images(
         stream.dict.remove(b"DL");
         stream.dict.set(
             "PylopdfQuality",
-            i64::from(
-                candidate
-                    .previous_quality
-                    .map_or(quality, |previous| previous.min(quality)),
-            ),
+            i64::from(previous_quality.map_or(quality, |previous| previous.min(quality))),
         );
         stream.set_content(encoded);
         stream.allows_compression = false;
         stream.start_position = None;
 
         rewritten += 1;
-        bytes_before += candidate.source.encoded_len() as u64;
+        bytes_before += source_len as u64;
         bytes_after += stream.content.len() as u64;
     }
 

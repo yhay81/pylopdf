@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before refusal. Separate RGB/gray and alpha planes are stream-interleaved
   through a 4 KiB scratch buffer rather than a complete additional raster.
 
+### Performance
+- `Document.compress_images()` now borrows candidate JPEG bytes and Flate
+  streams through admission, decode, resize, and re-encode. It releases those
+  borrows before mutating the atomic lopdf clone instead of cloning every
+  complete encoded source, including sources skipped by the 64-million-pixel
+  per-image boundary.
+
 ## [0.12.0] - 2026-07-26
 
 ### Added

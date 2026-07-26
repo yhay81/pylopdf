@@ -188,6 +188,9 @@ overview.
   only when its encoded payload becomes smaller. The
   private `/PylopdfQuality` marker prevents repeat calls at the same or higher
   quality from introducing generational loss when dimensions are unchanged.
+  Candidate JPEG bytes and Flate streams remain borrowed through admission,
+  decode, resize, and re-encode; release those borrows before mutating the cloned
+  lopdf document rather than cloning complete encoded sources per candidate.
   Actual rewrites invalidate hayro and derived interpretation caches without
   making existing `Page` views stale; no-op calls preserve all caches. Reject
   more than 16,384 unique indirect raster objects or more than 250 million
