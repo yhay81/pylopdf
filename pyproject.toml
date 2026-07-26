@@ -54,7 +54,7 @@ dev = [
     "mypy>=1.14",
     "pre-commit>=4.6.1",
     "pytest>=8.3",
-    "ruff>=0.9",
+    "ruff>=0.16.0",
 ]
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
