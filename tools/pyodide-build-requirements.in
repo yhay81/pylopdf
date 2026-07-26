@@ -1,2 +1,2 @@
 maturin==1.14.1
-pyodide-build==0.30.7
+pyodide-build==0.37.0
