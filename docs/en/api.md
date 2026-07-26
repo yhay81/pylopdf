@@ -62,7 +62,7 @@ images are not considered. Repeating the same settings is idempotent.
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg(max_size=64 MiB)` | PNG / bounded UTF-8 SVG rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=)` | draw JPEG/PNG or reuse a rendered RGBA `Pixmap`; `rotate` turns it clockwise in 90-degree steps |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
 | `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi or shaped subset text; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han |
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 wrapping with Core 14, explicit OpenType, or auto-selected JP metrics; returns spare height and draws nothing on overflow |

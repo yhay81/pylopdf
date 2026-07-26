@@ -596,6 +596,13 @@ known-limit behavior are polished together.
       post-insertion array at 4,096 stream references including the one-time
       `q`/`Q` isolation pair. Verified in-memory page state fixes repeated nested
       wrapping without trusting a spoofable persistent PDF marker (2026-07-26).
+- [x] Bound encoded-image insertion and PNG decode amplification before
+      mutation. `insert_image(max_size=64 MiB, max_pixels=64,000,000)` rejects
+      oversized stream data before its PyO3 copy, reads filename sources through
+      a one-byte-overrun bounded Rust path with the GIL released, and preflights
+      PNG IHDR dimensions before allocating decoded storage. Direct core calls
+      repeat both limits, stable codes distinguish encoded bytes from pixels,
+      and `None` explicitly opts trusted workloads out (2026-07-26).
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

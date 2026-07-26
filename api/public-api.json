@@ -1826,6 +1826,18 @@
                 "default": true,
                 "kind": "keyword_only",
                 "name": "overlay"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
               }
             ],
             "returns": "None"

@@ -58,7 +58,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_content_size`, `total_decompressed_size`, `text_size`,
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
-`replacement_output_size`, `pdf_output_size`, `decompression_unverifiable` 중
+`replacement_output_size`, `pdf_output_size`, `image_input_size`,
+`image_pixel_count`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -86,6 +87,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Pixmap.save()`도target directory 안에 예측할 수 없고 배타적으로 생성한sibling에
   쓰며, PNG encode와 완전한write가 성공한 뒤에만 요청path를 원자적으로 교체합니다.
   교체 실패 시 기존output을 보존하고 임시file을 삭제합니다.
+- `Page.insert_image()`는encoded JPEG/PNG input을 기본64 MiB, decoded PNG input을
+  기본64,000,000픽셀로 제한합니다. filename은GIL을 해제한Rust 경계에서 상한을 두고
+  읽으며 PNG dimension은decoded storage 할당 전에 검사합니다. 신뢰 가능한workload는
+  `max_size=None`／`max_pixels=None`으로 명시적으로 해제할 수 있습니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로

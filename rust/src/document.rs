@@ -99,6 +99,10 @@ const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 /// Bound one page-structure mutation batch before cloning or importing graphs.
 const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 
+/// Default public boundaries for encoded and decoded image insertion input.
+const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
+const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -805,22 +809,24 @@ fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
     LimitError::new_err((code, message.into()))
 }
 
-/// Read a path without ever admitting more than one byte beyond its file budget.
-fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
-    let Some(limit) = max_file_size else {
-        return std::fs::read(path)
-            .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")));
+/// Read a path without admitting more than one byte beyond a caller's budget.
+fn read_bounded_input(
+    path: &str,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
+    error_prefix: &str,
+) -> PyResult<Vec<u8>> {
+    let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
+    let Some(limit) = max_size else {
+        return std::fs::read(path).map_err(io_error);
     };
-    let file = std::fs::File::open(path)
-        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?;
-    let metadata_size = file
-        .metadata()
-        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?
-        .len();
+    let file = std::fs::File::open(path).map_err(&io_error)?;
+    let metadata_size = file.metadata().map_err(&io_error)?.len();
     if metadata_size > limit as u64 {
         return Err(limit_err(
-            "file_size",
-            format!("PDF file is {metadata_size} bytes, exceeding the configured limit of {limit}"),
+            limit_code,
+            format!("{size_label} is {metadata_size} bytes, exceeding the {limit}-byte limit"),
         ));
     }
     let read_limit = limit.saturating_add(1);
@@ -831,14 +837,73 @@ fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
     );
     file.take(read_limit as u64)
         .read_to_end(&mut data)
-        .map_err(|error| PdfError::new_err(format!("failed to load {path}: {error}")))?;
+        .map_err(io_error)?;
     if data.len() > limit {
         return Err(limit_err(
-            "file_size",
-            format!("PDF file exceeds the configured limit of {limit} bytes while being read"),
+            limit_code,
+            format!("{size_label} exceeds the {limit}-byte limit while being read"),
         ));
     }
     Ok(data)
+}
+
+/// Read PDF input without admitting more than one byte beyond its file budget.
+fn read_input(path: &str, max_file_size: Option<usize>) -> PyResult<Vec<u8>> {
+    read_bounded_input(
+        path,
+        max_file_size,
+        "file_size",
+        "PDF file",
+        "failed to load",
+    )
+}
+
+/// Read encoded image input without admitting more than one byte beyond its budget.
+fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
+    read_bounded_input(
+        path,
+        max_size,
+        "image_input_size",
+        "encoded image input",
+        "failed to load image",
+    )
+}
+
+fn validate_image_input(
+    data: &[u8],
+    max_size: Option<usize>,
+    max_pixels: Option<u64>,
+) -> PyResult<()> {
+    if max_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    if max_pixels == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_pixels must be a positive integer or None",
+        ));
+    }
+    if let Some(limit) = max_size
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "image_input_size",
+            format!(
+                "encoded image input is {} bytes, exceeding the {limit}-byte limit",
+                data.len()
+            ),
+        ));
+    }
+    if let (Some(limit), Some(pixels)) = (max_pixels, draw::png_pixel_count(data))
+        && pixels > limit
+    {
+        return Err(limit_err(
+            "image_pixel_count",
+            format!("PNG image contains {pixels} pixels, exceeding the {limit}-pixel limit"),
+        ));
+    }
+    Ok(())
 }
 
 /// Safely convert f64 to PDF real representation (`lopdf::Object::Real = f32`).
@@ -5481,6 +5546,16 @@ impl _Document {
     /// `rect` uses top-left-origin page display space, including rotation.
     /// Drawing only adds a content stream and never rewrites existing content.
     #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        data,
+        image_rotation,
+        keep_proportion,
+        overlay,
+        max_size=Some(DEFAULT_MAX_IMAGE_INPUT_SIZE),
+        max_pixels=Some(DEFAULT_MAX_IMAGE_PIXELS)
+    ))]
     fn insert_image(
         &mut self,
         py: Python<'_>,
@@ -5490,7 +5565,10 @@ impl _Document {
         image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
+        max_size: Option<usize>,
+        max_pixels: Option<u64>,
     ) -> PyResult<()> {
+        validate_image_input(&data, max_size, max_pixels)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.preflight_page_content(page_number)?;
         let (parts, matrix) = py.detach(|| -> PyResult<_> {
@@ -5521,6 +5599,54 @@ impl _Document {
                 .map_err(to_py_err)?;
             self.push_page_content(page_id, draw::draw_ops(matrix, &name), overlay)
         })
+    }
+
+    /// Read and draw bounded JPEG/PNG input from a filesystem path.
+    #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        path,
+        image_rotation,
+        keep_proportion,
+        overlay,
+        max_size=Some(DEFAULT_MAX_IMAGE_INPUT_SIZE),
+        max_pixels=Some(DEFAULT_MAX_IMAGE_PIXELS)
+    ))]
+    fn insert_image_file(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        path: &str,
+        image_rotation: i64,
+        keep_proportion: bool,
+        overlay: bool,
+        max_size: Option<usize>,
+        max_pixels: Option<u64>,
+    ) -> PyResult<()> {
+        if max_size == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_size must be a positive integer or None",
+            ));
+        }
+        if max_pixels == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_pixels must be a positive integer or None",
+            ));
+        }
+        let data = py.detach(|| read_image_input(path, max_size))?;
+        self.insert_image(
+            py,
+            page_number,
+            rect,
+            data,
+            image_rotation,
+            keep_proportion,
+            overlay,
+            max_size,
+            max_pixels,
+        )
     }
 
     /// Draw a rendered RGBA8 Pixmap directly into display `rect`.

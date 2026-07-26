@@ -41,6 +41,13 @@ def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | 
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
+def _png_header(width: int, height: int) -> bytes:
+    """Build enough valid IHDR data to exercise pre-decode dimension checks."""
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    body = b"IHDR" + ihdr
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", len(ihdr)) + body + struct.pack(">I", zlib.crc32(body))
+
+
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
     pix = page.get_pixmap(background=WHITE)
@@ -359,6 +366,82 @@ def test_insert_image_rejects_bad_input() -> None:
     truncated_jpeg = bytes([0xFF, 0xD8, 0xFF, 0xC0, 0, 8, 8, 0, 1, 0, 1])
     with pytest.raises(pylopdf.PdfError, match="JPEG"):
         page.insert_image((0, 0, 10, 10), stream=truncated_jpeg)
+
+
+@pytest.mark.parametrize("name", ["max_size", "max_pixels"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_insert_image_validates_resource_budgets(name: str, value: object) -> None:
+    page = _new_page_doc()[0]
+    kwargs = {name: value}
+
+    with pytest.raises((TypeError, ValueError), match=name):
+        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), **kwargs)  # type: ignore[arg-type]
+
+
+def test_insert_image_bounds_encoded_stream_before_core_copy() -> None:
+    png = _solid_png(2, 2, RED)
+    rejected = _new_page_doc()
+    before = rejected.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        rejected[0].insert_image((0, 0, 10, 10), stream=png, max_size=len(png) - 1)
+
+    assert caught.value.code == "image_input_size"
+    assert rejected.complexity == before
+    assert rejected[0].get_images() == []
+
+    boundary = _new_page_doc()
+    boundary[0].insert_image((0, 0, 10, 10), stream=png, max_size=len(png))
+    assert len(boundary[0].get_images()) == 1
+
+
+def test_insert_image_reads_filename_through_bounded_core_path(tmp_path: Path) -> None:
+    png = _solid_png(2, 2, RED)
+    path = tmp_path / "image.png"
+    path.write_bytes(png)
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_image((0, 0, 10, 10), filename=path, max_size=len(png) - 1)
+
+    assert caught.value.code == "image_input_size"
+    assert doc.complexity == before
+    assert doc[0].get_images() == []
+
+    doc[0].insert_image((0, 0, 10, 10), filename=path, max_size=None)
+    assert len(doc[0].get_images()) == 1
+
+
+def test_insert_image_bounds_png_pixels_before_decode() -> None:
+    oversized = _png_header(8_001, 8_000)
+    rejected = _new_page_doc()
+    before = rejected.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        rejected[0].insert_image((0, 0, 10, 10), stream=oversized)
+
+    assert caught.value.code == "image_pixel_count"
+    assert rejected.complexity == before
+    assert rejected[0].get_images() == []
+
+    png = _solid_png(2, 2, RED)
+    with pytest.raises(pylopdf.LimitError) as exact_rejection:
+        rejected[0].insert_image((0, 0, 10, 10), stream=png, max_pixels=3)
+    assert exact_rejection.value.code == "image_pixel_count"
+
+    boundary = _new_page_doc()
+    boundary[0].insert_image((0, 0, 10, 10), stream=png, max_pixels=4)
+    assert len(boundary[0].get_images()) == 1
+
+
+def test_insert_image_budgets_do_not_apply_to_pixmap() -> None:
+    pixmap = _new_page_doc(2, 2)[0].get_pixmap()
+    target = _new_page_doc()
+
+    target[0].insert_image((0, 0, 10, 10), pixmap=pixmap, max_size=1, max_pixels=1)
+
+    assert len(target[0].get_images()) == 1
 
 
 def test_show_pdf_page_overlays_vector_text() -> None:
