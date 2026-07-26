@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 from conftest import build_raw_pdf
 
@@ -217,6 +219,52 @@ def test_page_to_markdown_and_page_selection() -> None:
     full = doc.to_markdown()
     assert "First page" in full
     assert "Second page" in full
+
+
+def test_markdown_bounds_utf8_output_without_partial_result() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=300, height=200)
+    doc.new_page(width=300, height=200)
+    doc[0].insert_ocr_text_layer([(20, 20, 200, 40, "First page")])
+    doc[1].insert_ocr_text_layer([(20, 20, 200, 40, "日本語の二ページ目")])
+    expected = doc.to_markdown(max_size=None)
+    exact_size = len(expected.encode())
+    expected_page = doc[1].to_markdown(max_size=None)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.to_markdown(max_size=exact_size - 1)
+    assert caught.value.code == "markdown_output_size"
+    assert doc.to_markdown(max_size=exact_size) == expected
+    assert doc[1].to_markdown(max_size=len(expected_page.encode())) == expected_page
+
+
+def test_markdown_bounds_page_iterable_before_interpretation() -> None:
+    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    consumed = 0
+
+    def pages() -> Iterator[int]:
+        nonlocal consumed
+        for _ in range(5000):
+            consumed += 1
+            yield 0
+
+    with pytest.raises(ValueError, match="4096 entries"):
+        doc.to_markdown(pages=pages())
+    assert consumed == 4097
+
+
+@pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
+def test_markdown_rejects_non_integer_size_limits(max_size: object) -> None:
+    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    with pytest.raises(TypeError, match="max_size"):
+        doc.to_markdown(max_size=max_size)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("max_size", [0, -1])
+def test_markdown_rejects_non_positive_size_limits(max_size: int) -> None:
+    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
+    with pytest.raises(ValueError, match="max_size"):
+        doc.to_markdown(max_size=max_size)
 
 
 def test_empty_document() -> None:

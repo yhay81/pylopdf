@@ -53,7 +53,7 @@ Web预设目前独立应用以下上限：
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`embedded_file_size`、
-`xmp_metadata_size`、`render_output_size`或
+`xmp_metadata_size`、`render_output_size`、`markdown_output_size`或
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
@@ -110,6 +110,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   并行结果共享一个atomic budget，失败时不返回部分list；`max_size=None`可显式
   取消。worker admission另行限制live raster/conversion buffer；不要在application
   层叠加无限并行。
+- `Document.to_markdown()`最多接受4,096个page entry，累计UTF-8输出默认上限为
+  64 MiB。heading size统计pass与render pass都只同时保留一页的interpreted
+  layout、table和word。超过上限时不返回部分string；`max_size=None`可显式取消。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的
   allocation和输出增长，但不会按wall-clock时间中断正在运行的parser或interpreter。
 - 批量处理不受信任的文件时，尽量在sandbox或container中运行。

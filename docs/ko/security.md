@@ -57,7 +57,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
-`decompression_unverifiable` 중
+`markdown_output_size`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -123,6 +123,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   반환하지 않습니다. `max_size=None`으로 명시적으로 해제할 수 있습니다. worker
   admission은live raster/conversion buffer를 별도로 제한하므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.
+- `Document.to_markdown()`는 최대4,096 page entry를 허용하고 누적UTF-8 출력 기본
+  상한은64 MiB입니다. heading size 집계pass와render pass 모두에서 한 번에 한
+  page의 interpreted layout, table, word만 유지합니다. 상한 초과 시 부분string을
+  반환하지 않으며 `max_size=None`으로 명시적으로 해제할 수 있습니다.
 - CPU deadline은 Worker, process 또는 container host에서 적용하세요. 리소스
   예산은 문서화된 allocation과 출력 증가를 제한하지만 실행 중인 parser나
   interpreter를 wall-clock 시간으로 중단하지 않습니다.

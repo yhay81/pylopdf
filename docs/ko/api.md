@@ -24,7 +24,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `is_repaired` | 열 때 마지막 classic `startxref` 오류를 복구했는지 여부. 저장하면 xref data를 정규화 |
 | `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None, table_strategy="lines")` | Markdown 변환(제목, CJK 연결, 강조, 목록, 다단 및 보수적인 세로쓰기 순서, 기본 테두리 표, `"text"`로 테두리 없는 표 추가, `None`으로 표 변환 비활성화) |
+| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page 단위2-pass Markdown 변환. 최대4,096 page 및 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(...)` | PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음(`None`으로 해제), SVG |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
@@ -54,7 +54,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `rotation`은 입력을 시계 방향으로 보정하고 `clip`은 표시 좌표 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
 | `find_tables(strategy="lines", clip=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
-| `to_markdown(table_strategy="lines")` | 같은 표 제어를 사용하는 한 페이지의 Markdown |
+| `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 렌더링. `clip`은 표시 좌표 사용 |

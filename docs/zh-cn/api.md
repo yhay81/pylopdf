@@ -24,7 +24,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None, table_strategy="lines")` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；默认插入边框表，`"text"`增加无边框表，`None`禁用表格转换） |
+| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 按页两pass Markdown转换；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(...)` | PNG、带4,096页及累计encoded output上限的保序并行PNG批次（`None`取消）或SVG |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
@@ -53,7 +53,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
-| `to_markdown(table_strategy="lines")` | 使用相同表格控制的单页Markdown |
+| `to_markdown(table_strategy="lines", max_size=64 MiB)` | 使用相同表格及UTF-8输出控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG）；超过4,096个placement、累计64,000,000像素或64 MiB payload时拒绝部分结果 |
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(...)` / `render_svg()` | 渲染；`clip`使用显示坐标 |

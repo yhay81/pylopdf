@@ -12,6 +12,7 @@ import math
 import os
 import threading
 import warnings as _warnings
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
@@ -83,12 +84,14 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
+_DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 _MAX_RENDER_BATCH_PAGES = 4096
+_MAX_MARKDOWN_PAGES = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -1329,6 +1332,7 @@ class Page:
         self,
         *,
         table_strategy: Literal["lines", "text"] | None = "lines",
+        max_size: int | None = _DEFAULT_MAX_MARKDOWN_SIZE,
     ) -> str:
         """Convert this page to Markdown.
 
@@ -1336,9 +1340,15 @@ class Page:
         sizes are inferred from this page alone. Complete bordered tables are
         inserted by default; pass ``table_strategy="text"`` for conservative
         borderless candidates or ``None`` to disable table conversion.
+        ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
+        explicitly opts out.
         """
         self._page_number()
-        return self._document.to_markdown(pages=[self._pno], table_strategy=table_strategy)
+        return self._document.to_markdown(
+            pages=[self._pno],
+            table_strategy=table_strategy,
+            max_size=max_size,
+        )
 
     def search_for(self, needle: str) -> list[Rect]:
         """Search page text case-insensitively.
@@ -2190,6 +2200,7 @@ class Document:
         pages: Iterable[int] | None = None,
         *,
         table_strategy: Literal["lines", "text"] | None = "lines",
+        max_size: int | None = _DEFAULT_MAX_MARKDOWN_SIZE,
     ) -> str:
         """Convert the document to Markdown for RAG or LLM preprocessing.
 
@@ -2205,47 +2216,68 @@ class Document:
         default. Pass ``table_strategy="text"`` to extend this with conservative
         borderless detection, or ``None`` to disable table conversion.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
-        order; ``None`` means every page.
+        order; ``None`` means every page. One call accepts at most 4,096 page
+        entries. ``max_size`` caps aggregate UTF-8 Markdown output and defaults
+        to 64 MiB; ``None`` explicitly opts out.
         """
         self._ensure_open()
         if table_strategy not in ("lines", "text", None):
             msg = f"table_strategy must be 'lines', 'text', or None: {table_strategy!r}"
             raise ValueError(msg)
-        page_numbers = list(range(self.page_count) if pages is None else pages)
-        layouts = [self.get_page_text(pno, "dict") for pno in page_numbers]
-        page_tables = (
-            [[] for _ in page_numbers]
-            if table_strategy is None
-            else [_markdown_page_tables(self[pno], table_strategy) for pno in page_numbers]
-        )
-        page_words = [
-            self.get_page_text(pno, "words") if tables else None
-            for pno, tables in zip(page_numbers, page_tables, strict=True)
-        ]
-        table_bboxes = [
-            [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables] for tables in page_tables
-        ]
-        markdown_tables = []
-        for layout, bboxes, tables in zip(layouts, table_bboxes, page_tables, strict=True):
-            markdown_tables.append(
-                [
-                    (
-                        bbox,
-                        _markdown.table_to_markdown(
-                            table.extract(),
-                            orientation=_markdown.table_orientation(layout, bbox),
-                            cell_anchors=table._cell_anchors,
-                        ),
-                    )
-                    for bbox, table in zip(bboxes, tables, strict=True)
-                ]
-            )
-        levels = _markdown.heading_levels(_markdown.collect_sizes(layouts, table_bboxes))
-        rendered = (
-            _markdown.page_to_markdown(layout, levels, tables, words)
-            for layout, tables, words in zip(layouts, markdown_tables, page_words, strict=True)
-        )
-        return "\n\n".join(md for md in rendered if md)
+        _validate_optional_positive_int("max_size", max_size)
+        page_numbers: list[int] = []
+        page_iter = range(self.page_count) if pages is None else pages
+        for pno in page_iter:
+            if len(page_numbers) >= _MAX_MARKDOWN_PAGES:
+                msg = f"pages cannot contain more than {_MAX_MARKDOWN_PAGES} entries"
+                raise ValueError(msg)
+            self._lopdf_page_number(pno)
+            page_numbers.append(pno)
+
+        size_counts: Counter[float] = Counter()
+        for pno in page_numbers:
+            layout = self.get_page_text(pno, "dict")
+            tables = [] if table_strategy is None else _markdown_page_tables(self[pno], table_strategy)
+            bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
+            size_counts.update(_markdown.collect_sizes([layout], [bboxes]))
+        levels = _markdown.heading_levels(size_counts)
+
+        rendered: list[str] = []
+        output_bytes = 0
+        for pno in page_numbers:
+            layout = self.get_page_text(pno, "dict")
+            tables = [] if table_strategy is None else _markdown_page_tables(self[pno], table_strategy)
+            words = self.get_page_text(pno, "words") if tables else None
+            bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
+            markdown_tables = [
+                (
+                    bbox,
+                    _markdown.table_to_markdown(
+                        table.extract(),
+                        orientation=_markdown.table_orientation(layout, bbox),
+                        cell_anchors=table._cell_anchors,
+                    ),
+                )
+                for bbox, table in zip(bboxes, tables, strict=True)
+            ]
+            page_markdown = _markdown.page_to_markdown(layout, levels, markdown_tables, words)
+            if not page_markdown:
+                continue
+            separator_bytes = 2 if rendered else 0
+            if max_size is not None:
+                remaining = max_size - output_bytes - separator_bytes
+                limit_code = "markdown_output_size"
+                limit_message = f"Markdown output exceeds the {max_size}-byte UTF-8 limit"
+                if len(page_markdown) > remaining:
+                    raise LimitError(limit_code, limit_message)
+                page_bytes = len(page_markdown.encode())
+                if page_bytes > remaining:
+                    raise LimitError(limit_code, limit_message)
+            else:
+                page_bytes = 0
+            output_bytes += separator_bytes + page_bytes
+            rendered.append(page_markdown)
+        return "\n\n".join(rendered)
 
     def get_form_fields(self) -> list[FormFieldInfo]:
         """Return AcroForm fields.

@@ -382,7 +382,7 @@ signed_pdf: bytes = out.getvalue()
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write cycle-aware bounded outlines as `[[level, title, page], ...]` (page numbers are 1-based here; caps: 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
-| `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (size-inferred headings, emphasis, CJK-aware joining, bullet normalization, multicolumn and conservative vertical-CJK order; complete bordered tables by default, `"text"` adds conservative borderless tables, `None` disables tables) |
+| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | Page-at-a-time two-pass Markdown conversion, capped at 4,096 pages and cumulative UTF-8 output (`None` opts out); headings, emphasis, CJK joining, lists, columns, vertical order, and bordered/opt-in borderless tables |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; bounded field-tree/name/value/button-state interpretation; checkboxes take bool |
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete attachments; `max_size=None` explicitly opts out, name trees are capped at 4,096 entries/nodes, and add metadata plus inline FileSpec clone shapes are bounded |
@@ -399,7 +399,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text(option="text")` | Text extraction; `"words"` / `"blocks"` / `"dict"` return positioned layout |
 | `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `rotation` corrects rendered input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=0, clip=None, skip_existing=True)` | Recognize and insert an orientation-aware invisible searchable layer; existing searchable text in the selected region is skipped by default |
-| `to_markdown(table_strategy="lines")` | Markdown conversion of this page with the same table controls as the document method |
+| `to_markdown(table_strategy="lines", max_size=64 MiB)` | Single-page Markdown with the same table and UTF-8 output controls as the document method |
 | `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads per page |
