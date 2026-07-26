@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Drawing insertions now compare existing leading/trailing page-content streams
+  against the `q`/`Q` isolation sentinels by borrowing their bytes. The shared
+  path no longer clones both complete streams merely to test exact three-byte
+  content before every image, PDF-page, text, textbox, or OCR-layer insertion.
 - `Document.metadata` now decodes only the eight public standard Info fields,
   releases the GIL, and rejects aggregate source or returned text above 1 MiB
   instead of materializing every custom dictionary entry. `peek_metadata()`

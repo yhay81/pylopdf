@@ -240,6 +240,8 @@ overview.
   extra and auto-detected during rendering.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
+  Sentinel detection borrows the first and last stream bytes; never clone
+  complete page-content streams just to compare them with `b"q\n"`/`b"Q\n"`.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an
