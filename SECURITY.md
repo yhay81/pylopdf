@@ -66,6 +66,11 @@ risky. When processing untrusted files:
   64 levels, 32 destination indirections, or 1 MiB of source/returned text.
   Writes enforce the entry, depth, and source/encoded-title boundaries before
   mutation.
+- `Document.metadata` decodes only the eight standard Info fields and rejects
+  aggregate source or returned text above 1 MiB; custom dictionary entries are
+  not materialized into Python output. `peek_metadata()` caps returned standard
+  text too. Writes preflight 1 MiB aggregate source/encoded text and apply the
+  complete update atomically.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

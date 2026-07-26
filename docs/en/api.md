@@ -23,7 +23,7 @@ deprecation lifecycle.
 | `limits` / `complexity` | immutable open-time resource policy / cheap structural facts without stream decoding |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock (pymupdf semantics) |
 | `is_repaired` | whether opening repaired an incorrect final classic `startxref`; saving normalizes the xref data |
-| `metadata` / `set_metadata(dict)` | Info dictionary (UTF-16BE aware) |
+| `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; bordered tables by default, `"text"` adds borderless tables, `None` disables tables) |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG bytes, ordered parallel PNG batches, or SVG |

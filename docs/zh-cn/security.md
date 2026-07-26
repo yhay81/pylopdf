@@ -95,6 +95,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过4,096个
   node/entry、8,192条edge、64层、32层destination间接引用或1 MiB source/returned
   文本时拒绝部分结果。写入也会在修改前检查entry、深度和title文本上限。
+- `Document.metadata`只解码8个标准Info字段；aggregate source/returned文本超过
+  1 MiB时会拒绝，custom entry不会materialize为Python输出。`peek_metadata()`也
+  限制returned标准文本；写入在修改前检查1 MiB source/encoded文本并原子应用。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的

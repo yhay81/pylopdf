@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.metadata` now decodes only the eight public standard Info fields,
+  releases the GIL, and rejects aggregate source or returned text above 1 MiB
+  instead of materializing every custom dictionary entry. `peek_metadata()`
+  applies the returned-text boundary too. `set_metadata()` now sends one
+  preflighted Rust batch with 1 MiB source/encoded limits, moves inline Info
+  dictionaries without cloning them, and preserves every existing field and
+  cache when any update is rejected.
 - `Document.get_toc()` now replaces lopdf's recursive outline parser with an
   iterative, cycle-aware walk that releases the GIL and rejects partial output
   above 4,096 nodes/entries, 8,192 edges, 64 levels, 32 destination

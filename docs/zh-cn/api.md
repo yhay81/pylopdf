@@ -22,7 +22,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 加密状态与解锁（兼容pymupdf语义） |
 | `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
-| `metadata` / `set_metadata(dict)` | Info字典（支持UTF-16BE） |
+| `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；默认插入边框表，`"text"`增加无边框表，`None`禁用表格转换） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、保序并行PNG批次或SVG |

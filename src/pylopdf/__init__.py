@@ -2122,7 +2122,11 @@ class Document:
 
     @property
     def metadata(self) -> DocumentMetadata:
-        """Return title, author, subject, keywords, dates, producer, and format."""
+        """Return title, author, subject, keywords, dates, producer, and format.
+
+        Only the eight standard Info fields are decoded. Reads reject more than
+        1 MiB of aggregate encoded or returned text.
+        """
         self._ensure_open()
         raw = self._doc.get_metadata()
         return {
@@ -2141,6 +2145,8 @@ class Document:
         """Set metadata, deleting entries whose values are empty strings.
 
         Keys match :attr:`metadata`, except the read-only ``format`` key.
+        The standard fields share 1 MiB input and encoded-text limits. All
+        updates are validated and applied atomically.
         """
         self._ensure_open()
         updates: list[tuple[str, str]] = []
@@ -2153,8 +2159,7 @@ class Document:
                 msg = f"metadata value must be a string: {key!r}={value!r}"
                 raise TypeError(msg)
             updates.append((pdf_key, value))
-        for pdf_key, value in updates:
-            self._doc.set_metadata(pdf_key, value)
+        self._doc.set_metadata_batch(updates)
 
     def to_markdown(
         self,
@@ -2992,7 +2997,7 @@ def peek_metadata(
 
     Return the keys from :attr:`Document.metadata` plus integer ``page_count``
     and boolean ``encrypted`` / ``repaired`` facts. This is suitable for
-    scanning many PDFs.
+    scanning many PDFs. Returned standard Info text is capped at 1 MiB.
     """
     if (filename is None) == (stream is None):
         msg = "specify exactly one of filename or stream"

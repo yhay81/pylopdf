@@ -5,9 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
+
+
+def _build_info_fixture(info: str | bytes) -> bytes:
+    """Build one page whose trailer points to the caller-provided Info object."""
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: info,
+        }
+    )
+    return pdf.replace(b"/Root 1 0 R >>", b"/Root 1 0 R /Info 4 0 R >>")
 
 
 def test_open_from_stream(three_page_pdf: bytes) -> None:
@@ -65,6 +78,39 @@ def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
     with pytest.raises(TypeError, match="must be a string"):
         doc.set_metadata({"author": "変更されない", "title": 42})  # type: ignore[typeddict-item]
     assert doc.metadata["author"] == ""
+
+
+def test_metadata_ignores_large_custom_info_values() -> None:
+    custom = "x" * (1024 * 1024 + 1)
+    doc = pylopdf.open(stream=_build_info_fixture(f"<< /Title (Report) /Custom ({custom}) >>"))
+    assert doc.metadata["title"] == "Report"
+
+
+def test_metadata_reads_reject_excessive_standard_text() -> None:
+    title = "x" * (1024 * 1024 + 1)
+    pdf = _build_info_fixture(f"<< /Title ({title}) >>")
+    doc = pylopdf.open(stream=pdf)
+    with pytest.raises(pylopdf.PdfError, match="source text exceeds the 1048576-byte safety limit"):
+        _ = doc.metadata
+    with pytest.raises(pylopdf.PdfError, match="returned text exceeds the 1048576-byte safety limit"):
+        pylopdf.peek_metadata(stream=pdf)
+
+
+def test_metadata_text_limit_is_atomic(one_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=one_page_pdf)
+    doc.set_metadata({"title": "original"})
+    with pytest.raises(pylopdf.PdfError, match="encoded text exceeds the 1048576-byte safety limit"):
+        doc.set_metadata({"title": "é" * 524288, "subject": "must not change"})
+    assert doc.metadata["title"] == "original"
+    assert doc.metadata["subject"] == ""
+
+
+def test_metadata_text_boundary_roundtrip(one_page_pdf: bytes) -> None:
+    title = "x" * (1024 * 1024)
+    doc = pylopdf.open(stream=one_page_pdf)
+    doc.set_metadata({"title": title})
+    assert doc.metadata["title"] == title
+    assert pylopdf.open(stream=doc.tobytes()).metadata["title"] == title
 
 
 def test_get_page_text(three_page_pdf: bytes) -> None:

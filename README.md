@@ -369,8 +369,8 @@ signed_pdf: bytes = out.getvalue()
 | `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
 | `limits` / `complexity` | Immutable open-time resource policy / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
-| `metadata` | Metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format) |
-| `set_metadata(dict)` | Set metadata (empty string deletes the entry) |
+| `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
+| `set_metadata(dict)` | Atomically set standard metadata under the 1 MiB input/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None)` | Render a page to PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total) |
 | `render_pages(pages=None, scale=1.0, workers=None, ...)` | Render ordered PNGs from one immutable snapshot; up to 4 workers by default, with a ~512 MB estimated working-memory concurrency cap |

@@ -83,6 +83,19 @@ const MAX_TOC_TREE_DEPTH: usize = 64;
 const MAX_TOC_DEST_DEPTH: usize = 32;
 const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
 
+/// Bound standard document Info metadata reads and writes.
+const INFO_METADATA_KEYS: [&[u8]; 8] = [
+    b"Title",
+    b"Author",
+    b"Subject",
+    b"Keywords",
+    b"Creator",
+    b"Producer",
+    b"CreationDate",
+    b"ModDate",
+];
+const MAX_INFO_METADATA_TEXT_BYTES: usize = 1024 * 1024;
+
 const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
 
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
@@ -847,25 +860,94 @@ fn checked_pdf_real(value: f64, name: &str) -> PyResult<f32> {
     Ok(converted)
 }
 
-/// Convert PdfMetadata to an Info dict, page count, version, and encrypted flag.
-fn pdf_metadata_to_tuple(meta: PdfMetadata) -> (BTreeMap<String, String>, u32, String, bool) {
+/// Charge aggregate Info metadata text without overflow or partial output.
+fn add_info_metadata_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
+    *total = total
+        .checked_add(amount)
+        .ok_or_else(|| PdfError::new_err("Info metadata text exceeds the platform size limit"))?;
+    if *total > MAX_INFO_METADATA_TEXT_BYTES {
+        return Err(PdfError::new_err(format!(
+            "Info metadata {label} exceeds the {MAX_INFO_METADATA_TEXT_BYTES}-byte safety limit"
+        )));
+    }
+    Ok(())
+}
+
+/// Return the trailer Info dictionary with one indirect reference resolved.
+fn info_dictionary(doc: &Document) -> Option<&Dictionary> {
+    match doc.trailer.get(b"Info").ok()? {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok(),
+        Object::Dictionary(dictionary) => Some(dictionary),
+        _ => None,
+    }
+}
+
+/// Decode only the eight public standard Info fields under aggregate budgets.
+fn collect_info_metadata(doc: &Document) -> PyResult<BTreeMap<String, String>> {
+    let mut result = BTreeMap::new();
+    let Some(info) = info_dictionary(doc) else {
+        return Ok(result);
+    };
+    let mut source_bytes = 0usize;
+    let mut returned_bytes = 0usize;
+    for key in INFO_METADATA_KEYS {
+        let Ok(value) = info.get(key) else {
+            continue;
+        };
+        let resolved = deref_object(doc, value);
+        let Object::String(encoded, _) = resolved else {
+            continue;
+        };
+        add_info_metadata_budget(&mut source_bytes, encoded.len(), "source text")?;
+        let Ok(text) = decode_text_string(resolved) else {
+            continue;
+        };
+        add_info_metadata_budget(&mut returned_bytes, text.len(), "returned text")?;
+        result.insert(String::from_utf8_lossy(key).into_owned(), text);
+    }
+    Ok(result)
+}
+
+/// Convert PdfMetadata to a bounded Info dict and structural facts.
+fn pdf_metadata_to_tuple(
+    meta: PdfMetadata,
+) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
+    let PdfMetadata {
+        title,
+        author,
+        subject,
+        keywords,
+        creator,
+        producer,
+        creation_date,
+        modification_date,
+        custom,
+        page_count,
+        version,
+        encrypted,
+    } = meta;
+    // pylopdf exposes only the standard fields. Release upstream custom clones
+    // before materializing Python-facing strings.
+    drop(custom);
     let mut map = BTreeMap::new();
     let pairs = [
-        ("Title", meta.title),
-        ("Author", meta.author),
-        ("Subject", meta.subject),
-        ("Keywords", meta.keywords),
-        ("Creator", meta.creator),
-        ("Producer", meta.producer),
-        ("CreationDate", meta.creation_date),
-        ("ModDate", meta.modification_date),
+        ("Title", title),
+        ("Author", author),
+        ("Subject", subject),
+        ("Keywords", keywords),
+        ("Creator", creator),
+        ("Producer", producer),
+        ("CreationDate", creation_date),
+        ("ModDate", modification_date),
     ];
+    let mut returned_bytes = 0usize;
     for (key, value) in pairs {
         if let Some(v) = value {
+            add_info_metadata_budget(&mut returned_bytes, v.len(), "returned text")?;
             map.insert(key.to_string(), v);
         }
     }
-    (map, meta.page_count, meta.version, meta.encrypted)
+    Ok((map, page_count, version, encrypted))
 }
 
 /// Save options enabling object and xref streams.
@@ -2200,13 +2282,84 @@ impl _Document {
         }
     }
 
-    /// Return the trailer Info dictionary with indirect references resolved.
-    fn info_dict(&self) -> Option<&Dictionary> {
-        match self.doc.trailer.get(b"Info").ok()? {
-            Object::Reference(id) => self.doc.get_object(*id).ok()?.as_dict().ok(),
-            Object::Dictionary(dict) => Some(dict),
-            _ => None,
+    /// Validate and apply standard Info metadata updates as one atomic batch.
+    fn set_metadata_entries(&mut self, entries: Vec<(String, String)>) -> PyResult<()> {
+        if entries.is_empty() {
+            return Ok(());
         }
+        if entries.len() > INFO_METADATA_KEYS.len() {
+            return Err(PdfError::new_err(format!(
+                "cannot set more than {} standard Info metadata fields",
+                INFO_METADATA_KEYS.len()
+            )));
+        }
+        let mut seen = HashSet::new();
+        let mut source_bytes = 0usize;
+        let mut encoded_bytes = 0usize;
+        let mut prepared = Vec::with_capacity(entries.len());
+        for (key, value) in entries {
+            if !INFO_METADATA_KEYS.contains(&key.as_bytes()) {
+                return Err(PdfError::new_err(format!(
+                    "unsupported Info metadata key: {key:?}"
+                )));
+            }
+            if !seen.insert(key.clone()) {
+                return Err(PdfError::new_err(format!(
+                    "duplicate Info metadata key: {key:?}"
+                )));
+            }
+            add_info_metadata_budget(&mut source_bytes, value.len(), "source text")?;
+            let encoded = (!value.is_empty()).then(|| text_string(&value));
+            if let Some(Object::String(bytes, _)) = &encoded {
+                add_info_metadata_budget(&mut encoded_bytes, bytes.len(), "encoded text")?;
+            }
+            prepared.push((key.into_bytes(), encoded));
+        }
+
+        let existing_id = match self.doc.trailer.get(b"Info") {
+            Ok(Object::Reference(id)) => {
+                self.doc
+                    .get_object(*id)
+                    .and_then(Object::as_dict)
+                    .map_err(to_py_err)?;
+                Some(*id)
+            }
+            _ => None,
+        };
+        if existing_id.is_none() {
+            self.doc
+                .max_id
+                .checked_add(1)
+                .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+        }
+
+        self.invalidate_hayro_pdf();
+        let info_id = match existing_id {
+            Some(id) => id,
+            None => {
+                let existing = match self.doc.trailer.remove(b"Info") {
+                    Some(Object::Dictionary(dictionary)) => dictionary,
+                    _ => Dictionary::new(),
+                };
+                let id = self.doc.add_object(existing);
+                self.doc.trailer.set("Info", id);
+                id
+            }
+        };
+        let info = self
+            .doc
+            .get_object_mut(info_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        for (key, value) in prepared {
+            match value {
+                Some(value) => info.set(key, value),
+                None => {
+                    info.remove(&key);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Serialize current edit state to bytes for rendering.
@@ -4216,7 +4369,7 @@ impl _Document {
             };
             match original_error {
                 Ok(meta) => {
-                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
                     Ok((metadata, page_count, version, encrypted, false))
                 }
                 Err(original_error) => {
@@ -4242,7 +4395,7 @@ impl _Document {
                     let meta = retried.map_err(|_| {
                         lopdf_err(Some(&format!("failed to load {path}")), &original_error)
                     })?;
-                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
                     Ok((metadata, page_count, version, encrypted, true))
                 }
             }
@@ -4260,7 +4413,7 @@ impl _Document {
         py.detach(|| {
             let (meta, repaired) =
                 load_metadata_with_recovery(data, password.as_deref()).map_err(to_py_err)?;
-            let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+            let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
             Ok((metadata, page_count, version, encrypted, repaired))
         })
     }
@@ -4378,53 +4531,19 @@ impl _Document {
         self.doc.version.clone()
     }
 
-    /// Return Info dictionary strings as `{key: value}`.
-    fn get_metadata(&self) -> BTreeMap<String, String> {
-        let mut result = BTreeMap::new();
-        let Some(info) = self.info_dict() else {
-            return result;
-        };
-        for (key, value) in info.iter() {
-            let resolved = match value {
-                Object::Reference(id) => match self.doc.get_object(*id) {
-                    Ok(object) => object,
-                    Err(_) => continue,
-                },
-                other => other,
-            };
-            if let Ok(text) = decode_text_string(resolved) {
-                result.insert(String::from_utf8_lossy(key).into_owned(), text);
-            }
-        }
-        result
+    /// Return the eight standard Info strings under aggregate text budgets.
+    fn get_metadata(&self, py: Python<'_>) -> PyResult<BTreeMap<String, String>> {
+        py.detach(|| collect_info_metadata(&self.doc))
     }
 
     /// Set an Info entry, deleting it when the value is empty.
     fn set_metadata(&mut self, key: &str, value: &str) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
-        let info_id = if let Ok(Object::Reference(id)) = self.doc.trailer.get(b"Info") {
-            *id
-        } else {
-            // Move an inline dictionary to an indirect object, or create one.
-            let existing = match self.doc.trailer.get(b"Info") {
-                Ok(Object::Dictionary(dict)) => dict.clone(),
-                _ => Dictionary::new(),
-            };
-            let id = self.doc.add_object(existing);
-            self.doc.trailer.set("Info", id);
-            id
-        };
-        let info = self
-            .doc
-            .get_object_mut(info_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        if value.is_empty() {
-            info.remove(key.as_bytes());
-        } else {
-            info.set(key, text_string(value));
-        }
-        Ok(())
+        self.set_metadata_entries(vec![(key.to_owned(), value.to_owned())])
+    }
+
+    /// Atomically update multiple standard Info entries.
+    fn set_metadata_batch(&mut self, entries: Vec<(String, String)>) -> PyResult<()> {
+        self.set_metadata_entries(entries)
     }
 
     /// Delete a one-based page.
