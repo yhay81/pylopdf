@@ -61,6 +61,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `text_glyph_count`、`interpretation_size`、`embedded_file_size`、
 `embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
+`metadata_input_size`、`toc_input_size`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
@@ -173,7 +174,8 @@ xref dataを正規化します。
   準備します。
 - ページラベル番号treeは4,096 entry/node、深さ32、encoded/decoded
   style・prefix text合計1 MiBを超える部分結果を拒否します。参照cycleは一度だけ
-  訪問し、書き込みにも同じentry/text上限を適用します。
+  訪問し、書き込みはPyO3 copy前に`page_label_input_size`で同じentry/text上限を
+  適用します。
 - AcroForm field treeは4,096 entry/node、8,192 edge、深さ64、encoded/
   decoded/returned name・value 1 MiB、choice value 4,096 itemを超える部分結果を
   拒否します。参照cycleは一度だけ訪問し、継承値は返却leafごとに課金します。
@@ -195,12 +197,13 @@ xref dataを正規化します。
 - TOC読み取りは反復outline walkで参照cycleを一度だけ訪問し、GILを解放します。
   4,096 node/entry、8,192 edge、深さ64、destination間接参照32段、source/returned
   text 1 MiBを超える部分結果を拒否します。書き込みもentry・深さ・title textを
-  変更前に検査します。
+  PyO3 copy・変更前に`toc_input_size`で検査します。
 - `Document.metadata`は標準Info 8項目だけをdecodeし、aggregate source/returned
   text 1 MiBを超えると拒否します。custom entryはPython出力にmaterializeしません。
   `peek_metadata(max_file_size=)`はpathまたはbyte inputをparse前に拒否でき、
   returned standard textも制限します。入力の既定値は無制限です。書き込みは
-  source/encoded text 1 MiBを変更前に検査して原子的に適用します。
+  source/encoded text 1 MiBをPyO3 copy前に`metadata_input_size`で検査して
+  原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`は最大4,096 page entryで、累積encoded PNG上限は既定512 MiB
   です。並列結果は1つのatomic budgetを共有し、失敗時に部分listを返しません。

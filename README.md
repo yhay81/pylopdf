@@ -378,7 +378,7 @@ signed_pdf: bytes = out.getvalue()
 | `page_count` / `len(doc)` | Number of pages |
 | `limits` / `complexity` | Immutable open-time resource policy, including optional rendering/extraction snapshot, positioned-text glyph, and plain-text assembly caps / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
 | `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
-| `set_metadata(dict)` | Atomically set standard metadata under the 1 MiB input/encoded boundary (empty string deletes the entry) |
+| `set_metadata(dict)` | Atomically set standard metadata under a 1 MiB pre-PyO3 UTF-8/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
 | `render_page(pno, scale=1.0, dpi=None, background=None, max_size=64 MiB)` | Render bounded PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total); `None` opts out |
 | `render_pages(pages=None, scale=1.0, workers=None, max_size=512 MiB, ...)` | Render up to 4,096 ordered PNGs from one immutable snapshot; up to 4 workers by default, ~512 MB estimated live-work concurrency, and a cumulative encoded-output cap (`None` opts out) |
@@ -389,12 +389,12 @@ signed_pdf: bytes = out.getvalue()
 | `delete_page(pno)` / `delete_pages(iterable)` | Delete up to 4,096 page entries per call; an empty iterable is a true no-op |
 | `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge up to 4,096 pages per call (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
-| `get_toc()` / `set_toc(toc)` | Read/write cycle-aware bounded outlines as `[[level, title, page], ...]` (page numbers are 1-based here; caps: 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
+| `get_toc()` / `set_toc(toc)` | Read/write cycle-aware bounded outlines as `[[level, title, page], ...]` (page numbers are 1-based here; caps: 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text preflighted before PyO3 on writes) |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | Page-at-a-time two-pass Markdown conversion with a bounded linear entry builder, capped at 4,096 pages and cumulative UTF-8 output (`None` opts out); headings, emphasis, CJK joining, lists, columns, vertical order, and bordered/opt-in borderless tables |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | List and fill AcroForm fields with native text/choice/button appearances; bounded field-tree, 1 MiB caller name/value, button-state, and font interpretation; checkboxes take bool |
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=, max_size=64 MiB)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / retrieve / delete attachments under symmetric data/decode defaults; `max_size=None` explicitly opts out, caller text stops at 1 MiB, name trees are capped at 4,096 entries/nodes, and inline FileSpec clone shapes are bounded |
-| `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
+| `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text preflighted before PyO3 on writes |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same, max_size=512 MiB)` | Atomically replace a file after a complete same-directory streamed write, or return bounded PDF bytes; prune / compress / object streams, or AES-256 encryption via 127-byte-bounded `user_pw` / `owner_pw`; `max_size=None` opts out of the byte-return limit |
 | `close()` | Close (supports `with`) |
 

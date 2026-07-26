@@ -75,7 +75,8 @@ risky. When processing untrusted files:
   materialization.
 - Page-label number-tree reads reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
-  are visited once, and writes enforce the same entry/text boundary.
+  are visited once, and writes enforce the same entry/text boundary before
+  PyO3 copying with `page_label_input_size`.
 - AcroForm field-tree reads reject partial output above 4,096 entries/nodes,
   8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
   or 4,096 choice-value items. Reference cycles are visited once, inherited
@@ -100,12 +101,12 @@ risky. When processing untrusted files:
   the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
   64 levels, 32 destination indirections, or 1 MiB of source/returned text.
   Writes enforce the entry, depth, and source/encoded-title boundaries before
-  mutation.
+  PyO3 copying and mutation with `toc_input_size`.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom dictionary entries are
   not materialized into Python output. `peek_metadata()` caps returned standard
-  text too. Writes preflight 1 MiB aggregate source/encoded text and apply the
-  complete update atomically.
+  text too. Writes preflight 1 MiB aggregate source/encoded text before PyO3
+  copying with `metadata_input_size` and apply the complete update atomically.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

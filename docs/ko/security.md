@@ -60,6 +60,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
 `interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
 `form_field_input_size`, `annotation_input_size`, `xmp_metadata_size`,
+`metadata_input_size`, `toc_input_size`, `page_label_input_size`,
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
@@ -178,7 +179,8 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   전에 준비합니다.
 - 페이지 레이블number tree는4,096 entry/node, 깊이32, encoded/decoded
   style·prefix text 합계1 MiB를 넘는 부분 결과를 거부합니다. 참조cycle은 한 번만
-  방문하며 쓰기도 같은entry/text 상한을 적용합니다.
+  방문하며 쓰기는PyO3 copy 전에`page_label_input_size`로 같은entry/text 상한을
+  적용합니다.
 - AcroForm field tree는4,096 entry/node, 8,192 edge, 깊이64, encoded/
   decoded/returned name·value 1 MiB 또는choice value 4,096 item을 넘는 부분 결과를
   거부합니다. 참조cycle은 한 번만 방문하고 상속값은 반환leaf마다 예산에 포함합니다.
@@ -200,12 +202,13 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - TOC 읽기는 반복outline walk로 참조cycle을 한 번만 방문하고GIL을 해제합니다.
   4,096 node/entry, 8,192 edge, 깊이64, destination 간접 참조32단계 또는
   source/returned text 1 MiB를 넘는 부분 결과를 거부합니다. 쓰기도 변경 전에
-  entry, 깊이, title text 상한을 검사합니다.
+  `toc_input_size`로entry, 깊이, title text 상한을 검사합니다.
 - `Document.metadata`는 표준Info 8개 필드만decode하고 aggregate source/returned
   text 1 MiB를 넘으면 거부합니다. custom entry는Python 출력으로materialize하지
   않습니다. `peek_metadata(max_file_size=)`는 parsing 전에 path 또는 byte input을
   거부할 수 있고 returned 표준text도 제한합니다. 입력 기본값은 무제한입니다.
-  쓰기는 변경 전에 source/encoded text 1 MiB를 검사해 원자적으로 적용합니다.
+  쓰기는PyO3 copy 전에`metadata_input_size`로 source/encoded text 1 MiB를 검사해
+  원자적으로 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`는 최대4,096 page entry를 허용하고 누적encoded PNG 기본 상한은
   512 MiB입니다. 병렬 결과는 하나의atomic budget을 공유하며 실패 시 부분list를

@@ -102,8 +102,9 @@ def test_metadata_reads_reject_excessive_standard_text() -> None:
 def test_metadata_text_limit_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(stream=one_page_pdf)
     doc.set_metadata({"title": "original"})
-    with pytest.raises(pylopdf.PdfError, match="encoded text exceeds the 1048576-byte safety limit"):
-        doc.set_metadata({"title": "é" * 524288, "subject": "must not change"})
+    with pytest.raises(pylopdf.LimitError, match="1048576-byte encoded-text safety limit") as caught:
+        doc.set_metadata({"title": "é" * 524288})
+    assert caught.value.code == "metadata_input_size"
     assert doc.metadata["title"] == "original"
     assert doc.metadata["subject"] == ""
 

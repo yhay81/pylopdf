@@ -144,6 +144,7 @@ def test_set_page_labels_refuses_to_create_over_limit_output_atomically() -> Non
         doc.set_page_labels([{"startpage": 0}] * 4097)
     assert doc.tobytes() == before
 
-    with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="1048576-byte") as caught:
         doc.set_page_labels([{"startpage": 0, "prefix": "x" * (1024 * 1024 + 1)}])
+    assert caught.value.code == "page_label_input_size"
     assert doc.tobytes() == before

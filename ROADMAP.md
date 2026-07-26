@@ -565,7 +565,9 @@ known-limit behavior are polished together.
       nodes, visit cycles once, release the GIL, and reject partial results
       above 4,096 entries/nodes, 32 levels, or 1 MiB of label text. Writes
       enforce the same entry/text boundary before mutation instead of creating
-      output the reader must reject.
+      output the reader must reject. Caller style/prefix UTF-8 and exact PDF
+      text size now stop before PyO3 copying with `page_label_input_size`, and
+      direct Rust calls repeat the boundary (2026-07-26).
 - [x] Bound AcroForm field-tree interpretation and fills. Reads now borrow
       object shapes, visit cycles once, release the GIL, and reject partial
       output above field/node/edge/depth and aggregate name/value budgets.
@@ -597,10 +599,14 @@ known-limit behavior are polished together.
       walk. Reads visit cycles once, release the GIL, index named destinations
       once, and enforce node/entry/edge/depth/destination/text budgets. Writes
       preflight compatible entry, depth, and title-text budgets atomically.
+      Caller title UTF-8 and exact PDF text size now stop before PyO3 copying
+      with `toc_input_size`, repeated by direct Rust calls (2026-07-26).
 - [x] Bound standard Info metadata materialization and updates. Full-document
       reads decode only the eight public fields under source/returned-text
       budgets, the fast probe bounds returned standard text, and batch writes
-      preflight source/encoded text before one atomic mutation.
+      preflight source/encoded text before one atomic mutation. Caller UTF-8
+      and exact PDF text size now stop before PyO3 copying with
+      `metadata_input_size`, repeated by direct Rust calls (2026-07-26).
 - [x] Bound fast metadata-probe input on demand (2026-07-26).
       `peek_metadata(..., *, max_file_size=None)` now rejects oversized paths
       through a one-byte-overrun read and checks byte input before parsing;

@@ -99,10 +99,14 @@ _DEFAULT_MAX_GENERATED_TEXT_SIZE = 1024 * 1024
 _MAX_GENERATED_TEXT_LINES = 4096
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
+_MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
+_MAX_TOC_INPUT_TEXT_SIZE = 1024 * 1024
+_MAX_PAGE_LABEL_INPUT_TEXT_SIZE = 1024 * 1024
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
 _UTF8_TWO_BYTE_MIN = 1 << 7
 _UTF8_THREE_BYTE_MIN = 1 << 11
 _UTF8_FOUR_BYTE_MIN = 1 << 16
+_UTF16_BMP_MAX = (1 << 16) - 1
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_ANNOTATION_INPUT_TEXT_SIZE = 1024 * 1024
@@ -1268,6 +1272,36 @@ def _validate_cumulative_utf8_input(
             raise LimitError(
                 limit_code,
                 f"{input_label} exceeds the {limit}-byte UTF-8 safety limit",
+            )
+        remaining -= size
+
+
+def _validate_cumulative_pdf_text_input(
+    values: Iterable[str],
+    limit: int,
+    *,
+    limit_code: str,
+    input_label: str,
+) -> None:
+    """Bound aggregate ASCII or UTF-16BE PDF text strings without encoding."""
+    remaining = limit
+    for value in values:
+        size: int | None
+        if value.isascii():
+            size = len(value)
+            if size > remaining:
+                size = None
+        else:
+            size = 2  # UTF-16BE byte-order mark.
+            for character in value:
+                size += 2 if ord(character) <= _UTF16_BMP_MAX else 4
+                if size > remaining:
+                    size = None
+                    break
+        if size is None:
+            raise LimitError(
+                limit_code,
+                f"{input_label} exceeds the {limit}-byte encoded-text safety limit",
             )
         remaining -= size
 
@@ -2678,7 +2712,8 @@ class Document:
 
         Keys match :attr:`metadata`, except the read-only ``format`` key.
         The standard fields share 1 MiB input and encoded-text limits. All
-        updates are validated and applied atomically.
+        updates are validated before PyO3 copying and applied atomically.
+        Caller refusals use ``LimitError.code == "metadata_input_size"``.
         """
         self._ensure_open()
         updates: list[tuple[str, str]] = []
@@ -2691,6 +2726,19 @@ class Document:
                 msg = f"metadata value must be a string: {key!r}={value!r}"
                 raise TypeError(msg)
             updates.append((pdf_key, value))
+        values = [value for _, value in updates]
+        _validate_cumulative_utf8_input(
+            values,
+            _MAX_METADATA_INPUT_TEXT_SIZE,
+            limit_code="metadata_input_size",
+            input_label="Info metadata input",
+        )
+        _validate_cumulative_pdf_text_input(
+            (value for value in values if value),
+            _MAX_METADATA_INPUT_TEXT_SIZE,
+            limit_code="metadata_input_size",
+            input_label="encoded Info metadata input",
+        )
         self._doc.set_metadata_batch(updates)
 
     def to_markdown(
@@ -2911,6 +2959,8 @@ class Document:
 
         The PDF specification requires the first range to start at page 0.
         ``firstpagenum`` defaults to 1 for each range.
+        Aggregate style and prefix input plus encoded PDF text stop at 1 MiB
+        before PyO3 copying with ``page_label_input_size``.
         """
         self._ensure_open()
         if len(labels) > _MAX_PAGE_LABEL_RANGES:
@@ -2938,6 +2988,26 @@ class Document:
             msg = "the first page label range must start at startpage 0 (PDF spec requirement)"
             raise ValueError(msg)
         payload.sort(key=lambda item: item[0])
+        _validate_cumulative_utf8_input(
+            (
+                text
+                for _, style, prefix, _ in payload
+                for text in ("" if style is None else style, "" if prefix is None else prefix)
+            ),
+            _MAX_PAGE_LABEL_INPUT_TEXT_SIZE,
+            limit_code="page_label_input_size",
+            input_label="page-label text input",
+        )
+        _validate_cumulative_pdf_text_input(
+            (
+                text
+                for _, style, prefix, _ in payload
+                for text in ("" if style is None else style, "" if prefix is None else prefix)
+            ),
+            _MAX_PAGE_LABEL_INPUT_TEXT_SIZE,
+            limit_code="page_label_input_size",
+            input_label="encoded page-label text input",
+        )
         self._doc.set_page_labels(payload)
 
     def embfile_add(
@@ -3274,6 +3344,8 @@ class Document:
         1 MiB each of input and encoded title text are accepted. Levels start at
         1 and can increase by at most one from the previous entry. Page numbers
         are one-based, matching :meth:`get_toc`. Validation is atomic.
+        Caller text refusals occur before PyO3 copying with
+        ``LimitError.code == "toc_input_size"``.
         """
         self._ensure_open()
         if len(toc) > _MAX_TOC_ENTRIES:
@@ -3298,6 +3370,19 @@ class Document:
                 raise ValueError(msg)
             entries.append((level, str(title), page))
             previous_level = level
+        titles = [title for _, title, _ in entries]
+        _validate_cumulative_utf8_input(
+            titles,
+            _MAX_TOC_INPUT_TEXT_SIZE,
+            limit_code="toc_input_size",
+            input_label="TOC title input",
+        )
+        _validate_cumulative_pdf_text_input(
+            titles,
+            _MAX_TOC_INPUT_TEXT_SIZE,
+            limit_code="toc_input_size",
+            input_label="encoded TOC title input",
+        )
         self._doc.set_toc(entries)
 
     def set_fallback_font(
