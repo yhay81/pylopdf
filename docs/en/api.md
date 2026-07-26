@@ -69,7 +69,7 @@ images are not considered. Repeating the same settings is idempotent.
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, or auto-selected JP metrics; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads, one cycle-aware named-destination index per call, and creation |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; rendering conservatively supplies missing appearances for bounded RGB Highlights with valid `QuadPoints` without changing the source PDF |
 
 `get_drawings()` returns `DrawingInfo` dictionaries with `type="f"`, `"s"`,
 or `"fs"`, self-contained line/cubic `items`, `rect`, RGB/opacity, fill rule,

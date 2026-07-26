@@ -300,8 +300,9 @@ def test_pdfium_soft_mask_and_blend_render_expected_region() -> None:
 
 
 def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
-    """Read independent Widget, Link, and Highlight dictionaries in source order."""
-    page = pylopdf.open(ASSETS / "pdfium-links-highlights-annots.pdf")[0]
+    """Read and render independent annotations without editing their source."""
+    document = pylopdf.open(ASSETS / "pdfium-links-highlights-annots.pdf")
+    page = document[0]
     annotations = page.annots()
 
     assert [annotation["type"] for annotation in annotations] == [
@@ -320,6 +321,15 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
             "uri": "https://www.google.com/",
         }
     ]
+    pixmap = page.get_pixmap(background=(255, 255, 255))
+    samples = pixmap.samples
+    yellow_offset = (252 * pixmap.width + 320) * 4
+    red, green, blue = samples[yellow_offset : yellow_offset + 3]
+    assert red > 245
+    assert 215 < green < 240
+    assert blue < 16
+    assert any(samples[(y * pixmap.width + x) * 4] < 128 for y in range(250, 263) for x in range(293, 350))
+    assert b"/AP" not in document.tobytes()
 
 
 def test_f1040_metadata_title() -> None:

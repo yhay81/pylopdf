@@ -360,7 +360,10 @@ overview.
   lopdf graph before importing the source Form XObject so the target page can
   safely source itself without serialization or mutable aliasing. Annotations
   must always include an appearance stream at `AP /N`, because hayro does not
-  render annotations without one. `render_annotations` defaults to true.
+  render annotations without one. The immutable rendering snapshot
+  conservatively synthesizes missing appearances for bounded RGB Highlight
+  annotations with valid `QuadPoints`; this must not mutate the editable or
+  saved PDF. `render_annotations` defaults to true.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
   page content, aggregate font encoding data, intermediate growth, and the
