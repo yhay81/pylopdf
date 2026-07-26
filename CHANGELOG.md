@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boundary, direct Rust calls repeat the check, exact limits succeed, and
   refusals use `LimitError.code == "file_size"`. The unbounded default preserves
   the existing collection-scanning API.
+- `Document.embfile_add(..., max_size=64 * 1024 * 1024)` now bounds attachment
+  data before its PyO3 copy, matching the default retrieval limit so a
+  successful default write remains readable with default `embfile_get()`.
+  Direct Rust calls repeat the boundary, refusals are atomic and use
+  `embedded_file_size`, and `None` explicitly opts trusted input out.
 
 ### Changed
 - The free-threaded extraction benchmark now writes a standalone

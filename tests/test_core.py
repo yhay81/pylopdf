@@ -248,6 +248,23 @@ def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: P
     assert doc.save_bytes() == before
 
 
+def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    payload = b"1234"
+    doc.embfile_add("exact.bin", payload, None, None, len(payload))
+
+    before = doc.save_bytes()
+    with pytest.raises(LimitError) as caught:
+        doc.embfile_add("too-large.bin", payload, None, None, len(payload) - 1)
+    assert caught.value.args[0] == "embedded_file_size"
+    assert doc.save_bytes() == before
+
+    with pytest.raises(ValueError, match="max_size"):
+        doc.embfile_add("zero.bin", payload, None, None, 0)
+    doc.embfile_add("unbounded.bin", payload, None, None, None)
+    assert doc.embfile_get("unbounded.bin", len(payload)) == payload
+
+
 def test_merge_into_empty(three_page_pdf: bytes) -> None:
     doc = _Document()
     doc.merge(_Document.load_bytes(three_page_pdf))

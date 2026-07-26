@@ -109,9 +109,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   cache、generation及现有`Page` view。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
-- `Document.embfile_get()`默认将每个filter层的解码输出限制为64 MiB。对于已知的
-  大型附件可提高`max_size=`；`max_size=None`会显式接受无限制materialization。
-  附件name tree超过4,096个entry/node、32层或encoded/decoded名称合计1 MiB时也会拒绝。
+- `Document.embfile_add()`会在PyO3 copy前拒绝超过64 MiB的输入，
+  `embfile_get()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
+  `max_size=`；`max_size=None`会显式接受无限制输入或materialization。附件name tree
+  超过4,096个entry/node、32层或encoded/decoded名称合计1 MiB时也会拒绝。
   添加时key/filename/description输入合计上限为1 MiB。编辑会在clone inline
   FileSpec之前检查4,096个direct object、32层和1 MiB direct string/name/stream
   data上限，并预检Catalog写入目标，无需为rollback clone整个文档。

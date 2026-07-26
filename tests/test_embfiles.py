@@ -49,6 +49,36 @@ def test_embfile_add_get_roundtrip() -> None:
     assert reopened.embfile_get("invoice.xml") == payload
 
 
+def test_embfile_add_bounds_input_atomically() -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    payload = b"1234"
+
+    doc.embfile_add("exact.bin", payload, max_size=len(payload))
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.embfile_add("too-large.bin", payload, max_size=len(payload) - 1)
+    assert caught.value.code == "embedded_file_size"
+    assert doc.tobytes() == before
+    assert doc.embfile_names() == ["exact.bin"]
+
+    doc.embfile_add("unbounded.bin", payload, max_size=None)
+    assert doc.embfile_get("unbounded.bin") == payload
+
+
+@pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
+def test_embfile_add_rejects_non_integer_size_limits(max_size: object) -> None:
+    doc = pylopdf.Document()
+    with pytest.raises(TypeError, match="max_size"):
+        doc.embfile_add("x", b"x", max_size=max_size)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("max_size", [0, -1])
+def test_embfile_add_rejects_non_positive_size_limits(max_size: int) -> None:
+    doc = pylopdf.Document()
+    with pytest.raises(ValueError, match="max_size"):
+        doc.embfile_add("x", b"x", max_size=max_size)
+
+
 def test_embfile_survives_compressed_and_garbage_save() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello"]))
     payload = b"repetitive " * 1000
