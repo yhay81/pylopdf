@@ -116,7 +116,7 @@ pub struct Pixmap {
     pub(crate) width: u32,
     pub(crate) height: u32,
     /// Row-major straight-alpha RGBA8 data.
-    pub(crate) data: Arc<[u8]>,
+    pub(crate) data: Arc<Vec<u8>>,
 }
 
 impl Pixmap {

@@ -1607,13 +1607,19 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
 }
 
 /// Convert a hayro Pixmap to straight-alpha RGBA8 bytes.
-fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
+fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
     let pixels = pixmap.take_unpremultiplied();
-    let mut out = Vec::with_capacity(pixels.len() * 4);
+    let output_len = pixels
+        .len()
+        .checked_mul(4)
+        .ok_or_else(|| "rendered RGBA buffer size overflowed".to_owned())?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(output_len)
+        .map_err(|error| format!("failed to allocate rendered RGBA buffer: {error}"))?;
     for px in pixels {
         out.extend_from_slice(&[px.r, px.g, px.b, px.a]);
     }
-    out
+    Ok(out)
 }
 
 /// Crop straight-alpha RGBA8 bytes to a display-coordinate rectangle.
@@ -1659,14 +1665,19 @@ fn crop_rgba_bytes(
         .ok()
         .and_then(|value| value.checked_mul(4))
         .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-    let mut cropped = Vec::with_capacity(capacity);
+    let mut cropped = Vec::new();
+    cropped
+        .try_reserve_exact(capacity)
+        .map_err(|error| format!("failed to allocate cropped RGBA buffer: {error}"))?;
     for y in pixel_y0..pixel_y1 {
         let row_start = usize::try_from(y)
             .ok()
             .and_then(|value| value.checked_mul(source_stride))
             .and_then(|value| value.checked_add(source_x))
             .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        let row_end = row_start + row_bytes;
+        let row_end = row_start
+            .checked_add(row_bytes)
+            .ok_or_else(|| "cropped page offset is too large".to_owned())?;
         cropped.extend_from_slice(
             data.get(row_start..row_end)
                 .ok_or_else(|| "cropped page exceeds the rendered image".to_owned())?,
@@ -1739,7 +1750,7 @@ fn render_pdf_page<'a>(
 fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap);
+    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
     match crate::extract::encode_png_bounded(
         width,
         height,
@@ -1838,7 +1849,7 @@ fn rendered_batch_png(
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap);
+    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
     let mut output = BatchPngOutput::new(max_size, output_bytes);
     let result = crate::extract::write_png(
         &mut output,
@@ -6241,7 +6252,7 @@ impl _Document {
         // Release the GIL: unpremultiplication, conversion, and cropping are costly.
         let (width, height, data) = py
             .detach(|| {
-                let data = rgba_bytes(pixmap);
+                let data = rgba_bytes(pixmap)?;
                 match clip {
                     Some(clip) => crop_rgba_bytes(&data, width, height, scale, clip),
                     None => Ok((width, height, data)),
@@ -6251,7 +6262,7 @@ impl _Document {
         Ok(crate::pixmap::Pixmap {
             width,
             height,
-            data: data.into(),
+            data: Arc::new(data),
         })
     }
 

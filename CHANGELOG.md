@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every encoder write across workers, refusing the first crossing chunk before
   retention instead of letting each parallel page finish against the complete
   batch limit.
+- `Page.get_pixmap()` now moves its completed RGBA `Vec<u8>` into shared
+  immutable storage without copying the complete raster into a slice Arc.
+  Straight-alpha conversion and cropped output also use fallible exact
+  reservation so allocation refusal becomes a `PdfError`.
 
 ## [0.12.0] - 2026-07-26
 

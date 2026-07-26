@@ -213,7 +213,7 @@ overview.
   budget enforced before RTen parses either model; `max_model_size=None` is
   the explicit trusted-input opt-out. Dictionary materialization stops at
   65,536 entries. Loading and inference release the GIL. OCR clones the
-  Pixmap's `Arc<[u8]>`, composites
+  Pixmap's shared immutable RGBA backing, composites
   RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
   pixels, a 4096-candidate cap, and deterministic edge deduplication. The
   default 1408-pixel tile and 192-pixel overlap measured about 419 MiB peak on
@@ -284,7 +284,9 @@ overview.
 - `Page.get_pixmap(clip=)` accepts rotation-resolved display coordinates,
   intersects them with the page, and rounds outward to pixel boundaries.
   hayro 0.7 lacks an offset viewport, so clipping crops a full-page raster and
-  does not relax the full-page render-size limits.
+  does not relax the full-page render-size limits. Straight-alpha conversion
+  and cropped output reserve their RGBA buffers fallibly, and the completed
+  `Vec<u8>` moves into an `Arc<Vec<u8>>` without copying the complete raster.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.
