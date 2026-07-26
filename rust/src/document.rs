@@ -824,6 +824,39 @@ fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
     LimitError::new_err((code, message.into()))
 }
 
+/// Charge one caller-text budget with a stable machine-readable limit code.
+fn add_input_text_budget(
+    total: &mut usize,
+    amount: usize,
+    limit: usize,
+    code: &'static str,
+    label: &str,
+) -> PyResult<()> {
+    *total = total.checked_add(amount).ok_or_else(|| {
+        limit_err(
+            code,
+            format!("{label} exceeds the platform text-size limit"),
+        )
+    })?;
+    if *total > limit {
+        return Err(limit_err(
+            code,
+            format!("{label} exceeds the {limit}-byte safety limit"),
+        ));
+    }
+    Ok(())
+}
+
+/// Compute lopdf's ASCII-or-UTF-16BE text-string size without allocating it.
+fn pdf_text_string_len(value: &str) -> Option<usize> {
+    if value.is_ascii() {
+        return Some(value.len());
+    }
+    value
+        .encode_utf16()
+        .try_fold(2usize, |size, _| size.checked_add(2))
+}
+
 /// Map one text collector refusal to its stable public resource code.
 fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr {
     match error {
@@ -2791,11 +2824,31 @@ impl _Document {
                     "duplicate Info metadata key: {key:?}"
                 )));
             }
-            add_info_metadata_budget(&mut source_bytes, value.len(), "source text")?;
-            let encoded = (!value.is_empty()).then(|| text_string(&value));
-            if let Some(Object::String(bytes, _)) = &encoded {
-                add_info_metadata_budget(&mut encoded_bytes, bytes.len(), "encoded text")?;
-            }
+            add_input_text_budget(
+                &mut source_bytes,
+                value.len(),
+                MAX_INFO_METADATA_TEXT_BYTES,
+                "metadata_input_size",
+                "Info metadata source text",
+            )?;
+            let encoded = if value.is_empty() {
+                None
+            } else {
+                let encoded_len = pdf_text_string_len(&value).ok_or_else(|| {
+                    limit_err(
+                        "metadata_input_size",
+                        "Info metadata encoded text exceeds the platform text-size limit",
+                    )
+                })?;
+                add_input_text_budget(
+                    &mut encoded_bytes,
+                    encoded_len,
+                    MAX_INFO_METADATA_TEXT_BYTES,
+                    "metadata_input_size",
+                    "Info metadata encoded text",
+                )?;
+                Some(text_string(&value))
+            };
             prepared.push((key.into_bytes(), encoded));
         }
 
@@ -5925,18 +5978,26 @@ impl _Document {
                     "TOC depth exceeds the {MAX_TOC_TREE_DEPTH}-level safety limit"
                 )));
             }
-            add_toc_text_budget(&mut source_bytes, title.len(), "source text")?;
-            let encoded_len = if title.is_ascii() {
-                title.len()
-            } else {
-                title
-                    .encode_utf16()
-                    .count()
-                    .checked_mul(2)
-                    .and_then(|length| length.checked_add(2))
-                    .ok_or_else(|| PdfError::new_err("TOC text exceeds the platform size limit"))?
-            };
-            add_toc_text_budget(&mut encoded_bytes, encoded_len, "encoded text")?;
+            add_input_text_budget(
+                &mut source_bytes,
+                title.len(),
+                MAX_TOC_TEXT_BYTES,
+                "toc_input_size",
+                "TOC source text",
+            )?;
+            let encoded_len = pdf_text_string_len(&title).ok_or_else(|| {
+                limit_err(
+                    "toc_input_size",
+                    "TOC encoded text exceeds the platform text-size limit",
+                )
+            })?;
+            add_input_text_budget(
+                &mut encoded_bytes,
+                encoded_len,
+                MAX_TOC_TEXT_BYTES,
+                "toc_input_size",
+                "TOC encoded text",
+            )?;
             let page_id = *pages
                 .get(&page)
                 .ok_or_else(|| PdfError::new_err(format!("page {page} does not exist")))?;
@@ -6839,24 +6900,45 @@ impl _Document {
         for (start, style, prefix, st) in labels {
             let mut label = Dictionary::new();
             if let Some(s) = style {
-                encoded_text_bytes = encoded_text_bytes.saturating_add(s.len());
-                decoded_text_bytes = decoded_text_bytes.saturating_add(s.len());
+                add_input_text_budget(
+                    &mut encoded_text_bytes,
+                    s.len(),
+                    MAX_PAGE_LABEL_TEXT_BYTES,
+                    "page_label_input_size",
+                    "encoded page-label text",
+                )?;
+                add_input_text_budget(
+                    &mut decoded_text_bytes,
+                    s.len(),
+                    MAX_PAGE_LABEL_TEXT_BYTES,
+                    "page_label_input_size",
+                    "page-label source text",
+                )?;
                 label.set("S", Object::Name(s.into_bytes()));
             }
             if let Some(p) = prefix {
-                decoded_text_bytes = decoded_text_bytes.saturating_add(p.len());
+                add_input_text_budget(
+                    &mut decoded_text_bytes,
+                    p.len(),
+                    MAX_PAGE_LABEL_TEXT_BYTES,
+                    "page_label_input_size",
+                    "page-label source text",
+                )?;
+                let encoded_len = pdf_text_string_len(&p).ok_or_else(|| {
+                    limit_err(
+                        "page_label_input_size",
+                        "encoded page-label text exceeds the platform text-size limit",
+                    )
+                })?;
+                add_input_text_budget(
+                    &mut encoded_text_bytes,
+                    encoded_len,
+                    MAX_PAGE_LABEL_TEXT_BYTES,
+                    "page_label_input_size",
+                    "encoded page-label text",
+                )?;
                 let encoded = text_string(&p);
-                if let Object::String(bytes, _) = &encoded {
-                    encoded_text_bytes = encoded_text_bytes.saturating_add(bytes.len());
-                }
                 label.set("P", encoded);
-            }
-            if encoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
-                || decoded_text_bytes > MAX_PAGE_LABEL_TEXT_BYTES
-            {
-                return Err(PdfError::new_err(format!(
-                    "page-label text exceeds the {MAX_PAGE_LABEL_TEXT_BYTES}-byte safety limit"
-                )));
             }
             if st != 1 {
                 label.set("St", st);

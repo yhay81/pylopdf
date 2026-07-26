@@ -464,21 +464,24 @@ overview.
   destinations once, and reject partial results above 4,096 nodes/entries,
   8,192 edges, 64 levels, 32 destination indirections, or 1 MiB of
   source/returned text. `set_toc` preflights the entry, depth, and
-  source/encoded-title boundaries before mutation.
+  source/encoded-title boundaries before PyO3 copying and mutation, using
+  `toc_input_size`; direct Rust calls repeat the text boundary.
 - Info metadata reads decode only the eight public standard fields, release the
   GIL, and reject aggregate source or returned text above 1 MiB. The fast
   metadata probe applies the returned-text boundary and accepts an optional
   input-file boundary before parsing. Bounded path reads admit at most one byte
   beyond the budget, byte input is checked directly, and failures use
   `LimitError.code == "file_size"`. `set_metadata` must batch and preflight the
-  1 MiB source/encoded boundary before mutation; inline Info dictionaries are
-  moved rather than cloned.
+  1 MiB source/encoded boundary before PyO3 copying with
+  `metadata_input_size`; direct Rust calls repeat the boundary. Inline Info
+  dictionaries are moved rather than cloned.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a
   silent depth-truncated list. `set_page_labels` must enforce the same
-  entry/text boundary before mutation and invalidate caches only after success.
+  entry/text boundary before PyO3 copying with `page_label_input_size`, repeat
+  it in direct Rust calls, and invalidate caches only after success.
 - `Document.get_pdfa_claim` releases the GIL and defaults to a 1 MiB decoded
   XMP limit applied to every filter layer. `max_size=None` is the explicit
   unbounded opt-out and failures use `LimitError.code == "xmp_metadata_size"`;

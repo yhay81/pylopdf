@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Info metadata, TOC title, and page-label style/prefix writes now preflight
+  both aggregate caller UTF-8 and exact ASCII/UTF-16BE PDF text size before
+  PyO3 copying. Direct Rust calls repeat all three 1 MiB boundaries, failures
+  remain atomic, and stable codes are `metadata_input_size`,
+  `toc_input_size`, and `page_label_input_size`.
 - Annotation creation now rejects aggregate generated subtype plus
   Contents/URI input above 1 MiB before PyO3 string copying, rectangle
   iteration, or PDF mutation. Direct Rust calls repeat the boundary,

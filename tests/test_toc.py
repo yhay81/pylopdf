@@ -160,8 +160,9 @@ def test_set_toc_limits_are_atomic(three_page_pdf: bytes) -> None:
     original: list[list[int | str]] = [[1, "original", 1]]
     doc.set_toc(original)
 
-    with pytest.raises(pylopdf.PdfError, match="encoded text exceeds the 1048576-byte safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="1048576-byte encoded-text safety limit") as caught:
         doc.set_toc([[1, "é" * 524288, 1]])
+    assert caught.value.code == "toc_input_size"
     assert doc.get_toc() == original
 
     too_deep: list[list[int | str]] = [[level, str(level), 1] for level in range(1, 66)]

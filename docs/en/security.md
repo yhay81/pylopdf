@@ -63,7 +63,8 @@ per-stream budget and cannot be combined with `limits=`.
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
 `embedded_file_input_size`, `form_field_input_size`,
-`annotation_input_size`, `xmp_metadata_size`, `render_output_size`,
+`annotation_input_size`, `metadata_input_size`, `toc_input_size`,
+`page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
@@ -196,7 +197,8 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   all input-derived buffers are prepared before PDF mutation.
 - Page-label number-tree reads reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
-  are visited once; writes enforce the same entry/text boundary.
+  are visited once; writes enforce the same entry/text boundary before PyO3
+  copying with `page_label_input_size`.
 - AcroForm field-tree reads reject partial output above 4,096 entries/nodes,
   8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
   or 4,096 choice-value items. Reference cycles are visited once, inherited
@@ -220,13 +222,14 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
   the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
   64 levels, 32 destination indirections, or 1 MiB of source/returned text.
-  Writes enforce compatible entry, depth, and title-text limits before mutation.
+  Writes enforce compatible entry, depth, and title-text limits before PyO3
+  copying and mutation with `toc_input_size`.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom entries do not become
   Python output. `peek_metadata(max_file_size=)` can reject path or byte input
   before parsing and also caps returned standard text; `None` preserves the
   unbounded input default. Writes preflight 1 MiB aggregate source/encoded text
-  and apply atomically.
+  before PyO3 copying with `metadata_input_size` and apply atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` accepts at most 4,096 page entries and defaults to a 512 MiB
   cumulative encoded-PNG limit. Completed parallel results share one atomic

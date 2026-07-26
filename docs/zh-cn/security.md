@@ -56,6 +56,7 @@ Web预设目前独立应用以下上限：
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
 `embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
+`metadata_input_size`、`toc_input_size`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -156,7 +157,7 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   停止，并在PDF变更前准备所有输入派生buffer。
 - 页码标签number tree会拒绝超过4,096个entry/node、32层或encoded/decoded
   style与prefix文本合计1 MiB的部分结果。引用cycle只访问一次，写入也执行相同的
-  entry/text上限。
+  entry/text上限，并在PyO3 copy前使用`page_label_input_size`。
 - AcroForm field tree会拒绝超过4,096个entry/node、8,192条edge、64层、1 MiB
   encoded/decoded/returned名称或值、或4,096个choice value item的部分结果。
   引用cycle只访问一次，继承值按每个返回leaf计入预算；填写也原子地执行相同的
@@ -175,11 +176,13 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   `Page.get_links()`每次call只构建一个borrowed index，不会为每个named link重复遍历。
 - TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过4,096个
   node/entry、8,192条edge、64层、32层destination间接引用或1 MiB source/returned
-  文本时拒绝部分结果。写入也会在修改前检查entry、深度和title文本上限。
+  文本时拒绝部分结果。写入会在PyO3 copy与修改前以`toc_input_size`检查entry、
+  深度和title文本上限。
 - `Document.metadata`只解码8个标准Info字段；aggregate source/returned文本超过
   1 MiB时会拒绝，custom entry不会materialize为Python输出。
   `peek_metadata(max_file_size=)`可在解析前拒绝path或byte input，并限制returned
-  标准文本；输入默认不设上限。写入在修改前检查1 MiB source/encoded文本并原子应用。
+  标准文本；输入默认不设上限。写入在PyO3 copy前以`metadata_input_size`检查
+  1 MiB source/encoded文本并原子应用。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`最多接受4,096个page entry，累计encoded PNG默认上限为512 MiB。
   并行结果共享一个atomic budget，失败时不返回部分list；`max_size=None`可显式
