@@ -106,6 +106,9 @@ overview.
   conversion passes each table the remaining aggregate Markdown budget before
   page assembly. Direct `Table.to_markdown` calls preflight exact escaped UTF-8
   size, including merged-cell expansion, and default to the same 64 MiB limit.
+  Page headings, paragraphs, lists, and tables are charged as retained entries;
+  paragraph and consecutive-list assembly must remain linear rather than using
+  repeated immutable-string concatenation.
   Extraction coordinates use the same display space as rendering by passing
   `initial_transform(true)` to the context, resolving page rotation and CropBox
   offsets. Baseline direction is retained and exposed in line dicts. Rotated

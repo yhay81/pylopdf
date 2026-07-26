@@ -902,6 +902,33 @@ def _markdown_table_output(
     return bboxes, rendered
 
 
+class _MarkdownBudget(NamedTuple):
+    """Public limit and remaining aggregate bytes for one page."""
+
+    limit: int | None
+    remaining: int | None
+
+
+def _bounded_markdown_page_output(
+    layout: TextPage,
+    levels: dict[float, int],
+    tables: list[tuple[tuple[float, float, float, float], str]],
+    words: list[WordEntry] | None,
+    budget: _MarkdownBudget,
+) -> str:
+    """Render one page while translating the internal output-limit signal."""
+    try:
+        return _markdown.page_to_markdown(
+            layout,
+            levels,
+            tables,
+            words,
+            max_size=None if budget.remaining is None else max(0, budget.remaining),
+        )
+    except _markdown.MarkdownOutputLimitError:
+        raise _markdown_output_limit_error(cast("int", budget.limit)) from None
+
+
 #: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
 _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
@@ -2349,7 +2376,13 @@ class Document:
                 remaining_size=page_budget,
             )
             words = self.get_page_text(pno, "words") if tables else None
-            page_markdown = _markdown.page_to_markdown(layout, levels, markdown_tables, words)
+            page_markdown = _bounded_markdown_page_output(
+                layout,
+                levels,
+                markdown_tables,
+                words,
+                _MarkdownBudget(max_size, page_budget),
+            )
             if not page_markdown:
                 continue
             if max_size is not None:

@@ -249,13 +249,14 @@ def _is_cjk(ch: str) -> bool:
 
 def _join_lines(lines: list[str]) -> str:
     """Join paragraph lines with no CJK gap and one space otherwise."""
-    out = lines[0]
+    parts = [lines[0]]
+    previous = lines[0]
     for line in lines[1:]:
-        if out and line and _is_cjk(out[-1]) and _is_cjk(line[0]):
-            out += line
-        else:
-            out += " " + line
-    return out
+        if not (previous and line and _is_cjk(previous[-1]) and _is_cjk(line[0])):
+            parts.append(" ")
+        parts.append(line)
+        previous = line
+    return "".join(parts)
 
 
 #: pymupdf-compatible span flag bits: italic=2, serif=4, mono=8, bold=16.
@@ -433,25 +434,6 @@ def _residual_line_texts(
     return residuals
 
 
-def _flush_paragraph(entries: list[tuple[str, str]], paragraph: list[str]) -> None:
-    """Append and clear a pending paragraph."""
-    if paragraph:
-        entries.append(("p", _join_lines(paragraph)))
-        paragraph.clear()
-
-
-def _append_tables(
-    entries: list[tuple[str, str]],
-    table_data: list[_MarkdownTable],
-    table_indices: list[int],
-) -> None:
-    """Append non-empty table renderings for one reading-order event."""
-    for table_index in table_indices:
-        markdown = table_data[table_index][1]
-        if markdown:
-            entries.append(("table", markdown))
-
-
 def _classify_line(
     line: TextLine,
     levels: dict[float, int],
@@ -473,29 +455,87 @@ def _classify_line(
 
 def _join_entries(entries: list[tuple[str, str]]) -> str:
     """Join entries while keeping consecutive list items together."""
-    chunks: list[str] = []
+    parts: list[str] = []
     previous = ""
     for kind, text in entries:
-        if kind == "li" and previous == "li":
-            chunks[-1] += "\n" + text
-        else:
-            chunks.append(text)
+        if parts:
+            parts.append("\n" if kind == "li" and previous == "li" else "\n\n")
+        parts.append(text)
         previous = kind
-    return "\n\n".join(chunks)
+    return "".join(parts)
 
 
-def _append_classified_line(
-    entries: list[tuple[str, str]],
-    paragraph: list[str],
-    kind: str,
-    text: str,
-) -> None:
-    """Append one classified line, retaining paragraph joining rules."""
-    if kind == "p":
-        paragraph.append(text)
-    elif kind:
-        _flush_paragraph(entries, paragraph)
-        entries.append((kind, text))
+class _MarkdownBuilder:
+    """Accumulate one page without retaining entries beyond its output budget."""
+
+    def __init__(self, max_size: int | None) -> None:
+        self.entries: list[tuple[str, str]] = []
+        self.paragraph: list[str] = []
+        self.max_size = max_size
+        self.output_size = 0
+        self.paragraph_size = 0
+
+    def _check_size(self, size: int) -> None:
+        if self.max_size is not None and size > self.max_size:
+            raise MarkdownOutputLimitError
+
+    def _entry_separator_size(self, kind: str) -> int:
+        if not self.entries:
+            return 0
+        return 1 if kind == "li" and self.entries[-1][0] == "li" else 2
+
+    def _append_entry(self, kind: str, text: str, *, text_size: int | None = None) -> None:
+        if text_size is None:
+            text_size = 0 if self.max_size is None else utf8_size(text)
+        next_size = self.output_size + self._entry_separator_size(kind) + text_size
+        self._check_size(next_size)
+        self.entries.append((kind, text))
+        self.output_size = next_size
+
+    def _append_paragraph_line(self, text: str) -> None:
+        text_size = 0 if self.max_size is None else utf8_size(text)
+        if self.paragraph:
+            previous = self.paragraph[-1]
+            if not (previous and text and _is_cjk(previous[-1]) and _is_cjk(text[0])):
+                text_size += 1
+        pending_separator = 2 if self.entries else 0
+        self._check_size(self.output_size + pending_separator + self.paragraph_size + text_size)
+        self.paragraph.append(text)
+        self.paragraph_size += text_size
+
+    def flush_paragraph(self) -> None:
+        """Append and clear a pending paragraph."""
+        if not self.paragraph:
+            return
+        text = _join_lines(self.paragraph)
+        self._append_entry("p", text, text_size=self.paragraph_size)
+        self.paragraph.clear()
+        self.paragraph_size = 0
+
+    def append_classified(self, kind: str, text: str) -> None:
+        """Append one classified line, retaining paragraph joining rules."""
+        if kind == "p":
+            self._append_paragraph_line(text)
+        elif kind:
+            self.flush_paragraph()
+            self._append_entry(kind, text)
+
+    def append_tables(
+        self,
+        table_data: list[_MarkdownTable],
+        table_indices: list[int],
+    ) -> None:
+        """Append non-empty table renderings for one reading-order event."""
+        self.flush_paragraph()
+        for table_index in table_indices:
+            markdown = table_data[table_index][1]
+            if markdown:
+                self._append_entry("table", markdown)
+
+    def render(self) -> str:
+        """Return the completed page after charging all pending text."""
+        self.flush_paragraph()
+        return _join_entries(self.entries)
 
 
 def page_to_markdown(
@@ -503,37 +543,34 @@ def page_to_markdown(
     levels: dict[float, int],
     tables: list[_MarkdownTable] | None = None,
     words: list[WordEntry] | None = None,
+    max_size: int | None = None,
 ) -> str:
-    """Convert one page's dict layout and detected tables to Markdown."""
+    """Convert one page while bounding retained Markdown entries and output."""
     table_data = [] if tables is None else tables
     table_events, table_memberships, residual_texts = _table_events(layout, table_data, words)
-    # (kind, text): h=heading, li=list item, p=paragraph, table=Markdown table.
-    entries: list[tuple[str, str]] = []
+    builder = _MarkdownBuilder(max_size)
     line_position = 0
     for block in layout["blocks"]:
-        paragraph: list[str] = []
         for line in block["lines"]:
             pending_tables = table_events.get(line_position, [])
             if table_memberships[line_position]:
                 before, after = residual_texts.get(line_position, ("", ""))
                 kind, text = _classify_line(line, levels, before)
-                _append_classified_line(entries, paragraph, kind, text)
+                builder.append_classified(kind, text)
                 if pending_tables:
-                    _flush_paragraph(entries, paragraph)
-                    _append_tables(entries, table_data, pending_tables)
+                    builder.append_tables(table_data, pending_tables)
                 kind, text = _classify_line(line, levels, after)
-                _append_classified_line(entries, paragraph, kind, text)
+                builder.append_classified(kind, text)
                 line_position += 1
                 continue
             if pending_tables:
-                _flush_paragraph(entries, paragraph)
-                _append_tables(entries, table_data, pending_tables)
+                builder.append_tables(table_data, pending_tables)
             kind, text = _classify_line(line, levels)
             if not kind:
                 line_position += 1
                 continue
-            _append_classified_line(entries, paragraph, kind, text)
+            builder.append_classified(kind, text)
             line_position += 1
-        _flush_paragraph(entries, paragraph)
-    _append_tables(entries, table_data, table_events.get(line_position, []))
-    return _join_entries(entries)
+        builder.flush_paragraph()
+    builder.append_tables(table_data, table_events.get(line_position, []))
+    return builder.render()

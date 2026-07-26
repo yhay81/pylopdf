@@ -164,7 +164,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   64 MiB cumulative UTF-8 output limit. It keeps only one page's interpreted
   layout, tables, and words at a time across a heading-count pass and a render
   pass. Each table receives the remaining aggregate budget before page output
-  is assembled. Direct `Table.to_markdown()` calls default to the same limit
+  is assembled. Headings, paragraphs, lists, and tables are charged as retained
+  entries, and the final page uses linear assembly after the complete size has
+  been admitted. Direct `Table.to_markdown()` calls default to the same limit
   and preflight exact escaped UTF-8 size, including merged-cell expansion.
   Over-limit conversions return no partial string; `max_size=None` explicitly
   opts out.

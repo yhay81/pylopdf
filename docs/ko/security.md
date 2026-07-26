@@ -151,8 +151,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   page의 interpreted layout, table, word만 유지합니다. page 출력을 조립하기 전에
   각table에 남은 누적 예산을 전달합니다. `Table.to_markdown()`도 같은 기본 상한을
   사용하며 merged-cell 확장을 포함한 escape 후 정확한UTF-8 크기를 사전 검사합니다.
-  상한 초과 시 부분string을 반환하지 않으며 `max_size=None`으로 명시적으로 해제할 수
-  있습니다.
+  제목, paragraph, list, table은entry를 보관할 때 예산에 반영되며, 전체size가
+  허용된 뒤page를 선형 조립합니다. 상한 초과 시 부분string을 반환하지 않으며
+  `max_size=None`으로 명시적으로 해제할 수 있습니다.
 - CPU deadline은 Worker, process 또는 container host에서 적용하세요. 리소스
   예산은 문서화된 allocation과 출력 증가를 제한하지만 실행 중인 parser나
   interpreter를 wall-clock 시간으로 중단하지 않습니다.

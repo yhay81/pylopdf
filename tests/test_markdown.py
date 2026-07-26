@@ -238,6 +238,50 @@ def test_markdown_bounds_utf8_output_without_partial_result() -> None:
     assert doc[1].to_markdown(max_size=len(expected_page.encode())) == expected_page
 
 
+def test_markdown_bounds_page_entries_before_final_join(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page body exceeds budget")]]))
+
+    def fail_final_join(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError
+
+    monkeypatch.setattr("pylopdf._markdown._join_entries", fail_final_join)
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.to_markdown(max_size=4)
+    assert caught.value.code == "markdown_output_size"
+
+
+def test_markdown_table_and_prose_share_exact_page_budget() -> None:
+    doc = pylopdf.open(stream=_table_pdf())
+    expected = doc.to_markdown(max_size=None)
+    exact_size = len(expected.encode())
+
+    assert doc.to_markdown(max_size=exact_size) == expected
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.to_markdown(max_size=exact_size - 1)
+    assert caught.value.code == "markdown_output_size"
+
+
+def test_markdown_headings_lists_and_paragraphs_share_exact_budget() -> None:
+    doc = pylopdf.open(
+        stream=_layout_pdf(
+            [
+                [
+                    (24, 720, "Title"),
+                    (12, 680, "Intro paragraph"),
+                    (12, 640, "- first item"),
+                    (12, 626, "- second item"),
+                ]
+            ]
+        )
+    )
+    expected = doc.to_markdown(max_size=None)
+    exact_size = len(expected.encode())
+
+    assert doc.to_markdown(max_size=exact_size) == expected
+    with pytest.raises(pylopdf.LimitError):
+        doc.to_markdown(max_size=exact_size - 1)
+
+
 def test_markdown_bounds_page_iterable_before_interpretation() -> None:
     doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
     consumed = 0
