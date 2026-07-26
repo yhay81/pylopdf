@@ -435,6 +435,7 @@ Module level:
 | `DrawingInfo` / `DrawingItem` | Typed vector-path dictionary and its line/cubic command union |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
 | `OcrEngine` / `OcrWord` / `OcrRotation` | Reusable pure-Rust PP-OCR engine, its typed positioned-word result, and the `0 / 90 / 180 / 270` clockwise-correction contract |
+| `TableFinder` / `Table` / `TableDiagnostics` | Owned table geometry, cell text, strategy, and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PylopdfWarning` | Recoverable interpretation warning, including bounded xref repair, font resolution, and image decoding |
 | Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `OcrError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
 

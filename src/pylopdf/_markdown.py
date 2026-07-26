@@ -40,6 +40,15 @@ _SPACED_BULLETS = "・•●○◦▪‣–—-*"
 _TIGHT_BULLETS = "・•●○◦▪‣"
 #: Numbered lists in ``1.`` or ``23)`` form.
 _NUMBERED = re.compile(r"^(\d{1,3})[.)][ 　]+")
+_UTF8_ONE_BYTE_MAX = 0x7F
+_UTF8_TWO_BYTE_MAX = 0x7FF
+_UTF8_SURROGATE_MIN = 0xD800
+_UTF8_SURROGATE_MAX = 0xDFFF
+_UTF8_THREE_BYTE_MAX = 0xFFFF
+
+
+class MarkdownOutputLimitError(Exception):
+    """Internal signal that escaped Markdown would exceed its output budget."""
 
 
 def _round_size(size: float) -> float:
@@ -90,8 +99,9 @@ def table_to_markdown(
     fill_empty: bool = True,
     orientation: _AxisOrientation = "right",
     cell_anchors: list[int] | None = None,
+    max_size: int | None = None,
 ) -> str:
-    """Render table rows after normalizing their dominant text direction."""
+    """Render table rows after bounded normalization of their text direction."""
     rows = [row.copy() for row in source_rows]
     if not rows:
         return ""
@@ -99,11 +109,58 @@ def table_to_markdown(
     if fill_empty:
         _fill_merged_cells(rows, cell_anchors)
     rows = _orient_rows(rows, orientation)
+    _preflight_table_markdown(rows, max_size)
 
     rendered = ["| " + " | ".join(_escape_table_cell(value) for value in rows[0]) + " |"]
     rendered.append("| " + " | ".join("---" for _ in rows[0]) + " |")
     rendered.extend("| " + " | ".join(_escape_table_cell(value) for value in row) + " |" for row in rows[1:])
     return "\n".join(rendered)
+
+
+def _preflight_table_markdown(rows: list[list[str | None]], max_size: int | None) -> None:
+    """Reject an oversized table before allocating escaped cell strings."""
+    if max_size is None:
+        return
+
+    header_columns = len(rows[0])
+    output_size = len(rows)
+    output_size += 4 + max(0, header_columns - 1) * 3 + header_columns * 3
+    output_size += sum(4 + max(0, len(row) - 1) * 3 for row in rows)
+    if output_size > max_size:
+        raise MarkdownOutputLimitError
+
+    for row in rows:
+        for value in row:
+            if value is None:
+                continue
+            for character in value:
+                if character in {"\\", "|"}:
+                    output_size += 2
+                elif character == "\n":
+                    output_size += 4
+                else:
+                    output_size += _utf8_character_size(character)
+                if output_size > max_size:
+                    raise MarkdownOutputLimitError
+
+
+def _utf8_character_size(character: str) -> int:
+    """Return one Unicode scalar's UTF-8 size without allocating encoded bytes."""
+    code_point = ord(character)
+    if code_point <= _UTF8_ONE_BYTE_MAX:
+        return 1
+    if code_point <= _UTF8_TWO_BYTE_MAX:
+        return 2
+    if _UTF8_SURROGATE_MIN <= code_point <= _UTF8_SURROGATE_MAX:
+        return len(character.encode())
+    if code_point <= _UTF8_THREE_BYTE_MAX:
+        return 3
+    return 4
+
+
+def utf8_size(value: str) -> int:
+    """Return a string's strict UTF-8 size without materializing encoded bytes."""
+    return sum(_utf8_character_size(character) for character in value)
 
 
 def _fill_merged_cells(

@@ -149,8 +149,10 @@ xref dataを正規化します。
   重ねないでください。
 - `Document.to_markdown()`は最大4,096 page entryで、累積UTF-8出力上限は既定
   64 MiBです。heading size集計passとrender passの双方で、同時に保持する
-  interpreted layout・table・wordは1 page分だけです。上限超過時は部分stringを
-  返しません。`max_size=None`で明示的に解除できます。
+  interpreted layout・table・wordは1 page分だけです。page出力を組み立てる前に
+  各tableへ累積残予算を渡します。`Table.to_markdown()`も既定で同じ上限を持ち、
+  merged-cell展開を含むescape後の正確なUTF-8 sizeを事前検査します。上限超過時は
+  部分stringを返しません。`max_size=None`で明示的に解除できます。
 - CPU deadlineはWorker、process、container側で設定してください。資源上限は
   文書化したallocationと出力量を抑えますが、実行中のparserやinterpreterを
   wall-clock時間で中断する機能ではありません。

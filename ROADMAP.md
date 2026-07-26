@@ -207,7 +207,10 @@ Released as v0.9.0 on 2026-07-23.
       order, vertical writing, and some emphasis metadata. Later extraction work
       added table results, multicolumn and conservative vertical-CJK order, and
       emphasis. The current v0.11 work automatically inserts complete bordered
-      tables; conservative borderless insertion remains explicit.
+      tables; conservative borderless insertion remains explicit. Direct table
+      conversion now preflights exact escaped UTF-8 output, and document
+      conversion gives each table the remaining aggregate output budget before
+      assembling the page.
 - Deferred: incremental save. A 2026-07-23 OSS review found that qpdf and pikepdf
   succeed with normalization-and-rewrite designs, while pypdf's implementation
   accumulated bugs immediately after its 5.0 debut in 2024-09 (for example
@@ -767,8 +770,9 @@ rather than waiting automatically for v1.x.
   right-angle rotations plus the public-domain IRS Form 1040 corpus. Conversion
   now stops page iterable materialization above 4,096 entries, defaults to a
   64 MiB cumulative UTF-8 output cap, and uses page-at-a-time heading-count and
-  rendering passes instead of retaining every page interpretation together
-  (2026-07-26).
+  rendering passes instead of retaining every page interpretation together.
+  Each table preflights exact escaped UTF-8 output against the remaining
+  aggregate budget before page assembly (2026-07-26).
 - [x] Expand independent table corpora and quality evaluation beyond synthetic
   and IRS coverage. Public-domain FBI NICS and US Senate fixtures now protect
   sparse internal rules, dense numeric records, merged headers, borderless

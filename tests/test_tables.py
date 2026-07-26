@@ -191,6 +191,48 @@ def test_find_bordered_table() -> None:
     assert table.to_markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
 
 
+def test_table_markdown_preflights_escaped_utf8_output() -> None:
+    source = pylopdf.open(stream=_bordered_table_pdf())[0].find_tables()[0]
+    values = ["\\|\n日本", "Value", "Alpha", "42"]
+    cells: list[tuple[pylopdf.Rect, str] | None] = [(pylopdf.Rect(0, 0, 1, 1), value) for value in values]
+    table = pylopdf.Table(
+        source.page,
+        source.bbox,
+        2,
+        2,
+        cells,
+        [0, 1, 2, 3],
+        source.diagnostics,
+    )
+    expected = table.to_markdown(max_size=None)
+    exact_size = len(expected.encode())
+
+    assert table.to_markdown(max_size=exact_size) == expected
+    with pytest.raises(pylopdf.LimitError) as caught:
+        table.to_markdown(max_size=exact_size - 1)
+    assert caught.value.code == "markdown_output_size"
+
+
+@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
+def test_table_markdown_validates_output_limit(max_size: object) -> None:
+    table = pylopdf.open(stream=_bordered_table_pdf())[0].find_tables()[0]
+
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        table.to_markdown(max_size=max_size)  # type: ignore[arg-type]
+
+
+def test_document_preflights_table_before_page_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    document = pylopdf.open(stream=_bordered_table_pdf())
+
+    def fail_page_render(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError
+
+    monkeypatch.setattr("pylopdf._markdown.page_to_markdown", fail_page_render)
+    with pytest.raises(pylopdf.LimitError) as caught:
+        document.to_markdown(max_size=16)
+    assert caught.value.code == "markdown_output_size"
+
+
 def test_find_tables_clip_is_conservative_and_uses_display_coordinates() -> None:
     """Return complete tables inside a region without synthesizing partial grids."""
     document = pylopdf.open(stream=_bordered_table_pdf())
@@ -249,6 +291,10 @@ def test_rectangular_merged_cell_is_reconstructed() -> None:
     assert table.extract() == [["Name Value", None], ["Alpha", "42"]]
     assert table.to_markdown() == ("| Name Value | Name Value |\n| --- | --- |\n| Alpha | 42 |")
     assert table.to_markdown(fill_empty=False) == ("| Name Value |  |\n| --- | --- |\n| Alpha | 42 |")
+    filled = table.to_markdown(max_size=None)
+    assert table.to_markdown(max_size=len(filled.encode())) == filled
+    with pytest.raises(pylopdf.LimitError, match="Markdown output exceeds"):
+        table.to_markdown(max_size=len(filled.encode()) - 1)
 
 
 def test_broken_outer_grid_is_not_reported_as_a_table() -> None:

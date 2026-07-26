@@ -46,8 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page iterable materialization above 4,096 entries. Document conversion no
   longer retains every page's layout, tables, and words simultaneously: a
   page-at-a-time first pass keeps only heading-size counts, then a second pass
-  renders each page into the bounded output accumulator. `max_size=None`
-  explicitly opts out of the output limit.
+  renders each page into the bounded output accumulator. Each detected table
+  receives the remaining aggregate budget before page Markdown is assembled.
+  `Table.to_markdown(..., max_size=64 * 1024 * 1024)` also computes the exact
+  escaped UTF-8 size before allocating cell output, including merged-cell
+  expansion. `max_size=None` explicitly opts out of either output limit.
 - `Document.render_pages(..., max_size=512 * 1024 * 1024)` now stops page
   iterable materialization above 4,096 entries and atomically charges each
   completed PNG against one cumulative encoded-output budget across serial,

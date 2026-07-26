@@ -196,6 +196,14 @@ def _validate_optional_positive_int(name: str, value: int | None) -> None:
         raise ValueError(msg)
 
 
+def _markdown_output_limit_error(max_size: int) -> LimitError:
+    """Build the public error for any bounded Markdown conversion path."""
+    return LimitError(
+        "markdown_output_size",
+        f"Markdown output exceeds the {max_size}-byte UTF-8 limit",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentLimits:
     """Optional resource budgets for opening and interpreting untrusted PDFs.
@@ -775,17 +783,29 @@ class Table:
             for offset in range(0, len(self._values), self.col_count)
         ]
 
-    def to_markdown(self, *, fill_empty: bool = True) -> str:
+    def to_markdown(
+        self,
+        *,
+        fill_empty: bool = True,
+        max_size: int | None = _DEFAULT_MAX_MARKDOWN_SIZE,
+    ) -> str:
         """Render the table as Markdown, treating the first row as the header.
 
         When ``fill_empty`` is true, merged-cell continuation slots inherit the
-        anchor value because Markdown has no row/column spans.
+        anchor value because Markdown has no row/column spans. ``max_size``
+        caps UTF-8 output before escaped cell strings are allocated and defaults
+        to 64 MiB; ``None`` explicitly opts out.
         """
-        return _markdown.table_to_markdown(
-            self.extract(),
-            fill_empty=fill_empty,
-            cell_anchors=self._cell_anchors,
-        )
+        _validate_optional_positive_int("max_size", max_size)
+        try:
+            return _markdown.table_to_markdown(
+                self.extract(),
+                fill_empty=fill_empty,
+                cell_anchors=self._cell_anchors,
+                max_size=max_size,
+            )
+        except _markdown.MarkdownOutputLimitError:
+            raise _markdown_output_limit_error(cast("int", max_size)) from None
 
 
 class TableFinder:
@@ -853,6 +873,33 @@ def _markdown_page_tables(
                 tables.append(candidate)
     tables.sort(key=lambda table: (table.bbox.y0, table.bbox.x0))
     return tables
+
+
+def _markdown_table_output(
+    layout: TextPage,
+    tables: list[Table],
+    *,
+    max_size: int | None,
+    remaining_size: int | None,
+) -> tuple[list[tuple[float, float, float, float]], list[tuple[tuple[float, float, float, float], str]]]:
+    """Render page tables without retaining strings beyond the remaining budget."""
+    bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
+    rendered: list[tuple[tuple[float, float, float, float], str]] = []
+    rendered_bytes = 0
+    for bbox, table in zip(bboxes, tables, strict=True):
+        table_budget = None if remaining_size is None else max(0, remaining_size - rendered_bytes)
+        try:
+            table_markdown = _markdown.table_to_markdown(
+                table.extract(),
+                orientation=_markdown.table_orientation(layout, bbox),
+                cell_anchors=table._cell_anchors,
+                max_size=table_budget,
+            )
+        except _markdown.MarkdownOutputLimitError:
+            raise _markdown_output_limit_error(cast("int", max_size)) from None
+        rendered_bytes += _markdown.utf8_size(table_markdown)
+        rendered.append((bbox, table_markdown))
+    return bboxes, rendered
 
 
 #: Portrait A4 in PDF units, used for damaged PDFs without a MediaBox.
@@ -2293,32 +2340,25 @@ class Document:
         for pno in page_numbers:
             layout = self.get_page_text(pno, "dict")
             tables = [] if table_strategy is None else _markdown_page_tables(self[pno], table_strategy)
+            separator_bytes = 2 if rendered else 0
+            page_budget = None if max_size is None else max_size - output_bytes - separator_bytes
+            bboxes, markdown_tables = _markdown_table_output(
+                layout,
+                tables,
+                max_size=max_size,
+                remaining_size=page_budget,
+            )
             words = self.get_page_text(pno, "words") if tables else None
-            bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
-            markdown_tables = [
-                (
-                    bbox,
-                    _markdown.table_to_markdown(
-                        table.extract(),
-                        orientation=_markdown.table_orientation(layout, bbox),
-                        cell_anchors=table._cell_anchors,
-                    ),
-                )
-                for bbox, table in zip(bboxes, tables, strict=True)
-            ]
             page_markdown = _markdown.page_to_markdown(layout, levels, markdown_tables, words)
             if not page_markdown:
                 continue
-            separator_bytes = 2 if rendered else 0
             if max_size is not None:
                 remaining = max_size - output_bytes - separator_bytes
-                limit_code = "markdown_output_size"
-                limit_message = f"Markdown output exceeds the {max_size}-byte UTF-8 limit"
                 if len(page_markdown) > remaining:
-                    raise LimitError(limit_code, limit_message)
-                page_bytes = len(page_markdown.encode())
+                    raise _markdown_output_limit_error(max_size)
+                page_bytes = _markdown.utf8_size(page_markdown)
                 if page_bytes > remaining:
-                    raise LimitError(limit_code, limit_message)
+                    raise _markdown_output_limit_error(max_size)
             else:
                 page_bytes = 0
             output_bytes += separator_bytes + page_bytes

@@ -2531,6 +2531,12 @@
                 "default": true,
                 "kind": "keyword_only",
                 "name": "fill_empty"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "str"
