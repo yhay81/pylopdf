@@ -78,6 +78,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로
   pylopdf가 경계를 적용하기 전의 내부Rust string 하나는 이 제한의 대상이 아닙니다.
+- 그리기 삽입은cache 무효화, 입력decode 또는dependent object 생성 전에page
+  `/Contents`의raw array와 참조chain을 검사합니다. raw array는4,096 entry,
+  chain은 깊이32, 최종array는 한 번만 추가되는`q`/`Q` isolation pair를 포함해
+  4,096 stream 참조로 제한됩니다. 실패하면document를 변경하지 않습니다.
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.

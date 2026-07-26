@@ -73,6 +73,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
   不受此限制。
+- 绘图插入会在cache失效、输入decode或创建dependent object前检查page
+  `/Contents`的raw array和引用chain。raw array上限为4,096个entry，chain深度为
+  32，最终array上限为4,096个stream引用（包括只添加一次的`q`/`Q` isolation
+  pair）。失败时不修改document。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
 - `Document.embfile_get()`默认将每个filter层的解码输出限制为64 MiB。对于已知的

@@ -11,7 +11,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
 
@@ -55,12 +55,114 @@ def _new_page_doc(width: float = 200, height: float = 100) -> pylopdf.Document:
     return doc
 
 
+def _many_contents_doc(count: int) -> pylopdf.Document:
+    refs = " ".join(["5 0 R"] * count)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+            4: f"[{refs}]",
+            5: "<< /Length 0 >>\nstream\n\nendstream",
+        }
+    )
+    return pylopdf.open(stream=pdf)
+
+
+def _contents_reference_doc(depth: int, *, cycle: bool = False) -> pylopdf.Document:
+    objects: dict[int, bytes | str] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+        3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+    }
+    if cycle:
+        objects[4] = "4 0 R"
+    else:
+        for offset in range(depth):
+            objects[4 + offset] = f"{5 + offset} 0 R"
+        objects[4 + depth] = "<< /Length 0 >>\nstream\n\nendstream"
+    return pylopdf.open(stream=build_raw_pdf(objects))
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
     source[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
     source[0].insert_image((10, 0, 20, 10), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
     return source[0].get_pixmap(background=WHITE)
+
+
+def test_drawing_wraps_existing_contents_only_once() -> None:
+    doc = _new_page_doc()
+    page = doc[0]
+    page.insert_text((10, 20), "First")
+    page.insert_text((10, 40), "Second")
+    after_second = doc.complexity["object_count"]
+
+    page.insert_text((10, 60), "Third")
+
+    assert doc.complexity["object_count"] - after_second == 2
+
+
+def test_drawing_allows_exact_final_contents_boundary() -> None:
+    doc = _many_contents_doc(4093)
+    page = doc[0]
+    page.insert_text((10, 20), "Exact boundary")
+    after_first = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
+        page.insert_text((10, 40), "One too many")
+    assert doc.tobytes() == after_first
+
+
+def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:
+    doc = _many_contents_doc(4097)
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="4096-entry"):
+        doc[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+    assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("doc", "message"),
+    [
+        pytest.param(_contents_reference_doc(40), "32-reference-depth", id="depth"),
+        pytest.param(_contents_reference_doc(0, cycle=True), "reference cycle", id="cycle"),
+    ],
+)
+def test_drawing_rejects_contents_reference_amplification(
+    doc: pylopdf.Document,
+    message: str,
+) -> None:
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match=message):
+        doc[0].insert_text((10, 20), "Text")
+    assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize("operation", ["image", "ocr", "pdf", "text", "textbox"])
+def test_drawing_preflights_contents_before_mutation(operation: str) -> None:
+    doc = _many_contents_doc(4094)
+    page = doc[0]
+    before = doc.tobytes()
+
+    def run_operation() -> None:
+        if operation == "image":
+            page.insert_image((0, 0, 10, 10), stream=b"not an image")
+        elif operation == "ocr":
+            page.insert_ocr_text_layer([(10, 10, 50, 20, "Text")])
+        elif operation == "pdf":
+            page.show_pdf_page((0, 0, 10, 10), _new_page_doc())
+        elif operation == "text":
+            page.insert_text((10, 20), "Text")
+        else:
+            page.insert_textbox((10, 10, 100, 50), "Text")
+
+    with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
+        run_operation()
+    assert doc.tobytes() == before
 
 
 def test_insert_png_draws_at_rect() -> None:

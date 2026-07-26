@@ -259,8 +259,13 @@ overview.
   extra and auto-detected during rendering.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
-  Sentinel detection borrows the first and last stream bytes; never clone
-  complete page-content streams just to compare them with `b"q\n"`/`b"Q\n"`.
+  `_Document.isolated_content_pages` retains verified page IDs after later
+  overlays or underlays; do not trust a persistent PDF marker from untrusted
+  input. Initial leading/trailing sentinel detection borrows stream bytes and
+  never clones complete page-content streams. Before cache invalidation, input
+  decoding, or dependent object creation, drawing calls reject raw arrays above
+  4,096 entries, reference chains above 32 levels or with cycles, and any
+  insertion that would take the final array above 4,096 stream references.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an

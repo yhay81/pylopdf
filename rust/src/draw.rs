@@ -5,12 +5,16 @@
 //! appends streams to `/Contents`. Existing graphics state is isolated by wrapping
 //! the original sequence in q/Q streams once.
 
+use std::collections::HashSet;
 use std::io::Write;
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use pdf_base14_metrics::Base14Font;
 
 use crate::layout::{TextBoxLayout, layout_textbox};
+
+const MAX_PAGE_CONTENT_STREAMS: usize = 4096;
+const MAX_CONTENT_REFERENCE_DEPTH: usize = 32;
 
 /// Decoded image data used to build a PDF Image XObject.
 pub struct ImageParts {
@@ -793,26 +797,102 @@ fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) {
 /// Wrap existing `/Contents` in q/Q streams once to isolate graphics state.
 ///
 /// Do nothing when already wrapped by standalone `b"q\n"` and `b"Q\n"` streams.
-fn ensure_contents_wrapped(doc: &mut Document, page_id: ObjectId) -> Result<(), lopdf::Error> {
+fn content_is_exact_stream(doc: &Document, id: ObjectId, expected: &[u8]) -> bool {
+    doc.get_object(id)
+        .ok()
+        .and_then(|object| object.as_stream().ok())
+        .is_some_and(|stream| stream.content == expected)
+}
+
+fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
+    streams.len() >= 2
+        && streams
+            .first()
+            .is_some_and(|&id| content_is_exact_stream(doc, id, b"q\n"))
+        && streams
+            .last()
+            .is_some_and(|&id| content_is_exact_stream(doc, id, b"Q\n"))
+}
+
+/// Reject a page whose content shape would amplify one drawing insertion.
+///
+/// Inspect the raw array before lopdf materializes its reference list. The
+/// final count includes q/Q isolation streams when the existing contents have
+/// not already been wrapped.
+pub fn preflight_push_content(
+    doc: &Document,
+    page_id: ObjectId,
+    already_isolated: bool,
+) -> Result<(), String> {
+    let page = doc
+        .get_dictionary(page_id)
+        .map_err(|error| format!("cannot inspect page Contents: {error}"))?;
+    if let Ok(mut contents) = page.get(b"Contents") {
+        let mut visited = HashSet::new();
+        let mut depth = 0usize;
+        loop {
+            match contents {
+                Object::Reference(id) => {
+                    if !visited.insert(*id) {
+                        return Err("page Contents contains a reference cycle".to_owned());
+                    }
+                    depth += 1;
+                    if depth > MAX_CONTENT_REFERENCE_DEPTH {
+                        return Err(format!(
+                            "page Contents exceeds the {MAX_CONTENT_REFERENCE_DEPTH}-reference-depth safety limit"
+                        ));
+                    }
+                    let Some(object) = doc.objects.get(id) else {
+                        break;
+                    };
+                    if matches!(object, Object::Stream(_)) {
+                        break;
+                    }
+                    contents = object;
+                }
+                Object::Array(entries) => {
+                    if entries.len() > MAX_PAGE_CONTENT_STREAMS {
+                        return Err(format!(
+                            "page Contents exceeds the {MAX_PAGE_CONTENT_STREAMS}-entry safety limit"
+                        ));
+                    }
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    let streams = doc.get_page_contents(page_id);
+    let already_wrapped = already_isolated || contents_have_outer_wrapper(doc, &streams);
+    let additions = if streams.is_empty() || already_wrapped {
+        1
+    } else {
+        3
+    };
+    if streams
+        .len()
+        .checked_add(additions)
+        .is_none_or(|final_count| final_count > MAX_PAGE_CONTENT_STREAMS)
+    {
+        return Err(format!(
+            "drawing would exceed the {MAX_PAGE_CONTENT_STREAMS}-stream page Contents safety limit"
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_contents_wrapped(
+    doc: &mut Document,
+    page_id: ObjectId,
+    already_isolated: bool,
+) -> Result<bool, lopdf::Error> {
     let contents = doc.get_page_contents(page_id);
     if contents.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
-    let is_exact_stream = |id: ObjectId, expected: &[u8]| {
-        doc.get_object(id)
-            .ok()
-            .and_then(|o| o.as_stream().ok())
-            .is_some_and(|stream| stream.content == expected)
-    };
-    if contents.len() >= 2
-        && contents
-            .first()
-            .is_some_and(|&id| is_exact_stream(id, b"q\n"))
-        && contents
-            .last()
-            .is_some_and(|&id| is_exact_stream(id, b"Q\n"))
-    {
-        return Ok(());
+    if already_isolated || contents_have_outer_wrapper(doc, &contents) {
+        return Ok(true);
     }
     let q_id =
         doc.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()).with_compression(false));
@@ -823,7 +903,7 @@ fn ensure_contents_wrapped(doc: &mut Document, page_id: ObjectId) -> Result<(), 
     list.push(Object::Reference(push_q_id));
     let page = doc.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
     page.set("Contents", list);
-    Ok(())
+    Ok(true)
 }
 
 /// Add drawing operators to the page as a new content stream.
@@ -835,8 +915,10 @@ pub fn push_content(
     page_id: ObjectId,
     ops: Vec<u8>,
     overlay: bool,
-) -> Result<(), lopdf::Error> {
-    ensure_contents_wrapped(doc, page_id)?;
+    already_isolated: bool,
+) -> Result<bool, lopdf::Error> {
+    preflight_push_content(doc, page_id, already_isolated).map_err(lopdf::Error::InvalidStream)?;
+    let is_isolated = ensure_contents_wrapped(doc, page_id, already_isolated)?;
     let new_id = doc.add_object(Stream::new(Dictionary::new(), ops).with_compression(false));
     let mut list: Vec<Object> = doc
         .get_page_contents(page_id)
@@ -850,5 +932,5 @@ pub fn push_content(
     }
     let page = doc.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
     page.set("Contents", list);
-    Ok(())
+    Ok(is_isolated)
 }
