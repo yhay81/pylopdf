@@ -11,7 +11,7 @@ producers, fonts, renderers, and supported runtimes.
 
 ## Current status { #current-status }
 
-The 0.11 API is a **candidate baseline**, not the v1.0 compatibility promise.
+The 0.12 API is a **candidate baseline**, not the v1.0 compatibility promise.
 It is being exercised in the field while additive work and reviewed corrections
 remain possible. Every public-surface change is nevertheless detected and
 reviewed now so the eventual v1.0 boundary is deliberate rather than accidental.
@@ -101,7 +101,7 @@ assumed across runtime upgrades.
 ## Compatibility review { #compatibility-review }
 
 [`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)
-records the reviewed 0.11 candidate surface. Tests compare it on every native
+records the reviewed 0.12 candidate surface. Tests compare it on every native
 Python lane and detect changes to exports, signatures, mapping keys, type
 aliases, enum and constant values, public members, and exception inheritance.
 

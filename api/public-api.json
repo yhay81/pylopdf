@@ -1,5 +1,5 @@
 {
-  "api_line": "0.11",
+  "api_line": "0.12",
   "exports": [
     "AnnotationInfo",
     "BlockEntry",

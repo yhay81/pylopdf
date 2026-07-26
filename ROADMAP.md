@@ -497,20 +497,47 @@ that gap without broadening the mandatory Python dependency set.
       The higher limit did not improve this four-thread workload and still owns
       separate buffers, reinforcing the conservative default of 1.
 
+### v0.12 — bounded interpretation and interoperability
+
+The v0.12 line makes resource behavior more predictable across the complete
+public workflow rather than treating individual parsers or writers in
+isolation. It also strengthens release-artifact execution and real-producer
+compatibility while preserving v1.0 as a later product-quality decision.
+
+- [x] Apply stable, pre-copy limits to metadata, TOC, page labels, annotations,
+      attachments, form values, generated text, search, and passwords. Repeat
+      the checks at the Rust boundary and preserve mutation atomicity.
+- [x] Bound interpretation snapshots, positioned glyphs, assembled text,
+      repeated page batches, search hits, and generated line counts with
+      machine-readable `LimitError.code` values and explicit trusted-input
+      opt-outs.
+- [x] Execute-smoke all ten native wheels before publication, including every
+      supported `abi3-py310` and CPython 3.14t platform artifact, while retaining
+      the pinned PyEmscripten and Cloudflare validation path.
+- [x] Expand the redistributable real-world corpus with pinned PDFium fixtures
+      for Type 3 glyphs, nested JPX filters, soft masks, blending, and existing
+      annotations, plus bounded malformed-xref refusal.
+- [x] Synthesize bounded render-only appearances for existing Highlight,
+      Underline, StrikeOut, and Squiggly annotations when producers omit
+      `/AP /N`, without changing the editable or saved PDF.
+- [x] Remove pathological work from long textbox layout, repeated search
+      geometry materialization, oversized password KDF input, and aggregate
+      text-size preflight while retaining paired benchmark evidence.
+
 ### v1.0 — product-quality declaration of trust
 
 Target no earlier than 2026-08. v1.0 is not a calendar-driven promotion of the
-current API. It follows v0.10 and v0.11 field use and ships only after the
+current API. It follows v0.10 through v0.12 field use and ships only after the
 library's product experience, error recovery, documentation, performance, and
 known-limit behavior are polished together.
 
 - [x] Publish the semantic-versioning and deprecation policy before the final
       freeze. The EN/JA/zh-CN/KO contract defines the public boundary, typed
       mappings, behavioral corrections, runtime changes, and a post-v1.0
-      two-minor-and-six-month deprecation window. A deterministic 0.11 candidate
+      two-minor-and-six-month deprecation window. A deterministic 0.12 candidate
       snapshot now reviews exports, signatures, members, mapping keys, aliases,
       constants, and exception inheritance on every native Python test lane.
-- Freeze the v1.0 API only after 0.11 field use and the remaining limitation
+- Freeze the v1.0 API only after 0.12 field use and the remaining limitation
   review; the snapshot is a review gate, not a premature compatibility claim.
 - [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
       Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document

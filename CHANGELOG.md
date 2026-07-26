@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-26
+
 ### Added
 - The redistributable interoperability corpus now includes four pinned PDFium
   fixtures covering Type 3 stencil glyphs, JPX nested behind LZW, form soft
