@@ -281,6 +281,8 @@ class DocumentLimits:
     conservative starting profile for memory-bounded web and queue workers.
     ``max_interpretation_size`` caps the complete PDF byte snapshot handed to
     rendering and extraction, including a reserialization after edits.
+    ``max_text_size`` caps cumulative glyph UTF-8 payload and derives a bounded
+    plain-text assembly size without constraining compatible ``None`` policies.
     ``max_text_glyphs`` caps cumulative positioned glyph records before cached
     layout or Python word/span structures can amplify short text.
     """

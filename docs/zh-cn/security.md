@@ -73,6 +73,11 @@ AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越
 安装不完整的renderer／extractor cache。为保持兼容，默认值为`None`；
 `DocumentLimits.web()`使用64 MiB。
 
+设置`max_text_size`后，plain-text提取会预检组装后精确的UTF-8大小，并将一个private
+batch限制为glyph payload预算的两倍。每个非空glyph至少贡献一个payload字节，而推断
+gap与换行的总数不会超过glyph数。batch最多接受4,096个page entry，因此重复页码无法
+绕过策略。拒绝code仍为`text_size`；为保持兼容，默认值仍为`None`。
+
 `max_text_glyphs`限制line组装前保留的record数，因此也限制结构化文本可materialize的
 block、line、span和word数量。同一页的文本与表格解释共享一次累计admission，被拒绝
 的页面不消耗预算。为保持兼容，默认值为`None`；`DocumentLimits.web()`使用65,536。

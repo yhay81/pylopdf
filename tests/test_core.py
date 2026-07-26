@@ -133,6 +133,18 @@ def test_extract_text(three_page_pdf: bytes) -> None:
     assert "Page three" in doc.extract_text([3])
 
 
+def test_extract_text_batch_is_bounded_in_core(one_page_pdf: bytes) -> None:
+    bounded = _Document.load_bytes(one_page_pdf, max_text_size=16)
+    assert bounded.extract_text([1])
+    assert bounded.extract_text([1, 1, 1]).count("Hello PDF") == 3
+    with pytest.raises(LimitError) as output:
+        bounded.extract_text([1, 1, 1, 1])
+    assert output.value.args[0] == "text_size"
+
+    with pytest.raises(ValueError, match="4096 page entries"):
+        _Document.load_bytes(one_page_pdf).extract_text([1] * 4097)
+
+
 def test_delete_pages(three_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(three_page_pdf)
     doc.delete_pages([2])

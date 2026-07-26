@@ -83,6 +83,11 @@ overview.
   of one page share one admission, failed pages consume no budget, and
   refusals use `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
+  When `max_text_size` is configured, plain-text assembly preflights its exact
+  UTF-8 size and caps one private extraction batch at twice that payload budget
+  because inferred gaps plus line endings cannot outnumber non-empty glyph
+  records. The batch accepts at most 4,096 page entries, so repeated page
+  numbers cannot amplify a bounded interpretation without bound.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. `find_tables` uses a
