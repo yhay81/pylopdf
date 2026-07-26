@@ -285,6 +285,11 @@ overview.
   Retain the original-byte fast path when no selected state stream can be
   resolved.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
+- Page-label number-tree reads borrow node shapes, visit indirect cycles once,
+  release the GIL, and reject the complete result above 4,096 entries/nodes, 32
+  levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a
+  silent depth-truncated list. `set_page_labels` must enforce the same
+  entry/text boundary before mutation and invalidate caches only after success.
 - `Document.get_pdfa_claim` releases the GIL and defaults to a 1 MiB decoded
   XMP limit applied to every filter layer. `max_size=None` is the explicit
   unbounded opt-out and failures use `LimitError.code == "xmp_metadata_size"`;

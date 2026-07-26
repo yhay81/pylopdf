@@ -83,6 +83,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Document.get_pdfa_claim()`은 각filter layer의XMP 디코딩 출력을 기본1 MiB로
   제한합니다. 크기를 알고 있는 대용량packet은`max_size=`를 늘릴 수 있고,
   `max_size=None`은 무제한materialization을 명시적으로 허용합니다.
+- 페이지 레이블number tree는4,096 entry/node, 깊이32, encoded/decoded
+  style·prefix text 합계1 MiB를 넘는 부분 결과를 거부합니다. 참조cycle은 한 번만
+  방문하며 쓰기도 같은entry/text 상한을 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.

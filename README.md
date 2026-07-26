@@ -386,7 +386,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | List and fill AcroForm fields with native text/choice/button appearances; checkboxes take bool |
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete file attachments; `max_size=None` explicitly opts out, and name trees are capped at 4,096 entries/nodes |
-| `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`) |
+| `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same)` | Save; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw` (the in-memory document stays plain) |
 | `close()` | Close (supports `with`) |
 

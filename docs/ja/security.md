@@ -84,6 +84,9 @@ xref dataを正規化します。
 - `Document.get_pdfa_claim()`は各filter層のXMP展開結果を既定で1 MiBに制限します。
   既知の大容量packetでは`max_size=`を増やせます。`max_size=None`は無制限の
   materializationを明示的に許可します。
+- ページラベル番号treeは4,096 entry/node、深さ32、encoded/decoded
+  style・prefix text合計1 MiBを超える部分結果を拒否します。参照cycleは一度だけ
+  訪問し、書き込みにも同じentry/text上限を適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

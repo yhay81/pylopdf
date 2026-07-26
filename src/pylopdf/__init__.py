@@ -82,6 +82,7 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 
 _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
+_MAX_PAGE_LABEL_RANGES = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -2291,7 +2292,9 @@ class Document:
         Each item has ``startpage``, ``style``, ``prefix``, and
         ``firstpagenum``. ``startpage`` is zero-based; ``style`` is
         ``"D"``, ``"R"``, ``"r"``, ``"A"``, ``"a"``, or empty for prefix only.
-        Use :meth:`Page.get_label` for a page's rendered label.
+        Use :meth:`Page.get_label` for a page's rendered label. Number-tree reads
+        reject partial output above 4,096 entries/nodes, 32 levels, or 1 MiB of
+        encoded or decoded style/prefix text.
         """
         self._ensure_open()
         return [
@@ -2311,6 +2314,9 @@ class Document:
         ``firstpagenum`` defaults to 1 for each range.
         """
         self._ensure_open()
+        if len(labels) > _MAX_PAGE_LABEL_RANGES:
+            msg = f"labels cannot contain more than {_MAX_PAGE_LABEL_RANGES} ranges"
+            raise ValueError(msg)
         payload: list[tuple[int, str | None, str | None, int]] = []
         seen: set[int] = set()
         for label in labels:

@@ -508,6 +508,11 @@ known-limit behavior are polished together.
       reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.
       Exact XML-token matching now ignores lookalike prefixes, quoted values,
       comments, and CDATA rather than reporting false declarations.
+- [x] Bound page-label number-tree interpretation and writes. Reads now borrow
+      nodes, visit cycles once, release the GIL, and reject partial results
+      above 4,096 entries/nodes, 32 levels, or 1 MiB of label text. Writes
+      enforce the same entry/text boundary before mutation instead of creating
+      output the reader must reject.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,
