@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import functools
+import itertools
 import zlib
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
@@ -36,7 +38,7 @@ def source_jpeg() -> tuple[bytes, int, int]:
 
 
 def build_jpeg_pdf(
-    placements: list[tuple[float, float, float, float]],
+    placements: Iterable[tuple[float, float, float, float]],
     *,
     image_options: str = "",
     source: tuple[bytes, int, int] | None = None,
@@ -346,6 +348,36 @@ def test_compress_images_skips_source_above_pixel_limit_before_decode() -> None:
     assert result["considered"] == 1
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
+
+
+def test_compress_images_accepts_exact_placement_limit() -> None:
+    doc = pylopdf.open(
+        stream=build_jpeg_pdf(
+            itertools.repeat((1, 1, 0, 0), 65_536),
+            source=(GRAY_GRADIENT_JPEG, 64, 64),
+            color_space="DeviceGray",
+        )
+    )
+
+    result = doc.compress_images(dpi=None, quality=100)
+
+    assert result["considered"] == 1
+
+
+def test_compress_images_rejects_excessive_placements_atomically() -> None:
+    doc = pylopdf.open(
+        stream=build_jpeg_pdf(
+            itertools.repeat((1, 1, 0, 0), 65_537),
+            source=(GRAY_GRADIENT_JPEG, 64, 64),
+            color_space="DeviceGray",
+        )
+    )
+    original = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="65536-placement safety limit"):
+        doc.compress_images()
+
+    assert doc.tobytes() == original
 
 
 def test_compress_images_empty_document_is_a_noop() -> None:

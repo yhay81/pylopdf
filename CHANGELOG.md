@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   64 MiB page payload budget instead of allocating a completed over-limit PNG
   before refusal. Separate RGB/gray and alpha planes are stream-interleaved
   through a 4 KiB scratch buffer rather than a complete additional raster.
+- `Document.compress_images()` now rejects more than 65,536 interpreted
+  indirect raster placements per call, bounding repeated references in
+  addition to the existing 16,384 unique-object limit.
 
 ### Performance
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate

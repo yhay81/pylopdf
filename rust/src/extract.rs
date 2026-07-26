@@ -2377,6 +2377,8 @@ const IMAGE_BYTE_LIMIT_ERROR: &str =
 
 /// Maximum unique indirect raster images considered by one compression call.
 const MAX_IMAGE_USAGE_OBJECTS: usize = 16_384;
+/// Maximum indirect raster placements interpreted by one compression call.
+const MAX_IMAGE_USAGE_PLACEMENTS: usize = 65_536;
 
 /// One indirect raster image and the lowest effective DPI of all placements.
 ///
@@ -2393,6 +2395,7 @@ pub(crate) struct ImageUsage {
 /// A Device that aggregates raster placements by indirect object ID.
 struct ImageUsageCollector {
     usages: HashMap<(u32, u16), ImageUsage>,
+    placements: usize,
     error: Option<&'static str>,
 }
 
@@ -2421,6 +2424,11 @@ impl ImageUsageCollector {
             // Inline images do not have a mutable lopdf object.
             return;
         }
+        if self.placements >= MAX_IMAGE_USAGE_PLACEMENTS {
+            self.error = Some("image compression exceeds the 65536-placement safety limit");
+            return;
+        }
+        self.placements += 1;
         let (dpi_x, dpi_y) = effective_dpi(transform);
         if let Some(usage) = self.usages.get_mut(&(number, generation)) {
             if usage.width != raster.width() || usage.height != raster.height() {
@@ -2494,6 +2502,7 @@ pub(crate) fn collect_image_usages(
     let cache = InterpreterCache::new();
     let mut collector = ImageUsageCollector {
         usages: HashMap::new(),
+        placements: 0,
         error: None,
     };
     for page in pdf.pages().iter() {

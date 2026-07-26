@@ -193,9 +193,10 @@ overview.
   lopdf document rather than cloning complete encoded sources per candidate.
   Actual rewrites invalidate hayro and derived interpretation caches without
   making existing `Page` views stale; no-op calls preserve all caches. Reject
-  more than 16,384 unique indirect raster objects or more than 250 million
-  eligible decoded source pixels in one operation, and skip an individual
-  source above 64 million pixels. The compact local separable Lanczos3
+  more than 65,536 interpreted indirect raster placements, 16,384 unique
+  indirect raster objects, or 250 million eligible decoded source pixels in one
+  operation, and skip an individual source above 64 million pixels. The compact
+  local separable Lanczos3
   implementation avoids a general-purpose resizing dependency. On Windows
   abi3, the wheel measured 6.86 MiB versus 6.78 MiB at the preceding v0.11
   commit (+0.07 MiB); extending the same path to bounded Flate decoding
