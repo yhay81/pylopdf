@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
-use kurbo::{Affine, Cap, Join, PathEl, PathSeg, Point, Rect, Shape};
+use kurbo::{Affine, Cap, CubicBez, Join, Line, PathEl, PathSeg, Point, QuadBez, Rect, Shape};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
@@ -2927,6 +2927,7 @@ pub(crate) type DrawingTuple = (
 /// Bound materialized output for adversarial pages.
 const MAX_DRAWING_PATHS: usize = 8192;
 const MAX_DRAWING_COMMANDS: usize = 131_072;
+const MAX_DRAWING_DASH_VALUES: usize = 131_072;
 
 #[derive(PartialEq)]
 struct DrawingGeometry {
@@ -2972,6 +2973,7 @@ impl DrawingRecord {
 struct DrawingCollector {
     drawings: Vec<DrawingRecord>,
     command_count: usize,
+    dash_value_count: usize,
     error: Option<&'static str>,
 }
 
@@ -3008,61 +3010,75 @@ fn drawing_join(join: Join) -> i64 {
 }
 
 fn drawing_dashes(values: &[f32], offset: f32, scale: f64) -> String {
-    let values = values
-        .iter()
-        .map(|value| (f64::from(*value) * scale).to_string())
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!("[{values}] {}", f64::from(offset) * scale)
+    let mut output = String::with_capacity(values.len().saturating_mul(4).saturating_add(4));
+    output.push('[');
+    for (index, value) in values.iter().enumerate() {
+        if index != 0 {
+            output.push(' ');
+        }
+        output.push_str(&(f64::from(*value) * scale).to_string());
+    }
+    output.push_str("] ");
+    output.push_str(&(f64::from(offset) * scale).to_string());
+    output
 }
 
 fn drawing_geometry(
     path: &kurbo::BezPath,
     transform: Affine,
 ) -> Result<Option<DrawingGeometry>, &'static str> {
-    let mut transformed = path.clone();
-    transformed.apply_affine(transform);
-    let bbox = transformed.bounding_box();
-    let bbox = (bbox.x0, bbox.y0, bbox.x1, bbox.y1);
-    if ![bbox.0, bbox.1, bbox.2, bbox.3]
-        .into_iter()
-        .all(f64::is_finite)
-    {
-        return Err("drawing path contains non-finite coordinates");
-    }
-
     let mut items = Vec::new();
     let mut current = None;
     let mut subpath_start = None;
+    let mut bbox: Option<Rect> = None;
     let mut close_path = false;
-    let mut push_item = |kind: &str, points: Vec<(f64, f64)>| -> Result<(), &'static str> {
-        if items.len() >= MAX_DRAWING_COMMANDS {
-            return Err("drawing extraction exceeds the 131072-command safety limit");
-        }
-        if !points
-            .iter()
-            .flat_map(|point| [point.0, point.1])
-            .all(f64::is_finite)
-        {
-            return Err("drawing path contains non-finite coordinates");
-        }
-        items.push((kind.to_owned(), points));
-        Ok(())
-    };
+    let mut push_item =
+        |kind: &str, points: Vec<(f64, f64)>, segment_bbox: Rect| -> Result<(), &'static str> {
+            if items.len() >= MAX_DRAWING_COMMANDS {
+                return Err("drawing extraction exceeds the 131072-command safety limit");
+            }
+            if !points
+                .iter()
+                .flat_map(|point| [point.0, point.1])
+                .chain([
+                    segment_bbox.x0,
+                    segment_bbox.y0,
+                    segment_bbox.x1,
+                    segment_bbox.y1,
+                ])
+                .all(f64::is_finite)
+            {
+                return Err("drawing path contains non-finite coordinates");
+            }
+            bbox = Some(
+                bbox.as_ref()
+                    .map_or(segment_bbox, |current| current.union(segment_bbox)),
+            );
+            items.push((kind.to_owned(), points));
+            Ok(())
+        };
 
-    for element in transformed.elements() {
+    for element in path.elements() {
         match *element {
             PathEl::MoveTo(point) => {
+                let point = transform * point;
                 current = Some(point);
                 subpath_start = Some(point);
             }
             PathEl::LineTo(point) => {
+                let point = transform * point;
                 if let Some(start) = current {
-                    push_item("l", vec![(start.x, start.y), (point.x, point.y)])?;
+                    push_item(
+                        "l",
+                        vec![(start.x, start.y), (point.x, point.y)],
+                        Line::new(start, point).bounding_box(),
+                    )?;
                 }
                 current = Some(point);
             }
             PathEl::QuadTo(control, point) => {
+                let control = transform * control;
+                let point = transform * point;
                 if let Some(start) = current {
                     let control1 = start + (control - start) * (2.0 / 3.0);
                     let control2 = point + (control - point) * (2.0 / 3.0);
@@ -3074,11 +3090,15 @@ fn drawing_geometry(
                             (control2.x, control2.y),
                             (point.x, point.y),
                         ],
+                        QuadBez::new(start, control, point).bounding_box(),
                     )?;
                 }
                 current = Some(point);
             }
             PathEl::CurveTo(control1, control2, point) => {
+                let control1 = transform * control1;
+                let control2 = transform * control2;
+                let point = transform * point;
                 if let Some(start) = current {
                     push_item(
                         "c",
@@ -3088,6 +3108,7 @@ fn drawing_geometry(
                             (control2.x, control2.y),
                             (point.x, point.y),
                         ],
+                        CubicBez::new(start, control1, control2, point).bounding_box(),
                     )?;
                 }
                 current = Some(point);
@@ -3096,7 +3117,11 @@ fn drawing_geometry(
                 if let (Some(start), Some(end)) = (subpath_start, current)
                     && start != end
                 {
-                    push_item("l", vec![(end.x, end.y), (start.x, start.y)])?;
+                    push_item(
+                        "l",
+                        vec![(end.x, end.y), (start.x, start.y)],
+                        Line::new(end, start).bounding_box(),
+                    )?;
                 }
                 current = subpath_start;
                 close_path = true;
@@ -3107,8 +3132,9 @@ fn drawing_geometry(
     if items.is_empty() {
         return Ok(None);
     }
+    let bbox = bbox.expect("a drawing with commands has a bounding box");
     Ok(Some(DrawingGeometry {
-        bbox,
+        bbox: (bbox.x0, bbox.y0, bbox.x1, bbox.y1),
         items,
         close_path,
     }))
@@ -3133,6 +3159,18 @@ impl DrawingCollector {
                 return;
             }
         };
+        let dash_values = match mode {
+            PathDrawMode::Fill(_) => 0,
+            PathDrawMode::Stroke(stroke) => stroke.dash_array.len(),
+        };
+        let Some(dash_value_count) = self.dash_value_count.checked_add(dash_values) else {
+            self.error = Some("drawing extraction dash value count overflowed");
+            return;
+        };
+        if dash_value_count > MAX_DRAWING_DASH_VALUES {
+            self.error = Some("drawing extraction exceeds the 131072-dash-value safety limit");
+            return;
+        }
         let (color, opacity) = drawing_paint(paint);
         let scale = drawing_scale(transform);
         let mut record = match mode {
@@ -3170,6 +3208,7 @@ impl DrawingCollector {
                 }
             }
         };
+        self.dash_value_count = dash_value_count;
 
         if record.kind == "s"
             && let Some(previous) = self.drawings.last_mut()
@@ -3243,6 +3282,7 @@ pub(crate) fn extract_page_drawings(
     let mut collector = DrawingCollector {
         drawings: Vec::new(),
         command_count: 0,
+        dash_value_count: 0,
         error: None,
     };
     interpret_page(page, &mut context, &mut collector);
