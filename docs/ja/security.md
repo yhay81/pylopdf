@@ -49,6 +49,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 | ストリームの累積展開／見積りbyte | 128 MiB |
 | 直接array／dictionaryの入れ子 | 64 |
 | 解釈済みページ全体のUTF-8 glyph payload | 1 MiB |
+| rendering／extractionへ渡す完全なPDF snapshot | 64 MiB |
 
 ワークロードに合わせる場合は`DocumentLimits(...)`を直接作成します。`None`以外は
 正の整数でなければなりません。従来の`max_decompressed_size=`はストリーム単位の
@@ -57,7 +58,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
-`embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
+`interpretation_size`、`embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、
@@ -70,6 +71,11 @@ Webプロファイルは現在、次の上限を独立に適用します。
 stream数、圧縮状態のstream byte数、直接objectの最大深度を返します。重い抽出へ
 進む前のroutingに利用できます。構造・展開上限は開いたsourceを検査するため、
 生成物が別のtrust boundaryを越えるときは同じポリシーで開き直してください。
+
+`max_interpretation_size`は、hayroが保持済みinputを最初に読むときと、編集、復号、
+AcroForm state選択後の現在状態をpylopdfがserializeするときに適用されます。上限付き
+writerは境界を越えるwriteを拒否し、不完全なrenderer／extractor cacheを登録しません。
+互換性のため既定値は`None`で、`DocumentLimits.web()`は64 MiBです。
 
 寛容な読み込みが修復するのは1つの限定ケースだけです。同じ最終revisionに完全な
 classic xref tableがあり、元の上限で全体parseが成功した場合に限り、誤った最終

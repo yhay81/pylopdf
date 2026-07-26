@@ -246,6 +246,18 @@ def test_fill_checkbox_with_bool() -> None:
     assert doc[0].get_pixmap(clip=(45, 107, 75, 137)).samples != on_pixels
 
 
+def test_state_appearance_render_snapshot_obeys_interpretation_budget() -> None:
+    doc = pylopdf.open(
+        stream=_build_form_pdf(),
+        limits=pylopdf.DocumentLimits(max_interpretation_size=1),
+    )
+    doc.set_form_field("agree", True)
+    with pytest.raises(pylopdf.LimitError) as error:
+        doc[0].get_pixmap()
+    assert error.value.code == "interpretation_size"
+    assert {field["name"]: field["value"] for field in doc.get_form_fields()}["agree"] == "Yes"
+
+
 def test_fill_radio_selects_only_matching_widget() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     doc.set_form_field("plan", "Basic")

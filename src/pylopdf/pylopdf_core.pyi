@@ -43,7 +43,11 @@ class Pixmap:
     def save(self, path: str | os.PathLike[str]) -> None: ...
 
 class _Document:
-    def __init__(self, max_text_size: int | None = None) -> None: ...
+    def __init__(
+        self,
+        max_text_size: int | None = None,
+        max_interpretation_size: int | None = None,
+    ) -> None: ...
     @staticmethod
     def load(
         path: str,
@@ -56,6 +60,7 @@ class _Document:
         max_total_decompressed_size: int | None = None,
         max_object_depth: int | None = None,
         max_text_size: int | None = None,
+        max_interpretation_size: int | None = None,
     ) -> _Document: ...
     @staticmethod
     def load_bytes(
@@ -69,6 +74,7 @@ class _Document:
         max_total_decompressed_size: int | None = None,
         max_object_depth: int | None = None,
         max_text_size: int | None = None,
+        max_interpretation_size: int | None = None,
     ) -> _Document: ...
     @staticmethod
     def load_metadata(

@@ -46,13 +46,14 @@ Web预设目前独立应用以下上限：
 | 所有流累计解码或估算字节 | 128 MiB |
 | 直接array/dictionary嵌套深度 | 64 |
 | 已解释页面累计UTF-8 glyph payload | 1 MiB |
+| 传给rendering／extraction的完整PDF snapshot | 64 MiB |
 
 如需适配其他负载，可直接构造`DocumentLimits(...)`。每个非`None`值必须是正整数。
 原有`max_decompressed_size=`仍可作为单流预算的兼容简写，但不能与`limits=`同时使用。
 
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
-`total_decompressed_size`、`text_size`、`embedded_file_size`、
+`total_decompressed_size`、`text_size`、`interpretation_size`、`embedded_file_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -65,6 +66,11 @@ Web预设目前独立应用以下上限：
 `doc.complexity`无需解码流或调用renderer，即可报告页数、对象数、流数、编码流
 字节数以及直接对象最大深度，适合在重型提取前进行routing。结构和解压预算验证
 打开时的source；生成结果若要跨越新的trust boundary，请用同一策略重新打开。
+
+`max_interpretation_size`在hayro首次读取保留input，以及pylopdf在编辑、解密或
+AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越界write，且不会
+安装不完整的renderer／extractor cache。为保持兼容，默认值为`None`；
+`DocumentLimits.web()`使用64 MiB。
 
 宽松打开只执行一种受限修复：仅当同一最终revision中存在完整classic xref table，
 并且在原有上限下完整解析成功时，才替换错误的最终`startxref`。它不会扫描object

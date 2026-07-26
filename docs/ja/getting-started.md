@@ -47,7 +47,8 @@ parse前にサイズで拒否でき、互換性のため既定値は無制限で
 なり、`PylopdfWarning`も発生します。
 保存するとxref dataは正規化されます。信頼できないファイルには
 `limits=pylopdf.DocumentLimits.web()`を指定してください。ファイル、構造、展開、
-解釈済みテキストを制限し、重い処理の前に`doc.complexity`を確認できます。
+rendering／extraction用PDF snapshot、解釈済みテキストを制限し、重い処理の前に
+`doc.complexity`を確認できます。
 制御された拒否は`LimitError`です。各上限は[セキュリティ](security.md#untrusted-pdfs)
 を参照してください。
 

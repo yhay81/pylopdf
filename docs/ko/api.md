@@ -120,7 +120,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DrawingItem` | line/cubic 그리기 명령을 나타내는 타입 별칭 |
 | `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
-| `DocumentLimits` / `DocumentComplexity` | 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
+| `DocumentLimits` / `DocumentComplexity` | renderer／extractor PDF snapshot용`max_interpretation_size`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |

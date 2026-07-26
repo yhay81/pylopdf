@@ -37,6 +37,34 @@ def test_load_bytes_and_page_count(three_page_pdf: bytes) -> None:
     assert doc.page_count() == 3
 
 
+def test_interpretation_size_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
+    exact = _Document.load_bytes(
+        one_page_pdf,
+        max_interpretation_size=len(one_page_pdf),
+    )
+    assert exact.extract_text([1])
+
+    bounded = _Document.load_bytes(
+        one_page_pdf,
+        max_interpretation_size=len(one_page_pdf) - 1,
+    )
+    with pytest.raises(LimitError) as source_error:
+        bounded.extract_text([1])
+    assert source_error.value.args[0] == "interpretation_size"
+
+    edited_probe = _Document()
+    edited_probe.new_page(None, 595.0, 842.0)
+    snapshot_size = len(edited_probe.save_bytes())
+    edited = _Document(None, snapshot_size - 1)
+    edited.new_page(None, 595.0, 842.0)
+    with pytest.raises(LimitError) as edited_error:
+        edited.extract_text([1])
+    assert edited_error.value.args[0] == "interpretation_size"
+
+    with pytest.raises(ValueError, match="max_interpretation_size"):
+        _Document(None, 0)
+
+
 def test_load_metadata_file_size_limit(tmp_path: Path, three_page_pdf: bytes) -> None:
     path = tmp_path / "three-pages.pdf"
     path.write_bytes(three_page_pdf)

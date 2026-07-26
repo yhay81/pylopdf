@@ -62,6 +62,9 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 - **例外**: 基底は `PdfError`（`ValueError` のサブクラス）。`PasswordError` /
   `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` が
   それを細分化します。`except ValueError` は動き続けます。
+- **資源ポリシー**: `DocumentLimits.web()`はrendering／extractionへ渡す完全な
+  PDF snapshotを64 MiBに制限します。独自ポリシーでは
+  `max_interpretation_size`を指定でき、`None`は互換性のある無制限動作です。
 - **`get_text` のオプション**は `text` / `words` / `blocks` / `dict` のみ
   （`html` / `rawdict` / `xml` は無し）。スパン辞書は埋め込みフォントについて
   `font` と pymupdf 互換の `flags`（bold/italic/serif/mono）を持ちます。

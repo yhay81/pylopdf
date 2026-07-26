@@ -48,6 +48,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 | 누적 디코딩 또는 추정 stream byte | 128 MiB |
 | 직접 array/dictionary 중첩 | 64 |
 | 해석한 페이지 전체의 누적 UTF-8 glyph payload | 1 MiB |
+| rendering／extraction에 전달되는 전체 PDF snapshot | 64 MiB |
 
 다른 workload에는`DocumentLimits(...)`를 직접 구성하세요. `None`이 아닌 값은
 양의 정수여야 합니다. 기존`max_decompressed_size=`는 stream당 예산의 호환
@@ -56,7 +57,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
-`embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
+`interpretation_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`,
@@ -69,6 +70,11 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 인코딩된 stream byte, 직접 object 최대 깊이를 보고합니다. 무거운 추출 전에
 routing하는 데 사용할 수 있습니다. 구조 및 압축 해제 예산은 열린 source를
 검증하므로, 생성물이 다른 trust boundary를 넘을 때는 같은 정책으로 다시 여세요.
+
+`max_interpretation_size`는 hayro가 보관된 input을 처음 읽을 때와 pylopdf가 편집,
+복호화 또는 AcroForm state 선택 후 현재 상태를 serialize할 때 적용됩니다. 상한이 있는
+writer는 경계를 넘는 write를 거부하며 불완전한 renderer／extractor cache를 설치하지
+않습니다. 호환성을 위한 기본값은`None`이고`DocumentLimits.web()`은64 MiB입니다.
 
 관대한 열기는 한 가지 제한된 복구만 수행합니다. 같은 마지막 revision에 온전한
 classic xref table이 있고 원래 제한 아래에서 전체 parse가 성공할 때만 잘못된 마지막

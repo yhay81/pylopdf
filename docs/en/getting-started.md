@@ -50,7 +50,8 @@ the backward-compatible default is unbounded. Its
 incorrect final classic `startxref`; pylopdf also emits `PylopdfWarning`, and
 saving rewrites normalized cross-reference data. Pass
 `limits=pylopdf.DocumentLimits.web()` when processing untrusted files. It
-bounds file, structure, decompression, and interpreted text; inspect
+bounds file, structure, decompression, the rendering/extraction PDF snapshot,
+and interpreted text; inspect
 `doc.complexity` before heavy work and catch `LimitError` for controlled
 rejection. See [Security](security.md#untrusted-pdfs) for every budget.
 
