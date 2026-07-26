@@ -408,7 +408,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_text_ocr(dpi=300, engine=None, tile_size=1408, overlap=192, min_confidence=0.5, rotation=0, clip=None)` | Recognize positioned words locally through `pylopdf[ocr]` without modifying the page; `rotation` corrects rendered input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=0, clip=None, skip_existing=True)` | Recognize and insert an orientation-aware invisible searchable layer; existing searchable text in the selected region is skipped by default |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | Single-page Markdown with the same table and UTF-8 output controls as the document method |
-| `search_for(needle)` | Case-insensitive text search returning `list[Rect]` |
+| `search_for(needle, max_hits=4096)` | Case-insensitive bounded search returning `list[Rect]`; terms stop at 4,096 UTF-8 bytes and `max_hits=None` opts trusted result sets out |
 | `find_tables(strategy="lines", clip=None)` | Detect complete or conservatively refined bordered grids and rectangular merged cells; use `strategy="text"` for opt-in borderless detection; `clip` filters in display coordinates and results expose confidence diagnostics |
 | `get_images()` | Extract page images (original JPEG bytes passed through; others as PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads per page |
 | `get_drawings()` | Extract interpreted vector fill/stroke paths as typed pymupdf-style dictionaries with display-space line/cubic geometry, RGB/opacity, fill rule, width, cap, join, and dashes |

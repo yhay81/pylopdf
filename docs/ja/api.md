@@ -50,7 +50,7 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | メンバ | 用途 |
 |---|---|
 | `number` / `parent` / `get_label()` | 素性と表示ラベル |
-| `get_text(option)` / `search_for(needle)` | 抽出と検索（大文字小文字を区別しない） |
+| `get_text(option)` / `search_for(needle, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
 | `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |

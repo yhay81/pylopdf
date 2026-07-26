@@ -22,7 +22,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
-| `page.search_for(t)` | 相同 | 返回`list[Rect]`；无`quads=` |
+| `page.search_for(t)` | 相同，并有`max_hits=4096` | 返回有界`list[Rect]`；搜索词上限4,096 byte，`max_hits=None`取消，无`quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
 | `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(path)`生成PNG，且`save`要求`.png`扩展名 |
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |

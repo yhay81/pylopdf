@@ -648,6 +648,14 @@ known-limit behavior are polished together.
       complete paragraph first when it fits: on a 1,000,000,000-point-wide
       page, one warmup plus five runs of `"word " * 10_000` fell from a
       928.7 ms median to 31.1 ms (29.9x) while retaining one-line semantics.
+- [x] Bound search geometry and linearize dense-hit indexing (2026-07-26).
+      `search_for` rejects terms above 4,096 UTF-8 bytes before PyO3 copying
+      and defaults output to 4,096 rectangles; direct Rust calls repeat both
+      checks, `search_input_size` and `search_hit_count` are stable, and
+      `max_hits=None` is the trusted-result opt-out. Sequential byte/character
+      cursors and allocation-free first/last glyph lookup reduced a cached
+      100,000-match single-line median from 371.1 ms to 79.9 ms (4.6x);
+      bounded default refusal took 3.1 ms.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

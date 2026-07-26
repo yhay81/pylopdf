@@ -192,7 +192,12 @@ class _Document:
             tuple[float, float | None, float | None, float | None],
         ]
     ]: ...
-    def search_page(self, page_number: int, needle: str) -> list[tuple[float, float, float, float]]: ...
+    def search_page(
+        self,
+        page_number: int,
+        needle: str,
+        max_hits: int | None = 4096,
+    ) -> list[tuple[float, float, float, float]]: ...
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...

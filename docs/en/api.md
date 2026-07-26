@@ -52,7 +52,7 @@ images are not considered. Repeating the same settings is idempotent.
 | Member | Purpose |
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
-| `get_text(option)` / `search_for(needle)` | extraction & case-insensitive search |
+| `get_text(option)` / `search_for(needle, max_hits=4096)` | extraction and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |

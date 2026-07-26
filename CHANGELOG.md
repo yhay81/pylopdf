@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rust calls repeat the boundary, exact limits succeed, and refusals use
   `LimitError.code == "text_input_size"`. `None` explicitly opts trusted input
   out.
+- `Page.search_for(..., max_hits=4096)` now rejects result amplification
+  instead of returning an unbounded partial geometry list. Search terms stop at
+  4,096 UTF-8 bytes before PyO3 copying, direct Rust calls repeat both
+  boundaries, and refusals use `search_input_size` or `search_hit_count`.
+  `max_hits=None` explicitly opts trusted result sets out.
 
 ### Changed
 - The free-threaded extraction benchmark now writes a standalone
@@ -43,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   local 50,000-character Standard 14 wide-line benchmark, median insertion
   fell from 928.7 ms to 31.1 ms (29.9x faster) while preserving layout
   semantics.
+- `Page.search_for(max_hits=None)` now advances byte-to-character positions
+  once and reads the first/last mapped glyph without allocating a temporary
+  vector for every match. On the paired cached 100,000-match single-line
+  benchmark, median search fell from 371.1 ms to 79.9 ms (4.6x faster);
+  bounded default refusal completed in 3.1 ms.
 - PyEmscripten builds now apply fat LTO with one codegen unit while native
   builds retain Cargo's default release profile. In paired pinned CI runs this
   reduced the wheel by 113,135 bytes (2.78%), the installed extension by

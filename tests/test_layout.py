@@ -154,6 +154,35 @@ def test_search_for_empty_raises(usrguide: pylopdf.Page) -> None:
         usrguide.search_for("")
 
 
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_search_for_validates_hit_budget(usrguide: pylopdf.Page, value: object) -> None:
+    with pytest.raises((TypeError, ValueError), match="max_hits"):
+        usrguide.search_for("authors", max_hits=value)  # type: ignore[arg-type]
+
+
+def test_search_for_bounds_utf8_input_before_core_copy(usrguide: pylopdf.Page) -> None:
+    assert usrguide.search_for("é" * 2048) == []
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        usrguide.search_for("é" * 2049)
+
+    assert caught.value.code == "search_input_size"
+
+
+def test_search_for_bounds_hits_without_returning_partial_results() -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=1_000_000, height=100)
+    page = doc[0]
+    page.insert_text((10, 50), "a" * 4097, max_text_size=4097)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        page.search_for("a")
+
+    assert caught.value.code == "search_hit_count"
+    assert len(page.search_for("a", max_hits=4097)) == 4097
+    assert len(page.search_for("a", max_hits=None)) == 4097
+
+
 def test_search_for_cjk() -> None:
     doc = pylopdf.open(ASSETS / "mhlw-doc.pdf")
     hits = doc[0].search_for("裁判例")
