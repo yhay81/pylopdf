@@ -7,9 +7,8 @@ implementation or a wasm-bindgen shim.
 
 !!! note "Release status"
 
-    The WebAssembly wheel first ships with pylopdf 0.11. v0.10.0 contains only
-    native wheels. Until v0.11 is published, the documented public installation
-    command intentionally does not resolve.
+    The WebAssembly wheel has shipped since pylopdf 0.11. v0.10.0 contains only
+    native wheels.
 
 ## Tested environment
 
@@ -32,7 +31,7 @@ PyPI, provenance attestation, and the release SBOM.
 
 | Environment | Status | Detail |
 |---|---|---|
-| Cloudflare Python Workers | Supported, release-gated | CI resolves the PEP 783 wheel with the pinned SDK and dry-runs a Wrangler bundle. A tagged release repeats the check from PyPI before creating the GitHub release. |
+| Cloudflare Python Workers | Supported, release-gated | CI resolves the PEP 783 wheel with the pinned SDK, builds the Wrangler bundle, starts local `workerd`, and verifies a module-scope import through `/health`. A tagged release repeats the check from PyPI before creating the GitHub release. |
 | Pyodide 0.28.3 in Node.js | Runtime compatibility-gated | CI installs the locally built runtime-tagged wheel into the exact runtime and executes the full compatibility suite. |
 | Direct browser installation from PyPI | Not supported with Pyodide 0.28.3 | Its `micropip` predates the PEP 783 `pyemscripten_*` tag required by PyPI. The binary is compatible; that frontend installation path is not. |
 | Other Pyodide or Python/Wasm versions | Not tested | Platform and ABI compatibility must be established before widening the wheel tag or support claim. |
@@ -53,6 +52,8 @@ uv run pywrangler dev
 In another terminal:
 
 ```bash
+curl http://localhost:8787/health
+
 curl --request POST \
   --header "content-type: application/pdf" \
   --data-binary @document.pdf \
@@ -62,7 +63,9 @@ curl --request POST \
 Use `uv run pywrangler deploy` after reviewing the compatibility date and the
 limits for the selected Cloudflare plan. CI copies this exact example, replaces
 its public pylopdf requirement with the just-built wheel, resolves it through
-`workers-py`, and runs `wrangler deploy --dry-run`.
+`workers-py`, runs `wrangler deploy --dry-run`, then starts local `workerd` and
+requests `/health`. The module-scope `import pylopdf` must therefore complete
+without startup-only entropy or other request-bound runtime state.
 
 The example caps its input at 4 MiB and sets tighter structural and decoded-data
 budgets than `DocumentLimits.web()`. The complete request body is buffered
@@ -195,7 +198,8 @@ Cloudflare request latency or isolate resident-memory measurements. See the
   WebAssembly compatibility contract.
 - Automatic external CJK fallback-font discovery is not covered. Embedded CJK
   PDFs are tested, and applications may supply font bytes explicitly.
-- The current gate proves Cloudflare bundle construction, not an authenticated
+- The current gate proves Cloudflare bundle construction and local `workerd`
+  startup with a module-scope import. It does not prove an authenticated
   production deployment or workload-specific latency.
 
 The same matrix exercises `DocumentLimits`, `doc.complexity`, representative
@@ -213,9 +217,10 @@ Each pylopdf release that publishes a Wasm wheel must pass:
 2. the shared native/Pyodide logical compatibility suite;
 3. untrusted-input rejection and resource-trend checks;
 4. wheel, Wasm-section, startup/workload, and linear-memory measurement;
-5. dependency resolution and Cloudflare Wrangler dry-run from the local wheel;
-6. the same resolution and Cloudflare dry-run from PyPI before the GitHub
-   release is finalized.
+5. dependency resolution, Cloudflare Wrangler dry-run, local `workerd` startup,
+   and a module-scope-import health request from the local wheel;
+6. the same resolution, bundle, and runtime health gate from PyPI before the
+   GitHub release is finalized.
 
 Runtime upgrades are evaluated as a new tested matrix, not assumed compatible.
 The pinned versions stay supported for the corresponding pylopdf minor release;

@@ -5,11 +5,18 @@ first-page text. Its limits are tighter than `DocumentLimits.web()` because a
 Cloudflare isolate's 128 MB budget also includes Python, JavaScript, and
 WebAssembly runtime memory.
 
-The PyEmscripten wheel first ships with pylopdf 0.11. From this directory:
+The PyEmscripten wheel has shipped since pylopdf 0.11. From this directory:
 
 ```bash
 uv sync
 uv run pywrangler dev
+```
+
+The example imports pylopdf at module scope. Check that the Worker initialized
+successfully:
+
+```bash
+curl http://localhost:8787/health
 ```
 
 Then send a small PDF:

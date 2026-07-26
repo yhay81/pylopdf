@@ -23,6 +23,9 @@ class Default(WorkerEntrypoint):
 
     async def fetch(self, request: Request) -> Response:
         """Return page count and first-page text as JSON."""
+        if request.method == "GET" and request.url.split("?", 1)[0].endswith("/health"):
+            return Response.from_json({"status": "ok", "pylopdf": pylopdf.__version__})
+
         declared_size = request.headers.get("content-length")
         if declared_size is not None:
             try:

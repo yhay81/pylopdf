@@ -6,8 +6,7 @@ JavaScript製PDF実装やwasm-bindgen shimには置き換えていません。
 
 !!! note "リリース状況"
 
-    WebAssembly wheelはpylopdf 0.11で初めて配布します。v0.10.0はnative wheelのみです。
-    v0.11公開前は、このページに記載した公開install commandが解決しないのが正常です。
+    WebAssembly wheelはpylopdf 0.11から配布済みです。v0.10.0はnative wheelのみです。
 
 ## 検証済み環境
 
@@ -29,7 +28,7 @@ PyEmscripten tagのartifactだけです。
 
 | 環境 | 状況 | 詳細 |
 |---|---|---|
-| Cloudflare Python Workers | 対応・release gateあり | CIが固定SDKでPEP 783 wheelを解決し、Wrangler bundleをdry-runします。tag releaseではPyPIから同じ検証を繰り返してからGitHub Releaseを作ります。 |
+| Cloudflare Python Workers | 対応・release gateあり | CIが固定SDKでPEP 783 wheelを解決し、Wrangler bundleを作成してlocal `workerd`を起動し、module-scope importを`/health`で検証します。tag releaseではPyPIから同じ検証を繰り返してからGitHub Releaseを作ります。 |
 | Node.js上のPyodide 0.28.3 | runtime互換gateあり | CIがruntime tagのlocal wheelを固定runtimeへinstallし、共有互換suiteをすべて実行します。 |
 | PyPIからbrowserへ直接install | Pyodide 0.28.3では非対応 | 同版の`micropip`はPyPIが要求するPEP 783 `pyemscripten_*` tagより古い実装です。binaryは互換ですが、このfrontend install経路は互換ではありません。 |
 | その他のPyodide / Python-Wasm | 未検証 | wheel tagや対応範囲を広げる前にplatformとABIを検証します。 |
@@ -50,6 +49,8 @@ uv run pywrangler dev
 別terminalから送信します。
 
 ```bash
+curl http://localhost:8787/health
+
 curl --request POST \
   --header "content-type: application/pdf" \
   --data-binary @document.pdf \
@@ -59,7 +60,9 @@ curl --request POST \
 選択したCloudflare planの上限とcompatibility dateを確認してから
 `uv run pywrangler deploy`を使います。CIはこのexample自体をcopyし、公開版pylopdfの
 requirementだけを直前にbuildしたwheelへ差し替え、`workers-py`で解決して
-`wrangler deploy --dry-run`を実行します。
+`wrangler deploy --dry-run`を実行した後、local `workerd`を起動して`/health`を
+requestします。そのためmodule-scopeの`import pylopdf`は、startup時に使えない
+entropyやrequest固有のruntime stateに依存せず完了しなければなりません。
 
 exampleは入力を4 MiBに制限し、structureと展開後dataには`DocumentLimits.web()`より
 厳しいbudgetを設定します。pylopdfの入力はpathまたは完全なbytesなので、request bodyは
@@ -176,8 +179,8 @@ resident memoryの測定ではありません。詳細は
 - native OCRと別配布のOCR model packageはWebAssembly互換契約外です。
 - 外部CJK fallback fontの自動探索は対象外です。埋め込みCJKは検証し、applicationから
   font bytesを明示的に渡すことはできます。
-- 現在のgateはCloudflare bundle生成までを検証し、認証済みproduction deployや
-  workload固有latencyを保証しません。
+- 現在のgateはCloudflare bundle生成とmodule-scope importを含むlocal `workerd`
+  起動を検証します。認証済みproduction deployやworkload固有latencyは保証しません。
 
 同じmatrixがnativeとWasmの両方で`DocumentLimits`、`doc.complexity`、Web budget内の
 vector/scan入力、file/page/textのstable rejection codeを検証します。定期native
@@ -193,8 +196,9 @@ Wasm wheelを配布する各pylopdf releaseは、次をすべて通します。
 2. native/Pyodide共有の論理互換suite
 3. untrusted inputの拒否とresource trend検査
 4. wheel、Wasm section、startup/workload、linear memoryの測定
-5. local wheelからのdependency解決とCloudflare Wrangler dry-run
-6. GitHub Release確定前のPyPI artifactからの同じ解決・dry-run
+5. local wheelからのdependency解決、Cloudflare Wrangler dry-run、local
+   `workerd`起動、module-scope-import health request
+6. GitHub Release確定前のPyPI artifactからの同じ解決、bundle、runtime health gate
 
 runtime更新は互換と仮定せず、新しい検証matrixとして扱います。固定versionは対応する
 pylopdf minor releaseでsupportし、新しいPyodide、PyEmscripten、Emscripten、
