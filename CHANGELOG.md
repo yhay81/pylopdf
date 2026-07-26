@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Document.compress_images()` now rejects more than 65,536 interpreted
   indirect raster placements per call, bounding repeated references in
   addition to the existing 16,384 unique-object limit.
+- Bounded in-memory PNG and serialized-PDF writers now use fallible growth
+  after their size checks, returning ordinary encoding or `PdfError` failures
+  instead of relying on infallible `Vec` extension within the configured limit.
 
 ### Performance
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate

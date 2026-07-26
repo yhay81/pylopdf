@@ -273,9 +273,10 @@ overview.
   `Document` are outside the contract.
 - `Document.render_page`, `Page.render`, and `Pixmap.tobytes` default to a
   64 MiB encoded-PNG output boundary. The shared PNG writer refuses the write
-  crossing the limit before Python bytes conversion. `max_size=None` is the
-  explicit trusted-output opt-out. Render failures use `render_output_size`;
-  direct Pixmap failures use `pixmap_output_size`.
+  crossing the limit before Python bytes conversion and grows its retained
+  output fallibly. `max_size=None` is the explicit trusted-output opt-out.
+  Render failures use `render_output_size`; direct Pixmap failures use
+  `pixmap_output_size`.
 - `Document.render_page_svg` and `Page.render_svg` default to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
   creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.7
@@ -322,10 +323,11 @@ overview.
 - `Document.tobytes` defaults to a 512 MiB serialized PDF output boundary.
   Normal, object/xref-stream, and encrypted core paths must all write through
   `BoundedPdfOutput`, which refuses the write crossing the limit before Python
-  bytes conversion and raises stable code `pdf_output_size`. `max_size=None`
-  is the explicit trusted-input opt-out. File `save` remains streamed and
-  outside this in-memory output boundary. Preserve the documented mutation
-  semantics of `garbage`, `deflate`, and `object_streams` on output refusal.
+  bytes conversion, grows retained output fallibly, and raises stable code
+  `pdf_output_size` for the configured boundary. `max_size=None` is the explicit
+  trusted-input opt-out. File `save` remains streamed and outside this in-memory
+  output boundary. Preserve the documented mutation semantics of `garbage`,
+  `deflate`, and `object_streams` on output refusal.
 - TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
   compatibility. All other page APIs are zero-based.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted

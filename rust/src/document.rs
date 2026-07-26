@@ -1313,17 +1313,20 @@ impl Write for BoundedPdfOutput {
     }
 
     fn write_all(&mut self, buffer: &[u8]) -> std::io::Result<()> {
-        if self.max_size.is_some_and(|limit| {
-            self.bytes
-                .len()
-                .checked_add(buffer.len())
-                .is_none_or(|size| size > limit)
-        }) {
+        let new_len = self
+            .bytes
+            .len()
+            .checked_add(buffer.len())
+            .ok_or_else(|| std::io::Error::other("serialized PDF output size overflowed"))?;
+        if self.max_size.is_some_and(|limit| new_len > limit) {
             self.exceeded = true;
             return Err(std::io::Error::other(
                 "serialized PDF output size limit exceeded",
             ));
         }
+        self.bytes.try_reserve(buffer.len()).map_err(|error| {
+            std::io::Error::other(format!("failed to allocate serialized PDF output: {error}"))
+        })?;
         self.bytes.extend_from_slice(buffer);
         Ok(())
     }
