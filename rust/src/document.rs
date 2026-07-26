@@ -559,6 +559,7 @@ struct DocumentLimits {
     max_object_depth: Option<usize>,
     max_text_size: Option<usize>,
     max_interpretation_size: Option<usize>,
+    max_text_glyphs: Option<usize>,
 }
 
 /// Cheap structural facts that require neither stream decoding nor rendering.
@@ -820,6 +821,24 @@ fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
     LimitError::new_err((code, message.into()))
 }
 
+/// Map one text collector refusal to its stable public resource code.
+fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr {
+    match error {
+        crate::extract::TextPageLimit::TextSize(limit) => limit_err(
+            "text_size",
+            format!(
+                "page text exceeds the remaining configured Unicode payload budget of {limit} bytes"
+            ),
+        ),
+        crate::extract::TextPageLimit::GlyphCount(limit) => limit_err(
+            "text_glyph_count",
+            format!(
+                "page text exceeds the remaining configured positioned-glyph budget of {limit}"
+            ),
+        ),
+    }
+}
+
 /// Read a path without admitting more than one byte beyond a caller's budget.
 fn read_bounded_input(
     path: &str,
@@ -900,6 +919,16 @@ fn validate_interpretation_limit(max_interpretation_size: Option<usize>) -> PyRe
     if max_interpretation_size == Some(0) {
         return Err(PyValueError::new_err(
             "max_interpretation_size must be a positive integer or None",
+        ));
+    }
+    Ok(())
+}
+
+/// Validate the positioned-text glyph budget at the private boundary.
+fn validate_text_glyph_limit(max_text_glyphs: Option<usize>) -> PyResult<()> {
+    if max_text_glyphs == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_text_glyphs must be a positive integer or None",
         ));
     }
     Ok(())
@@ -2555,8 +2584,12 @@ pub struct _Document {
     max_text_size: Option<usize>,
     /// Serialized PDF bytes admitted to the renderer/extractor snapshot.
     max_interpretation_size: Option<usize>,
-    /// Glyph payload already admitted for each interpreted page.
+    /// Configured cumulative positioned glyph count across interpreted pages.
+    max_text_glyphs: Option<usize>,
+    /// UTF-8 glyph payload already admitted for each interpreted page.
     interpreted_text_sizes: HashMap<u32, usize>,
+    /// Positioned glyph records already admitted for each interpreted page.
+    interpreted_glyph_counts: HashMap<u32, usize>,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
     /// Whether loading repaired an incorrect final classic startxref offset.
@@ -2573,12 +2606,14 @@ impl _Document {
         hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
+        max_text_glyphs: Option<usize>,
     ) -> Self {
         Self::from_loaded_doc(
             doc,
             hayro_source,
             max_text_size,
             max_interpretation_size,
+            max_text_glyphs,
             false,
         )
     }
@@ -2589,6 +2624,7 @@ impl _Document {
         hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
+        max_text_glyphs: Option<usize>,
         is_repaired: bool,
     ) -> Self {
         let pending = if is_repaired {
@@ -2607,7 +2643,9 @@ impl _Document {
             table_page_order: VecDeque::new(),
             max_text_size,
             max_interpretation_size,
+            max_text_glyphs,
             interpreted_text_sizes: HashMap::new(),
+            interpreted_glyph_counts: HashMap::new(),
             isolated_content_pages: HashSet::new(),
             is_repaired,
             pending_warnings: Arc::new(Mutex::new(pending)),
@@ -2736,6 +2774,7 @@ impl _Document {
         self.table_pages.clear();
         self.table_page_order.clear();
         self.interpreted_text_sizes.clear();
+        self.interpreted_glyph_counts.clear();
     }
 
     /// Return the glyph payload still available to one page interpretation.
@@ -2760,11 +2799,39 @@ impl _Document {
         Ok(Some(remaining))
     }
 
-    /// Record one page's glyph payload without counting cache re-interpretation.
-    fn admit_text_size(&mut self, page_number: u32, text_size: usize) -> PyResult<()> {
+    /// Return the positioned glyph records still available to one page.
+    fn glyph_budget(&self, page_number: u32) -> PyResult<Option<usize>> {
+        let Some(limit) = self.max_text_glyphs else {
+            return Ok(None);
+        };
+        if let Some(admitted) = self.interpreted_glyph_counts.get(&page_number) {
+            return Ok(Some(*admitted));
+        }
+        let used = self
+            .interpreted_glyph_counts
+            .values()
+            .try_fold(0usize, |total, value| total.checked_add(*value))
+            .ok_or_else(|| {
+                limit_err(
+                    "text_glyph_count",
+                    "interpreted text glyph count exceeds the platform limit",
+                )
+            })?;
+        Ok(Some(limit.saturating_sub(used)))
+    }
+
+    /// Record one page's text resources without charging cache re-interpretation.
+    fn admit_text_usage(
+        &mut self,
+        page_number: u32,
+        text_size: usize,
+        glyph_count: usize,
+    ) -> PyResult<()> {
         if self.interpreted_text_sizes.contains_key(&page_number) {
+            debug_assert!(self.interpreted_glyph_counts.contains_key(&page_number));
             return Ok(());
         }
+        debug_assert!(!self.interpreted_glyph_counts.contains_key(&page_number));
         if let Some(limit) = self.max_text_size {
             let used = self
                 .interpreted_text_sizes
@@ -2785,7 +2852,29 @@ impl _Document {
                 ));
             }
         }
+        if let Some(limit) = self.max_text_glyphs {
+            let used = self
+                .interpreted_glyph_counts
+                .values()
+                .try_fold(glyph_count, |total, value| total.checked_add(*value))
+                .ok_or_else(|| {
+                    limit_err(
+                        "text_glyph_count",
+                        "interpreted text glyph count exceeds the platform limit",
+                    )
+                })?;
+            if used > limit {
+                return Err(limit_err(
+                    "text_glyph_count",
+                    format!(
+                        "interpreted text reached {used} glyphs, exceeding the configured cumulative limit of {limit}"
+                    ),
+                ));
+            }
+        }
         self.interpreted_text_sizes.insert(page_number, text_size);
+        self.interpreted_glyph_counts
+            .insert(page_number, glyph_count);
         Ok(())
     }
 
@@ -3911,6 +4000,7 @@ impl _Document {
         }
 
         let text_budget = self.text_budget(page_number)?;
+        let glyph_budget = self.glyph_budget(page_number)?;
         let text_page = {
             let pdf = self.hayro_view()?;
             let pages = pdf.pages();
@@ -3918,16 +4008,10 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TextPage::new(pdf, page, settings, text_budget).map_err(|limit| {
-                limit_err(
-                    "text_size",
-                    format!(
-                        "page text exceeds the remaining configured Unicode payload budget of {limit} bytes"
-                    ),
-                )
-            })?
+            crate::extract::TextPage::new(pdf, page, settings, text_budget, glyph_budget)
+                .map_err(text_page_limit_err)?
         };
-        self.admit_text_size(page_number, text_page.text_size())?;
+        self.admit_text_usage(page_number, text_page.text_size(), text_page.glyph_count())?;
 
         if self.text_pages.len() >= TEXT_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.text_page_order.pop_front()
@@ -3959,6 +4043,7 @@ impl _Document {
         }
 
         let text_budget = self.text_budget(page_number)?;
+        let glyph_budget = self.glyph_budget(page_number)?;
         let table_page = {
             let pdf = self.hayro_view()?;
             let pages = pdf.pages();
@@ -3966,16 +4051,14 @@ impl _Document {
                 .checked_sub(1)
                 .and_then(|index| pages.get(index as usize))
                 .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TablePage::new(pdf, page, settings, text_budget).map_err(|limit| {
-                limit_err(
-                    "text_size",
-                    format!(
-                        "page text exceeds the remaining configured Unicode payload budget of {limit} bytes"
-                    ),
-                )
-            })?
+            crate::extract::TablePage::new(pdf, page, settings, text_budget, glyph_budget)
+                .map_err(text_page_limit_err)?
         };
-        self.admit_text_size(page_number, table_page.text_size())?;
+        self.admit_text_usage(
+            page_number,
+            table_page.text_size(),
+            table_page.glyph_count(),
+        )?;
 
         if self.table_pages.len() >= TABLE_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.table_page_order.pop_front()
@@ -4702,14 +4785,24 @@ fn write_embedded_files(
 impl _Document {
     /// Create an empty PDF document.
     #[new]
-    #[pyo3(signature = (max_text_size=None, max_interpretation_size=None))]
-    fn new(max_text_size: Option<usize>, max_interpretation_size: Option<usize>) -> PyResult<Self> {
+    #[pyo3(signature = (
+        max_text_size=None,
+        max_interpretation_size=None,
+        max_text_glyphs=None
+    ))]
+    fn new(
+        max_text_size: Option<usize>,
+        max_interpretation_size: Option<usize>,
+        max_text_glyphs: Option<usize>,
+    ) -> PyResult<Self> {
         validate_interpretation_limit(max_interpretation_size)?;
+        validate_text_glyph_limit(max_text_glyphs)?;
         let mut document = Self::from_doc(
             Document::with_version("1.7"),
             None,
             max_text_size,
             max_interpretation_size,
+            max_text_glyphs,
         );
         document.ensure_page_tree().map_err(to_py_err)?;
         Ok(document)
@@ -4731,7 +4824,8 @@ impl _Document {
         max_total_decompressed_size=None,
         max_object_depth=None,
         max_text_size=None,
-        max_interpretation_size=None
+        max_interpretation_size=None,
+        max_text_glyphs=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn load(
@@ -4747,9 +4841,11 @@ impl _Document {
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
+        max_text_glyphs: Option<usize>,
     ) -> PyResult<Self> {
         validate_password_input(password.as_deref(), "password")?;
         validate_interpretation_limit(max_interpretation_size)?;
+        validate_text_glyph_limit(max_text_glyphs)?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4760,6 +4856,7 @@ impl _Document {
             max_object_depth,
             max_text_size,
             max_interpretation_size,
+            max_text_glyphs,
         };
         let (decoder_bound, decoder_limit_code) = match (
             limits.max_decompressed_size,
@@ -4804,6 +4901,7 @@ impl _Document {
                 hayro_source,
                 limits.max_text_size,
                 limits.max_interpretation_size,
+                limits.max_text_glyphs,
                 is_repaired,
             ))
         })
@@ -4822,7 +4920,8 @@ impl _Document {
         max_total_decompressed_size=None,
         max_object_depth=None,
         max_text_size=None,
-        max_interpretation_size=None
+        max_interpretation_size=None,
+        max_text_glyphs=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn load_bytes(
@@ -4838,9 +4937,11 @@ impl _Document {
         max_object_depth: Option<usize>,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
+        max_text_glyphs: Option<usize>,
     ) -> PyResult<Self> {
         validate_password_input(password.as_deref(), "password")?;
         validate_interpretation_limit(max_interpretation_size)?;
+        validate_text_glyph_limit(max_text_glyphs)?;
         let limits = DocumentLimits {
             max_file_size,
             max_pages,
@@ -4851,6 +4952,7 @@ impl _Document {
             max_object_depth,
             max_text_size,
             max_interpretation_size,
+            max_text_glyphs,
         };
         validate_input_size(data, limits.max_file_size)?;
         let (decoder_bound, decoder_limit_code) = match (
@@ -4893,6 +4995,7 @@ impl _Document {
                 hayro_source,
                 limits.max_text_size,
                 limits.max_interpretation_size,
+                limits.max_text_glyphs,
                 is_repaired,
             ))
         })
@@ -7234,7 +7337,7 @@ impl _Document {
         })?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None, None);
+        let source = Self::from_doc(generated_doc, Some(generated), None, None, None);
         self.show_pdf_page(
             py,
             page_number,
@@ -7354,7 +7457,7 @@ impl _Document {
         self.preflight_page_content(page_number)?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None, None);
+        let source = Self::from_doc(generated_doc, Some(generated), None, None, None);
         self.show_pdf_page(
             py,
             page_number,

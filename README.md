@@ -376,7 +376,7 @@ signed_pdf: bytes = out.getvalue()
 | `is_repaired` | Whether opening repaired an incorrect final classic `startxref`; a `PylopdfWarning` is also emitted and saving normalizes the xref data |
 | `authenticate(password)` | Decrypt with a password of at most 127 UTF-8 bytes (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
-| `limits` / `complexity` | Immutable open-time resource policy, including an optional rendering/extraction snapshot cap / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
+| `limits` / `complexity` | Immutable open-time resource policy, including optional rendering/extraction snapshot and positioned-text glyph caps / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
 | `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
 | `set_metadata(dict)` | Atomically set standard metadata under the 1 MiB input/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |

@@ -81,6 +81,12 @@ struct GlyphRecord {
     source_order: usize,
 }
 
+/// Resource boundary reached while collecting positioned Unicode glyphs.
+pub(crate) enum TextPageLimit {
+    TextSize(usize),
+    GlyphCount(usize),
+}
+
 /// One axis-aligned stroked path segment in display coordinates.
 #[derive(Clone, Copy)]
 struct RuleSegment {
@@ -103,8 +109,10 @@ struct TextCollector {
     text_size: usize,
     /// Optional document-wide budget remaining for this interpretation.
     max_text_size: Option<usize>,
-    /// Set once glyph Unicode would exceed the configured budget.
-    text_limit_exceeded: bool,
+    /// Optional document-wide positioned-glyph budget remaining.
+    max_glyph_count: Option<usize>,
+    /// Set once either configured text resource budget is exhausted.
+    limit_error: Option<TextPageLimit>,
 }
 
 impl Device<'_> for TextCollector {
@@ -180,7 +188,7 @@ impl Device<'_> for TextCollector {
         _: &Paint<'_>,
         _: &GlyphDrawMode,
     ) {
-        if self.text_limit_exceeded {
+        if self.limit_error.is_some() {
             return;
         }
         let Some(unicode) = glyph.as_unicode() else {
@@ -194,14 +202,19 @@ impl Device<'_> for TextCollector {
             return;
         }
         let Some(next_text_size) = self.text_size.checked_add(text.len()) else {
-            self.text_limit_exceeded = true;
+            self.limit_error = Some(TextPageLimit::TextSize(usize::MAX));
             return;
         };
-        if self
-            .max_text_size
-            .is_some_and(|limit| next_text_size > limit)
+        if let Some(limit) = self.max_text_size
+            && next_text_size > limit
         {
-            self.text_limit_exceeded = true;
+            self.limit_error = Some(TextPageLimit::TextSize(limit));
+            return;
+        }
+        if let Some(limit) = self.max_glyph_count
+            && self.glyphs.len() >= limit
+        {
+            self.limit_error = Some(TextPageLimit::GlyphCount(limit));
             return;
         }
         self.text_size = next_text_size;
@@ -1119,6 +1132,7 @@ pub(crate) struct TextPage {
     height: f64,
     lines: Vec<Vec<GlyphRecord>>,
     text_size: usize,
+    glyph_count: usize,
 }
 
 pub(crate) enum SearchError {
@@ -1131,9 +1145,11 @@ impl TextPage {
         page: &Page<'_>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
-    ) -> Result<Self, usize> {
+        max_glyph_count: Option<usize>,
+    ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
-        let (glyphs, _, text_size) = collect_page_marks(pdf, page, settings, false, max_text_size)?;
+        let (glyphs, _, text_size, glyph_count) =
+            collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
         let physical_lines = cluster_lines(glyphs);
         let lines = order_page_lines(physical_lines);
         Ok(Self {
@@ -1141,6 +1157,7 @@ impl TextPage {
             height: f64::from(height),
             lines,
             text_size,
+            glyph_count,
         })
     }
 
@@ -1150,6 +1167,10 @@ impl TextPage {
 
     pub(crate) fn text_size(&self) -> usize {
         self.text_size
+    }
+
+    pub(crate) fn glyph_count(&self) -> usize {
+        self.glyph_count
     }
 
     pub(crate) fn layout(&self) -> (f64, f64, Vec<BlockTuple>) {
@@ -1170,6 +1191,7 @@ pub(crate) struct TablePage {
     tables: Vec<TableTuple>,
     text_tables: Vec<TableTuple>,
     text_size: usize,
+    glyph_count: usize,
 }
 
 impl TablePage {
@@ -1178,19 +1200,25 @@ impl TablePage {
         page: &Page<'_>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
-    ) -> Result<Self, usize> {
-        let (glyphs, rules, text_size) =
-            collect_page_marks(pdf, page, settings, true, max_text_size)?;
+        max_glyph_count: Option<usize>,
+    ) -> Result<Self, TextPageLimit> {
+        let (glyphs, rules, text_size, glyph_count) =
+            collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
         let physical_lines = cluster_lines(glyphs);
         Ok(Self {
             tables: detect_grid_tables(&physical_lines, &rules),
             text_tables: detect_text_tables(&physical_lines),
             text_size,
+            glyph_count,
         })
     }
 
     pub(crate) fn text_size(&self) -> usize {
         self.text_size
+    }
+
+    pub(crate) fn glyph_count(&self) -> usize {
+        self.glyph_count
     }
 
     pub(crate) fn tables(&self, text_strategy: bool, clip: Option<BBox>) -> Vec<TableTuple> {
@@ -3186,7 +3214,8 @@ fn collect_page_marks(
     settings: InterpreterSettings,
     collect_rules: bool,
     max_text_size: Option<usize>,
-) -> Result<(Vec<GlyphRecord>, Vec<RuleSegment>, usize), usize> {
+    max_glyph_count: Option<usize>,
+) -> Result<(Vec<GlyphRecord>, Vec<RuleSegment>, usize, usize), TextPageLimit> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = TextCollector {
@@ -3196,11 +3225,18 @@ fn collect_page_marks(
         font_infos: HashMap::new(),
         text_size: 0,
         max_text_size,
-        text_limit_exceeded: false,
+        max_glyph_count,
+        limit_error: None,
     };
     interpret_page(page, &mut context, &mut collector);
-    if collector.text_limit_exceeded {
-        return Err(max_text_size.unwrap_or(usize::MAX));
+    if let Some(error) = collector.limit_error {
+        return Err(error);
     }
-    Ok((collector.glyphs, collector.rules, collector.text_size))
+    let glyph_count = collector.glyphs.len();
+    Ok((
+        collector.glyphs,
+        collector.rules,
+        collector.text_size,
+        glyph_count,
+    ))
 }

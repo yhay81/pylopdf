@@ -58,8 +58,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   `DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。
   `except ValueError`仍然有效。
 - **资源策略**：`DocumentLimits.web()`将传给rendering／extraction的完整PDF
-  snapshot限制为64 MiB。自定义策略可设置`max_interpretation_size`；`None`保留兼容的
-  无上限行为。
+  snapshot限制为64 MiB，并将累计带位置文本限制为65,536个glyph record。自定义策略
+  可设置`max_interpretation_size`和`max_text_glyphs`；`None`保留兼容的无上限行为。
 - **`get_text`选项**仅有`text` / `words` / `blocks` / `dict`，没有`html` /
   `rawdict` / `xml`。对嵌入字体，span字典包含`font`和兼容pymupdf的`flags`
   （bold/italic/serif/mono）。

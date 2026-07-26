@@ -114,7 +114,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DrawingItem` | 表示line/cubic绘制命令的类型别名 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
-| `DocumentLimits` / `DocumentComplexity` | 包含renderer／extractor PDF snapshot用`max_interpretation_size`的不受信任输入不可变预算／轻量结构TypedDict |
+| `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |

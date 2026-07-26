@@ -47,13 +47,14 @@ Web预设目前独立应用以下上限：
 | 直接array/dictionary嵌套深度 | 64 |
 | 已解释页面累计UTF-8 glyph payload | 1 MiB |
 | 传给rendering／extraction的完整PDF snapshot | 64 MiB |
+| 已解释页面累计带位置glyph record | 65,536 |
 
 如需适配其他负载，可直接构造`DocumentLimits(...)`。每个非`None`值必须是正整数。
 原有`max_decompressed_size=`仍可作为单流预算的兼容简写，但不能与`limits=`同时使用。
 
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
-`total_decompressed_size`、`text_size`、`interpretation_size`、`embedded_file_size`、
+`total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -71,6 +72,10 @@ Web预设目前独立应用以下上限：
 AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越界write，且不会
 安装不完整的renderer／extractor cache。为保持兼容，默认值为`None`；
 `DocumentLimits.web()`使用64 MiB。
+
+`max_text_glyphs`限制line组装前保留的record数，因此也限制结构化文本可materialize的
+block、line、span和word数量。同一页的文本与表格解释共享一次累计admission，被拒绝
+的页面不消耗预算。为保持兼容，默认值为`None`；`DocumentLimits.web()`使用65,536。
 
 宽松打开只执行一种受限修复：仅当同一最终revision中存在完整classic xref table，
 并且在原有上限下完整解析成功时，才替换错误的最终`startxref`。它不会扫描object

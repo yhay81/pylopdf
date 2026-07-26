@@ -51,6 +51,7 @@ The web profile currently applies these independent budgets:
 | Direct array/dictionary nesting | 64 |
 | Cumulative UTF-8 glyph payload across interpreted pages | 1 MiB |
 | Complete PDF snapshot passed to rendering/extraction | 64 MiB |
+| Cumulative positioned glyph records across interpreted pages | 65,536 |
 
 Create `DocumentLimits(...)` directly when the workload needs different
 budgets. Every non-`None` value must be a positive integer.
@@ -60,7 +61,7 @@ per-stream budget and cannot be combined with `limits=`.
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
-`text_size`, `interpretation_size`, `embedded_file_size`,
+`text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
 `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
@@ -82,6 +83,12 @@ whenever pylopdf must serialize current state after editing, decryption, or
 AcroForm state selection. The bounded writer refuses the crossing write and
 does not install a partial renderer/extractor cache. Its default is `None` for
 compatibility; `DocumentLimits.web()` sets 64 MiB.
+
+`max_text_glyphs` bounds the records retained before line assembly and therefore
+also bounds the number of blocks, lines, spans, and words that structured text
+can materialize. Text and table interpretations of one page share one
+cumulative admission, and a rejected page consumes no budget. Its compatible
+default is `None`; `DocumentLimits.web()` sets 65,536.
 
 Lenient opening performs one bounded repair: it may replace an incorrect final
 `startxref` only when an intact classic xref table exists in the same final

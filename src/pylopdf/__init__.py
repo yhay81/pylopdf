@@ -281,6 +281,8 @@ class DocumentLimits:
     conservative starting profile for memory-bounded web and queue workers.
     ``max_interpretation_size`` caps the complete PDF byte snapshot handed to
     rendering and extraction, including a reserialization after edits.
+    ``max_text_glyphs`` caps cumulative positioned glyph records before cached
+    layout or Python word/span structures can amplify short text.
     """
 
     max_file_size: int | None = None
@@ -292,6 +294,7 @@ class DocumentLimits:
     max_object_depth: int | None = None
     max_text_size: int | None = None
     max_interpretation_size: int | None = None
+    max_text_glyphs: int | None = None
 
     def __post_init__(self) -> None:
         """Reject booleans, non-integers, zero, and negative budgets."""
@@ -305,6 +308,7 @@ class DocumentLimits:
             ("max_object_depth", self.max_object_depth),
             ("max_text_size", self.max_text_size),
             ("max_interpretation_size", self.max_interpretation_size),
+            ("max_text_glyphs", self.max_text_glyphs),
         )
         for name, value in values:
             _validate_optional_positive_int(name, value)
@@ -323,6 +327,7 @@ class DocumentLimits:
             max_object_depth=64,
             max_text_size=mib,
             max_interpretation_size=64 * mib,
+            max_text_glyphs=65_536,
         )
 
 
@@ -338,6 +343,7 @@ def _document_limit_args(limits: DocumentLimits) -> tuple[int | None, ...]:
         limits.max_object_depth,
         limits.max_text_size,
         limits.max_interpretation_size,
+        limits.max_text_glyphs,
     )
 
 
@@ -2439,6 +2445,7 @@ class Document:
             doc = _Document(
                 resolved_limits.max_text_size,
                 resolved_limits.max_interpretation_size,
+                resolved_limits.max_text_glyphs,
             )
             needs_pass = False
         self._doc = doc

@@ -65,6 +65,16 @@ def test_interpretation_size_limit_is_repeated_in_core(one_page_pdf: bytes) -> N
         _Document(None, 0)
 
 
+def test_text_glyph_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
+    bounded = _Document.load_bytes(one_page_pdf, max_text_glyphs=1)
+    with pytest.raises(LimitError) as glyphs:
+        bounded.extract_layout(1)
+    assert glyphs.value.args[0] == "text_glyph_count"
+
+    with pytest.raises(ValueError, match="max_text_glyphs"):
+        _Document.load_bytes(one_page_pdf, max_text_glyphs=0)
+
+
 def test_load_metadata_file_size_limit(tmp_path: Path, three_page_pdf: bytes) -> None:
     path = tmp_path / "three-pages.pdf"
     path.write_bytes(three_page_pdf)

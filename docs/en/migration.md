@@ -64,8 +64,10 @@ deliberately does not implement.
   `PasswordError`, `DocumentClosedError`, `EncryptedDocumentError`,
   `StalePageError` refine it. `except ValueError` keeps working.
 - **Resource policy**: `DocumentLimits.web()` caps the complete PDF snapshot
-  supplied to rendering and extraction at 64 MiB. Custom policies can set
-  `max_interpretation_size`; `None` keeps the compatible unbounded behavior.
+  supplied to rendering and extraction at 64 MiB and cumulative positioned
+  text at 65,536 glyph records. Custom policies can set
+  `max_interpretation_size` and `max_text_glyphs`; `None` keeps the compatible
+  unbounded behavior.
 - **`get_text` options** are limited to `text` / `words` / `blocks` / `dict`
   (no `html` / `rawdict` / `xml`). Span dicts carry `font` and pymupdf-style
   `flags` (bold/italic/serif/mono) for embedded fonts.

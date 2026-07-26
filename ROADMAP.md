@@ -837,6 +837,12 @@ rather than waiting automatically for v1.x.
   normalization. Failures use `interpretation_size` without installing a
   partial hayro cache; the compatible default is `None`, the web profile uses
   64 MiB, and the Cloudflare example uses 16 MiB.
+- [x] Bound positioned-text record amplification (2026-07-26).
+  `DocumentLimits.max_text_glyphs` stops collection before cached glyph records
+  and structured Python blocks, lines, spans, or words can multiply short
+  ASCII payloads. Normal and table interpretation share one page admission,
+  rejected pages consume no budget, failures use `text_glyph_count`, the web
+  profile uses 65,536, and the Cloudflare example uses 16,384.
 - [x] Measure and refine the PyEmscripten distribution (2026-07-26).
   Emscripten now omits the unsupported RTen inference runtime while preserving
   an explicit `OcrError` capability boundary and external OCR text-layer

@@ -40,6 +40,7 @@ def test_web_profile_has_bounded_worker_defaults() -> None:
     assert limits.max_page_content_size == 10 * 1024 * 1024
     assert limits.max_text_size == 1024 * 1024
     assert limits.max_interpretation_size == 64 * 1024 * 1024
+    assert limits.max_text_glyphs == 65_536
 
 
 def test_limit_error_is_machine_readable_pdf_error() -> None:
@@ -175,6 +176,26 @@ def test_text_budget_remains_active_on_generated_documents() -> None:
     with pytest.raises(pylopdf.LimitError) as text:
         page.get_text()
     assert _error_code(text.value) == "text_size"
+
+
+def test_text_glyph_budget_is_cumulative_without_double_charging_pages() -> None:
+    exact = pylopdf.open(
+        stream=build_pdf(["ABC"]),
+        limits=pylopdf.DocumentLimits(max_text_glyphs=3),
+    )
+    assert exact[0].get_text("words")
+    assert exact[0].find_tables().tables == []
+
+    cumulative = pylopdf.open(
+        stream=build_pdf(["ABC", "DEF", ""]),
+        limits=pylopdf.DocumentLimits(max_text_glyphs=5),
+    )
+    assert "ABC" in cumulative[0].get_text()
+    with pytest.raises(pylopdf.LimitError) as glyphs:
+        cumulative[1].get_text("dict")
+    assert _error_code(glyphs.value) == "text_glyph_count"
+    # A rejected page does not consume the remaining glyph budget.
+    assert cumulative[2].get_text() == ""
 
 
 def test_interpretation_budget_bounds_original_and_edited_snapshots() -> None:
