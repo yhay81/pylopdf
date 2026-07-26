@@ -1,8 +1,9 @@
-# Real-world PDF test corpus
+# Real-world and interoperability PDF test corpus
 
 These assets support regressions in `tests/test_real_world.py` against PDFs
-produced by real toolchains. Their purpose is to expose lopdf and hayro
-limitations early. Every bundled document has a redistributable license.
+produced by real toolchains plus minimal fixtures from independent PDF
+implementations. Their purpose is to expose lopdf and hayro limitations early.
+Every bundled document has a redistributable license.
 
 ## Files
 
@@ -18,6 +19,10 @@ limitations early. Every bundled document has a redistributable license.
 | `wdl6812-manuscript.pdf` | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Illuminated_Panel_and_Qur%27anic_Chapter_WDL6812.pdf), illuminated World Digital Library manuscript | Public domain | PDF 1.4, color scan using DCTDecode and JBIG2Decode, no text layer; retrieved 2026-07-22 |
 | `nics-background-checks-2015-11.pdf` | FBI NICS monthly report, [pdfplumber test-corpus mirror](https://github.com/jsvine/pdfplumber/blob/stable/tests/pdfs/nics-background-checks-2015-11.pdf) | US government work, public domain; mirror repository is MIT licensed | PDF 1.3, Quartz output, dense 25-column records with internal row rules omitted; retrieved 2026-07-25 |
 | `senate-expenditures.pdf` | US Senate expenditure-report excerpt, [pdfplumber test-corpus mirror](https://github.com/jsvine/pdfplumber/blob/stable/tests/pdfs/senate-expenditures.pdf) | US government work, public domain; mirror repository is MIT licensed | PDF 1.3, iText/pdftk output, 90-degree page rotation, merged bordered header, and borderless data rows; retrieved 2026-07-25 |
+| `pdfium-type3.pdf` | [PDFium `type3.in`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/type3.in) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Type 3 stencil glyph program under three text transforms; SVG succeeds while the current hayro 0.7.1 raster omission is a strict xfail |
+| `pdfium-smask-blend.pdf` | [PDFium `smask_blend.in`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/smask_blend.in) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Form XObjects, an alpha soft mask, partial opacity, and Screen blending |
+| `pdfium-jpx-lzw.pdf` | [PDFium `jpx_lzw.pdf`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/jpx_lzw.pdf) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Full-page red image with an `ASCIIHexDecode` → `LZWDecode` → `JPXDecode` filter chain |
+| `pdfium-links-highlights-annots.pdf` | [PDFium `links_highlights_annots.pdf`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/links_highlights_annots.pdf) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Existing Widget, URI Link, and Highlight annotations from an independent producer |
 
 ## Previously known limitations, now fixed
 
@@ -48,9 +53,28 @@ limitations early. Every bundled document has a redistributable license.
 - Independent table layouts from FBI and US Senate reports: sparse internal
   vector dividers, dense numeric columns, merged headers, rotated pages, and
   borderless aligned rows.
+- Independent PDFium fixtures for Type 3 glyph programs, JPX nested behind LZW,
+  transparency groups, soft masks, blend modes, and existing annotations and
+  links. A runtime-derived truncation of the PDF 2.0 classic xref table covers
+  controlled refusal without storing another damaged binary.
 
 Choose additions using three criteria: a redistributable license, a size below
 1 MB, and coverage not already represented in the corpus.
+
+The four PDFium fixtures are pinned to revision
+`a84323421e94f484faca52dd9d027934eba42ab8` and were retrieved on
+2026-07-26. The two `.in` templates were converted with PDFium's
+[`fixup_pdf_template.py`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/tools/fixup_pdf_template.py).
+The resulting fixture SHA-256 values are:
+
+- `pdfium-type3.pdf`:
+  `dc213b3d2952f06517ac487d9892b11628f4b5bedc2ad8278a4c05c1b40be8f6`
+- `pdfium-smask-blend.pdf`:
+  `9947d9c15d853823cedc1e87378dea89a665570e4f233b7a0ba215e5859134ab`
+- `pdfium-jpx-lzw.pdf`:
+  `ba14897a4139944e56674fefe176a56f29326e69ff2baf3e07ba096b520def78`
+- `pdfium-links-highlights-annots.pdf`:
+  `d6b813376c52b326a0eac798d215eb135054ba77fdaa2c059f99e57d6726ac9f`
 
 `bunka-kokugo-series-019-p4.pdf` was prepared on 2026-07-25 from
 `kokugo_series_019_02.pdf` (source SHA-256
