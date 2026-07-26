@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.annots()` and `Page.get_links()` now borrow `/Annots` arrays, release
+  the GIL, and reject partial output above 4,096 array entries or 1 MiB of
+  aggregate encoded/returned subtype, Contents, URI, file, and destination
+  text per call. Named-destination resolution shares the same budget.
+  Annotation creation preflights the page count, 1 MiB aggregate generated
+  subtype plus Contents/URI input, and 4,096 highlight rectangles before adding
+  appearance objects or invalidating caches, so failed additions preserve the
+  document and successful output remains readable under the same budget.
 - AcroForm button handling now bounds field expansion at 4,096 widgets and
   normal-appearance dictionaries at 8,192 state entries, 4,096 unique returned
   names, and 1 MiB of encoded or returned state-name text. Boolean state lookup

@@ -94,6 +94,10 @@ xref dataを正規化します。
 - AcroForm button fieldは4,096 widget、8,192 normal appearance state entry、
   4,096 unique returned state name、encoded/returned state-name text 1 MiBを
   超えると拒否します。fillは不足する`Off`/on state keyを変更前に課金します。
+- 注釈・link読み取りは4,096 `/Annots` entryまたは1 call当たりaggregate
+  encoded/returned metadata text 1 MiBを超える部分結果を拒否します。追加は同じ
+  page件数、生成subtypeとContents/URI入力の合計1 MiB、highlight 4,096矩形を
+  dependent object作成とcache無効化の前に検査します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

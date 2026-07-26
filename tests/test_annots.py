@@ -156,3 +156,101 @@ def test_annots_rejects_bad_input() -> None:
         page.add_highlight_annot((10, 10, 50, 20), opacity=0)
     with pytest.raises(ValueError, match="uri"):
         page.add_link_annot((10, 10, 50, 20), "")
+
+
+def test_annotation_reads_reject_excessive_array_without_partial_output() -> None:
+    annots = "5 0 R " * 4097
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [{annots}] >>",
+            4: "<< >>",
+            5: ("<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /A << /S /URI /URI (https://example.com) >> >>"),
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        page.annots()
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        page.get_links()
+
+
+def test_annotation_reads_reject_excessive_metadata_text() -> None:
+    content = "x" * (1024 * 1024 + 1)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [5 0 R] >>",
+            4: "<< >>",
+            5: f"<< /Type /Annot /Subtype /Text /Rect [1 1 10 10] /Contents ({content}) >>",
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+    with pytest.raises(pylopdf.PdfError, match=r"Contents text.*1048576-byte safety limit"):
+        page.annots()
+
+
+def test_link_reads_reject_excessive_uri_text() -> None:
+    uri = "x" * (1024 * 1024 + 1)
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [5 0 R] >>",
+            4: "<< >>",
+            5: f"<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /A << /S /URI /URI ({uri}) >> >>",
+        }
+    )
+    page = pylopdf.open(stream=pdf)[0]
+    with pytest.raises(pylopdf.PdfError, match=r"URI text.*1048576-byte safety limit"):
+        page.annots()
+    with pytest.raises(pylopdf.PdfError, match=r"URI text.*1048576-byte safety limit"):
+        page.get_links()
+
+
+def test_annotation_add_refuses_over_limit_page_atomically() -> None:
+    annots = "5 0 R " * 4096
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [{annots}] >>",
+            4: "<< >>",
+            5: "<< /Type /Annot /Subtype /Text /Rect [1 1 10 10] >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        doc[0].add_link_annot((10, 10, 20, 20), "https://example.com")
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        doc[0].add_highlight_annot((10, 10, 20, 20))
+    assert doc.tobytes() == before
+
+
+def test_annotation_add_bounds_inputs_atomically() -> None:
+    doc = pylopdf.open(stream=build_pdf([""]))
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match=r"content.*1048576-byte safety limit"):
+        doc[0].add_highlight_annot((10, 10, 20, 20), content="x" * (1024 * 1024 + 1))
+    with pytest.raises(pylopdf.PdfError, match=r"URI.*1048576-byte safety limit"):
+        doc[0].add_link_annot((10, 10, 20, 20), "x" * (1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="4096 rectangles"):
+        doc[0].add_highlight_annot([(10, 10, 20, 20)] * 4097)
+    assert doc.tobytes() == before
+
+
+def test_annotation_add_at_metadata_boundary_remains_readable() -> None:
+    content = "x" * (1024 * 1024 - len("Highlight"))
+    highlight_doc = pylopdf.open(stream=build_pdf([""]))
+    highlight_doc[0].add_highlight_annot((10, 10, 20, 20), content=content)
+    assert highlight_doc[0].annots()[0]["contents"] == content
+
+    uri = "x" * (1024 * 1024 - len("Link"))
+    link_doc = pylopdf.open(stream=build_pdf([""]))
+    link_doc[0].add_link_annot((10, 10, 20, 20), uri)
+    assert link_doc[0].annots()[0]["uri"] == uri
+    assert link_doc[0].get_links()[0]["uri"] == uri
