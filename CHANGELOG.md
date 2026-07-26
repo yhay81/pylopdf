@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.tobytes(..., max_size=512 * 1024 * 1024)` now bounds serialized
+  PDF output in the normal, object/xref-stream, and AES-256 encrypted paths.
+  A shared Rust writer refuses the write that would cross the boundary, so it
+  never retains an oversized completed PDF before creating Python `bytes`.
+  Direct core calls enforce the same optional boundary, failures use
+  `LimitError.code == "pdf_output_size"`, and `max_size=None` explicitly opts
+  out for trusted workloads. Existing save options still mutate the document
+  before serialization as documented.
 - `Page.replace_text(..., max_size=64 * 1024 * 1024)` now bounds decoded page
   content, font encoding data, replacement growth, and the final re-encoded
   stream. Aggregate search/replacement/fallback input stops at 4,096 UTF-8

@@ -58,7 +58,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_content_size`, `total_decompressed_size`, `text_size`,
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
-`replacement_output_size`, `decompression_unverifiable` 중
+`replacement_output_size`, `pdf_output_size`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -75,6 +75,12 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 정규화합니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
+- `Document.tobytes()`는 일반, object/xref stream, 암호화 출력 모두에512 MiB 기본
+  serialization 상한을 적용합니다. Rust writer는Python `bytes` 변환 전에 경계를
+  넘는write를 거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다. file로
+  stream하는`save()`는 이in-memory 예산의 대상이 아닙니다. `garbage`, `deflate`,
+  `object_streams` 같은save option은 이후serialization이 거부되어도 문서화된
+  mutation semantics를 유지합니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로

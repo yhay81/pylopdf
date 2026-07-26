@@ -253,6 +253,30 @@ def test_tobytes(one_page_pdf: bytes) -> None:
     assert data.startswith(b"%PDF-")
 
 
+def test_tobytes_output_limit_exact_boundary(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    expected = doc.tobytes(max_size=None)
+
+    assert doc.tobytes(max_size=len(expected)) == expected
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.tobytes(max_size=len(expected) - 1)
+    assert caught.value.code == "pdf_output_size"
+
+
+@pytest.mark.parametrize("max_size", [0, -1, True, 1.5])
+def test_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: object) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises((TypeError, ValueError), match="max_size"):
+        doc.tobytes(max_size=max_size)  # type: ignore[arg-type]
+
+
+def test_tobytes_bounds_object_stream_output(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.tobytes(object_streams=True, max_size=16)
+    assert caught.value.code == "pdf_output_size"
+
+
 def test_exception_hierarchy(one_page_pdf: bytes) -> None:
     """New exceptions remain compatible with existing ValueError handlers."""
     assert issubclass(pylopdf.PdfError, ValueError)

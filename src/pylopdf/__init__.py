@@ -87,6 +87,7 @@ _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_SVG_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -3012,17 +3013,24 @@ class Document:
         user_pw: str | None = None,
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
+        max_size: int | None = _DEFAULT_MAX_PDF_OUTPUT_SIZE,
     ) -> bytes:
-        """Return PDF bytes; options have the same meaning as :meth:`save`."""
+        """Return bounded PDF bytes; save options have the same meaning as :meth:`save`.
+
+        ``max_size`` limits serialization before converting the Rust buffer to
+        Python ``bytes``. ``None`` explicitly opts out for trusted workloads.
+        Refusal raises :class:`LimitError` with code ``pdf_output_size``.
+        """
         self._ensure_open()
+        _validate_optional_positive_int("max_size", max_size)
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
         self._apply_save_options(garbage=garbage, deflate=deflate)
         if encryption is not None:
             user, owner, perms = encryption
-            return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32))
+            return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32), max_size)
         if object_streams:
-            return self._doc.save_bytes_with_object_streams()
-        return self._doc.save_bytes()
+            return self._doc.save_bytes_with_object_streams(max_size)
+        return self._doc.save_bytes(max_size)
 
     def _apply_save_options(self, *, garbage: bool, deflate: bool) -> None:
         """Apply object pruning and stream compression before saving."""

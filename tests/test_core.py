@@ -35,6 +35,23 @@ def test_save_bytes_roundtrip(three_page_pdf: bytes) -> None:
     assert reloaded.page_count() == 3
 
 
+def test_save_bytes_paths_are_bounded_in_core(one_page_pdf: bytes) -> None:
+    plain = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(LimitError) as plain_limit:
+        plain.save_bytes(16)
+    assert plain_limit.value.args[0] == "pdf_output_size"
+
+    modern = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(LimitError) as modern_limit:
+        modern.save_bytes_with_object_streams(16)
+    assert modern_limit.value.args[0] == "pdf_output_size"
+
+    encrypted = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(LimitError) as encrypted_limit:
+        encrypted.save_bytes_encrypted("", "owner", 0, bytes(32), 16)
+    assert encrypted_limit.value.args[0] == "pdf_output_size"
+
+
 def test_save_and_load_file(tmp_path, one_page_pdf: bytes) -> None:  # noqa: ANN001
     path = tmp_path / "out.pdf"
     doc = _Document.load_bytes(one_page_pdf)

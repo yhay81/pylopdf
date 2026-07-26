@@ -242,6 +242,13 @@ overview.
   introducing plain `ValueError` exceptions.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`.
+- `Document.tobytes` defaults to a 512 MiB serialized PDF output boundary.
+  Normal, object/xref-stream, and encrypted core paths must all write through
+  `BoundedPdfOutput`, which refuses the write crossing the limit before Python
+  bytes conversion and raises stable code `pdf_output_size`. `max_size=None`
+  is the explicit trusted-input opt-out. File `save` remains streamed and
+  outside this in-memory output boundary. Preserve the documented mutation
+  semantics of `garbage`, `deflate`, and `object_streams` on output refusal.
 - TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
   compatibility. All other page APIs are zero-based.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted

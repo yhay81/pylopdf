@@ -154,6 +154,15 @@ def test_save_encrypted_roundtrip(three_page_pdf: bytes) -> None:
     assert locked2.page_count == 3
 
 
+def test_tobytes_bounds_encrypted_output(three_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=three_page_pdf)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.tobytes(user_pw="secret", owner_pw="boss", max_size=16)
+    assert caught.value.code == "pdf_output_size"
+    assert not doc.is_encrypted
+
+
 def test_save_encrypted_file_and_password_arg(tmp_path: Path, three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     out = tmp_path / "locked.pdf"

@@ -55,7 +55,7 @@ Web预设目前独立应用以下上限：
 `total_decompressed_size`、`text_size`、`embedded_file_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
-`decompression_unverifiable`之一；
+`pdf_output_size`、`decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
 
@@ -69,6 +69,11 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 `doc.is_repaired`（metadata probe中的`repaired`）为`True`；保存会规范化xref数据。
 
 - 每页渲染上限为6400万像素。
+- `Document.tobytes()`对普通、object/xref stream及加密输出统一应用512 MiB默认
+  serialization上限。Rust writer会在转换为Python `bytes`之前拒绝越界write；
+  `max_size=None`可显式取消。流式写入file的`save()`不受此in-memory预算限制。
+  `garbage`、`deflate`、`object_streams`等save option即使后续serialization被拒绝，
+  仍保持已记录的mutation semantics。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string

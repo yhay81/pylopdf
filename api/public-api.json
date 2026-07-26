@@ -912,6 +912,12 @@
                 "default": 3900,
                 "kind": "keyword_only",
                 "name": "permissions"
+              },
+              {
+                "annotation": "int | None",
+                "default": 536870912,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "bytes"
