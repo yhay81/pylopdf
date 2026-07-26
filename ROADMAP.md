@@ -772,7 +772,9 @@ rather than waiting automatically for v1.x.
   64 MiB cumulative UTF-8 output cap, and uses page-at-a-time heading-count and
   rendering passes instead of retaining every page interpretation together.
   Each table preflights exact escaped UTF-8 output against the remaining
-  aggregate budget before page assembly (2026-07-26).
+  aggregate budget before page assembly. Page entries are charged as retained,
+  and paragraph/list joining uses linear final assembly rather than repeated
+  immutable-string concatenation (2026-07-26).
 - [x] Expand independent table corpora and quality evaluation beyond synthetic
   and IRS coverage. Public-domain FBI NICS and US Senate fixtures now protect
   sparse internal rules, dense numeric records, merged headers, borderless

@@ -136,7 +136,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   64 MiB。heading size统计pass与render pass都只同时保留一页的interpreted
   layout、table和word。在组装page输出前，每个table都会获得剩余的累计预算。
   `Table.to_markdown()`默认使用同一上限，并预检包含合并单元格展开在内的转义后
-  精确UTF-8大小。超过上限时不返回部分string；`max_size=None`可显式取消。
+  精确UTF-8大小。标题、段落、列表和表格在保留entry时计入预算，完整size获准后
+  再线性组装page。超过上限时不返回部分string；`max_size=None`可显式取消。
 - CPU deadline应由Worker、process或container宿主执行。资源预算限制已记录的
   allocation和输出增长，但不会按wall-clock时间中断正在运行的parser或interpreter。
 - 批量处理不受信任的文件时，尽量在sandbox或container中运行。

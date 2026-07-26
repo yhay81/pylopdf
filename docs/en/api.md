@@ -25,7 +25,7 @@ deprecation lifecycle.
 | `is_repaired` | whether opening repaired an incorrect final classic `startxref`; saving normalizes the xref data |
 | `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
+| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG bytes, ordered parallel batches capped at 4,096 pages and cumulative encoded output, or bounded UTF-8 SVG (`None` opts out) |
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |

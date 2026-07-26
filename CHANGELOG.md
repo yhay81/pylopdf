@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page-at-a-time first pass keeps only heading-size counts, then a second pass
   renders each page into the bounded output accumulator. Each detected table
   receives the remaining aggregate budget before page Markdown is assembled.
+  Page headings, paragraphs, lists, and tables are charged as entries are
+  retained, so an oversized page is refused before the final join. Paragraph
+  and consecutive-list joining now use one linear final assembly instead of
+  repeated immutable-string concatenation.
   `Table.to_markdown(..., max_size=64 * 1024 * 1024)` also computes the exact
   escaped UTF-8 size before allocating cell output, including merged-cell
   expansion. `max_size=None` explicitly opts out of either output limit.
