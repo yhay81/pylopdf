@@ -387,7 +387,7 @@ signed_pdf: bytes = out.getvalue()
 | `get_pdfa_claim(max_size=1 MiB)` | Bounded-decode the XMP PDF/A declaration `(part, conformance)` (a self-claim read, not validation); `max_size=None` explicitly opts out |
 | `embfile_add(name, data, filename=, desc=)` / `embfile_names()` / `embfile_get(name, max_size=64 MiB)` / `embfile_del(name)` | Add / list / bounded-decode / delete attachments; `max_size=None` explicitly opts out, name trees are capped at 4,096 entries/nodes, and add metadata plus inline FileSpec clone shapes are bounded |
 | `get_page_labels()` / `set_page_labels(labels)` | Read/write page label ranges (`{"startpage", "style", "prefix", "firstpagenum"}`); fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
-| `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same, max_size=512 MiB)` | Stream to a file or return bounded PDF bytes; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw`; `max_size=None` opts out of the byte-return limit |
+| `save(filename, garbage=, deflate=, object_streams=, user_pw=, owner_pw=, permissions=)` / `tobytes(same, max_size=512 MiB)` | Atomically replace a file after a complete same-directory streamed write, or return bounded PDF bytes; prune / compress / object streams, or AES-256 encryption via `user_pw` / `owner_pw`; `max_size=None` opts out of the byte-return limit |
 | `close()` | Close (supports `with`) |
 
 `pylopdf.Page` (obtained via `doc[i]`):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -165,6 +167,60 @@ def test_insert_pdf(tmp_path: Path, one_page_pdf: bytes, three_page_pdf: bytes) 
     reopened = pylopdf.Document(out)
     assert reopened.page_count == 4
     assert "Page three" in reopened.get_page_text(3)
+
+
+def test_save_atomically_replaces_an_existing_file(tmp_path: Path, one_page_pdf: bytes) -> None:
+    target = tmp_path / "output.pdf"
+    target.write_bytes(b"existing output")
+
+    pylopdf.Document(stream=one_page_pdf).save(target)
+
+    assert pylopdf.Document(target).page_count == 1
+    assert list(tmp_path.glob(".pylopdf-*.tmp")) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows mode bits do not expose the POSIX contract")
+def test_save_preserves_existing_file_mode(tmp_path: Path, one_page_pdf: bytes) -> None:
+    target = tmp_path / "output.pdf"
+    target.write_bytes(b"existing output")
+    target.chmod(0o640)
+
+    pylopdf.Document(stream=one_page_pdf).save(target)
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows symlink creation needs host configuration")
+def test_save_atomically_updates_a_symlink_target(tmp_path: Path, one_page_pdf: bytes) -> None:
+    target = tmp_path / "target.pdf"
+    target.write_bytes(b"existing output")
+    link = tmp_path / "output.pdf"
+    link.symlink_to(target.name)
+
+    pylopdf.Document(stream=one_page_pdf).save(link)
+
+    assert link.is_symlink()
+    assert pylopdf.Document(target).page_count == 1
+
+
+def test_save_preserves_target_when_atomic_replace_fails(
+    tmp_path: Path,
+    one_page_pdf: bytes,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "output.pdf"
+    original = b"existing output"
+    target.write_bytes(original)
+
+    def fail_replace(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(pylopdf.PdfError, match="failed to save"):
+        pylopdf.Document(stream=one_page_pdf).save(target)
+
+    assert target.read_bytes() == original
+    assert list(tmp_path.glob(".pylopdf-*.tmp")) == []
 
 
 def test_split_workflow(three_page_pdf: bytes) -> None:

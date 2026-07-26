@@ -248,6 +248,15 @@ overview.
   introducing plain `ValueError` exceptions.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`.
+- Public `Document.save` must securely create a same-directory sibling, stream
+  every normal, object/xref-stream, or encrypted output there, and replace the
+  requested path only after the core writer succeeds. Map creation/replacement
+  errors into `PdfError`, preserve the requested path in messages, and clean up
+  failed temporaries. Carry an existing regular file's POSIX mode onto the
+  sibling before replacement. Preserve a final symlink by atomically replacing
+  its resolved target, while keeping the requested path in errors. Save options
+  still mutate the in-memory document before I/O. Direct `_Document` path
+  writers remain a low-level non-atomic boundary.
 - `Document.tobytes` defaults to a 512 MiB serialized PDF output boundary.
   Normal, object/xref-stream, and encrypted core paths must all write through
   `BoundedPdfOutput`, which refuses the write crossing the limit before Python

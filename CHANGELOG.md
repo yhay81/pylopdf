@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.save()` now streams normal, object/xref-stream, and AES-256 output
+  to a securely created same-directory sibling and atomically replaces the
+  requested path only after a complete successful write. Serialization and
+  replacement failures preserve an existing target and clean up the temporary
+  file; an existing regular file's POSIX mode is carried forward. Errors remain
+  under `PdfError` and name the requested path. A final symlink is preserved
+  while its resolved target is atomically updated. Save options retain their
+  existing in-memory mutation semantics before I/O.
 - `Document.tobytes(..., max_size=512 * 1024 * 1024)` now bounds serialized
   PDF output in the normal, object/xref-stream, and AES-256 encrypted paths.
   A shared Rust writer refuses the write that would cross the boundary, so it

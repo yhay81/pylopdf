@@ -71,9 +71,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - 每页渲染上限为6400万像素。
 - `Document.tobytes()`对普通、object/xref stream及加密输出统一应用512 MiB默认
   serialization上限。Rust writer会在转换为Python `bytes`之前拒绝越界write；
-  `max_size=None`可显式取消。流式写入file的`save()`不受此in-memory预算限制。
-  `garbage`、`deflate`、`object_streams`等save option即使后续serialization被拒绝，
-  仍保持已记录的mutation semantics。
+  `max_size=None`可显式取消。`save()`先流式写入target同directory中安全创建的
+  sibling，仅在完整写入后原子替换请求path，因此serialization或替换失败会保留
+  现有file。它不受此in-memory预算限制。即使后续I/O失败，`garbage`、`deflate`、
+  `object_streams`等save option仍保持已记录的mutation语义。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string

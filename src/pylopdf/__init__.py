@@ -10,9 +10,12 @@ import enum
 import functools
 import math
 import os
+import secrets
+import stat
 import threading
 import warnings as _warnings
 from collections import Counter
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
@@ -21,7 +24,7 @@ from pylopdf import _markdown
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, _Document, _OcrEngine
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import TracebackType
     from typing import Any, Self
 
@@ -97,6 +100,7 @@ _MAX_RENDER_BATCH_PAGES = 4096
 _MAX_MARKDOWN_PAGES = 4096
 _MAX_STRUCTURAL_PAGE_BATCH = 4096
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
+_TEMPORARY_FILE_ATTEMPTS = 100
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -202,6 +206,59 @@ def _markdown_output_limit_error(max_size: int) -> LimitError:
         "markdown_output_size",
         f"Markdown output exceeds the {max_size}-byte UTF-8 limit",
     )
+
+
+def _temporary_sibling_path(target: Path) -> Path:
+    """Create one same-directory output path with normal umask permissions."""
+    for _ in range(_TEMPORARY_FILE_ATTEMPTS):
+        candidate = target.parent / f".pylopdf-{secrets.token_hex(16)}.tmp"
+        try:
+            descriptor = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        except FileExistsError:
+            continue
+        os.close(descriptor)
+        return candidate
+    msg = f"failed to create a unique temporary output beside {target}"
+    raise FileExistsError(msg)
+
+
+def _atomic_save_file(
+    filename: str | os.PathLike[str],
+    writer: Callable[[str], None],
+) -> None:
+    """Write a sibling file completely before atomically replacing the target."""
+    requested = Path(filename)
+    try:
+        target = requested.resolve(strict=False) if requested.is_symlink() else requested
+        try:
+            target_metadata = target.stat()
+        except FileNotFoundError:
+            target_mode = None
+        else:
+            target_mode = stat.S_IMODE(target_metadata.st_mode) if stat.S_ISREG(target_metadata.st_mode) else None
+        temporary = _temporary_sibling_path(target)
+    except (OSError, RuntimeError) as exc:
+        msg = f"failed to save {requested}: {exc}"
+        raise PdfError(msg) from exc
+    replaced = False
+    try:
+        try:
+            writer(str(temporary))
+        except PdfError as exc:
+            message = str(exc).replace(str(temporary), str(requested))
+            raise PdfError(message) from exc
+        try:
+            if target_mode is not None:
+                temporary.chmod(target_mode)
+            temporary.replace(target)
+        except OSError as exc:
+            msg = f"failed to save {requested}: {exc}"
+            raise PdfError(msg) from exc
+        replaced = True
+    finally:
+        if not replaced:
+            with suppress(OSError):
+                temporary.unlink()
 
 
 @dataclass(frozen=True, slots=True)
@@ -3064,18 +3121,27 @@ class Document:
         ``user_pw``. An empty user password plus an owner password permits
         unrestricted opening with permission controls. ``permissions`` combines
         :class:`Permissions` and defaults to all. Encryption cannot be combined
-        with object streams.
+        with object streams. Every mode streams to a same-directory temporary
+        file and replaces ``filename`` only after a complete successful write.
         """
         self._ensure_open()
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
         self._apply_save_options(garbage=garbage, deflate=deflate)
+        writer: Callable[[str], None]
         if encryption is not None:
             user, owner, perms = encryption
-            self._doc.save_encrypted(str(filename), user, owner, perms, os.urandom(32))
+            writer = functools.partial(
+                self._doc.save_encrypted,
+                user_password=user,
+                owner_password=owner,
+                permissions=perms,
+                file_encryption_key=os.urandom(32),
+            )
         elif object_streams:
-            self._doc.save_with_object_streams(str(filename))
+            writer = self._doc.save_with_object_streams
         else:
-            self._doc.save(str(filename))
+            writer = self._doc.save
+        _atomic_save_file(filename, writer)
 
     def tobytes(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
         self,
