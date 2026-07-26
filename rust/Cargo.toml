@@ -40,6 +40,9 @@ png = "0.18"
 # Lanczos3 resizing is implemented locally to keep wheel growth bounded.
 zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
 jpeg-encoder = "0.7.0"
+# Create unpredictable, exclusive sibling paths for failure-atomic PNG saves.
+# lopdf already brings this crate into every supported target.
+getrandom = "0.4.3"
 # Expand the prefix of [FlateDecode, DCTDecode] before JPEG passthrough.
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.

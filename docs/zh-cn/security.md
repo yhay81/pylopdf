@@ -75,6 +75,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   sibling，仅在完整写入后原子替换请求path，因此serialization或替换失败会保留
   现有file。它不受此in-memory预算限制。即使后续I/O失败，`garbage`、`deflate`、
   `object_streams`等save option仍保持已记录的mutation语义。
+- `Pixmap.save()`同样写入target directory中不可预测且排他创建的sibling，仅在
+  PNG encode与完整write成功后原子替换请求path。替换失败会保留现有output并删除
+  临时file。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
