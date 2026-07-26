@@ -51,6 +51,10 @@ risky. When processing untrusted files:
   layout before mutation. `max_text_size=None` opts trusted insertion input out;
   refusals use `text_input_size` or `text_line_count`. AcroForm text and choice
   appearances retain the 4,096-line layout cap.
+- `Page.replace_text()` caps aggregate search/replacement/fallback input at
+  4,096 UTF-8 bytes and counts it incrementally before PyO3 copying rather than
+  allocating complete encoded copies. Its decoded content, encoding data,
+  growth, and final stream share the configured output budget.
 - Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and

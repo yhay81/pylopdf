@@ -2188,11 +2188,8 @@ class Page:
                     msg = f"words cannot contain more than {_MAX_OCR_LAYER_WORDS} non-empty entries"
                     raise ValueError(msg)
                 remaining = _MAX_OCR_LAYER_TEXT_BYTES - text_bytes
-                if len(text) > remaining:
-                    msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
-                    raise ValueError(msg)
-                encoded_bytes = len(text.encode())
-                if encoded_bytes > remaining:
+                encoded_bytes = _bounded_utf8_size(text, remaining)
+                if encoded_bytes is None:
                     msg = f"word text cannot exceed {_MAX_OCR_LAYER_TEXT_BYTES} UTF-8 bytes per call"
                     raise ValueError(msg)
                 text_bytes += encoded_bytes
@@ -2225,6 +2222,15 @@ class Page:
         ``replacement_input_size`` or ``replacement_output_size``. A no-match
         result and every refusal leave the document and its caches unchanged.
         """
+        if not isinstance(search, str):
+            msg = f"search must be a string: {type(search).__name__}"
+            raise TypeError(msg)
+        if not isinstance(replacement, str):
+            msg = f"replacement must be a string: {type(replacement).__name__}"
+            raise TypeError(msg)
+        if default_char is not None and not isinstance(default_char, str):
+            msg = f"default_char must be a string or None: {type(default_char).__name__}"
+            raise TypeError(msg)
         if not search:
             msg = "search must be at least 1 character"
             raise ValueError(msg)
@@ -2232,16 +2238,12 @@ class Page:
             msg = "default_char must contain exactly one character"
             raise ValueError(msg)
         _validate_optional_positive_int("max_size", max_size)
-        input_size = len(search.encode()) + len(replacement.encode())
-        if default_char is not None:
-            input_size += len(default_char.encode())
-        if input_size > _MAX_TEXT_REPLACEMENT_INPUT_BYTES:
-            limit_code = "replacement_input_size"
-            msg = (
-                f"text replacement inputs total {input_size} UTF-8 bytes, exceeding the "
-                f"{_MAX_TEXT_REPLACEMENT_INPUT_BYTES}-byte safety limit"
-            )
-            raise LimitError(limit_code, msg)
+        _validate_cumulative_utf8_input(
+            (search, replacement, "" if default_char is None else default_char),
+            _MAX_TEXT_REPLACEMENT_INPUT_BYTES,
+            limit_code="replacement_input_size",
+            input_label="text replacement input",
+        )
         return self._document._doc.replace_text_on_page(
             self._page_number(),
             search,

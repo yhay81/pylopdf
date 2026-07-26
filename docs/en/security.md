@@ -165,7 +165,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   4,096 UTF-8 bytes and defaults decoded page content, font encoding data,
   replacement growth, and final stream output to 64 MiB. It prepares a
   page-owned stream before committing, so copied pages cannot edit shared
-  content and no-match/error calls preserve the document and caches.
+  content and no-match/error calls preserve the document and caches. Caller
+  text is counted incrementally before PyO3 copying rather than encoded in
+  full for preflight.
   `max_size=None` explicitly opts out for trusted input.
 - `delete_pages()`, `select()`, and `insert_pdf()` accept at most 4,096 page
   entries per call in both Python and Rust. Iterable reads stop at item 4,097

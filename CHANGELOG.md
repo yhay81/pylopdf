@@ -85,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extraction, rendering, and free-threaded buffer paths.
 
 ### Performance
+- `Page.replace_text()` now rejects oversized aggregate caller text by counting
+  UTF-8 incrementally instead of first allocating complete encoded copies.
+  OCR text-layer aggregation uses the same allocation-free counter within its
+  1 MiB boundary.
 - `Page.insert_textbox()` now measures the complete paragraph first when it
   fits on one line, avoiding repeated UAX #14 prefix measurement. On the paired
   local 50,000-character Standard 14 wide-line benchmark, median insertion
