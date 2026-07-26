@@ -27,11 +27,11 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 최대4,096 page 및 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
-| `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
+| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 임베드되지 않은 글꼴의 상한이 있는CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete/insert batch는4,096 entry로 제한 |
 | `get_toc()` / `set_toc(toc)` | cycle을 처리하는 제한된 목차（페이지는 1부터, 4,096 entry/node, 8,192 edge, 깊이64, text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field/button state가 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 디코딩, 추가metadata 및inline FileSpec clone 형상에 상한이 있는 첨부 파일. `max_size=None`은 디코딩 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte; `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`; `max_size=None`으로 해제 |
@@ -62,8 +62,8 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14 또는 shaping한 subset 텍스트. `pylopdf[cjk]`는 일본어／한자에 JP font 자동 선택 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14, 명시적 OpenType 또는 자동 JP font 폭으로 UAX #14 줄바꿈. 남은 높이를 반환하며 넘치면 그리지 않음 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB)` | Standard-14 또는 상한이 있는shaping subset text. `pylopdf[cjk]`는JP font 자동 선택. 신뢰 가능한font input은`None`으로 해제 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB)` | Core 14, 상한이 있는OpenType 또는 자동JP font 폭으로UAX #14 줄바꿈. 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기, call당 하나의cycle-aware named-destination index 및 생성 |

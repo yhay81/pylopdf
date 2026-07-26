@@ -73,7 +73,13 @@ class _Document:
     def is_encrypted(self) -> bool: ...
     def is_repaired(self) -> bool: ...
     def was_encrypted(self) -> bool: ...
-    def set_fallback_font(self, kind: str, data: bytes, index: int) -> None: ...
+    def set_fallback_font(self, kind: str, data: bytes, index: int, max_font_size: int | None = 67108864) -> None: ...
+    def set_fallback_font_file(
+        self, kind: str, path: str, index: int, max_font_size: int | None = 67108864
+    ) -> None: ...
+    def set_fallback_font_files(
+        self, sans_path: str, serif_path: str, max_font_size: int | None = 67108864
+    ) -> None: ...
     def clear_fallback_fonts(self) -> None: ...
     def authenticate_user_password(self, password: str) -> bool: ...
     def authenticate_owner_password(self, password: str) -> bool: ...
@@ -101,7 +107,22 @@ class _Document:
     def pdfa_claim(self, max_size: int | None) -> tuple[int, str] | None: ...
     def get_form_fields(self) -> list[tuple[str, str, str | None]]: ...
     def form_button_states(self, name: str) -> list[str]: ...
-    def set_form_field(self, name: str, value: str, font_data: bytes | None = None, font_index: int = 0) -> None: ...
+    def set_form_field(
+        self,
+        name: str,
+        value: str,
+        font_data: bytes | None = None,
+        font_index: int = 0,
+        max_font_size: int | None = 67108864,
+    ) -> None: ...
+    def set_form_field_file(
+        self,
+        name: str,
+        value: str,
+        path: str,
+        font_index: int = 0,
+        max_font_size: int | None = 67108864,
+    ) -> None: ...
     def get_page_labels(self) -> list[tuple[int, str | None, str | None, int]]: ...
     def set_page_labels(self, labels: list[tuple[int, str | None, str | None, int]]) -> None: ...
     def embfile_add(self, name: str, data: bytes, filename: str | None, desc: str | None) -> None: ...
@@ -285,6 +306,19 @@ class _Document:
         fontsize: float,
         color: tuple[float, float, float],
         overlay: bool,
+        max_font_size: int | None = 67108864,
+    ) -> None: ...
+    def insert_embedded_text_file(
+        self,
+        page_number: int,
+        point: tuple[float, float],
+        lines: list[str],
+        path: str,
+        font_index: int,
+        fontsize: float,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_font_size: int | None = 67108864,
     ) -> None: ...
     def insert_page_textbox(
         self,
@@ -311,6 +345,21 @@ class _Document:
         align: int,
         color: tuple[float, float, float],
         overlay: bool,
+        max_font_size: int | None = 67108864,
+    ) -> float: ...
+    def insert_embedded_textbox_file(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        text: str,
+        path: str,
+        font_index: int,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_font_size: int | None = 67108864,
     ) -> float: ...
     def replace_text_on_page(
         self,

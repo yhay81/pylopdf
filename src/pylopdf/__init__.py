@@ -93,6 +93,7 @@ _DEFAULT_MAX_TEXT_REPLACEMENT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
+_DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -993,15 +994,15 @@ _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 
 @functools.cache
-def _bundled_cjk_fonts() -> tuple[tuple[str, bytes], ...]:
-    """Load bundled JP-subset fonts when ``pylopdf[cjk]`` is installed."""
+def _bundled_cjk_fonts() -> tuple[tuple[str, Path | bytes], ...]:
+    """Locate bundled JP-subset fonts when ``pylopdf[cjk]`` is installed."""
     try:
         import pylopdf_fonts_cjk  # noqa: PLC0415  # Lazy optional dependency.
     except ImportError:
         return ()
     return (
-        ("sans", pylopdf_fonts_cjk.sans_path().read_bytes()),
-        ("serif", pylopdf_fonts_cjk.serif_path().read_bytes()),
+        ("sans", pylopdf_fonts_cjk.sans_path()),
+        ("serif", pylopdf_fonts_cjk.serif_path()),
     )
 
 
@@ -1132,15 +1133,32 @@ def _validate_image_rotation(rotate: int) -> int:
     return rotate % 360
 
 
-def _read_font_source(fontfile: str | os.PathLike[str] | None, fontbuffer: bytes | None) -> bytes | None:
-    """Read optional font bytes from at most one font source."""
+def _font_input_limit_error(size: int, max_font_size: int) -> LimitError:
+    """Build the public error for an oversized OpenType font source."""
+    return LimitError(
+        "font_input_size",
+        f"font input is {size} bytes, exceeding the {max_font_size}-byte limit",
+    )
+
+
+def _resolve_font_source(
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    max_font_size: int | None,
+) -> Path | bytes | None:
+    """Resolve optional font input without reading a filesystem path."""
     if fontfile is not None:
         if fontbuffer is not None:
             msg = "fontfile and fontbuffer cannot both be specified"
             raise ValueError(msg)
-        return Path(fontfile).read_bytes()
+        return Path(fontfile)
     if fontbuffer is not None:
-        return bytes(fontbuffer)
+        if max_font_size is not None and len(fontbuffer) > max_font_size:
+            raise _font_input_limit_error(len(fontbuffer), max_font_size)
+        data = bytes(fontbuffer)
+        if max_font_size is not None and len(data) > max_font_size:
+            raise _font_input_limit_error(len(data), max_font_size)
+        return data
     return None
 
 
@@ -1179,7 +1197,7 @@ _BUNDLED_CJK_TEXT_RANGES = (
 )
 
 
-def _bundled_generation_font(text: str, fontname: str) -> bytes | None:
+def _bundled_generation_font(text: str, fontname: str) -> Path | bytes | None:
     """Select one optional JP-subset font for Japanese or Han text."""
     if not any(start <= ord(character) <= end for character in text for start, end in _BUNDLED_CJK_TEXT_RANGES):
         return None
@@ -1191,9 +1209,9 @@ def _resolve_generation_font(
     operation: str,
     text: str,
     fontname: str,
-    font_data: bytes | None,
+    font_data: Path | bytes | None,
     fontindex: int,
-) -> tuple[str | None, bytes | None]:
+) -> tuple[str | None, Path | bytes | None]:
     """Resolve explicit, optional CJK, or Standard 14 generation input."""
     if font_data is not None:
         if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
@@ -1778,6 +1796,7 @@ class Page:
         fontindex: int = 0,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         overlay: bool = True,
+        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
         r"""Draw text at ``point``, the first line's baseline-left display point.
 
@@ -1801,8 +1820,12 @@ class Page:
         ``\n`` starts a new line at 1.2 times ``fontsize``. Text remains
         visually upright on rotated pages. ``overlay=False`` draws below
         existing content. Loop over pages for headers, footers, page numbers,
-        or Bates numbers.
+        or Bates numbers. Explicit and automatically selected font input
+        defaults to a 64 MiB boundary; ``max_font_size=None`` opts trusted
+        workloads out. Refusal raises :class:`LimitError` with code
+        ``font_input_size``.
         """
+        _validate_optional_positive_int("max_font_size", max_font_size)
         try:
             x, y = (float(v) for v in point)
         except (TypeError, ValueError) as exc:
@@ -1819,9 +1842,22 @@ class Page:
             msg = "text must be at least 1 character"
             raise ValueError(msg)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        font_data = _read_font_source(fontfile, fontbuffer)
+        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
-        if font_data is not None:
+        if isinstance(font_data, Path):
+            self._document._doc.insert_embedded_text_file(
+                self._page_number(),
+                (x, y),
+                normalized.split("\n"),
+                str(font_data),
+                fontindex,
+                float(fontsize),
+                (red, green, blue),
+                overlay,
+                max_font_size,
+            )
+            return
+        if isinstance(font_data, bytes):
             self._document._doc.insert_embedded_text(
                 self._page_number(),
                 (x, y),
@@ -1831,6 +1867,7 @@ class Page:
                 float(fontsize),
                 (red, green, blue),
                 overlay,
+                max_font_size,
             )
             return
 
@@ -1862,6 +1899,7 @@ class Page:
         expandtabs: int = 8,
         lineheight: float | None = None,
         overlay: bool = True,
+        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> float:
         r"""Wrap and draw text inside a display-coordinate rectangle.
 
@@ -1883,8 +1921,12 @@ class Page:
         With ``pylopdf[cjk]`` installed, Japanese and Han text automatically
         uses its JP-subset sans font, or serif for a Times ``fontname``.
         Unicode line-break opportunities support CJK without requiring spaces,
-        and an overlong word falls back to grapheme-safe wrapping.
+        and an overlong word falls back to grapheme-safe wrapping. Explicit and
+        automatically selected font input defaults to a 64 MiB boundary;
+        ``max_font_size=None`` opts trusted workloads out. Refusal raises
+        :class:`LimitError` with code ``font_input_size``.
         """
+        _validate_optional_positive_int("max_font_size", max_font_size)
         x0, y0, x1, y1 = _validate_rect(rect)
         page_number = self._page_number()
         resolved_fontsize, resolved_lineheight = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
@@ -1893,9 +1935,23 @@ class Page:
         if not normalized:
             return y1 - y0
 
-        font_data = _read_font_source(fontfile, fontbuffer)
+        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data = _resolve_generation_font("insert_textbox", normalized, fontname, font_data, fontindex)
-        if font_data is not None:
+        if isinstance(font_data, Path):
+            return self._document._doc.insert_embedded_textbox_file(
+                page_number,
+                (x0, y0, x1, y1),
+                normalized,
+                str(font_data),
+                fontindex,
+                resolved_fontsize,
+                resolved_lineheight,
+                align,
+                (red, green, blue),
+                overlay,
+                max_font_size,
+            )
+        if isinstance(font_data, bytes):
             return self._document._doc.insert_embedded_textbox(
                 page_number,
                 (x0, y0, x1, y1),
@@ -1907,6 +1963,7 @@ class Page:
                 align,
                 (red, green, blue),
                 overlay,
+                max_font_size,
             )
 
         base_font = cast("str", base_font)
@@ -2505,7 +2562,7 @@ class Document:
             for name, kind, value in self._doc.get_form_fields()
         ]
 
-    def set_form_field(  # noqa: C901 - Keep validation adjacent to the public boundary.
+    def set_form_field(  # noqa: C901, PLR0912, PLR0913 - Keep validation and font bounds adjacent.
         self,
         name: str,
         value: str | bool,  # noqa: FBT001 - Match pymupdf's bool API.
@@ -2513,6 +2570,7 @@ class Document:
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
+        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
         """Set an AcroForm field value and regenerate its widget appearance.
 
@@ -2536,14 +2594,18 @@ class Document:
         automatically uses the sans font from ``pylopdf[cjk]`` when installed;
         otherwise the value is still stored with ``NeedAppearances`` for viewer
         compatibility, but its appearance cannot be rendered by pylopdf.
+        Explicit and automatically selected font input defaults to a 64 MiB
+        boundary; ``max_font_size=None`` opts trusted workloads out. Refusal
+        raises :class:`LimitError` with code ``font_input_size``.
         Rich text, pushbuttons, and signature fields are unsupported; use the
         pyHanko integration for signatures.
         """
         self._ensure_open()
+        _validate_optional_positive_int("max_font_size", max_font_size)
         if not name:
             msg = "name must be at least 1 character"
             raise ValueError(msg)
-        font_data = _read_font_source(fontfile, fontbuffer)
+        font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         if font_data is not None:
             if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
                 msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
@@ -2570,7 +2632,10 @@ class Document:
                     bundled = _bundled_cjk_fonts()
                     if bundled:
                         font_data = bundled[0][1]
-        self._doc.set_form_field(name, resolved, font_data, fontindex)
+        if isinstance(font_data, Path):
+            self._doc.set_form_field_file(name, resolved, str(font_data), fontindex, max_font_size)
+        else:
+            self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size)
 
     def get_page_labels(self) -> list[PageLabelInfo]:
         """Read page-label definitions.
@@ -2945,28 +3010,55 @@ class Document:
         font: bytes | str | os.PathLike[str] | None,
         kind: str = "sans",
         index: int = 0,
+        *,
+        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
         """Set a fallback font for rendering non-embedded CJK fonts.
 
         ``font`` is a TTF/OTF/TTC path or bytes. ``None`` clears the setting and
         disables automatic discovery from ``pylopdf[cjk]``. ``kind`` is
         ``"sans"`` (default) or ``"serif"``; ``index`` selects a TTC face.
+        Font input defaults to a 64 MiB boundary; ``max_font_size=None`` opts
+        trusted workloads out. Refusal raises :class:`LimitError` with code
+        ``font_input_size``.
         """
         self._ensure_open()
-        self._fallback_configured = True
+        _validate_optional_positive_int("max_font_size", max_font_size)
         if font is None:
             self._doc.clear_fallback_fonts()
+            self._fallback_configured = True
             return
-        data = font if isinstance(font, bytes) else Path(font).read_bytes()
-        self._doc.set_fallback_font(kind, data, index)
+        if isinstance(font, bytes):
+            if max_font_size is not None and len(font) > max_font_size:
+                raise _font_input_limit_error(len(font), max_font_size)
+            self._doc.set_fallback_font(kind, font, index, max_font_size)
+        else:
+            self._doc.set_fallback_font_file(kind, str(Path(font)), index, max_font_size)
+        self._fallback_configured = True
 
     def _ensure_fallback_fonts(self) -> None:
         """Auto-configure ``pylopdf[cjk]`` fonts unless explicitly configured."""
         if self._fallback_configured:
             return
+        fonts = _bundled_cjk_fonts()
+        paths = {kind: data for kind, data in fonts if isinstance(data, Path)}
+        if paths.keys() == {"sans", "serif"}:
+            self._doc.set_fallback_font_files(
+                str(paths["sans"]),
+                str(paths["serif"]),
+                _DEFAULT_MAX_FONT_INPUT_SIZE,
+            )
+            self._fallback_configured = True
+            return
+        for _, data in fonts:
+            if isinstance(data, bytes) and len(data) > _DEFAULT_MAX_FONT_INPUT_SIZE:
+                raise _font_input_limit_error(len(data), _DEFAULT_MAX_FONT_INPUT_SIZE)
+        for kind, data in fonts:
+            if isinstance(data, Path):
+                self._doc.set_fallback_font_file(kind, str(data), 0, _DEFAULT_MAX_FONT_INPUT_SIZE)
+            else:
+                self._doc.set_fallback_font(kind, data, 0, _DEFAULT_MAX_FONT_INPUT_SIZE)
         self._fallback_configured = True
-        for kind, data in _bundled_cjk_fonts():
-            self._doc.set_fallback_font(kind, data, 0)
 
     def render_page(
         self,

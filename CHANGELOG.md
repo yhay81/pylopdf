@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Explicit and automatically selected OpenType input for `insert_text`,
+  `insert_textbox`, `set_form_field`, and `set_fallback_font` now shares a
+  `max_font_size=64 * 1024 * 1024` default. `fontbuffer=` is rejected before
+  its PyO3 copy, while `fontfile=` is read through a one-byte-overrun bounded
+  Rust path with the GIL released. Direct core byte/path variants repeat the
+  boundary, failures use `LimitError.code == "font_input_size"` without
+  mutating documents or fallback caches, and `None` explicitly opts trusted
+  workloads out. Bundled CJK assets remain paths rather than an unbounded
+  Python byte cache, and automatic fallback reads both sans and serif before
+  one cache update.
 - `Page.insert_image(..., max_size=64 * 1024 * 1024,
   max_pixels=64_000_000)` now bounds JPEG/PNG encoded input and PNG decode
   amplification before mutation. `filename=` is read under the released GIL

@@ -73,6 +73,18 @@ def test_invalid_kind_raises() -> None:
         doc.set_fallback_font(SANS, kind="bold")
 
 
+def test_fallback_font_boundary_preserves_previous_font_and_cache() -> None:
+    doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
+    doc.set_fallback_font(SANS)
+    baseline = doc.render_page(0, 1.0)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.set_fallback_font(SERIF, max_font_size=SERIF.stat().st_size - 1)
+
+    assert caught.value.code == "font_input_size"
+    assert doc.render_page(0, 1.0) == baseline
+
+
 def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
     """Keep Latin rendering unchanged when a fallback font is configured."""
     plain = pylopdf.open(stream=one_page_pdf)

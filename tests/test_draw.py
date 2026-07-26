@@ -854,6 +854,64 @@ def test_insert_text_rejects_unknown_font_and_bad_args() -> None:
         page.insert_text((50, 50), "🦀", fontfile=NOTO_SANS_JP)
 
 
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_insert_text_validates_font_budget(value: object) -> None:
+    page = _new_page_doc()[0]
+
+    with pytest.raises((TypeError, ValueError), match="max_font_size"):
+        page.insert_text((10, 20), "x", fontbuffer=b"font", max_font_size=value)  # type: ignore[arg-type]
+
+
+def test_insert_text_bounds_fontbuffer_before_core_copy() -> None:
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_text((10, 20), "x", fontbuffer=b"too large", max_font_size=1)
+
+    assert caught.value.code == "font_input_size"
+    assert doc.complexity == before
+    assert doc[0].get_text() == ""
+
+
+def test_insert_text_reads_fontfile_through_bounded_core_path() -> None:
+    font_size = NOTO_SANS_JP.stat().st_size
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_text((10, 20), "A", fontfile=NOTO_SANS_JP, max_font_size=font_size - 1)
+
+    assert caught.value.code == "font_input_size"
+    assert doc.complexity == before
+
+    doc[0].insert_text((10, 20), "A", fontfile=NOTO_SANS_JP, max_font_size=font_size)
+    assert "A" in doc[0].get_text()
+
+
+def test_insert_text_bounds_auto_selected_cjk_font() -> None:
+    pytest.importorskip("pylopdf_fonts_cjk")
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_text((10, 20), "日本語", max_font_size=1)
+
+    assert caught.value.code == "font_input_size"
+    assert doc.complexity == before
+
+
+def test_insert_textbox_repeats_fontbuffer_boundary() -> None:
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_textbox((10, 10, 100, 80), "x", fontbuffer=b"too large", max_font_size=1)
+
+    assert caught.value.code == "font_input_size"
+    assert doc.complexity == before
+
+
 def test_replace_text_replaces_and_counts() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     page = doc[0]

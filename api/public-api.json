@@ -743,6 +743,12 @@
                 "default": 0,
                 "kind": "positional_or_keyword",
                 "name": "index"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
               }
             ],
             "returns": "None"
@@ -783,6 +789,12 @@
                 "default": 0,
                 "kind": "keyword_only",
                 "name": "fontindex"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
               }
             ],
             "returns": "None"
@@ -1929,6 +1941,12 @@
                 "default": true,
                 "kind": "keyword_only",
                 "name": "overlay"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
               }
             ],
             "returns": "None"
@@ -2015,6 +2033,12 @@
                 "default": true,
                 "kind": "keyword_only",
                 "name": "overlay"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
               }
             ],
             "returns": "float"
