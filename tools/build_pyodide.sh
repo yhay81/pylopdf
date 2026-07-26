@@ -128,6 +128,11 @@ export RUSTUP_TOOLCHAIN="${RUST_TOOLCHAIN}"
 # Emscripten 4.0.9 rejects legacy Rust export names containing `$u7b$`.
 # Rust v0 mangling keeps linker-visible names valid without changing the ABI.
 export RUSTFLAGS="-C symbol-mangling-version=v0 -C link-arg=-sSIDE_MODULE=2"
+# Optimize the single cdylib as one linked unit. This affects only the
+# PyEmscripten artifact: native maturin builds retain Cargo's default release
+# profile and compile-time tradeoff.
+export CARGO_PROFILE_RELEASE_LTO="fat"
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="1"
 source_date_epoch="${PYLOPDF_SOURCE_DATE_EPOCH:-}"
 if [[ -z "${source_date_epoch}" ]]; then
     source_date_epoch="$(git log -1 --format=%ct)" \
