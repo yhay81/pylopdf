@@ -656,6 +656,14 @@ known-limit behavior are polished together.
       cursors and allocation-free first/last glyph lookup reduced a cached
       100,000-match single-line median from 371.1 ms to 79.9 ms (4.6x);
       bounded default refusal took 3.1 ms.
+- [x] Enforce the PDF 2.0 password boundary before KDF work (2026-07-26).
+      Open, authenticate, fast metadata probe, and AES-256 save paths reject
+      each password above 127 UTF-8 bytes before PyO3 copying; direct Rust calls
+      repeat the check, failures use `password_input_size`, and save refusal
+      precedes mutation or output creation. This also prevents lopdf from
+      writing a password above 127 bytes that it cannot reopen identically.
+      A pathological 1 MiB local save probe took about 64 seconds versus about
+      11 ms at the valid 127-byte boundary.
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

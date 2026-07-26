@@ -57,7 +57,7 @@ Web预设目前独立应用以下上限：
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
 `font_input_size`、`text_input_size`、`search_input_size`、`search_hit_count`、
-`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
+`password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
@@ -100,6 +100,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   Python在PyO3 copy前拒绝超限搜索词，Rust边界再次检查两项限制。可信结果集可用
   `max_hits=None`显式取消；拒绝code为`search_input_size`或
   `search_hit_count`，且不返回partial list。
+- open、authenticate、快速metadata probe与AES-256输出使用的password在PyO3 copy或
+  password KDF前限制为127 UTF-8 byte。Rust直接调用会再次检查；拒绝code为
+  `password_input_size`，保存拒绝发生在document mutation或创建output之前。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string

@@ -21,7 +21,7 @@ deliberately does not implement.
 | pymupdf | pylopdf | Notes |
 |---|---|---|
 | `import pymupdf` (`fitz` is the legacy name) | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too, capped at 127 UTF-8 bytes |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
@@ -35,7 +35,7 @@ deliberately does not implement.
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` is a bool |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only |
+| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only; each password stops at 127 UTF-8 bytes |
 | `doc.needs_pass` / `authenticate()` | same | same return semantics (0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | same | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | same | JPEG passthrough, PNG alpha, direct rendered-RGBA `Pixmap` reuse, and clockwise right-angle rotation; convert other encoded formats with Pillow |

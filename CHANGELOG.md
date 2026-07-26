@@ -29,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4,096 UTF-8 bytes before PyO3 copying, direct Rust calls repeat both
   boundaries, and refusals use `search_input_size` or `search_hit_count`.
   `max_hits=None` explicitly opts trusted result sets out.
+- Open, authenticate, fast metadata probe, and AES-256 save paths now cap each
+  password at 127 UTF-8 bytes before PyO3 copying or password-KDF work. Direct
+  Rust calls repeat the boundary, refusals use `password_input_size`, and save
+  rejection precedes document mutation or output creation.
+
+### Fixed
+- AES-256 output no longer accepts passwords above the PDF 2.0 127-byte
+  boundary that lopdf could write but could not reopen with the same password.
+  Exact 127-byte user passwords now have round-trip coverage.
 
 ### Changed
 - The free-threaded extraction benchmark now writes a standalone
@@ -53,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vector for every match. On the paired cached 100,000-match single-line
   benchmark, median search fell from 371.1 ms to 79.9 ms (4.6x faster);
   bounded default refusal completed in 3.1 ms.
+- Oversized AES-256 passwords are now rejected before KDF work. A pathological
+  1 MiB password took about 64 seconds in the paired local save probe, while
+  valid 127-byte input took about 11 ms.
 - PyEmscripten builds now apply fat LTO with one codegen unit while native
   builds retain Cargo's default release profile. In paired pinned CI runs this
   reduced the wheel by 113,135 bytes (2.78%), the installed extension by

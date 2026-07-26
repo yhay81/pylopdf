@@ -14,13 +14,14 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 `pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
 `pylopdf.open()` は別名コンストラクタ。with 文に対応。
+password inputはUTF-8 127 byteが上限です。
 
 | メンバ | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / イテレーション | `Page` ビュー（負数可。構造変更後は取得し直す） |
 | `page_count` / `len(doc)` | ページ数 |
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号（pymupdf互換の意味論） |
 | `is_repaired` | 最終classic `startxref`の誤りを読み込み時に修復したか。保存するとxref dataを正規化 |
 | `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
@@ -34,7 +35,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | field tree・名前・値・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`。`max_size=None`で解除 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
@@ -111,7 +112,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 
 | 名前 | 用途 |
 |---|---|
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 入力サイズを任意に制限できる高速メタデータ読み取り。`repaired`で限定的なclassic `startxref`修復を確認 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 入力サイズを任意に制限しpasswordを127 byteに制限する高速メタデータ読み取り。`repaired`で限定的なclassic `startxref`修復を確認 |
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |

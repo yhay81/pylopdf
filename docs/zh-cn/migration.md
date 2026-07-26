@@ -18,7 +18,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
 | `import pymupdf`（`fitz`为旧名称） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=` |
+| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=`，上限127 UTF-8 byte |
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
@@ -32,7 +32,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage`为bool |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256 |
+| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256；每个password上限127 UTF-8 byte |
 | `doc.needs_pass` / `authenticate()` | 相同 | 返回值语义相同（0/1/2/4/6） |
 | `page.rect / rotation / set_rotation` | 相同 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换 |

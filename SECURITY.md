@@ -30,6 +30,10 @@ risky. When processing untrusted files:
   complete policy is preferred for user uploads.
 - Rendering is bounded to 64 megapixels per page. Embedded JavaScript is never
   executed (unsupported by design).
+- Open, authenticate, fast metadata probe, and AES-256 output passwords stop at
+  127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
+  `password_input_size`; encryption refusal precedes document mutation and
+  output creation.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page;
   Flate-wrapped JPEG passthrough is decompressed only to the remaining budget.

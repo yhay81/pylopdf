@@ -271,7 +271,11 @@ overview.
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
   introducing plain `ValueError` exceptions.
 - Encryption during `save` operates on a clone, so the in-memory document always
-  remains plaintext. Python generates the key with `os.urandom(32)`.
+  remains plaintext. Python generates the key with `os.urandom(32)`. Open,
+  authenticate, fast metadata probe, and AES-256 save passwords stop at the PDF
+  2.0 boundary of 127 UTF-8 bytes before PyO3 copying or KDF work. Direct Rust
+  entry points repeat the check, failures use `password_input_size`, and save
+  validation must precede save-option mutation, cloning, or output creation.
 - Public `Document.save` must securely create a same-directory sibling, stream
   every normal, object/xref-stream, or encrypted output there, and replace the
   requested path only after the core writer succeeds. Map creation/replacement

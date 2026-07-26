@@ -333,6 +333,41 @@ def test_search_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
         doc.search_page(1, "", 1)
 
 
+def test_password_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
+    exact = "é" * 63 + "a"
+    oversized = "é" * 64
+    key = bytes(range(32))
+
+    assert _Document.load_bytes(one_page_pdf, exact).page_count() == 1
+    assert _Document.load_metadata_bytes(one_page_pdf, exact)[1] == 1
+
+    for load_call in (
+        lambda: _Document.load_bytes(one_page_pdf, oversized),
+        lambda: _Document.load_metadata_bytes(one_page_pdf, oversized),
+    ):
+        with pytest.raises(LimitError) as caught:
+            load_call()
+        assert caught.value.args[0] == "password_input_size"
+
+    doc = _Document.load_bytes(one_page_pdf)
+    for save_call in (
+        lambda: doc.save_bytes_encrypted(oversized, "owner", 0, key),
+        lambda: doc.save_bytes_encrypted("user", oversized, 0, key),
+    ):
+        with pytest.raises(LimitError) as caught:
+            save_call()
+        assert caught.value.args[0] == "password_input_size"
+
+    encrypted = doc.save_bytes_encrypted("user", "owner", 0, key)
+    locked = _Document.load_bytes(encrypted)
+    with pytest.raises(LimitError) as user_limit:
+        locked.authenticate_user_password(oversized)
+    assert user_limit.value.args[0] == "password_input_size"
+    with pytest.raises(LimitError) as owner_limit:
+        locked.authenticate_owner_password(oversized)
+    assert owner_limit.value.args[0] == "password_input_size"
+
+
 def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     payload = b"1234"
