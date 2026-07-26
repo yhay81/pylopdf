@@ -72,6 +72,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 정규화합니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
+- `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
+  64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
+  남은byte 예산까지만 압축을 풉니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.

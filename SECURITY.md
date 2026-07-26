@@ -30,6 +30,9 @@ risky. When processing untrusted files:
   complete policy is preferred for user uploads.
 - Rendering is bounded to 64 megapixels per page. Embedded JavaScript is never
   executed (unsupported by design).
+- `Page.get_images()` rejects partial results above 4,096 placements,
+  64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page;
+  Flate-wrapped JPEG passthrough is decompressed only to the remaining budget.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

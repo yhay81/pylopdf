@@ -2271,6 +2271,16 @@ fn search_lines(lines: &[Vec<GlyphRecord>], needle: &str) -> Vec<BBox> {
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
 pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
 
+/// Keep one page from multiplying repeated image placements into unbounded output.
+const MAX_EXTRACTED_IMAGE_PLACEMENTS: usize = 4_096;
+const MAX_EXTRACTED_IMAGE_PIXELS: u64 = 64_000_000;
+const MAX_EXTRACTED_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+const IMAGE_PLACEMENT_LIMIT_ERROR: &str =
+    "image extraction exceeds the 4096-placement safety limit";
+const IMAGE_PIXEL_LIMIT_ERROR: &str = "image extraction exceeds the 64000000-pixel safety limit";
+const IMAGE_BYTE_LIMIT_ERROR: &str =
+    "image extraction exceeds the 67108864-byte output safety limit";
+
 /// Maximum unique indirect raster images considered by one compression call.
 const MAX_IMAGE_USAGE_OBJECTS: usize = 16_384;
 
@@ -2407,6 +2417,10 @@ pub(crate) fn collect_image_usages(
 /// A Device that only collects images.
 struct ImageCollector {
     images: Vec<ImageTuple>,
+    placements: usize,
+    pixels: u64,
+    bytes: usize,
+    error: Option<&'static str>,
 }
 
 /// JPEG magic number (SOI marker).
@@ -2417,21 +2431,44 @@ const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
 /// Supports `/Filter` of `[DCTDecode]` or `[FlateDecode, DCTDecode]`.
 /// Verify the decoded prefix is JPEG magic; otherwise return None so the caller
 /// can fall back to decoding and PNG encoding.
-fn try_jpeg_passthrough(stream: &hayro::hayro_syntax::object::Stream<'_>) -> Option<Vec<u8>> {
+fn try_jpeg_passthrough(
+    stream: &hayro::hayro_syntax::object::Stream<'_>,
+    max_bytes: usize,
+) -> Result<Option<Vec<u8>>, &'static str> {
     use std::io::Read;
     let filters = stream.filters();
     let data = match filters.as_slice() {
-        [Filter::DctDecode] => stream.raw_data().into_owned(),
+        [Filter::DctDecode] => {
+            let data = stream.raw_data();
+            if !data.starts_with(&JPEG_MAGIC) {
+                return Ok(None);
+            }
+            if data.len() > max_bytes {
+                return Err(IMAGE_BYTE_LIMIT_ERROR);
+            }
+            data.into_owned()
+        }
         [Filter::FlateDecode, Filter::DctDecode] => {
             let mut out = Vec::new();
-            flate2::read::ZlibDecoder::new(stream.raw_data().as_ref())
-                .read_to_end(&mut out)
-                .ok()?;
+            let result = flate2::read::ZlibDecoder::new(stream.raw_data().as_ref())
+                .take(
+                    u64::try_from(max_bytes)
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(1),
+                )
+                .read_to_end(&mut out);
+            if out.len() > max_bytes {
+                return Err(IMAGE_BYTE_LIMIT_ERROR);
+            }
+            if result.is_err() {
+                // Preserve the existing decode-to-PNG fallback.
+                return Ok(None);
+            }
             out
         }
-        _ => return None,
+        _ => return Ok(None),
     };
-    data.starts_with(&JPEG_MAGIC).then_some(data)
+    Ok(data.starts_with(&JPEG_MAGIC).then_some(data))
 }
 
 /// Transform an image pixel rectangle and return its display-space bounding box.
@@ -2541,6 +2578,40 @@ fn encode_raster_png(image: ImageData, alpha: Option<LumaData>) -> Option<(u32, 
     }
 }
 
+impl ImageCollector {
+    fn admit(&mut self, width: u32, height: u32) -> bool {
+        if self.placements >= MAX_EXTRACTED_IMAGE_PLACEMENTS {
+            self.error = Some(IMAGE_PLACEMENT_LIMIT_ERROR);
+            return false;
+        }
+        self.placements += 1;
+        let pixels = u64::from(width) * u64::from(height);
+        let Some(total) = self.pixels.checked_add(pixels) else {
+            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR);
+            return false;
+        };
+        if total > MAX_EXTRACTED_IMAGE_PIXELS {
+            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR);
+            return false;
+        }
+        self.pixels = total;
+        true
+    }
+
+    fn push(&mut self, image: ImageTuple) {
+        let Some(total) = self.bytes.checked_add(image.4.len()) else {
+            self.error = Some(IMAGE_BYTE_LIMIT_ERROR);
+            return;
+        };
+        if total > MAX_EXTRACTED_IMAGE_BYTES {
+            self.error = Some(IMAGE_BYTE_LIMIT_ERROR);
+            return;
+        }
+        self.bytes = total;
+        self.images.push(image);
+    }
+}
+
 impl Device<'_> for ImageCollector {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
@@ -2560,6 +2631,9 @@ impl Device<'_> for ImageCollector {
     fn pop_transparency_group(&mut self) {}
 
     fn draw_image(&mut self, image: Image<'_, '_>, transform: Affine) {
+        if self.error.is_some() || !self.admit(image.width(), image.height()) {
+            return;
+        }
         let bbox = image_bbox(
             transform,
             f64::from(image.width()),
@@ -2568,28 +2642,36 @@ impl Device<'_> for ImageCollector {
         match image {
             Image::Raster(raster) => {
                 // Extract images ending in DCTDecode as raw JPEG without recompression.
-                if let Some(jpeg) = try_jpeg_passthrough(raster.stream()) {
-                    self.images.push((
-                        raster.width(),
-                        raster.height(),
-                        bbox,
-                        "jpeg".to_owned(),
-                        jpeg,
-                    ));
-                    return;
+                match try_jpeg_passthrough(
+                    raster.stream(),
+                    MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes),
+                ) {
+                    Ok(Some(jpeg)) => {
+                        self.push((
+                            raster.width(),
+                            raster.height(),
+                            bbox,
+                            "jpeg".to_owned(),
+                            jpeg,
+                        ));
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        self.error = Some(error);
+                        return;
+                    }
                 }
-                let images = &mut self.images;
                 raster.with_rgba(
                     |image_data, alpha| {
                         if let Some((width, height, data)) = encode_raster_png(image_data, alpha) {
-                            images.push((width, height, bbox, "png".to_owned(), data));
+                            self.push((width, height, bbox, "png".to_owned(), data));
                         }
                     },
                     None,
                 );
             }
             Image::Stencil(stencil) => {
-                let images = &mut self.images;
                 stencil.with_stencil(
                     |luma, _| {
                         if let Some(data) = encode_png(
@@ -2599,7 +2681,7 @@ impl Device<'_> for ImageCollector {
                             &luma.data,
                             png::Compression::Balanced,
                         ) {
-                            images.push((luma.width, luma.height, bbox, "png".to_owned(), data));
+                            self.push((luma.width, luma.height, bbox, "png".to_owned(), data));
                         }
                     },
                     None,
@@ -2634,12 +2716,21 @@ pub(crate) fn extract_page_images(
     pdf: &Pdf,
     page: &Page<'_>,
     settings: InterpreterSettings,
-) -> Vec<ImageTuple> {
+) -> Result<Vec<ImageTuple>, &'static str> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
-    let mut collector = ImageCollector { images: Vec::new() };
+    let mut collector = ImageCollector {
+        images: Vec::new(),
+        placements: 0,
+        pixels: 0,
+        bytes: 0,
+        error: None,
+    };
     interpret_page(page, &mut context, &mut collector);
-    collector.images
+    match collector.error {
+        Some(error) => Err(error),
+        None => Ok(collector.images),
+    }
 }
 
 /// One vector command: `"l"` with two points or `"c"` with four points.

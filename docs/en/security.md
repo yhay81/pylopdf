@@ -77,6 +77,9 @@ The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
 probe's `repaired` key), and saving rewrites normalized xref data.
 
 - Rendering is capped at 64 megapixels per page.
+- `Page.get_images()` rejects partial results above 4,096 placements,
+  64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
+  Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

@@ -122,6 +122,11 @@ overview.
   outside this path API. Optional-content visibility is still applied. Reject
   output above 8,192 paths or 131,072 commands rather than returning a partial
   result.
+- `Page.get_images` releases the GIL and materializes each drawn placement as
+  JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
+  64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
+  Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
+  never return a partial list.
 - `Document.compress_images` interprets indirect raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest

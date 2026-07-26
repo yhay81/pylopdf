@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.get_images()` now rejects per-page output amplification above 4,096
+  placements, 64,000,000 cumulative source pixels, or 64 MiB of returned image
+  payloads instead of materializing a partial list. The Flate-to-DCT JPEG
+  passthrough path stops decompression at the remaining byte budget. Regressions
+  cover repeated shared images, oversized declared dimensions, cumulative
+  passthrough bytes, and a highly compressed oversized JPEG payload.
 - Lenient opening now repairs one narrowly defined malformed-PDF case: an
   incorrect final `startxref` offset when the final revision still contains an
   intact classic xref table and a full lopdf retry succeeds under the original
