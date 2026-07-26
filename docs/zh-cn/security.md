@@ -132,7 +132,8 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - `Page.replace_text()`将search、replacement和fallback的合计限制为4,096个
   UTF-8 byte，并为解码page content、font encoding data、替换增长和最终stream
   设置64 MiB默认上限。它在commit前准备page专用stream，因此不会修改复制page的
-  共享content；no-match/error会保留document和cache。可信输入可用
+  共享content；no-match/error会保留document和cache。caller text会在PyO3 copy前
+  逐步计数，而不创建完整encoded copy。可信输入可用
   `max_size=None`显式解除。
 - `delete_pages()`、`select()`和`insert_pdf()`在Python与Rust中每次call最多接受
   4,096个page entry。iterable会在第4,097个item、graph修改前停止。空delete保留

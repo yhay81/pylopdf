@@ -231,10 +231,11 @@ overview.
 - `Page.insert_ocr_text_layer` stops iterable materialization at 4,096
   non-empty words or 1 MiB of aggregate UTF-8 text per call. The Rust boundary
   repeats both checks, CID assignment stops before a 65,535th distinct
-  character, and CID maps, ToUnicode data, and content operators are prepared
-  before PDF mutation. Input rejection preserves caches, but invalidate
-  immediately before the first PDF mutation because later malformed-resource
-  errors can leave a partial edit.
+  character, and Python counts UTF-8 without allocating a complete encoded
+  copy. CID maps, ToUnicode data, and content operators are prepared before
+  PDF mutation. Input rejection preserves caches, but invalidate immediately
+  before the first PDF mutation because later malformed-resource errors can
+  leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page
@@ -363,13 +364,14 @@ overview.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
   page content, aggregate font encoding data, intermediate growth, and the
-  final content stream share the public `max_size` boundary. Re-encoding uses
-  a calculated upper bound before allocation and linear per-character
-  fallback. Commit one new page-owned stream only after all fallible work
-  succeeds so copied pages do not mutate shared `/Contents`; no-match and
-  failure paths must preserve document bytes and caches. A successful
-  replacement materializes inherited page attributes and clears the drawing
-  isolation marker for that page.
+  final content stream share the public `max_size` boundary. Python counts
+  caller UTF-8 incrementally before PyO3 copying; direct Rust calls repeat the
+  check. Re-encoding uses a calculated upper bound before allocation and
+  linear per-character fallback. Commit one new page-owned stream only after
+  all fallible work succeeds so copied pages do not mutate shared `/Contents`;
+  no-match and failure paths must preserve document bytes and caches. A
+  successful replacement materializes inherited page attributes and clears
+  the drawing isolation marker for that page.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and

@@ -151,7 +151,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   byte로 제한하고 디코딩한page content, font encoding data, 교체 증가분, 최종
   stream에64 MiB 기본 상한을 적용합니다. commit 전에page 전용stream을 준비하므로
   복사한page의 공유content를 변경하지 않으며 no-match/error에서document와cache를
-  보존합니다. 신뢰할 수 있는 입력은`max_size=None`으로 명시적으로 해제할 수 있습니다.
+  보존합니다. caller text는PyO3 copy 전에 완전한encoded copy를 만들지 않고
+  순차적으로 계산합니다. 신뢰할 수 있는 입력은`max_size=None`으로 명시적으로
+  해제할 수 있습니다.
 - `delete_pages()`, `select()`, `insert_pdf()`는Python과Rust 모두에서call당
   4,096 page entry를 허용합니다. iterable은graph 변경 전4,097번째item에서
   중단됩니다. 빈delete는cache, generation 및기존`Page` view를 유지합니다.

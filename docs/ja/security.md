@@ -147,6 +147,7 @@ xref dataを正規化します。
   byteに制限し、展開page content、font encoding data、置換増幅、最終streamの
   既定上限を64 MiBにします。page専用streamをcommit前に準備するため、複製pageの
   共有contentを変更せず、no-match/errorではdocumentとcacheを保持します。
+  caller textはPyO3 copy前に完全なencoded copyを作らず逐次計数します。
   信頼できる入力では`max_size=None`で明示的に解除できます。
 - `delete_pages()`・`select()`・`insert_pdf()`はPythonとRustの双方で1 call
   4,096 page entryが上限です。iterableは4,097 item目でgraph変更前に停止します。

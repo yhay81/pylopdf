@@ -417,11 +417,11 @@ signed_pdf: bytes = out.getvalue()
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True, max_font_size=64 MiB, max_text_size=1 MiB)` | Print bounded multiline text with a standard-14 or shaped subset font; generated input stops at 4,096 lines; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han; `None` opts the corresponding trusted font or text input out; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True, max_font_size=64 MiB, max_text_size=1 MiB)` | Wrap bounded UTF-8 text with UAX #14 and Core 14, explicit OpenType, or auto-selected JP font metrics; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
-| `insert_ocr_text_layer(words, rotation=0)` | Write up to 4,096 words / 1 MiB UTF-8 text as an orientation-aware invisible OCR layer (searchable PDFs; no font embedding) |
+| `insert_ocr_text_layer(words, rotation=0)` | Write up to 4,096 words / 1 MiB incrementally counted UTF-8 text as an orientation-aware invisible OCR layer (searchable PDFs; no font embedding) |
 | `annots()` / `get_links()` | Bounded annotation/link reads, including one cycle-aware named-destination index per call (4,096 annotations and 1 MiB aggregate metadata text; display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; bounded iteration of up to 4,096 `search_for` results; appearance stream included; 1 MiB pre-copy subtype/content budget |
 | `add_link_annot(rect, uri)` | URI link annotation (no border; 1 MiB pre-copy subtype/URI budget) |
-| `replace_text(search, replacement, default_char=None, max_size=64 MiB)` | Atomic copy-on-write text replacement (simple-encoded fonts only; bounded input/output; returns the count; no CJK) |
+| `replace_text(search, replacement, default_char=None, max_size=64 MiB)` | Atomic copy-on-write text replacement (simple-encoded fonts only; 4,096-byte caller text is counted without a complete encoded copy; bounded output; returns the count; no CJK) |
 | `render(scale, dpi=, background=)` / `render_svg(max_size=64 MiB)` | PNG / bounded UTF-8 SVG rendering |
 | `rotation` / `set_rotation(deg)` | Display rotation (multiples of 90, inheritance-resolved) |
 | `mediabox` / `cropbox` / `rect` | Page boxes (`Rect`); `rect` is the rotation-aware visible rectangle |

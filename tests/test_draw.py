@@ -1079,6 +1079,40 @@ def test_replace_text_validates_input_without_mutation() -> None:
     assert doc.tobytes() == before
 
 
+def test_replace_text_rejects_without_encoding_complete_input() -> None:
+    class EncodeMustNotRun(str):
+        __slots__ = ()
+
+        def encode(self, encoding: str = "utf-8", errors: str = "strict") -> bytes:
+            del encoding, errors
+            msg = "replace_text must count UTF-8 without encoding the complete input"
+            raise AssertionError(msg)
+
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    before = doc.tobytes()
+    replacement = EncodeMustNotRun("x" * 4097)
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].replace_text("PDF", replacement)
+    assert caught.value.code == "replacement_input_size"
+    assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("argument", "value"),
+    [
+        ("search", 1),
+        ("replacement", 1),
+        ("default_char", 1),
+    ],
+)
+def test_replace_text_rejects_non_string_inputs(argument: str, value: object) -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
+    kwargs: dict[str, object] = {"search": "PDF", "replacement": "Cat", argument: value}
+    with pytest.raises(TypeError, match=argument):
+        doc[0].replace_text(**kwargs)  # type: ignore[arg-type]
+
+
 def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
     boundary = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     assert boundary[0].replace_text("PDF", "x" * 4093) == 1
