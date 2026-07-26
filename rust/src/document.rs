@@ -92,6 +92,9 @@ const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
 const MAX_OCR_LAYER_WORDS: usize = 4_096;
 const MAX_OCR_LAYER_TEXT_BYTES: usize = 1024 * 1024;
 
+/// Bound one page-structure mutation batch before cloning or importing graphs.
+const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -4702,9 +4705,18 @@ impl _Document {
     }
 
     /// Delete a one-based page.
-    fn delete_pages(&mut self, page_numbers: Vec<u32>) {
+    fn delete_pages(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
+        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
+            return Err(PdfError::new_err(format!(
+                "cannot delete more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
+            )));
+        }
+        if page_numbers.is_empty() {
+            return Ok(());
+        }
         self.invalidate_hayro_pdf();
         self.doc.delete_pages(&page_numbers);
+        Ok(())
     }
 
     /// Extract text from a one-based page.
@@ -4837,8 +4849,13 @@ impl _Document {
 
     /// Append every page from another document.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
-        let count = u32::try_from(other.doc.get_pages().len())
-            .map_err(|e| PdfError::new_err(e.to_string()))?;
+        let page_count = other.doc.get_pages().len();
+        if page_count > MAX_STRUCTURAL_PAGE_BATCH {
+            return Err(PdfError::new_err(format!(
+                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
+            )));
+        }
+        let count = u32::try_from(page_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let all: Vec<u32> = (1..=count).collect();
         self.merge_pages(py, other, all, None)
     }
@@ -4854,6 +4871,14 @@ impl _Document {
         page_numbers: Vec<u32>,
         position: Option<usize>,
     ) -> PyResult<()> {
+        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
+            return Err(PdfError::new_err(format!(
+                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
+            )));
+        }
+        if page_numbers.is_empty() {
+            return Ok(());
+        }
         self.invalidate_hayro_pdf();
         py.detach(|| {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
@@ -4930,6 +4955,11 @@ impl _Document {
     ///
     /// PDF page-tree Parent must be unique, so duplicate selections require copies.
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
+        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
+            return Err(PdfError::new_err(format!(
+                "cannot select more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
+            )));
+        }
         self.invalidate_hayro_pdf();
         let pages = self.doc.get_pages();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;

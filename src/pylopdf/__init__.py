@@ -93,6 +93,7 @@ _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 _MAX_RENDER_BATCH_PAGES = 4096
 _MAX_MARKDOWN_PAGES = 4096
+_MAX_STRUCTURAL_PAGE_BATCH = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -2582,26 +2583,43 @@ class Document:
     def delete_page(self, pno: int) -> None:
         """Delete zero-based page ``pno``; negative values count from the end."""
         page_number = self._lopdf_page_number(pno)
-        self._bump_generation()
         self._doc.delete_pages([page_number])
+        self._bump_generation()
 
     def delete_pages(self, page_numbers: Iterable[int]) -> None:
-        """Delete multiple zero-based pages; negative values count from the end."""
+        """Delete up to 4,096 zero-based pages; negative values count from the end."""
         self._ensure_open()
-        numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
-        self._bump_generation()
+        numbers = self._materialize_structural_pages(page_numbers, "page_numbers")
+        if not numbers:
+            return
         self._doc.delete_pages(numbers)
+        self._bump_generation()
 
     def select(self, page_numbers: Iterable[int]) -> None:
         """Keep only the given zero-based pages in the given order.
 
         This also reorders pages. Repeating an index duplicates that page; the
-        duplicate shares Contents and Resources objects with the original.
+        duplicate shares Contents and Resources objects with the original. One
+        call accepts at most 4,096 entries.
         """
         self._ensure_open()
-        numbers = [self._lopdf_page_number(pno) for pno in page_numbers]
+        numbers = self._materialize_structural_pages(page_numbers, "page_numbers")
         self._bump_generation()
         self._doc.select(numbers)
+
+    def _materialize_structural_pages(
+        self,
+        page_numbers: Iterable[int],
+        name: str,
+    ) -> list[int]:
+        """Validate one bounded iterable of zero-based structural page inputs."""
+        numbers: list[int] = []
+        for pno in page_numbers:
+            if len(numbers) >= _MAX_STRUCTURAL_PAGE_BATCH:
+                msg = f"{name} cannot contain more than {_MAX_STRUCTURAL_PAGE_BATCH} entries"
+                raise ValueError(msg)
+            numbers.append(self._lopdf_page_number(pno))
+        return numbers
 
     def insert_pdf(
         self,
@@ -2626,6 +2644,10 @@ class Document:
         start = other._normalize_pno(from_page)
         stop = other._normalize_pno(to_page)
         step = 1 if start <= stop else -1
+        count = abs(stop - start) + 1
+        if count > _MAX_STRUCTURAL_PAGE_BATCH:
+            msg = f"page range cannot contain more than {_MAX_STRUCTURAL_PAGE_BATCH} entries"
+            raise ValueError(msg)
         numbers = list(range(start, stop + step, step))
         position = None if start_at == -1 else self._insert_position(start_at, "start_at")
         self._bump_generation()

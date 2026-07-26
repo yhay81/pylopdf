@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `delete_pages()`, `select()`, and `insert_pdf()` now cap one structural batch
+  at 4,096 page entries before iterable materialization or graph import. The
+  Rust core enforces the same boundary. Generators stop at the 4,097th item,
+  over-limit calls preserve existing `Page` views, and `delete_pages([])` is a
+  true no-op that no longer invalidates caches or marks views stale.
 - Drawing insertions now preflight raw page `/Contents` arrays and reference
   chains before cache invalidation, image decoding, or dependent PDF-object
   creation. The resulting array is capped at 4,096 stream references, including

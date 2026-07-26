@@ -554,6 +554,10 @@ known-limit behavior are polished together.
       reads decode only the eight public fields under source/returned-text
       budgets, the fast probe bounds returned standard text, and batch writes
       preflight source/encoded text before one atomic mutation.
+- [x] Bound structural page batches in both public Python and direct Rust calls.
+      `delete_pages`, `select`, and `insert_pdf` stop at 4,096 entries before
+      iterable allocation or graph import; empty deletion is now a cache- and
+      generation-preserving no-op (2026-07-26).
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

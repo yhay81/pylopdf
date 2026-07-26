@@ -82,6 +82,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   `/Contents`의raw array와 참조chain을 검사합니다. raw array는4,096 entry,
   chain은 깊이32, 최종array는 한 번만 추가되는`q`/`Q` isolation pair를 포함해
   4,096 stream 참조로 제한됩니다. 실패하면document를 변경하지 않습니다.
+- `delete_pages()`, `select()`, `insert_pdf()`는Python과Rust 모두에서call당
+  4,096 page entry를 허용합니다. iterable은graph 변경 전4,097번째item에서
+  중단됩니다. 빈delete는cache, generation 및기존`Page` view를 유지합니다.
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.

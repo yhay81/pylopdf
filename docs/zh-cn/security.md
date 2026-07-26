@@ -77,6 +77,9 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   `/Contents`的raw array和引用chain。raw array上限为4,096个entry，chain深度为
   32，最终array上限为4,096个stream引用（包括只添加一次的`q`/`Q` isolation
   pair）。失败时不修改document。
+- `delete_pages()`、`select()`和`insert_pdf()`在Python与Rust中每次call最多接受
+  4,096个page entry。iterable会在第4,097个item、graph修改前停止。空delete保留
+  cache、generation及现有`Page` view。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
 - `Document.embfile_get()`默认将每个filter层的解码输出限制为64 MiB。对于已知的
