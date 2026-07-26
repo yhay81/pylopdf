@@ -366,6 +366,10 @@ deadline, only accurate, measurable, coherent boundaries.
   errors. hayro 0.7 lacks an offset viewport, so this initially crops the
   full-page raster and retains the full-page size/cost limits; pursue an
   upstream offset viewport before claiming true region-only rendering.
+- [x] Bound `render_page_svg()` and `Page.render_svg()` at 64 MiB of UTF-8
+  output by default, rejecting before Python string conversion with an
+  explicit `None` opt-out. hayro-svg 0.7 exposes only a completed `String`, so
+  its internal temporary remains an upstream limitation (2026-07-26).
 - [x] Add `Pixmap.save(path)` for direct PNG output from immutable rendered
       pixels. Encoding and filesystem I/O release the GIL, strings and path-like
       objects are accepted, non-PNG extensions are rejected, and failures remain

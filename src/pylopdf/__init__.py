@@ -85,6 +85,7 @@ _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_MARKDOWN_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_SVG_SIZE = 64 * 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -1987,10 +1988,18 @@ class Page:
         self._page_number()
         return self._document.render_page(self._pno, scale, dpi=dpi, background=background)
 
-    def render_svg(self) -> str:
-        """Render the page to an SVG string."""
+    def render_svg(
+        self,
+        *,
+        max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
+    ) -> str:
+        """Render the page to a bounded SVG string.
+
+        ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
+        explicitly opts out.
+        """
         self._page_number()
-        return self._document.render_page_svg(self._pno)
+        return self._document.render_page_svg(self._pno, max_size=max_size)
 
     def __repr__(self) -> str:
         """Return a representation containing the page number and document."""
@@ -2821,11 +2830,23 @@ class Document:
         self._emit_warnings()
         return result
 
-    def render_page_svg(self, pno: int) -> str:
-        """Render zero-based page ``pno`` to an SVG string."""
+    def render_page_svg(
+        self,
+        pno: int,
+        *,
+        max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
+    ) -> str:
+        """Render zero-based page ``pno`` to a bounded SVG string.
+
+        ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
+        explicitly opts out. hayro-svg currently materializes its internal
+        Rust string before this boundary is enforced, but over-limit output is
+        rejected before conversion to a Python string.
+        """
         page_number = self._lopdf_page_number(pno)
+        _validate_optional_positive_int("max_size", max_size)
         self._ensure_fallback_fonts()
-        result = self._doc.render_page_svg(page_number)
+        result = self._doc.render_page_svg(page_number, max_size)
         self._emit_warnings()
         return result
 

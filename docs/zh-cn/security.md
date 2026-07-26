@@ -53,7 +53,8 @@ Web预设目前独立应用以下上限：
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`embedded_file_size`、
-`xmp_metadata_size`、`render_output_size`、`markdown_output_size`或
+`xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
+`svg_output_size`或
 `decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
@@ -68,6 +69,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 `doc.is_repaired`（metadata probe中的`repaired`）为`True`；保存会规范化xref数据。
 
 - 每页渲染上限为6400万像素。
+- `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
+  PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
+  hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
+  不受此限制。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
 - `Document.embfile_get()`默认将每个filter层的解码输出限制为64 MiB。对于已知的

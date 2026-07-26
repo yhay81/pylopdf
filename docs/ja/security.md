@@ -58,7 +58,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
-`markdown_output_size`、`decompression_unverifiable`の
+`markdown_output_size`、`svg_output_size`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -75,6 +75,10 @@ classic xref tableがあり、元の上限で全体parseが成功した場合に
 xref dataを正規化します。
 
 - レンダリングは1ページ64メガピクセルまでです。
+- `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
+  PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
+  解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
+  制限を適用する前の内部Rust string 1つはこの境界の対象外です。
 - `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
   64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
   上限までしか展開しません。

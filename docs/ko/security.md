@@ -57,7 +57,7 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`,
 `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
-`markdown_output_size`, `decompression_unverifiable` 중
+`markdown_output_size`, `svg_output_size`, `decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 
@@ -74,6 +74,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 정규화합니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
+- `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
+  PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
+  명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로
+  pylopdf가 경계를 적용하기 전의 내부Rust string 하나는 이 제한의 대상이 아닙니다.
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.
