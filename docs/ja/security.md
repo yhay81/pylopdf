@@ -80,7 +80,10 @@ xref dataを正規化します。
 - `Document.embfile_get()`は各filter層の展開結果を既定で64 MiBに制限します。
   既知の大容量添付では`max_size=`を増やせます。`max_size=None`は無制限の
   materializationを明示的に許可します。添付名treeも4,096 entry/node、深さ32、
-  encoded/decoded name合計1 MiBを超えると拒否します。
+  encoded/decoded name合計1 MiBを超えると拒否します。追加時のkey/filename/
+  description入力は合計1 MiBまでです。編集時はinline FileSpecのclone前に、直接
+  object 4,096個、深さ32、直接string/name/stream data 1 MiBの上限とCatalogの
+  書込先を検証し、rollbackのために文書全体をcloneしません。
 - `Document.get_pdfa_claim()`は各filter層のXMP展開結果を既定で1 MiBに制限します。
   既知の大容量packetでは`max_size=`を増やせます。`max_size=None`は無制限の
   materializationを明示的に許可します。

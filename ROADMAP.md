@@ -502,7 +502,10 @@ known-limit behavior are polished together.
       stable `embedded_file_size` rejection code, and requires an explicit
       opt-out for unbounded reads. Name-tree traversal now borrows direct object
       shapes, visits cycles once, and rejects excessive entries, nodes, depth,
-      or name bytes; failed additions cannot create an unreadable tree.
+      or name bytes; failed additions cannot create an unreadable tree. Edits
+      preflight the Catalog write target instead of cloning the full document,
+      cap new key/filename/description input at 1 MiB, and validate bounded
+      direct object count/depth/data before cloning an inline FileSpec.
 - [x] Bound XMP PDF/A self-claim inspection before metadata materialization.
       `get_pdfa_claim(max_size=1 MiB)` shares the layered decoder contract,
       reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.

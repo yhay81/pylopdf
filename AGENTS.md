@@ -135,6 +135,10 @@ overview.
   shapes, visits indirect cycles once, and rejects more than 4,096 entries or
   nodes, 32 levels, or 1 MiB of encoded/decoded names. Attachment edits must not
   create an over-limit tree or invalidate caches after a failed operation.
+  They preflight the Catalog write target rather than cloning the whole
+  Document for rollback, cap new key/filename/description input at 1 MiB, and
+  validate inline FileSpecs before cloning at 4,096 direct objects, 32 levels,
+  and 1 MiB of direct string/name/stream data. Indirect references are leaves.
 - `Document.compress_images` interprets indirect raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest

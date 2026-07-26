@@ -251,3 +251,49 @@ def test_embfile_add_refuses_to_create_an_unreadable_oversized_tree() -> None:
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit is reached"):
         doc.embfile_add("one-too-many", b"x")
     assert doc.tobytes() == before
+
+
+def test_embfile_writes_bound_inline_filespec_clone_shape() -> None:
+    custom_values = " ".join("null" for _ in range(4096))
+    pdf = build_raw_pdf(
+        {
+            1: (
+                "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << "
+                "/Names [(x.txt) << /Type /Filespec /F (x.txt) "
+                f"/EF << /F 4 0 R >> /Custom [{custom_values}] >>] >> >> >>"
+            ),
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = doc.tobytes()
+
+    assert doc.embfile_names() == ["x.txt"]
+    assert doc.embfile_get("x.txt") == b"x"
+    with pytest.raises(pylopdf.PdfError, match="4096-object safety limit"):
+        doc.embfile_add("y.txt", b"y")
+    with pytest.raises(pylopdf.PdfError, match="4096-object safety limit"):
+        doc.embfile_del("x.txt")
+    assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("filename", "desc"),
+    [
+        ("x" * (1024 * 1024), None),
+        (None, "x" * (1024 * 1024)),
+    ],
+    ids=["filename", "description"],
+)
+def test_embfile_add_bounds_input_metadata_atomically(
+    filename: str | None,
+    desc: str | None,
+) -> None:
+    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="1048576-byte input-text safety limit"):
+        doc.embfile_add("x", b"x", filename=filename, desc=desc)
+    assert doc.tobytes() == before

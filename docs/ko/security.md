@@ -79,7 +79,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - `Document.embfile_get()`은 각filter layer의 디코딩 출력을 기본64 MiB로 제한합니다.
   크기를 알고 있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은
   무제한materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
-  깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다.
+  깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다. 추가하는key/
+  filename/description 입력 합계는1 MiB로 제한합니다. 편집은inline FileSpec
+  clone 전에direct object 4,096개, 깊이32, direct string/name/stream data 1 MiB
+  상한과Catalog 쓰기 대상을 검증하며 rollback을 위해 문서 전체를clone하지 않습니다.
 - `Document.get_pdfa_claim()`은 각filter layer의XMP 디코딩 출력을 기본1 MiB로
   제한합니다. 크기를 알고 있는 대용량packet은`max_size=`를 늘릴 수 있고,
   `max_size=None`은 무제한materialization을 명시적으로 허용합니다.
