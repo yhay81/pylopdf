@@ -104,6 +104,7 @@ const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
+const DEFAULT_MAX_GENERATED_TEXT_SIZE: usize = 1024 * 1024;
 
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
@@ -924,6 +925,36 @@ fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyR
                 data.len()
             ),
         ));
+    }
+    Ok(())
+}
+
+fn validate_generated_text_input<'a>(
+    chunks: impl IntoIterator<Item = &'a [u8]>,
+    max_text_size: Option<usize>,
+) -> PyResult<()> {
+    let Some(limit) = max_text_size else {
+        return Ok(());
+    };
+    if limit == 0 {
+        return Err(PyValueError::new_err(
+            "max_text_size must be a positive integer or None",
+        ));
+    }
+    let mut total = 0usize;
+    for chunk in chunks {
+        total = total.checked_add(chunk.len()).ok_or_else(|| {
+            limit_err(
+                "text_input_size",
+                format!("text input exceeds the {limit}-byte UTF-8 limit"),
+            )
+        })?;
+        if total > limit {
+            return Err(limit_err(
+                "text_input_size",
+                format!("text input exceeds the {limit}-byte UTF-8 limit"),
+            ));
+        }
     }
     Ok(())
 }
@@ -6873,6 +6904,17 @@ impl _Document {
     /// converts cp1252. `base_font` is a Standard 14 name and is not embedded.
     // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        point,
+        lines,
+        base_font,
+        winansi,
+        fontsize,
+        color,
+        overlay,
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+    ))]
     fn insert_page_text(
         &mut self,
         py: Python<'_>,
@@ -6884,7 +6926,9 @@ impl _Document {
         fontsize: f64,
         color: (f64, f64, f64),
         overlay: bool,
+        max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.preflight_page_content(page_number)?;
         self.invalidate_hayro_pdf();
@@ -6914,6 +6958,19 @@ impl _Document {
     /// Layout completes before any PDF object is added, so a negative spare
     /// height leaves the document byte-for-byte unmodified in memory.
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        text,
+        base_font,
+        winansi,
+        fontsize,
+        line_height,
+        align,
+        color,
+        overlay,
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+    ))]
     fn insert_page_textbox(
         &mut self,
         py: Python<'_>,
@@ -6927,7 +6984,9 @@ impl _Document {
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
+        max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         let rect = [rect.0, rect.1, rect.2, rect.3];
         let layout = py.detach(|| {
             draw::standard_textbox_layout(
@@ -6988,7 +7047,8 @@ impl _Document {
         fontsize,
         color,
         overlay,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
     fn insert_embedded_text(
         &mut self,
@@ -7002,7 +7062,9 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         self.preflight_page_content(page_number)?;
@@ -7043,7 +7105,8 @@ impl _Document {
         fontsize,
         color,
         overlay,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
     fn insert_embedded_text_file(
         &mut self,
@@ -7057,7 +7120,9 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(None, max_font_size)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;
         self.insert_embedded_text(
@@ -7071,6 +7136,7 @@ impl _Document {
             color,
             overlay,
             max_font_size,
+            max_text_size,
         )
     }
 
@@ -7087,7 +7153,8 @@ impl _Document {
         align,
         color,
         overlay,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
     fn insert_embedded_textbox(
         &mut self,
@@ -7103,7 +7170,9 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
@@ -7159,7 +7228,8 @@ impl _Document {
         align,
         color,
         overlay,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
     fn insert_embedded_textbox_file(
         &mut self,
@@ -7175,7 +7245,9 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
+        max_text_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(None, max_font_size)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;
         self.insert_embedded_textbox(
@@ -7191,6 +7263,7 @@ impl _Document {
             color,
             overlay,
             max_font_size,
+            max_text_size,
         )
     }
 

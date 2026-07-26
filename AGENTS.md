@@ -357,9 +357,15 @@ overview.
   boundary. Python rejects buffer input before PyO3 copying; file input uses a
   one-byte-overrun bounded Rust read with the GIL released. Direct byte/path
   core variants repeat the check, `max_font_size=None` explicitly opts trusted
-  input out, and failures use `font_input_size` without mutation. Paragraph
-  layout remains outside `insert_text`. RTL shapes render, but extraction
-  currently follows visual order.
+  input out, and failures use `font_input_size` without mutation.
+  `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
+  boundary. Python rejects text before normalization, tab expansion, or PyO3
+  copying; textbox tab expansion is size-preflighted without materializing the
+  expanded string, and direct core variants repeat the check.
+  `max_text_size=None` explicitly opts trusted input out, failures use
+  `text_input_size`, and refusal must not mutate the document. Paragraph layout
+  remains outside `insert_text`. RTL shapes render, but extraction currently
+  follows visual order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
@@ -368,9 +374,12 @@ overview.
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
   advances and font vertical metrics. Both share greedy UAX #14 wrapping in
   `rust/src/layout.rs`, with grapheme-safe emergency breaks and soft-line-only
-  justification. Keep page rotation resolved through display coordinates and
-  preserve the no-mutation overflow boundary. The resulting Windows abi3 wheel
-  is 5.58 MB, up 0.16 MB from the arbitrary-font baseline.
+  justification. Measure the complete visible paragraph first and return it
+  directly when it fits so wide one-line boxes remain linear; preserve
+  trailing-whitespace trimming and empty-paragraph semantics. Keep page
+  rotation resolved through display coordinates and preserve the no-mutation
+  overflow boundary. The resulting Windows abi3 wheel is 5.58 MB, up 0.16 MB
+  from the arbitrary-font baseline.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core

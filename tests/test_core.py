@@ -248,6 +248,71 @@ def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: P
     assert doc.save_bytes() == before
 
 
+def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+    color = (0.0, 0.0, 0.0)
+    point = (10.0, 20.0)
+    rect = (10.0, 10.0, 100.0, 80.0)
+
+    calls = [
+        lambda: doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, color, True, 3),
+        lambda: doc.insert_page_textbox(1, rect, "1234", "Helvetica", True, 11.0, 1.2, 0, color, True, 3),
+        lambda: doc.insert_embedded_text(1, point, ["1234"], b"bad font", 0, 11.0, color, True, None, 3),
+        lambda: doc.insert_embedded_text_file(
+            1,
+            point,
+            ["1234"],
+            "missing-font.otf",
+            0,
+            11.0,
+            color,
+            True,
+            None,
+            3,
+        ),
+        lambda: doc.insert_embedded_textbox(
+            1,
+            rect,
+            "1234",
+            b"bad font",
+            0,
+            11.0,
+            1.2,
+            0,
+            color,
+            True,
+            None,
+            3,
+        ),
+        lambda: doc.insert_embedded_textbox_file(
+            1,
+            rect,
+            "1234",
+            "missing-font.otf",
+            0,
+            11.0,
+            1.2,
+            0,
+            color,
+            True,
+            None,
+            3,
+        ),
+    ]
+    for call in calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "text_input_size"
+        assert doc.save_bytes() == before
+
+    with pytest.raises(ValueError, match="max_text_size"):
+        doc.insert_page_text(1, point, [b"x"], "Helvetica", True, 11.0, color, True, 0)
+
+    doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, color, True, 4)
+    assert doc.save_bytes() != before
+
+
 def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     payload = b"1234"

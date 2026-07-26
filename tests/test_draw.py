@@ -912,6 +912,80 @@ def test_insert_textbox_repeats_fontbuffer_boundary() -> None:
     assert doc.complexity == before
 
 
+@pytest.mark.parametrize("method", ["insert_text", "insert_textbox"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_generated_text_validates_text_budget(method: str, value: object) -> None:
+    page = _new_page_doc()[0]
+
+    def call() -> None:
+        if method == "insert_text":
+            page.insert_text((10, 20), "x", max_text_size=value)  # type: ignore[arg-type]
+        else:
+            page.insert_textbox((10, 10, 100, 80), "x", max_text_size=value)  # type: ignore[arg-type]
+
+    with pytest.raises((TypeError, ValueError), match="max_text_size"):
+        call()
+
+
+def test_insert_text_bounds_utf8_input_atomically() -> None:
+    doc = _new_page_doc()
+    before = doc.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].insert_text((10, 20), "é", max_text_size=1)
+
+    assert caught.value.code == "text_input_size"
+    assert doc.complexity == before
+    assert doc[0].get_text() == ""
+
+    doc[0].insert_text((10, 20), "é", max_text_size=2)
+    doc[0].insert_text((10, 40), "unbounded", max_text_size=None)
+    assert doc[0].get_text().splitlines() == ["é", "unbounded"]
+
+
+def test_insert_textbox_bounds_expanded_tabs_before_allocation() -> None:
+    rejected = _new_page_doc()
+    before = rejected.complexity
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        rejected[0].insert_textbox((10, 10, 150, 80), "a\tb", expandtabs=4, max_text_size=4)
+
+    assert caught.value.code == "text_input_size"
+    assert rejected.complexity == before
+
+    with pytest.raises(pylopdf.LimitError) as huge_tab:
+        rejected[0].insert_textbox(
+            (10, 10, 150, 80),
+            "\t",
+            expandtabs=2_000_000_000,
+            max_text_size=1024,
+        )
+    assert huge_tab.value.code == "text_input_size"
+    assert rejected.complexity == before
+
+    accepted = _new_page_doc()
+    assert (
+        accepted[0].insert_textbox(
+            (10, 10, 150, 80),
+            "a\tb",
+            expandtabs=4,
+            max_text_size=5,
+        )
+        > 0
+    )
+    assert accepted[0].get_text().strip() == "a   b"
+
+
+def test_insert_textbox_wide_single_line_preserves_content() -> None:
+    doc = _new_page_doc(1_000_000_000, 100)
+    text = "word " * 10_000
+
+    spare = doc[0].insert_textbox((10, 10, 999_999_990, 90), text, max_text_size=len(text))
+
+    assert spare > 0
+    assert doc.complexity["object_count"] > 4
+
+
 def test_replace_text_replaces_and_counts() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     page = doc[0]

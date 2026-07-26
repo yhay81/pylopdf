@@ -56,8 +56,8 @@ Web预设目前独立应用以下上限：
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
-`font_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
-`decompression_unverifiable`之一；
+`font_input_size`、`text_input_size`、`pixmap_output_size`、`ocr_model_size`、
+`ocr_dictionary_entries`、`decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。
 
@@ -91,6 +91,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - `insert_text`、`insert_textbox`、`set_form_field`与`set_fallback_font`的
   显式／自动OpenType input默认限制为64 MiB。buffer在PyO3 copy前拒绝，filename
   通过释放GIL的有界Rust path读取。可信workload可用`max_font_size=None`显式取消。
+- `insert_text()`与`insert_textbox()`的生成文本输入默认限制为1 MiB UTF-8。
+  Python在PyO3 copy前检查，Rust边界再次检查；textbox会在分配展开后的string前
+  预检tab展开量。可信input可用`max_text_size=None`显式取消，拒绝code为
+  `text_input_size`。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string

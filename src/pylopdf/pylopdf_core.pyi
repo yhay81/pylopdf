@@ -314,6 +314,7 @@ class _Document:
         fontsize: float,
         color: tuple[float, float, float],
         overlay: bool,
+        max_text_size: int | None = 1048576,
     ) -> None: ...
     def insert_embedded_text(
         self,
@@ -326,6 +327,7 @@ class _Document:
         color: tuple[float, float, float],
         overlay: bool,
         max_font_size: int | None = 67108864,
+        max_text_size: int | None = 1048576,
     ) -> None: ...
     def insert_embedded_text_file(
         self,
@@ -338,6 +340,7 @@ class _Document:
         color: tuple[float, float, float],
         overlay: bool,
         max_font_size: int | None = 67108864,
+        max_text_size: int | None = 1048576,
     ) -> None: ...
     def insert_page_textbox(
         self,
@@ -351,6 +354,7 @@ class _Document:
         align: int,
         color: tuple[float, float, float],
         overlay: bool,
+        max_text_size: int | None = 1048576,
     ) -> float: ...
     def insert_embedded_textbox(
         self,
@@ -365,6 +369,7 @@ class _Document:
         color: tuple[float, float, float],
         overlay: bool,
         max_font_size: int | None = 67108864,
+        max_text_size: int | None = 1048576,
     ) -> float: ...
     def insert_embedded_textbox_file(
         self,
@@ -379,6 +384,7 @@ class _Document:
         color: tuple[float, float, float],
         overlay: bool,
         max_font_size: int | None = 67108864,
+        max_text_size: int | None = 1048576,
     ) -> float: ...
     def replace_text_on_page(
         self,

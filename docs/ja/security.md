@@ -60,8 +60,9 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`pixmap_output_size`、`ocr_model_size`、
-`ocr_dictionary_entries`、`decompression_unverifiable`の
+`image_pixel_count`、`font_input_size`、`text_input_size`、
+`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
+`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -101,6 +102,10 @@ xref dataを正規化します。
   明示／自動OpenType inputは既定64 MiBです。bufferはPyO3 copy前に拒否し、
   filenameはGILを解放した上限付きRust pathで読みます。信頼できるworkloadは
   `max_font_size=None`で明示解除できます。
+- `insert_text()`と`insert_textbox()`の生成text inputは既定でUTF-8 1 MiBです。
+  PythonはPyO3 copy前に検査し、Rust境界も再検査します。textboxのtab展開量は
+  展開済みstringを確保する前に計算します。信頼できるinputは
+  `max_text_size=None`で明示解除でき、拒否codeは`text_input_size`です。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが

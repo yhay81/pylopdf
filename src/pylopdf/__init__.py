@@ -26,7 +26,7 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import TracebackType
-    from typing import Any, Self
+    from typing import Any, NoReturn, Self
 
 __version__ = "0.11.1"
 __all__ = [
@@ -95,7 +95,11 @@ _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
+_DEFAULT_MAX_GENERATED_TEXT_SIZE = 1024 * 1024
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
+_UTF8_TWO_BYTE_MIN = 1 << 7
+_UTF8_THREE_BYTE_MIN = 1 << 11
+_UTF8_FOUR_BYTE_MIN = 1 << 16
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
 _MAX_TOC_ENTRIES = 4096
@@ -1149,6 +1153,52 @@ def _font_input_limit_error(size: int, max_font_size: int) -> LimitError:
     )
 
 
+def _validate_generated_text_input(
+    text: str,
+    max_text_size: int | None,
+    *,
+    expandtabs: int | None = None,
+) -> None:
+    """Bound UTF-8 text, including tab expansion, without building encoded bytes."""
+    _validate_optional_positive_int("max_text_size", max_text_size)
+    if max_text_size is None:
+        return
+
+    def raise_limit() -> NoReturn:
+        limit_code = "text_input_size"
+        msg = f"text input exceeds the {max_text_size}-byte UTF-8 limit"
+        if expandtabs is not None:
+            msg += " after tab expansion"
+        raise LimitError(limit_code, msg)
+
+    if text.isascii() and (expandtabs is None or "\t" not in text):
+        if len(text) > max_text_size:
+            raise_limit()
+        return
+
+    size = 0
+    column = 0
+    for char in text:
+        if char == "\t" and expandtabs is not None:
+            spaces = 0 if expandtabs == 0 else expandtabs - column % expandtabs
+            size += spaces
+            column += spaces
+        else:
+            codepoint = ord(char)
+            size += (
+                1
+                if codepoint < _UTF8_TWO_BYTE_MIN
+                else 2
+                if codepoint < _UTF8_THREE_BYTE_MIN
+                else 3
+                if codepoint < _UTF8_FOUR_BYTE_MIN
+                else 4
+            )
+            column = 0 if char in {"\n", "\r"} else column + 1
+        if size > max_text_size:
+            raise_limit()
+
+
 def _resolve_font_source(
     fontfile: str | os.PathLike[str] | None,
     fontbuffer: bytes | None,
@@ -1805,6 +1855,7 @@ class Page:
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
+        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     ) -> None:
         r"""Draw text at ``point``, the first line's baseline-left display point.
 
@@ -1831,7 +1882,9 @@ class Page:
         or Bates numbers. Explicit and automatically selected font input
         defaults to a 64 MiB boundary; ``max_font_size=None`` opts trusted
         workloads out. Refusal raises :class:`LimitError` with code
-        ``font_input_size``.
+        ``font_input_size``. Text input defaults to a 1 MiB UTF-8 boundary;
+        ``max_text_size=None`` is the explicit trusted-input opt-out and
+        refusal uses code ``text_input_size``.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
         try:
@@ -1849,6 +1902,7 @@ class Page:
         if not text:
             msg = "text must be at least 1 character"
             raise ValueError(msg)
+        _validate_generated_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
@@ -1863,6 +1917,7 @@ class Page:
                 (red, green, blue),
                 overlay,
                 max_font_size,
+                max_text_size,
             )
             return
         if isinstance(font_data, bytes):
@@ -1876,6 +1931,7 @@ class Page:
                 (red, green, blue),
                 overlay,
                 max_font_size,
+                max_text_size,
             )
             return
 
@@ -1890,6 +1946,7 @@ class Page:
             float(fontsize),
             (red, green, blue),
             overlay,
+            max_text_size,
         )
 
     def insert_textbox(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
@@ -1908,6 +1965,7 @@ class Page:
         lineheight: float | None = None,
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
+        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     ) -> float:
         r"""Wrap and draw text inside a display-coordinate rectangle.
 
@@ -1932,14 +1990,20 @@ class Page:
         and an overlong word falls back to grapheme-safe wrapping. Explicit and
         automatically selected font input defaults to a 64 MiB boundary;
         ``max_font_size=None`` opts trusted workloads out. Refusal raises
-        :class:`LimitError` with code ``font_input_size``.
+        :class:`LimitError` with code ``font_input_size``. Text after tab
+        expansion defaults to a 1 MiB UTF-8 boundary; ``max_text_size=None``
+        explicitly opts trusted input out and refusal uses
+        ``text_input_size``.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
         x0, y0, x1, y1 = _validate_rect(rect)
         page_number = self._page_number()
         resolved_fontsize, resolved_lineheight = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
         red, green, blue = _validate_unit_rgb(color)
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n").expandtabs(expandtabs)
+        _validate_generated_text_input(text, max_text_size)
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        _validate_generated_text_input(normalized, max_text_size, expandtabs=expandtabs)
+        normalized = normalized.expandtabs(expandtabs)
         if not normalized:
             return y1 - y0
 
@@ -1958,6 +2022,7 @@ class Page:
                 (red, green, blue),
                 overlay,
                 max_font_size,
+                max_text_size,
             )
         if isinstance(font_data, bytes):
             return self._document._doc.insert_embedded_textbox(
@@ -1972,6 +2037,7 @@ class Page:
                 (red, green, blue),
                 overlay,
                 max_font_size,
+                max_text_size,
             )
 
         base_font = cast("str", base_font)
@@ -1986,6 +2052,7 @@ class Page:
             align,
             (red, green, blue),
             overlay,
+            max_text_size,
         )
 
     def insert_ocr_text_layer(
