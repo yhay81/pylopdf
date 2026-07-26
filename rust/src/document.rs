@@ -167,11 +167,11 @@ fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
 }
 
 /// Visit a named-destination tree with complete node-local safety budgets.
-fn visit_named_destinations<'a, T>(
+fn visit_named_destinations<'a>(
     doc: &'a Document,
     root: &'a Object,
-    mut visitor: impl FnMut(&'a [u8], &'a Object) -> PyResult<Option<T>>,
-) -> PyResult<Option<T>> {
+    mut visitor: impl FnMut(&'a [u8], &'a Object) -> PyResult<()>,
+) -> PyResult<()> {
     let mut stack = vec![(root, 1usize)];
     let mut visited = HashSet::new();
     let mut nodes = 0usize;
@@ -217,9 +217,7 @@ fn visit_named_destinations<'a, T>(
                         "named-destination keys exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
                     )));
                 }
-                if let Some(result) = visitor(key, deref_object(doc, value))? {
-                    return Ok(Some(result));
-                }
+                visitor(key, deref_object(doc, value))?;
             }
         }
         if let Ok(kids_object) = node.get(b"Kids")
@@ -243,16 +241,7 @@ fn visit_named_destinations<'a, T>(
             }
         }
     }
-    Ok(None)
-}
-
-/// Search a named-destination tree with complete node-local safety budgets.
-fn search_name_tree<'a>(
-    doc: &'a Document,
-    root: &'a Object,
-    name: &[u8],
-) -> PyResult<Option<&'a Object>> {
-    visit_named_destinations(doc, root, |key, value| Ok((key == name).then_some(value)))
+    Ok(())
 }
 
 /// Build one borrowed index so TOC resolution scans a name tree at most once.
@@ -270,31 +259,9 @@ fn named_destination_index(doc: &Document) -> PyResult<HashMap<&[u8], &Object>> 
     };
     visit_named_destinations(doc, root, |key, value| {
         index.entry(key).or_insert(value);
-        Ok(None::<()>)
+        Ok(())
     })?;
     Ok(index)
-}
-
-/// Resolve a named destination from the catalog.
-/// Search both the PDF 1.2+ `/Names` → `/Dests` tree and legacy `/Dests`.
-fn lookup_named_dest<'a>(doc: &'a Document, name: &[u8]) -> PyResult<Option<&'a Object>> {
-    let Ok(catalog) = doc.catalog() else {
-        return Ok(None);
-    };
-    if let Ok(names) = catalog.get(b"Names")
-        && let Ok(names) = deref_object(doc, names).as_dict()
-        && let Ok(dests) = names.get(b"Dests")
-        && let Some(found) = search_name_tree(doc, dests, name)?
-    {
-        return Ok(Some(found));
-    }
-    if let Ok(dests) = catalog.get(b"Dests")
-        && let Ok(dests) = deref_object(doc, dests).as_dict()
-        && let Ok(found) = dests.get(name)
-    {
-        return Ok(Some(deref_object(doc, found)));
-    }
-    Ok(None)
 }
 
 /// Resolve one legacy catalog `/Dests` dictionary entry without scanning it.
@@ -3813,10 +3780,11 @@ impl _Document {
     /// Convert `/XYZ` left/top, `/FitH` top, or `/FitV` left into the destination
     /// page's rotated top-left-origin display space. Point-less `/Fit` or `/FitR`
     /// destinations return None.
-    fn resolve_dest(
-        &self,
-        dest: &Object,
+    fn resolve_dest<'a>(
+        &'a self,
+        dest: &'a Object,
         page_map: &BTreeMap<ObjectId, u32>,
+        named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
         encoded_bytes: &mut usize,
         returned_bytes: &mut usize,
     ) -> PyResult<ResolvedDestination> {
@@ -3830,10 +3798,17 @@ impl _Document {
                 returned_bytes,
                 "named destination",
             )?);
-            match lookup_named_dest(doc, name)? {
-                Some(found) => resolved = found,
-                None => return Ok((None, None, None, nameddest)),
+            if named_destinations.is_none() {
+                *named_destinations = Some(named_destination_index(doc)?);
             }
+            let found = named_destinations
+                .as_ref()
+                .and_then(|index| index.get(name.as_slice()).copied())
+                .or_else(|| lookup_legacy_named_dest(doc, name));
+            let Some(found) = found else {
+                return Ok((None, None, None, nameddest));
+            };
+            resolved = found;
         }
         // A named destination value may be a dictionary containing `/D`.
         if let Object::Dictionary(d) = resolved {
@@ -5442,6 +5417,7 @@ impl _Document {
             let mut out = Vec::new();
             let mut encoded_bytes = 0usize;
             let mut returned_bytes = 0usize;
+            let mut named_destinations = None;
             for item in annots {
                 let dict = match item {
                     Object::Reference(id) => {
@@ -5499,6 +5475,7 @@ impl _Document {
                                 let (page, to, zoom, name) = self.resolve_dest(
                                     dest,
                                     &page_map,
+                                    &mut named_destinations,
                                     &mut encoded_bytes,
                                     &mut returned_bytes,
                                 )?;
@@ -5605,6 +5582,7 @@ impl _Document {
                     let (page, to, zoom, name) = self.resolve_dest(
                         dest,
                         &page_map,
+                        &mut named_destinations,
                         &mut encoded_bytes,
                         &mut returned_bytes,
                     )?;

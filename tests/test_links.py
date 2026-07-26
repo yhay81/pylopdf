@@ -117,6 +117,25 @@ def test_named_destination_reference_cycle_is_visited_once() -> None:
     assert links[0]["nameddest"] == "missing"
 
 
+def test_multiple_named_links_share_one_destination_tree() -> None:
+    doc = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 7 0 R >> >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R 5 0 R] >>",
+                4: "<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /Dest (alpha) >>",
+                5: "<< /Type /Annot /Subtype /Link /Rect [20 1 30 10] /Dest (beta) >>",
+                6: "<< >>",
+                7: "<< /Names [(alpha) [3 0 R /Fit] (beta) [3 0 R /Fit]] >>",
+            }
+        )
+    )
+    links = doc[0].get_links()
+    assert [link["nameddest"] for link in links] == ["alpha", "beta"]
+    assert [link["page"] for link in links] == [0, 0]
+
+
 def test_named_destination_tree_rejects_excessive_depth() -> None:
     objects: dict[int, str | bytes] = {}
     for object_id in range(6, 38):

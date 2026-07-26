@@ -307,7 +307,8 @@ overview.
   once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
   levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
   ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
-  dictionary lookup after a bounded name-tree miss.
+  dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
+  borrowed index lazily per call; do not rescan the tree for each link.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 4,096 nodes/entries,

@@ -532,7 +532,9 @@ known-limit behavior are polished together.
 - [x] Bound named-destination resolution. `/Names/Dests` lookup is now
       iterative and cycle-aware, with fixed entry/node/edge/depth and key-byte
       budgets. Excessive trees raise instead of becoming indistinguishable from
-      a genuinely absent or unresolved destination.
+      a genuinely absent or unresolved destination. `get_links` builds one
+      borrowed index per page call instead of multiplying tree traversal by the
+      number of named links.
 - [x] Replace lopdf's recursive TOC reader with a bounded iterative outline
       walk. Reads visit cycles once, release the GIL, index named destinations
       once, and enforce node/entry/edge/depth/destination/text budgets. Writes

@@ -99,7 +99,8 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   highlight 4,096 rect를 검사합니다.
 - named destination lookup은 참조cycle을 한 번만 방문하고4,096 entry/node,
   8,192 edge, 깊이32 또는key byte 1 MiB를 넘는tree를 단순 미해결로 조용히
-  처리하지 않고 거부합니다.
+  처리하지 않고 거부합니다. `Page.get_links()`는named link마다tree를 다시
+  순회하지 않고call당 하나의borrowed index를 만듭니다.
 - TOC 읽기는 반복outline walk로 참조cycle을 한 번만 방문하고GIL을 해제합니다.
   4,096 node/entry, 8,192 edge, 깊이64, destination 간접 참조32단계 또는
   source/returned text 1 MiB를 넘는 부분 결과를 거부합니다. 쓰기도 변경 전에
