@@ -51,6 +51,7 @@ def test_get_drawings_returns_styled_paths() -> None:
     curve = drawings[1]
     assert curve["type"] == "f"
     assert not curve["closePath"]
+    assert curve["rect"] == pytest.approx(pylopdf.Rect(60, 70, 120, 90))
     assert [item[0] for item in curve["items"]] == ["c"]
     assert curve["color"] is None
     assert curve["fill"] == pytest.approx((0, 1, 0))
@@ -99,3 +100,31 @@ def test_get_drawings_rejects_excessive_command_count() -> None:
 
     with pytest.raises(pylopdf.PdfError, match="131072-command safety limit"):
         pylopdf.open(stream=pdf)[0].get_drawings()
+
+
+def test_get_drawings_bounds_aggregate_dash_values() -> None:
+    exact_dashes = " ".join(["1"] * 131_072)
+    exact_stream = f"[{exact_dashes}] 0 d 0 0 m 1 1 l S"
+    exact_pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 10 10] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+            4: f"<< /Length {len(exact_stream)} >>\nstream\n{exact_stream}\nendstream",
+        }
+    )
+    exact_result = pylopdf.open(stream=exact_pdf)[0].get_drawings()[0]["dashes"]
+    assert exact_result is not None
+    assert exact_result.count("1") == 131_072
+
+    excessive_stream = exact_stream + "\n[1] 0 d 1 1 m 2 2 l S"
+    excessive_pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 10 10] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+            4: (f"<< /Length {len(excessive_stream)} >>\nstream\n{excessive_stream}\nendstream"),
+        }
+    )
+    with pytest.raises(pylopdf.PdfError, match="131072-dash-value safety limit"):
+        pylopdf.open(stream=excessive_pdf)[0].get_drawings()

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `Page.get_drawings()` now rejects more than 131,072 aggregate stroke-dash
+  values per page before string materialization. Dash serialization no longer
+  builds a temporary string vector, and each path is transformed, bounded, and
+  converted to return geometry in one element pass without cloning the complete
+  path.
+
 ## [0.12.0] - 2026-07-26
 
 ### Added
