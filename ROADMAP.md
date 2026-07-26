@@ -503,6 +503,11 @@ known-limit behavior are polished together.
       opt-out for unbounded reads. Name-tree traversal now borrows direct object
       shapes, visits cycles once, and rejects excessive entries, nodes, depth,
       or name bytes; failed additions cannot create an unreadable tree.
+- [x] Bound XMP PDF/A self-claim inspection before metadata materialization.
+      `get_pdfa_claim(max_size=1 MiB)` shares the layered decoder contract,
+      reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.
+      Exact XML-token matching now ignores lookalike prefixes, quoted values,
+      comments, and CDATA rather than reporting false declarations.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

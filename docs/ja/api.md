@@ -33,7 +33,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | ネイティブ外観付き AcroForm の一覧と記入 |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 展開上限付きの添付ファイル操作。`max_size=None`で明示的に上限を解除 |
-| `get_pdfa_claim()` | XMP の PDF/A 宣言（読み取りであって検証ではない） |
+| `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | with 文でも |
 

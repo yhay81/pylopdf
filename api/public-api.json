@@ -414,6 +414,12 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "tuple[int, str] | None"

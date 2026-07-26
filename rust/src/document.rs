@@ -665,17 +665,109 @@ fn import_page_as_form(
 
 /// Extract an XMP value from `key="v"` attributes or `<key>v</key>` elements.
 fn xmp_value(xmp: &str, key: &str) -> Option<String> {
-    let idx = xmp.find(key)?;
-    let rest = xmp[idx + key.len()..].trim_start();
-    if let Some(r) = rest.strip_prefix('=') {
-        let r = r.trim_start();
-        let r = r.strip_prefix('"').or_else(|| r.strip_prefix('\''))?;
-        let end = r.find(['"', '\''])?;
-        return Some(r[..end].to_owned());
+    fn tag_end(xmp: &str, open: usize) -> Option<usize> {
+        let mut quote = None;
+        for (offset, character) in xmp[open + 1..].char_indices() {
+            match (quote, character) {
+                (None, '"' | '\'') => quote = Some(character),
+                (Some(expected), actual) if actual == expected => quote = None,
+                (None, '>') => return Some(open + 1 + offset),
+                _ => {}
+            }
+        }
+        None
     }
-    if let Some(r) = rest.strip_prefix('>') {
-        let end = r.find('<')?;
-        return Some(r[..end].trim().to_owned());
+
+    fn tag_name_end(tag: &[u8], start: usize) -> usize {
+        let mut end = start;
+        while end < tag.len() && !tag[end].is_ascii_whitespace() && !matches!(tag[end], b'/' | b'=')
+        {
+            end += 1;
+        }
+        end
+    }
+
+    fn attribute_value(tag: &str, mut position: usize, key: &str) -> Option<String> {
+        let bytes = tag.as_bytes();
+        while position < bytes.len() {
+            while position < bytes.len() && bytes[position].is_ascii_whitespace() {
+                position += 1;
+            }
+            if position >= bytes.len() || bytes[position] == b'/' {
+                return None;
+            }
+            let name_start = position;
+            position = tag_name_end(bytes, position);
+            if position == name_start {
+                position += 1;
+                continue;
+            }
+            let name = &tag[name_start..position];
+            while position < bytes.len() && bytes[position].is_ascii_whitespace() {
+                position += 1;
+            }
+            if position >= bytes.len() || bytes[position] != b'=' {
+                continue;
+            }
+            position += 1;
+            while position < bytes.len() && bytes[position].is_ascii_whitespace() {
+                position += 1;
+            }
+            let Some(&delimiter @ (b'"' | b'\'')) = bytes.get(position) else {
+                continue;
+            };
+            position += 1;
+            let value_start = position;
+            let value_end = bytes[position..]
+                .iter()
+                .position(|byte| *byte == delimiter)
+                .map(|offset| position + offset)?;
+            position = value_end + 1;
+            if name == key {
+                return Some(tag[value_start..value_end].trim().to_owned());
+            }
+        }
+        None
+    }
+
+    let mut cursor = 0usize;
+    while let Some(relative_open) = xmp[cursor..].find('<') {
+        let open = cursor + relative_open;
+        let rest = &xmp[open..];
+        if rest.starts_with("<!--") {
+            cursor = open + rest.find("-->")? + 3;
+            continue;
+        }
+        if rest.starts_with("<![CDATA[") {
+            cursor = open + rest.find("]]>")? + 3;
+            continue;
+        }
+        if rest.starts_with("<?") {
+            cursor = open + rest.find("?>")? + 2;
+            continue;
+        }
+        let close = tag_end(xmp, open)?;
+        let tag = &xmp[open + 1..close];
+        let bytes = tag.as_bytes();
+        let mut name_start = 0usize;
+        while name_start < bytes.len() && bytes[name_start].is_ascii_whitespace() {
+            name_start += 1;
+        }
+        if name_start >= bytes.len() || matches!(bytes[name_start], b'!' | b'/' | b'?') {
+            cursor = close + 1;
+            continue;
+        }
+        let name_end = tag_name_end(bytes, name_start);
+        let name = &tag[name_start..name_end];
+        if name == key && !tag.trim_end().ends_with('/') {
+            let value = &xmp[close + 1..];
+            let value_end = value.find('<')?;
+            return Some(value[..value_end].trim().to_owned());
+        }
+        if let Some(value) = attribute_value(tag, name_end, key) {
+            return Some(value);
+        }
+        cursor = close + 1;
     }
     None
 }
@@ -995,6 +1087,82 @@ fn canonical_filter_name(filter: &[u8]) -> &[u8] {
         b"CCF" => b"CCITTFaxDecode",
         b"DCT" => b"DCTDecode",
         _ => filter,
+    }
+}
+
+/// Decode a general-purpose stream with an optional bound on every filter layer.
+///
+/// Unlike lopdf's lenient `get_plain_content`, malformed or unsupported filters
+/// are errors rather than a reason to return encoded bytes as if they were plain.
+fn decoded_stream_content(
+    stream: &Stream,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    context: &str,
+) -> PyResult<Vec<u8>> {
+    let reject_raw = |length: usize, limit: usize| {
+        limit_err(
+            limit_code,
+            format!("{context} is {length} bytes, exceeding the {limit}-byte decoded-size limit"),
+        )
+    };
+    if !stream.dict.has(b"Filter") {
+        if let Some(limit) = max_size
+            && stream.content.len() > limit
+        {
+            return Err(reject_raw(stream.content.len(), limit));
+        }
+        return Ok(stream.content.clone());
+    }
+
+    let raw_filters = stream
+        .filters()
+        .map_err(|error| PdfError::new_err(format!("{context} has an invalid Filter: {error}")))?;
+    if raw_filters.is_empty() {
+        if let Some(limit) = max_size
+            && stream.content.len() > limit
+        {
+            return Err(reject_raw(stream.content.len(), limit));
+        }
+        return Ok(stream.content.clone());
+    }
+    let normalized_filters: Vec<&[u8]> = raw_filters
+        .iter()
+        .map(|filter| canonical_filter_name(filter))
+        .collect();
+    let mut checked_stream = stream.clone();
+    checked_stream.dict.set(
+        "Filter",
+        if normalized_filters.len() == 1 {
+            Object::Name(normalized_filters[0].to_vec())
+        } else {
+            Object::Array(
+                normalized_filters
+                    .iter()
+                    .map(|filter| Object::Name(filter.to_vec()))
+                    .collect(),
+            )
+        },
+    );
+    let decode_error = |error: lopdf::Error| {
+        if matches!(
+            error,
+            lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
+        ) && let Some(limit) = max_size
+        {
+            limit_err(
+                limit_code,
+                format!("{context} exceeds the {limit}-byte decoded-size limit"),
+            )
+        } else {
+            PdfError::new_err(format!("failed to decode {context}: {error}"))
+        }
+    };
+    match max_size {
+        Some(limit) => checked_stream
+            .decompressed_content_with_limit(limit)
+            .map_err(decode_error),
+        None => checked_stream.decompressed_content().map_err(decode_error),
     }
 }
 
@@ -4480,17 +4648,33 @@ impl _Document {
     ///
     /// This reads a self-declaration rather than validating compliance; use
     /// veraPDF for validation. PDF/A-4 without conformance returns an empty string.
-    fn pdfa_claim(&self) -> Option<(i64, String)> {
-        let catalog = self.doc.catalog().ok()?;
-        let meta_ref = catalog.get(b"Metadata").ok()?.as_reference().ok()?;
-        let stream = self.doc.get_object(meta_ref).ok()?.as_stream().ok()?;
-        let data = stream
-            .decompressed_content()
-            .unwrap_or_else(|_| stream.content.clone());
-        let xmp = String::from_utf8_lossy(&data);
-        let part: i64 = xmp_value(&xmp, "pdfaid:part")?.parse().ok()?;
-        let conformance = xmp_value(&xmp, "pdfaid:conformance").unwrap_or_default();
-        Some((part, conformance))
+    fn pdfa_claim(
+        &self,
+        py: Python<'_>,
+        max_size: Option<usize>,
+    ) -> PyResult<Option<(i64, String)>> {
+        py.detach(|| {
+            let Some(stream) = self
+                .doc
+                .catalog()
+                .ok()
+                .and_then(|catalog| catalog.get(b"Metadata").ok())
+                .map(|metadata| deref_object(&self.doc, metadata))
+                .and_then(|metadata| metadata.as_stream().ok())
+            else {
+                return Ok(None);
+            };
+            let data =
+                decoded_stream_content(stream, max_size, "xmp_metadata_size", "XMP metadata")?;
+            let xmp = String::from_utf8_lossy(&data);
+            let Some(part) =
+                xmp_value(&xmp, "pdfaid:part").and_then(|value| value.parse::<i64>().ok())
+            else {
+                return Ok(None);
+            };
+            let conformance = xmp_value(&xmp, "pdfaid:conformance").unwrap_or_default();
+            Ok(Some((part, conformance)))
+        })
     }
 
     /// Read page-label definitions from the PageLabels number tree.
@@ -4718,7 +4902,7 @@ impl _Document {
             let filespec_obj = visit_embedded_files(&self.doc, |entry_name, value| {
                 Ok((entry_name == name).then_some(value))
             })?
-                .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
+            .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
             let filespec = match filespec_obj {
                 Object::Reference(id) => self
                     .doc
@@ -4747,78 +4931,12 @@ impl _Document {
                 .get_object(stream_ref)
                 .and_then(Object::as_stream)
                 .map_err(to_py_err)?;
-            let decode_error = |error: lopdf::Error| {
-                if matches!(
-                    error,
-                    lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
-                ) {
-                    limit_err(
-                        "embedded_file_size",
-                        format!(
-                            "attachment {name:?} exceeds the {}-byte decoded-size limit",
-                            max_size.unwrap_or(usize::MAX)
-                        ),
-                    )
-                } else {
-                    PdfError::new_err(format!("failed to decode attachment {name:?}: {error}"))
-                }
-            };
-            if !stream.dict.has(b"Filter") {
-                if let Some(limit) = max_size
-                    && stream.content.len() > limit
-                {
-                    return Err(limit_err(
-                        "embedded_file_size",
-                        format!(
-                            "attachment {name:?} is {} bytes, exceeding the {limit}-byte decoded-size limit",
-                            stream.content.len()
-                        ),
-                    ));
-                }
-                return Ok(stream.content.clone());
-            }
-
-            let raw_filters = stream.filters().map_err(|error| {
-                PdfError::new_err(format!("attachment {name:?} has an invalid Filter: {error}"))
-            })?;
-            if raw_filters.is_empty() {
-                if let Some(limit) = max_size
-                    && stream.content.len() > limit
-                {
-                    return Err(limit_err(
-                        "embedded_file_size",
-                        format!(
-                            "attachment {name:?} is {} bytes, exceeding the {limit}-byte decoded-size limit",
-                            stream.content.len()
-                        ),
-                    ));
-                }
-                return Ok(stream.content.clone());
-            }
-            let normalized_filters: Vec<&[u8]> = raw_filters
-                .iter()
-                .map(|filter| canonical_filter_name(filter))
-                .collect();
-            let mut checked_stream = stream.clone();
-            checked_stream.dict.set(
-                "Filter",
-                if normalized_filters.len() == 1 {
-                    Object::Name(normalized_filters[0].to_vec())
-                } else {
-                    Object::Array(
-                        normalized_filters
-                            .iter()
-                            .map(|filter| Object::Name(filter.to_vec()))
-                            .collect(),
-                    )
-                },
-            );
-            match max_size {
-                Some(limit) => checked_stream
-                    .decompressed_content_with_limit(limit)
-                    .map_err(decode_error),
-                None => checked_stream.decompressed_content().map_err(decode_error),
-            }
+            decoded_stream_content(
+                stream,
+                max_size,
+                "embedded_file_size",
+                &format!("attachment {name:?}"),
+            )
         })
     }
 
