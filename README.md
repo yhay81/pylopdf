@@ -377,9 +377,9 @@ signed_pdf: bytes = out.getvalue()
 | `render_page_svg(pno, max_size=64 MiB)` | Render bounded UTF-8 SVG; over-limit output is rejected before Python string conversion, `None` opts out |
 | `compress_images(dpi=150, quality=75)` | Lossily downsample and JPEG-recompress safe unmasked DeviceGray/DeviceRGB DCT or Flate XObjects; preserves the largest reuse, skips non-smaller output, and returns typed byte/count statistics |
 | `set_fallback_font(font, kind="sans", index=0)` | Set a fallback font (path/bytes) for non-embedded CJK fonts; `None` disables auto-detection |
-| `select(page_numbers)` | Keep only the given pages, in the given order (repeats duplicate the page) |
-| `delete_page(pno)` / `delete_pages(iterable)` | Delete pages |
-| `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge a page range (negative / reversed ranges; `start_at` sets the insertion position) |
+| `select(page_numbers)` | Keep up to 4,096 page entries in the given order (repeats duplicate the page) |
+| `delete_page(pno)` / `delete_pages(iterable)` | Delete up to 4,096 page entries per call; an empty iterable is a true no-op |
+| `insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | Merge up to 4,096 pages per call (negative / reversed ranges; `start_at` sets the insertion position) |
 | `new_page(pno=-1, width=595, height=842)` / `copy_page(pno, to=-1)` | Insert a blank page / duplicate a page |
 | `get_toc()` / `set_toc(toc)` | Read/write cycle-aware bounded outlines as `[[level, title, page], ...]` (page numbers are 1-based here; caps: 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | Page-at-a-time two-pass Markdown conversion, capped at 4,096 pages and cumulative UTF-8 output (`None` opts out); headings, emphasis, CJK joining, lists, columns, vertical order, and bordered/opt-in borderless tables |

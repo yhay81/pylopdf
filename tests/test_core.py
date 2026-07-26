@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pylopdf.pylopdf_core import _Document
 
 
@@ -96,6 +98,26 @@ def test_merge(one_page_pdf: bytes, three_page_pdf: bytes) -> None:
     all_text = reloaded.extract_text([1, 2, 3, 4])
     for expected in ["Hello PDF", "Page one", "Page two", "Page three"]:
         assert expected in all_text
+
+
+def test_structural_batches_are_bounded_in_core(one_page_pdf: bytes) -> None:
+    too_many = [1] * 4097
+
+    deleting = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(ValueError, match="4096 page entries"):
+        deleting.delete_pages(too_many)
+    assert deleting.page_count() == 1
+
+    selecting = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(ValueError, match="4096 page entries"):
+        selecting.select(too_many)
+    assert selecting.page_count() == 1
+
+    merging = _Document.load_bytes(one_page_pdf)
+    source = _Document.load_bytes(one_page_pdf)
+    with pytest.raises(ValueError, match="4096 page entries"):
+        merging.merge_pages(source, too_many, None)
+    assert merging.page_count() == 1
 
 
 def test_merge_into_empty(three_page_pdf: bytes) -> None:

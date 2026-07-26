@@ -231,6 +231,11 @@ overview.
   Python methods that change page structure must call `_bump_generation()`.
   Otherwise an old `Page` could silently refer to a different page. Old pages
   must raise `StalePageError` after structural changes.
+- `delete_pages`, `select`, and `insert_pdf` accept at most 4,096 page entries
+  per call in both Python and Rust. Iterable materialization stops at the
+  4,097th item, and range insertion checks its size before allocation or graph
+  import. `delete_pages([])` is a true no-op: do not invalidate caches or bump
+  the Python generation.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of

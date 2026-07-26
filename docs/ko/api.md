@@ -28,7 +28,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=)` | 임베드되지 않은 글꼴의 CJK 대체 글꼴 |
-| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리 |
+| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete/insert batch는4,096 entry로 제한 |
 | `get_toc()` / `set_toc(toc)` | cycle을 처리하는 제한된 목차（페이지는 1부터, 4,096 entry/node, 8,192 edge, 깊이64, text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field/button state가 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |

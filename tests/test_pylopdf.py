@@ -141,8 +141,10 @@ def test_delete_pages(three_page_pdf: bytes) -> None:
 
 def test_empty_page_lists(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
+    page = doc[0]
     doc.delete_pages([])
     assert doc.page_count == 1
+    assert "Hello PDF" in page.get_text()
     doc.select([])
     assert doc.page_count == 0
 
@@ -203,6 +205,39 @@ def test_select_out_of_range(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     with pytest.raises(IndexError):
         doc.select([0, 3])
+
+
+@pytest.mark.parametrize("method_name", ["delete_pages", "select"])
+def test_structural_page_iterables_stop_at_fixed_limit(
+    one_page_pdf: bytes,
+    method_name: str,
+) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    page = doc[0]
+    consumed = 0
+
+    def page_numbers() -> Iterator[int]:
+        nonlocal consumed
+        for _ in range(5000):
+            consumed += 1
+            yield 0
+
+    method = getattr(doc, method_name)
+    with pytest.raises(ValueError, match="4096 entries"):
+        method(page_numbers())
+    assert consumed == 4097
+    assert "Hello PDF" in page.get_text()
+
+
+def test_insert_pdf_rejects_oversized_page_range(one_page_pdf: bytes) -> None:
+    target = pylopdf.Document(stream=one_page_pdf)
+    page = target[0]
+    source = pylopdf.Document(stream=build_pdf([""] * 4097))
+
+    with pytest.raises(ValueError, match="4096 entries"):
+        target.insert_pdf(source)
+    assert target.page_count == 1
+    assert "Hello PDF" in page.get_text()
 
 
 def test_insert_self_raises(one_page_pdf: bytes) -> None:

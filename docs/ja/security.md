@@ -83,6 +83,9 @@ xref dataを正規化します。
   `/Contents`のraw arrayと参照chainを検査します。raw arrayは4,096 entry、
   chainは深さ32、最終arrayは一度だけ追加する`q`/`Q` isolation pair込みで
   4,096 stream参照が上限です。失敗時はdocumentを変更しません。
+- `delete_pages()`・`select()`・`insert_pdf()`はPythonとRustの双方で1 call
+  4,096 page entryが上限です。iterableは4,097 item目でgraph変更前に停止します。
+  空deleteはcache・generation・既存`Page` viewを保持します。
 - `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
   64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
   上限までしか展開しません。

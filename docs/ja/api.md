@@ -28,7 +28,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
-| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | ページ操作 |
+| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/delete/insert batchは4,096 entry上限 |
 | `get_toc()` / `set_toc(toc)` | cycle対応・上限付きのしおり（1始まり。4,096 entry/node、8,192 edge、深さ64、text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field tree・名前・値・button stateに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |

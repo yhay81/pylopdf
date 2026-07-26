@@ -88,6 +88,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   arrays stop at 4,096 entries, chains at 32 levels, and the final array at
   4,096 stream references including the one-time `q`/`Q` isolation pair.
   Failures do not mutate the document.
+- `delete_pages()`, `select()`, and `insert_pdf()` accept at most 4,096 page
+  entries per call in both Python and Rust. Iterable reads stop at item 4,097
+  before graph mutation. Empty deletion preserves caches, generation, and
+  existing `Page` views.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
