@@ -164,12 +164,15 @@ overview.
   "embedded_file_size"`, while malformed or unsupported filters must not fall
   back to encoded bytes. EmbeddedFiles name-tree traversal borrows direct
   shapes, visits indirect cycles once, and rejects more than 4,096 entries or
-  nodes, 32 levels, or 1 MiB of encoded/decoded names. Attachment edits must not
-  create an over-limit tree or invalidate caches after a failed operation.
+  nodes, 32 levels, or 1 MiB of encoded/decoded names. Caller lookup/deletion
+  names stop at 1 MiB before tree traversal with `embedded_file_input_size`.
+  Attachment edits must not create an over-limit tree or invalidate caches
+  after a failed operation.
   They preflight the Catalog write target rather than cloning the whole
-  Document for rollback, cap new key/filename/description input at 1 MiB, and
-  validate inline FileSpecs before cloning at 4,096 direct objects, 32 levels,
-  and 1 MiB of direct string/name/stream data. Indirect references are leaves.
+  Document for rollback, cap new key/filename/description input at 1 MiB before
+  attachment-data copying in Python and again in Rust, and validate inline
+  FileSpecs before cloning at 4,096 direct objects, 32 levels, and 1 MiB of
+  direct string/name/stream data. Indirect references are leaves.
 - `Document.compress_images` interprets indirect raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest
@@ -427,9 +430,11 @@ overview.
 - AcroForm field-tree reads borrow object shapes, visit indirect cycles once,
   release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
-  4,096 choice-value items. Inherited values use shared storage during the walk
-  and count once per returned leaf. `set_form_field` must enforce the same tree
-  and 1 MiB input-value boundary while preserving its atomic rollback contract.
+  4,096 choice-value items. Inherited values use shared storage during the
+  walk and count once per returned leaf. `set_form_field` must reject caller
+  field names and values above 1 MiB before font discovery, button lookup, or
+  file reads, repeat the check in Rust with `form_field_input_size`, enforce the
+  same tree limits, and preserve its atomic rollback contract.
 - AcroForm button handling rejects more than 4,096 widgets, 8,192 `/AP /N`
   state entries, 4,096 unique returned names, or 1 MiB of encoded/returned
   state-name text. Borrow and preflight state dictionaries before cloning them.

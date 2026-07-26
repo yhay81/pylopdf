@@ -59,7 +59,8 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
-`text_glyph_count`、`interpretation_size`、`embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
+`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
+`embedded_file_input_size`、`form_field_input_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
@@ -156,8 +157,9 @@ xref dataを正規化します。
   `embfile_get()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量
   添付では`max_size=`を増やせます。`max_size=None`は無制限の入力または
   materializationを明示的に許可します。添付名treeも4,096 entry/node、深さ32、
-  encoded/decoded name合計1 MiBを超えると拒否します。追加時のkey/filename/
-  description入力は合計1 MiBまでです。編集時はinline FileSpecのclone前に、直接
+  encoded/decoded name合計1 MiBを超えると拒否します。callerのlookup／削除名と
+  追加時のkey/filename/description入力は、tree走査やdata copy前に合計1 MiBで
+  停止し、`embedded_file_input_size`を使います。編集時はinline FileSpecのclone前に、直接
   object 4,096個、深さ32、直接string/name/stream data 1 MiBの上限とCatalogの
   書込先を検証し、rollbackのために文書全体をcloneしません。
 - `Document.get_pdfa_claim()`は各filter層のXMP展開結果を既定で1 MiBに制限します。
@@ -173,7 +175,8 @@ xref dataを正規化します。
 - AcroForm field treeは4,096 entry/node、8,192 edge、深さ64、encoded/
   decoded/returned name・value 1 MiB、choice value 4,096 itemを超える部分結果を
   拒否します。参照cycleは一度だけ訪問し、継承値は返却leafごとに課金します。
-  fillにも同じtree上限と入力値1 MiB上限を原子的に適用します。
+  fillにも同じtree上限とcaller名／値1 MiB上限を原子的に適用し、font探索・button
+  lookup・file読込前の拒否には`form_field_input_size`を使います。
 - AcroForm button fieldは4,096 widget、8,192 normal appearance state entry、
   4,096 unique returned state name、encoded/returned state-name text 1 MiBを
   超えると拒否します。fillは不足する`Off`/on state keyを変更前に課金します。

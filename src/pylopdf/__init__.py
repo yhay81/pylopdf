@@ -97,6 +97,8 @@ _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_GENERATED_TEXT_SIZE = 1024 * 1024
 _MAX_GENERATED_TEXT_LINES = 4096
+_MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
+_MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
 _UTF8_TWO_BYTE_MIN = 1 << 7
 _UTF8_THREE_BYTE_MIN = 1 << 11
@@ -1226,6 +1228,46 @@ def _validate_generated_text_lines(text: str, max_text_size: int | None) -> None
             code,
             f"text input exceeds the {_MAX_GENERATED_TEXT_LINES}-line safety limit",
         )
+
+
+def _bounded_utf8_size(text: str, remaining: int) -> int | None:
+    """Return UTF-8 size through ``remaining`` without allocating encoded bytes."""
+    if text.isascii():
+        return len(text) if len(text) <= remaining else None
+    size = 0
+    for char in text:
+        codepoint = ord(char)
+        size += (
+            1
+            if codepoint < _UTF8_TWO_BYTE_MIN
+            else 2
+            if codepoint < _UTF8_THREE_BYTE_MIN
+            else 3
+            if codepoint < _UTF8_FOUR_BYTE_MIN
+            else 4
+        )
+        if size > remaining:
+            return None
+    return size
+
+
+def _validate_cumulative_utf8_input(
+    values: Iterable[str],
+    limit: int,
+    *,
+    limit_code: str,
+    input_label: str,
+) -> None:
+    """Bound aggregate UTF-8 input without joining or encoding its strings."""
+    remaining = limit
+    for value in values:
+        size = _bounded_utf8_size(value, remaining)
+        if size is None:
+            raise LimitError(
+                limit_code,
+                f"{input_label} exceeds the {limit}-byte UTF-8 safety limit",
+            )
+        remaining -= size
 
 
 def _validate_password_input(password: str | None, label: str = "password") -> None:
@@ -2734,8 +2776,9 @@ class Document:
         has a usable normal appearance. Comb text fields honor inherited
         ``MaxLen`` and alignment, center Unicode graphemes in their positions,
         and reject overlength values without changing the document. Field-tree
-        and 1 MiB value limits are checked without leaving a partial update.
-        Text and choice appearances stop at 4,096 layout lines. Button handling
+        and 1 MiB name/value input limits are checked without leaving a partial
+        update; caller input refusals use ``form_field_input_size``. Text and
+        choice appearances stop at 4,096 layout lines. Button handling
         additionally caps widgets, appearance states, and state names before
         resolving booleans or generating missing appearances.
 
@@ -2752,9 +2795,28 @@ class Document:
         """
         self._ensure_open()
         _validate_optional_positive_int("max_font_size", max_font_size)
+        if not isinstance(name, str):
+            msg = f"name must be a string: {type(name).__name__}"
+            raise TypeError(msg)
         if not name:
             msg = "name must be at least 1 character"
             raise ValueError(msg)
+        _validate_utf8_text_input(
+            name,
+            _MAX_FORM_FIELD_INPUT_SIZE,
+            limit_code="form_field_input_size",
+            input_label="form field name",
+        )
+        if not isinstance(value, (str, bool)):
+            msg = f"value must be a string or bool: {value!r}"
+            raise TypeError(msg)
+        if isinstance(value, str):
+            _validate_utf8_text_input(
+                value,
+                _MAX_FORM_FIELD_INPUT_SIZE,
+                limit_code="form_field_input_size",
+                input_label="form field value",
+            )
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         if font_data is not None:
             if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
@@ -2771,9 +2833,6 @@ class Document:
             else:
                 resolved = "Off"
         else:
-            if not isinstance(value, str):
-                msg = f"value must be a string or bool: {value!r}"
-                raise TypeError(msg)
             resolved = value
             if font_data is None:
                 try:
@@ -2858,14 +2917,33 @@ class Document:
         description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
         ``max_size`` bounds attachment data and defaults to 64 MiB, matching
         :meth:`embfile_get`; ``None`` explicitly accepts unbounded input.
-        Their aggregate input text is capped at 1 MiB. Existing inline FileSpecs
-        are cloned only after bounded shape validation.
+        Their aggregate input text is capped at 1 MiB before data copying;
+        refusals use ``embedded_file_input_size``. Existing inline FileSpecs are
+        cloned only after bounded shape validation.
         This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
         """
         self._ensure_open()
+        if not isinstance(name, str):
+            msg = f"name must be a string: {type(name).__name__}"
+            raise TypeError(msg)
         if not name:
             msg = "name must be at least 1 character"
             raise ValueError(msg)
+        if filename is not None and not isinstance(filename, str):
+            msg = f"filename must be a string or None: {type(filename).__name__}"
+            raise TypeError(msg)
+        if desc is not None and not isinstance(desc, str):
+            msg = f"desc must be a string or None: {type(desc).__name__}"
+            raise TypeError(msg)
+        input_text = [name, name if filename is None else filename]
+        if desc is not None:
+            input_text.append(desc)
+        _validate_cumulative_utf8_input(
+            input_text,
+            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
+            limit_code="embedded_file_input_size",
+            input_label="attachment name, filename, and description",
+        )
         _validate_optional_positive_int("max_size", max_size)
         if max_size is not None and len(data) > max_size:
             limit_code = "embedded_file_size"
@@ -2890,14 +2968,34 @@ class Document:
         larger positive integer for a known large attachment, or ``None`` only
         when intentionally accepting unbounded materialization. Oversized
         content raises :class:`LimitError` with code ``embedded_file_size``.
+        The lookup name stops at 1 MiB of UTF-8 before tree traversal, using
+        code ``embedded_file_input_size``.
         """
         self._ensure_open()
+        if not isinstance(name, str):
+            msg = f"name must be a string: {type(name).__name__}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(
+            name,
+            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
+            limit_code="embedded_file_input_size",
+            input_label="attachment lookup name",
+        )
         _validate_optional_positive_int("max_size", max_size)
         return self._doc.embfile_get(name, max_size)
 
     def embfile_del(self, name: str) -> None:
-        """Delete an attachment, raising an error when absent."""
+        """Delete an attachment, bounding its name before tree traversal."""
         self._ensure_open()
+        if not isinstance(name, str):
+            msg = f"name must be a string: {type(name).__name__}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(
+            name,
+            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
+            limit_code="embedded_file_input_size",
+            input_label="attachment lookup name",
+        )
         self._doc.embfile_del(name)
 
     def get_pdfa_claim(

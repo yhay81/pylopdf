@@ -483,6 +483,24 @@ def test_password_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None
     assert owner_limit.value.args[0] == "password_input_size"
 
 
+def test_form_field_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+    oversized = "é" * (512 * 1024 + 1)
+
+    calls = [
+        lambda: doc.form_button_states(oversized),
+        lambda: doc.set_form_field(oversized, "x"),
+        lambda: doc.set_form_field("field", oversized),
+        lambda: doc.set_form_field_file(oversized, "x", "missing-font.otf"),
+    ]
+    for call in calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "form_field_input_size"
+        assert doc.save_bytes() == before
+
+
 def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     payload = b"1234"
@@ -498,6 +516,19 @@ def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> N
         doc.embfile_add("zero.bin", payload, None, None, 0)
     doc.embfile_add("unbounded.bin", payload, None, None, None)
     assert doc.embfile_get("unbounded.bin", len(payload)) == payload
+
+    before = doc.save_bytes()
+    oversized = "é" * (512 * 1024 + 1)
+    input_calls = [
+        lambda: doc.embfile_get(oversized, len(payload)),
+        lambda: doc.embfile_del(oversized),
+        lambda: doc.embfile_add("x", payload, oversized, None, len(payload)),
+    ]
+    for call in input_calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "embedded_file_input_size"
+        assert doc.save_bytes() == before
 
 
 def test_merge_into_empty(three_page_pdf: bytes) -> None:

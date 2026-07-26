@@ -458,8 +458,24 @@ def test_form_field_tree_rejects_excessive_value_text() -> None:
 def test_set_form_field_rejects_excessive_value_text_atomically() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     before = doc.tobytes()
-    with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
-        doc.set_form_field("customer", "x" * (1024 * 1024 + 1))
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.set_form_field(
+            "customer",
+            "x" * (1024 * 1024 + 1),
+            fontfile="missing-font.otf",
+        )
+    assert caught.value.code == "form_field_input_size"
+    assert doc.tobytes() == before
+
+
+def test_set_form_field_rejects_excessive_name_before_button_lookup_atomically() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.set_form_field("é" * (512 * 1024 + 1), True)
+
+    assert caught.value.code == "form_field_input_size"
     assert doc.tobytes() == before
 
 

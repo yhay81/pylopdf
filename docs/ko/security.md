@@ -58,7 +58,8 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
-`interpretation_size`, `embedded_file_size`, `xmp_metadata_size`, `render_output_size`,
+`interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
+`form_field_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
@@ -160,8 +161,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   `embfile_get()`은 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
   있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은 무제한 입력
   또는materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
-  깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다. 추가하는key/
-  filename/description 입력 합계는1 MiB로 제한합니다. 편집은inline FileSpec
+  깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다. caller 조회／삭제 이름과
+  추가key/filename/description 입력은tree 순회 또는data copy 전에1 MiB에서 중지하며
+  `embedded_file_input_size`를 사용합니다. 편집은inline FileSpec
   clone 전에direct object 4,096개, 깊이32, direct string/name/stream data 1 MiB
   상한과Catalog 쓰기 대상을 검증하며 rollback을 위해 문서 전체를clone하지 않습니다.
 - `Document.get_pdfa_claim()`은 각filter layer의XMP 디코딩 출력을 기본1 MiB로
@@ -177,7 +179,8 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
 - AcroForm field tree는4,096 entry/node, 8,192 edge, 깊이64, encoded/
   decoded/returned name·value 1 MiB 또는choice value 4,096 item을 넘는 부분 결과를
   거부합니다. 참조cycle은 한 번만 방문하고 상속값은 반환leaf마다 예산에 포함합니다.
-  입력도 같은tree 상한과1 MiB 입력값 상한을 원자적으로 적용합니다.
+  입력도 같은tree 상한과1 MiB caller 이름／값 상한을 원자적으로 적용하며 font 탐색,
+  button lookup 또는file 읽기 전 거부에는`form_field_input_size`를 사용합니다.
 - AcroForm button field는4,096 widget, 8,192 normal appearance state entry,
   4,096 unique returned state name 또는encoded/returned state-name text 1 MiB를
   넘으면 거부합니다. 입력은 누락된`Off`/on state key를 변경 전에 예산에 포함합니다.
