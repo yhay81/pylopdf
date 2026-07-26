@@ -61,6 +61,11 @@ risky. When processing untrusted files:
 - Named-destination lookup visits reference cycles once and rejects traversal
   above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
   instead of silently reporting a truncated tree as unresolved.
+- TOC reads use an iterative outline walk, visit reference cycles once, release
+  the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
+  64 levels, 32 destination indirections, or 1 MiB of source/returned text.
+  Writes enforce the entry, depth, and source/encoded-title boundaries before
+  mutation.
 - Prefer running batch processing of untrusted documents in a sandboxed or
   containerized environment, and enforce CPU deadlines in the host. pylopdf
   resource budgets do not provide in-process time cancellation.

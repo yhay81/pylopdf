@@ -5,10 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from conftest import build_raw_pdf
 
 import pylopdf
 
 REAL_WORLD = Path(__file__).parent / "assets" / "real_world"
+
+
+def _build_outline_fixture(outline_objects: dict[int, str | bytes]) -> bytes:
+    """Build one page with a caller-provided outline graph rooted at object 4."""
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+    }
+    objects.update(outline_objects)
+    return build_raw_pdf(objects)
 
 
 def test_toc_roundtrip(three_page_pdf: bytes) -> None:
@@ -82,3 +94,77 @@ def test_real_world_toc_readable() -> None:
             assert isinstance(page, int)
             assert level >= 1
             assert 1 <= page <= doc.page_count
+
+
+def test_toc_next_cycle_is_visited_once() -> None:
+    doc = pylopdf.open(
+        stream=_build_outline_fixture(
+            {
+                4: "<< /First 5 0 R >>",
+                5: "<< /Title (A) /Dest [3 0 R /Fit] /Next 5 0 R >>",
+            }
+        )
+    )
+    assert doc.get_toc() == [[1, "A", 1]]
+
+
+def test_toc_rejects_excessive_depth() -> None:
+    objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
+    for object_id in range(5, 69):
+        objects[object_id] = f"<< /First {object_id + 1} 0 R >>"
+    objects[69] = "<< >>"
+    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+        doc.get_toc()
+
+
+def test_toc_rejects_excessive_nodes() -> None:
+    objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
+    for object_id in range(5, 4102):
+        next_entry = f" /Next {object_id + 1} 0 R" if object_id < 4101 else ""
+        objects[object_id] = f"<<{next_entry} >>"
+    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="4096-node safety limit"):
+        doc.get_toc()
+
+
+def test_toc_rejects_excessive_edges() -> None:
+    objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
+    for object_id in range(5, 4101):
+        next_id = object_id + 1 if object_id < 4100 else 5
+        objects[object_id] = f"<< /First 5 0 R /Next {next_id} 0 R >>"
+    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+        doc.get_toc()
+
+
+def test_toc_rejects_excessive_title_bytes() -> None:
+    title = "x" * 1024
+    objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
+    for object_id in range(5, 1030):
+        next_entry = f" /Next {object_id + 1} 0 R" if object_id < 1029 else ""
+        objects[object_id] = f"<< /Title ({title}) /Dest [3 0 R /Fit]{next_entry} >>"
+    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="TOC source text exceeds the 1048576-byte safety limit"):
+        doc.get_toc()
+
+
+def test_set_toc_rejects_excessive_entries(three_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=three_page_pdf)
+    with pytest.raises(ValueError, match="4096 entries"):
+        doc.set_toc([[1, "A", 1]] * 4097)
+
+
+def test_set_toc_limits_are_atomic(three_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=three_page_pdf)
+    original: list[list[int | str]] = [[1, "original", 1]]
+    doc.set_toc(original)
+
+    with pytest.raises(pylopdf.PdfError, match="encoded text exceeds the 1048576-byte safety limit"):
+        doc.set_toc([[1, "é" * 524288, 1]])
+    assert doc.get_toc() == original
+
+    too_deep: list[list[int | str]] = [[level, str(level), 1] for level in range(1, 66)]
+    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+        doc.set_toc(too_deep)
+    assert doc.get_toc() == original

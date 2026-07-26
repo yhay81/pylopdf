@@ -84,6 +84,7 @@ _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
+_MAX_TOC_ENTRIES = 4096
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -2617,7 +2618,9 @@ class Document:
         """Return bookmarks as ``[[level, title, page number], ...]``.
 
         Levels and page numbers are one-based for pymupdf compatibility, unlike
-        other page APIs. Return an empty list when no TOC exists.
+        other page APIs. Return an empty list when no TOC exists. Traversal is
+        cycle-aware and rejects more than 4,096 nodes or entries, 8,192 edges,
+        64 levels, 32 destination indirections, or 1 MiB of source/returned text.
         """
         self._ensure_open()
         return [[level, title, page] for level, title, page in self._doc.get_toc()]
@@ -2625,11 +2628,15 @@ class Document:
     def set_toc(self, toc: Sequence[Sequence[int | str]]) -> None:
         """Replace bookmarks from ``[[level, title, page number], ...]``.
 
-        An empty sequence removes them. Levels start at 1 and can increase by at
-        most one from the previous entry. Page numbers are one-based, matching
-        :meth:`get_toc`.
+        An empty sequence removes them. At most 4,096 entries, 64 levels, and
+        1 MiB each of input and encoded title text are accepted. Levels start at
+        1 and can increase by at most one from the previous entry. Page numbers
+        are one-based, matching :meth:`get_toc`. Validation is atomic.
         """
         self._ensure_open()
+        if len(toc) > _MAX_TOC_ENTRIES:
+            msg = f"toc cannot contain more than {_MAX_TOC_ENTRIES} entries"
+            raise ValueError(msg)
         count = self.page_count
         entries: list[tuple[int, str, int]] = []
         previous_level = 0

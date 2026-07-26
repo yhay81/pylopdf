@@ -101,6 +101,10 @@ xref dataを正規化します。
 - named destination lookupは参照cycleを一度だけ訪問し、4,096 entry/node、
   8,192 edge、深さ32、key byte 1 MiBを超えるtreeを、通常の未解決として黙って
   扱わず拒否します。
+- TOC読み取りは反復outline walkで参照cycleを一度だけ訪問し、GILを解放します。
+  4,096 node/entry、8,192 edge、深さ64、destination間接参照32段、source/returned
+  text 1 MiBを超える部分結果を拒否します。書き込みもentry・深さ・title textを
+  変更前に検査します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。
