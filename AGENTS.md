@@ -636,7 +636,7 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.12.0 is release-prepared on 2026-07-26 after the v0.11 line
+- Current phase: v0.12.0 was released on 2026-07-26 after the v0.11 line
   shipped earlier that day. The 0.12 line extends the end-to-end untrusted-input
   policy across metadata, annotations, attachments, generated text, search,
   passwords, interpretation snapshots, and positioned glyphs. Its release gate
