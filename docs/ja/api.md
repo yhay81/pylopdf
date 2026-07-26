@@ -32,7 +32,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_toc()` / `set_toc(toc)` | cycle対応・上限付きのしおり（1始まり。4,096 entry/node、8,192 edge、深さ64、text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field tree・名前・値・button stateに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
-| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 展開上限付きの添付ファイル操作。`max_size=None`で明示的に上限を解除 |
+| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 展開・追加metadata・inline FileSpec clone形状に上限を持つ添付ファイル操作。`max_size=None`で明示的に展開上限を解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | with 文でも |

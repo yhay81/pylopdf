@@ -85,7 +85,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   every filter layer. Raise `max_size=` for a known large attachment;
   `max_size=None` explicitly accepts unbounded materialization. Attachment name
   trees are rejected above 4,096 entries/nodes, 32 levels, or 1 MiB of encoded
-  or decoded names.
+  or decoded names. Adds cap aggregate key/filename/description input at 1 MiB.
+  Edits validate inline FileSpecs before cloning above 4,096 direct objects,
+  32 levels, or 1 MiB of direct string/name/stream data, and preflight the
+  Catalog write target instead of cloning the complete document for rollback.
 - `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied
   to every filter layer. Raise `max_size=` for a known large packet;
   `max_size=None` explicitly accepts unbounded materialization.

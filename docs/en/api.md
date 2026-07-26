@@ -33,7 +33,7 @@ deprecation lifecycle.
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines (1-based pages; 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | bounded AcroForm list & fill with native, bounded widget appearances |
-| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | file attachments with bounded decoding; `max_size=None` explicitly opts out |
+| `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with bounded decoding, add metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
 | `close()` | also via `with` |

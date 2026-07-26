@@ -72,7 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name-tree reads now borrow direct object shapes, visit reference cycles once,
   and reject traversal above 4,096 entries/nodes, 32 levels, or 1 MiB of names
   instead of returning partial metadata. Adding the 4,097th entry is refused
-  atomically.
+  atomically. Attachment edits now preflight the Catalog write target, avoid a
+  whole-document rollback clone, and bound the new key/filename/description at
+  1 MiB of aggregate input text. Existing inline FileSpecs are validated before
+  cloning at 4,096 direct objects, 32 levels, and 1 MiB of direct string/name/
+  stream data; indirect references remain cheap leaves.
 - `Page.get_images()` now rejects per-page output amplification above 4,096
   placements, 64,000,000 cumulative source pixels, or 64 MiB of returned image
   payloads instead of materializing a partial list. The Flate-to-DCT JPEG

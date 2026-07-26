@@ -2375,6 +2375,8 @@ class Document:
         ``name`` is the unique key used for listing and retrieval. ``filename``
         is the viewer-facing file name and defaults to ``name``; ``desc`` is a
         description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
+        Their aggregate input text is capped at 1 MiB. Existing inline
+        FileSpecs are cloned only after bounded shape validation.
         This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
         """
         self._ensure_open()

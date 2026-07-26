@@ -43,6 +43,10 @@ const MAX_EMBEDDED_FILE_ENTRIES: usize = 4_096;
 const MAX_EMBEDDED_FILE_TREE_NODES: usize = 4_096;
 const MAX_EMBEDDED_FILE_NAME_BYTES: usize = 1024 * 1024;
 const MAX_EMBEDDED_FILE_TREE_DEPTH: usize = 32;
+const MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_EMBEDDED_FILE_DIRECT_OBJECTS: usize = 4_096;
+const MAX_EMBEDDED_FILE_DIRECT_BYTES: usize = 1024 * 1024;
+const MAX_EMBEDDED_FILE_DIRECT_DEPTH: usize = 32;
 
 /// Bound page-label number-tree traversal and returned metadata.
 const MAX_PAGE_LABEL_ENTRIES: usize = 4_096;
@@ -145,6 +149,14 @@ struct PagePlacement {
 ///
 /// FileSpec may be either an indirect reference or an inline dictionary.
 type EmbeddedFileEntry = (String, Object);
+
+/// Preflighted location of the Catalog's `/Names` dictionary.
+#[derive(Clone, Copy)]
+enum EmbeddedFilesWriteTarget {
+    Missing,
+    Inline,
+    Indirect(ObjectId),
+}
 
 /// One PageLabels number-tree item: start, style, prefix, and first number.
 type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
@@ -4082,18 +4094,145 @@ fn visit_embedded_files<'a, T>(
     Ok(None)
 }
 
+fn embedded_file_shape_error(detail: &str, limit: usize) -> PyErr {
+    PdfError::new_err(format!(
+        "inline attachment FileSpec exceeds the {limit}-{detail} safety limit"
+    ))
+}
+
+/// Bound the direct object shape copied when a name-tree FileSpec is inline.
+///
+/// Indirect references remain leaves. This preserves ordinary inline
+/// FileSpecs without allowing custom keys to amplify one add/delete operation
+/// through an arbitrarily deep or wide clone.
+fn validate_inline_embedded_filespec(object: &Object) -> PyResult<()> {
+    let mut pending = vec![(object, 1usize)];
+    let mut objects = 0usize;
+    let mut bytes = 0usize;
+    while let Some((current, depth)) = pending.pop() {
+        objects = objects.checked_add(1).ok_or_else(|| {
+            PdfError::new_err("inline attachment FileSpec exceeds the platform size limit")
+        })?;
+        if objects > MAX_EMBEDDED_FILE_DIRECT_OBJECTS {
+            return Err(embedded_file_shape_error(
+                "object",
+                MAX_EMBEDDED_FILE_DIRECT_OBJECTS,
+            ));
+        }
+        if depth > MAX_EMBEDDED_FILE_DIRECT_DEPTH {
+            return Err(embedded_file_shape_error(
+                "level",
+                MAX_EMBEDDED_FILE_DIRECT_DEPTH,
+            ));
+        }
+
+        let mut add_bytes = |amount: usize| -> PyResult<()> {
+            bytes = bytes.checked_add(amount).ok_or_else(|| {
+                PdfError::new_err("inline attachment FileSpec exceeds the platform size limit")
+            })?;
+            if bytes > MAX_EMBEDDED_FILE_DIRECT_BYTES {
+                return Err(embedded_file_shape_error(
+                    "byte",
+                    MAX_EMBEDDED_FILE_DIRECT_BYTES,
+                ));
+            }
+            Ok(())
+        };
+        let child_count = match current {
+            Object::Name(value) | Object::String(value, _) => {
+                add_bytes(value.len())?;
+                0
+            }
+            Object::Array(items) => items.len(),
+            Object::Dictionary(dict) => {
+                for (key, _) in dict.iter() {
+                    add_bytes(key.len())?;
+                }
+                dict.len()
+            }
+            Object::Stream(stream) => {
+                add_bytes(stream.content.len())?;
+                for (key, _) in stream.dict.iter() {
+                    add_bytes(key.len())?;
+                }
+                stream.dict.len()
+            }
+            _ => 0,
+        };
+        if child_count != 0 && depth >= MAX_EMBEDDED_FILE_DIRECT_DEPTH {
+            return Err(embedded_file_shape_error(
+                "level",
+                MAX_EMBEDDED_FILE_DIRECT_DEPTH,
+            ));
+        }
+        let scheduled = objects
+            .checked_add(pending.len())
+            .and_then(|total| total.checked_add(child_count))
+            .ok_or_else(|| {
+                PdfError::new_err("inline attachment FileSpec exceeds the platform size limit")
+            })?;
+        if scheduled > MAX_EMBEDDED_FILE_DIRECT_OBJECTS {
+            return Err(embedded_file_shape_error(
+                "object",
+                MAX_EMBEDDED_FILE_DIRECT_OBJECTS,
+            ));
+        }
+        let child_depth = depth + 1;
+        match current {
+            Object::Array(items) => {
+                pending.extend(items.iter().map(|child| (child, child_depth)));
+            }
+            Object::Dictionary(dict) => {
+                pending.extend(dict.iter().map(|(_, child)| (child, child_depth)));
+            }
+            Object::Stream(stream) => {
+                pending.extend(stream.dict.iter().map(|(_, child)| (child, child_depth)));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Collect owned entries for attachment-tree rewrite operations.
 fn collect_embedded_files(doc: &Document) -> PyResult<Vec<EmbeddedFileEntry>> {
     let mut out = Vec::new();
     visit_embedded_files(doc, |name, value| {
+        if matches!(value, Object::Dictionary(_)) {
+            validate_inline_embedded_filespec(value)?;
+        }
         out.push((name, value.clone()));
         Ok(None::<()>)
     })?;
     Ok(out)
 }
 
+/// Validate the name-dictionary target before attachment objects are added.
+fn embedded_files_write_target(doc: &Document) -> PyResult<EmbeddedFilesWriteTarget> {
+    let catalog = doc.catalog().map_err(to_py_err)?;
+    if !catalog.has(b"Names") {
+        return Ok(EmbeddedFilesWriteTarget::Missing);
+    }
+    match catalog.get(b"Names").map_err(to_py_err)? {
+        Object::Dictionary(_) => Ok(EmbeddedFilesWriteTarget::Inline),
+        Object::Reference(id) => {
+            doc.get_object(*id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?;
+            Ok(EmbeddedFilesWriteTarget::Indirect(*id))
+        }
+        _ => Err(PdfError::new_err(
+            "Catalog Names entry must be a dictionary or indirect dictionary",
+        )),
+    }
+}
+
 /// Rewrite EmbeddedFiles as one flat node while preserving other name trees.
-fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>) -> PyResult<()> {
+fn write_embedded_files(
+    doc: &mut Document,
+    mut entries: Vec<EmbeddedFileEntry>,
+    target: EmbeddedFilesWriteTarget,
+) -> PyResult<()> {
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let mut flat = Vec::with_capacity(entries.len() * 2);
     for (name, filespec) in entries {
@@ -4101,30 +4240,29 @@ fn write_embedded_files(doc: &mut Document, mut entries: Vec<EmbeddedFileEntry>)
         flat.push(filespec);
     }
     let tree = Object::Dictionary(dictionary! { "Names" => Object::Array(flat) });
-    // Mutate an indirect `/Names` target or the inline Catalog value in place.
-    let names_ref = doc
-        .catalog()
-        .ok()
-        .and_then(|c| c.get(b"Names").ok())
-        .and_then(|n| n.as_reference().ok());
-    match names_ref {
-        Some(id) => {
+    match target {
+        EmbeddedFilesWriteTarget::Indirect(id) => {
             let names = doc
                 .get_object_mut(id)
                 .and_then(Object::as_dict_mut)
                 .map_err(to_py_err)?;
             names.set("EmbeddedFiles", tree);
         }
-        None => {
+        EmbeddedFilesWriteTarget::Inline => {
             let catalog = doc.catalog_mut().map_err(to_py_err)?;
-            if !catalog.has(b"Names") {
-                catalog.set("Names", Dictionary::new());
-            }
             let names = catalog
                 .get_mut(b"Names")
                 .and_then(Object::as_dict_mut)
                 .map_err(to_py_err)?;
             names.set("EmbeddedFiles", tree);
+        }
+        EmbeddedFilesWriteTarget::Missing => {
+            doc.catalog_mut().map_err(to_py_err)?.set(
+                "Names",
+                dictionary! {
+                    "EmbeddedFiles" => tree,
+                },
+            );
         }
     }
     Ok(())
@@ -6025,6 +6163,24 @@ impl _Document {
         desc: Option<String>,
     ) -> PyResult<()> {
         let result = py.detach(|| {
+            let target = embedded_files_write_target(&self.doc)?;
+            let fname = filename.as_deref().unwrap_or(&name);
+            let input_text_bytes = name
+                .len()
+                .checked_add(fname.len())
+                .and_then(|total| {
+                    desc.as_ref()
+                        .map_or(Some(total), |text| total.checked_add(text.len()))
+                })
+                .ok_or_else(|| {
+                    PdfError::new_err("attachment input text exceeds the platform size limit")
+                })?;
+            if input_text_bytes > MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES {
+                return Err(PdfError::new_err(format!(
+                    "attachment name, filename, and description exceed the \
+                     {MAX_EMBEDDED_FILE_INPUT_TEXT_BYTES}-byte input-text safety limit"
+                )));
+            }
             let entries = collect_embedded_files(&self.doc)?;
             if entries.iter().any(|(n, _)| *n == name) {
                 return Err(PdfError::new_err(format!(
@@ -6068,7 +6224,7 @@ impl _Document {
                     "cannot add attachment: encoded names would exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
                 )));
             }
-            let original = self.doc.clone();
+            let previous_max_id = self.doc.max_id;
             let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
             // Keep compression allowed so save(deflate=True) can compress it.
             let ef_id = self.doc.add_object(Stream::new(
@@ -6091,11 +6247,13 @@ impl _Document {
             let filespec_id = self.doc.add_object(filespec);
             let mut entries = entries;
             entries.push((name, Object::Reference(filespec_id)));
-            let result = write_embedded_files(&mut self.doc, entries);
-            if result.is_err() {
-                self.doc = original;
+            if let Err(error) = write_embedded_files(&mut self.doc, entries, target) {
+                self.doc.objects.remove(&ef_id);
+                self.doc.objects.remove(&filespec_id);
+                self.doc.max_id = previous_max_id;
+                return Err(error);
             }
-            result
+            Ok(())
         });
         if result.is_ok() {
             self.invalidate_hayro_pdf();
@@ -6106,6 +6264,7 @@ impl _Document {
     /// Delete an attachment, raising an error when absent.
     fn embfile_del(&mut self, py: Python<'_>, name: &str) -> PyResult<()> {
         let result = py.detach(|| {
+            let target = embedded_files_write_target(&self.doc)?;
             let entries = collect_embedded_files(&self.doc)?;
             let before = entries.len();
             let remaining: Vec<EmbeddedFileEntry> =
@@ -6113,7 +6272,7 @@ impl _Document {
             if remaining.len() == before {
                 return Err(PdfError::new_err(format!("attachment not found: {name:?}")));
             }
-            write_embedded_files(&mut self.doc, remaining)
+            write_embedded_files(&mut self.doc, remaining, target)
         });
         if result.is_ok() {
             self.invalidate_hayro_pdf();
