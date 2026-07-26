@@ -1121,6 +1121,10 @@ pub(crate) struct TextPage {
     text_size: usize,
 }
 
+pub(crate) enum SearchError {
+    TooManyHits,
+}
+
 impl TextPage {
     pub(crate) fn new(
         pdf: &Pdf,
@@ -1152,8 +1156,12 @@ impl TextPage {
         (self.width, self.height, assemble_layout(&self.lines))
     }
 
-    pub(crate) fn search(&self, needle: &str) -> Vec<BBox> {
-        search_lines(&self.lines, needle)
+    pub(crate) fn search(
+        &self,
+        needle: &str,
+        max_hits: Option<usize>,
+    ) -> Result<Vec<BBox>, SearchError> {
+        search_lines(&self.lines, needle, max_hits)
     }
 }
 
@@ -2239,34 +2247,40 @@ fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
 /// Search page text case-insensitively and return one bbox per match.
 ///
 /// Search is line-based and does not detect matches across lines.
-fn search_lines(lines: &[Vec<GlyphRecord>], needle: &str) -> Vec<BBox> {
+fn search_lines(
+    lines: &[Vec<GlyphRecord>],
+    needle: &str,
+    max_hits: Option<usize>,
+) -> Result<Vec<BBox>, SearchError> {
     let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
     if needle_lower.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut hits = Vec::new();
     for line in lines {
         let (haystack, map) = line_search_index(line);
-        let mut from = 0;
-        while let Some(found) = haystack[from..].find(&needle_lower) {
-            let start = from + found;
+        let mut byte_cursor = 0;
+        let mut char_cursor = 0;
+        for (start, _) in haystack.match_indices(&needle_lower) {
             let end = start + needle_lower.len();
             // Byte position → character position → glyph set.
-            let char_start = haystack[..start].chars().count();
+            let char_start = char_cursor + haystack[byte_cursor..start].chars().count();
             let char_len = haystack[start..end].chars().count();
-            let glyph_indices: Vec<usize> = map[char_start..char_start + char_len]
-                .iter()
-                .flatten()
-                .copied()
-                .collect();
-            if let (Some(&first), Some(&last)) = (glyph_indices.first(), glyph_indices.last()) {
+            let glyph_map = &map[char_start..char_start + char_len];
+            let first = glyph_map.iter().find_map(|value| *value);
+            let last = glyph_map.iter().rev().find_map(|value| *value);
+            if let (Some(first), Some(last)) = (first, last) {
+                if max_hits.is_some_and(|limit| hits.len() == limit) {
+                    return Err(SearchError::TooManyHits);
+                }
                 let matched = &line[first..=last];
                 hits.push(glyphs_bbox(matched));
             }
-            from = end;
+            byte_cursor = end;
+            char_cursor = char_start + char_len;
         }
     }
-    hits
+    Ok(hits)
 }
 
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.

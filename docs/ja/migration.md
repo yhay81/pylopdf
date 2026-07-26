@@ -25,7 +25,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
-| `page.search_for(t)` | 同じ | `list[Rect]`。`quads=` は無い |
+| `page.search_for(t)` | 同じ。加えて`max_hits=4096` | 上限付き`list[Rect]`。検索語は4,096 byte、`max_hits=None`で解除、`quads=`は無い |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | `dpi=144` でも。Matrix クラスは無い |
 | `pix.samples / width / height / stride / save()` | 同じ | 常にストレートアルファ RGBA8。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(path)`はPNGを生成し、`save`には`.png`が必要 |
 | `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |

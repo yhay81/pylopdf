@@ -102,6 +102,8 @@ _UTF8_THREE_BYTE_MIN = 1 << 11
 _UTF8_FOUR_BYTE_MIN = 1 << 16
 _MAX_PAGE_LABEL_RANGES = 4096
 _MAX_HIGHLIGHT_RECTS = 4096
+_MAX_SEARCH_INPUT_BYTES = 4096
+_DEFAULT_MAX_SEARCH_HITS = 4096
 _MAX_TOC_ENTRIES = 4096
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
@@ -1153,11 +1155,13 @@ def _font_input_limit_error(size: int, max_font_size: int) -> LimitError:
     )
 
 
-def _validate_generated_text_input(
+def _validate_utf8_text_input(
     text: str,
     max_text_size: int | None,
     *,
     expandtabs: int | None = None,
+    limit_code: str = "text_input_size",
+    input_label: str = "text input",
 ) -> None:
     """Bound UTF-8 text, including tab expansion, without building encoded bytes."""
     _validate_optional_positive_int("max_text_size", max_text_size)
@@ -1165,8 +1169,7 @@ def _validate_generated_text_input(
         return
 
     def raise_limit() -> NoReturn:
-        limit_code = "text_input_size"
-        msg = f"text input exceeds the {max_text_size}-byte UTF-8 limit"
+        msg = f"{input_label} exceeds the {max_text_size}-byte UTF-8 limit"
         if expandtabs is not None:
             msg += " after tab expansion"
         raise LimitError(limit_code, msg)
@@ -1572,16 +1575,30 @@ class Page:
             max_size=max_size,
         )
 
-    def search_for(self, needle: str) -> list[Rect]:
+    def search_for(
+        self,
+        needle: str,
+        *,
+        max_hits: int | None = _DEFAULT_MAX_SEARCH_HITS,
+    ) -> list[Rect]:
         """Search page text case-insensitively.
 
         Return one :class:`Rect` per match. Search is line-based and does not
-        detect matches spanning lines.
+        detect matches spanning lines. The search term is limited to 4,096
+        UTF-8 bytes. Results default to 4,096 matches; ``max_hits=None``
+        explicitly opts trusted workloads out.
         """
         if not needle:
             msg = "needle must be at least 1 character"
             raise ValueError(msg)
-        hits = self._document._doc.search_page(self._page_number(), needle)
+        _validate_optional_positive_int("max_hits", max_hits)
+        _validate_utf8_text_input(
+            needle,
+            _MAX_SEARCH_INPUT_BYTES,
+            limit_code="search_input_size",
+            input_label="search needle",
+        )
+        hits = self._document._doc.search_page(self._page_number(), needle, max_hits)
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
@@ -1902,7 +1919,7 @@ class Page:
         if not text:
             msg = "text must be at least 1 character"
             raise ValueError(msg)
-        _validate_generated_text_input(text, max_text_size)
+        _validate_utf8_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
@@ -2000,9 +2017,9 @@ class Page:
         page_number = self._page_number()
         resolved_fontsize, resolved_lineheight = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
         red, green, blue = _validate_unit_rgb(color)
-        _validate_generated_text_input(text, max_text_size)
+        _validate_utf8_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        _validate_generated_text_input(normalized, max_text_size, expandtabs=expandtabs)
+        _validate_utf8_text_input(normalized, max_text_size, expandtabs=expandtabs)
         normalized = normalized.expandtabs(expandtabs)
         if not normalized:
             return y1 - y0

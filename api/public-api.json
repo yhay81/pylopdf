@@ -2194,6 +2194,12 @@
                 "annotation": "str",
                 "kind": "positional_or_keyword",
                 "name": "needle"
+              },
+              {
+                "annotation": "int | None",
+                "default": 4096,
+                "kind": "keyword_only",
+                "name": "max_hits"
               }
             ],
             "returns": "list[Rect]"

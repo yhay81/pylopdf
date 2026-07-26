@@ -65,8 +65,14 @@ overview.
   It collects glyph Unicode and positions, then assembles lines
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
   `get_text("words"/"blocks"/"dict")` and `search_for` share the same glyph
-  collection through a bounded, generation-invalidated `TextPage` cache. CJK
-  fallback configuration also applies to extraction, including invisible OCR
+  collection through a bounded, generation-invalidated `TextPage` cache.
+  `search_for` caps the UTF-8 needle at 4,096 bytes before PyO3 copying and
+  defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
+  checks, `max_hits=None` explicitly opts trusted result sets out, and
+  failures use `search_input_size` or `search_hit_count` without returning a
+  partial list. Dense matching must advance byte/character cursors
+  monotonically and derive the first/last mapped glyph without per-hit vectors.
+  CJK fallback configuration also applies to extraction, including invisible OCR
   text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
   Overlapping paint runs on one baseline are split into source-order logical

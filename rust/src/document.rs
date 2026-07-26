@@ -100,6 +100,10 @@ const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 /// Bound one page-structure mutation batch before cloning or importing graphs.
 const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 
+/// Bound search input and returned geometry independently from page text.
+const MAX_SEARCH_INPUT_BYTES: usize = 4_096;
+const DEFAULT_MAX_SEARCH_HITS: usize = 4_096;
+
 /// Default public boundaries for encoded and decoded image insertion input.
 const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
@@ -5138,14 +5142,46 @@ impl _Document {
     }
 
     /// Search a one-based page case-insensitively.
+    #[pyo3(signature = (
+        page_number,
+        needle,
+        max_hits=Some(DEFAULT_MAX_SEARCH_HITS)
+    ))]
     fn search_page(
         &mut self,
         py: Python<'_>,
         page_number: u32,
         needle: &str,
+        max_hits: Option<usize>,
     ) -> PyResult<Vec<(f64, f64, f64, f64)>> {
+        if needle.is_empty() {
+            return Err(PyValueError::new_err("needle must be at least 1 character"));
+        }
+        if needle.len() > MAX_SEARCH_INPUT_BYTES {
+            return Err(limit_err(
+                "search_input_size",
+                format!(
+                    "search needle exceeds the {MAX_SEARCH_INPUT_BYTES}-byte UTF-8 safety limit"
+                ),
+            ));
+        }
+        if max_hits == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_hits must be a positive integer or None",
+            ));
+        }
         let settings = self.interpreter_settings();
-        py.detach(|| Ok(self.text_page(page_number, settings)?.search(needle)))
+        py.detach(|| {
+            self.text_page(page_number, settings)?
+                .search(needle, max_hits)
+                .map_err(|crate::extract::SearchError::TooManyHits| {
+                    let limit = max_hits.expect("bounded search hit count");
+                    limit_err(
+                        "search_hit_count",
+                        format!("search results exceed the {limit}-hit safety limit"),
+                    )
+                })
+        })
     }
 
     /// Append every page from another document.

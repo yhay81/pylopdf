@@ -313,6 +313,26 @@ def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -
     assert doc.save_bytes() != before
 
 
+def test_search_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+
+    assert doc.search_page(1, "é" * 2048, 1) == []
+    with pytest.raises(LimitError) as input_limit:
+        doc.search_page(1, "é" * 2049, 1)
+    assert input_limit.value.args[0] == "search_input_size"
+
+    with pytest.raises(LimitError) as hit_limit:
+        doc.search_page(1, "l", 1)
+    assert hit_limit.value.args[0] == "search_hit_count"
+    assert len(doc.search_page(1, "l", 2)) == 2
+    assert len(doc.search_page(1, "l", None)) == 2
+
+    with pytest.raises(ValueError, match="max_hits"):
+        doc.search_page(1, "l", 0)
+    with pytest.raises(ValueError, match="needle"):
+        doc.search_page(1, "", 1)
+
+
 def test_embedded_file_input_limit_is_repeated_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     payload = b"1234"

@@ -63,8 +63,8 @@ per-stream budget and cannot be combined with `limits=`.
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`,
-`pixmap_output_size`, `ocr_model_size`, `ocr_dictionary_entries`, or
-`decompression_unverifiable`.
+`search_input_size`, `search_hit_count`, `pixmap_output_size`,
+`ocr_model_size`, `ocr_dictionary_entries`, or `decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically.
@@ -117,6 +117,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   boundary repeats the check, and textbox tab expansion is preflighted before
   allocating the expanded string. `max_text_size=None` explicitly opts trusted
   input out; refusals use `text_input_size`.
+- `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
+  returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
+  copying and the Rust boundary repeats both limits. `max_hits=None` explicitly
+  opts trusted result sets out; refusals use `search_input_size` or
+  `search_hit_count` and never return a partial list.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal

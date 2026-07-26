@@ -49,7 +49,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | 成员 | 用途 |
 |---|---|
 | `number` / `parent` / `get_label()` | 标识与显示标签 |
-| `get_text(option)` / `search_for(needle)` | 提取与不区分大小写的搜索 |
+| `get_text(option)` / `search_for(needle, max_hits=4096)` | 提取与有界的不区分大小写搜索；搜索词上限为4,096 UTF-8 byte，可信结果集可用`None`取消 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
