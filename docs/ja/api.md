@@ -22,7 +22,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
 | `is_repaired` | 最終classic `startxref`の誤りを読み込み時に修復したか。保存するとxref dataを正規化 |
-| `metadata` / `set_metadata(dict)` | Info 辞書（UTF-16BE 対応） |
+| `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
 | `render_page(...)` / `render_pages(..., workers=)` / `render_page_svg(...)` | PNG、順序保証の並列 PNG 群、SVG |

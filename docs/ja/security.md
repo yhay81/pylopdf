@@ -105,6 +105,10 @@ xref dataを正規化します。
   4,096 node/entry、8,192 edge、深さ64、destination間接参照32段、source/returned
   text 1 MiBを超える部分結果を拒否します。書き込みもentry・深さ・title textを
   変更前に検査します。
+- `Document.metadata`は標準Info 8項目だけをdecodeし、aggregate source/returned
+  text 1 MiBを超えると拒否します。custom entryはPython出力にmaterializeしません。
+  `peek_metadata()`もreturned standard textを制限し、書き込みはsource/encoded
+  text 1 MiBを変更前に検査して原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

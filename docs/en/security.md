@@ -112,6 +112,10 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
   64 levels, 32 destination indirections, or 1 MiB of source/returned text.
   Writes enforce compatible entry, depth, and title-text limits before mutation.
+- `Document.metadata` decodes only the eight standard Info fields and rejects
+  aggregate source or returned text above 1 MiB; custom entries do not become
+  Python output. `peek_metadata()` caps returned standard text too. Writes
+  preflight 1 MiB aggregate source/encoded text and apply atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

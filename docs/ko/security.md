@@ -104,6 +104,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   4,096 node/entry, 8,192 edge, 깊이64, destination 간접 참조32단계 또는
   source/returned text 1 MiB를 넘는 부분 결과를 거부합니다. 쓰기도 변경 전에
   entry, 깊이, title text 상한을 검사합니다.
+- `Document.metadata`는 표준Info 8개 필드만decode하고 aggregate source/returned
+  text 1 MiB를 넘으면 거부합니다. custom entry는Python 출력으로materialize하지
+  않습니다. `peek_metadata()`도returned 표준text를 제한하고, 쓰기는 변경 전에
+  source/encoded text 1 MiB를 검사해 원자적으로 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application
   계층에서 무제한 병렬 호출을 덧붙이지 마세요.

@@ -537,6 +537,10 @@ known-limit behavior are polished together.
       walk. Reads visit cycles once, release the GIL, index named destinations
       once, and enforce node/entry/edge/depth/destination/text budgets. Writes
       preflight compatible entry, depth, and title-text budgets atomically.
+- [x] Bound standard Info metadata materialization and updates. Full-document
+      reads decode only the eight public fields under source/returned-text
+      budgets, the fast probe bounds returned standard text, and batch writes
+      preflight source/encoded text before one atomic mutation.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,
