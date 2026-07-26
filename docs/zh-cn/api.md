@@ -21,6 +21,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `page_count` / `len(doc)` | 页数 |
 | `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 加密状态与解锁（兼容pymupdf语义） |
+| `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
 | `metadata` / `set_metadata(dict)` | Info字典（支持UTF-16BE） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown转换（标题、CJK连接、强调、列表、多栏及保守的竖排顺序；默认插入边框表，`"text"`增加无边框表，`None`禁用表格转换） |
@@ -104,7 +105,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 
 | 名称 | 用途 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 无需完整解析即可快速读取元数据与页数 |
+| `peek_metadata(path_or_stream, password=)` | 快速读取元数据与页数；`repaired`报告受限的classic `startxref`修复 |
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
@@ -118,7 +119,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes()` / 仅限PNG的`save(path)`；cp314t还支持只读、零复制的`memoryview()` |
-| `PylopdfWarning` | 解释器警告（字体解析、图像解码） |
+| `PylopdfWarning` | 可恢复的解释警告（xref修复、字体解析、图像解码） |
 
 `TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。
 `LinkInfo`要求`kind`和`from`，而各类目标专用键为可选。

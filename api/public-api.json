@@ -464,6 +464,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "is_repaired": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
@@ -1255,6 +1259,7 @@
         "modDate": "str",
         "page_count": "int",
         "producer": "str",
+        "repaired": "bool",
         "subject": "str",
         "title": "str"
       },
@@ -1270,6 +1275,7 @@
         "modDate",
         "page_count",
         "producer",
+        "repaired",
         "subject",
         "title"
       ]

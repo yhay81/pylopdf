@@ -65,6 +65,13 @@ stream数、圧縮状態のstream byte数、直接objectの最大深度を返し
 進む前のroutingに利用できます。構造・展開上限は開いたsourceを検査するため、
 生成物が別のtrust boundaryを越えるときは同じポリシーで開き直してください。
 
+寛容な読み込みが修復するのは1つの限定ケースだけです。同じ最終revisionに完全な
+classic xref tableがあり、元の上限で全体parseが成功した場合に限り、誤った最終
+`startxref`を置き換えます。object headerの走査、xref streamの修復、以前のrevision
+への巻き戻しは行いません。修復時は`PylopdfWarning`が発生し、
+`doc.is_repaired`（metadata probeでは`repaired`）が`True`になります。保存すると
+xref dataを正規化します。
+
 - レンダリングは1ページ64メガピクセルまでです。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の

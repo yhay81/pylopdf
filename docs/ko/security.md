@@ -64,6 +64,13 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 routing하는 데 사용할 수 있습니다. 구조 및 압축 해제 예산은 열린 source를
 검증하므로, 생성물이 다른 trust boundary를 넘을 때는 같은 정책으로 다시 여세요.
 
+관대한 열기는 한 가지 제한된 복구만 수행합니다. 같은 마지막 revision에 온전한
+classic xref table이 있고 원래 제한 아래에서 전체 parse가 성공할 때만 잘못된 마지막
+`startxref`를 바꿉니다. object header 검색, xref stream 복구, 이전 revision으로의
+rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
+`doc.is_repaired`（metadata probe의`repaired`）가`True`가 되며, 저장하면 xref data를
+정규화합니다.
+
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
 - `render_pages()`에는 정상적인 메모리 제한 admission이 있으므로 application

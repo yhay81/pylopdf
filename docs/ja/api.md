@@ -21,6 +21,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `page_count` / `len(doc)` | ページ数 |
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 暗号化状態と復号（pymupdf 互換の意味論） |
+| `is_repaired` | 最終classic `startxref`の誤りを読み込み時に修復したか。保存するとxref dataを正規化 |
 | `metadata` / `set_metadata(dict)` | Info 辞書（UTF-16BE 対応） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown変換（見出し・CJK連結・強調・リスト・複数カラム・保守的な縦書き順。既定で罫線表、`"text"`で罫線なし表を追加、`None`で表変換を無効化） |
@@ -110,7 +111,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 
 | 名前 | 用途 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 全体パース無しの高速メタデータ読み取り |
+| `peek_metadata(path_or_stream, password=)` | 高速メタデータ読み取り。`repaired`で限定的なclassic `startxref`修復を確認 |
 | `Permissions` | 暗号化の許可フラグ（IntFlag） |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
@@ -124,7 +125,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG専用`save(path)`。cp314tではread-only・zero-copyの`memoryview()`にも対応 |
-| `PylopdfWarning` | インタープリタ警告（フォント未解決・画像デコード失敗） |
+| `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 
 `TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。
 `LinkInfo`では`kind`と`from`が必須で、遷移先ごとのキーは任意です。

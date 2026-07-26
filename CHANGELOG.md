@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Lenient opening now repairs one narrowly defined malformed-PDF case: an
+  incorrect final `startxref` offset when the final revision still contains an
+  intact classic xref table and a full lopdf retry succeeds under the original
+  limits. It never guesses object offsets, repairs xref streams, or falls back
+  to an earlier revision. `Document.is_repaired`, the `repaired` key from
+  `peek_metadata()`, and `PylopdfWarning` make the recovery visible; saving
+  rewrites canonical cross-reference data. A CC BY 4.0 PDF 2.0 fixture protects
+  open, extraction, probing, prefixed-input, save/reopen, and refusal cases.
 - `Document.compress_images()` now also converts safe, unmasked, single-filter
   8-bit DeviceGray/DeviceRGB Flate raster XObjects to smaller JPEG payloads.
   Absent and consistent PNG predictors use lopdf's bounded decoder before the

@@ -37,6 +37,7 @@ def test_filename_and_stream_raises(one_page_pdf: bytes) -> None:
 def test_empty_document() -> None:
     doc = pylopdf.Document()
     assert doc.page_count == 0
+    assert doc.is_repaired is False
 
 
 def test_metadata_roundtrip(one_page_pdf: bytes) -> None:
@@ -182,15 +183,23 @@ def test_exception_hierarchy(one_page_pdf: bytes) -> None:
         _ = doc.page_count
 
 
-def test_broken_pdf_raises_pdf_error() -> None:
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"%PDF-1.4 broken garbage",
+        b"startxref\n0\n%PDF-1.4\n%%EOF",
+    ],
+)
+def test_broken_pdf_raises_pdf_error(data: bytes) -> None:
     with pytest.raises(pylopdf.PdfError):
-        pylopdf.Document(stream=b"%PDF-1.4 broken garbage")
+        pylopdf.Document(stream=data)
 
 
 def test_peek_metadata_stream(three_page_pdf: bytes) -> None:
     meta = pylopdf.peek_metadata(stream=three_page_pdf)
     assert meta["page_count"] == 3
     assert meta["encrypted"] is False
+    assert meta["repaired"] is False
     assert meta["format"] == "PDF 1.4"
 
 
@@ -206,6 +215,8 @@ def test_context_manager_closes(one_page_pdf: bytes) -> None:
         assert doc.page_count == 1
     with pytest.raises(ValueError, match="document closed"):
         _ = doc.page_count
+    with pytest.raises(ValueError, match="document closed"):
+        _ = doc.is_repaired
 
 
 def test_empty_page_lists_reject_closed_document(one_page_pdf: bytes) -> None:

@@ -245,6 +245,10 @@ pre-1.0 APIs.
   reopening, seeded by the redistributable corpus. Continue expanding
   damaged-input coverage for truncated xrefs, Type 3 fonts, JPX, transparency
   groups, annotations, and links.
+- [x] Recover an incorrect final classic `startxref` only when an intact table
+  in the final revision passes a complete bounded retry. Surface recovery
+  through warnings, `Document.is_repaired`, and metadata probes; normalize on
+  save and refuse xref-stream guessing or previous-revision rollback.
 - [x] Add artifact smoke tests that install every natively runnable wheel plus
   the sdist and exercise import, open, extraction, rendering, and save before
   publication. Cross-compiled Linux aarch64 and macOS x86_64 wheels remain
@@ -564,8 +568,10 @@ rather than waiting automatically for v1.x.
 
 ### Parallel work, not tied to releases
 
-- Expand the corpus with damaged PDFs such as truncated xrefs, Type 3 fonts,
-  JPX, transparency groups, and annotations/links.
+- [x] Add a real-document-derived incorrect-classic-`startxref` regression with
+  bounded recovery, save normalization, and xref-stream/rollback refusal.
+- Expand the corpus with other damaged PDFs such as truncated xref tables,
+  Type 3 fonts, JPX, transparency groups, and annotations/links.
 - [x] Normalize rotated-page extraction into display space (2026-07-23) by
       passing the renderer's `initial_transform(true)` to extraction. Reading
       order, search, words, image bboxes, and OCR layers now use display

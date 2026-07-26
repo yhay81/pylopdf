@@ -108,7 +108,7 @@ _IMAGE_COMPRESSION_MAX_QUALITY = 100
 
 
 class PylopdfWarning(UserWarning):
-    """A hayro rendering or extraction warning, such as an unresolved font."""
+    """A recoverable PDF interpretation warning for repair, font, or image issues."""
 
 
 class Permissions(enum.IntFlag):
@@ -454,6 +454,7 @@ class MetadataProbe(DocumentMetadata):
 
     page_count: int
     encrypted: bool
+    repaired: bool
 
 
 class DocumentComplexity(TypedDict):
@@ -2009,6 +2010,7 @@ class Document:
         # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
         self._source_bytes = stream if self._doc.is_encrypted() else None
+        self._emit_warnings()
 
     @property
     def needs_pass(self) -> bool:
@@ -2021,6 +2023,12 @@ class Document:
         """Return whether the document still requires authentication."""
         self._ensure_not_closed()
         return self._doc.is_encrypted()
+
+    @property
+    def is_repaired(self) -> bool:
+        """Return whether opening repaired an incorrect classic startxref."""
+        self._ensure_not_closed()
+        return self._doc.is_repaired()
 
     def authenticate(self, password: str) -> int:
         """Authenticate and decrypt with a password.
@@ -2047,6 +2055,7 @@ class Document:
             self._doc = _Document.load_bytes(self._source_bytes, password, *limit_args)
         self._source_path = None
         self._source_bytes = None
+        self._emit_warnings()
         return code
 
     @property
@@ -2697,7 +2706,7 @@ class Document:
         return result
 
     def _emit_warnings(self) -> None:
-        """Emit hayro warnings from the latest operation as ``PylopdfWarning``."""
+        """Emit recoverable interpretation warnings as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=3)
 
@@ -2918,15 +2927,22 @@ def peek_metadata(
     """Read metadata and page count without parsing the entire document.
 
     Return the keys from :attr:`Document.metadata` plus integer ``page_count``
-    and boolean ``encrypted``. This is suitable for scanning many PDFs.
+    and boolean ``encrypted`` / ``repaired`` facts. This is suitable for
+    scanning many PDFs.
     """
     if (filename is None) == (stream is None):
         msg = "specify exactly one of filename or stream"
         raise ValueError(msg)
     if stream is not None:
-        raw, page_count, version, encrypted = _Document.load_metadata_bytes(stream, password)
+        raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(stream, password)
     else:
-        raw, page_count, version, encrypted = _Document.load_metadata(str(filename), password)
+        raw, page_count, version, encrypted, repaired = _Document.load_metadata(str(filename), password)
+    if repaired:
+        _warnings.warn(
+            "recovered a PDF with an incorrect startxref offset",
+            PylopdfWarning,
+            stacklevel=2,
+        )
     return {
         "title": raw.get("Title", ""),
         "author": raw.get("Author", ""),
@@ -2939,4 +2955,5 @@ def peek_metadata(
         "format": f"PDF {version}",
         "page_count": page_count,
         "encrypted": encrypted,
+        "repaired": repaired,
     }

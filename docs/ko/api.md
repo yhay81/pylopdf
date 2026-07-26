@@ -21,6 +21,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `page_count` / `len(doc)` | 페이지 수 |
 | `limits` / `complexity` | 열 때의 불변 리소스 정책 / stream 디코딩 없는 저비용 구조 지표 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 암호화 상태와 잠금 해제（pymupdf 의미론） |
+| `is_repaired` | 열 때 마지막 classic `startxref` 오류를 복구했는지 여부. 저장하면 xref data를 정규화 |
 | `metadata` / `set_metadata(dict)` | Info 딕셔너리（UTF-16BE 지원） |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown 변환(제목, CJK 연결, 강조, 목록, 다단 및 보수적인 세로쓰기 순서, 기본 테두리 표, `"text"`로 테두리 없는 표 추가, `None`으로 표 변환 비활성화) |
@@ -110,7 +111,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 
 | 이름 | 용도 |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | 전체 파싱 없이 메타데이터와 페이지 수를 빠르게 조회 |
+| `peek_metadata(path_or_stream, password=)` | 빠른 메타데이터·페이지 수 조회. `repaired`는 제한된 classic `startxref` 복구를 표시 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
@@ -124,7 +125,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG 전용 `save(path)`; cp314t에서는 읽기 전용 zero-copy `memoryview()`도 지원 |
-| `PylopdfWarning` | 인터프리터 경고（글꼴 해석, 이미지 디코딩） |
+| `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 
 `TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의
 사전입니다. `LinkInfo`에는 `kind`와 `from`이 필수이고 대상별 키는 선택 사항입니다.

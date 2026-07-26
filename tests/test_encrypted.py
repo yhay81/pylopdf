@@ -68,6 +68,7 @@ def test_unauthenticated_use_is_encrypted_document_error() -> None:
 def test_peek_metadata_reports_encrypted_flag() -> None:
     meta = pylopdf.peek_metadata(ASSETS / "user-aes-256.pdf")
     assert meta["encrypted"] is True
+    assert meta["repaired"] is False
 
 
 @USER
