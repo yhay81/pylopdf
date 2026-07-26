@@ -27,11 +27,11 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。最大4,096 page・累積UTF-8出力上限（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
-| `set_fallback_font(font, kind=, index=)` | 非埋め込み CJK の代替フォント |
+| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/delete/insert batchは4,096 entry上限 |
 | `get_toc()` / `set_toc(toc)` | cycle対応・上限付きのしおり（1始まり。4,096 entry/node、8,192 edge、深さ64、text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | field tree・名前・値・button stateに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | field tree・名前・値・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 展開・追加metadata・inline FileSpec clone形状に上限を持つ添付ファイル操作。`max_size=None`で明示的に展開上限を解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`。`max_size=None`で解除 |
@@ -62,8 +62,8 @@ skipし、inline画像は集計対象外です。同じ設定の再実行は冪�
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | 標準14または字形処理済みsubsetを印字。`pylopdf[cjk]`導入時は日本語・漢字にJP fontを自動選択 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14、明示OpenType、または自動選択JP fontの実幅でUAX #14折り返し。残り高さを返し、収まらなければ描画しない |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB)` | 標準14または上限付きshape済みsubsetを印字。`pylopdf[cjk]`はJP fontを自動選択。信頼できるfont inputは`None`で解除 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB)` | Core 14、上限付きOpenType、または自動JP fontの実幅でUAX #14折り返し。収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取り、1 call 1回のcycle-aware named-destination index、作成 |

@@ -60,7 +60,7 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `embedded_file_size`、`xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`decompression_unverifiable`の
+`image_pixel_count`、`font_input_size`、`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 
@@ -91,6 +91,10 @@ xref dataを正規化します。
   既定64,000,000画素に制限します。filenameはGILを解放したRust境界で上限付きで
   読み、PNG dimensionはdecoded storage確保前に検査します。信頼できるworkloadは
   `max_size=None`／`max_pixels=None`で明示解除できます。
+- `insert_text`、`insert_textbox`、`set_form_field`、`set_fallback_font`の
+  明示／自動OpenType inputは既定64 MiBです。bufferはPyO3 copy前に拒否し、
+  filenameはGILを解放した上限付きRust pathで読みます。信頼できるworkloadは
+  `max_font_size=None`で明示解除できます。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが

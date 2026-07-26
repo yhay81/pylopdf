@@ -183,6 +183,42 @@ def test_image_insertion_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_pa
     assert doc.save_bytes() == before
 
 
+def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: Path) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+    color = (0.0, 0.0, 0.0)
+
+    calls = [
+        lambda: doc.set_fallback_font("sans", b"too large", 0, 1),
+        lambda: doc.set_form_field("missing", "x", b"too large", 0, 1),
+        lambda: doc.insert_embedded_text(1, (10.0, 20.0), ["x"], b"too large", 0, 11.0, color, True, 1),
+        lambda: doc.insert_embedded_textbox(
+            1,
+            (10.0, 10.0, 100.0, 80.0),
+            "x",
+            b"too large",
+            0,
+            11.0,
+            1.2,
+            0,
+            color,
+            True,
+            1,
+        ),
+    ]
+    for call in calls:
+        with pytest.raises(LimitError) as caught:
+            call()
+        assert caught.value.args[0] == "font_input_size"
+
+    font_path = tmp_path / "font.otf"
+    font_path.write_bytes(b"too large")
+    with pytest.raises(LimitError) as file_limit:
+        doc.set_fallback_font_file("sans", str(font_path), 0, 1)
+    assert file_limit.value.args[0] == "font_input_size"
+    assert doc.save_bytes() == before
+
+
 def test_merge_into_empty(three_page_pdf: bytes) -> None:
     doc = _Document()
     doc.merge(_Document.load_bytes(three_page_pdf))

@@ -603,6 +603,13 @@ known-limit behavior are polished together.
       PNG IHDR dimensions before allocating decoded storage. Direct core calls
       repeat both limits, stable codes distinguish encoded bytes from pixels,
       and `None` explicitly opts trusted workloads out (2026-07-26).
+- [x] Bound every explicit and automatically selected OpenType input path.
+      `insert_text`, `insert_textbox`, `set_form_field`, and
+      `set_fallback_font` share `max_font_size=64 MiB`; byte input is rejected
+      before PyO3 copying, file input uses a one-byte-overrun bounded Rust read
+      with the GIL released, direct core calls repeat the boundary, and failed
+      reads preserve document and fallback-cache state. `font_input_size` is the
+      stable code and `None` is the trusted-input opt-out (2026-07-26).
 - [x] Translate runtime errors and warnings to English before API freeze
       (2026-07-24, about 100 Rust/Python messages plus tests).
 - [x] Make English canonical for repository documentation, comments, docstrings,

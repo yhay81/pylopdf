@@ -283,6 +283,20 @@ def test_invalid_embedded_font_does_not_partially_update_field() -> None:
     assert _opaque_pixels(doc, (45, 67, 255, 97)) == 0
 
 
+def test_form_font_input_boundary_preserves_field() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    font_size = NOTO_SANS_JP.stat().st_size
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc.set_form_field("customer", "updated", fontfile=NOTO_SANS_JP, max_font_size=font_size - 1)
+
+    assert caught.value.code == "font_input_size"
+    assert {field["name"]: field["value"] for field in doc.get_form_fields()}["customer"] == "initial"
+
+    doc.set_form_field("customer", "updated", fontfile=NOTO_SANS_JP, max_font_size=font_size)
+    assert {field["name"]: field["value"] for field in doc.get_form_fields()}["customer"] == "updated"
+
+
 def test_form_errors() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     with pytest.raises(pylopdf.PdfError, match="not found"):

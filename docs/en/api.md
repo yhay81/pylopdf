@@ -28,11 +28,11 @@ deprecation lifecycle.
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG bytes, ordered parallel batches capped at 4,096 pages and cumulative encoded output, or bounded UTF-8 SVG (`None` opts out) |
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
-| `set_fallback_font(font, kind=, index=)` | CJK fallback for non-embedded fonts |
+| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | bounded CJK fallback for non-embedded fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management; select/delete/insert batches are capped at 4,096 entries |
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines (1-based pages; 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | bounded AcroForm list & fill with native, bounded widget appearances |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | bounded AcroForm list & fill with native, bounded widget appearances and font input |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with bounded decoding, add metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`; `max_size=None` opts out |
@@ -64,8 +64,8 @@ images are not considered. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | standard-14 WinAnsi or shaped subset text; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | UAX #14 wrapping with Core 14, explicit OpenType, or auto-selected JP metrics; returns spare height and draws nothing on overflow |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB)` | standard-14 WinAnsi or bounded shaped subset text; `pylopdf[cjk]` auto-selects its JP font; `None` opts trusted font input out |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB)` | UAX #14 wrapping with Core 14, bounded OpenType, or auto-selected JP metrics; returns spare height and draws nothing on overflow |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads, one cycle-aware named-destination index per call, and creation |

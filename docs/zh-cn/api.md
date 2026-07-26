@@ -27,11 +27,11 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `render_page(...)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | PNG、带4,096页及累计encoded output上限的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
-| `set_fallback_font(font, kind=, index=)` | 未嵌入字体时的CJK后备字体 |
+| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 未嵌入字体时的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete/insert batch上限为4,096个entry |
 | `get_toc()` / `set_toc(toc)` | 可处理cycle且有上限的书签（页码从1开始；4,096个entry/node、8,192条edge、64层、1 MiB文本） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 有界地列出与填写AcroForm，并生成有界的原生widget外观 |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，并限制原生widget外观和font input |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对解码、添加metadata及inline FileSpec clone形状设有上限的附件；`max_size=None`可显式取消解码上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=`；`max_size=None`取消上限 |
@@ -61,8 +61,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=)` | Standard-14或shape后的subset文本；`pylopdf[cjk]`可为日文／汉字自动选择JP font |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | 使用Core 14、显式OpenType或自动JP font宽度进行UAX #14换行；返回剩余高度，溢出时不绘制 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB)` | Standard-14或有界shape subset文本；`pylopdf[cjk]`自动选择JP font；可信font input可用`None`取消上限 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB)` | 使用Core 14、有界OpenType或自动JP font宽度进行UAX #14换行；溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取、每次call一个cycle-aware named-destination index与创建 |

@@ -283,7 +283,11 @@ overview.
   `CIDSystemInfo` or the `BaseFont` name. Serif-like names use the serif slot;
   other names use sans. Font files come from
   `fonts/pylopdf-fonts-cjk/`, an uv workspace member exposed through the `[cjk]`
-  extra and auto-detected during rendering.
+  extra and auto-detected during rendering. Explicit and auto-selected fallback
+  font input shares the 64 MiB default OpenType boundary described below.
+  Auto-discovery keeps package assets as paths and reads both sans and serif
+  successfully before one cache update. Failed path reads or size checks must
+  preserve configured fonts and caches.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later
@@ -330,9 +334,14 @@ overview.
   Japanese/Han text auto-selects the optional `pylopdf[cjk]` JP-subset sans
   font, or serif for Times aliases. This selects one font for the complete run;
   it is not per-glyph fallback. Hangul, locale-specific Chinese typography, and
-  other scripts need an explicit font. Paragraph layout remains outside
-  `insert_text`. RTL shapes render, but extraction currently follows visual
-  order.
+  other scripts need an explicit font. `insert_text`, `insert_textbox`,
+  `set_form_field`, and `set_fallback_font` share a 64 MiB default OpenType
+  boundary. Python rejects buffer input before PyO3 copying; file input uses a
+  one-byte-overrun bounded Rust read with the GIL released. Direct byte/path
+  core variants repeat the check, `max_font_size=None` explicitly opts trusted
+  input out, and failures use `font_input_size` without mutation. Paragraph
+  layout remains outside `insert_text`. RTL shapes render, but extraction
+  currently follows visual order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.

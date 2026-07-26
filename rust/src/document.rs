@@ -102,6 +102,7 @@ const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
 /// Default public boundaries for encoded and decoded image insertion input.
 const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
+const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
 
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
@@ -867,6 +868,37 @@ fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
         "encoded image input",
         "failed to load image",
     )
+}
+
+/// Read OpenType font input without admitting more than one byte beyond its budget.
+fn read_font_input(path: &str, max_font_size: Option<usize>) -> PyResult<Vec<u8>> {
+    read_bounded_input(
+        path,
+        max_font_size,
+        "font_input_size",
+        "font input",
+        "failed to load font",
+    )
+}
+
+fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyResult<()> {
+    if max_font_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_font_size must be a positive integer or None",
+        ));
+    }
+    if let (Some(data), Some(limit)) = (data, max_font_size)
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "font_input_size",
+            format!(
+                "font input is {} bytes, exceeding the {limit}-byte limit",
+                data.len()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_image_input(
@@ -4721,7 +4753,20 @@ impl _Document {
     ///
     /// `kind` is `sans` (default) or `serif`. `data` contains TTF/OTF/TTC bytes;
     /// `index` selects a TTC face.
-    fn set_fallback_font(&mut self, kind: &str, data: Vec<u8>, index: u32) -> PyResult<()> {
+    #[pyo3(signature = (
+        kind,
+        data,
+        index,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn set_fallback_font(
+        &mut self,
+        kind: &str,
+        data: Vec<u8>,
+        index: u32,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(Some(&data), max_font_size)?;
         let slot = match kind {
             "sans" => &mut self.fallback_fonts.sans,
             "serif" => &mut self.fallback_fonts.serif,
@@ -4732,6 +4777,51 @@ impl _Document {
             }
         };
         *slot = Some((Arc::new(data), index));
+        self.invalidate_interpreted_pages();
+        Ok(())
+    }
+
+    /// Read and configure bounded CJK fallback font input from a path.
+    #[pyo3(signature = (
+        kind,
+        path,
+        index,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn set_fallback_font_file(
+        &mut self,
+        py: Python<'_>,
+        kind: &str,
+        path: &str,
+        index: u32,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(None, max_font_size)?;
+        let data = py.detach(|| read_font_input(path, max_font_size))?;
+        self.set_fallback_font(kind, data, index, max_font_size)
+    }
+
+    /// Atomically read and configure both bundled CJK fallback font paths.
+    #[pyo3(signature = (
+        sans_path,
+        serif_path,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn set_fallback_font_files(
+        &mut self,
+        py: Python<'_>,
+        sans_path: &str,
+        serif_path: &str,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(None, max_font_size)?;
+        let (sans, serif) = py.detach(|| {
+            let sans = read_font_input(sans_path, max_font_size)?;
+            let serif = read_font_input(serif_path, max_font_size)?;
+            Ok::<_, PyErr>((sans, serif))
+        })?;
+        self.fallback_fonts.sans = Some((Arc::new(sans), 0));
+        self.fallback_fonts.serif = Some((Arc::new(serif), 0));
         self.invalidate_interpreted_pages();
         Ok(())
     }
@@ -6356,7 +6446,13 @@ impl _Document {
     }
 
     /// Set a form-field value and generate native widget appearances.
-    #[pyo3(signature = (name, value, font_data=None, font_index=0))]
+    #[pyo3(signature = (
+        name,
+        value,
+        font_data=None,
+        font_index=0,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
     fn set_form_field(
         &mut self,
         py: Python<'_>,
@@ -6364,7 +6460,9 @@ impl _Document {
         value: &str,
         font_data: Option<Vec<u8>>,
         font_index: u32,
+        max_font_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_font_input(font_data.as_deref(), max_font_size)?;
         if value.len() > MAX_FORM_FIELD_VALUE_BYTES {
             return Err(PdfError::new_err(format!(
                 "form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
@@ -6393,6 +6491,28 @@ impl _Document {
             self.invalidate_hayro_pdf();
         }
         result
+    }
+
+    /// Set a form-field value using bounded OpenType font input from a path.
+    #[pyo3(signature = (
+        name,
+        value,
+        path,
+        font_index=0,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn set_form_field_file(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        path: &str,
+        font_index: u32,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(None, max_font_size)?;
+        let data = py.detach(|| read_font_input(path, max_font_size))?;
+        self.set_form_field(py, name, value, Some(data), font_index, max_font_size)
     }
 
     /// Return sorted attachment names independent of name-tree order.
@@ -6756,6 +6876,17 @@ impl _Document {
     /// existing object-import and placement path.
     // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        point,
+        lines,
+        font_data,
+        font_index,
+        fontsize,
+        color,
+        overlay,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
     fn insert_embedded_text(
         &mut self,
         py: Python<'_>,
@@ -6767,7 +6898,9 @@ impl _Document {
         fontsize: f64,
         color: (f64, f64, f64),
         overlay: bool,
+        max_font_size: Option<usize>,
     ) -> PyResult<()> {
+        validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         self.preflight_page_content(page_number)?;
         let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
@@ -6796,8 +6929,63 @@ impl _Document {
         )
     }
 
+    /// Draw subset-embedded text using bounded OpenType font input from a path.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        point,
+        lines,
+        path,
+        font_index,
+        fontsize,
+        color,
+        overlay,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn insert_embedded_text_file(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: Vec<String>,
+        path: &str,
+        font_index: u32,
+        fontsize: f64,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(None, max_font_size)?;
+        let data = py.detach(|| read_font_input(path, max_font_size))?;
+        self.insert_embedded_text(
+            py,
+            page_number,
+            point,
+            lines,
+            data,
+            font_index,
+            fontsize,
+            color,
+            overlay,
+            max_font_size,
+        )
+    }
+
     /// Lay out and draw subset-embedded OpenType text inside a display rectangle.
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        text,
+        font_data,
+        font_index,
+        fontsize,
+        line_height,
+        align,
+        color,
+        overlay,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
     fn insert_embedded_textbox(
         &mut self,
         py: Python<'_>,
@@ -6811,7 +6999,9 @@ impl _Document {
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
+        max_font_size: Option<usize>,
     ) -> PyResult<f64> {
+        validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
         let page_size = if matches!(rotation, 90 | 270) {
@@ -6851,6 +7041,54 @@ impl _Document {
             overlay,
         )?;
         Ok(spare_height)
+    }
+
+    /// Lay out subset-embedded text using bounded OpenType font input from a path.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        text,
+        path,
+        font_index,
+        fontsize,
+        line_height,
+        align,
+        color,
+        overlay,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn insert_embedded_textbox_file(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        path: &str,
+        font_index: u32,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_font_size: Option<usize>,
+    ) -> PyResult<f64> {
+        validate_font_input(None, max_font_size)?;
+        let data = py.detach(|| read_font_input(path, max_font_size))?;
+        self.insert_embedded_textbox(
+            py,
+            page_number,
+            rect,
+            text,
+            data,
+            font_index,
+            fontsize,
+            line_height,
+            align,
+            color,
+            overlay,
+            max_font_size,
+        )
     }
 
     /// Replace text on a one-based page and return the replacement count.
