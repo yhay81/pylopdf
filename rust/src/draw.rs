@@ -798,15 +798,20 @@ fn ensure_contents_wrapped(doc: &mut Document, page_id: ObjectId) -> Result<(), 
     if contents.is_empty() {
         return Ok(());
     }
-    let stream_bytes = |doc: &Document, id: ObjectId| -> Option<Vec<u8>> {
+    let is_exact_stream = |id: ObjectId, expected: &[u8]| {
         doc.get_object(id)
             .ok()
             .and_then(|o| o.as_stream().ok())
-            .map(|s| s.content.clone())
+            .is_some_and(|stream| stream.content == expected)
     };
-    let first = contents.first().and_then(|&id| stream_bytes(doc, id));
-    let last = contents.last().and_then(|&id| stream_bytes(doc, id));
-    if contents.len() >= 2 && first.as_deref() == Some(b"q\n") && last.as_deref() == Some(b"Q\n") {
+    if contents.len() >= 2
+        && contents
+            .first()
+            .is_some_and(|&id| is_exact_stream(id, b"q\n"))
+        && contents
+            .last()
+            .is_some_and(|&id| is_exact_stream(id, b"Q\n"))
+    {
         return Ok(());
     }
     let q_id =
