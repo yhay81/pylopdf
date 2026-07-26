@@ -366,8 +366,12 @@ deadline, only accurate, measurable, coherent boundaries.
   The current boundary also stops iterable materialization at 4,096 pages and
   atomically caps cumulative encoded PNG output at 512 MiB by default without
   partial results. Document mutation/other same-document calls from external
-  threads remain outside the contract. Published scaling on 12 usrguide pages at 2x:
-  1/2/4/8 workers = 400.8/200.5/118.5/83.6 ms.
+  threads remain outside the contract. Latest scaling on 12 usrguide pages at 2x:
+  1/2/4/8 workers = 317.4/179.6/99.1/81.5 ms.
+  Unreleased per-call cache reuse now keeps one hayro `RenderCache` for serial
+  execution and one per native worker while an atomic page queue retains dynamic
+  load balancing. Interleaved before/after medians on the same workload improved
+  by 10.6%/9.2%/6.3%/4.2% at 1/2/4/8 workers.
 - [x] Add `get_pixmap(clip=)` in rotation-resolved display coordinates with
   outward pixel rounding, page intersection, and explicit non-intersection
   errors. hayro 0.7 lacks an offset viewport, so this initially crops the
@@ -669,7 +673,7 @@ rather than waiting automatically for v1.x.
       repeated table workflows while keeping table-only geometry off the common
       text path.
 - [x] Add `Document.render_pages(workers=)` as the supported same-document
-      parallel rendering boundary; measured at 2.00x / 3.38x / 4.80x for
+      parallel rendering boundary; measured at 1.77x / 3.20x / 3.89x for
       two/four/eight workers in the published benchmark. Its
       Python-orchestration value grows further with cp314t.
 - Keep annotation/widget dict and tuple APIs until mutation grows enough to
@@ -689,10 +693,13 @@ rather than waiting automatically for v1.x.
       rasterization, responsible for up to 85%; png's default
       Balanced+Adaptive managed about 11 MB/s on photos. Switching to
       Fast/fdeflate and releasing the GIL made pylopdf faster than pymupdf on all
-      seven corpus renders, including `wdl6812` from 278 to 43 ms. Remaining
-      candidates: reuse `RenderCache` for the hayro PDF lifetime, worth 27–35%
-      but requiring a self-reference design; zlib-rs for high compression; and
-      upstream hayro stencil-mask and `num_threads` improvements.
+      seven corpus renders, including `wdl6812` from 278 to 43 ms. Per-call
+      `RenderCache` reuse now improves serial and bounded parallel batches
+      without unsafe self-references or cross-thread cache sharing.
+      Document-lifetime cross-call reuse would still require a self-reference
+      design and should proceed only if it shows additional measured value.
+      Other candidates are zlib-rs for high compression and upstream hayro
+      stencil-mask and `num_threads` improvements.
 - [x] Add font names and pymupdf-compatible flags to extraction spans from
       embedded font weight/italic metadata. `to_markdown` now emits emphasis.
       Standard 14 Type 1 fonts still produce flags 0 because hayro exposes no
