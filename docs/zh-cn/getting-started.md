@@ -36,7 +36,9 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 ```
 
 使用`password=`打开加密PDF，也可稍后调用`doc.authenticate()`。
-`pylopdf.peek_metadata(path)`无需解析整个文件即可读取元数据和页数，适合扫描大型文件集。
+通常，`pylopdf.peek_metadata(path)`无需解析整个文件即可读取元数据和页数，适合扫描
+大型文件集。若受限修复了最终classic `startxref`，`repaired`与`doc.is_repaired`为
+`True`，并发出`PylopdfWarning`；保存会规范化xref数据。
 处理不受信任的文件时，请传入`limits=pylopdf.DocumentLimits.web()`，以限制文件、
 结构、解压和已解释文本。重型处理前可检查`doc.complexity`，受控拒绝会抛出
 `LimitError`。各项预算请参阅[安全](security.md#untrusted-pdfs)。

@@ -21,6 +21,12 @@ limitations early. Every bundled document has a redistributable license.
 
 ## Previously known limitations, now fixed
 
+- **An incorrect final classic `startxref` offset prevented opening otherwise
+  intact files.** `test_incorrect_classic_startxref_is_repaired_atomically`
+  derives a damaged case at runtime from the CC BY 4.0 `pdf20-simple.pdf`.
+  Related regressions cover path probing, prefixed transport bytes,
+  save/reopen normalization, xref-stream refusal, and refusal to roll back to a
+  previous classic-xref revision. No additional binary fixture is stored.
 - **Text extraction from `pdf20-simple.pdf` returned nothing.** lopdf's content
   parser dropped every operation after a `%` comment followed by an indented
   line, reported upstream as

@@ -60,6 +60,11 @@ Web预设目前独立应用以下上限：
 字节数以及直接对象最大深度，适合在重型提取前进行routing。结构和解压预算验证
 打开时的source；生成结果若要跨越新的trust boundary，请用同一策略重新打开。
 
+宽松打开只执行一种受限修复：仅当同一最终revision中存在完整classic xref table，
+并且在原有上限下完整解析成功时，才替换错误的最终`startxref`。它不会扫描object
+header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarning`，令
+`doc.is_repaired`（metadata probe中的`repaired`）为`True`；保存会规范化xref数据。
+
 - 每页渲染上限为6400万像素。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
 - `render_pages()`已有正常的内存受限准入；不要在application层叠加无限并行。

@@ -22,6 +22,7 @@ deprecation lifecycle.
 | `page_count` / `len(doc)` | number of pages |
 | `limits` / `complexity` | immutable open-time resource policy / cheap structural facts without stream decoding |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock (pymupdf semantics) |
+| `is_repaired` | whether opening repaired an incorrect final classic `startxref`; saving normalizes the xref data |
 | `metadata` / `set_metadata(dict)` | Info dictionary (UTF-16BE aware) |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `to_markdown(pages=None, table_strategy="lines")` | Markdown conversion (headings, CJK joining, emphasis, lists, multicolumn and conservative vertical-CJK order; bordered tables by default, `"text"` adds borderless tables, `None` disables tables) |
@@ -117,7 +118,7 @@ metrics. `TableFinder.strategy` and
 
 | Name | Purpose |
 |---|---|
-| `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe without full parsing |
+| `peek_metadata(path_or_stream, password=)` | fast metadata/page-count probe; `repaired` reports bounded classic-`startxref` recovery |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
@@ -130,7 +131,7 @@ metrics. `TableFinder.strategy` and
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes()` / PNG-only `save(path)`; cp314t also supports read-only zero-copy `memoryview()` |
-| `PylopdfWarning` | interpreter warnings (font resolution, image decode) |
+| `PylopdfWarning` | recoverable interpretation warnings (xref repair, font resolution, image decode) |
 
 The `TypedDict` contracts affect static typing only; values remain ordinary
 pymupdf-style dictionaries. `LinkInfo` requires `kind` and `from`, with

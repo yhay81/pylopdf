@@ -259,7 +259,7 @@ merged.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRIN
 
 # Fast metadata probe without parsing the whole file
 info = pylopdf.peek_metadata("input.pdf")
-print(info["title"], info["page_count"], info["encrypted"])
+print(info["title"], info["page_count"], info["encrypted"], info["repaired"])
 
 # Context manager
 with pylopdf.open("input.pdf") as doc:
@@ -270,6 +270,10 @@ doc = pylopdf.open("locked.pdf", password="secret")
 doc = pylopdf.open("locked.pdf")
 if doc.needs_pass:
     doc.authenticate("secret")  # 0=failed, 2=user, 4=owner, 6=both
+
+# A bounded repair of an incorrect final classic startxref is always visible.
+if doc.is_repaired:
+    doc.save("normalized.pdf")
 
 # CJK fallback font for PDFs without embedded fonts
 # (automatic with pylopdf[cjk]; or bring your own font)
@@ -360,6 +364,7 @@ signed_pdf: bytes = out.getvalue()
 | `Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` | Open from a path or bytes; empty document if both are None. Use `limits=DocumentLimits.web()` for a complete untrusted-upload policy; `max_decompressed_size` remains the compatible per-stream shorthand |
 | `doc[i]` / `load_page(pno)` / `for page in doc` | Get a Page view (negative indices count from the end; re-fetch after structural changes) |
 | `needs_pass` / `is_encrypted` | Encryption status (pymupdf-compatible semantics) |
+| `is_repaired` | Whether opening repaired an incorrect final classic `startxref`; a `PylopdfWarning` is also emitted and saving normalizes the xref data |
 | `authenticate(password)` | Decrypt with a password (returns 0/1/2/4/6, pymupdf-compatible) |
 | `page_count` / `len(doc)` | Number of pages |
 | `limits` / `complexity` | Immutable open-time resource policy / cheap page, object, stream, encoded-byte, and direct-depth facts without decoding |
@@ -417,13 +422,14 @@ Module level:
 
 | Name | Description |
 |---|---|
-| `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe without parsing the whole file |
+| `peek_metadata(filename/stream, password=None)` | Fast metadata / page-count / encryption probe; `repaired` reports bounded classic-`startxref` recovery |
 | `Permissions` | Encryption permission flags (IntFlag) |
 | `Rect` | Rectangle NamedTuple with `width` / `height` |
 | `ImageCompressionResult` | Typed counts and rewritten source/result byte totals from `compress_images()` |
 | `DrawingInfo` / `DrawingItem` | Typed vector-path dictionary and its line/cubic command union |
 | `TEXT_ALIGN_LEFT` / `CENTER` / `RIGHT` / `JUSTIFY` | `insert_textbox` alignment constants (0–3, pymupdf-compatible) |
 | `OcrEngine` / `OcrWord` / `OcrRotation` | Reusable pure-Rust PP-OCR engine, its typed positioned-word result, and the `0 / 90 / 180 / 270` clockwise-correction contract |
+| `PylopdfWarning` | Recoverable interpretation warning, including bounded xref repair, font resolution, and image decoding |
 | Exceptions | `PdfError` (ValueError-compatible base), `PasswordError`, `OcrError`, `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError` |
 
 For low-level access, use `pylopdf.pylopdf_core._Document` (a thin lopdf wrapper) directly.

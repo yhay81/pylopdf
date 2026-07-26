@@ -69,6 +69,13 @@ renderer, so it is suitable for routing work before extraction. Structural and
 decompression budgets validate the opened source; reopen generated output with
 the same policy when it must cross another trust boundary.
 
+Lenient opening performs one bounded repair: it may replace an incorrect final
+`startxref` only when an intact classic xref table exists in the same final
+revision and a complete parse succeeds under the original limits. It does not
+scan object headers, repair xref streams, or roll back to an earlier revision.
+The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
+probe's `repaired` key), and saving rewrites normalized xref data.
+
 - Rendering is capped at 64 megapixels per page.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add

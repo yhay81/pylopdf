@@ -207,6 +207,14 @@ overview.
   PDFs require the `password` argument or `authenticate()`, which reopens the
   document with a password. `_ensure_open` must check `is_encrypted` because an
   undecrypted document otherwise appears to have zero pages.
+- Lenient opening repairs only an incorrect final `startxref` that points away
+  from an intact classic xref table in the final revision. The bounded linear
+  scan requires the final `%%EOF`, `startxref`, classic header/entry, and
+  `trailer`; it never guesses objects, repairs xref streams, or falls back
+  across an earlier `%%EOF`. A full lopdf retry under the original password and
+  decompression limits remains authoritative. Repaired bytes feed hayro,
+  `PylopdfWarning` makes the event visible, `Document.is_repaired` and
+  `MetadataProbe.repaired` retain it, and saving normalizes the xref data.
 - CJK fallback replaces hayro's `font_resolver`
   (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name. Serif-like names use the serif slot;

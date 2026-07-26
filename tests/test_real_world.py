@@ -8,6 +8,7 @@ and hayro limitations early. The adjacent README records sources and licenses.
 from __future__ import annotations
 
 import time
+import warnings
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,21 @@ ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
 WITH_TEXT = pytest.mark.parametrize("case", [c for c in CASES if c.snippet is not None], ids=lambda c: c.name)
 
 
+def _with_incorrect_startxref(data: bytes) -> bytes:
+    """Replace the final classic startxref value without changing its table."""
+    eof = data.rfind(b"%%EOF")
+    startxref = data.rfind(b"startxref", 0, eof)
+    assert startxref >= 0
+    number_start = startxref + len(b"startxref")
+    while data[number_start] in b"\x00\t\n\x0c\r ":
+        number_start += 1
+    number_end = number_start
+    while data[number_end : number_end + 1].isdigit():
+        number_end += 1
+    assert number_end > number_start
+    return data[:number_start] + b"0" + data[number_end:]
+
+
 @ALL
 def test_open_from_path_and_stream(case: Case) -> None:
     path = ASSETS / case.name
@@ -72,6 +88,64 @@ def test_peek_metadata_matches_full_load(case: Case) -> None:
     meta = pylopdf.peek_metadata(ASSETS / case.name)
     assert meta["page_count"] == case.pages
     assert meta["encrypted"] is False
+    assert meta["repaired"] is False
+
+
+def test_incorrect_classic_startxref_is_repaired_atomically() -> None:
+    """Recover a real PDF 2.0 file only when its intact classic xref retries."""
+    damaged = _with_incorrect_startxref((ASSETS / "pdf20-simple.pdf").read_bytes())
+
+    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
+        doc = pylopdf.open(stream=damaged)
+
+    assert doc.is_repaired is True
+    assert doc.page_count == 1
+    assert "Hello World" in doc.get_page_text(0)
+
+    saved = doc.tobytes()
+    with warnings.catch_warnings(record=True) as caught:
+        reopened = pylopdf.open(stream=saved)
+    assert not caught
+    assert reopened.is_repaired is False
+    assert "Hello World" in reopened.get_page_text(0)
+
+
+def test_incorrect_startxref_path_probe_and_prefixed_stream(tmp_path: Path) -> None:
+    """Expose repair in probes and keep startxref relative to the PDF header."""
+    damaged = _with_incorrect_startxref((ASSETS / "pdf20-simple.pdf").read_bytes())
+    path = tmp_path / "incorrect-startxref.pdf"
+    path.write_bytes(damaged)
+
+    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
+        metadata = pylopdf.peek_metadata(path)
+    assert metadata["page_count"] == 1
+    assert metadata["repaired"] is True
+
+    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
+        prefixed = pylopdf.open(stream=b"transport prefix\n" + damaged)
+    assert prefixed.is_repaired is True
+    assert "Hello World" in prefixed.get_page_text(0)
+
+
+def test_xref_stream_is_not_guessed_during_startxref_recovery() -> None:
+    """Keep the fallback bounded to intact classic xref tables."""
+    damaged = _with_incorrect_startxref((ASSETS / "f1040.pdf").read_bytes())
+    with pytest.raises(pylopdf.PdfError):
+        pylopdf.open(stream=damaged)
+
+
+def test_previous_classic_xref_is_not_used_for_later_revision() -> None:
+    """Never discard a later xref-stream revision by opening its predecessor."""
+    base = (ASSETS / "pdf20-simple.pdf").read_bytes()
+    later_revision = (
+        base
+        + b"\n999 0 obj\n"
+        + b"<< /Type /XRef /Length 0 >>\nstream\n\nendstream\nendobj\n"
+        + b"startxref\n0\n%%EOF\n"
+    )
+
+    with pytest.raises(pylopdf.PdfError):
+        pylopdf.open(stream=later_revision)
 
 
 def test_max_decompressed_size_guards_against_bombs() -> None:

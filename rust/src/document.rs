@@ -38,6 +38,8 @@ const TEXT_PAGE_CACHE_CAPACITY: usize = 8;
 /// Keep table interpretations bounded independently from ordinary text pages.
 const TABLE_PAGE_CACHE_CAPACITY: usize = 8;
 
+const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
+
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
 const TEXT_FIELD_PASSWORD: i64 = 1 << 13;
 const TEXT_FIELD_FILE_SELECT: i64 = 1 << 20;
@@ -69,6 +71,9 @@ type LinkTuple = (
 
 /// Resolved link destination: page number, display point, zoom, named destination.
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
+
+/// Info strings, page count, version, encryption, and startxref-repair status.
+type MetadataTuple = (BTreeMap<String, String>, u32, String, bool, bool);
 
 /// Target geometry and drawing order for one placed PDF page.
 #[derive(Clone, Copy)]
@@ -252,6 +257,196 @@ fn load_err(prefix: Option<&str>, error: &lopdf::Error, limit_code: &'static str
         limit_err(limit_code, message)
     } else {
         lopdf_err(prefix, error)
+    }
+}
+
+fn is_pdf_whitespace(byte: u8) -> bool {
+    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
+}
+
+fn line_end(data: &[u8], start: usize) -> usize {
+    data[start..]
+        .iter()
+        .position(|byte| matches!(byte, b'\r' | b'\n'))
+        .map_or(data.len(), |offset| start + offset)
+}
+
+fn decimal_field(field: &[u8]) -> Option<usize> {
+    (!field.is_empty() && field.iter().all(u8::is_ascii_digit))
+        .then(|| {
+            field.iter().try_fold(0usize, |value, digit| {
+                value
+                    .checked_mul(10)?
+                    .checked_add(usize::from(*digit - b'0'))
+            })
+        })
+        .flatten()
+}
+
+/// Recognize only a classic xref table header plus its first entry.
+///
+/// This deliberately does not scan object headers or repair xref streams. The
+/// retrying lopdf parse remains the authority for the complete table/trailer.
+fn looks_like_classic_xref(data: &[u8], offset: usize) -> bool {
+    if data.get(offset..offset.saturating_add(4)) != Some(b"xref")
+        || (offset > 0 && !matches!(data[offset - 1], b'\r' | b'\n'))
+    {
+        return false;
+    }
+    let mut cursor = offset + 4;
+    while matches!(data.get(cursor), Some(b' ' | b'\t')) {
+        cursor += 1;
+    }
+    if !matches!(data.get(cursor), Some(b'\r' | b'\n')) {
+        return false;
+    }
+    while matches!(data.get(cursor), Some(byte) if is_pdf_whitespace(*byte)) {
+        cursor += 1;
+    }
+    let header_end = line_end(data, cursor);
+    let mut header = data[cursor..header_end]
+        .split(|byte| matches!(byte, b' ' | b'\t'))
+        .filter(|field| !field.is_empty());
+    let Some(start_object) = header.next().and_then(decimal_field) else {
+        return false;
+    };
+    let Some(entry_count) = header.next().and_then(decimal_field) else {
+        return false;
+    };
+    if header.next().is_some() || start_object > u32::MAX as usize || entry_count == 0 {
+        return false;
+    }
+    cursor = header_end;
+    while matches!(data.get(cursor), Some(byte) if is_pdf_whitespace(*byte)) {
+        cursor += 1;
+    }
+    let entry_end = line_end(data, cursor);
+    let mut entry = data[cursor..entry_end]
+        .split(|byte| matches!(byte, b' ' | b'\t'))
+        .filter(|field| !field.is_empty());
+    let valid_offset = entry
+        .next()
+        .is_some_and(|field| field.len() == 10 && field.iter().all(u8::is_ascii_digit));
+    let valid_generation = entry
+        .next()
+        .is_some_and(|field| field.len() == 5 && field.iter().all(u8::is_ascii_digit));
+    let valid_kind = entry
+        .next()
+        .is_some_and(|field| matches!(field, b"n" | b"f"));
+    valid_offset && valid_generation && valid_kind && entry.next().is_none()
+}
+
+fn last_subslice(data: &[u8], needle: &[u8], end: usize) -> Option<usize> {
+    data.get(..end)?
+        .windows(needle.len())
+        .rposition(|window| window == needle)
+}
+
+/// Patch one incorrect final `startxref` value when a classic table is intact.
+///
+/// The scan is linear, considers only the last structurally plausible classic
+/// table before the final startxref, and never guesses object offsets. Callers
+/// accept the patch only when a complete bounded lopdf retry succeeds.
+fn repair_classic_startxref(data: &[u8]) -> Option<Vec<u8>> {
+    let pdf_start = data.windows(5).position(|window| window == b"%PDF-")?;
+    let eof = last_subslice(data, b"%%EOF", data.len())?;
+    let startxref = last_subslice(data, b"startxref", eof)?;
+    if startxref <= pdf_start {
+        return None;
+    }
+    let mut number_start = startxref + b"startxref".len();
+    while matches!(data.get(number_start), Some(byte) if is_pdf_whitespace(*byte)) {
+        number_start += 1;
+    }
+    let mut number_end = number_start;
+    while matches!(data.get(number_end), Some(byte) if byte.is_ascii_digit()) {
+        number_end += 1;
+    }
+    let current = decimal_field(data.get(number_start..number_end)?)?;
+
+    let mut xref = None;
+    for (relative, window) in data[pdf_start..startxref].windows(4).enumerate() {
+        if window == b"xref" {
+            let candidate = pdf_start + relative;
+            let final_revision = !data[candidate..startxref]
+                .windows(b"%%EOF".len())
+                .any(|window| window == b"%%EOF")
+                && !data[candidate..startxref]
+                    .windows(b"endobj".len())
+                    .any(|window| window == b"endobj")
+                && data[candidate..startxref]
+                    .windows(b"trailer".len())
+                    .any(|window| window == b"trailer");
+            if final_revision && looks_like_classic_xref(data, candidate) {
+                xref = Some(candidate);
+            }
+        }
+    }
+    let xref = xref?;
+    let relative_xref = xref.checked_sub(pdf_start)?;
+    if current == relative_xref {
+        return None;
+    }
+    let replacement = relative_xref.to_string();
+    let mut repaired = Vec::with_capacity(
+        data.len()
+            .checked_sub(number_end - number_start)?
+            .checked_add(replacement.len())?,
+    );
+    repaired.extend_from_slice(&data[..number_start]);
+    repaired.extend_from_slice(replacement.as_bytes());
+    repaired.extend_from_slice(&data[number_end..]);
+    Some(repaired)
+}
+
+fn xref_recovery_candidate(error: &lopdf::Error) -> bool {
+    matches!(
+        error,
+        lopdf::Error::Parse(_) | lopdf::Error::Xref(_) | lopdf::Error::InvalidOffset(_)
+    )
+}
+
+fn load_document_with_recovery(
+    data: &[u8],
+    options: LoadOptions,
+) -> lopdf::Result<(Document, Option<Vec<u8>>)> {
+    let original_error = match Document::load_mem_with_options(data, options.clone()) {
+        Ok(document) => return Ok((document, None)),
+        Err(error) => error,
+    };
+    if options.strict || !xref_recovery_candidate(&original_error) {
+        return Err(original_error);
+    }
+    let Some(repaired) = repair_classic_startxref(data) else {
+        return Err(original_error);
+    };
+    match Document::load_mem_with_options(&repaired, options) {
+        Ok(document) => Ok((document, Some(repaired))),
+        Err(_) => Err(original_error),
+    }
+}
+
+fn load_metadata_with_recovery(
+    data: &[u8],
+    password: Option<&str>,
+) -> lopdf::Result<(PdfMetadata, bool)> {
+    let load = |input: &[u8]| match password {
+        Some(password) => Document::load_metadata_mem_with_password(input, password),
+        None => Document::load_metadata_mem(input),
+    };
+    let original_error = match load(data) {
+        Ok(metadata) => return Ok((metadata, false)),
+        Err(error) => error,
+    };
+    if !xref_recovery_candidate(&original_error) {
+        return Err(original_error);
+    }
+    let Some(repaired) = repair_classic_startxref(data) else {
+        return Err(original_error);
+    };
+    match load(&repaired) {
+        Ok(metadata) => Ok((metadata, true)),
+        Err(_) => Err(original_error),
     }
 }
 
@@ -1251,6 +1446,8 @@ pub struct _Document {
     max_text_size: Option<usize>,
     /// Glyph payload already admitted for each interpreted page.
     interpreted_text_sizes: HashMap<u32, usize>,
+    /// Whether loading repaired an incorrect final classic startxref offset.
+    is_repaired: bool,
     /// Hayro warnings from the latest render/extraction, written by the
     /// interpreter-settings sink and drained by `take_warnings`.
     pending_warnings: Arc<Mutex<Vec<String>>>,
@@ -1263,6 +1460,21 @@ impl _Document {
         hayro_source: Option<Vec<u8>>,
         max_text_size: Option<usize>,
     ) -> Self {
+        Self::from_loaded_doc(doc, hayro_source, max_text_size, false)
+    }
+
+    /// Construct from a loaded document and retain visible recovery state.
+    fn from_loaded_doc(
+        doc: Document,
+        hayro_source: Option<Vec<u8>>,
+        max_text_size: Option<usize>,
+        is_repaired: bool,
+    ) -> Self {
+        let pending = if is_repaired {
+            vec![XREF_REPAIR_WARNING.to_owned()]
+        } else {
+            Vec::new()
+        };
         Self {
             doc,
             fallback_fonts: FallbackFonts::default(),
@@ -1274,7 +1486,8 @@ impl _Document {
             table_page_order: VecDeque::new(),
             max_text_size,
             interpreted_text_sizes: HashMap::new(),
-            pending_warnings: Arc::new(Mutex::new(Vec::new())),
+            is_repaired,
+            pending_warnings: Arc::new(Mutex::new(pending)),
         }
     }
 
@@ -2741,7 +2954,7 @@ impl _Document {
         };
         py.detach(|| {
             let data = read_input(path, limits.max_file_size)?;
-            let doc = Document::load_mem_with_options(&data, options).map_err(|error| {
+            let (doc, repaired) = load_document_with_recovery(&data, options).map_err(|error| {
                 load_err(
                     Some(&format!("failed to load {path}")),
                     &error,
@@ -2758,8 +2971,15 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = (!doc.was_encrypted()).then_some(data);
-            Ok(Self::from_doc(doc, hayro_source, limits.max_text_size))
+            let is_repaired = repaired.is_some();
+            let source = repaired.unwrap_or(data);
+            let hayro_source = (!doc.was_encrypted()).then_some(source);
+            Ok(Self::from_loaded_doc(
+                doc,
+                hayro_source,
+                limits.max_text_size,
+                is_repaired,
+            ))
         })
     }
 
@@ -2829,7 +3049,7 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            let doc = Document::load_mem_with_options(data, options)
+            let (doc, repaired) = load_document_with_recovery(data, options)
                 .map_err(|error| load_err(None, &error, decoder_limit_code))?;
             let decrypted = !doc.is_encrypted();
             validate_structural_limits(&doc, limits, decrypted)?;
@@ -2841,8 +3061,18 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = (!doc.was_encrypted()).then(|| data.to_vec());
-            Ok(Self::from_doc(doc, hayro_source, limits.max_text_size))
+            let is_repaired = repaired.is_some();
+            let hayro_source = if doc.was_encrypted() {
+                None
+            } else {
+                Some(repaired.unwrap_or_else(|| data.to_vec()))
+            };
+            Ok(Self::from_loaded_doc(
+                doc,
+                hayro_source,
+                limits.max_text_size,
+                is_repaired,
+            ))
         })
     }
 
@@ -2853,21 +3083,51 @@ impl _Document {
 
     /// Read metadata quickly without loading the complete document.
     ///
-    /// Return `(Info string dict, page count, version, encrypted flag)`.
+    /// Return `(Info string dict, page count, version, encrypted, repaired)`.
     #[staticmethod]
     #[pyo3(signature = (path, password=None))]
     fn load_metadata(
         py: Python<'_>,
         path: &str,
         password: Option<String>,
-    ) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
+    ) -> PyResult<MetadataTuple> {
         py.detach(|| {
-            let meta = match &password {
-                Some(pw) => Document::load_metadata_with_password(path, pw),
+            let original_error = match &password {
+                Some(password) => Document::load_metadata_with_password(path, password),
                 None => Document::load_metadata(path),
+            };
+            match original_error {
+                Ok(meta) => {
+                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+                    Ok((metadata, page_count, version, encrypted, false))
+                }
+                Err(original_error) => {
+                    if !xref_recovery_candidate(&original_error) {
+                        return Err(lopdf_err(
+                            Some(&format!("failed to load {path}")),
+                            &original_error,
+                        ));
+                    }
+                    let data = read_input(path, None)?;
+                    let Some(repaired) = repair_classic_startxref(&data) else {
+                        return Err(lopdf_err(
+                            Some(&format!("failed to load {path}")),
+                            &original_error,
+                        ));
+                    };
+                    let retried = match &password {
+                        Some(password) => {
+                            Document::load_metadata_mem_with_password(&repaired, password)
+                        }
+                        None => Document::load_metadata_mem(&repaired),
+                    };
+                    let meta = retried.map_err(|_| {
+                        lopdf_err(Some(&format!("failed to load {path}")), &original_error)
+                    })?;
+                    let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+                    Ok((metadata, page_count, version, encrypted, true))
+                }
             }
-            .map_err(|e| lopdf_err(Some(&format!("failed to load {path}")), &e))?;
-            Ok(pdf_metadata_to_tuple(meta))
         })
     }
 
@@ -2878,15 +3138,18 @@ impl _Document {
         py: Python<'_>,
         data: &[u8],
         password: Option<String>,
-    ) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
+    ) -> PyResult<MetadataTuple> {
         py.detach(|| {
-            let meta = match &password {
-                Some(pw) => Document::load_metadata_mem_with_password(data, pw),
-                None => Document::load_metadata_mem(data),
-            }
-            .map_err(to_py_err)?;
-            Ok(pdf_metadata_to_tuple(meta))
+            let (meta, repaired) =
+                load_metadata_with_recovery(data, password.as_deref()).map_err(to_py_err)?;
+            let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta);
+            Ok((metadata, page_count, version, encrypted, repaired))
         })
+    }
+
+    /// Return whether opening repaired an incorrect final classic startxref.
+    fn is_repaired(&self) -> bool {
+        self.is_repaired
     }
 
     /// Configure a CJK fallback font for rendering.
