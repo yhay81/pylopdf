@@ -87,6 +87,10 @@ const MAX_TOC_TREE_DEPTH: usize = 64;
 const MAX_TOC_DEST_DEPTH: usize = 32;
 const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
 
+/// Bound generated invisible OCR-layer content per call.
+const MAX_OCR_LAYER_WORDS: usize = 4_096;
+const MAX_OCR_LAYER_TEXT_BYTES: usize = 1024 * 1024;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -6297,24 +6301,45 @@ impl _Document {
                 "text_rotation must be 0, 90, 180, or 270",
             ));
         }
-        self.invalidate_hayro_pdf();
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.page_id(page_number)?;
-        py.detach(|| {
-            let cid_map = ocr::assign_cids(&words);
-            if cid_map.len() >= usize::from(u16::MAX) {
-                return Err(PdfError::new_err(
-                    "too many distinct characters for the OCR layer (max 65,534 per call)",
-                ));
+        let (page_id, expected_font_number, name, to_unicode, ops) = py.detach(|| {
+            if words.len() > MAX_OCR_LAYER_WORDS {
+                return Err(PdfError::new_err(format!(
+                    "cannot insert more than {MAX_OCR_LAYER_WORDS} OCR words per call"
+                )));
             }
-            let font_id = ocr::add_ocr_font(&mut self.doc, &cid_map);
+            let text_bytes = words.iter().try_fold(0usize, |total, word| {
+                total.checked_add(word.4.len()).ok_or_else(|| {
+                    PdfError::new_err("OCR layer text exceeds the platform size limit")
+                })
+            })?;
+            if text_bytes > MAX_OCR_LAYER_TEXT_BYTES {
+                return Err(PdfError::new_err(format!(
+                    "OCR layer text exceeds the {MAX_OCR_LAYER_TEXT_BYTES}-byte safety limit"
+                )));
+            }
+            let (crop, rotation) = self.page_display_geometry(page_number)?;
+            let page_id = self.page_id(page_number)?;
+            let cid_map = ocr::assign_cids(&words).map_err(PdfError::new_err)?;
+            let to_unicode = ocr::build_to_unicode(&cid_map);
+            let expected_font_number = self.doc.max_id.checked_add(4).ok_or_else(|| {
+                PdfError::new_err("OCR layer objects exceed the PDF object-ID limit")
+            })?;
+            let name = format!("PyloF{expected_font_number}");
+            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
+            Ok((page_id, expected_font_number, name, to_unicode, ops))
+        })?;
+
+        // From this point onward malformed page/resource state could leave a
+        // partial edit, so invalidate before the first PDF object is added.
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            let font_id = ocr::add_ocr_font(&mut self.doc, to_unicode);
+            debug_assert_eq!(font_id.0, expected_font_number);
             self.bake_page_attrs(page_id)?;
             self.doc
                 .get_or_create_resources(page_id)
                 .map_err(to_py_err)?;
-            let name = format!("PyloF{}", font_id.0);
             draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
-            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
             draw::push_content(&mut self.doc, page_id, ops, true).map_err(to_py_err)
         })
     }

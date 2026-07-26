@@ -14,26 +14,34 @@ use crate::draw;
 /// One OCR word: display-coordinate bbox plus text.
 pub type OcrWord = (f64, f64, f64, f64, String);
 
+const MAX_OCR_CIDS: usize = 65_534;
+
 /// Assign one-based CIDs to all characters; CID 0 is `.notdef`.
-pub fn assign_cids(words: &[OcrWord]) -> BTreeMap<char, u16> {
+pub fn assign_cids(words: &[OcrWord]) -> Result<BTreeMap<char, u16>, String> {
     let mut map = BTreeMap::new();
-    let mut next: u16 = 1;
     for (_, _, _, _, text) in words {
         for ch in text.chars() {
-            map.entry(ch).or_insert_with(|| {
-                let cid = next;
-                next = next.saturating_add(1);
-                cid
-            });
+            if map.contains_key(&ch) {
+                continue;
+            }
+            if map.len() >= MAX_OCR_CIDS {
+                return Err(
+                    "too many distinct characters for the OCR layer (max 65,534 per call)"
+                        .to_owned(),
+                );
+            }
+            let cid =
+                u16::try_from(map.len() + 1).expect("the OCR CID count is bounded below u16::MAX");
+            map.insert(ch, cid);
         }
     }
-    map
+    Ok(map)
 }
 
 /// Build a CID-to-Unicode UTF-16BE ToUnicode CMap.
 ///
 /// Split `bfchar` into specification-compliant blocks of 100 entries.
-fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
+pub fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
     let mut entries: Vec<(u16, char)> = cid_map.iter().map(|(&ch, &cid)| (cid, ch)).collect();
     entries.sort_unstable();
     let mut out = String::from(
@@ -62,10 +70,9 @@ fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
 ///
 /// No FontFile is embedded. Every CID uses DW=1000 (1 em); a horizontal text
 /// matrix scale fits each word to its actual width.
-pub fn add_ocr_font(doc: &mut Document, cid_map: &BTreeMap<char, u16>) -> ObjectId {
-    let to_unicode = doc.add_object(
-        Stream::new(Dictionary::new(), build_to_unicode(cid_map)).with_compression(false),
-    );
+pub fn add_ocr_font(doc: &mut Document, to_unicode_data: Vec<u8>) -> ObjectId {
+    let to_unicode =
+        doc.add_object(Stream::new(Dictionary::new(), to_unicode_data).with_compression(false));
     let descriptor = doc.add_object(dictionary! {
         "Type" => "FontDescriptor",
         "FontName" => "PyloOCR-Gothic",

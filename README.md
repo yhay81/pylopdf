@@ -213,7 +213,7 @@ page.apply_ocr(engine=engine)  # skips existing searchable text by default
 page.apply_ocr(engine=engine, rotation=270)
 
 # Or write external OCR results as an invisible text layer
-page.insert_ocr_text_layer(ocr_words)  # sequence of (x0, y0, x1, y1, text, ...); near-zero size cost, CJK included
+page.insert_ocr_text_layer(ocr_words)  # (x0, y0, x1, y1, text, ...); max 4,096 words / 1 MiB UTF-8 text
 
 # Markdown conversion (RAG / LLM preprocessing; bordered tables are automatic)
 md = doc.to_markdown()
@@ -409,7 +409,7 @@ signed_pdf: bytes = out.getvalue()
 | `show_pdf_page(rect, src, pno=0, keep_proportion=True, overlay=True)` | Overlay a page as vectors from another or the same document; same-document placement uses a stable pre-edit snapshot |
 | `insert_text(point, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, overlay=True)` | Print multiline text with a standard-14 or shaped subset font; `pylopdf[cjk]` auto-selects its JP font for Japanese/Han; upright on rotated pages |
 | `insert_textbox(rect, text, fontsize=11, fontname="helv", fontfile=, fontbuffer=, fontindex=, color=, align=0, lineheight=None, expandtabs=8, overlay=True)` | Wrap with UAX #14 and Core 14, explicit OpenType, or auto-selected JP font metrics; returns spare height and draws nothing on overflow |
-| `insert_ocr_text_layer(words, rotation=0)` | Write OCR results as an orientation-aware invisible text layer (searchable PDFs; no font embedding, near-zero size) |
+| `insert_ocr_text_layer(words, rotation=0)` | Write up to 4,096 words / 1 MiB UTF-8 text as an orientation-aware invisible OCR layer (searchable PDFs; no font embedding) |
 | `annots()` / `get_links()` | Bounded annotation/link reads, including one cycle-aware named-destination index per call (4,096 annotations and 1 MiB aggregate metadata text; display coordinates) |
 | `add_highlight_annot(rects, color=(1,1,0), opacity=0.4, content=None)` | Highlight annotation; feed up to 4,096 `search_for` results directly; appearance stream included; 1 MiB subtype/content budget |
 | `add_link_annot(rect, uri)` | URI link annotation (no border; 1 MiB subtype/URI budget) |

@@ -212,7 +212,9 @@ Released as v0.9.0 on 2026-07-23.
 - [x] Add `Page.insert_ocr_text_layer`, following the ocrmypdf approach:
       non-embedded CID font, Identity-H, ToUnicode, and `Tr 3`. It extracts and
       searches CJK independently of fallback fonts with nearly zero size growth,
-      and accepts `get_text("words")`-shaped data.
+      and accepts `get_text("words")`-shaped data. Current calls stop iterable
+      materialization at 4,096 words or 1 MiB of UTF-8 text, bound distinct CIDs,
+      and prepare input-derived buffers before PDF mutation.
 - [x] Read XMP PDF/A claims with `Document.get_pdfa_claim`, returning
       `(part, conformance)`. Integration tests read `(2, "B")` from typst's
       krilla-validated output. The docstring states that this is not validation.

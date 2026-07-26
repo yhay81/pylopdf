@@ -190,6 +190,13 @@ overview.
   raster copy inside the complete-call admission limit. Arbitrary skew,
   automatic page orientation, ruby, warichu, and mixed-orientation typography
   are not interpreted.
+- `Page.insert_ocr_text_layer` stops iterable materialization at 4,096
+  non-empty words or 1 MiB of aggregate UTF-8 text per call. The Rust boundary
+  repeats both checks, CID assignment stops before a 65,535th distinct
+  character, and CID maps, ToUnicode data, and content operators are prepared
+  before PDF mutation. Input rejection preserves caches, but invalidate
+  immediately before the first PDF mutation because later malformed-resource
+  errors can leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page
