@@ -529,6 +529,10 @@ known-limit behavior are polished together.
       metadata-text budgets. Adds preflight page capacity, Contents/URI text,
       and highlight rectangle count before creating dependent appearance
       objects, preserving document bytes and caches on refusal.
+- [x] Bound named-destination resolution. `/Names/Dests` lookup is now
+      iterative and cycle-aware, with fixed entry/node/edge/depth and key-byte
+      budgets. Excessive trees raise instead of becoming indistinguishable from
+      a genuinely absent or unresolved destination.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

@@ -303,6 +303,11 @@ overview.
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
   caches. Successful output must remain readable under the same budget.
+- Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
+  once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
+  levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
+  ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
+  dictionary lookup after a bounded name-tree miss.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

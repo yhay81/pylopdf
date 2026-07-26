@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from conftest import build_pdf
+import pytest
+from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
 
@@ -36,6 +37,19 @@ def _build_direct_dest_fixture() -> bytes:
         out += f"{offset:010d} 00000 n \n".encode()
     out += (f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n").encode()
     return bytes(out)
+
+
+def _build_named_dest_tree_fixture(tree_objects: dict[int, str | bytes]) -> bytes:
+    """Build one named link and a caller-provided `/Names/Dests` tree."""
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 6 0 R >> >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+        4: "<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /Dest (missing) >>",
+        5: "<< >>",
+    }
+    objects.update(tree_objects)
+    return build_raw_pdf(objects)
 
 
 def test_direct_dest_array() -> None:
@@ -93,3 +107,63 @@ def test_usrguide_named_destinations() -> None:
     assert first["page"] == 1
     assert all(link["uri"] is not None and link["uri"].startswith(("http://", "https://")) for link in uri)
     doc.close()
+
+
+def test_named_destination_reference_cycle_is_visited_once() -> None:
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: "<< /Kids [6 0 R] >>"}))
+    links = doc[0].get_links()
+    assert len(links) == 1
+    assert links[0]["page"] == -1
+    assert links[0]["nameddest"] == "missing"
+
+
+def test_named_destination_tree_rejects_excessive_depth() -> None:
+    objects: dict[int, str | bytes] = {}
+    for object_id in range(6, 38):
+        objects[object_id] = f"<< /Kids [{object_id + 1} 0 R] >>"
+    objects[38] = "<< /Names [(target) [3 0 R /Fit]] >>"
+
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
+        doc[0].get_links()
+
+
+def test_named_destination_tree_rejects_excessive_entries() -> None:
+    pairs = " ".join(f"(key{index}) [3 0 R /Fit]" for index in range(4097))
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        doc[0].get_links()
+
+
+def test_named_destination_tree_rejects_excessive_nodes() -> None:
+    child_ids = range(7, 4103)
+    kids = " ".join(f"{object_id} 0 R" for object_id in child_ids)
+    objects: dict[int, str | bytes] = {6: f"<< /Kids [{kids}] >>"}
+    for object_id in child_ids:
+        objects[object_id] = "<< >>"
+
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="4096-node safety limit"):
+        doc[0].get_links()
+
+
+def test_named_destination_tree_rejects_excessive_edges() -> None:
+    kids = "7 0 R " * 8193
+    doc = pylopdf.open(
+        stream=_build_named_dest_tree_fixture(
+            {
+                6: f"<< /Kids [{kids}] >>",
+                7: "<< >>",
+            }
+        )
+    )
+    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+        doc[0].get_links()
+
+
+def test_named_destination_tree_rejects_excessive_key_bytes() -> None:
+    key = "x" * 1024
+    pairs = f"({key}) [3 0 R /Fit] " * 1025
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
+    with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
+        doc[0].get_links()

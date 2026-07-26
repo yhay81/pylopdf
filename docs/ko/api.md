@@ -66,7 +66,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=)` | Core 14, 명시적 OpenType 또는 자동 JP font 폭으로 UAX #14 줄바꿈. 남은 높이를 반환하며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어（검색 가능한 PDF） |
 | `replace_text(search, replacement, default_char=)` | 단순 인코딩 텍스트 교체 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기, cycle-aware named destination 및 생성 |
 
 `get_drawings()`는`type="f"` / `"s"` / `"fs"`, 자체 완결형line/cubic `items`,
 `rect`, RGB/opacity, fill rule, width, cap, join, dashes를 포함한`DrawingInfo`

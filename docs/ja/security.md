@@ -98,6 +98,9 @@ xref dataを正規化します。
   encoded/returned metadata text 1 MiBを超える部分結果を拒否します。追加は同じ
   page件数、生成subtypeとContents/URI入力の合計1 MiB、highlight 4,096矩形を
   dependent object作成とcache無効化の前に検査します。
+- named destination lookupは参照cycleを一度だけ訪問し、4,096 entry/node、
+  8,192 edge、深さ32、key byte 1 MiBを超えるtreeを、通常の未解決として黙って
+  扱わず拒否します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
 - `render_pages()`には通常のメモリ上限制御があるため、application側で無制限の
   並列呼び出しを重ねないでください。

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Named-destination lookup for `Page.get_links()` now uses an iterative,
+  cycle-aware `/Names/Dests` walk and rejects silent unresolved results above
+  4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of scanned key bytes.
+  The previous recursive lookup stopped at depth 16 without distinguishing an
+  absent destination from a truncated or cyclic tree.
 - `Page.annots()` and `Page.get_links()` now borrow `/Annots` arrays, release
   the GIL, and reject partial output above 4,096 array entries or 1 MiB of
   aggregate encoded/returned subtype, Contents, URI, file, and destination
