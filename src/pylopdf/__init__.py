@@ -2215,6 +2215,8 @@ class Document:
         qualified dotted name; ``type`` is text, checkbox, radio, button,
         combobox, listbox, or signature; and ``value`` is the current value.
         Button values are appearance state names such as ``"Yes"`` or ``"Off"``.
+        Reads reject partial output above 4,096 entries/nodes, 8,192 edges,
+        64 levels, 1 MiB of field names or values, or 4,096 choice-value items.
         """
         self._ensure_open()
         return [
@@ -2243,7 +2245,8 @@ class Document:
         operation, and ``NeedAppearances`` is cleared once every fillable widget
         has a usable normal appearance. Comb text fields honor inherited
         ``MaxLen`` and alignment, center Unicode graphemes in their positions,
-        and reject overlength values without changing the document.
+        and reject overlength values without changing the document. Field-tree
+        and 1 MiB value limits are checked without leaving a partial update.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text

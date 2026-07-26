@@ -513,6 +513,12 @@ known-limit behavior are polished together.
       above 4,096 entries/nodes, 32 levels, or 1 MiB of label text. Writes
       enforce the same entry/text boundary before mutation instead of creating
       output the reader must reject.
+- [x] Bound AcroForm field-tree interpretation and fills. Reads now borrow
+      object shapes, visit cycles once, release the GIL, and reject partial
+      output above field/node/edge/depth and aggregate name/value budgets.
+      Inherited values remain shared during traversal and are charged per
+      returned leaf; fills enforce the same tree and input-value boundary
+      atomically.
 - [x] Align normal text generation with the optional CJK product experience:
       `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
       serif font for Japanese/Han input when `pylopdf[cjk]` is installed,

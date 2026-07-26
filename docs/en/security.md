@@ -92,6 +92,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
 - Page-label number-tree reads reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
   are visited once; writes enforce the same entry/text boundary.
+- AcroForm field-tree reads reject partial output above 4,096 entries/nodes,
+  8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
+  or 4,096 choice-value items. Reference cycles are visited once, inherited
+  values are charged per returned leaf, and fills enforce the same tree plus
+  1 MiB input-value boundary atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
 - `render_pages()` keeps its normal bounded-memory worker admission; do not add
   unbounded application-level parallelism around it.

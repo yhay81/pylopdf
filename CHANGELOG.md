@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- AcroForm field-tree reads now borrow object shapes, visit indirect cycles
+  once, release the GIL, and reject partial output above 4,096 entries/nodes,
+  8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
+  or 4,096 choice-value items. Inherited values are shared during traversal and
+  charged for each returned leaf instead of being cloned without a complete
+  result budget. `Document.set_form_field()` enforces the tree and 1 MiB value
+  boundaries atomically.
 - Page-label number-tree reads now borrow node shapes, visit indirect cycles
   once, release the GIL, and reject partial output above 4,096 entries/nodes,
   32 levels, or 1 MiB of encoded or decoded style/prefix text. The previous

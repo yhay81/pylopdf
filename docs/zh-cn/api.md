@@ -31,7 +31,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理 |
 | `get_toc()` / `set_toc(toc)` | 书签（页码从1开始） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 列出与填写AcroForm，并生成原生widget外观 |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=)` | 有界地列出与填写AcroForm，并生成原生widget外观 |
 | `embfile_add / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 带解码上限的文件附件；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(...)` | `garbage=` `deflate=` `object_streams=` `user_pw=` `owner_pw=` `permissions=` |
