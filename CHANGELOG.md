@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Attachment name-tree traversal, inline-FileSpec validation, rewrite
+  collection, returned names, and flat output arrays now grow fallibly under
+  their existing bounds. Attachment name ordering now uses in-place sorts.
 - Native OCR dictionary entries, tile positions, recognized text, candidate
   union-find, row/column ordering, height samples, and gutter collections now
   grow fallibly under their existing caps. Candidate ordering uses in-place

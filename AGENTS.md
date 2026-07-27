@@ -207,6 +207,8 @@ overview.
   shapes, visits indirect cycles once, and rejects more than 4,096 entries or
   nodes, 32 levels, or 1 MiB of encoded/decoded names. Caller lookup/deletion
   names stop at 1 MiB before tree traversal with `embedded_file_input_size`.
+  Traversal/shape stacks, cycle sets, collected entries, returned names, and
+  flat rewrite arrays grow fallibly; name ordering uses in-place sorts.
   Attachment edits must not create an over-limit tree or invalidate caches
   after a failed operation.
   They preflight the Catalog write target rather than cloning the whole
