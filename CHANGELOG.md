@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-28
+
 ### Changed
 - Text extraction now recovers column-major reading order when long prose
   columns use a sustained sub-em gutter, including the bundled 1880 patent

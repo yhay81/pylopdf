@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from types import TracebackType
     from typing import Any, NoReturn, Self
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 __all__ = [
     "LINK_GOTO",
     "LINK_GOTOR",

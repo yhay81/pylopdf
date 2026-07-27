@@ -13,8 +13,10 @@ overview.
 
 ## Working conventions
 
-- Commit directly to `main` and push after each coherent unit of work. Do not use
-  feature branches.
+- Open a short-lived branch and pull request for each coherent unit of work.
+  `main` is protected: direct pushes are rejected, and merging requires the six
+  required status checks. Squash-merge so one merged pull request becomes one
+  `main` commit.
 - Write commit messages, code comments, docstrings, repository documentation,
   configuration comments, and user-facing messages in English.
 - Non-English text is allowed only in localized documentation and data required
@@ -802,20 +804,19 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.12.0 was released on 2026-07-26 after the v0.11 line
-  shipped earlier that day. The 0.12 line extends the end-to-end untrusted-input
-  policy across metadata, annotations, attachments, generated text, search,
-  passwords, interpretation snapshots, and positioned glyphs. Its release gate
-  executes every native wheel, keeps PyEmscripten and Cloudflare deployment
-  covered, expands the licensed interoperability corpus, and renders bounded
-  fallback appearances for existing text-markup annotations. The documented
-  0.12 candidate API surface is checked deterministically across every native
-  Python test lane, with the post-v1.0 SemVer and deprecation contract published
-  in four languages. The separately versioned OCR model package remains
-  independently gated. Incremental save was rejected after OSS analysis and
-  remains on the watchlist. v1.0 is targeted no earlier than 2026-08, after
-  field feedback and further product refinement rather than as a
-  deadline-driven API freeze.
+- Current phase: v0.13.0 is release-prepared on 2026-07-28, two days after the
+  v0.12 line shipped. The 0.13 line completes the fallible-allocation and
+  bounded-traversal campaign across the public surface, so allocator refusal
+  surfaces as `PdfError` without partial results, unifies public page indexing
+  behind one bounded iterative walker, and recovers narrow-column reading
+  order with drift-following gutters, raising the bundled 1880 patent
+  similarity proxy from 0.320 to 0.581. The documented 0.13 candidate API
+  surface is checked deterministically across every native Python test lane,
+  with the post-v1.0 SemVer and deprecation contract published in four
+  languages. The separately versioned OCR model package remains independently
+  gated. Incremental save was rejected after OSS analysis and remains on the
+  watchlist. v1.0 is targeted no earlier than 2026-08, after field feedback
+  and further product refinement rather than as a deadline-driven API freeze.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.
