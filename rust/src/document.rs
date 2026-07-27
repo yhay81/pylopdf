@@ -876,6 +876,41 @@ fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr {
     }
 }
 
+/// Read a regular file with fallible retained-buffer growth.
+pub(crate) fn read_file_fallibly(
+    mut file: std::fs::File,
+    initial_capacity: usize,
+    max_read: Option<usize>,
+    allocation_label: &str,
+) -> std::io::Result<Vec<u8>> {
+    const READ_CHUNK_BYTES: usize = 64 * 1024;
+
+    let mut data = Vec::new();
+    data.try_reserve_exact(initial_capacity).map_err(|error| {
+        std::io::Error::other(format!("failed to allocate {allocation_label}: {error}"))
+    })?;
+    let mut buffer = [0u8; READ_CHUNK_BYTES];
+    loop {
+        let read_size = max_read
+            .map(|limit| limit.saturating_sub(data.len()).min(buffer.len()))
+            .unwrap_or(buffer.len());
+        if read_size == 0 {
+            break;
+        }
+        let amount = match file.read(&mut buffer[..read_size]) {
+            Ok(0) => break,
+            Ok(amount) => amount,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        data.try_reserve_exact(amount).map_err(|error| {
+            std::io::Error::other(format!("failed to allocate {allocation_label}: {error}"))
+        })?;
+        data.extend_from_slice(&buffer[..amount]);
+    }
+    Ok(data)
+}
+
 /// Read a path without admitting more than one byte beyond a caller's budget.
 fn read_bounded_input(
     path: &str,
@@ -885,27 +920,25 @@ fn read_bounded_input(
     error_prefix: &str,
 ) -> PyResult<Vec<u8>> {
     let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
-    let Some(limit) = max_size else {
-        return std::fs::read(path).map_err(io_error);
-    };
     let file = std::fs::File::open(path).map_err(&io_error)?;
     let metadata_size = file.metadata().map_err(&io_error)?.len();
-    if metadata_size > limit as u64 {
+    if let Some(limit) = max_size
+        && metadata_size > limit as u64
+    {
         return Err(limit_err(
             limit_code,
             format!("{size_label} is {metadata_size} bytes, exceeding the {limit}-byte limit"),
         ));
     }
-    let read_limit = limit.saturating_add(1);
-    let mut data = Vec::with_capacity(
-        usize::try_from(metadata_size)
-            .unwrap_or(limit)
-            .min(read_limit),
-    );
-    file.take(read_limit as u64)
-        .read_to_end(&mut data)
-        .map_err(io_error)?;
-    if data.len() > limit {
+    let read_limit = max_size.map(|limit| limit.saturating_add(1));
+    let initial_capacity = usize::try_from(metadata_size)
+        .unwrap_or(0)
+        .min(read_limit.unwrap_or(usize::MAX));
+    let data =
+        read_file_fallibly(file, initial_capacity, read_limit, size_label).map_err(io_error)?;
+    if let Some(limit) = max_size
+        && data.len() > limit
+    {
         return Err(limit_err(
             limit_code,
             format!("{size_label} exceeds the {limit}-byte limit while being read"),
