@@ -657,11 +657,12 @@ fn extract_inferred_vertical_cjk(
         };
         try_push_text(target, glyph, "vertical-CJK glyph partition")?;
     }
-    candidates.sort_by(|left, right| {
+    candidates.sort_unstable_by(|left, right| {
         left.x
             .total_cmp(&right.x)
             .then(left.font_key.cmp(&right.font_key))
             .then(left.y.total_cmp(&right.y))
+            .then(left.source_order.cmp(&right.source_order))
     });
 
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
@@ -683,7 +684,11 @@ fn extract_inferred_vertical_cjk(
 
     let mut accepted = Vec::new();
     for mut line in lines {
-        line.sort_by(|left, right| left.y.total_cmp(&right.y));
+        line.sort_unstable_by(|left, right| {
+            left.y
+                .total_cmp(&right.y)
+                .then(left.source_order.cmp(&right.source_order))
+        });
         let continuous = line.windows(2).all(|pair| {
             let scale = pair[0].size.max(pair[1].size).max(1.0);
             let gap = pair[1].y - pair[0].y;
@@ -712,7 +717,13 @@ fn extract_inferred_vertical_cjk(
 fn cluster_explicit_vertical(
     mut glyphs: Vec<GlyphRecord>,
 ) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    glyphs.sort_by(|left, right| right.x.total_cmp(&left.x).then(left.y.total_cmp(&right.y)));
+    glyphs.sort_unstable_by(|left, right| {
+        right
+            .x
+            .total_cmp(&left.x)
+            .then(left.y.total_cmp(&right.y))
+            .then(left.source_order.cmp(&right.source_order))
+    });
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
     for glyph in glyphs {
         let matching_line = lines.iter_mut().find(|line| {
@@ -745,7 +756,7 @@ struct PaintLayer {
 }
 
 fn sort_line_inline(line: &mut [GlyphRecord]) {
-    line.sort_by(|left, right| {
+    line.sort_unstable_by(|left, right| {
         glyph_progress(left)
             .total_cmp(&glyph_progress(right))
             .then(left.source_order.cmp(&right.source_order))
@@ -785,7 +796,7 @@ fn split_overlapping_paint_layers(
         try_push_text(&mut lines, line, "text paint layers")?;
         return Ok(lines);
     }
-    line.sort_by_key(|glyph| glyph.source_order);
+    line.sort_unstable_by_key(|glyph| glyph.source_order);
 
     let mut runs: Vec<Vec<GlyphRecord>> = Vec::new();
     for glyph in line {
@@ -876,7 +887,12 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
     }
     let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal)?;
 
-    horizontal.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
+    horizontal.sort_unstable_by(|left, right| {
+        left.y
+            .total_cmp(&right.y)
+            .then(left.x.total_cmp(&right.x))
+            .then(left.source_order.cmp(&right.source_order))
+    });
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
     let mut current_baseline = f64::NEG_INFINITY;
     for glyph in horizontal {
@@ -1004,13 +1020,14 @@ fn order_axis_page_lines(
     mut clustered: Vec<Vec<GlyphRecord>>,
     orientation: AxisOrientation,
 ) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    clustered.sort_by(|left, right| {
+    clustered.sort_unstable_by(|left, right| {
         let left_bbox = logical_line_bbox(left, orientation);
         let right_bbox = logical_line_bbox(right, orientation);
         left_bbox
             .1
             .total_cmp(&right_bbox.1)
             .then(left_bbox.0.total_cmp(&right_bbox.0))
+            .then(line_source_order(left).cmp(&line_source_order(right)))
     });
     if clustered
         .iter()
@@ -1079,10 +1096,30 @@ fn order_vertical_page_lines(
             try_push_text(&mut middle, line, "text lines beside vertical content")?;
         }
     }
-    top.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
-    vertical.sort_by(|left, right| line_bbox(right).0.total_cmp(&line_bbox(left).0));
-    middle.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
-    bottom.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
+    top.sort_unstable_by(|left, right| {
+        line_bbox(left)
+            .1
+            .total_cmp(&line_bbox(right).1)
+            .then(line_source_order(left).cmp(&line_source_order(right)))
+    });
+    vertical.sort_unstable_by(|left, right| {
+        line_bbox(right)
+            .0
+            .total_cmp(&line_bbox(left).0)
+            .then(line_source_order(left).cmp(&line_source_order(right)))
+    });
+    middle.sort_unstable_by(|left, right| {
+        line_bbox(left)
+            .1
+            .total_cmp(&line_bbox(right).1)
+            .then(line_source_order(left).cmp(&line_source_order(right)))
+    });
+    bottom.sort_unstable_by(|left, right| {
+        line_bbox(left)
+            .1
+            .total_cmp(&line_bbox(right).1)
+            .then(line_source_order(left).cmp(&line_source_order(right)))
+    });
     for line in vertical {
         try_push_text(&mut top, line, "ordered mixed-orientation text lines")?;
     }
@@ -1098,6 +1135,14 @@ fn order_vertical_page_lines(
 /// Return a line's bbox without exposing the internal glyph representation.
 fn line_bbox(line: &[GlyphRecord]) -> BBox {
     glyphs_bbox(line)
+}
+
+/// Earliest callback order in one non-empty physical line.
+fn line_source_order(line: &[GlyphRecord]) -> usize {
+    line.iter()
+        .map(|glyph| glyph.source_order)
+        .min()
+        .unwrap_or(usize::MAX)
 }
 
 /// Return a line bbox in logical inline/block coordinates.
@@ -1175,7 +1220,7 @@ fn typical_geometry_size(lines: &[LineGeometry]) -> Result<f64, TextPageLimit> {
     if sizes.is_empty() {
         return Ok(12.0);
     }
-    sizes.sort_by(f64::total_cmp);
+    sizes.sort_unstable_by(f64::total_cmp);
     Ok(sizes[sizes.len() / 2])
 }
 
@@ -1206,7 +1251,9 @@ fn geometry_column_boundary(lines: &[LineGeometry]) -> Result<Option<f64>, TextP
             )?;
         }
     }
-    intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+    intervals.sort_unstable_by(|left, right| {
+        left.0.total_cmp(&right.0).then(left.1.total_cmp(&right.1))
+    });
     let Some((_, mut current_end)) = intervals.first().copied() else {
         return Ok(None);
     };
