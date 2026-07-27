@@ -17,8 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One text-extraction batch now shares one call-scoped hayro interpreter
   cache across its pages, so a font reused by several pages is parsed once
   per call instead of once per page. The benchmark all-pages extraction
-  sweep now measures batched `Document.get_text()`; single-page calls keep
-  their previous per-call behavior.
+  sweep now measures batched `Document.get_text()`: on the benchmark
+  machine the 27-page user guide with 30 distinct fonts dropped from
+  128.9 ms to 53.0 ms and the CJK ministry document from 14.5 ms to
+  12.3 ms, while few-font corpus sweeps and single-page calls keep their
+  previous behavior. The extracted-content quality proxy is unchanged.
 
 ### Fixed
 - Wide-gutter column detection no longer splits spreadsheet-like rows into
