@@ -86,6 +86,8 @@ pylopdfが所有する上限付きlopdf decode経路では、filter listをmater
 stream数、圧縮状態のstream byte数、直接objectの最大深度を返します。重い抽出へ
 進む前のroutingに利用できます。構造・展開上限は開いたsourceを検査するため、
 生成物が別のtrust boundaryを越えるときは同じポリシーで開き直してください。
+直接深度検証とcomplexity検査の反復走査stackはfallibleに拡張されるため、
+allocation refusalは部分的なfactsではなく`PdfError`になります。
 
 `max_interpretation_size`は、hayroが保持済みinputを最初に読むときと、編集、復号、
 AcroForm state選択後の現在状態をpylopdfがserializeするときに適用されます。上限付き

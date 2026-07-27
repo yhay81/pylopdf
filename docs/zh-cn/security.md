@@ -78,6 +78,8 @@ page-indexing操作。
 `doc.complexity`无需解码流或调用renderer，即可报告页数、对象数、流数、编码流
 字节数以及直接对象最大深度，适合在重型提取前进行routing。结构和解压预算验证
 打开时的source；生成结果若要跨越新的trust boundary，请用同一策略重新打开。
+直接深度验证与complexity检查的迭代遍历stack采用fallible扩展，因此allocation
+refusal会抛出`PdfError`，而不会暴露部分facts。
 
 `max_interpretation_size`在hayro首次读取保留input，以及pylopdf在编辑、解密或
 AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越界write，且不会

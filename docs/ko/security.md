@@ -84,6 +84,8 @@ pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을material
 인코딩된 stream byte, 직접 object 최대 깊이를 보고합니다. 무거운 추출 전에
 routing하는 데 사용할 수 있습니다. 구조 및 압축 해제 예산은 열린 source를
 검증하므로, 생성물이 다른 trust boundary를 넘을 때는 같은 정책으로 다시 여세요.
+직접 깊이 검증과complexity 검사의 반복 순회stack은 fallible하게 확장되므로
+allocation refusal은 부분facts가 아닌`PdfError`가 됩니다.
 
 `max_interpretation_size`는 hayro가 보관된 input을 처음 읽을 때와 pylopdf가 편집,
 복호화 또는 AcroForm state 선택 후 현재 상태를 serialize할 때 적용됩니다. 상한이 있는
