@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   growth or being hidden behind the original parse failure.
 
 ### Performance
+- Image insertion now moves JPEG input directly into its XObject instead of
+  cloning the complete encoded payload. PNG alpha separation compacts decoded
+  color samples in place instead of allocating a second complete color plane,
+  and decoded, alpha, Pixmap RGB, and Flate output buffers now grow fallibly.
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate
   streams through admission, decode, resize, and re-encode. It releases those
   borrows before mutating the atomic lopdf clone instead of cloning every
