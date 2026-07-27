@@ -268,9 +268,7 @@ def test_image_extraction_bounds_flate_wrapped_jpeg_passthrough() -> None:
 def test_image_extraction_preserves_flate_wrapped_jpeg_passthrough() -> None:
     """Chunked Flate decoding returns the exact nested JPEG payload."""
     jpeg = b"\xff\xd8\xfffallible-passthrough"
-    doc = pylopdf.open(
-        stream=_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]")
-    )
+    doc = pylopdf.open(stream=_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]"))
 
     image = doc[0].get_images()[0]
 
