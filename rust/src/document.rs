@@ -3,6 +3,7 @@
 //! This is a thin type- and error-conversion layer. Python's
 //! `pylopdf.Document` provides the ergonomic API.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2965,6 +2966,32 @@ fn add_form_budget(total: &mut usize, amount: usize, limit: usize, label: &str) 
     Ok(())
 }
 
+fn try_push_form<T>(values: &mut Vec<T>, value: T, label: &str) -> PyResult<()> {
+    if values.len() == values.capacity() {
+        values.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to grow AcroForm {label}: {error}"))
+        })?;
+    }
+    values.push(value);
+    Ok(())
+}
+
+fn try_clone_form_string(value: &str, label: &str) -> PyResult<String> {
+    let mut owned = String::new();
+    owned.try_reserve_exact(value.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate AcroForm {label}: {error}"))
+    })?;
+    owned.push_str(value);
+    Ok(owned)
+}
+
+fn try_lossy_form_string(value: &[u8], label: &str) -> PyResult<String> {
+    match String::from_utf8_lossy(value) {
+        Cow::Borrowed(value) => try_clone_form_string(value, label),
+        Cow::Owned(value) => Ok(value),
+    }
+}
+
 /// Decode one field-name component while bounding encoded and decoded text.
 fn bounded_form_text(
     doc: &Document,
@@ -3012,7 +3039,7 @@ fn bounded_form_value(
                 MAX_FORM_FIELD_VALUE_BYTES,
                 "encoded field-value",
             )?;
-            let decoded = String::from_utf8_lossy(name).into_owned();
+            let decoded = try_lossy_form_string(name, "decoded field value")?;
             add_form_budget(
                 decoded_bytes,
                 decoded.len(),
@@ -3069,17 +3096,41 @@ fn bounded_form_value(
                     MAX_FORM_FIELD_VALUE_BYTES,
                     "decoded field-value",
                 )?;
-                values.push(decoded);
+                try_push_form(&mut values, decoded, "choice-value items")?;
             }
-            if values.len() > 1 {
+            let separators = values
+                .len()
+                .saturating_sub(1)
+                .checked_mul(2)
+                .ok_or_else(|| {
+                    PdfError::new_err("AcroForm field value length exceeds the platform size limit")
+                })?;
+            if separators != 0 {
                 add_form_budget(
                     decoded_bytes,
-                    (values.len() - 1) * 2,
+                    separators,
                     MAX_FORM_FIELD_VALUE_BYTES,
                     "decoded field-value",
                 )?;
             }
-            Ok(Some(values.join(", ")))
+            let output_size = values.iter().try_fold(separators, |size, value| {
+                size.checked_add(value.len()).ok_or_else(|| {
+                    PdfError::new_err("AcroForm field value length exceeds the platform size limit")
+                })
+            })?;
+            let mut joined = String::new();
+            joined.try_reserve_exact(output_size).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate AcroForm joined field value: {error}"
+                ))
+            })?;
+            for (index, value) in values.into_iter().enumerate() {
+                if index != 0 {
+                    joined.push_str(", ");
+                }
+                joined.push_str(&value);
+            }
+            Ok(Some(joined))
         }
         _ => Ok(None),
     }
@@ -3675,11 +3726,17 @@ impl _Document {
         }
 
         let mut out = Vec::new();
-        let mut stack: Vec<FieldNode> = fields
-            .iter()
-            .filter_map(|field| field.as_reference().ok())
-            .map(|id| (id, String::new(), None, 0, None, 1))
-            .collect();
+        let mut stack: Vec<FieldNode> = Vec::new();
+        stack.try_reserve_exact(fields.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate AcroForm field-tree stack: {error}"
+            ))
+        })?;
+        for field in fields {
+            if let Ok(id) = field.as_reference() {
+                stack.push((id, String::new(), None, 0, None, 1));
+            }
+        }
         let mut visited = HashSet::new();
         let mut edges = fields.len();
         let mut widget_refs = 0usize;
@@ -3691,9 +3748,17 @@ impl _Document {
         let mut returned_value_bytes = 0usize;
         let mut value_items = 0usize;
         while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth)) = stack.pop() {
-            if !visited.insert(id) {
+            if visited.contains(&id) {
                 continue;
             }
+            if visited.len() == visited.capacity() {
+                visited.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to grow AcroForm field-tree cycle set: {error}"
+                    ))
+                })?;
+            }
+            visited.insert(id);
             if visited.len() > MAX_FORM_FIELD_TREE_NODES {
                 return Err(PdfError::new_err(format!(
                     "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
@@ -3713,11 +3778,25 @@ impl _Document {
                 )?,
                 Err(_) => None,
             };
-            let name = match component {
-                Some(component) if prefix.is_empty() => component,
-                Some(component) => format!("{prefix}.{component}"),
-                None => prefix.clone(),
-            };
+            let mut name = prefix;
+            if let Some(component) = component {
+                if name.is_empty() {
+                    name = component;
+                } else {
+                    let additional = component.len().checked_add(1).ok_or_else(|| {
+                        PdfError::new_err(
+                            "AcroForm field-name length exceeds the platform size limit",
+                        )
+                    })?;
+                    name.try_reserve(additional).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow AcroForm materialized field name: {error}"
+                        ))
+                    })?;
+                    name.push('.');
+                    name.push_str(&component);
+                }
+            }
             add_form_budget(
                 &mut materialized_name_bytes,
                 name.len(),
@@ -3735,7 +3814,7 @@ impl _Document {
                                 MAX_FORM_FIELD_NAME_BYTES,
                                 "encoded field-name/type",
                             )?;
-                            let decoded = String::from_utf8_lossy(name).into_owned();
+                            let decoded = try_lossy_form_string(name, "decoded field type")?;
                             add_form_budget(
                                 &mut decoded_name_bytes,
                                 decoded.len(),
@@ -3802,14 +3881,19 @@ impl _Document {
                         )));
                     }
                     has_child_fields = true;
-                    stack.push((
-                        kid_id,
-                        name.clone(),
-                        ft.clone(),
-                        ff,
-                        value.clone(),
-                        depth + 1,
-                    ));
+                    let child_name =
+                        try_clone_form_string(&name, "inherited field-name component")?;
+                    let child_ft = match &ft {
+                        Some(field_type) => {
+                            Some(try_clone_form_string(field_type, "inherited field type")?)
+                        }
+                        None => None,
+                    };
+                    try_push_form(
+                        &mut stack,
+                        (kid_id, child_name, child_ft, ff, value.clone(), depth + 1),
+                        "field-tree stack",
+                    )?;
                 }
             }
             if !has_child_fields && let Some(ft) = ft {
@@ -3826,10 +3910,14 @@ impl _Document {
                         "returned field-value",
                     )?;
                 }
-                out.push((name, id, ft, ff, value));
+                try_push_form(
+                    &mut out,
+                    (name, id, ft, ff, value),
+                    "returned field entries",
+                )?;
             }
         }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
         Ok(out)
     }
 
