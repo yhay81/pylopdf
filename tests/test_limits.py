@@ -29,6 +29,18 @@ def _filter_chain_pdf(count: int) -> bytes:
     )
 
 
+def _page_content_array_pdf(count: int) -> bytes:
+    refs = " ".join(["4 0 R"] * count)
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents [{refs}] >>",
+            4: "<< /Length 0 >>\nstream\n\nendstream",
+        }
+    )
+
+
 def test_document_limits_validate_values() -> None:
     assert pylopdf.DocumentLimits().max_pages is None
     with pytest.raises(TypeError, match="max_pages"):
@@ -153,6 +165,20 @@ def test_bounded_decoding_caps_filter_chain_length() -> None:
             limits=pylopdf.DocumentLimits(max_decompressed_size=1),
         )
     assert _error_code(caught.value) == "stream_filter_count"
+
+
+def test_page_content_limit_preflights_raw_contents_array() -> None:
+    exact = pylopdf.open(
+        stream=_page_content_array_pdf(4096),
+        limits=pylopdf.DocumentLimits(max_page_content_size=1),
+    )
+    assert exact.page_count == 1
+
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        pylopdf.open(
+            stream=_page_content_array_pdf(4097),
+            limits=pylopdf.DocumentLimits(max_page_content_size=1),
+        )
 
 
 def test_cumulative_decompressed_limit() -> None:

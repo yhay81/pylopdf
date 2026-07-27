@@ -699,6 +699,9 @@ overview.
   `stream_filter_count`; Form imports, text replacement, attachment/XMP reads,
   and load-time decompression validation share this boundary. Image compression
   inspects its required single filter without materializing a filter vector.
+  Page-content decompression indexing reuses the drawing path's bounded,
+  cycle-aware `/Contents` inspection rather than lopdf's unbounded reference
+  materialization, and grows its unique-ID set fallibly.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU

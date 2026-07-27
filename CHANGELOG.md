@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Load-time page-content decompression validation now reuses the bounded,
+  cycle-aware drawing `/Contents` inspector and grows its unique stream-ID
+  index fallibly instead of materializing page references through lopdf and an
+  infallible `HashSet.collect()`.
 - Pylopdf-owned bounded lopdf stream decoding now rejects more than 16
   sequential `/Filter` layers with `stream_filter_count` before materializing
   the filter vector.
