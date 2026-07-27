@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Shared textbox layout now grows UAX #14 and grapheme indexes, paragraph and
+  wrapped-line collections, and retained line text fallibly. Allocation
+  refusal raises `PdfError` without exposing a partial layout or mutating the
+  PDF; dense-break and existing 4,096-line boundary regressions cover both
+  `Page.insert_textbox()` and AcroForm appearance generation.
 - Direct-object depth validation and complexity inspection now grow their
   iterative traversal stack fallibly, including wide dictionaries and stream
   dictionaries. Allocation refusal raises `PdfError` without exposing partial

@@ -519,11 +519,12 @@ overview.
   text and choice appearances use the same fixed layout cap. Collect UAX #14
   and grapheme boundaries once per wrapped paragraph, and use local galloping
   plus binary refinement so long unbreakable runs do not repeatedly rescan or
-  measure complete tails. `max_text_size=None` explicitly opts trusted
-  insertion input out, failures use `text_input_size` or `text_line_count`, and
-  refusal must not mutate the document. Paragraph layout remains outside
-  `insert_text`. RTL shapes render, but extraction currently follows visual
-  order.
+  measure complete tails. Boundary indexes, line collections, and retained line
+  text grow fallibly; allocation refusal becomes `PdfError` without exposing a
+  partial layout or mutating the document. `max_text_size=None` explicitly opts
+  trusted insertion input out, failures use `text_input_size` or
+  `text_line_count`. Paragraph layout remains outside `insert_text`. RTL shapes
+  render, but extraction currently follows visual order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.

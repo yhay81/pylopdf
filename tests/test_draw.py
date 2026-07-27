@@ -1361,6 +1361,16 @@ def test_insert_textbox_wide_single_line_preserves_content() -> None:
     assert doc.complexity["object_count"] > 4
 
 
+def test_insert_textbox_dense_break_indexes_preserve_content() -> None:
+    doc = _new_page_doc(220, 2_500)
+    text = " ".join(["a"] * 2_048)
+
+    spare = doc[0].insert_textbox((10, 10, 210, 2_490), text, fontsize=10, max_text_size=len(text))
+
+    assert spare > 0
+    assert doc[0].get_text().split() == ["a"] * 2_048
+
+
 def test_replace_text_replaces_and_counts() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     page = doc[0]
