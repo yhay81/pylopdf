@@ -187,6 +187,22 @@ def test_bounded_page_tree_walk_rejects_cycles_and_reuse(
         )
 
 
+def test_unbounded_open_defers_malformed_page_tree_rejection_to_indexing() -> None:
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    assert doc.limits.max_pages is None
+
+    with pytest.raises(pylopdf.PdfError, match="cycle"):
+        _ = doc.page_count
+    with pytest.raises(pylopdf.PdfError, match="cycle"):
+        _ = doc.complexity
+
+
 def test_bounded_page_tree_walk_has_an_iterative_depth_boundary() -> None:
     exact = pylopdf.open(
         stream=_deep_page_tree_pdf(256),
@@ -194,11 +210,18 @@ def test_bounded_page_tree_walk_has_an_iterative_depth_boundary() -> None:
     )
     assert exact.page_count == 1
 
+    unbounded_exact = pylopdf.open(stream=_deep_page_tree_pdf(256))
+    assert unbounded_exact.page_count == 1
+    assert unbounded_exact.complexity["page_count"] == 1
+
     with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
         pylopdf.open(
             stream=_deep_page_tree_pdf(257),
             limits=pylopdf.DocumentLimits(max_pages=1),
         )
+    unbounded_deep = pylopdf.open(stream=_deep_page_tree_pdf(257))
+    with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
+        _ = unbounded_deep.page_count
 
 
 def test_bounded_page_tree_walk_limits_indirect_kids_references() -> None:

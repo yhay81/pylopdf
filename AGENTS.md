@@ -702,12 +702,17 @@ overview.
   Page-content decompression indexing reuses the drawing path's bounded,
   cycle-aware `/Contents` inspection rather than lopdf's unbounded reference
   materialization, and grows its unique-ID set fallibly.
-  When page-count or page-content policies require page indexing, use the
-  iterative borrowed-frame page-tree walker instead of lopdf's `get_pages`.
-  It rejects reused Page/Pages references and cycles, caps indirect `/Kids`
-  resolution at 32 references and internal-tree depth at 256 levels, bounds
-  visited edges by the indirect-object count, grows its page index fallibly,
-  and stops `max_pages` traversal at the first over-limit page.
+  All public page indexing must use the iterative borrowed-frame page-tree
+  walker instead of lopdf's `get_pages` or page mutation helpers that call it.
+  This includes page count and lookup, complexity, render snapshot validation,
+  TOC/link reverse indexes, annotation sharing checks, Form imports, and every
+  page-structure edit. The walker rejects reused Page/Pages references and
+  cycles, caps indirect `/Kids` resolution at 32 references and internal-tree
+  depth at 256 levels, bounds visited edges by the indirect-object count, grows
+  ordered and reverse indexes fallibly, and stops `max_pages` traversal at the
+  first over-limit page. `delete_pages` plans the complete retained order
+  before mutation; append, copy, and import rebuild from a prevalidated order
+  so indirect root Kids are preserved rather than silently replaced.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU

@@ -58,11 +58,14 @@ budgets. Every non-`None` value must be a positive integer.
 `max_decompressed_size=` remains a compatible shorthand for its one
 per-stream budget and cannot be combined with `limits=`.
 
-When page-count or page-content budgets require page indexing, pylopdf walks
-the page tree iteratively. It rejects reused Page/Pages objects and cycles,
-indirect `/Kids` chains over 32 references, internal trees over 256 levels,
-and edge counts above the indirect-object count. `max_pages` traversal stops
-as soon as it encounters the first page beyond the configured boundary.
+All public page indexing uses one iterative page-tree walker, including page
+count and lookup, complexity, render snapshots, TOC and links, annotations,
+Form imports, and page-structure edits. It rejects reused Page/Pages objects
+and cycles, indirect `/Kids` chains over 32 references, internal trees over 256
+levels, and edge counts above the indirect-object count. `max_pages` traversal
+stops at the first over-limit page. Opening without a page policy remains
+compatible and defers these page-tree checks until the first operation that
+indexes pages.
 
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
