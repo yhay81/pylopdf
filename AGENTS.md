@@ -77,7 +77,9 @@ overview.
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
-  than interleaving or deduplicating their glyphs.
+  than interleaving or deduplicating their glyphs. Run detection compares the
+  preceding retained glyph without cloning its text, and line/run/layer
+  collections grow fallibly.
   `DocumentLimits.max_text_glyphs` bounds cumulative positioned glyph records
   before caching or structured Python output. Text and table interpretations
   of one page share one admission, failed pages consume no budget, and

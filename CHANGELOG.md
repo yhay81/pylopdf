@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collecting its 4,097th candidate instead of materializing every candidate
   before disabling inference, and its selection/partition buffers fail through
   `PdfError` without caching a partial page.
+- Text line clustering now grows horizontal/vertical partitions, physical
+  lines, source-order paint runs, overprint layers, and interval metadata
+  fallibly. Overprint detection compares the preceding retained glyph directly
+  instead of cloning its Unicode string for every glyph.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of
