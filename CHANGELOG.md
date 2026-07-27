@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indirect raster placements per call, bounding repeated references in
   addition to the existing 16,384 unique-object limit. Its usage map and sorted
   result collection now grow fallibly instead of relying on infallible
-  `HashMap` insertion or iterator collection.
+  `HashMap` insertion or iterator collection. Candidate and mask-reference sets
+  are likewise allocated fallibly before any compression edit.
 - Bounded in-memory PNG and serialized-PDF writers now use fallible growth
   after their size checks, returning ordinary encoding or `PdfError` failures
   instead of relying on infallible `Vec` extension within the configured limit.
