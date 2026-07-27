@@ -217,7 +217,10 @@ overview.
   GIL. OCR clones the
   Pixmap's shared immutable RGBA backing, composites
   RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
-  pixels, a 4096-candidate cap, and deterministic edge deduplication. The
+  pixels, a 4096-candidate cap, and deterministic edge deduplication.
+  Rotation rasters, detector/recognizer inputs, probability-map masks,
+  connected-component growth, tile starts, candidates, and results allocate
+  fallibly and surface failures as `OcrError`. The
   default 1408-pixel tile and 192-pixel overlap measured about 419 MiB peak on
   a 300-dpi A4 page. Recognizer class count must match dictionary length + 2.
   Results use rotation-resolved display coordinates and recursive sustained-
@@ -227,8 +230,9 @@ overview.
   memory-safe default and values through 16 require workload measurement.
   Every admitted call owns raster and inference buffers. A two-document,
   four-thread field check at 150 dpi exactly matched sequential output, while
-  admission limits 1 and 2 took 6.31s and 6.75s respectively, reinforcing the
-  default of 1. Same-Document restrictions still apply. `Page.apply_ocr` skips
+  admission limits 1 and 2 took 6.19s and 5.70s respectively. This is not a
+  throughput claim; peak-memory amplification retains the default of 1.
+  Same-Document restrictions still apply. `Page.apply_ocr` skips
   pages with extractable text by default so repeated runs are idempotent. With
   `clip=`, only intersecting text triggers the skip and result boxes remain in
   full-page display coordinates. Clipping reduces OCR detector input but not
