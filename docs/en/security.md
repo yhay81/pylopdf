@@ -58,6 +58,12 @@ budgets. Every non-`None` value must be a positive integer.
 `max_decompressed_size=` remains a compatible shorthand for its one
 per-stream budget and cannot be combined with `limits=`.
 
+When page-count or page-content budgets require page indexing, pylopdf walks
+the page tree iteratively. It rejects reused Page/Pages objects and cycles,
+indirect `/Kids` chains over 32 references, internal trees over 256 levels,
+and edge counts above the indirect-object count. `max_pages` traversal stops
+as soon as it encounters the first page beyond the configured boundary.
+
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,

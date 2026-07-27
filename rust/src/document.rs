@@ -101,6 +101,8 @@ const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 
 /// Bound one page-structure mutation batch before cloning or importing graphs.
 const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
+const MAX_PAGE_TREE_DEPTH: usize = 256;
+const MAX_PAGE_TREE_REFERENCE_DEPTH: usize = 32;
 
 /// Bound the private multi-page plain-text extraction input.
 const MAX_TEXT_EXTRACTION_PAGES: usize = 4_096;
@@ -3305,12 +3307,200 @@ fn document_complexity(doc: &Document) -> ComplexityTuple {
     )
 }
 
+struct PageTreeFrame<'a> {
+    kids: &'a [Object],
+    next: usize,
+    depth: usize,
+}
+
+fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResult<&'a [Object]> {
+    let mut current = node
+        .get(b"Kids")
+        .map_err(|_| PdfError::new_err("page tree node is missing Kids"))?;
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_PAGE_TREE_REFERENCE_DEPTH)
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to inspect page tree Kids references: {error}"
+            ))
+        })?;
+    loop {
+        let Object::Reference(id) = current else {
+            return current
+                .as_array()
+                .map(Vec::as_slice)
+                .map_err(|_| PdfError::new_err("page tree Kids must resolve to an array"));
+        };
+        if visited.contains(id) {
+            return Err(PdfError::new_err(
+                "page tree Kids contains a reference cycle",
+            ));
+        }
+        if visited.len() >= MAX_PAGE_TREE_REFERENCE_DEPTH {
+            return Err(PdfError::new_err(format!(
+                "page tree Kids exceeds the {MAX_PAGE_TREE_REFERENCE_DEPTH}-reference-depth safety limit"
+            )));
+        }
+        visited.push(*id);
+        current = doc.objects.get(id).ok_or_else(|| {
+            PdfError::new_err(format!(
+                "page tree Kids references missing object {} {}",
+                id.0, id.1
+            ))
+        })?;
+    }
+}
+
+fn walk_page_tree(
+    doc: &Document,
+    max_pages: Option<usize>,
+    mut visitor: impl FnMut(u32, ObjectId) -> PyResult<()>,
+) -> PyResult<usize> {
+    let root_id = doc
+        .catalog()
+        .map_err(to_py_err)?
+        .get(b"Pages")
+        .and_then(Object::as_reference)
+        .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))?;
+    let root = doc
+        .get_dictionary(root_id)
+        .map_err(|error| PdfError::new_err(format!("cannot read page tree root: {error}")))?;
+    if root.get_type().ok() != Some(b"Pages") {
+        return Err(PdfError::new_err(
+            "Catalog Pages does not reference a Pages dictionary",
+        ));
+    }
+
+    let root_kids = resolve_page_tree_kids(doc, root)?;
+    let mut frames = Vec::new();
+    frames.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate page tree traversal stack: {error}"
+        ))
+    })?;
+    frames.push(PageTreeFrame {
+        kids: root_kids,
+        next: 0,
+        depth: 1,
+    });
+    let mut visited = HashSet::new();
+    visited.try_reserve(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate page tree cycle detection: {error}"
+        ))
+    })?;
+    visited.insert(root_id);
+
+    let edge_limit = doc.objects.len();
+    let mut edges = 0usize;
+    let mut page_count = 0usize;
+    while let Some(frame) = frames.last_mut() {
+        let Some(kid) = frame.kids.get(frame.next) else {
+            frames.pop();
+            continue;
+        };
+        frame.next += 1;
+        let child_depth = frame
+            .depth
+            .checked_add(1)
+            .ok_or_else(|| PdfError::new_err("page tree depth exceeds the platform size limit"))?;
+        edges = edges.checked_add(1).ok_or_else(|| {
+            PdfError::new_err("page tree edge count exceeds the platform size limit")
+        })?;
+        if edges > edge_limit {
+            return Err(PdfError::new_err(format!(
+                "page tree exceeds its {edge_limit}-edge object-count safety limit"
+            )));
+        }
+
+        let Ok(kid_id) = kid.as_reference() else {
+            continue;
+        };
+        let Ok(dictionary) = doc.get_dictionary(kid_id) else {
+            continue;
+        };
+        let Ok(type_name) = dictionary.get_type() else {
+            continue;
+        };
+        if !matches!(type_name, b"Page" | b"Pages") {
+            continue;
+        }
+        if visited.contains(&kid_id) {
+            return Err(PdfError::new_err(format!(
+                "page tree reuses object {} {} or contains a cycle",
+                kid_id.0, kid_id.1
+            )));
+        }
+        visited.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to grow page tree cycle detection: {error}"))
+        })?;
+        visited.insert(kid_id);
+
+        if type_name == b"Page" {
+            let next_count = page_count
+                .checked_add(1)
+                .ok_or_else(|| PdfError::new_err("page count exceeds the platform size limit"))?;
+            if let Some(limit) = max_pages
+                && next_count > limit
+            {
+                return Err(limit_err(
+                    "page_count",
+                    format!("PDF contains more than {limit} pages, exceeding the configured limit"),
+                ));
+            }
+            let page_number = u32::try_from(next_count)
+                .map_err(|_| PdfError::new_err("page count exceeds the PDF object-ID range"))?;
+            visitor(page_number, kid_id)?;
+            page_count = next_count;
+            continue;
+        }
+
+        if child_depth > MAX_PAGE_TREE_DEPTH {
+            return Err(PdfError::new_err(format!(
+                "page tree exceeds the {MAX_PAGE_TREE_DEPTH}-level safety limit"
+            )));
+        }
+        let kids = resolve_page_tree_kids(doc, dictionary)?;
+        frames.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to grow page tree traversal stack: {error}"))
+        })?;
+        frames.push(PageTreeFrame {
+            kids,
+            next: 0,
+            depth: child_depth,
+        });
+    }
+    Ok(page_count)
+}
+
+fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<ObjectId>> {
+    let mut pages = Vec::new();
+    if let Some(limit) = max_pages {
+        pages
+            .try_reserve_exact(limit.min(doc.objects.len()))
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate bounded page index: {error}"))
+            })?;
+    }
+    walk_page_tree(doc, max_pages, |_, id| {
+        if pages.len() == pages.capacity() {
+            pages.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!("failed to grow page index: {error}"))
+            })?;
+        }
+        pages.push(id);
+        Ok(())
+    })?;
+    Ok(pages)
+}
+
 /// Reject structural work above configured limits before rendering/extraction.
 fn validate_structural_limits(
     doc: &Document,
     limits: DocumentLimits,
     validate_pages: bool,
-) -> PyResult<()> {
+) -> PyResult<Option<Vec<ObjectId>>> {
     if let Some(limit) = limits.max_objects
         && doc.objects.len() > limit
     {
@@ -3345,18 +3535,10 @@ fn validate_structural_limits(
         }
     }
 
-    if validate_pages && limits.max_pages.is_some() {
-        let pages = doc.get_pages().len();
-        if let Some(limit) = limits.max_pages
-            && pages > limit
-        {
-            return Err(limit_err(
-                "page_count",
-                format!("PDF contains {pages} pages, exceeding the configured limit of {limit}"),
-            ));
-        }
+    if validate_pages && (limits.max_pages.is_some() || limits.max_page_content_size.is_some()) {
+        return collect_page_ids(doc, limits.max_pages).map(Some);
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Map bounded decoder failures to the applicable stable limit code.
@@ -3508,6 +3690,7 @@ fn decoded_stream_size(
 /// Prevalidate per-stream and cumulative decompression budgets at load.
 fn validate_decompression_limits(
     doc: &Document,
+    page_ids: Option<&[ObjectId]>,
     max_output: Option<usize>,
     max_page_content: Option<usize>,
     max_total: Option<usize>,
@@ -3516,9 +3699,11 @@ fn validate_decompression_limits(
         return Ok(());
     }
     let page_content_ids: HashSet<ObjectId> = if max_page_content.is_some() {
-        let pages = doc.get_pages();
+        let pages = page_ids.ok_or_else(|| {
+            PdfError::new_err("internal page-content validation index is unavailable")
+        })?;
         let mut content_ids = HashSet::new();
-        for page_id in pages.values() {
+        for page_id in pages {
             let streams = draw::inspect_page_contents(doc, *page_id).map_err(PdfError::new_err)?;
             content_ids.try_reserve(streams.len()).map_err(|error| {
                 PdfError::new_err(format!(
@@ -6557,10 +6742,11 @@ impl _Document {
                 )
             })?;
             let decrypted = !doc.is_encrypted();
-            validate_structural_limits(&doc, limits, decrypted)?;
+            let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
                 validate_decompression_limits(
                     &doc,
+                    page_ids.as_deref(),
                     limits.max_decompressed_size,
                     limits.max_page_content_size,
                     limits.max_total_decompressed_size,
@@ -6652,10 +6838,11 @@ impl _Document {
             let (doc, repaired) = load_document_with_recovery(data, options)
                 .map_err(|error| load_err(None, &error, decoder_limit_code))?;
             let decrypted = !doc.is_encrypted();
-            validate_structural_limits(&doc, limits, decrypted)?;
+            let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
                 validate_decompression_limits(
                     &doc,
+                    page_ids.as_deref(),
                     limits.max_decompressed_size,
                     limits.max_page_content_size,
                     limits.max_total_decompressed_size,

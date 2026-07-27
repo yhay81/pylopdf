@@ -702,6 +702,12 @@ overview.
   Page-content decompression indexing reuses the drawing path's bounded,
   cycle-aware `/Contents` inspection rather than lopdf's unbounded reference
   materialization, and grows its unique-ID set fallibly.
+  When page-count or page-content policies require page indexing, use the
+  iterative borrowed-frame page-tree walker instead of lopdf's `get_pages`.
+  It rejects reused Page/Pages references and cycles, caps indirect `/Kids`
+  resolution at 32 references and internal-tree depth at 256 levels, bounds
+  visited edges by the indirect-object count, grows its page index fallibly,
+  and stops `max_pages` traversal at the first over-limit page.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU

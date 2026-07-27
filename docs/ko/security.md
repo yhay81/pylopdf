@@ -55,6 +55,11 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 양의 정수여야 합니다. 기존`max_decompressed_size=`는 stream당 예산의 호환
 축약형으로 유지되지만`limits=`와 함께 사용할 수 없습니다.
 
+페이지 수 또는 page-content 예산에 page index가 필요하면 pylopdf는page tree를
+반복적으로 순회합니다. 재사용된Page／Pages object와 cycle, 32개 참조를 초과한
+간접`/Kids` chain, 256 level을 초과한 내부tree, 간접object 수를 초과한edge를
+거부합니다. `max_pages` 순회는 설정 상한을 넘는 첫page에서 즉시 중단합니다.
+
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
