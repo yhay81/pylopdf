@@ -435,6 +435,38 @@ def test_repeated_multiseparator_rows_stay_row_major() -> None:
     assert page.get_text().splitlines() == [" ".join(row) for row in rows]
 
 
+def test_wide_gap_table_rows_stay_row_major() -> None:
+    """Do not split a spreadsheet's label column away from its cell grid."""
+    rows = [
+        ("Alpha", "11", "12", "13", "14"),
+        ("Beta", "21", "22", "23", "24"),
+        ("Gamma", "31", "32", "33", "34"),
+        ("Delta", "41", "42", "43", "44"),
+        ("Epsilon", "51", "52", "53", "54"),
+        ("Zeta", "61", "62", "63", "64"),
+    ]
+    stream = ""
+    for offset, row in enumerate(rows):
+        y = 250 - offset * 20
+        for x, text in zip((20, 120, 160, 200, 240), row, strict=True):
+            stream += f"BT /F1 12 Tf {x} {y} Td ({text}) Tj ET\n"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 300 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    assert page.get_text().splitlines() == [" ".join(row) for row in rows]
+
+
 def test_isolated_wide_gap_stays_on_one_line() -> None:
     """Do not mistake an isolated header and page number for two columns."""
     stream = "BT /F1 12 Tf 40 260 Td (Header) Tj ET\nBT /F1 12 Tf 300 260 Td (1) Tj ET"

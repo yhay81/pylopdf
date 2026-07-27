@@ -549,6 +549,14 @@ recovery. Work beyond the release continues on the same line.
       horizontal scan/OCR drift on continuation lines. The bundled 1880 patent
       similarity proxy improved from 0.320 to 0.581 while the bill, form, NICS
       table, and user guide retained their prior corpus results.
+- [x] Keep spreadsheet-like rows row-major under wide gutters: baseline bands
+      bisected by a candidate boundary must not fragment into more than four
+      same-baseline cell segments. The NICS statistics table similarity proxy
+      improved from 0.121 to 0.855 without changing any other corpus result.
+      Diagnosis also established that the remaining rotated-table and form
+      scores measure pymupdf reference conventions: pylopdf beats pymupdf's
+      own sorted mode on the rotated Senate table and matches it at 0.991 on
+      the 1040 form, which the benchmark caveat now records.
 - Continue the limitation review from measured field cases; prefer extraction,
   Markdown, OCR, and recovery improvements that increase end-to-end document
   value without freezing the API prematurely.

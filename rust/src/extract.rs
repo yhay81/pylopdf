@@ -407,6 +407,10 @@ const ESTABLISHED_COLUMN_DRIFT: f64 = 0.5;
 /// Require column candidates to coexist vertically over this fraction.
 const MIN_COLUMN_VERTICAL_OVERLAP: f64 = 0.25;
 
+/// Keep spreadsheet-like rows row-major when a wide gutter bisects baseline
+/// bands into more segments than a small multi-column layout produces.
+const MAX_COLUMN_BAND_SEGMENTS: usize = 4;
+
 /// Maximum rule count considered for table detection on one page.
 const MAX_TABLE_RULES: usize = 4096;
 
@@ -1072,7 +1076,7 @@ fn order_axis_page_lines(
     let Some(boundary) = geometry_column_boundary(&geometry)? else {
         return Ok(clustered);
     };
-    if !valid_geometry_column_split(&geometry, boundary) {
+    if !valid_geometry_column_split(&geometry, boundary)? {
         return Ok(clustered);
     }
     let mut segments = Vec::new();
@@ -1523,7 +1527,7 @@ fn narrow_column_boundary(
             "narrow-column segment geometry",
         )?;
     }
-    if support < MIN_NARROW_COLUMN_LINES || !valid_geometry_column_split(&geometry, position) {
+    if support < MIN_NARROW_COLUMN_LINES || !valid_geometry_column_split(&geometry, position)? {
         return Ok(None);
     }
 
@@ -1705,20 +1709,87 @@ fn geometry_side_extent(
     (count > 0).then_some((y0, y1, count))
 }
 
-fn valid_geometry_column_split(lines: &[LineGeometry], boundary: f64) -> bool {
+/// Median segment count of baseline bands with text on both sides of a
+/// candidate gutter. Prose columns keep about one segment per side, while
+/// spreadsheet rows fragment one baseline into many cell segments.
+fn bisected_band_segment_median(
+    lines: &[LineGeometry],
+    boundary: f64,
+) -> Result<Option<usize>, TextPageLimit> {
+    let mut segments = Vec::new();
+    for line in lines {
+        let on_left = line.bbox.2 <= boundary;
+        let on_right = line.bbox.0 >= boundary;
+        if on_left == on_right {
+            continue;
+        }
+        let center = (line.bbox.1 + line.bbox.3) * 0.5;
+        if center.is_finite() {
+            try_push_text(
+                &mut segments,
+                (center, line.size, on_left),
+                "column band segments",
+            )?;
+        }
+    }
+    segments.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    let mut band_counts = Vec::new();
+    let mut previous_center = f64::NEG_INFINITY;
+    let mut count = 0_usize;
+    let mut has_left = false;
+    let mut has_right = false;
+    for &(center, size, on_left) in &segments {
+        if count > 0 && center - previous_center > size.max(1.0) * 0.5 {
+            if has_left && has_right {
+                try_push_text(&mut band_counts, count, "column band counts")?;
+            }
+            count = 0;
+            has_left = false;
+            has_right = false;
+        }
+        previous_center = center;
+        count += 1;
+        has_left |= on_left;
+        has_right |= !on_left;
+    }
+    if count > 0 && has_left && has_right {
+        try_push_text(&mut band_counts, count, "column band counts")?;
+    }
+    if band_counts.is_empty() {
+        return Ok(None);
+    }
+    band_counts.sort_unstable();
+    Ok(Some(band_counts[band_counts.len() / 2]))
+}
+
+fn valid_geometry_column_split(
+    lines: &[LineGeometry],
+    boundary: f64,
+) -> Result<bool, TextPageLimit> {
     let Some((left_y0, left_y1, left_count)) = geometry_side_extent(lines, boundary, true) else {
-        return false;
+        return Ok(false);
     };
     let Some((right_y0, right_y1, right_count)) = geometry_side_extent(lines, boundary, false)
     else {
-        return false;
+        return Ok(false);
     };
     if left_count < MIN_COLUMN_LINES || right_count < MIN_COLUMN_LINES {
-        return false;
+        return Ok(false);
     }
     let overlap = left_y1.min(right_y1) - left_y0.max(right_y0);
     let shorter_height = (left_y1 - left_y0).min(right_y1 - right_y0);
-    overlap > 0.0 && shorter_height > 0.0 && overlap / shorter_height >= MIN_COLUMN_VERTICAL_OVERLAP
+    if !(overlap > 0.0
+        && shorter_height > 0.0
+        && overlap / shorter_height >= MIN_COLUMN_VERTICAL_OVERLAP)
+    {
+        return Ok(false);
+    }
+    if let Some(median) = bisected_band_segment_median(lines, boundary)?
+        && median > MAX_COLUMN_BAND_SEGMENTS
+    {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// Recursively order column regions left-to-right while preserving spanning
@@ -1738,7 +1809,7 @@ fn order_columns(
     let Some(boundary) = geometry_column_boundary(&geometry)? else {
         return Ok(lines);
     };
-    if !valid_geometry_column_split(&geometry, boundary) {
+    if !valid_geometry_column_split(&geometry, boundary)? {
         return Ok(lines);
     }
 

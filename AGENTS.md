@@ -102,7 +102,10 @@ overview.
   reference vector for every word.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
-  column regions, and isolated wide gaps stay on one line. Sustained sub-em
+  column regions, and isolated wide gaps stay on one line. Baseline bands
+  bisected by a wide gutter must keep prose-like density: rows that fragment
+  into more than four same-baseline cell segments remain row-major, so
+  spreadsheet label/total columns are not split from their grid. Sustained sub-em
   gutters require at least four dense support lines, 16 glyphs and four
   alphanumeric characters on each side, and one plausible separator per line;
   aligned labels, dot leaders, and dense multi-separator rows remain row-major.
