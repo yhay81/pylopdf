@@ -556,14 +556,8 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
         Ok(first) => (first, 1usize),
         Err(_) => (outlines_object, 0usize),
     };
-    let pages = doc.get_pages();
-    let mut page_map = HashMap::new();
-    page_map.try_reserve(pages.len()).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate TOC page index: {error}"))
-    })?;
-    for (number, id) in pages {
-        page_map.insert(id, number);
-    }
+    let pages = collect_page_ids(doc, None)?;
+    let page_map = reverse_page_index(&pages, "TOC")?;
     let mut named_destinations = None;
     let mut stack = Vec::new();
     stack.try_reserve_exact(1).map_err(|error| {
@@ -2116,10 +2110,9 @@ fn prepare_page_form_import(
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
     source.renumber_objects_with(starting_id);
-    let source_id = *source
-        .get_pages()
-        .get(&page_number)
-        .ok_or_else(|| PdfError::new_err(format!("source page {page_number} does not exist")))?;
+    let source_pages = collect_page_ids(&source, None)?;
+    let source_id = page_id_from_index(&source_pages, page_number)
+        .map_err(|_| PdfError::new_err(format!("source page {page_number} does not exist")))?;
     let source_dict = resolve_inherited_page_dict(&source, source_id)?;
     let source_crop = resolve_box(&source, &source_dict, b"CropBox")
         .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
@@ -3280,8 +3273,8 @@ fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> usize {
 }
 
 /// Collect cheap structural complexity without decoding streams.
-fn document_complexity(doc: &Document) -> ComplexityTuple {
-    let page_count = doc.get_pages().len();
+fn document_complexity(doc: &Document) -> PyResult<ComplexityTuple> {
+    let page_count = page_tree_count(doc)?;
     let object_count = doc.objects.len();
     let mut stream_count = 0usize;
     let mut encoded_stream_bytes = 0u64;
@@ -3298,13 +3291,13 @@ fn document_complexity(doc: &Document) -> ComplexityTuple {
             encoded_stream_bytes = encoded_stream_bytes.saturating_add(stream.content.len() as u64);
         }
     }
-    (
+    Ok((
         page_count,
         object_count,
         stream_count,
         encoded_stream_bytes,
         max_object_depth,
-    )
+    ))
 }
 
 struct PageTreeFrame<'a> {
@@ -3493,6 +3486,33 @@ fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<Ob
         Ok(())
     })?;
     Ok(pages)
+}
+
+fn page_tree_count(doc: &Document) -> PyResult<usize> {
+    walk_page_tree(doc, None, |_, _| Ok(()))
+}
+
+fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<ObjectId> {
+    page_number
+        .checked_sub(1)
+        .and_then(|index| page_ids.get(index as usize))
+        .copied()
+        .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
+}
+
+fn reverse_page_index(page_ids: &[ObjectId], context: &str) -> PyResult<HashMap<ObjectId, u32>> {
+    let mut index = HashMap::new();
+    index.try_reserve(page_ids.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate {context} page index: {error}"))
+    })?;
+    for (offset, &id) in page_ids.iter().enumerate() {
+        let page_number = offset
+            .checked_add(1)
+            .and_then(|number| u32::try_from(number).ok())
+            .ok_or_else(|| PdfError::new_err("page count exceeds the PDF object-ID range"))?;
+        index.insert(id, page_number);
+    }
+    Ok(index)
 }
 
 /// Reject structural work above configured limits before rendering/extraction.
@@ -4472,11 +4492,8 @@ impl _Document {
 
     /// Return the ObjectId of a one-based page.
     fn page_id(&self, page_number: u32) -> PyResult<ObjectId> {
-        self.doc
-            .get_pages()
-            .get(&page_number)
-            .copied()
-            .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
+        let pages = collect_page_ids(&self.doc, None)?;
+        page_id_from_index(&pages, page_number)
     }
 
     /// Read a page attribute while resolving inheritance and indirect references.
@@ -5523,17 +5540,19 @@ impl _Document {
             Target::IndirectArray(arr_id) => {
                 // copy_page/select duplicates may share indirect Annots arrays.
                 // Clone on write while shared so additions do not leak.
-                let shared = self.doc.get_pages().into_values().any(|other_page_id| {
-                    other_page_id != page_id
-                        && self
-                            .doc
-                            .get_object(other_page_id)
-                            .and_then(Object::as_dict)
-                            .ok()
-                            .and_then(|page| page.get(b"Annots").ok())
-                            .and_then(|annots| annots.as_reference().ok())
-                            == Some(arr_id)
-                });
+                let shared = collect_page_ids(&self.doc, None)?
+                    .into_iter()
+                    .any(|other_page_id| {
+                        other_page_id != page_id
+                            && self
+                                .doc
+                                .get_object(other_page_id)
+                                .and_then(Object::as_dict)
+                                .ok()
+                                .and_then(|page| page.get(b"Annots").ok())
+                                .and_then(|annots| annots.as_reference().ok())
+                                == Some(arr_id)
+                    });
                 if shared {
                     let source = self
                         .doc
@@ -5636,7 +5655,7 @@ impl _Document {
     /// rendered state always reflects edits. Consecutive renders rebuild once.
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
-            let expected_pages = self.doc.get_pages().len();
+            let expected_pages = page_tree_count(&self.doc)?;
             let state_appearances = state_appearance_ids(&self.doc)?;
             let mut text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
             let prepare_appearances = !state_appearances.is_empty()
@@ -5897,7 +5916,7 @@ impl _Document {
         other_doc.renumber_objects_with(starting_id);
         let new_max_id = other_doc.max_id;
 
-        let other_pages = other_doc.get_pages();
+        let other_pages = collect_page_ids(&other_doc, None)?;
         let mut ordered_ids = Vec::new();
         ordered_ids
             .try_reserve_exact(page_numbers.len())
@@ -5905,9 +5924,7 @@ impl _Document {
                 PdfError::new_err(format!("failed to allocate imported page order: {error}"))
             })?;
         for number in page_numbers {
-            let id = *other_pages
-                .get(number)
-                .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
+            let id = page_id_from_index(&other_pages, *number)?;
             ordered_ids.push(id);
         }
 
@@ -5943,58 +5960,14 @@ impl _Document {
         Ok(ordered_ids)
     }
 
-    /// Append `new_ids` to root Pages Kids/Count without flattening.
-    fn append_pages(&mut self, pages_id: ObjectId, new_ids: Vec<ObjectId>) -> PyResult<()> {
-        // Input Count may be damaged; recalculate from reachable pages.
-        // new_ids are not in Kids yet, so get_pages returns existing pages only.
-        let total_count = self
-            .doc
-            .get_pages()
-            .len()
-            .checked_add(new_ids.len())
-            .ok_or_else(|| PdfError::new_err("page count limit reached"))?;
-        let count = i64::try_from(total_count).map_err(|e| PdfError::new_err(e.to_string()))?;
-        let existing_kids = self
-            .doc
-            .get_object(pages_id)
-            .and_then(Object::as_dict)
-            .ok()
-            .and_then(|pages| pages.get(b"Kids").and_then(Object::as_array).ok());
-        let existing_len = existing_kids.map_or(0, Vec::len);
-        let final_len = existing_len
-            .checked_add(new_ids.len())
-            .ok_or_else(|| PdfError::new_err("page-tree Kids exceed the platform size limit"))?;
-        let mut kids = Vec::new();
-        kids.try_reserve_exact(final_len).map_err(|error| {
-            PdfError::new_err(format!("failed to allocate page-tree Kids: {error}"))
-        })?;
-        if let Some(existing_kids) = existing_kids {
-            for kid in existing_kids {
-                kids.push(kid.clone());
-            }
-        }
-        for id in new_ids {
-            kids.push(Object::Reference(id));
-        }
-        let pages_dict = self
-            .doc
-            .get_object_mut(pages_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        pages_dict.set("Kids", kids);
-        pages_dict.set("Count", count);
-        Ok(())
-    }
-
     /// Return current pages with `new_ids` inserted at zero-based `position`.
     ///
-    /// `new_ids` must not yet be reachable from root Kids or included by get_pages.
+    /// `new_ids` must not yet be reachable from root Kids or the bounded index.
     fn spliced_page_order(
-        &self,
+        pages: Vec<ObjectId>,
         new_ids: Vec<ObjectId>,
         position: Option<usize>,
     ) -> PyResult<Vec<ObjectId>> {
-        let pages = self.doc.get_pages();
         let final_len = pages
             .len()
             .checked_add(new_ids.len())
@@ -6003,7 +5976,7 @@ impl _Document {
         order.try_reserve_exact(final_len).map_err(|error| {
             PdfError::new_err(format!("failed to allocate spliced page order: {error}"))
         })?;
-        order.extend(pages.into_values());
+        order.extend(pages);
         let pos = position.unwrap_or(order.len()).min(order.len());
         order.splice(pos..pos, new_ids);
         Ok(order)
@@ -6096,7 +6069,7 @@ impl _Document {
     fn resolve_dest<'a>(
         &'a self,
         dest: &'a Object,
-        page_map: &BTreeMap<ObjectId, u32>,
+        page_map: &HashMap<ObjectId, u32>,
         named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
         encoded_bytes: &mut usize,
         returned_bytes: &mut usize,
@@ -6871,7 +6844,7 @@ impl _Document {
     }
 
     /// Return `(pages, objects, streams, encoded stream bytes, direct depth)`.
-    fn complexity(&self) -> ComplexityTuple {
+    fn complexity(&self) -> PyResult<ComplexityTuple> {
         document_complexity(&self.doc)
     }
 
@@ -7063,8 +7036,8 @@ impl _Document {
     }
 
     /// Return the page count.
-    fn page_count(&self) -> usize {
-        self.doc.get_pages().len()
+    fn page_count(&self) -> PyResult<usize> {
+        page_tree_count(&self.doc)
     }
 
     /// Return the PDF version string, such as `"1.7"`.
@@ -7135,8 +7108,41 @@ impl _Document {
         if page_numbers.is_empty() {
             return Ok(());
         }
+
+        let pages = collect_page_ids(&self.doc, None)?;
+        let mut deleted = HashSet::new();
+        deleted.try_reserve(page_numbers.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate deleted-page tracking: {error}"))
+        })?;
+        for page_number in page_numbers {
+            deleted.insert(page_id_from_index(&pages, page_number)?);
+        }
+        let retained_count = pages
+            .len()
+            .checked_sub(deleted.len())
+            .ok_or_else(|| PdfError::new_err("deleted page count exceeds the page index"))?;
+        let mut retained = Vec::new();
+        retained
+            .try_reserve_exact(retained_count)
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate retained page order: {error}"))
+            })?;
+        for page_id in pages {
+            if !deleted.contains(&page_id) {
+                retained.push(page_id);
+            }
+        }
+        let pages_id = self
+            .doc
+            .catalog()
+            .map_err(to_py_err)?
+            .get(b"Pages")
+            .and_then(Object::as_reference)
+            .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))?;
+
         self.invalidate_hayro_pdf();
-        self.doc.delete_pages(&page_numbers);
+        self.rebuild_page_tree(pages_id, retained)?;
+        self.doc.prune_objects();
         Ok(())
     }
 
@@ -7353,7 +7359,7 @@ impl _Document {
 
     /// Append every page from another document.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
-        let page_count = other.doc.get_pages().len();
+        let page_count = page_tree_count(&other.doc)?;
         if page_count > MAX_STRUCTURAL_PAGE_BATCH {
             return Err(PdfError::new_err(format!(
                 "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
@@ -7389,18 +7395,18 @@ impl _Document {
         if page_numbers.is_empty() {
             return Ok(());
         }
+        let existing_pages = collect_page_ids(&self.doc, None)?;
+        let source_pages = collect_page_ids(&other.doc, None)?;
+        for &page_number in &page_numbers {
+            page_id_from_index(&source_pages, page_number)?;
+        }
         self.invalidate_hayro_pdf();
         py.detach(|| {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
             let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
-            match position {
-                None => self.append_pages(pages_id, new_ids)?,
-                Some(_) => {
-                    let order = self.spliced_page_order(new_ids, position)?;
-                    self.rebuild_page_tree(pages_id, order)?;
-                }
-            }
+            let order = Self::spliced_page_order(existing_pages, new_ids, position)?;
+            self.rebuild_page_tree(pages_id, order)?;
             // transplant_pages initially moves all non-page objects. Prune
             // attachments/metadata unreachable from selected pages or hidden
             // source data remains even for a full-range append.
@@ -7411,12 +7417,13 @@ impl _Document {
 
     /// Insert a blank page at zero-based `position`; None appends.
     fn new_page(&mut self, position: Option<usize>, width: f32, height: f32) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
         if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
             return Err(PdfError::new_err(format!(
                 "width / height must be positive finite values within PDF real-number range: ({width:?}, {height:?})"
             )));
         }
+        let existing_pages = collect_page_ids(&self.doc, None)?;
+        self.invalidate_hayro_pdf();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let page_id = self.doc.add_object(dictionary! {
             "Type" => "Page",
@@ -7428,15 +7435,10 @@ impl _Document {
                 Object::Real(height),
             ]),
         });
-        match position {
-            None => self.append_pages(pages_id, vec![page_id]),
-            Some(_) => {
-                let order = self.spliced_page_order(vec![page_id], position)?;
-                self.rebuild_page_tree(pages_id, order)?;
-                self.doc.prune_objects();
-                Ok(())
-            }
-        }
+        let order = Self::spliced_page_order(existing_pages, vec![page_id], position)?;
+        self.rebuild_page_tree(pages_id, order)?;
+        self.doc.prune_objects();
+        Ok(())
     }
 
     /// Copy a one-based page to zero-based `position`; None appends.
@@ -7444,21 +7446,17 @@ impl _Document {
     /// The page dictionary is an independent copy with inheritance materialized;
     /// Contents and Resources remain shared with the source page.
     fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        let existing_pages = collect_page_ids(&self.doc, None)?;
+        let source_id = page_id_from_index(&existing_pages, page_number)?;
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
-        let source_id = self.page_id(page_number)?;
         let mut dict = resolve_inherited_page_dict(&self.doc, source_id)?;
         dict.set("Parent", pages_id);
+        self.invalidate_hayro_pdf();
         let new_id = self.doc.add_object(Object::Dictionary(dict));
-        match position {
-            None => self.append_pages(pages_id, vec![new_id]),
-            Some(_) => {
-                let order = self.spliced_page_order(vec![new_id], position)?;
-                self.rebuild_page_tree(pages_id, order)?;
-                self.doc.prune_objects();
-                Ok(())
-            }
-        }
+        let order = Self::spliced_page_order(existing_pages, vec![new_id], position)?;
+        self.rebuild_page_tree(pages_id, order)?;
+        self.doc.prune_objects();
+        Ok(())
     }
 
     /// Keep specified one-based pages in order, also supporting reordering.
@@ -7470,7 +7468,7 @@ impl _Document {
                 "cannot select more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
             )));
         }
-        let pages = self.doc.get_pages();
+        let pages = collect_page_ids(&self.doc, None)?;
         let mut selected_ids = Vec::new();
         selected_ids
             .try_reserve_exact(page_numbers.len())
@@ -7478,9 +7476,7 @@ impl _Document {
                 PdfError::new_err(format!("failed to allocate selected page IDs: {error}"))
             })?;
         for number in &page_numbers {
-            let page_id = *pages
-                .get(number)
-                .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
+            let page_id = page_id_from_index(&pages, *number)?;
             selected_ids.push(page_id);
         }
         let existing_pages_id = self
@@ -7800,7 +7796,7 @@ impl _Document {
                 "cannot set more than {MAX_TOC_ENTRIES} TOC entries"
             )));
         }
-        let pages = self.doc.get_pages();
+        let pages = collect_page_ids(&self.doc, None)?;
         let mut prepared = Vec::new();
         prepared.try_reserve_exact(entries.len()).map_err(|error| {
             PdfError::new_err(format!("failed to allocate prepared TOC entries: {error}"))
@@ -7840,9 +7836,7 @@ impl _Document {
                 "toc_input_size",
                 "TOC encoded text",
             )?;
-            let page_id = *pages
-                .get(&page)
-                .ok_or_else(|| PdfError::new_err(format!("page {page} does not exist")))?;
+            let page_id = page_id_from_index(&pages, page)?;
             prepared.push((level, title, page_id));
             previous_level = level;
             max_level = max_level.max(level as usize);
@@ -8362,12 +8356,8 @@ impl _Document {
                 return Ok(Vec::new());
             };
             // Build ObjectId → lopdf page-number lookup for destination resolution.
-            let page_map: BTreeMap<ObjectId, u32> = self
-                .doc
-                .get_pages()
-                .into_iter()
-                .map(|(number, id)| (id, number))
-                .collect();
+            let pages = collect_page_ids(&self.doc, None)?;
+            let page_map = reverse_page_index(&pages, "link destination")?;
             let mut out = Vec::new();
             let mut encoded_bytes = 0usize;
             let mut returned_bytes = 0usize;

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import png_size
+from conftest import build_raw_pdf, png_size
 
 import pylopdf
 
@@ -87,6 +87,32 @@ def test_new_page_appends_blank(one_page_pdf: bytes) -> None:
     assert page.mediabox == pylopdf.Rect(0.0, 0.0, 595.0, 842.0)
     assert page.get_text() == ""
     assert png_size(doc.render_page(1)) == (595, 842)
+
+
+def test_new_page_preserves_indirect_root_kids() -> None:
+    doc = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids 4 0 R /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+                4: "[3 0 R]",
+            }
+        )
+    )
+
+    doc.new_page(width=200, height=300)
+
+    assert doc.page_count == 2
+    assert doc[0].rect.width == pytest.approx(100)
+    assert doc[1].rect == pylopdf.Rect(0, 0, 200, 300)
+    assert pylopdf.open(stream=doc.tobytes()).page_count == 2
+
+    doc.delete_page(1)
+
+    assert doc.page_count == 1
+    assert doc[0].rect.width == pytest.approx(100)
+    assert pylopdf.open(stream=doc.tobytes()).page_count == 1
 
 
 def test_new_page_insert_position_and_size(three_page_pdf: bytes) -> None:

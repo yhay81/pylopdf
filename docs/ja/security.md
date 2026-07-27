@@ -56,10 +56,12 @@ Webプロファイルは現在、次の上限を独立に適用します。
 正の整数でなければなりません。従来の`max_decompressed_size=`はストリーム単位の
 短縮指定として残りますが、`limits=`とは同時指定できません。
 
-ページ数またはページ内容の上限でpage indexが必要な場合、pylopdfはpage treeを
-反復的に走査します。Page／Pages objectの再利用とcycle、32参照を超える間接
-`/Kids` chain、256階層を超える内部tree、間接object数を超えるedgeを拒否します。
-`max_pages`の走査は、設定上限を超えた最初のpageで直ちに停止します。
+page count／lookup、complexity、render snapshot、TOC／link、annotation、
+Form import、page構造編集を含むすべての公開page indexingは、1つの反復的な
+page-tree walkerを使います。Page／Pages objectの再利用とcycle、32参照を超える
+間接`/Kids` chain、256階層を超える内部tree、間接object数を超えるedgeを拒否します。
+`max_pages`は上限を超えた最初のpageで停止します。pageポリシーなしのopenは互換性を
+維持し、これらのpage-tree検査を最初のpage-indexing操作まで遅延します。
 
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、

@@ -11,12 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   composition to more readable measures. The four localized announcement
   banners now link to v0.12.0 and summarize its resource-safety and text-layout
   improvements instead of advertising v0.10.0.
-- Resource-policy page indexing now uses an iterative, fallibly grown page-tree
+- All public page indexing now uses one iterative, fallibly grown page-tree
   walker instead of lopdf's silent 256-level truncation and infallible final
-  collection. Policies that inspect pages reject reused Page/Pages objects,
-  cycles, indirect `/Kids` chains over 32 references, internal trees over 256
-  levels, and edge counts above the indirect-object count; `max_pages` stops
-  at the first page beyond the configured boundary.
+  collection. Page count and lookup, complexity, render snapshots, TOC and
+  links, annotation edits, Form imports, and page-structure edits reject reused
+  Page/Pages objects, cycles, indirect `/Kids` chains over 32 references,
+  internal trees over 256 levels, and edge counts above the indirect-object
+  count. `max_pages` stops at its first over-limit page. `delete_pages()` now
+  plans and rebuilds the retained order through the same index, while
+  append/copy/import operations preserve indirect root Kids by flattening a
+  fully validated order.
 - Load-time page-content decompression validation now reuses the bounded,
   cycle-aware drawing `/Contents` inspector and grows its unique stream-ID
   index fallibly instead of materializing page references through lopdf and an
