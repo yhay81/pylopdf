@@ -272,7 +272,10 @@ overview.
   four-thread field check at 150 dpi exactly matched sequential output, while
   admission limits 1 and 2 took 6.19s and 5.70s respectively. This is not a
   throughput claim; peak-memory amplification retains the default of 1.
-  Same-Document restrictions still apply. `Page.apply_ocr` skips
+  Dictionary entries, tile positions, recognized text, candidate union-find,
+  row/column ordering, height samples, and gutter intervals grow fallibly under
+  their existing caps; ordering uses in-place sorts with explicit geometry
+  tie-breakers. Same-Document restrictions still apply. `Page.apply_ocr` skips
   pages with extractable text by default so repeated runs are idempotent. With
   `clip=`, only intersecting text triggers the skip and result boxes remain in
   full-page display coordinates. Clipping reduces OCR detector input but not
