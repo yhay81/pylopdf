@@ -112,6 +112,32 @@ def _content_shape_doc(shape: str, *, shared: bool) -> pylopdf.Document:
     return pylopdf.open(stream=build_raw_pdf(objects))
 
 
+def _resource_shape_doc(resources: str, target: str | None = None) -> pylopdf.Document:
+    objects: dict[int, bytes | str] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+        3: f"<< /Type /Page /Parent 2 0 R /Resources {resources} >>",
+    }
+    if target is not None:
+        objects[4] = target
+    return pylopdf.open(stream=build_raw_pdf(objects))
+
+
+def _shared_resource_doc() -> pylopdf.Document:
+    return pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Resources 5 0 R /Contents 6 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R /Resources 5 0 R /Contents 6 0 R >>",
+                5: "<< >>",
+                6: "<< /Length 29 >>\nstream\nq 1 0 0 rg 0 0 200 100 re f Q\nendstream",
+            }
+        )
+    )
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
@@ -172,6 +198,79 @@ def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:
     with pytest.raises(pylopdf.PdfError, match="4096-entry"):
         doc[0].insert_image((0, 0, 10, 10), stream=b"not an image")
     assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("doc", "operation", "message"),
+    [
+        pytest.param(
+            _resource_shape_doc("/Bad"),
+            "image",
+            "page Resources must resolve to a dictionary",
+            id="resources-type",
+        ),
+        pytest.param(
+            _resource_shape_doc("4 0 R", "4 0 R"),
+            "image",
+            "page Resources contains a reference cycle",
+            id="resources-cycle",
+        ),
+        pytest.param(
+            _resource_shape_doc("<< /XObject 4 0 R >>", "4 0 R"),
+            "image",
+            "Resources/XObject contains a reference cycle",
+            id="xobject-cycle",
+        ),
+        pytest.param(
+            _resource_shape_doc("<< /Font 4 0 R >>", "4 0 R"),
+            "text",
+            "Resources/Font contains a reference cycle",
+            id="font-cycle",
+        ),
+    ],
+)
+def test_drawing_preflights_resource_shape_before_mutation(
+    doc: pylopdf.Document,
+    operation: str,
+    message: str,
+) -> None:
+    before = doc.tobytes()
+
+    def run_operation() -> None:
+        if operation == "image":
+            doc[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+        else:
+            doc[0].insert_text((10, 20), "Text")
+
+    with pytest.raises(pylopdf.PdfError, match=message):
+        run_operation()
+    assert doc.tobytes() == before
+
+
+def test_drawing_rejects_full_resource_category_before_mutation() -> None:
+    entries = " ".join(f"/R{index} null" for index in range(4096))
+    doc = _resource_shape_doc("4 0 R", f"<< /XObject << {entries} >> >>")
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        doc[0].insert_image((0, 0, 10, 10), stream=b"not an image")
+    assert doc.tobytes() == before
+
+
+def test_drawing_detaches_shared_resources_from_other_pages() -> None:
+    doc = _shared_resource_doc()
+    doc[0].insert_image(
+        (0, 0, 200, 100),
+        stream=_solid_png(2, 2, GREEN),
+        keep_proportion=False,
+    )
+    assert _pixel(doc[0], 100, 50) == GREEN
+    assert _pixel(doc[1], 100, 50) == RED
+
+    doc.delete_page(0)
+    compacted = doc.tobytes(garbage=True)
+    assert b"/PyloX" not in compacted
+    assert _pixel(pylopdf.open(stream=compacted)[0], 100, 50) == RED
 
 
 @pytest.mark.parametrize(

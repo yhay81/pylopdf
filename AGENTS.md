@@ -426,7 +426,12 @@ overview.
   insertion that would take the final array above 4,096 stream references. They
   fallibly prepare the exact final array and any q/Q isolation streams before
   dependent object creation, then commit assigned references without growing
-  the collection.
+  the collection. XObject and Font registration also materializes inherited
+  Resources and the selected category into one page-owned direct dictionary
+  before dependent work. Reject resource dictionaries above 4,096 entries,
+  indirect chains above 32 levels or with cycles, and direct shapes above 8,192
+  objects, 32 levels, or 1 MiB; reserve the generated name with a null slot and
+  replace it without collection growth at commit.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional

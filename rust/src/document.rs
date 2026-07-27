@@ -118,6 +118,13 @@ const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_GENERATED_TEXT_SIZE: usize = 1024 * 1024;
 
+/// Bound and materialize page drawing resources before dependent objects exist.
+const MAX_PAGE_RESOURCE_ENTRIES: usize = 4_096;
+const MAX_PAGE_RESOURCE_DIRECT_OBJECTS: usize = 8_192;
+const MAX_PAGE_RESOURCE_DIRECT_BYTES: usize = 1024 * 1024;
+const MAX_PAGE_RESOURCE_REFERENCE_DEPTH: usize = 32;
+const MAX_PAGE_RESOURCE_DIRECT_DEPTH: usize = 32;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -175,11 +182,68 @@ type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option
 /// Info strings, page count, version, encryption, and startxref-repair status.
 type MetadataTuple = (HashMap<String, String>, u32, String, bool, bool);
 
-/// Target geometry and drawing order for one placed PDF page.
+/// Target geometry for one placed PDF page.
 #[derive(Clone, Copy)]
 struct PagePlacement {
     rect: [f64; 4],
     keep_proportion: bool,
+}
+
+/// Resource category materialized into a page-owned drawing dictionary.
+#[derive(Clone, Copy)]
+enum PageResourceKind {
+    XObject,
+    Font,
+}
+
+impl PageResourceKind {
+    fn key(self) -> &'static [u8] {
+        match self {
+            Self::XObject => b"XObject",
+            Self::Font => b"Font",
+        }
+    }
+
+    fn name_prefix(self) -> &'static str {
+        match self {
+            Self::XObject => "PyloX",
+            Self::Font => "PyloF",
+        }
+    }
+}
+
+/// Fully materialized page dictionary with one reserved resource-name slot.
+struct PageResourcePlan {
+    page: Dictionary,
+    kind: PageResourceKind,
+    name: String,
+}
+
+impl PageResourcePlan {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn bind(mut self, resource_id: ObjectId) -> PyResult<Dictionary> {
+        let resources = self
+            .page
+            .get_mut(b"Resources")
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        let entries = resources
+            .get_mut(self.kind.key())
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        let slot = entries.get_mut(self.name.as_bytes()).map_err(to_py_err)?;
+        *slot = Object::Reference(resource_id);
+        Ok(self.page)
+    }
+}
+
+/// Prepared page-content and resource commits for one drawing operation.
+struct PageDrawingPlan {
+    content: draw::ContentAppendPlan,
+    resource: PageResourcePlan,
 }
 
 /// One EmbeddedFiles name-tree item: display name and FileSpec object.
@@ -1625,6 +1689,256 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Resu
         }
     }
     Ok(dict)
+}
+
+fn resolve_page_resource_dictionary<'a>(
+    doc: &'a Document,
+    object: &'a Object,
+    label: &str,
+) -> PyResult<&'a Dictionary> {
+    let mut current = object;
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_PAGE_RESOURCE_REFERENCE_DEPTH)
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to inspect {label} reference chain: {error}"
+            ))
+        })?;
+    loop {
+        let Object::Reference(id) = current else {
+            return current
+                .as_dict()
+                .map_err(|_| PdfError::new_err(format!("{label} must resolve to a dictionary")));
+        };
+        if visited.contains(id) {
+            return Err(PdfError::new_err(format!(
+                "{label} contains a reference cycle"
+            )));
+        }
+        if visited.len() >= MAX_PAGE_RESOURCE_REFERENCE_DEPTH {
+            return Err(PdfError::new_err(format!(
+                "{label} exceeds the {MAX_PAGE_RESOURCE_REFERENCE_DEPTH}-reference-depth safety limit"
+            )));
+        }
+        visited.push(*id);
+        current = doc.objects.get(id).ok_or_else(|| {
+            PdfError::new_err(format!(
+                "{label} references missing object {} {}",
+                id.0, id.1
+            ))
+        })?;
+    }
+}
+
+fn page_resource_shape_error(label: &str, detail: &str, limit: usize) -> PyErr {
+    PdfError::new_err(format!("{label} exceeds the {limit}-{detail} safety limit"))
+}
+
+/// Bound direct resource shapes before cloning them into a page-owned dictionary.
+///
+/// Indirect references are leaves; their target dictionaries are validated
+/// separately when selected as Resources or the requested resource category.
+fn validate_page_resource_shape(dict: &Dictionary, label: &str) -> PyResult<()> {
+    if dict.len() > MAX_PAGE_RESOURCE_ENTRIES {
+        return Err(page_resource_shape_error(
+            label,
+            "entry",
+            MAX_PAGE_RESOURCE_ENTRIES,
+        ));
+    }
+    let mut pending = Vec::new();
+    pending.try_reserve_exact(dict.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate {label} direct-object validation stack: {error}"
+        ))
+    })?;
+    for (_, value) in dict.iter() {
+        pending.push((value, 2usize));
+    }
+    let mut objects = 1usize;
+    let mut bytes = 0usize;
+    for (key, _) in dict.iter() {
+        bytes = bytes.checked_add(key.len()).ok_or_else(|| {
+            PdfError::new_err(format!(
+                "{label} direct data exceeds the platform size limit"
+            ))
+        })?;
+    }
+    while let Some((object, depth)) = pending.pop() {
+        objects = objects.checked_add(1).ok_or_else(|| {
+            PdfError::new_err(format!(
+                "{label} direct objects exceed the platform size limit"
+            ))
+        })?;
+        if objects > MAX_PAGE_RESOURCE_DIRECT_OBJECTS {
+            return Err(page_resource_shape_error(
+                label,
+                "object",
+                MAX_PAGE_RESOURCE_DIRECT_OBJECTS,
+            ));
+        }
+        if depth > MAX_PAGE_RESOURCE_DIRECT_DEPTH {
+            return Err(page_resource_shape_error(
+                label,
+                "level",
+                MAX_PAGE_RESOURCE_DIRECT_DEPTH,
+            ));
+        }
+        let mut add_bytes = |amount: usize| -> PyResult<()> {
+            bytes = bytes.checked_add(amount).ok_or_else(|| {
+                PdfError::new_err(format!(
+                    "{label} direct data exceeds the platform size limit"
+                ))
+            })?;
+            if bytes > MAX_PAGE_RESOURCE_DIRECT_BYTES {
+                return Err(page_resource_shape_error(
+                    label,
+                    "byte",
+                    MAX_PAGE_RESOURCE_DIRECT_BYTES,
+                ));
+            }
+            Ok(())
+        };
+        let child_count = match object {
+            Object::Name(value) | Object::String(value, _) => {
+                add_bytes(value.len())?;
+                0
+            }
+            Object::Array(items) => items.len(),
+            Object::Dictionary(child) => {
+                for (key, _) in child.iter() {
+                    add_bytes(key.len())?;
+                }
+                child.len()
+            }
+            Object::Stream(stream) => {
+                add_bytes(stream.content.len())?;
+                for (key, _) in stream.dict.iter() {
+                    add_bytes(key.len())?;
+                }
+                stream.dict.len()
+            }
+            _ => 0,
+        };
+        if child_count != 0 && depth >= MAX_PAGE_RESOURCE_DIRECT_DEPTH {
+            return Err(page_resource_shape_error(
+                label,
+                "level",
+                MAX_PAGE_RESOURCE_DIRECT_DEPTH,
+            ));
+        }
+        let scheduled = objects
+            .checked_add(pending.len())
+            .and_then(|total| total.checked_add(child_count))
+            .ok_or_else(|| {
+                PdfError::new_err(format!(
+                    "{label} direct objects exceed the platform size limit"
+                ))
+            })?;
+        if scheduled > MAX_PAGE_RESOURCE_DIRECT_OBJECTS {
+            return Err(page_resource_shape_error(
+                label,
+                "object",
+                MAX_PAGE_RESOURCE_DIRECT_OBJECTS,
+            ));
+        }
+        pending.try_reserve(child_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow {label} direct-object validation stack: {error}"
+            ))
+        })?;
+        match object {
+            Object::Array(items) => {
+                for child in items {
+                    pending.push((child, depth + 1));
+                }
+            }
+            Object::Dictionary(child) => {
+                for (_, value) in child.iter() {
+                    pending.push((value, depth + 1));
+                }
+            }
+            Object::Stream(stream) => {
+                for (_, value) in stream.dict.iter() {
+                    pending.push((value, depth + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    if bytes > MAX_PAGE_RESOURCE_DIRECT_BYTES {
+        return Err(page_resource_shape_error(
+            label,
+            "byte",
+            MAX_PAGE_RESOURCE_DIRECT_BYTES,
+        ));
+    }
+    Ok(())
+}
+
+fn prepare_page_resource(
+    doc: &Document,
+    page_id: ObjectId,
+    kind: PageResourceKind,
+) -> PyResult<PageResourcePlan> {
+    let mut page = resolve_inherited_page_dict(doc, page_id).map_err(to_py_err)?;
+    let mut resources = match page.get(b"Resources") {
+        Ok(object) => {
+            let resolved = resolve_page_resource_dictionary(doc, object, "page Resources")?;
+            validate_page_resource_shape(resolved, "page Resources")?;
+            resolved.clone()
+        }
+        Err(_) => Dictionary::new(),
+    };
+    let key = kind.key();
+    let mut entries = match resources.get(key) {
+        Ok(object) => {
+            let label = match kind {
+                PageResourceKind::XObject => "page Resources/XObject",
+                PageResourceKind::Font => "page Resources/Font",
+            };
+            let resolved = resolve_page_resource_dictionary(doc, object, label)?;
+            validate_page_resource_shape(resolved, label)?;
+            resolved.clone()
+        }
+        Err(_) => Dictionary::new(),
+    };
+    if !resources.has(key) && resources.len() >= MAX_PAGE_RESOURCE_ENTRIES {
+        return Err(page_resource_shape_error(
+            "page Resources",
+            "entry",
+            MAX_PAGE_RESOURCE_ENTRIES,
+        ));
+    }
+    if entries.len() >= MAX_PAGE_RESOURCE_ENTRIES {
+        return Err(page_resource_shape_error(
+            match kind {
+                PageResourceKind::XObject => "page Resources/XObject",
+                PageResourceKind::Font => "page Resources/Font",
+            },
+            "entry",
+            MAX_PAGE_RESOURCE_ENTRIES,
+        ));
+    }
+
+    let mut suffix = doc
+        .max_id
+        .checked_add(1)
+        .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+    let name = loop {
+        let candidate = format!("{}{suffix}", kind.name_prefix());
+        if !entries.has(candidate.as_bytes()) {
+            break candidate;
+        }
+        suffix = suffix
+            .checked_add(1)
+            .ok_or_else(|| PdfError::new_err("PDF resource-name suffix limit reached"))?;
+    };
+    entries.set(name.as_bytes(), Object::Null);
+    resources.set(key, entries);
+    page.set("Resources", resources);
+    Ok(PageResourcePlan { page, kind, name })
 }
 
 /// Read an indirect-capable box array as normalized `[x0, y0, x1, y1]`.
@@ -3800,6 +4114,18 @@ impl _Document {
         Ok((page_id, plan))
     }
 
+    /// Prepare all page-owned drawing targets before dependent work begins.
+    fn prepare_page_drawing(
+        &self,
+        page_number: u32,
+        overlay: bool,
+        kind: PageResourceKind,
+    ) -> PyResult<(ObjectId, PageDrawingPlan)> {
+        let (page_id, content) = self.prepare_page_content(page_number, overlay)?;
+        let resource = prepare_page_resource(&self.doc, page_id, kind)?;
+        Ok((page_id, PageDrawingPlan { content, resource }))
+    }
+
     /// Append one prepared stream and retain verified in-memory isolation state.
     fn push_page_content(
         &mut self,
@@ -3815,13 +4141,15 @@ impl _Document {
         Ok(())
     }
 
-    /// Materialize inherited attributes into the page dictionary.
-    ///
-    /// Required before drawing: lopdf `add_xobject` creates empty `/Resources`
-    /// when absent and would shadow inherited parent resources.
-    fn bake_page_attrs(&mut self, page_id: ObjectId) -> PyResult<()> {
-        let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
-        self.doc.objects.insert(page_id, Object::Dictionary(dict));
+    /// Bind a prepared resource slot and replace the page without allocation.
+    fn commit_drawing_resource(
+        &mut self,
+        page_id: ObjectId,
+        plan: PageResourcePlan,
+        resource_id: ObjectId,
+    ) -> PyResult<()> {
+        let page = plan.bind(resource_id)?;
+        self.doc.objects.insert(page_id, Object::Dictionary(page));
         Ok(())
     }
 
@@ -3833,7 +4161,7 @@ impl _Document {
         source: Document,
         src_page_number: u32,
         placement: PagePlacement,
-        content_plan: draw::ContentAppendPlan,
+        drawing_plan: PageDrawingPlan,
     ) -> PyResult<()> {
         let (form_id, src_crop, src_rotation) =
             import_page_as_form(&mut self.doc, source, src_page_number)?;
@@ -3848,12 +4176,9 @@ impl _Document {
             &content,
             placement.keep_proportion,
         );
-        self.bake_page_attrs(page_id)?;
-        let name = format!("PyloFm{}", form_id.0);
-        self.doc
-            .add_xobject(page_id, name.as_bytes(), form_id)
-            .map_err(to_py_err)?;
-        self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)?;
+        let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
+        self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
+        self.push_page_content(page_id, ops, drawing_plan.content)?;
         // All source non-page objects were moved initially; prune assets and
         // attachments unreachable from the Form XObject.
         self.doc.prune_objects();
@@ -7332,7 +7657,8 @@ impl _Document {
     ) -> PyResult<()> {
         validate_image_input(&data, max_size, max_pixels)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let (parts, matrix) = py.detach(|| -> PyResult<_> {
             let parts = draw::parse_image(data).map_err(PdfError::new_err)?.ok_or_else(|| {
                 PdfError::new_err(
@@ -7354,12 +7680,9 @@ impl _Document {
         py.detach(|| {
             let xobj_id =
                 draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
-            self.bake_page_attrs(page_id)?;
-            let name = format!("PyloIm{}", xobj_id.0);
-            self.doc
-                .add_xobject(page_id, name.as_bytes(), xobj_id)
-                .map_err(to_py_err)?;
-            self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)
+            let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
+            self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)
         })
     }
 
@@ -7426,7 +7749,8 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let width = pixmap.width;
         let height = pixmap.height;
         let data = Arc::clone(&pixmap.data);
@@ -7448,12 +7772,9 @@ impl _Document {
         py.detach(|| {
             let xobj_id =
                 draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
-            self.bake_page_attrs(page_id)?;
-            let name = format!("PyloIm{}", xobj_id.0);
-            self.doc
-                .add_xobject(page_id, name.as_bytes(), xobj_id)
-                .map_err(to_py_err)?;
-            self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)
+            let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
+            self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)
         })
     }
 
@@ -7474,7 +7795,8 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let placement = PagePlacement {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
@@ -7487,7 +7809,7 @@ impl _Document {
                 other.doc.clone(),
                 src_page_number,
                 placement,
-                content_plan,
+                drawing_plan,
             )
         })
     }
@@ -7503,7 +7825,8 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let placement = PagePlacement {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
@@ -7517,7 +7840,7 @@ impl _Document {
                 source,
                 src_page_number,
                 placement,
-                content_plan,
+                drawing_plan,
             )
         })
     }
@@ -8445,41 +8768,40 @@ impl _Document {
                 "text_rotation must be 0, 90, 180, or 270",
             ));
         }
-        let (page_id, content_plan, expected_font_number, name, to_unicode, ops) =
-            py.detach(|| {
-                if words.len() > MAX_OCR_LAYER_WORDS {
-                    return Err(PdfError::new_err(format!(
-                        "cannot insert more than {MAX_OCR_LAYER_WORDS} OCR words per call"
-                    )));
-                }
-                let text_bytes = words.iter().try_fold(0usize, |total, word| {
-                    total.checked_add(word.4.len()).ok_or_else(|| {
-                        PdfError::new_err("OCR layer text exceeds the platform size limit")
-                    })
-                })?;
-                if text_bytes > MAX_OCR_LAYER_TEXT_BYTES {
-                    return Err(PdfError::new_err(format!(
-                        "OCR layer text exceeds the {MAX_OCR_LAYER_TEXT_BYTES}-byte safety limit"
-                    )));
-                }
-                let (crop, rotation) = self.page_display_geometry(page_number)?;
-                let (page_id, content_plan) = self.prepare_page_content(page_number, true)?;
-                let cid_map = ocr::assign_cids(&words).map_err(PdfError::new_err)?;
-                let to_unicode = ocr::build_to_unicode(&cid_map);
-                let expected_font_number = self.doc.max_id.checked_add(4).ok_or_else(|| {
-                    PdfError::new_err("OCR layer objects exceed the PDF object-ID limit")
-                })?;
-                let name = format!("PyloF{expected_font_number}");
-                let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
-                Ok((
-                    page_id,
-                    content_plan,
-                    expected_font_number,
-                    name,
-                    to_unicode,
-                    ops,
-                ))
+        let (page_id, drawing_plan, expected_font_number, to_unicode, ops) = py.detach(|| {
+            if words.len() > MAX_OCR_LAYER_WORDS {
+                return Err(PdfError::new_err(format!(
+                    "cannot insert more than {MAX_OCR_LAYER_WORDS} OCR words per call"
+                )));
+            }
+            let text_bytes = words.iter().try_fold(0usize, |total, word| {
+                total.checked_add(word.4.len()).ok_or_else(|| {
+                    PdfError::new_err("OCR layer text exceeds the platform size limit")
+                })
             })?;
+            if text_bytes > MAX_OCR_LAYER_TEXT_BYTES {
+                return Err(PdfError::new_err(format!(
+                    "OCR layer text exceeds the {MAX_OCR_LAYER_TEXT_BYTES}-byte safety limit"
+                )));
+            }
+            let (crop, rotation) = self.page_display_geometry(page_number)?;
+            let (page_id, drawing_plan) =
+                self.prepare_page_drawing(page_number, true, PageResourceKind::Font)?;
+            let cid_map = ocr::assign_cids(&words).map_err(PdfError::new_err)?;
+            let to_unicode = ocr::build_to_unicode(&cid_map);
+            let expected_font_number = self.doc.max_id.checked_add(4).ok_or_else(|| {
+                PdfError::new_err("OCR layer objects exceed the PDF object-ID limit")
+            })?;
+            let ops = ocr::ocr_ops(
+                crop,
+                rotation,
+                &words,
+                &cid_map,
+                drawing_plan.resource.name(),
+                text_rotation,
+            );
+            Ok((page_id, drawing_plan, expected_font_number, to_unicode, ops))
+        })?;
 
         // From this point onward malformed page/resource state could leave a
         // partial edit, so invalidate before the first PDF object is added.
@@ -8487,12 +8809,8 @@ impl _Document {
         py.detach(|| {
             let font_id = ocr::add_ocr_font(&mut self.doc, to_unicode);
             debug_assert_eq!(font_id.0, expected_font_number);
-            self.bake_page_attrs(page_id)?;
-            self.doc
-                .get_or_create_resources(page_id)
-                .map_err(to_py_err)?;
-            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
-            self.push_page_content(page_id, ops, content_plan)
+            self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)
         })
     }
 
@@ -8529,7 +8847,8 @@ impl _Document {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             let mut font_dict = dictionary! {
@@ -8541,14 +8860,17 @@ impl _Document {
                 font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
             }
             let font_id = self.doc.add_object(font_dict);
-            self.bake_page_attrs(page_id)?;
-            self.doc
-                .get_or_create_resources(page_id)
-                .map_err(to_py_err)?;
-            let name = format!("PyloF{}", font_id.0);
-            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
-            let ops = draw::text_ops(crop, rotation, point, &lines, &name, fontsize, color);
-            self.push_page_content(page_id, ops, content_plan)
+            let ops = draw::text_ops(
+                crop,
+                rotation,
+                point,
+                &lines,
+                drawing_plan.resource.name(),
+                fontsize,
+                color,
+            );
+            self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)
         })
     }
 
@@ -8605,7 +8927,8 @@ impl _Document {
         }
 
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             let mut font_dict = dictionary! {
@@ -8617,17 +8940,19 @@ impl _Document {
                 font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
             }
             let font_id = self.doc.add_object(font_dict);
-            self.bake_page_attrs(page_id)?;
-            self.doc
-                .get_or_create_resources(page_id)
-                .map_err(to_py_err)?;
-            let name = format!("PyloF{}", font_id.0);
-            draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
             let ops = draw::textbox_text_ops(
-                crop, rotation, rect, &layout, align, &name, fontsize, color,
+                crop,
+                rotation,
+                rect,
+                &layout,
+                align,
+                drawing_plan.resource.name(),
+                fontsize,
+                color,
             )
             .map_err(PdfError::new_err)?;
-            self.push_page_content(page_id, ops, content_plan)?;
+            self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)?;
             Ok(layout.spare_height)
         })
     }
@@ -8669,7 +8994,8 @@ impl _Document {
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
         let page_size = if matches!(rotation, 90 | 270) {
             (pdf_height, pdf_width)
@@ -8696,7 +9022,7 @@ impl _Document {
                 generated_doc,
                 1,
                 placement,
-                content_plan,
+                drawing_plan,
             )
         })
     }
@@ -8809,7 +9135,8 @@ impl _Document {
         let Some(generated) = generated else {
             return Ok(spare_height);
         };
-        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
         let placement = PagePlacement {
@@ -8824,7 +9151,7 @@ impl _Document {
                 generated_doc,
                 1,
                 placement,
-                content_plan,
+                drawing_plan,
             )
         })?;
         Ok(spare_height)
