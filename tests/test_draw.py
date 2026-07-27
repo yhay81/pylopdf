@@ -199,6 +199,21 @@ def _filtered_content_doc(
     )
 
 
+def _filter_chain_content_doc(count: int) -> pylopdf.Document:
+    filters = " ".join(["/FlateDecode"] * count)
+    stream = f"<< /Length 0 /Filter [{filters}] >>\nstream\n\nendstream"
+    return pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+                4: stream,
+            }
+        )
+    )
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
@@ -419,6 +434,16 @@ def test_show_pdf_page_decodes_abbreviated_source_content_filter() -> None:
 
     target[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
     assert _pixel(target[0], 100, 50) == RED
+
+
+def test_show_pdf_page_rejects_excessive_source_filter_chain_before_target_mutation() -> None:
+    target = _resource_shape_doc("<< >>")
+    before = target.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        target[0].show_pdf_page((0, 0, 100, 100), _filter_chain_content_doc(17))
+    assert caught.value.code == "stream_filter_count"
+    assert target.tobytes() == before
 
 
 @pytest.mark.parametrize(
@@ -1461,6 +1486,16 @@ def test_replace_text_rejects_oversized_contents_shape_before_mutation() -> None
 
     with pytest.raises(pylopdf.PdfError, match="4096-entry"):
         doc[0].replace_text("x", "y")
+    assert doc.tobytes() == before
+
+
+def test_replace_text_rejects_excessive_filter_chain_before_mutation() -> None:
+    doc = _filter_chain_content_doc(17)
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.LimitError) as caught:
+        doc[0].replace_text("x", "y")
+    assert caught.value.code == "stream_filter_count"
     assert doc.tobytes() == before
 
 

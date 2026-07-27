@@ -60,16 +60,20 @@ Webプロファイルは現在、次の上限を独立に適用します。
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `text_glyph_count`、`interpretation_size`、`embedded_file_size`、
-`embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
+`embedded_file_input_size`、`form_field_input_size`、`form_content_size`、
+`annotation_input_size`、
 `metadata_input_size`、`toc_input_size`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
-`ocr_model_size`、`ocr_dictionary_entries`、`decompression_unverifiable`の
+`ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
+`decompression_unverifiable`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
+pylopdfが所有する上限付きlopdf decode経路では、filter listをmaterializeする
+前に16層を超える`/Filter` chainも拒否します。
 
 `doc.complexity`はstreamを展開せずrendererも呼ばずに、ページ数、object数、
 stream数、圧縮状態のstream byte数、直接objectの最大深度を返します。重い抽出へ

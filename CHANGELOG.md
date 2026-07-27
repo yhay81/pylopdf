@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Pylopdf-owned bounded lopdf stream decoding now rejects more than 16
+  sequential `/Filter` layers with `stream_filter_count` before materializing
+  the filter vector.
+  Load-time decompression validation, Form imports, text replacement, XMP, and
+  attachment reads share the boundary; image compression inspects its required
+  single filter without allocating a filter list.
 - `Page.show_pdf_page()` now rejects source page content decoder errors and
   unsupported filters before target mutation instead of treating encoded bytes
   as drawing operators. Unfiltered source content stays borrowed during Form

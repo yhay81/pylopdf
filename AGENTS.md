@@ -693,7 +693,13 @@ overview.
   and shared by the TextPage/TablePage caches. Policy failures must raise
   `LimitError`, a `PdfError` subclass whose first argument and `.code` are one
   of the documented stable resource identifiers. `Document.complexity` may
-  traverse structure but must not decode streams or invoke hayro. Keep
+  traverse structure but must not decode streams or invoke hayro. Bounded
+  pylopdf-owned lopdf decode entry points inspect `/Filter` directly before its
+  infallible materialization and reject more than 16 sequential layers with
+  `stream_filter_count`; Form imports, text replacement, attachment/XMP reads,
+  and load-time decompression validation share this boundary. Image compression
+  inspects its required single filter without materializing a filter vector.
+  Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
   deadlines. Native/Pyodide logical regressions and generated Atheris seeds
