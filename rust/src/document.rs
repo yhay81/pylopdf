@@ -5154,17 +5154,29 @@ fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
     };
     let mut out = Vec::new();
     let mut visited = HashSet::new();
-    let mut stack = vec![(root, 1usize)];
+    let mut stack = Vec::new();
+    stack.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate page-label number-tree stack: {error}"
+        ))
+    })?;
+    stack.push((root, 1usize));
     let mut nodes = 0usize;
     let mut edges = 0usize;
     let mut pairs_seen = 0usize;
     let mut encoded_text_bytes = 0usize;
     let mut decoded_text_bytes = 0usize;
     while let Some((node_object, depth)) = stack.pop() {
-        if let Object::Reference(id) = node_object
-            && !visited.insert(*id)
-        {
-            continue;
+        if let Object::Reference(id) = node_object {
+            if visited.contains(id) {
+                continue;
+            }
+            visited.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow page-label cycle detection: {error}"
+                ))
+            })?;
+            visited.insert(*id);
         }
         let Ok(node) = deref_object(doc, node_object).as_dict() else {
             continue;
@@ -5229,6 +5241,13 @@ fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
                     .ok()
                     .and_then(|object| resolve_i64(doc, object))
                     .unwrap_or(1);
+                if out.len() == out.capacity() {
+                    out.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow returned page-label entries: {error}"
+                        ))
+                    })?;
+                }
                 out.push((start, style, prefix, first));
             }
         }
@@ -5246,12 +5265,23 @@ fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
                     "page-label number tree exceeds the {MAX_PAGE_LABEL_TREE_NODES}-edge safety limit"
                 )));
             }
+            stack.try_reserve(kids.len()).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow page-label number-tree stack: {error}"
+                ))
+            })?;
             for kid in kids {
                 stack.push((kid, depth + 1));
             }
         }
     }
-    out.sort_by_key(|(start, _, _, _)| *start);
+    out.sort_unstable_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.cmp(&right.3))
+    });
     Ok(out)
 }
 
@@ -7546,7 +7576,15 @@ impl _Document {
                 "cannot set more than {MAX_PAGE_LABEL_ENTRIES} page-label ranges"
             )));
         }
-        let mut nums = Vec::with_capacity(labels.len() * 2);
+        let nums_len = labels.len().checked_mul(2).ok_or_else(|| {
+            PdfError::new_err("page-label output exceeds the platform size limit")
+        })?;
+        let mut nums = Vec::new();
+        nums.try_reserve_exact(nums_len).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate page-label output array: {error}"
+            ))
+        })?;
         let mut encoded_text_bytes = 0usize;
         let mut decoded_text_bytes = 0usize;
         for (start, style, prefix, st) in labels {

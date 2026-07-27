@@ -567,7 +567,9 @@ overview.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32
   levels, or 1 MiB of encoded/decoded style and prefix text. Do not return a
-  silent depth-truncated list. `set_page_labels` must enforce the same
+  silent depth-truncated list. Traversal stacks, cycle sets, and returned
+  entries grow fallibly, and returned ordering uses an in-place sort with
+  explicit value tie-breaks. `set_page_labels` must enforce the same
   entry/text boundary before PyO3 copying with `page_label_input_size`, repeat
   it in direct Rust calls, and invalidate caches only after success.
 - `Document.get_pdfa_claim` releases the GIL and defaults to a 1 MiB decoded

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Page-label number-tree stacks, cycle detection, returned entries, and flat
+  write arrays now grow fallibly under their existing limits. Returned ranges
+  use an in-place sort with explicit value tie-breakers.
 - AcroForm field-tree stacks, cycle detection, inherited names/types, choice
   arrays, joined values, returned entries, widget lists, and button-state
   materialization now grow fallibly under the existing metadata limits. Field
