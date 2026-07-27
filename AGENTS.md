@@ -341,7 +341,10 @@ overview.
   scan requires the final `%%EOF`, `startxref`, classic header/entry, and
   `trailer`; it never guesses objects, repairs xref streams, or falls back
   across an earlier `%%EOF`. A full lopdf retry under the original password and
-  decompression limits remains authoritative. Repaired bytes feed hayro,
+  decompression limits remains authoritative. The full repaired-input copy is
+  reserved fallibly only after confirming that narrow shape; allocation
+  refusal surfaces as `PdfError` rather than the original parse failure.
+  Repaired bytes feed hayro,
   `PylopdfWarning` makes the event visible, `Document.is_repaired` and
   `MetadataProbe.repaired` retain it, and saving normalizes the xref data.
 - CJK fallback replaces hayro's `font_resolver`

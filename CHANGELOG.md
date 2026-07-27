@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   64 KiB chunked buffer growth. Bounded reads still admit at most one byte
   beyond their configured file or cumulative budget, while trusted unbounded
   reads no longer delegate allocation to `std::fs::read`.
+- Lenient classic `startxref` recovery now allocates its repaired full-input
+  copy fallibly after confirming the narrow repair shape. Allocation refusal
+  is reported as a normal `PdfError` instead of relying on infallible `Vec`
+  growth or being hidden behind the original parse failure.
 
 ### Performance
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate

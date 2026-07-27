@@ -714,12 +714,18 @@ fn last_subslice(data: &[u8], needle: &[u8], end: usize) -> Option<usize> {
 /// The scan is linear, considers only the last structurally plausible classic
 /// table before the final startxref, and never guesses object offsets. Callers
 /// accept the patch only when a complete bounded lopdf retry succeeds.
-fn repair_classic_startxref(data: &[u8]) -> Option<Vec<u8>> {
-    let pdf_start = data.windows(5).position(|window| window == b"%PDF-")?;
-    let eof = last_subslice(data, b"%%EOF", data.len())?;
-    let startxref = last_subslice(data, b"startxref", eof)?;
+fn repair_classic_startxref(data: &[u8]) -> lopdf::Result<Option<Vec<u8>>> {
+    let Some(pdf_start) = data.windows(5).position(|window| window == b"%PDF-") else {
+        return Ok(None);
+    };
+    let Some(eof) = last_subslice(data, b"%%EOF", data.len()) else {
+        return Ok(None);
+    };
+    let Some(startxref) = last_subslice(data, b"startxref", eof) else {
+        return Ok(None);
+    };
     if startxref <= pdf_start {
-        return None;
+        return Ok(None);
     }
     let mut number_start = startxref + b"startxref".len();
     while matches!(data.get(number_start), Some(byte) if is_pdf_whitespace(*byte)) {
@@ -729,7 +735,12 @@ fn repair_classic_startxref(data: &[u8]) -> Option<Vec<u8>> {
     while matches!(data.get(number_end), Some(byte) if byte.is_ascii_digit()) {
         number_end += 1;
     }
-    let current = decimal_field(data.get(number_start..number_end)?)?;
+    let Some(number) = data.get(number_start..number_end) else {
+        return Ok(None);
+    };
+    let Some(current) = decimal_field(number) else {
+        return Ok(None);
+    };
 
     let mut xref = None;
     for (relative, window) in data[pdf_start..startxref].windows(4).enumerate() {
@@ -749,21 +760,33 @@ fn repair_classic_startxref(data: &[u8]) -> Option<Vec<u8>> {
             }
         }
     }
-    let xref = xref?;
-    let relative_xref = xref.checked_sub(pdf_start)?;
+    let Some(xref) = xref else {
+        return Ok(None);
+    };
+    let Some(relative_xref) = xref.checked_sub(pdf_start) else {
+        return Ok(None);
+    };
     if current == relative_xref {
-        return None;
+        return Ok(None);
     }
     let replacement = relative_xref.to_string();
-    let mut repaired = Vec::with_capacity(
-        data.len()
-            .checked_sub(number_end - number_start)?
-            .checked_add(replacement.len())?,
-    );
+    let repaired_len = data
+        .len()
+        .checked_sub(number_end - number_start)
+        .and_then(|length| length.checked_add(replacement.len()))
+        .ok_or_else(|| {
+            lopdf::Error::IO(std::io::Error::other("repaired PDF input size overflowed"))
+        })?;
+    let mut repaired = Vec::new();
+    repaired.try_reserve_exact(repaired_len).map_err(|error| {
+        lopdf::Error::IO(std::io::Error::other(format!(
+            "failed to allocate repaired PDF input: {error}"
+        )))
+    })?;
     repaired.extend_from_slice(&data[..number_start]);
     repaired.extend_from_slice(replacement.as_bytes());
     repaired.extend_from_slice(&data[number_end..]);
-    Some(repaired)
+    Ok(Some(repaired))
 }
 
 fn xref_recovery_candidate(error: &lopdf::Error) -> bool {
@@ -784,7 +807,7 @@ fn load_document_with_recovery(
     if options.strict || !xref_recovery_candidate(&original_error) {
         return Err(original_error);
     }
-    let Some(repaired) = repair_classic_startxref(data) else {
+    let Some(repaired) = repair_classic_startxref(data)? else {
         return Err(original_error);
     };
     match Document::load_mem_with_options(&repaired, options) {
@@ -808,7 +831,7 @@ fn load_metadata_with_recovery(
     if !xref_recovery_candidate(&original_error) {
         return Err(original_error);
     }
-    let Some(repaired) = repair_classic_startxref(data) else {
+    let Some(repaired) = repair_classic_startxref(data)? else {
         return Err(original_error);
     };
     match load(&repaired) {
