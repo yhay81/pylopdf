@@ -318,7 +318,9 @@ overview.
   Serial and PyEmscripten execution reuse one local hayro `RenderCache` for the
   complete call. Native parallel execution gives each bounded worker its own
   cache and uses an atomic page queue to retain dynamic load balancing; a cache
-  never crosses a thread.
+  never crosses a thread. Pixel preflight does not materialize an intermediate
+  collection. Serial results, worker-local indexed results, parallel reduction,
+  input-order slots, and the final returned vector all grow fallibly.
   One call accepts at most 4,096 page entries. PNG writer chunks atomically
   share the default 512 MiB cumulative encoded-output budget across serial,
   rayon, and PyEmscripten execution, refusing the first crossing write before

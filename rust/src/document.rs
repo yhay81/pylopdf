@@ -2112,6 +2112,21 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
             None => rendered_png(pixmap, None),
         }
     }
+
+    /// Render one ordered page batch with one caller-local hayro cache.
+    fn render_serial(&self, page_numbers: &[u32]) -> PyResult<Vec<Vec<u8>>> {
+        let cache = RenderCache::new();
+        let mut rendered = Vec::new();
+        rendered
+            .try_reserve_exact(page_numbers.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate serial render results: {error}"))
+            })?;
+        for &page_number in page_numbers {
+            rendered.push(self.render(&cache, page_number)?);
+        }
+        Ok(rendered)
+    }
 }
 
 /// Clone a dictionary while allowing an indirect reference.
@@ -6767,15 +6782,12 @@ impl _Document {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
-            #[cfg(not(target_os = "emscripten"))]
             let max_pixels = page_numbers
                 .iter()
-                .map(|&page_number| render_pixel_count(pdf, page_number, scale))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(PdfError::new_err)?
-                .into_iter()
-                .max()
-                .expect("empty page lists return before rendering");
+                .try_fold(0u64, |maximum, &page_number| {
+                    render_pixel_count(pdf, page_number, scale).map(|pixels| maximum.max(pixels))
+                })
+                .map_err(PdfError::new_err)?;
             let output_bytes = AtomicUsize::new(0);
             let renderer = BatchRenderer {
                 pdf,
@@ -6786,12 +6798,9 @@ impl _Document {
                 output_bytes: &output_bytes,
             };
             #[cfg(target_os = "emscripten")]
-            let rendered: PyResult<Vec<Vec<u8>>> = {
-                let cache = RenderCache::new();
-                page_numbers
-                    .iter()
-                    .map(|&page_number| renderer.render(&cache, page_number))
-                    .collect()
+            let rendered = {
+                let _ = max_pixels;
+                renderer.render_serial(&page_numbers)
             };
             #[cfg(not(target_os = "emscripten"))]
             let rendered: PyResult<Vec<Vec<u8>>> = {
@@ -6802,11 +6811,7 @@ impl _Document {
                         .unwrap_or(usize::MAX);
                 let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
                 if worker_count == 1 {
-                    let cache = RenderCache::new();
-                    page_numbers
-                        .iter()
-                        .map(|&page_number| renderer.render(&cache, page_number))
-                        .collect()
+                    renderer.render_serial(&page_numbers)
                 } else {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(worker_count)
@@ -6818,7 +6823,7 @@ impl _Document {
                             ))
                         })?;
                     let next_page = AtomicUsize::new(0);
-                    let groups = pool.install(|| {
+                    let indexed = pool.install(|| {
                         (0..worker_count)
                             .into_par_iter()
                             .map(|_| {
@@ -6829,21 +6834,49 @@ impl _Document {
                                     let Some(&page_number) = page_numbers.get(index) else {
                                         break;
                                     };
+                                    rendered.try_reserve(1).map_err(|error| {
+                                        PdfError::new_err(format!(
+                                            "failed to grow worker render results: {error}"
+                                        ))
+                                    })?;
                                     rendered.push((index, renderer.render(&cache, page_number)?));
                                 }
-                                Ok(rendered)
+                                Ok::<_, PyErr>(rendered)
                             })
-                            .collect::<PyResult<Vec<_>>>()
+                            .try_reduce(Vec::new, |mut left, mut right| {
+                                left.try_reserve(right.len()).map_err(|error| {
+                                    PdfError::new_err(format!(
+                                        "failed to merge worker render results: {error}"
+                                    ))
+                                })?;
+                                left.append(&mut right);
+                                Ok(left)
+                            })
                     });
-                    let mut ordered = Vec::with_capacity(page_numbers.len());
+                    let mut ordered = Vec::new();
+                    ordered
+                        .try_reserve_exact(page_numbers.len())
+                        .map_err(|error| {
+                            PdfError::new_err(format!(
+                                "failed to allocate ordered render results: {error}"
+                            ))
+                        })?;
                     ordered.resize_with(page_numbers.len(), || None);
-                    for (index, png) in groups?.into_iter().flatten() {
+                    for (index, png) in indexed? {
                         ordered[index] = Some(png);
                     }
-                    Ok(ordered
-                        .into_iter()
-                        .map(|png| png.expect("every claimed page is rendered"))
-                        .collect())
+                    let mut rendered = Vec::new();
+                    rendered
+                        .try_reserve_exact(page_numbers.len())
+                        .map_err(|error| {
+                            PdfError::new_err(format!(
+                                "failed to allocate final render results: {error}"
+                            ))
+                        })?;
+                    for png in ordered {
+                        rendered.push(png.expect("every claimed page is rendered"));
+                    }
+                    Ok(rendered)
                 }
             };
             rendered
