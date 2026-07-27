@@ -7293,6 +7293,11 @@ impl _Document {
                 })
             })
             .transpose()?;
+        // An empty batch must stay a true no-op that never builds the
+        // rendering and extraction snapshot or consults its size limit.
+        if page_numbers.is_empty() {
+            return Ok(String::new());
+        }
         let settings = self.interpreter_settings();
         py.detach(|| {
             self.hayro_view()?;

@@ -467,6 +467,18 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Pa
     assert bounded_edited.page_count == 1
 
 
+def test_empty_get_text_batch_skips_interpretation_snapshot() -> None:
+    source = build_pdf(["one"])
+    bounded = pylopdf.open(
+        stream=source,
+        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
+    )
+    assert bounded.get_text([]) == ""
+    with pytest.raises(pylopdf.LimitError) as error:
+        bounded.get_text()
+    assert _error_code(error.value) == "interpretation_size"
+
+
 def test_limits_revalidate_after_authentication() -> None:
     encrypted = (Path(__file__).parent / "assets" / "encrypted" / "user-aes-256.pdf").read_bytes()
     doc = pylopdf.open(
