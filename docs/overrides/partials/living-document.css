@@ -86,7 +86,7 @@ body {
 }
 
 .md-grid {
-  max-width: 86rem;
+  max-width: 64rem;
 }
 
 .md-header {
@@ -289,7 +289,7 @@ body {
 }
 
 .living-home {
-  --living-home-width: min(88rem, calc(100vw - 6rem));
+  --living-home-width: min(72rem, calc(100vw - 6rem));
   margin: 0;
   color: var(--living-ink);
 }
