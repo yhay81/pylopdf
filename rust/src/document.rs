@@ -6657,7 +6657,7 @@ impl _Document {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.preflight_page_content(page_number)?;
         let (parts, matrix) = py.detach(|| -> PyResult<_> {
-            let parts = draw::parse_image(&data).map_err(PdfError::new_err)?.ok_or_else(|| {
+            let parts = draw::parse_image(data).map_err(PdfError::new_err)?.ok_or_else(|| {
                 PdfError::new_err(
                     "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
                 )

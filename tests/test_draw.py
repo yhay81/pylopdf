@@ -25,13 +25,9 @@ GREEN = (0, 128, 0)
 WHITE = (255, 255, 255)
 
 
-def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | None = None) -> bytes:
-    """Build a solid PNG, using RGBA with alpha and RGB when alpha is None."""
-    if alpha is None:
-        color_type, px = 2, bytes(rgb)
-    else:
-        color_type, px = 6, bytes((*rgb, alpha))
-    raw = b"".join(b"\x00" + px * width for _ in range(height))
+def _solid_png_samples(width: int, height: int, color_type: int, pixel: bytes) -> bytes:
+    """Build one solid 8-bit PNG for a caller-selected color type."""
+    raw = b"".join(b"\x00" + pixel * width for _ in range(height))
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         body = tag + data
@@ -39,6 +35,13 @@ def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | 
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+def _solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | None = None) -> bytes:
+    """Build a solid PNG, using RGBA with alpha and RGB when alpha is None."""
+    if alpha is None:
+        return _solid_png_samples(width, height, 2, bytes(rgb))
+    return _solid_png_samples(width, height, 6, bytes((*rgb, alpha)))
 
 
 def _png_header(width: int, height: int) -> bytes:
@@ -189,6 +192,21 @@ def test_insert_png_alpha_is_preserved() -> None:
     page.insert_image((60, 10, 100, 50), stream=_solid_png(2, 2, GREEN, alpha=255))
     assert _pixel(page, 30, 30) == WHITE
     assert _pixel(page, 80, 30) == GREEN
+
+
+def test_insert_grayscale_png_alpha_is_preserved() -> None:
+    doc = _new_page_doc()
+    page = doc[0]
+    page.insert_image(
+        (10, 10, 50, 50),
+        stream=_solid_png_samples(2, 2, 4, bytes((128, 0))),
+    )
+    page.insert_image(
+        (60, 10, 100, 50),
+        stream=_solid_png_samples(2, 2, 4, bytes((128, 255))),
+    )
+    assert _pixel(page, 30, 30) == WHITE
+    assert _pixel(page, 80, 30) == (128, 128, 128)
 
 
 def test_insert_pixmap_directly_preserves_alpha() -> None:

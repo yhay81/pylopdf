@@ -6,7 +6,7 @@
 //! the original sequence in q/Q streams once.
 
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{self, Write};
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use pdf_base14_metrics::Base14Font;
@@ -44,14 +44,27 @@ pub fn png_pixel_count(data: &[u8]) -> Option<u64> {
 ///
 /// JPEG passes through with DCTDecode; PNG is decoded and Flate-compressed.
 /// Return None for unsupported formats so the caller can report an error.
-pub fn parse_image(data: &[u8]) -> Result<Option<ImageParts>, String> {
+pub fn parse_image(data: Vec<u8>) -> Result<Option<ImageParts>, String> {
     if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return jpeg_parts(data).map(Some);
     }
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return png_parts(data).map(Some);
+        return png_parts(&data).map(Some);
     }
     Ok(None)
+}
+
+fn reserve_bytes(capacity: usize, label: &str) -> Result<Vec<u8>, String> {
+    let mut data = Vec::new();
+    data.try_reserve_exact(capacity)
+        .map_err(|error| format!("failed to allocate {label}: {error}"))?;
+    Ok(data)
+}
+
+fn zeroed_bytes(length: usize, label: &str) -> Result<Vec<u8>, String> {
+    let mut data = reserve_bytes(length, label)?;
+    data.resize(length, 0);
+    Ok(data)
 }
 
 /// Convert straight-alpha RGBA8 pixels directly to a PDF Image XObject.
@@ -68,13 +81,21 @@ pub fn rgba_parts(width: u32, height: u32, data: &[u8]) -> Result<ImageParts, St
         return Err("Pixmap RGBA buffer length does not match its dimensions".to_owned());
     }
 
-    let mut rgb = Vec::with_capacity(pixel_count * 3);
-    let mut alpha = Vec::with_capacity(pixel_count);
-    let mut opaque = true;
+    let rgb_len = pixel_count
+        .checked_mul(3)
+        .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
+    let opaque = data.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX);
+    let mut rgb = reserve_bytes(rgb_len, "Pixmap RGB plane")?;
+    let mut alpha = if opaque {
+        None
+    } else {
+        Some(reserve_bytes(pixel_count, "Pixmap alpha plane")?)
+    };
     for pixel in data.chunks_exact(4) {
         rgb.extend_from_slice(&pixel[..3]);
-        alpha.push(pixel[3]);
-        opaque &= pixel[3] == u8::MAX;
+        if let Some(alpha) = &mut alpha {
+            alpha.push(pixel[3]);
+        }
     }
 
     Ok(ImageParts {
@@ -83,12 +104,12 @@ pub fn rgba_parts(width: u32, height: u32, data: &[u8]) -> Result<ImageParts, St
         color_space: "DeviceRGB",
         filter: "FlateDecode",
         data: flate_compress(&rgb)?,
-        alpha: (!opaque).then_some(alpha),
+        alpha,
     })
 }
 
 /// Read dimensions/components from a JPEG SOF marker and pass bytes through.
-fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
+fn jpeg_parts(data: Vec<u8>) -> Result<ImageParts, String> {
     let mut pos = 2usize;
     while pos + 4 <= data.len() {
         if data[pos] != 0xFF {
@@ -132,7 +153,7 @@ fn jpeg_parts(data: &[u8]) -> Result<ImageParts, String> {
                 height,
                 color_space,
                 filter: "DCTDecode",
-                data: data.to_vec(),
+                data,
                 alpha: None,
             });
         }
@@ -152,7 +173,7 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     let buf_size = reader
         .output_buffer_size()
         .ok_or_else(|| "PNG is too large".to_owned())?;
-    let mut buf = vec![0u8; buf_size];
+    let mut buf = zeroed_bytes(buf_size, "decoded PNG buffer")?;
     let info = reader
         .next_frame(&mut buf)
         .map_err(|e| format!("failed to decode PNG: {e}"))?;
@@ -166,22 +187,33 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
         png::ColorType::Grayscale => ("DeviceGray", buf, None),
         png::ColorType::Rgb => ("DeviceRGB", buf, None),
         png::ColorType::GrayscaleAlpha => {
-            let mut gray = Vec::with_capacity(buf.len() / 2);
-            let mut a = Vec::with_capacity(buf.len() / 2);
-            for pair in buf.chunks_exact(2) {
-                gray.push(pair[0]);
-                a.push(pair[1]);
+            let pixel_count = buf.len() / 2;
+            let mut alpha = reserve_bytes(pixel_count, "PNG alpha plane")?;
+            for index in 0..pixel_count {
+                let source = index * 2;
+                buf[index] = buf[source];
+                alpha.push(buf[source + 1]);
             }
-            ("DeviceGray", gray, Some(a))
+            buf.truncate(pixel_count);
+            ("DeviceGray", buf, Some(alpha))
         }
         png::ColorType::Rgba => {
-            let mut rgb = Vec::with_capacity(buf.len() / 4 * 3);
-            let mut a = Vec::with_capacity(buf.len() / 4);
-            for px in buf.chunks_exact(4) {
-                rgb.extend_from_slice(&px[..3]);
-                a.push(px[3]);
+            let pixel_count = buf.len() / 4;
+            let mut alpha = reserve_bytes(pixel_count, "PNG alpha plane")?;
+            for index in 0..pixel_count {
+                let source = index * 4;
+                let target = index * 3;
+                let red = buf[source];
+                let green = buf[source + 1];
+                let blue = buf[source + 2];
+                let alpha_value = buf[source + 3];
+                buf[target] = red;
+                buf[target + 1] = green;
+                buf[target + 2] = blue;
+                alpha.push(alpha_value);
             }
-            ("DeviceRGB", rgb, Some(a))
+            buf.truncate(pixel_count * 3);
+            ("DeviceRGB", buf, Some(alpha))
         }
         // Indexed data was already expanded by normalize_to_color8.
         png::ColorType::Indexed => return Err("failed to expand palette PNG".to_owned()),
@@ -197,12 +229,37 @@ fn png_parts(data: &[u8]) -> Result<ImageParts, String> {
     })
 }
 
+#[derive(Default)]
+struct FallibleVecOutput {
+    bytes: Vec<u8>,
+}
+
+impl Write for FallibleVecOutput {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        self.bytes.try_reserve(data.len()).map_err(|error| {
+            io::Error::other(format!(
+                "failed to allocate compressed image output: {error}"
+            ))
+        })?;
+        self.bytes.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Compress with zlib for PDF FlateDecode.
 pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut encoder = flate2::write::ZlibEncoder::new(
+        FallibleVecOutput::default(),
+        flate2::Compression::default(),
+    );
     encoder
         .write_all(data)
         .and_then(|()| encoder.finish())
+        .map(|output| output.bytes)
         .map_err(|e| format!("Flate compression failed: {e}"))
 }
 

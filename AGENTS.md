@@ -368,8 +368,11 @@ overview.
   insertion that would take the final array above 4,096 stream references.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
-  straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an
-  optional soft mask; fully opaque Pixmaps must not create a mask.
+  straight-alpha RGBA8 storage through fallibly allocated RGB and optional
+  alpha planes, then Flate-compresses through a fallible writer; fully opaque
+  Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
+  input directly into its XObject. PNG alpha separation compacts decoded color
+  samples in place and fallibly allocates only the separate alpha plane.
   Encoded `insert_image` input defaults to 64 MiB and PNG decode to 64,000,000
   pixels. `filename=` reads through a bounded Rust path with the GIL released
   and fallible 64 KiB retained-buffer growth; `stream=` is checked in Python
