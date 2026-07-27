@@ -191,7 +191,10 @@ overview.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
   non-passthrough PNG encoding writes into that same remaining budget. Combine
   separate RGB/gray and alpha planes through a bounded scratch buffer instead
-  of a complete interleaved copy. Never return a partial list.
+  of a complete interleaved copy. JPEG passthrough copies, PNG output, and the
+  placement collection grow fallibly; allocator refusal must not be mistaken
+  for an unsupported image or codec failure. Format tags are static. Never
+  return a partial list.
 - `Document.embfile_add` and `embfile_get` share a 64 MiB default attachment
   boundary. Adds reject byte input before its PyO3 copy and repeat the check in
   Rust; gets apply the decoded-size limit to every filter layer. `max_size=None`

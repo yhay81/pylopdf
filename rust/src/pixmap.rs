@@ -137,6 +137,7 @@ impl Pixmap {
                     format!("encoded Pixmap PNG exceeds the {limit}-byte output limit"),
                 )))
             }
+            Err(crate::extract::PngEncodeError::Allocation(error)) => Err(PdfError::new_err(error)),
             Err(crate::extract::PngEncodeError::Encoding(error)) => {
                 Err(PdfError::new_err(format!("failed to encode PNG: {error}")))
             }

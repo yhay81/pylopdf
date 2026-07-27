@@ -1878,6 +1878,7 @@ fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> Py
                 format!("rendered PNG exceeds the {limit}-byte encoded-output limit"),
             ))
         }
+        Err(crate::extract::PngEncodeError::Allocation(error)) => Err(PdfError::new_err(error)),
         Err(crate::extract::PngEncodeError::Encoding(error)) => {
             Err(PdfError::new_err(format!("failed to encode PNG: {error}")))
         }

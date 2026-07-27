@@ -265,6 +265,17 @@ def test_image_extraction_bounds_flate_wrapped_jpeg_passthrough() -> None:
         doc[0].get_images()
 
 
+def test_image_extraction_preserves_flate_wrapped_jpeg_passthrough() -> None:
+    """Chunked Flate decoding returns the exact nested JPEG payload."""
+    jpeg = b"\xff\xd8\xfffallible-passthrough"
+    doc = pylopdf.open(stream=_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]"))
+
+    image = doc[0].get_images()[0]
+
+    assert image["ext"] == "jpeg"
+    assert image["image"] == jpeg
+
+
 def test_image_extraction_bounds_png_encoding_to_remaining_output() -> None:
     """PNG fallback writes directly into the remaining page payload budget."""
     almost_full_jpeg = b"\xff\xd8\xff" + bytes(64 * 1024 * 1024 - 19)
