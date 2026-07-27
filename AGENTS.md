@@ -565,7 +565,9 @@ overview.
   `LimitError.code == "file_size"`. `set_metadata` must batch and preflight the
   1 MiB source/encoded boundary before PyO3 copying with
   `metadata_input_size`; direct Rust calls repeat the boundary. Inline Info
-  dictionaries are moved rather than cloned.
+  dictionaries are moved rather than cloned. Returned maps, prepared write
+  batches, direct single-entry input copies, and encoded PDF strings grow
+  fallibly; duplicate tracking uses a fixed bitset for the eight public keys.
 - Encode non-ASCII metadata strings as UTF-16BE with a BOM.
 - Page-label number-tree reads borrow node shapes, visit indirect cycles once,
   release the GIL, and reject the complete result above 4,096 entries/nodes, 32

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pylopdf.pylopdf_core import LimitError, _Document
+from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
 
 def _oversized_png_header() -> bytes:
@@ -170,6 +170,18 @@ def test_metadata_unicode_roundtrip(one_page_pdf: bytes) -> None:
     # Save and reload through UTF-16BE.
     reloaded = _Document.load_bytes(doc.save_bytes())
     assert reloaded.get_metadata()["Title"] == "日本語のタイトル"
+
+
+def test_metadata_batch_rejects_duplicate_keys_atomically(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    doc.set_metadata("Title", "original")
+    before = doc.save_bytes()
+
+    with pytest.raises(PdfError, match="duplicate Info metadata key"):
+        doc.set_metadata_batch([("Title", "first"), ("Title", "second")])
+
+    assert doc.get_metadata()["Title"] == "original"
+    assert doc.save_bytes() == before
 
 
 def test_document_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -> None:
