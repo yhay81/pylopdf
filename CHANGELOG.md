@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   joining reports allocation refusal as `PdfError`, and word output reuses
   borrowed glyph slices instead of building a temporary reference vector for
   every word.
+- Text search now grows its lowercase needle/page indexes,
+  character-to-glyph maps, and result geometry fallibly. Allocation refusal
+  returns `PdfError` without exposing partial hits, including when callers opt
+  into trusted unbounded result counts.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

@@ -6103,12 +6103,15 @@ impl _Document {
         py.detach(|| {
             self.text_page(page_number, settings)?
                 .search(needle, max_hits)
-                .map_err(|crate::extract::SearchError::TooManyHits| {
-                    let limit = max_hits.expect("bounded search hit count");
-                    limit_err(
-                        "search_hit_count",
-                        format!("search results exceed the {limit}-hit safety limit"),
-                    )
+                .map_err(|error| match error {
+                    crate::extract::SearchError::TooManyHits => {
+                        let limit = max_hits.expect("bounded search hit count");
+                        limit_err(
+                            "search_hit_count",
+                            format!("search results exceed the {limit}-hit safety limit"),
+                        )
+                    }
+                    crate::extract::SearchError::Allocation(message) => PdfError::new_err(message),
                 })
         })
     }

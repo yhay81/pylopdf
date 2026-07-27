@@ -72,6 +72,9 @@ overview.
   failures use `search_input_size` or `search_hit_count` without returning a
   partial list. Dense matching must advance byte/character cursors
   monotonically and derive the first/last mapped glyph without per-hit vectors.
+  Lowercase needle/page indexes, character-to-glyph maps, and result geometry
+  grow fallibly; allocation refusal raises `PdfError` without returning partial
+  hits, including trusted `max_hits=None` searches.
   CJK fallback configuration also applies to extraction, including invisible OCR
   text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
