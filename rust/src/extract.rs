@@ -12,6 +12,7 @@ use hayro::hayro_interpret::{
     InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 use std::sync::Arc;
 
@@ -3440,10 +3441,44 @@ const MAX_DRAWING_PATHS: usize = 8192;
 const MAX_DRAWING_COMMANDS: usize = 131_072;
 const MAX_DRAWING_DASH_VALUES: usize = 131_072;
 
+fn drawing_push<T>(values: &mut Vec<T>, value: T, label: &str) -> Result<(), String> {
+    if values.len() == values.capacity() {
+        values
+            .try_reserve(1)
+            .map_err(|error| format!("failed to grow {label}: {error}"))?;
+    }
+    values.push(value);
+    Ok(())
+}
+
+fn drawing_push_str(value: &mut String, text: &str, label: &str) -> Result<(), String> {
+    value
+        .try_reserve(text.len())
+        .map_err(|error| format!("failed to grow {label}: {error}"))?;
+    value.push_str(text);
+    Ok(())
+}
+
+fn drawing_push_number(value: &mut String, number: f64) -> Result<(), String> {
+    // f64's Display representation fits comfortably within 32 bytes. Reserve
+    // first so formatting cannot trigger infallible String growth.
+    value
+        .try_reserve(32)
+        .map_err(|error| format!("failed to grow drawing dash syntax: {error}"))?;
+    write!(value, "{number}").map_err(|_| "failed to format drawing dash value".to_owned())
+}
+
+#[derive(PartialEq)]
+struct DrawingCommand {
+    kind: &'static str,
+    points: [(f64, f64); 4],
+    point_count: u8,
+}
+
 #[derive(PartialEq)]
 struct DrawingGeometry {
     bbox: BBox,
-    items: Vec<DrawingItemTuple>,
+    items: Vec<DrawingCommand>,
     close_path: bool,
 }
 
@@ -3462,11 +3497,25 @@ struct DrawingRecord {
 }
 
 impl DrawingRecord {
-    fn into_tuple(self) -> DrawingTuple {
-        (
+    fn into_tuple(self) -> Result<DrawingTuple, String> {
+        let mut items = Vec::new();
+        for command in self.geometry.items {
+            let mut kind = String::new();
+            drawing_push_str(&mut kind, command.kind, "returned drawing command kind")?;
+            let point_count = usize::from(command.point_count);
+            let mut points = Vec::new();
+            points
+                .try_reserve_exact(point_count)
+                .map_err(|error| format!("failed to reserve drawing command points: {error}"))?;
+            points.extend_from_slice(&command.points[..point_count]);
+            drawing_push(&mut items, (kind, points), "returned drawing commands")?;
+        }
+        let mut kind = String::new();
+        drawing_push_str(&mut kind, self.kind, "returned drawing path kind")?;
+        Ok((
             self.geometry.bbox,
-            self.kind.to_owned(),
-            self.geometry.items,
+            kind,
+            items,
             self.geometry.close_path,
             (
                 self.stroke_color,
@@ -3477,7 +3526,7 @@ impl DrawingRecord {
                 self.dashes,
             ),
             (self.fill_color, self.fill_opacity, self.even_odd),
-        )
+        ))
     }
 }
 
@@ -3485,7 +3534,7 @@ struct DrawingCollector {
     drawings: Vec<DrawingRecord>,
     command_count: usize,
     dash_value_count: usize,
-    error: Option<&'static str>,
+    error: Option<String>,
 }
 
 fn drawing_paint(paint: &Paint<'_>) -> (Option<(f64, f64, f64)>, Option<f64>) {
@@ -3520,33 +3569,33 @@ fn drawing_join(join: Join) -> i64 {
     }
 }
 
-fn drawing_dashes(values: &[f32], offset: f32, scale: f64) -> String {
-    let mut output = String::with_capacity(values.len().saturating_mul(4).saturating_add(4));
-    output.push('[');
+fn drawing_dashes(values: &[f32], offset: f32, scale: f64) -> Result<String, String> {
+    let mut output = String::new();
+    drawing_push_str(&mut output, "[", "drawing dash syntax")?;
     for (index, value) in values.iter().enumerate() {
         if index != 0 {
-            output.push(' ');
+            drawing_push_str(&mut output, " ", "drawing dash syntax")?;
         }
-        output.push_str(&(f64::from(*value) * scale).to_string());
+        drawing_push_number(&mut output, f64::from(*value) * scale)?;
     }
-    output.push_str("] ");
-    output.push_str(&(f64::from(offset) * scale).to_string());
-    output
+    drawing_push_str(&mut output, "] ", "drawing dash syntax")?;
+    drawing_push_number(&mut output, f64::from(offset) * scale)?;
+    Ok(output)
 }
 
 fn drawing_geometry(
     path: &kurbo::BezPath,
     transform: Affine,
-) -> Result<Option<DrawingGeometry>, &'static str> {
+) -> Result<Option<DrawingGeometry>, String> {
     let mut items = Vec::new();
     let mut current = None;
     let mut subpath_start = None;
     let mut bbox: Option<Rect> = None;
     let mut close_path = false;
     let mut push_item =
-        |kind: &str, points: Vec<(f64, f64)>, segment_bbox: Rect| -> Result<(), &'static str> {
+        |kind: &'static str, points: &[(f64, f64)], segment_bbox: Rect| -> Result<(), String> {
             if items.len() >= MAX_DRAWING_COMMANDS {
-                return Err("drawing extraction exceeds the 131072-command safety limit");
+                return Err("drawing extraction exceeds the 131072-command safety limit".to_owned());
             }
             if !points
                 .iter()
@@ -3559,13 +3608,25 @@ fn drawing_geometry(
                 ])
                 .all(f64::is_finite)
             {
-                return Err("drawing path contains non-finite coordinates");
+                return Err("drawing path contains non-finite coordinates".to_owned());
             }
+            if points.len() > 4 {
+                return Err("drawing command has too many points".to_owned());
+            }
+            let point_count = u8::try_from(points.len())
+                .map_err(|_| "drawing command has too many points".to_owned())?;
+            let mut stored_points = [(0.0, 0.0); 4];
+            stored_points[..points.len()].copy_from_slice(points);
+            let command = DrawingCommand {
+                kind,
+                points: stored_points,
+                point_count,
+            };
+            drawing_push(&mut items, command, "drawing commands")?;
             bbox = Some(
                 bbox.as_ref()
                     .map_or(segment_bbox, |current| current.union(segment_bbox)),
             );
-            items.push((kind.to_owned(), points));
             Ok(())
         };
 
@@ -3581,7 +3642,7 @@ fn drawing_geometry(
                 if let Some(start) = current {
                     push_item(
                         "l",
-                        vec![(start.x, start.y), (point.x, point.y)],
+                        &[(start.x, start.y), (point.x, point.y)],
                         Line::new(start, point).bounding_box(),
                     )?;
                 }
@@ -3595,7 +3656,7 @@ fn drawing_geometry(
                     let control2 = point + (control - point) * (2.0 / 3.0);
                     push_item(
                         "c",
-                        vec![
+                        &[
                             (start.x, start.y),
                             (control1.x, control1.y),
                             (control2.x, control2.y),
@@ -3613,7 +3674,7 @@ fn drawing_geometry(
                 if let Some(start) = current {
                     push_item(
                         "c",
-                        vec![
+                        &[
                             (start.x, start.y),
                             (control1.x, control1.y),
                             (control2.x, control2.y),
@@ -3630,7 +3691,7 @@ fn drawing_geometry(
                 {
                     push_item(
                         "l",
-                        vec![(end.x, end.y), (start.x, start.y)],
+                        &[(end.x, end.y), (start.x, start.y)],
                         Line::new(end, start).bounding_box(),
                     )?;
                 }
@@ -3662,6 +3723,19 @@ impl DrawingCollector {
         if self.error.is_some() {
             return;
         }
+        let dash_values = match mode {
+            PathDrawMode::Fill(_) => 0,
+            PathDrawMode::Stroke(stroke) => stroke.dash_array.len(),
+        };
+        let Some(dash_value_count) = self.dash_value_count.checked_add(dash_values) else {
+            self.error = Some("drawing extraction dash value count overflowed".to_owned());
+            return;
+        };
+        if dash_value_count > MAX_DRAWING_DASH_VALUES {
+            self.error =
+                Some("drawing extraction exceeds the 131072-dash-value safety limit".to_owned());
+            return;
+        }
         let geometry = match drawing_geometry(path, transform) {
             Ok(Some(geometry)) => geometry,
             Ok(None) => return,
@@ -3670,18 +3744,6 @@ impl DrawingCollector {
                 return;
             }
         };
-        let dash_values = match mode {
-            PathDrawMode::Fill(_) => 0,
-            PathDrawMode::Stroke(stroke) => stroke.dash_array.len(),
-        };
-        let Some(dash_value_count) = self.dash_value_count.checked_add(dash_values) else {
-            self.error = Some("drawing extraction dash value count overflowed");
-            return;
-        };
-        if dash_value_count > MAX_DRAWING_DASH_VALUES {
-            self.error = Some("drawing extraction exceeds the 131072-dash-value safety limit");
-            return;
-        }
         let (color, opacity) = drawing_paint(paint);
         let scale = drawing_scale(transform);
         let mut record = match mode {
@@ -3711,11 +3773,13 @@ impl DrawingCollector {
                     width: Some(f64::from(stroke.line_width) * scale),
                     line_cap: Some((cap, cap, cap)),
                     line_join: Some(drawing_join(stroke.line_join)),
-                    dashes: Some(drawing_dashes(
-                        &stroke.dash_array,
-                        stroke.dash_offset,
-                        scale,
-                    )),
+                    dashes: match drawing_dashes(&stroke.dash_array, stroke.dash_offset, scale) {
+                        Ok(dashes) => Some(dashes),
+                        Err(error) => {
+                            self.error = Some(error);
+                            return;
+                        }
+                    },
                 }
             }
         };
@@ -3737,20 +3801,23 @@ impl DrawingCollector {
         }
 
         if self.drawings.len() >= MAX_DRAWING_PATHS {
-            self.error = Some("drawing extraction exceeds the 8192-path safety limit");
+            self.error = Some("drawing extraction exceeds the 8192-path safety limit".to_owned());
             return;
         }
         let Some(command_count) = self.command_count.checked_add(record.geometry.items.len())
         else {
-            self.error = Some("drawing extraction command count overflowed");
+            self.error = Some("drawing extraction command count overflowed".to_owned());
             return;
         };
         if command_count > MAX_DRAWING_COMMANDS {
-            self.error = Some("drawing extraction exceeds the 131072-command safety limit");
+            self.error =
+                Some("drawing extraction exceeds the 131072-command safety limit".to_owned());
             return;
         }
         self.command_count = command_count;
-        self.drawings.push(record);
+        if let Err(error) = drawing_push(&mut self.drawings, record, "drawing paths") {
+            self.error = Some(error);
+        }
     }
 }
 
@@ -3787,7 +3854,7 @@ pub(crate) fn extract_page_drawings(
     pdf: &Pdf,
     page: &Page<'_>,
     settings: InterpreterSettings,
-) -> Result<Vec<DrawingTuple>, &'static str> {
+) -> Result<Vec<DrawingTuple>, String> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = DrawingCollector {
@@ -3800,11 +3867,12 @@ pub(crate) fn extract_page_drawings(
     if let Some(error) = collector.error {
         return Err(error);
     }
-    Ok(collector
-        .drawings
-        .into_iter()
-        .map(DrawingRecord::into_tuple)
-        .collect())
+    let mut output = Vec::new();
+    for drawing in collector.drawings {
+        let drawing = drawing.into_tuple()?;
+        drawing_push(&mut output, drawing, "returned drawing paths")?;
+    }
+    Ok(output)
 }
 
 /// Interpret a page once and optionally collect vector table rules.

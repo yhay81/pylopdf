@@ -181,6 +181,10 @@ overview.
   output above 8,192 paths, 131,072 commands, or 131,072 aggregate stroke-dash
   values rather than returning a partial result. Transform, bound, and compute
   each path bbox in one element pass without cloning the complete path.
+  Interpreted commands retain a static kind plus an inline four-point buffer,
+  avoiding one String and point-Vec allocation per command. Dash syntax and
+  public command/path tuples materialize only after their aggregate admissions,
+  grow fallibly, and return no partial result on allocation refusal.
 - `Page.get_images` releases the GIL and materializes each drawn placement as
   JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.

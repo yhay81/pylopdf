@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Returning cached bordered or borderless tables now deep-copies cell strings,
   anchors, and result vectors fallibly after clip filtering. Allocation refusal
   returns `PdfError` without exposing partial tables or invalidating the cache.
+- Drawing extraction now retains interpreted commands as a static kind and
+  inline four-point buffer instead of allocating a String and point vector per
+  command. Dash syntax and public command/path tuples materialize fallibly after
+  aggregate admission, with no partial result on allocation refusal.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of
