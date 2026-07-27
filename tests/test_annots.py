@@ -279,6 +279,48 @@ def test_copy_page_detaches_shared_indirect_annots_array() -> None:
     assert [annot["uri"] for annot in doc[0].annots()] == ["https://a.example"]
 
 
+def test_unique_indirect_annots_append_reaches_exact_limit_in_place() -> None:
+    existing = "5 0 R " * 4095
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots 4 0 R >>",
+            4: f"[{existing}]",
+            5: (
+                "<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /Border [0 0 0] "
+                "/A << /S /URI /URI (https://a.example) >> >>"
+            ),
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+
+    doc[0].add_link_annot((20, 20, 30, 30), "https://b.example")
+
+    assert len(doc[0].annots()) == 4096
+    assert b"/Annots 4 0 R" in doc.tobytes()
+
+
+def test_annotation_add_rejects_malformed_indirect_array_atomically() -> None:
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots 4 0 R >>",
+            4: "<< /NotAnArray true >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError):
+        doc[0].add_link_annot((20, 20, 30, 30), "https://example.com")
+    with pytest.raises(pylopdf.PdfError):
+        doc[0].add_highlight_annot((20, 20, 30, 30))
+
+    assert doc.tobytes() == before
+
+
 def test_annots_empty_on_fresh_page() -> None:
     doc = pylopdf.Document()
     doc.new_page()

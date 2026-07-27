@@ -455,6 +455,12 @@ overview.
   second point vector, and generated appearance buffers grow fallibly.
   Pylopdf-created Highlights prepare quads, appearance operators, and
   `QuadPoints` before cache invalidation or dependent-object creation.
+  Annotation appends validate the final page limit and preallocate their
+  `/Annots` target before dependent-object creation. Direct arrays and unshared
+  indirect arrays reserve one slot in place; page-shared indirect arrays
+  prepare one fallibly detached direct array so copied pages do not leak edits.
+  The final reference push must not grow a collection. Link annotations also
+  build their complete input-derived dictionary before cache invalidation.
   `render_annotations` defaults to true.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
