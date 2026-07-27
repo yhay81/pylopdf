@@ -157,7 +157,9 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   before allocating the expanded string. `max_text_size=None` explicitly opts
   trusted insertion input out; refusals use `text_input_size` or
   `text_line_count`. AcroForm text and choice appearances retain the fixed
-  4,096-line layout cap.
+  4,096-line layout cap. UAX #14 and grapheme indexes, line collections, and
+  retained line text grow fallibly, so allocation refusal exposes neither a
+  partial layout nor a document edit.
 - `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
   returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
   copying and the Rust boundary repeats both limits. `max_hits=None` explicitly

@@ -142,7 +142,9 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   textbox는확장된string을 할당하기 전에tab 확장량을 미리 검사합니다. 신뢰 가능한
   삽입input은`max_text_size=None`으로 명시적으로 해제할 수 있고 거부code는
   `text_input_size` 또는`text_line_count`입니다. AcroForm text／choice appearance는
-  고정4,096줄layout 상한을 유지합니다.
+  고정4,096줄layout 상한을 유지합니다. UAX #14／grapheme index, 줄collection,
+  유지하는 줄text는fallible하게 확장되므로 allocation refusal은 부분layout이나
+  document 편집을 노출하지 않습니다.
 - `search_for()`의 검색어는UTF-8 4,096 byte, 반환geometry는 기본4,096건으로
   제한됩니다. Python은PyO3 copy 전에 초과 검색어를 거부하고Rust 경계도 두 제한을
   다시 검사합니다. 신뢰 가능한 결과 집합은`max_hits=None`으로 명시적으로 해제할

@@ -54,13 +54,11 @@ where
         if remaining == Some(0) {
             return Err(TEXT_LINE_LIMIT_ERROR.to_owned());
         }
-        lines.extend(wrap_paragraph(
-            paragraph,
-            width,
-            justify,
-            remaining,
-            &mut measure,
-        )?);
+        let paragraph_lines = wrap_paragraph(paragraph, width, justify, remaining, &mut measure)?;
+        lines
+            .try_reserve(paragraph_lines.len())
+            .map_err(|error| format!("failed to grow text layout line collection: {error}"))?;
+        lines.extend(paragraph_lines);
     }
 
     let leading = line_height * font_size;
@@ -96,11 +94,7 @@ where
         if max_lines == Some(0) {
             return Err(TEXT_LINE_LIMIT_ERROR.to_owned());
         }
-        return Ok(vec![TextBoxLine {
-            text: String::new(),
-            width: 0.0,
-            justify: false,
-        }]);
+        return single_line(String::new(), 0.0);
     }
 
     // Avoid measuring every UAX #14 prefix when the complete paragraph already
@@ -109,18 +103,19 @@ where
     let visible = paragraph.trim_end_matches(char::is_whitespace);
     let paragraph_width = measure(visible)?;
     if paragraph_width <= max_width + FIT_TOLERANCE {
-        return Ok(vec![TextBoxLine {
-            text: visible.to_owned(),
-            width: paragraph_width,
-            justify: false,
-        }]);
+        return single_line(copy_text(visible)?, paragraph_width);
     }
 
-    let break_ends: Vec<usize> = linebreaks(paragraph).map(|(end, _)| end).collect();
-    let grapheme_ends: Vec<usize> = paragraph
-        .grapheme_indices(true)
-        .map(|(offset, grapheme)| offset + grapheme.len())
-        .collect();
+    let break_ends = collect_offsets(
+        linebreaks(paragraph).map(|(end, _)| end),
+        "line-break index",
+    )?;
+    let grapheme_ends = collect_offsets(
+        paragraph
+            .grapheme_indices(true)
+            .map(|(offset, grapheme)| offset + grapheme.len()),
+        "grapheme index",
+    )?;
     let mut lines = Vec::new();
     let mut start = 0;
     while start < paragraph.len() {
@@ -137,14 +132,55 @@ where
             measure,
         )?;
         let soft_break = consumed < tail.len();
+        let text = copy_text(&tail[..visible_end])?;
+        lines
+            .try_reserve(1)
+            .map_err(|error| format!("failed to grow wrapped text line collection: {error}"))?;
         lines.push(TextBoxLine {
-            text: tail[..visible_end].to_owned(),
+            text,
             width: line_width,
             justify: justify && soft_break,
         });
         start += consumed;
     }
     Ok(lines)
+}
+
+fn single_line(text: String, width: f64) -> Result<Vec<TextBoxLine>, String> {
+    let mut lines = Vec::new();
+    lines
+        .try_reserve_exact(1)
+        .map_err(|error| format!("failed to allocate text layout line collection: {error}"))?;
+    lines.push(TextBoxLine {
+        text,
+        width,
+        justify: false,
+    });
+    Ok(lines)
+}
+
+fn copy_text(text: &str) -> Result<String, String> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|error| format!("failed to allocate laid-out text: {error}"))?;
+    copy.push_str(text);
+    Ok(copy)
+}
+
+fn collect_offsets(
+    offsets: impl Iterator<Item = usize>,
+    context: &str,
+) -> Result<Vec<usize>, String> {
+    let mut collected = Vec::new();
+    for offset in offsets {
+        if collected.len() == collected.capacity() {
+            collected
+                .try_reserve(1)
+                .map_err(|error| format!("failed to grow text {context}: {error}"))?;
+        }
+        collected.push(offset);
+    }
+    Ok(collected)
 }
 
 type MeasuredLineBreak = (usize, usize, f64);

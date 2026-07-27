@@ -142,6 +142,8 @@ xref dataを正規化します。
   展開量は展開済みstringを確保する前に計算します。信頼できる挿入inputは
   `max_text_size=None`で明示解除でき、拒否codeは`text_input_size`または
   `text_line_count`です。AcroFormのtext／choice外観は固定4,096行上限を維持します。
+  UAX #14／grapheme index、行collection、保持する行textはfallibleに拡張され、
+  allocation refusalで部分layoutやdocument編集を公開しません。
 - `search_for()`の検索語はUTF-8 4,096 byte、返却geometryは既定4,096件が上限です。
   PythonはPyO3 copy前に検索語を拒否し、Rust境界も両方の上限を再検査します。
   信頼できる結果集合は`max_hits=None`で明示解除でき、拒否codeは
