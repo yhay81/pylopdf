@@ -2985,6 +2985,15 @@ fn try_clone_form_string(value: &str, label: &str) -> PyResult<String> {
     Ok(owned)
 }
 
+fn try_clone_form_bytes(value: &[u8], label: &str) -> PyResult<Vec<u8>> {
+    let mut owned = Vec::new();
+    owned.try_reserve_exact(value.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate AcroForm {label}: {error}"))
+    })?;
+    owned.extend_from_slice(value);
+    Ok(owned)
+}
+
 fn try_lossy_form_string(value: &[u8], label: &str) -> PyResult<String> {
     match String::from_utf8_lossy(value) {
         Cow::Borrowed(value) => try_clone_form_string(value, label),
@@ -3922,50 +3931,54 @@ impl _Document {
     }
 
     /// Return widget annotation ObjectIds, or the field itself when Kids is absent.
-    fn field_widgets(&self, field_id: ObjectId) -> Vec<ObjectId> {
+    fn field_widgets(&self, field_id: ObjectId) -> PyResult<Vec<ObjectId>> {
+        let mut widgets = Vec::new();
         let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
-            return vec![field_id];
+            try_push_form(&mut widgets, field_id, "field widgets")?;
+            return Ok(widgets);
         };
-        let widgets: Vec<ObjectId> = dict
+        let kids = dict
             .get(b"Kids")
             .ok()
             .map(|object| deref_object(&self.doc, object))
             .and_then(|object| object.as_array().ok())
-            .map(|kids| {
-                kids.iter()
-                    .filter_map(|k| k.as_reference().ok())
-                    .filter(|kid_id| {
-                        self.doc
-                            .get_object(*kid_id)
-                            .and_then(Object::as_dict)
-                            .is_ok_and(|d| !d.has(b"T"))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if widgets.is_empty() {
-            vec![field_id]
-        } else {
-            widgets
+            .into_iter()
+            .flatten();
+        for kid_id in kids.filter_map(|kid| kid.as_reference().ok()) {
+            let is_widget = self
+                .doc
+                .get_object(kid_id)
+                .and_then(Object::as_dict)
+                .is_ok_and(|child| !child.has(b"T"));
+            if is_widget {
+                try_push_form(&mut widgets, kid_id, "field widgets")?;
+            }
         }
+        if widgets.is_empty() {
+            try_push_form(&mut widgets, field_id, "field widgets")?;
+        }
+        Ok(widgets)
     }
 
-    fn visible_field_widgets(&self, field_id: ObjectId) -> Vec<ObjectId> {
-        self.field_widgets(field_id)
-            .into_iter()
-            .filter(|widget_id| {
-                self.doc
-                    .get_object(*widget_id)
-                    .and_then(Object::as_dict)
-                    .is_ok_and(|widget| {
-                        widget
-                            .get(b"Subtype")
-                            .and_then(Object::as_name)
-                            .is_ok_and(|name| name == b"Widget")
-                            || widget.has(b"Rect")
-                    })
-            })
-            .collect()
+    fn visible_field_widgets(&self, field_id: ObjectId) -> PyResult<Vec<ObjectId>> {
+        let mut visible = Vec::new();
+        for widget_id in self.field_widgets(field_id)? {
+            let is_visible = self
+                .doc
+                .get_object(widget_id)
+                .and_then(Object::as_dict)
+                .is_ok_and(|widget| {
+                    widget
+                        .get(b"Subtype")
+                        .and_then(Object::as_name)
+                        .is_ok_and(|name| name == b"Widget")
+                        || widget.has(b"Rect")
+                });
+            if is_visible {
+                try_push_form(&mut visible, widget_id, "visible field widgets")?;
+            }
+        }
+        Ok(visible)
     }
 
     /// Borrow and bound every normal-appearance state name for one button field.
@@ -3973,13 +3986,13 @@ impl _Document {
         &self,
         field_id: ObjectId,
     ) -> PyResult<(Vec<WidgetStateNames>, usize, usize)> {
-        let widgets = self.visible_field_widgets(field_id);
+        let widgets = self.visible_field_widgets(field_id)?;
         if widgets.len() > MAX_FORM_FIELD_WIDGETS {
             return Err(PdfError::new_err(format!(
                 "AcroForm field exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
             )));
         }
-        let mut result = Vec::with_capacity(widgets.len());
+        let mut result = Vec::new();
         let mut entries = 0usize;
         let mut encoded_name_bytes = 0usize;
         for widget_id in widgets {
@@ -4002,7 +4015,6 @@ impl _Document {
                         "AcroForm button states exceed the {MAX_FORM_BUTTON_STATE_ENTRIES}-entry safety limit"
                     )));
                 }
-                states.reserve(normal.len());
                 for (state, _) in normal {
                     add_form_budget(
                         &mut encoded_name_bytes,
@@ -4010,10 +4022,11 @@ impl _Document {
                         MAX_FORM_BUTTON_STATE_NAME_BYTES,
                         "encoded button-state name",
                     )?;
-                    states.push(state.clone());
+                    let state = try_clone_form_bytes(state, "button-state name")?;
+                    try_push_form(&mut states, state, "button-state names")?;
                 }
             }
-            result.push((widget_id, states));
+            try_push_form(&mut result, (widget_id, states), "button widget states")?;
         }
         Ok((result, entries, encoded_name_bytes))
     }
@@ -4387,7 +4400,7 @@ impl _Document {
                         .and_then(|value| u8::try_from(value).ok())
                         .filter(|value| *value <= 2)
                         .unwrap_or(0);
-                    for widget_id in self.visible_field_widgets(field_id) {
+                    for widget_id in self.visible_field_widgets(field_id)? {
                         if !self.widget_has_normal_stream(widget_id)
                             && self
                                 .synthesize_text_appearance(
@@ -4418,31 +4431,32 @@ impl _Document {
     }
 
     fn form_appearances_complete(&self) -> PyResult<bool> {
-        Ok(self
-            .collect_form_fields()?
-            .into_iter()
-            .all(|(_, field_id, field_type, flags, _)| {
-                let widgets = self.visible_field_widgets(field_id);
-                match field_type.as_str() {
-                    "Tx" | "Ch" => widgets
-                        .into_iter()
-                        .all(|widget_id| self.widget_has_normal_stream(widget_id)),
-                    "Btn" if flags & (1 << 16) == 0 => widgets.into_iter().all(|widget_id| {
-                        let Ok(widget) = self.doc.get_object(widget_id).and_then(Object::as_dict)
-                        else {
-                            return false;
-                        };
-                        let Some(state) = widget.get(b"AS").and_then(Object::as_name).ok() else {
-                            return false;
-                        };
-                        self.button_normal_appearance(widget_id)
-                            .get(state)
-                            .ok()
-                            .is_some_and(|appearance| self.appearance_has_content(appearance))
-                    }),
-                    _ => true,
-                }
-            }))
+        for (_, field_id, field_type, flags, _) in self.collect_form_fields()? {
+            let widgets = self.visible_field_widgets(field_id)?;
+            let complete = match field_type.as_str() {
+                "Tx" | "Ch" => widgets
+                    .into_iter()
+                    .all(|widget_id| self.widget_has_normal_stream(widget_id)),
+                "Btn" if flags & (1 << 16) == 0 => widgets.into_iter().all(|widget_id| {
+                    let Ok(widget) = self.doc.get_object(widget_id).and_then(Object::as_dict)
+                    else {
+                        return false;
+                    };
+                    let Some(state) = widget.get(b"AS").and_then(Object::as_name).ok() else {
+                        return false;
+                    };
+                    self.button_normal_appearance(widget_id)
+                        .get(state)
+                        .ok()
+                        .is_some_and(|appearance| self.appearance_has_content(appearance))
+                }),
+                _ => true,
+            };
+            if !complete {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Mutating implementation kept behind an atomic clone in the Python method.
@@ -4488,7 +4502,7 @@ impl _Document {
                     .and_then(|value| u8::try_from(value).ok())
                     .filter(|value| *value <= 2)
                     .unwrap_or(0);
-                for widget_id in self.visible_field_widgets(field_id) {
+                for widget_id in self.visible_field_widgets(field_id)? {
                     self.synthesize_text_appearance(
                         widget_id,
                         value,
