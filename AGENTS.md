@@ -449,7 +449,13 @@ overview.
   Underline, StrikeOut, and Squiggly annotations with valid `QuadPoints`; this
   must not mutate the editable or saved PDF. Aggregate geometry stops at 4,096
   quads and 65,536 generated path segments without returning a partial
-  synthesized set. `render_annotations` defaults to true.
+  synthesized set. State substitutions and missing text-markup appearances are
+  planned once, with borrowed dictionary reads and fallible collections, before
+  preparing the rendering clone. Quad bounding boxes do not materialize a
+  second point vector, and generated appearance buffers grow fallibly.
+  Pylopdf-created Highlights prepare quads, appearance operators, and
+  `QuadPoints` before cache invalidation or dependent-object creation.
+  `render_annotations` defaults to true.
 - Simple-font text replacement is prepared in `rust/src/text_replace.rs`.
   Search/replacement/fallback input is capped at 4,096 UTF-8 bytes. Decoded
   page content, aggregate font encoding data, intermediate growth, and the

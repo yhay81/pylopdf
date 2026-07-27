@@ -2138,6 +2138,15 @@ fn deref_dict(doc: &Document, obj: &Object) -> Option<Dictionary> {
     }
 }
 
+/// Borrow a dictionary while allowing an indirect reference.
+fn deref_dict_ref<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Dictionary> {
+    match obj {
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok(),
+        Object::Dictionary(dictionary) => Some(dictionary),
+        _ => None,
+    }
+}
+
 /// Preserve control characters that PDFDocEncoding intentionally leaves unmapped.
 fn form_text_string(text: &str) -> Object {
     if !text.chars().any(char::is_control) {
@@ -2155,58 +2164,54 @@ fn form_text_string(text: &str) -> Object {
 /// PDF permits `/AP /N` to be a state-name dictionary selected by `/AS`.
 /// hayro 0.7 only consumes a direct normal stream, so rendering uses a clone
 /// with the selected entry substituted while the editable PDF stays canonical.
-fn normalize_state_appearances_for_render(doc: &mut Document) -> bool {
-    let object_ids: Vec<ObjectId> = doc.objects.keys().copied().collect();
-    let mut updates = Vec::new();
-    for object_id in object_ids {
+fn selected_state_appearance<'a>(
+    doc: &'a Document,
+    object: &'a Object,
+) -> Option<(&'a Dictionary, &'a Object)> {
+    let annotation = object.as_dict().ok()?;
+    let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
+    let appearance = deref_dict_ref(doc, annotation.get(b"AP").ok()?)?;
+    let normal = deref_dict_ref(doc, appearance.get(b"N").ok()?)?;
+    let selected = normal.get(state).ok()?;
+    deref_object(doc, selected).as_stream().ok()?;
+    Some((appearance, selected))
+}
+
+/// Preflight render-only state substitutions without cloning every object ID.
+fn state_appearance_ids(doc: &Document) -> PyResult<Vec<ObjectId>> {
+    let mut object_ids = Vec::new();
+    for (&object_id, object) in &doc.objects {
+        if selected_state_appearance(doc, object).is_none() {
+            continue;
+        }
+        object_ids.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow render state-appearance plan: {error}"
+            ))
+        })?;
+        object_ids.push(object_id);
+    }
+    Ok(object_ids)
+}
+
+fn normalize_state_appearances_for_render(doc: &mut Document, object_ids: &[ObjectId]) -> bool {
+    let mut changed = false;
+    for &object_id in object_ids {
         let Some((mut appearance, selected)) = doc
             .get_object(object_id)
             .ok()
-            .and_then(|object| object.as_dict().ok())
-            .and_then(|annotation| {
-                let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
-                let appearance = deref_dict(doc, annotation.get(b"AP").ok()?).unwrap_or_default();
-                let normal = deref_dict(doc, appearance.get(b"N").ok()?)?;
-                let selected = normal.get(state).ok()?.clone();
-                let resolved = match &selected {
-                    Object::Reference(id) => doc.get_object(*id).ok()?,
-                    other => other,
-                };
-                resolved.as_stream().ok()?;
-                Some((appearance, selected))
-            })
+            .and_then(|object| selected_state_appearance(doc, object))
+            .map(|(appearance, selected)| (appearance.clone(), selected.clone()))
         else {
             continue;
         };
         appearance.set("N", selected);
-        updates.push((object_id, appearance));
-    }
-    for (object_id, appearance) in &updates {
-        if let Ok(annotation) = doc.get_object_mut(*object_id).and_then(Object::as_dict_mut) {
-            annotation.set("AP", Object::Dictionary(appearance.clone()));
+        if let Ok(annotation) = doc.get_object_mut(object_id).and_then(Object::as_dict_mut) {
+            annotation.set("AP", Object::Dictionary(appearance));
+            changed = true;
         }
     }
-    !updates.is_empty()
-}
-
-fn has_state_appearances(doc: &Document) -> bool {
-    doc.objects.values().any(|object| {
-        object
-            .as_dict()
-            .ok()
-            .and_then(|annotation| {
-                let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
-                let appearance = deref_dict(doc, annotation.get(b"AP").ok()?)?;
-                let normal = deref_dict(doc, appearance.get(b"N").ok()?)?;
-                let selected = normal.get(state).ok()?;
-                let resolved = match selected {
-                    Object::Reference(id) => doc.get_object(*id).ok()?,
-                    other => other,
-                };
-                resolved.as_stream().is_ok().then_some(())
-            })
-            .is_some()
-    })
+    changed
 }
 
 struct TextMarkupAppearancePlan {
@@ -2214,6 +2219,7 @@ struct TextMarkupAppearancePlan {
     kind: draw::TextMarkupKind,
     quads: Vec<[(f64, f64); 4]>,
     segment_counts: Vec<usize>,
+    bbox: [f64; 4],
     color: (f64, f64, f64),
     opacity: f64,
 }
@@ -2227,10 +2233,10 @@ fn annotation_has_normal_appearance(doc: &Document, annotation: &Dictionary) -> 
     annotation
         .get(b"AP")
         .ok()
-        .and_then(|appearance| deref_dict(doc, appearance))
-        .and_then(|appearance| appearance.get(b"N").ok().cloned())
+        .and_then(|appearance| deref_dict_ref(doc, appearance))
+        .and_then(|appearance| appearance.get(b"N").ok())
         .is_some_and(|normal| {
-            let resolved = deref_object(doc, &normal);
+            let resolved = deref_object(doc, normal);
             resolved.as_stream().is_ok() || resolved.as_dict().is_ok()
         })
 }
@@ -2299,7 +2305,9 @@ fn text_markup_segment_count(kind: draw::TextMarkupKind, quad: [(f64, f64); 4]) 
 /// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
 /// but hayro 0.7 requires `/AP /N`. Keep this compatibility work outside the
 /// editable document and refuse aggregate geometry amplification.
-fn missing_text_markup_appearance_plans(doc: &Document) -> Option<Vec<TextMarkupAppearancePlan>> {
+fn missing_text_markup_appearance_plans(
+    doc: &Document,
+) -> PyResult<Option<Vec<TextMarkupAppearancePlan>>> {
     let mut plans = Vec::new();
     let mut total_quads = 0usize;
     let mut total_segments = 0usize;
@@ -2330,13 +2338,28 @@ fn missing_text_markup_appearance_plans(doc: &Document) -> Option<Vec<TextMarkup
             continue;
         }
         let quad_count = quad_points.len() / 8;
-        total_quads = total_quads.checked_add(quad_count)?;
+        let Some(new_total_quads) = total_quads.checked_add(quad_count) else {
+            return Ok(None);
+        };
+        total_quads = new_total_quads;
         if total_quads > MAX_HIGHLIGHT_RECTS {
-            return None;
+            return Ok(None);
         }
 
-        let mut quads = Vec::with_capacity(quad_count);
-        let mut segment_counts = Vec::with_capacity(quad_count);
+        let mut quads = Vec::new();
+        quads.try_reserve_exact(quad_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate text-markup appearance quads: {error}"
+            ))
+        })?;
+        let mut segment_counts = Vec::new();
+        segment_counts
+            .try_reserve_exact(quad_count)
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate text-markup appearance segment counts: {error}"
+                ))
+            })?;
         let mut valid = true;
         for chunk in quad_points.chunks_exact(8) {
             let mut values = [0.0f64; 8];
@@ -2360,9 +2383,12 @@ fn missing_text_markup_appearance_plans(doc: &Document) -> Option<Vec<TextMarkup
                 valid = false;
                 break;
             };
-            total_segments = total_segments.checked_add(segment_count)?;
+            let Some(new_total_segments) = total_segments.checked_add(segment_count) else {
+                return Ok(None);
+            };
+            total_segments = new_total_segments;
             if total_segments > MAX_TEXT_MARKUP_SEGMENTS {
-                return None;
+                return Ok(None);
             }
             quads.push(quad);
             segment_counts.push(segment_count);
@@ -2404,43 +2430,42 @@ fn missing_text_markup_appearance_plans(doc: &Document) -> Option<Vec<TextMarkup
             continue;
         }
 
-        let points: Vec<(f64, f64)> = quads.iter().flatten().copied().collect();
-        let bbox = draw::bounding_rect(&points);
+        let bbox = draw::bounding_rect_iter(quads.iter().flatten().copied());
         if bbox.iter().any(|value| !value.is_finite()) || bbox[0] >= bbox[2] || bbox[1] >= bbox[3] {
             continue;
         }
+        plans.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow text-markup appearance plans: {error}"
+            ))
+        })?;
         plans.push(TextMarkupAppearancePlan {
             annotation_id,
             kind,
             quads,
             segment_counts,
+            bbox,
             color,
             opacity,
         });
     }
-    Some(plans)
-}
-
-fn has_missing_text_markup_appearances(doc: &Document) -> bool {
-    missing_text_markup_appearance_plans(doc).is_some_and(|plans| !plans.is_empty())
+    Ok(Some(plans))
 }
 
 /// Add bounded text-markup appearances to a rendering clone only.
-fn synthesize_missing_text_markup_appearances_for_render(doc: &mut Document) -> bool {
-    let Some(plans) = missing_text_markup_appearance_plans(doc) else {
-        return false;
-    };
+fn synthesize_missing_text_markup_appearances_for_render(
+    doc: &mut Document,
+    plans: Vec<TextMarkupAppearancePlan>,
+) -> PyResult<bool> {
     let Ok(object_count) = u32::try_from(plans.len()).map(|count| count.saturating_mul(2)) else {
-        return false;
+        return Ok(false);
     };
     if doc.max_id.checked_add(object_count).is_none() {
-        return false;
+        return Ok(false);
     }
 
     let mut changed = false;
     for plan in plans {
-        let points: Vec<(f64, f64)> = plan.quads.iter().flatten().copied().collect();
-        let bbox = draw::bounding_rect(&points);
         let gs_id = doc.add_object(dictionary! {
             "Type" => "ExtGState",
             "BM" => Object::Name(plan.kind.blend_mode().as_bytes().to_vec()),
@@ -2452,13 +2477,14 @@ fn synthesize_missing_text_markup_appearances_for_render(doc: &mut Document) -> 
             "Type" => "XObject",
             "Subtype" => "Form",
             "FormType" => 1,
-            "BBox" => Object::Array(bbox.iter().map(|&value| Object::Real(value as f32)).collect()),
+            "BBox" => Object::Array(plan.bbox.iter().map(|&value| Object::Real(value as f32)).collect()),
             "Resources" => dictionary! {
                 "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
             },
         };
         let appearance_ops =
-            draw::text_markup_ap_ops(plan.kind, &plan.quads, plan.color, &plan.segment_counts);
+            draw::text_markup_ap_ops(plan.kind, &plan.quads, plan.color, &plan.segment_counts)
+                .map_err(PdfError::new_err)?;
         let appearance_id =
             doc.add_object(Stream::new(form_dict, appearance_ops).with_compression(false));
         if let Ok(annotation) = doc
@@ -2472,7 +2498,7 @@ fn synthesize_missing_text_markup_appearances_for_render(doc: &mut Document) -> 
             changed = true;
         }
     }
-    changed
+    Ok(changed)
 }
 
 /// Read an integer while allowing an indirect reference.
@@ -4803,8 +4829,12 @@ impl _Document {
     fn hayro_view(&mut self) -> PyResult<&Pdf> {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.get_pages().len();
-            let prepare_appearances =
-                has_state_appearances(&self.doc) || has_missing_text_markup_appearances(&self.doc);
+            let state_appearances = state_appearance_ids(&self.doc)?;
+            let mut text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
+            let prepare_appearances = !state_appearances.is_empty()
+                || text_markup_appearances
+                    .as_ref()
+                    .is_some_and(|plans| !plans.is_empty());
             if !prepare_appearances {
                 match &self.hayro_source {
                     HayroSource::TooLarge { actual, limit } => {
@@ -4840,8 +4870,10 @@ impl _Document {
                         } else {
                             self.doc.clone()
                         };
-                        normalize_state_appearances_for_render(&mut doc);
-                        synthesize_missing_text_markup_appearances_for_render(&mut doc);
+                        normalize_state_appearances_for_render(&mut doc, &state_appearances);
+                        if let Some(plans) = text_markup_appearances.take() {
+                            synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
+                        }
                         Some(doc)
                     } else {
                         None
@@ -7769,16 +7801,37 @@ impl _Document {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
         self.ensure_page_annotation_capacity(page_id, 1)?;
-        self.invalidate_hayro_pdf();
 
-        let quads: Vec<[(f64, f64); 4]> = rects
-            .iter()
-            .map(|&(x0, y0, x1, y1)| draw::display_rect_quad_pdf(crop, rotation, [x0, y0, x1, y1]))
-            .collect();
-        let all_points: Vec<(f64, f64)> = quads.iter().flatten().copied().collect();
-        let bbox = draw::bounding_rect(&all_points);
+        let mut quads = Vec::new();
+        quads.try_reserve_exact(rects.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate highlight quads: {error}"))
+        })?;
+        for (x0, y0, x1, y1) in rects {
+            quads.push(draw::display_rect_quad_pdf(
+                crop,
+                rotation,
+                [x0, y0, x1, y1],
+            ));
+        }
+        let bbox = draw::bounding_rect_iter(quads.iter().flatten().copied());
+        let appearance_ops = draw::highlight_ap_ops(&quads, color).map_err(PdfError::new_err)?;
+        let quad_point_count = quads
+            .len()
+            .checked_mul(8)
+            .ok_or_else(|| PdfError::new_err("highlight QuadPoints exceed the platform limit"))?;
+        let mut quad_points = Vec::new();
+        quad_points
+            .try_reserve_exact(quad_point_count)
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate highlight QuadPoints: {error}"))
+            })?;
+        for &(x, y) in quads.iter().flatten() {
+            quad_points.push(Object::Real(x as f32));
+            quad_points.push(Object::Real(y as f32));
+        }
 
         // Appearance BBox equals annotation Rect and draws in page space.
+        self.invalidate_hayro_pdf();
         let gs_id = self.doc.add_object(dictionary! {
             "Type" => "ExtGState",
             "BM" => Object::Name(b"Multiply".to_vec()),
@@ -7795,15 +7848,10 @@ impl _Document {
                 "ExtGState" => dictionary! { "PyloGS" => Object::Reference(gs_id) },
             },
         };
-        let ap_id = self.doc.add_object(
-            Stream::new(form_dict, draw::highlight_ap_ops(&quads, color)).with_compression(false),
-        );
+        let ap_id = self
+            .doc
+            .add_object(Stream::new(form_dict, appearance_ops).with_compression(false));
 
-        let quad_points: Vec<Object> = quads
-            .iter()
-            .flatten()
-            .flat_map(|&(x, y)| [Object::Real(x as f32), Object::Real(y as f32)])
-            .collect();
         let mut annot = dictionary! {
             "Type" => "Annot",
             "Subtype" => "Highlight",
