@@ -92,7 +92,9 @@ overview.
   numbers cannot amplify a bounded interpretation without bound.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
-  column regions, and isolated wide gaps stay on one line. `find_tables` uses a
+  column regions, and isolated wide gaps stay on one line. Gutter discovery
+  uses lightweight segment bboxes and font-size samples; only confirmed columns
+  move glyphs into fallibly grown segment/region vectors. `find_tables` uses a
   separate bounded, generation-invalidated `TablePage` cache so normal text
   extraction does not collect or analyze vector rules. It collects at most
   4096 axis-aligned candidates from strokes or thin filled polygons. A table
