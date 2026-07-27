@@ -85,6 +85,7 @@ struct GlyphRecord {
 pub(crate) enum TextPageLimit {
     TextSize(usize),
     GlyphCount(usize),
+    Allocation(String),
 }
 
 /// One axis-aligned stroked path segment in display coordinates.
@@ -115,6 +116,24 @@ struct TextCollector {
     limit_error: Option<TextPageLimit>,
 }
 
+impl TextCollector {
+    fn push_rule(&mut self, rule: RuleSegment) -> bool {
+        if self.rules.len() >= MAX_TABLE_RULES {
+            return false;
+        }
+        if self.rules.len() == self.rules.capacity()
+            && let Err(error) = self.rules.try_reserve(1)
+        {
+            self.limit_error = Some(TextPageLimit::Allocation(format!(
+                "failed to grow table-rule collection: {error}"
+            )));
+            return false;
+        }
+        self.rules.push(rule);
+        true
+    }
+}
+
 impl Device<'_> for TextCollector {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
@@ -125,12 +144,13 @@ impl Device<'_> for TextCollector {
         _: &Paint<'_>,
         mode: &PathDrawMode,
     ) {
-        if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES {
+        if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
+        {
             return;
         }
         if matches!(mode, PathDrawMode::Fill(_)) {
             if let Some(rule) = filled_rule(path, transform) {
-                self.rules.push(rule);
+                self.push_rule(rule);
             }
             return;
         }
@@ -168,8 +188,7 @@ impl Device<'_> for TextCollector {
             } else {
                 continue;
             };
-            self.rules.push(rule);
-            if self.rules.len() >= MAX_TABLE_RULES {
+            if !self.push_rule(rule) {
                 break;
             }
         }
@@ -217,7 +236,14 @@ impl Device<'_> for TextCollector {
             self.limit_error = Some(TextPageLimit::GlyphCount(limit));
             return;
         }
-        self.text_size = next_text_size;
+        if self.glyphs.len() == self.glyphs.capacity()
+            && let Err(error) = self.glyphs.try_reserve(1)
+        {
+            self.limit_error = Some(TextPageLimit::Allocation(format!(
+                "failed to grow positioned-glyph collection: {error}"
+            )));
+            return;
+        }
         let combined = transform * glyph_transform;
         let origin = combined * Point::ZERO;
         // Font size is the transformed y-basis length × 1000. Hayro normalizes
@@ -238,6 +264,14 @@ impl Device<'_> for TextCollector {
         let (advance_width, font_key, font) = match glyph {
             Glyph::Outline(g) => {
                 let key = g.font_cache_key();
+                if !self.font_infos.contains_key(&key)
+                    && let Err(error) = self.font_infos.try_reserve(1)
+                {
+                    self.limit_error = Some(TextPageLimit::Allocation(format!(
+                        "failed to grow extraction font cache: {error}"
+                    )));
+                    return;
+                }
                 let info = self
                     .font_infos
                     .entry(key)
@@ -257,6 +291,7 @@ impl Device<'_> for TextCollector {
         if !origin.x.is_finite() || !origin.y.is_finite() {
             return;
         }
+        self.text_size = next_text_size;
         // Context initial_transform already flips y and applies rotation, so
         // transformed coordinates are directly in top-left-origin display space.
         let source_order = self.glyphs.len();
@@ -516,18 +551,26 @@ fn is_cjk_text(text: &str) -> bool {
 /// Identify CJK glyphs that advance vertically even though hayro reports the
 /// font's transformed horizontal basis. Requiring a local vertical neighbour
 /// and no local horizontal neighbour avoids reclassifying normal CJK rows.
-fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Vec<usize> {
-    let cjk_indices: Vec<usize> = glyphs
-        .iter()
-        .enumerate()
-        .filter_map(|(index, glyph)| {
-            (!has_vertical_baseline(glyph) && is_cjk_text(&glyph.text)).then_some(index)
-        })
-        .collect();
-    if cjk_indices.len() < MIN_VERTICAL_CJK_GLYPHS
-        || cjk_indices.len() > MAX_VERTICAL_CJK_CANDIDATES
-    {
-        return Vec::new();
+fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, TextPageLimit> {
+    let mut cjk_indices = Vec::new();
+    for (index, glyph) in glyphs.iter().enumerate() {
+        if has_vertical_baseline(glyph) || !is_cjk_text(&glyph.text) {
+            continue;
+        }
+        if cjk_indices.len() >= MAX_VERTICAL_CJK_CANDIDATES {
+            return Ok(Vec::new());
+        }
+        if cjk_indices.len() == cjk_indices.capacity() {
+            cjk_indices.try_reserve(1).map_err(|error| {
+                TextPageLimit::Allocation(format!(
+                    "failed to grow vertical-CJK candidate collection: {error}"
+                ))
+            })?;
+        }
+        cjk_indices.push(index);
+    }
+    if cjk_indices.len() < MIN_VERTICAL_CJK_GLYPHS {
+        return Ok(Vec::new());
     }
 
     let mut eligible = Vec::new();
@@ -557,33 +600,54 @@ fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Vec<usize> {
             }
         }
         if has_vertical_neighbour && !has_horizontal_neighbour {
+            if eligible.len() == eligible.capacity() {
+                eligible.try_reserve(1).map_err(|error| {
+                    TextPageLimit::Allocation(format!(
+                        "failed to grow vertical-CJK eligibility collection: {error}"
+                    ))
+                })?;
+            }
             eligible.push(index);
         }
     }
-    eligible
+    Ok(eligible)
 }
 
 /// Extract conservative CJK vertical chains from otherwise horizontal glyphs.
 fn extract_inferred_vertical_cjk(
     glyphs: Vec<GlyphRecord>,
-) -> (Vec<GlyphRecord>, Vec<Vec<GlyphRecord>>) {
-    let eligible = inferred_vertical_cjk_indices(&glyphs);
+) -> Result<(Vec<GlyphRecord>, Vec<Vec<GlyphRecord>>), TextPageLimit> {
+    let eligible = inferred_vertical_cjk_indices(&glyphs)?;
     if eligible.len() < MIN_VERTICAL_CJK_GLYPHS {
-        return (glyphs, Vec::new());
+        return Ok((glyphs, Vec::new()));
     }
 
-    let mut selected = vec![false; glyphs.len()];
+    let mut selected = Vec::new();
+    selected.try_reserve_exact(glyphs.len()).map_err(|error| {
+        TextPageLimit::Allocation(format!(
+            "failed to allocate vertical-CJK selection mask: {error}"
+        ))
+    })?;
+    selected.resize(glyphs.len(), false);
     for index in eligible {
         selected[index] = true;
     }
     let mut candidates = Vec::new();
     let mut remaining = Vec::new();
     for (index, glyph) in glyphs.into_iter().enumerate() {
-        if selected[index] {
-            candidates.push(glyph);
+        let target = if selected[index] {
+            &mut candidates
         } else {
-            remaining.push(glyph);
+            &mut remaining
+        };
+        if target.len() == target.capacity() {
+            target.try_reserve(1).map_err(|error| {
+                TextPageLimit::Allocation(format!(
+                    "failed to grow vertical-CJK glyph partition: {error}"
+                ))
+            })?;
         }
+        target.push(glyph);
     }
     candidates.sort_by(|left, right| {
         left.x
@@ -625,7 +689,7 @@ fn extract_inferred_vertical_cjk(
             remaining.extend(line);
         }
     }
-    (remaining, accepted)
+    Ok((remaining, accepted))
 }
 
 /// Group glyphs whose transformed baseline itself is vertical.
@@ -766,10 +830,10 @@ fn split_overlapping_paint_layers(mut line: Vec<GlyphRecord>) -> Vec<Vec<GlyphRe
 }
 
 /// Group glyphs into physical text lines.
-fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
     let (explicit_vertical, horizontal): (Vec<_>, Vec<_>) =
         glyphs.into_iter().partition(has_vertical_baseline);
-    let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal);
+    let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal)?;
 
     horizontal.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
@@ -793,7 +857,7 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
     vertical_lines.extend(cluster_explicit_vertical(explicit_vertical));
     let mut all_lines = lines;
     all_lines.extend(vertical_lines);
-    all_lines
+    Ok(all_lines)
 }
 
 /// Split independently positioned columns or table cells sharing one baseline.
@@ -1150,7 +1214,7 @@ impl TextPage {
         let (width, height) = page.render_dimensions();
         let (glyphs, _, text_size, glyph_count) =
             collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
-        let physical_lines = cluster_lines(glyphs);
+        let physical_lines = cluster_lines(glyphs)?;
         let lines = order_page_lines(physical_lines);
         Ok(Self {
             width: f64::from(width),
@@ -1213,7 +1277,7 @@ impl TablePage {
     ) -> Result<Self, TextPageLimit> {
         let (glyphs, rules, text_size, glyph_count) =
             collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
-        let physical_lines = cluster_lines(glyphs);
+        let physical_lines = cluster_lines(glyphs)?;
         Ok(Self {
             tables: detect_grid_tables(&physical_lines, &rules),
             text_tables: detect_text_tables(&physical_lines),

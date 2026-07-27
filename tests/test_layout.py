@@ -273,6 +273,16 @@ def test_horizontal_cjk_is_not_misclassified_as_vertical() -> None:
     assert line["wmode"] == 0
 
 
+def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:
+    """Disable optional inference as soon as the 4,097th candidate is seen."""
+    text = "日" * 4097
+    page = pylopdf.open(stream=build_nonembedded_cjk_pdf(text))[0]
+
+    assert page.get_text().rstrip("\n") == text
+    line = page.get_text("dict")["blocks"][0]["lines"][0]
+    assert line["wmode"] == 0
+
+
 def test_vertical_cjk_columns_read_right_to_left_between_page_furniture() -> None:
     """Order vertical columns right-to-left between a heading and footer."""
     page = pylopdf.open(stream=build_vertical_cjk_columns_pdf())[0]

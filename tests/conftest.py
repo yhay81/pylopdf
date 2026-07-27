@@ -65,13 +65,13 @@ def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) ->
     return bytes(out)
 
 
-def build_nonembedded_cjk_pdf() -> bytes:
+def build_nonembedded_cjk_pdf(text: str = "こんにちは日本語") -> bytes:
     """Build a one-page PDF referencing non-embedded MS-Mincho via 90ms-RKSJ-H.
 
     The Japanese fixture is drawn as Shift-JIS bytes and remains invisible
     unless a CJK fallback font is configured.
     """
-    sjis = "こんにちは日本語".encode("cp932")
+    sjis = text.encode("cp932")
     text_octal = "".join(f"\\{b:03o}" for b in sjis)
     stream = f"BT /F1 24 Tf 72 720 Td ({text_octal}) Tj ET"
     objects: dict[int, str] = {
