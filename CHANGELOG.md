@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Wide-gutter column detection no longer splits spreadsheet-like rows into
+  label, grid, and total blocks. A candidate gutter is rejected when the
+  baseline bands it bisects fragment into more than four same-baseline cell
+  segments, so dense tables keep row-major reading order while prose columns,
+  spanning headings, and footers keep their column-major behavior. The NICS
+  statistics table's benchmark similarity to pymupdf improved from 0.121 to
+  0.855 with the other corpus results unchanged.
+
+### Changed
+- The benchmark report now notes that remaining low similarity scores can
+  reflect the pymupdf reference convention rather than pylopdf quality:
+  pymupdf emits unsorted content order on the rotated Senate table (its own
+  sorted mode scores lower still there), and pylopdf matches pymupdf's sorted
+  mode on the dense 1040 form.
+
 ## [0.13.0] - 2026-07-28
 
 ### Changed

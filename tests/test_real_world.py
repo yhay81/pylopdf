@@ -258,6 +258,15 @@ def test_narrow_patent_columns_keep_column_major_reading_order() -> None:
     assert drifting.index("vacuum has been reached") < drifting.index("I clain as my invention")
 
 
+def test_nics_table_rows_keep_row_major_reading_order() -> None:
+    """Keep the statistics table's state labels beside their own numbers."""
+    doc = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
+    text = doc.get_page_text(0)
+
+    assert text.index("Alabama") < text.index("18,870") < text.index("Alaska")
+    assert text.index("Alaska") < text.index("Arizona") < text.index("Arkansas")
+
+
 @ALL
 def test_extract_drawings_page0(case: Case) -> None:
     """Interpret real vector paths without returning malformed commands."""

@@ -222,8 +222,10 @@ def main() -> None:
             lines.append(f"| {name} | {len(ours)} | n/a | - |")
     lines.append("")
     lines.append("Similarity approaches 1.0 as output converges with PyMuPDF.")
-    lines.append("Low scores for forms, table-heavy reports, and scanned OCR layers reflect different")
-    lines.append("reading-order and whitespace conventions despite similar character counts.")
+    lines.append("Low scores can reflect the PyMuPDF reference convention rather than pylopdf quality:")
+    lines.append("on rotated table reports PyMuPDF emits unsorted content order (its own sort=True")
+    lines.append("scores lower still there), and on dense forms pylopdf matches PyMuPDF's sorted")
+    lines.append("mode while the default reference stays in content order.")
     lines.append("A zero-character row is image-only with no text layer, so zero is correct for both.")
     lines.append("")
 
