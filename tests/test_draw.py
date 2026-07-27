@@ -105,11 +105,7 @@ def _content_shape_doc(shape: str, *, shared: bool) -> pylopdf.Document:
         1: "<< /Type /Catalog /Pages 2 0 R >>",
         2: f"<< /Type /Pages /Kids {kids} /Count {2 if shared else 1} /MediaBox [0 0 200 100] >>",
         3: f"<< /Type /Page /Parent 2 0 R /Contents {contents} >>",
-        4: (
-            f"<< /Type /Page /Parent 2 0 R /Contents {contents} >>"
-            if shared
-            else "null"
-        ),
+        4: (f"<< /Type /Page /Parent 2 0 R /Contents {contents} >>" if shared else "null"),
         5: "[6 0 R]" if shape == "indirect_array" else "null",
         6: "<< /Length 29 >>\nstream\nq 1 0 0 rg 0 0 200 100 re f Q\nendstream",
     }
