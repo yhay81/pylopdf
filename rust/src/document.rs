@@ -5775,6 +5775,7 @@ impl _Document {
                 .map_err(text_page_limit_err)?
         };
         self.admit_text_usage(page_number, text_page.text_size(), text_page.glyph_count())?;
+        self.warn_skipped_no_unicode(text_page.skipped_no_unicode());
 
         if self.text_pages.len() >= TEXT_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.text_page_order.pop_front()
@@ -5822,6 +5823,7 @@ impl _Document {
             table_page.text_size(),
             table_page.glyph_count(),
         )?;
+        self.warn_skipped_no_unicode(table_page.skipped_no_unicode());
 
         if self.table_pages.len() >= TABLE_PAGE_CACHE_CAPACITY
             && let Some(evicted) = self.table_page_order.pop_front()
@@ -5834,6 +5836,24 @@ impl _Document {
             .table_pages
             .get(&page_number)
             .expect("table page was inserted immediately before"))
+    }
+
+    /// Surface glyphs skipped for missing Unicode as one deduplicated warning.
+    ///
+    /// Extraction silently loses such glyphs (for example a Type 3 font
+    /// without a ToUnicode CMap, LaurenzV/hayro#1331); keep the message static
+    /// so repeated pages cannot grow the pending list.
+    fn warn_skipped_no_unicode(&self, skipped: usize) {
+        if skipped == 0 {
+            return;
+        }
+        let message = "text extraction skipped glyphs with no Unicode mapping \
+             (for example a Type 3 font without a ToUnicode CMap)";
+        if let Ok(mut pending) = self.pending_warnings.lock()
+            && !pending.iter().any(|m| m == message)
+        {
+            pending.push(message.to_owned());
+        }
     }
 
     /// Build InterpreterSettings with fallbacks and the warning sink.

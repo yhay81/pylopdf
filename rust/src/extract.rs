@@ -143,6 +143,9 @@ struct TextCollector {
     max_glyph_count: Option<usize>,
     /// Set once either configured text resource budget is exhausted.
     limit_error: Option<TextPageLimit>,
+    /// Glyphs hayro delivered without any Unicode mapping, e.g. from a
+    /// Type 3 font that has no ToUnicode CMap (LaurenzV/hayro#1331).
+    skipped_no_unicode: usize,
 }
 
 impl TextCollector {
@@ -240,6 +243,7 @@ impl Device<'_> for TextCollector {
             return;
         }
         let Some(unicode) = glyph.as_unicode() else {
+            self.skipped_no_unicode = self.skipped_no_unicode.saturating_add(1);
             return;
         };
         let text = match unicode {
@@ -1877,6 +1881,7 @@ pub(crate) struct TextPage {
     lines: Vec<Vec<GlyphRecord>>,
     text_size: usize,
     glyph_count: usize,
+    skipped_no_unicode: usize,
 }
 
 pub(crate) enum SearchError {
@@ -1902,16 +1907,16 @@ impl TextPage {
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
-        let (glyphs, _, text_size, glyph_count) =
-            collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
-        let physical_lines = cluster_lines(glyphs)?;
+        let marks = collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
+        let physical_lines = cluster_lines(marks.glyphs)?;
         let lines = order_page_lines(physical_lines)?;
         Ok(Self {
             width: f64::from(width),
             height: f64::from(height),
             lines,
-            text_size,
-            glyph_count,
+            text_size: marks.text_size,
+            glyph_count: marks.glyph_count,
+            skipped_no_unicode: marks.skipped_no_unicode,
         })
     }
 
@@ -1937,6 +1942,10 @@ impl TextPage {
         self.glyph_count
     }
 
+    pub(crate) fn skipped_no_unicode(&self) -> usize {
+        self.skipped_no_unicode
+    }
+
     pub(crate) fn layout(&self) -> Result<(f64, f64, Vec<BlockTuple>), TextPageLimit> {
         Ok((self.width, self.height, assemble_layout(&self.lines)?))
     }
@@ -1956,6 +1965,7 @@ pub(crate) struct TablePage {
     text_tables: Vec<TableTuple>,
     text_size: usize,
     glyph_count: usize,
+    skipped_no_unicode: usize,
 }
 
 impl TablePage {
@@ -1966,16 +1976,16 @@ impl TablePage {
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
-        let (glyphs, rules, text_size, glyph_count) =
-            collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
-        let physical_lines = cluster_lines(glyphs)?;
-        let tables = detect_grid_tables(&physical_lines, &rules)?;
+        let marks = collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
+        let physical_lines = cluster_lines(marks.glyphs)?;
+        let tables = detect_grid_tables(&physical_lines, &marks.rules)?;
         let text_tables = detect_text_tables(&physical_lines)?;
         Ok(Self {
             tables,
             text_tables,
-            text_size,
-            glyph_count,
+            text_size: marks.text_size,
+            glyph_count: marks.glyph_count,
+            skipped_no_unicode: marks.skipped_no_unicode,
         })
     }
 
@@ -1985,6 +1995,10 @@ impl TablePage {
 
     pub(crate) fn glyph_count(&self) -> usize {
         self.glyph_count
+    }
+
+    pub(crate) fn skipped_no_unicode(&self) -> usize {
+        self.skipped_no_unicode
     }
 
     pub(crate) fn tables(
@@ -4452,6 +4466,15 @@ pub(crate) fn extract_page_drawings(
     Ok(output)
 }
 
+/// One page interpretation: glyphs, optional table rules, and usage facts.
+struct PageMarks {
+    glyphs: Vec<GlyphRecord>,
+    rules: Vec<RuleSegment>,
+    text_size: usize,
+    glyph_count: usize,
+    skipped_no_unicode: usize,
+}
+
 /// Interpret a page once and optionally collect vector table rules.
 fn collect_page_marks(
     pdf: &Pdf,
@@ -4460,7 +4483,7 @@ fn collect_page_marks(
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
-) -> Result<(Vec<GlyphRecord>, Vec<RuleSegment>, usize, usize), TextPageLimit> {
+) -> Result<PageMarks, TextPageLimit> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = TextCollector {
@@ -4472,16 +4495,18 @@ fn collect_page_marks(
         max_text_size,
         max_glyph_count,
         limit_error: None,
+        skipped_no_unicode: 0,
     };
     interpret_page(page, &mut context, &mut collector);
     if let Some(error) = collector.limit_error {
         return Err(error);
     }
     let glyph_count = collector.glyphs.len();
-    Ok((
-        collector.glyphs,
-        collector.rules,
-        collector.text_size,
+    Ok(PageMarks {
+        glyphs: collector.glyphs,
+        rules: collector.rules,
+        text_size: collector.text_size,
         glyph_count,
-    ))
+        skipped_no_unicode: collector.skipped_no_unicode,
+    })
 }

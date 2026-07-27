@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Text extraction now emits a deduplicated `PylopdfWarning` when hayro
+  delivers glyphs without any Unicode mapping (for example a Type 3 font
+  without a ToUnicode CMap) instead of dropping them silently. The bundled
+  `pdfium-type3.pdf` fixture pins the remaining extraction gap as an
+  upstream-linked expected failure
+  ([LaurenzV/hayro#1331](https://github.com/LaurenzV/hayro/issues/1331)).
+
 ### Fixed
 - Wide-gutter column detection no longer splits spreadsheet-like rows into
   label, grid, and total blocks. A candidate gutter is rejected when the
