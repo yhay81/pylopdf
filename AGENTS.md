@@ -547,13 +547,16 @@ overview.
   ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
   dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
   borrowed index lazily per call; do not rescan the tree for each link.
+  Traversal stacks, cycle sets, and the borrowed index grow fallibly.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 4,096 nodes/entries,
   8,192 edges, 64 levels, 32 destination indirections, or 1 MiB of
-  source/returned text. `set_toc` preflights the entry, depth, and
-  source/encoded-title boundaries before PyO3 copying and mutation, using
-  `toc_input_size`; direct Rust calls repeat the text boundary.
+  source/returned text. Page indexes, destination and outline cycle sets,
+  outline stacks, and returned entries grow fallibly. `set_toc` preflights the
+  entry, depth, and source/encoded-title boundaries before PyO3 copying, using
+  `toc_input_size`; direct Rust calls repeat the text boundary, then prepare
+  entries and the parent stack fallibly before PDF mutation.
 - Info metadata reads decode only the eight public standard fields, release the
   GIL, and reject aggregate source or returned text above 1 MiB. The fast
   metadata probe applies the returned-text boundary and accepts an optional
