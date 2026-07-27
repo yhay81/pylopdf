@@ -5937,18 +5937,27 @@ impl _Document {
                 let page_text = self
                     .text_page(*number, settings.clone())?
                     .text(remaining)
-                    .map_err(|_| {
-                        if let Some(limit) = max_output_size {
-                            limit_err(
-                                "text_size",
-                                format!(
-                                    "plain text output exceeds the {limit}-byte limit derived from max_text_size"
-                                ),
-                            )
-                        } else {
-                            limit_err("text_size", "plain text output exceeds the platform limit")
+                    .map_err(|error| match error {
+                        crate::extract::TextPageLimit::TextSize(_) => {
+                            if let Some(limit) = max_output_size {
+                                limit_err(
+                                    "text_size",
+                                    format!(
+                                        "plain text output exceeds the {limit}-byte limit derived from max_text_size"
+                                    ),
+                                )
+                            } else {
+                                limit_err(
+                                    "text_size",
+                                    "plain text output exceeds the platform limit",
+                                )
+                            }
                         }
+                        other => text_page_limit_err(other),
                     })?;
+                out.try_reserve(page_text.len()).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow multi-page text output: {error}"))
+                })?;
                 out.push_str(&page_text);
             }
             Ok(out)
@@ -5967,7 +5976,11 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
         let settings = self.interpreter_settings();
-        py.detach(|| Ok(self.text_page(page_number, settings)?.layout()))
+        py.detach(|| {
+            self.text_page(page_number, settings)?
+                .layout()
+                .map_err(text_page_limit_err)
+        })
     }
 
     /// Detect high-confidence tables on a one-based page.
