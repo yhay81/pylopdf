@@ -5,7 +5,6 @@
 //! appends streams to `/Contents`. Existing graphics state is isolated by wrapping
 //! the original sequence in q/Q streams once.
 
-use std::collections::HashSet;
 use std::io::{self, Write};
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
@@ -1015,101 +1014,131 @@ pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<Ob
     let page = doc
         .get_dictionary(page_id)
         .map_err(|error| format!("cannot inspect page Contents: {error}"))?;
-    if let Ok(mut contents) = page.get(b"Contents") {
-        let mut visited = HashSet::new();
-        let mut depth = 0usize;
-        loop {
-            match contents {
-                Object::Reference(id) => {
-                    if !visited.insert(*id) {
-                        return Err("page Contents contains a reference cycle".to_owned());
-                    }
-                    depth += 1;
-                    if depth > MAX_CONTENT_REFERENCE_DEPTH {
-                        return Err(format!(
-                            "page Contents exceeds the {MAX_CONTENT_REFERENCE_DEPTH}-reference-depth safety limit"
-                        ));
-                    }
-                    let Some(object) = doc.objects.get(id) else {
-                        break;
-                    };
-                    if matches!(object, Object::Stream(_)) {
-                        break;
-                    }
-                    contents = object;
+    let Ok(mut contents) = page.get(b"Contents") else {
+        return Ok(Vec::new());
+    };
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_CONTENT_REFERENCE_DEPTH)
+        .map_err(|error| format!("failed to inspect page Contents references: {error}"))?;
+    let mut streams = Vec::new();
+    loop {
+        match contents {
+            Object::Reference(id) => {
+                if visited.contains(id) {
+                    return Err("page Contents contains a reference cycle".to_owned());
                 }
-                Object::Array(entries) => {
-                    if entries.len() > MAX_PAGE_CONTENT_STREAMS {
-                        return Err(format!(
-                            "page Contents exceeds the {MAX_PAGE_CONTENT_STREAMS}-entry safety limit"
-                        ));
-                    }
-                    break;
+                if visited.len() >= MAX_CONTENT_REFERENCE_DEPTH {
+                    return Err(format!(
+                        "page Contents exceeds the {MAX_CONTENT_REFERENCE_DEPTH}-reference-depth safety limit"
+                    ));
                 }
-                _ => break,
+                visited.push(*id);
+                match doc.objects.get(id) {
+                    None | Some(Object::Stream(_)) => {
+                        streams.try_reserve_exact(1).map_err(|error| {
+                            format!("failed to inspect page Contents streams: {error}")
+                        })?;
+                        streams.push(*id);
+                        break;
+                    }
+                    Some(object) => contents = object,
+                }
             }
+            Object::Array(entries) => {
+                if entries.len() > MAX_PAGE_CONTENT_STREAMS {
+                    return Err(format!(
+                        "page Contents exceeds the {MAX_PAGE_CONTENT_STREAMS}-entry safety limit"
+                    ));
+                }
+                streams
+                    .try_reserve_exact(entries.len())
+                    .map_err(|error| format!("failed to inspect page Contents streams: {error}"))?;
+                streams.extend(entries.iter().filter_map(|entry| entry.as_reference().ok()));
+                break;
+            }
+            _ => break,
         }
-    }
-
-    let streams = doc.get_page_contents(page_id);
-    if streams.len() > MAX_PAGE_CONTENT_STREAMS {
-        return Err(format!(
-            "page Contents exceeds the {MAX_PAGE_CONTENT_STREAMS}-stream safety limit"
-        ));
     }
     Ok(streams)
 }
 
-/// Reject a page whose content shape would amplify one drawing insertion.
+/// Fully allocated final `/Contents` order for one drawing insertion.
+///
+/// Placeholder slots are filled with newly assigned object references only
+/// after every fallible collection allocation has completed.
+pub struct ContentAppendPlan {
+    contents: Vec<Object>,
+    new_index: usize,
+    opening: Option<(usize, Stream)>,
+    closing: Option<(usize, Stream)>,
+    is_isolated: bool,
+}
+
+fn isolation_stream(content: &[u8]) -> Result<Stream, String> {
+    let mut bytes = reserve_bytes(content.len(), "page Contents isolation stream")?;
+    bytes.extend_from_slice(content);
+    Ok(Stream::new(Dictionary::new(), bytes).with_compression(false))
+}
+
+/// Prepare a bounded final `/Contents` array before the PDF is changed.
 ///
 /// The final count includes q/Q isolation streams when the existing contents
 /// have not already been wrapped.
-pub fn preflight_push_content(
+pub fn prepare_push_content(
     doc: &Document,
     page_id: ObjectId,
     already_isolated: bool,
-) -> Result<(), String> {
+    overlay: bool,
+) -> Result<ContentAppendPlan, String> {
     let streams = inspect_page_contents(doc, page_id)?;
     let already_wrapped = already_isolated || contents_have_outer_wrapper(doc, &streams);
-    let additions = if streams.is_empty() || already_wrapped {
-        1
-    } else {
-        3
+    let needs_wrapper = !streams.is_empty() && !already_wrapped;
+    let additions = if needs_wrapper { 3 } else { 1 };
+    let Some(final_count) = streams.len().checked_add(additions) else {
+        return Err("drawing page Contents count exceeds the platform size limit".to_owned());
     };
-    if streams
-        .len()
-        .checked_add(additions)
-        .is_none_or(|final_count| final_count > MAX_PAGE_CONTENT_STREAMS)
-    {
+    if final_count > MAX_PAGE_CONTENT_STREAMS {
         return Err(format!(
             "drawing would exceed the {MAX_PAGE_CONTENT_STREAMS}-stream page Contents safety limit"
         ));
     }
-    Ok(())
-}
 
-fn ensure_contents_wrapped(
-    doc: &mut Document,
-    page_id: ObjectId,
-    already_isolated: bool,
-) -> Result<bool, lopdf::Error> {
-    let contents = doc.get_page_contents(page_id);
-    if contents.is_empty() {
-        return Ok(false);
+    let mut contents = Vec::new();
+    contents
+        .try_reserve_exact(final_count)
+        .map_err(|error| format!("failed to allocate final page Contents array: {error}"))?;
+    let mut new_index = 0;
+    if !overlay {
+        contents.push(Object::Null);
     }
-    if already_isolated || contents_have_outer_wrapper(doc, &contents) {
-        return Ok(true);
+    let opening = if needs_wrapper {
+        let index = contents.len();
+        contents.push(Object::Null);
+        Some((index, isolation_stream(b"q\n")?))
+    } else {
+        None
+    };
+    contents.extend(streams.iter().copied().map(Object::Reference));
+    let closing = if needs_wrapper {
+        let index = contents.len();
+        contents.push(Object::Null);
+        Some((index, isolation_stream(b"Q\n")?))
+    } else {
+        None
+    };
+    if overlay {
+        new_index = contents.len();
+        contents.push(Object::Null);
     }
-    let q_id =
-        doc.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()).with_compression(false));
-    let push_q_id =
-        doc.add_object(Stream::new(Dictionary::new(), b"Q\n".to_vec()).with_compression(false));
-    let mut list: Vec<Object> = vec![Object::Reference(q_id)];
-    list.extend(contents.into_iter().map(Object::Reference));
-    list.push(Object::Reference(push_q_id));
-    let page = doc.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-    page.set("Contents", list);
-    Ok(true)
+    debug_assert_eq!(contents.len(), final_count);
+    Ok(ContentAppendPlan {
+        contents,
+        new_index,
+        opening,
+        closing,
+        is_isolated: !streams.is_empty(),
+    })
 }
 
 /// Add drawing operators to the page as a new content stream.
@@ -1120,23 +1149,19 @@ pub fn push_content(
     doc: &mut Document,
     page_id: ObjectId,
     ops: Vec<u8>,
-    overlay: bool,
-    already_isolated: bool,
+    mut plan: ContentAppendPlan,
 ) -> Result<bool, lopdf::Error> {
-    preflight_push_content(doc, page_id, already_isolated).map_err(lopdf::Error::InvalidStream)?;
-    let is_isolated = ensure_contents_wrapped(doc, page_id, already_isolated)?;
-    let new_id = doc.add_object(Stream::new(Dictionary::new(), ops).with_compression(false));
-    let mut list: Vec<Object> = doc
-        .get_page_contents(page_id)
-        .into_iter()
-        .map(Object::Reference)
-        .collect();
-    if overlay {
-        list.push(Object::Reference(new_id));
-    } else {
-        list.insert(0, Object::Reference(new_id));
+    if let Some((index, stream)) = plan.opening.take() {
+        let id = doc.add_object(stream);
+        plan.contents[index] = Object::Reference(id);
     }
+    if let Some((index, stream)) = plan.closing.take() {
+        let id = doc.add_object(stream);
+        plan.contents[index] = Object::Reference(id);
+    }
+    let new_id = doc.add_object(Stream::new(Dictionary::new(), ops).with_compression(false));
+    plan.contents[plan.new_index] = Object::Reference(new_id);
     let page = doc.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-    page.set("Contents", list);
-    Ok(is_isolated)
+    page.set("Contents", plan.contents);
+    Ok(plan.is_isolated)
 }
