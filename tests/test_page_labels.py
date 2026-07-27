@@ -106,6 +106,22 @@ def test_page_label_tree_rejects_excessive_depth() -> None:
         doc.get_page_labels()
 
 
+def test_page_label_tree_rejects_excessive_edges_without_partial_output() -> None:
+    kids = "5 0 R " * 4097
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: f"<< /Nums [0 << /S /D >>] /Kids [{kids}] >>",
+            5: "<< /Nums [1 << /S /D >>] >>",
+        }
+    )
+    doc = pylopdf.open(stream=pdf)
+    with pytest.raises(pylopdf.PdfError, match="4096-edge safety limit"):
+        doc.get_page_labels()
+
+
 def test_page_label_tree_rejects_excessive_entries_without_partial_output() -> None:
     pairs = " ".join(f"{index} << /S /D >>" for index in range(4097))
     pdf = build_raw_pdf(
