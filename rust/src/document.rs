@@ -3516,10 +3516,18 @@ fn validate_decompression_limits(
         return Ok(());
     }
     let page_content_ids: HashSet<ObjectId> = if max_page_content.is_some() {
-        doc.get_pages()
-            .values()
-            .flat_map(|page_id| doc.get_page_contents(*page_id))
-            .collect()
+        let pages = doc.get_pages();
+        let mut content_ids = HashSet::new();
+        for page_id in pages.values() {
+            let streams = draw::inspect_page_contents(doc, *page_id).map_err(PdfError::new_err)?;
+            content_ids.try_reserve(streams.len()).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate page-content decompression index: {error}"
+                ))
+            })?;
+            content_ids.extend(streams);
+        }
+        content_ids
     } else {
         HashSet::new()
     };
