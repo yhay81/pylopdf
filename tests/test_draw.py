@@ -94,6 +94,24 @@ def _contents_reference_doc(depth: int, *, cycle: bool = False) -> pylopdf.Docum
     return pylopdf.open(stream=build_raw_pdf(objects))
 
 
+def _content_shape_doc(shape: str, *, shared: bool) -> pylopdf.Document:
+    contents = {
+        "stream": "6 0 R",
+        "direct_array": "[6 0 R]",
+        "indirect_array": "5 0 R",
+    }[shape]
+    kids = "[3 0 R 4 0 R]" if shared else "[3 0 R]"
+    objects: dict[int, bytes | str] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids {kids} /Count {2 if shared else 1} /MediaBox [0 0 200 100] >>",
+        3: f"<< /Type /Page /Parent 2 0 R /Contents {contents} >>",
+        4: (f"<< /Type /Page /Parent 2 0 R /Contents {contents} >>" if shared else "null"),
+        5: "[6 0 R]" if shape == "indirect_array" else "null",
+        6: "<< /Length 29 >>\nstream\nq 1 0 0 rg 0 0 200 100 re f Q\nendstream",
+    }
+    return pylopdf.open(stream=build_raw_pdf(objects))
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
@@ -123,6 +141,28 @@ def test_drawing_allows_exact_final_contents_boundary() -> None:
     with pytest.raises(pylopdf.PdfError, match="4096-stream page Contents"):
         page.insert_text((10, 40), "One too many")
     assert doc.tobytes() == after_first
+
+
+@pytest.mark.parametrize("shape", ["stream", "direct_array", "indirect_array"])
+@pytest.mark.parametrize("shared", [False, True], ids=["unshared", "shared"])
+@pytest.mark.parametrize("overlay", [False, True], ids=["underlay", "overlay"])
+def test_drawing_preserves_content_shape_order_and_shared_pages(
+    shape: str,
+    *,
+    shared: bool,
+    overlay: bool,
+) -> None:
+    doc = _content_shape_doc(shape, shared=shared)
+    doc[0].insert_image(
+        (0, 0, 200, 100),
+        stream=_solid_png(2, 2, GREEN),
+        keep_proportion=False,
+        overlay=overlay,
+    )
+
+    assert _pixel(doc[0], 100, 50) == (GREEN if overlay else RED)
+    if shared:
+        assert _pixel(doc[1], 100, 50) == RED
 
 
 def test_drawing_rejects_raw_contents_array_before_input_decode() -> None:

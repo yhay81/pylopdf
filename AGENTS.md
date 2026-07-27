@@ -423,7 +423,10 @@ overview.
   never clones complete page-content streams. Before cache invalidation, input
   decoding, or dependent object creation, drawing calls reject raw arrays above
   4,096 entries, reference chains above 32 levels or with cycles, and any
-  insertion that would take the final array above 4,096 stream references.
+  insertion that would take the final array above 4,096 stream references. They
+  fallibly prepare the exact final array and any q/Q isolation streams before
+  dependent object creation, then commit assigned references without growing
+  the collection.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional

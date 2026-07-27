@@ -180,7 +180,6 @@ type MetadataTuple = (HashMap<String, String>, u32, String, bool, bool);
 struct PagePlacement {
     rect: [f64; 4],
     keep_proportion: bool,
-    overlay: bool,
 }
 
 /// One EmbeddedFiles name-tree item: display name and FileSpec object.
@@ -3785,15 +3784,20 @@ impl _Document {
     }
 
     /// Validate one drawing insertion before caches or PDF objects are changed.
-    fn preflight_page_content(&self, page_number: u32) -> PyResult<ObjectId> {
+    fn prepare_page_content(
+        &self,
+        page_number: u32,
+        overlay: bool,
+    ) -> PyResult<(ObjectId, draw::ContentAppendPlan)> {
         let page_id = self.page_id(page_number)?;
-        draw::preflight_push_content(
+        let plan = draw::prepare_push_content(
             &self.doc,
             page_id,
             self.isolated_content_pages.contains(&page_id),
+            overlay,
         )
         .map_err(PdfError::new_err)?;
-        Ok(page_id)
+        Ok((page_id, plan))
     }
 
     /// Append one prepared stream and retain verified in-memory isolation state.
@@ -3801,16 +3805,10 @@ impl _Document {
         &mut self,
         page_id: ObjectId,
         ops: Vec<u8>,
-        overlay: bool,
+        plan: draw::ContentAppendPlan,
     ) -> PyResult<()> {
-        let is_isolated = draw::push_content(
-            &mut self.doc,
-            page_id,
-            ops,
-            overlay,
-            self.isolated_content_pages.contains(&page_id),
-        )
-        .map_err(to_py_err)?;
+        let is_isolated =
+            draw::push_content(&mut self.doc, page_id, ops, plan).map_err(to_py_err)?;
         if is_isolated {
             self.isolated_content_pages.insert(page_id);
         }
@@ -3835,13 +3833,8 @@ impl _Document {
         source: Document,
         src_page_number: u32,
         placement: PagePlacement,
+        content_plan: draw::ContentAppendPlan,
     ) -> PyResult<()> {
-        draw::preflight_push_content(
-            &self.doc,
-            page_id,
-            self.isolated_content_pages.contains(&page_id),
-        )
-        .map_err(PdfError::new_err)?;
         let (form_id, src_crop, src_rotation) =
             import_page_as_form(&mut self.doc, source, src_page_number)?;
         let content = draw::PlacedContent::Form {
@@ -3860,7 +3853,7 @@ impl _Document {
         self.doc
             .add_xobject(page_id, name.as_bytes(), form_id)
             .map_err(to_py_err)?;
-        self.push_page_content(page_id, draw::draw_ops(matrix, &name), placement.overlay)?;
+        self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)?;
         // All source non-page objects were moved initially; prune assets and
         // attachments unreachable from the Form XObject.
         self.doc.prune_objects();
@@ -7339,7 +7332,7 @@ impl _Document {
     ) -> PyResult<()> {
         validate_image_input(&data, max_size, max_pixels)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let (parts, matrix) = py.detach(|| -> PyResult<_> {
             let parts = draw::parse_image(data).map_err(PdfError::new_err)?.ok_or_else(|| {
                 PdfError::new_err(
@@ -7366,7 +7359,7 @@ impl _Document {
             self.doc
                 .add_xobject(page_id, name.as_bytes(), xobj_id)
                 .map_err(to_py_err)?;
-            self.push_page_content(page_id, draw::draw_ops(matrix, &name), overlay)
+            self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)
         })
     }
 
@@ -7433,7 +7426,7 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let width = pixmap.width;
         let height = pixmap.height;
         let data = Arc::clone(&pixmap.data);
@@ -7460,7 +7453,7 @@ impl _Document {
             self.doc
                 .add_xobject(page_id, name.as_bytes(), xobj_id)
                 .map_err(to_py_err)?;
-            self.push_page_content(page_id, draw::draw_ops(matrix, &name), overlay)
+            self.push_page_content(page_id, draw::draw_ops(matrix, &name), content_plan)
         })
     }
 
@@ -7481,11 +7474,10 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let placement = PagePlacement {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
-            overlay,
         };
         self.invalidate_hayro_pdf();
         py.detach(|| {
@@ -7495,6 +7487,7 @@ impl _Document {
                 other.doc.clone(),
                 src_page_number,
                 placement,
+                content_plan,
             )
         })
     }
@@ -7510,11 +7503,10 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let placement = PagePlacement {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
-            overlay,
         };
         self.invalidate_hayro_pdf();
         py.detach(|| {
@@ -7525,6 +7517,7 @@ impl _Document {
                 source,
                 src_page_number,
                 placement,
+                content_plan,
             )
         })
     }
@@ -8452,33 +8445,41 @@ impl _Document {
                 "text_rotation must be 0, 90, 180, or 270",
             ));
         }
-        let (page_id, expected_font_number, name, to_unicode, ops) = py.detach(|| {
-            if words.len() > MAX_OCR_LAYER_WORDS {
-                return Err(PdfError::new_err(format!(
-                    "cannot insert more than {MAX_OCR_LAYER_WORDS} OCR words per call"
-                )));
-            }
-            let text_bytes = words.iter().try_fold(0usize, |total, word| {
-                total.checked_add(word.4.len()).ok_or_else(|| {
-                    PdfError::new_err("OCR layer text exceeds the platform size limit")
-                })
+        let (page_id, content_plan, expected_font_number, name, to_unicode, ops) =
+            py.detach(|| {
+                if words.len() > MAX_OCR_LAYER_WORDS {
+                    return Err(PdfError::new_err(format!(
+                        "cannot insert more than {MAX_OCR_LAYER_WORDS} OCR words per call"
+                    )));
+                }
+                let text_bytes = words.iter().try_fold(0usize, |total, word| {
+                    total.checked_add(word.4.len()).ok_or_else(|| {
+                        PdfError::new_err("OCR layer text exceeds the platform size limit")
+                    })
+                })?;
+                if text_bytes > MAX_OCR_LAYER_TEXT_BYTES {
+                    return Err(PdfError::new_err(format!(
+                        "OCR layer text exceeds the {MAX_OCR_LAYER_TEXT_BYTES}-byte safety limit"
+                    )));
+                }
+                let (crop, rotation) = self.page_display_geometry(page_number)?;
+                let (page_id, content_plan) = self.prepare_page_content(page_number, true)?;
+                let cid_map = ocr::assign_cids(&words).map_err(PdfError::new_err)?;
+                let to_unicode = ocr::build_to_unicode(&cid_map);
+                let expected_font_number = self.doc.max_id.checked_add(4).ok_or_else(|| {
+                    PdfError::new_err("OCR layer objects exceed the PDF object-ID limit")
+                })?;
+                let name = format!("PyloF{expected_font_number}");
+                let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
+                Ok((
+                    page_id,
+                    content_plan,
+                    expected_font_number,
+                    name,
+                    to_unicode,
+                    ops,
+                ))
             })?;
-            if text_bytes > MAX_OCR_LAYER_TEXT_BYTES {
-                return Err(PdfError::new_err(format!(
-                    "OCR layer text exceeds the {MAX_OCR_LAYER_TEXT_BYTES}-byte safety limit"
-                )));
-            }
-            let (crop, rotation) = self.page_display_geometry(page_number)?;
-            let page_id = self.preflight_page_content(page_number)?;
-            let cid_map = ocr::assign_cids(&words).map_err(PdfError::new_err)?;
-            let to_unicode = ocr::build_to_unicode(&cid_map);
-            let expected_font_number = self.doc.max_id.checked_add(4).ok_or_else(|| {
-                PdfError::new_err("OCR layer objects exceed the PDF object-ID limit")
-            })?;
-            let name = format!("PyloF{expected_font_number}");
-            let ops = ocr::ocr_ops(crop, rotation, &words, &cid_map, &name, text_rotation);
-            Ok((page_id, expected_font_number, name, to_unicode, ops))
-        })?;
 
         // From this point onward malformed page/resource state could leave a
         // partial edit, so invalidate before the first PDF object is added.
@@ -8491,7 +8492,7 @@ impl _Document {
                 .get_or_create_resources(page_id)
                 .map_err(to_py_err)?;
             draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
-            self.push_page_content(page_id, ops, true)
+            self.push_page_content(page_id, ops, content_plan)
         })
     }
 
@@ -8528,7 +8529,7 @@ impl _Document {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             let mut font_dict = dictionary! {
@@ -8547,7 +8548,7 @@ impl _Document {
             let name = format!("PyloF{}", font_id.0);
             draw::add_page_font(&mut self.doc, page_id, &name, font_id).map_err(to_py_err)?;
             let ops = draw::text_ops(crop, rotation, point, &lines, &name, fontsize, color);
-            self.push_page_content(page_id, ops, overlay)
+            self.push_page_content(page_id, ops, content_plan)
         })
     }
 
@@ -8604,7 +8605,7 @@ impl _Document {
         }
 
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let page_id = self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             let mut font_dict = dictionary! {
@@ -8626,7 +8627,7 @@ impl _Document {
                 crop, rotation, rect, &layout, align, &name, fontsize, color,
             )
             .map_err(PdfError::new_err)?;
-            self.push_page_content(page_id, ops, overlay)?;
+            self.push_page_content(page_id, ops, content_plan)?;
             Ok(layout.spare_height)
         })
     }
@@ -8668,7 +8669,7 @@ impl _Document {
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
         let page_size = if matches!(rotation, 90 | 270) {
             (pdf_height, pdf_width)
@@ -8683,16 +8684,21 @@ impl _Document {
         })?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None, None, None);
-        self.show_pdf_page(
-            py,
-            page_number,
-            (0.0, 0.0, page_size.0, page_size.1),
-            &source,
-            1,
-            false,
-            overlay,
-        )
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                generated_doc,
+                1,
+                placement,
+                content_plan,
+            )
+        })
     }
 
     /// Draw subset-embedded text using bounded OpenType font input from a path.
@@ -8803,19 +8809,24 @@ impl _Document {
         let Some(generated) = generated else {
             return Ok(spare_height);
         };
-        self.preflight_page_content(page_number)?;
+        let (page_id, content_plan) = self.prepare_page_content(page_number, overlay)?;
         let generated_doc = Document::load_mem(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let source = Self::from_doc(generated_doc, Some(generated), None, None, None);
-        self.show_pdf_page(
-            py,
-            page_number,
-            (0.0, 0.0, page_size.0, page_size.1),
-            &source,
-            1,
-            false,
-            overlay,
-        )?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                generated_doc,
+                1,
+                placement,
+                content_plan,
+            )
+        })?;
         Ok(spare_height)
     }
 
