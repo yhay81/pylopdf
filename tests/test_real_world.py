@@ -245,11 +245,17 @@ def test_extract_text_page0(case: Case) -> None:
 
 def test_narrow_patent_columns_keep_column_major_reading_order() -> None:
     """Keep the two body columns separate despite their sub-em gutter."""
-    text = pylopdf.open(ASSETS / "patent-us223898.pdf").get_page_text(1)
+    doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
+    text = doc.get_page_text(1)
 
     assert text.index("Beit known") < text.index("sistance shall")
     assert text.index("sistance shall") < text.index("dimensions and good conductors")
     assert text.index("dimensions and good conductors") < text.index("globe cannot")
+
+    drifting = doc.get_page_text(2)
+    assert drifting.index("material be molded") < drifting.index("whole, with a leading-tube")
+    assert drifting.index("whole, with a leading-tube") < drifting.index("vacuum has been reached")
+    assert drifting.index("vacuum has been reached") < drifting.index("I clain as my invention")
 
 
 @ALL

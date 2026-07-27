@@ -527,16 +527,28 @@ product-quality decision.
 
 ### v0.13 — extraction fidelity and product refinement
 
-Under development. This line uses the post-v0.12 field and benchmark evidence
-to improve product behavior before the v1.0 API and limitation freeze.
+Released as v0.13.0 on 2026-07-28. This line uses the post-v0.12 field and
+benchmark evidence to improve product behavior before the v1.0 API and
+limitation freeze; the release completes the allocation-hardening campaign
+begun after v0.12.0 and ships the first benchmark-driven reading-order
+recovery. Work beyond the release continues on the same line.
 
+- [x] Surface allocator refusal as `PdfError` across the public surface
+      instead of aborting the process. Extraction, search, tables, drawings,
+      images, OCR ordering, attachments, AcroForm reads and fills, metadata,
+      TOC, page labels, annotations, structural page edits, batch rendering,
+      textbox layout, and generated text grow their collections fallibly
+      without exposing partial results. Public page indexing is unified behind
+      one bounded iterative walker, stream filter chains stop at 16 layers,
+      and Form imports reject undecodable source content.
 - [x] Recover column-major reading order for sustained sub-em prose gutters
       without lowering the general line-split threshold. Four dense support
       lines, substantial text on both sides, and one plausible separator per
       line distinguish prose columns from aligned labels, dot leaders, and
-      multi-separator table rows. The bundled 1880 patent similarity proxy
-      improved from 0.320 to 0.578 while the bill, form, NICS table, and user
-      guide retained their prior corpus results.
+      multi-separator table rows. Confirmed boundaries follow up to 0.5 em of
+      horizontal scan/OCR drift on continuation lines. The bundled 1880 patent
+      similarity proxy improved from 0.320 to 0.581 while the bill, form, NICS
+      table, and user guide retained their prior corpus results.
 - Continue the limitation review from measured field cases; prefer extraction,
   Markdown, OCR, and recovery improvements that increase end-to-end document
   value without freezing the API prematurely.

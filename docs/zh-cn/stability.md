@@ -10,7 +10,7 @@ pylopdf遵循[Semantic Versioning 2.0.0](https://semver.org/)。本页说明这�
 
 ## 当前状态 { #current-status }
 
-0.12 API是**候选baseline**，并不是v1.0兼容性承诺。项目会先通过实际使用验证它，同时
+0.13 API是**候选baseline**，并不是v1.0兼容性承诺。项目会先通过实际使用验证它，同时
 继续加法式改进和经过审查的修正。不过，从现在起每个公共surface变化都会被检测和审查，
 使最终v1.0边界来自明确决策，而不是偶然形成。
 

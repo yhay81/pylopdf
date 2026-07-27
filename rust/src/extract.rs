@@ -399,7 +399,10 @@ const MAX_NARROW_COLUMN_GAPS_PER_LINE: usize = 1;
 const MAX_NARROW_COLUMN_LEADING: f64 = 2.0;
 
 /// Absorb glyph-advance overlap around an otherwise established gutter.
-const NARROW_COLUMN_OVERLAP_TOLERANCE: f64 = 0.25;
+const NARROW_COLUMN_OVERLAP_TOLERANCE: f64 = 0.3;
+
+/// Follow small horizontal drift in a confirmed scan/OCR column boundary.
+const ESTABLISHED_COLUMN_DRIFT: f64 = 0.5;
 
 /// Require column candidates to coexist vertically over this fraction.
 const MIN_COLUMN_VERTICAL_OVERLAP: f64 = 0.25;
@@ -1253,24 +1256,6 @@ fn append_segment_geometry(
     Ok(())
 }
 
-fn gap_index_with_factor(
-    line: &[GlyphRecord],
-    boundary: f64,
-    minimum_factor: f64,
-    minimum_side_glyphs: usize,
-) -> Option<usize> {
-    line.windows(2).enumerate().find_map(|(index, pair)| {
-        let split_index = index + 1;
-        if split_index < minimum_side_glyphs || line.len() - split_index < minimum_side_glyphs {
-            return None;
-        }
-        let start = glyph_end(&pair[0]);
-        let end = glyph_progress(&pair[1]);
-        let minimum = pair[0].size.max(pair[1].size).max(1.0) * minimum_factor;
-        (end - start >= minimum && start <= boundary && boundary <= end).then_some(split_index)
-    })
-}
-
 fn narrow_gap_index(line: &[GlyphRecord], boundary: f64) -> Option<usize> {
     let gap_count = narrow_gap_count(line);
     if gap_count == 0 || gap_count > MAX_NARROW_COLUMN_GAPS_PER_LINE {
@@ -1319,18 +1304,43 @@ fn has_narrow_column_text(glyphs: &[GlyphRecord]) -> bool {
         == MIN_NARROW_COLUMN_SIDE_TEXT
 }
 
+fn boundary_distance(start: f64, end: f64, boundary: f64) -> f64 {
+    if boundary < start {
+        start - boundary
+    } else if boundary > end {
+        boundary - end
+    } else {
+        0.0
+    }
+}
+
 fn established_column_gap_index(line: &[GlyphRecord], boundary: f64) -> Option<usize> {
-    gap_index_with_factor(line, boundary, 0.0, 2).or_else(|| {
-        line.iter().enumerate().find_map(|(index, glyph)| {
-            let split_index = index + 1;
-            if split_index < 2 || line.len() - split_index < 2 {
-                return None;
-            }
-            let whitespace = !glyph.text.is_empty() && glyph.text.chars().all(char::is_whitespace);
-            (whitespace && glyph_progress(glyph) <= boundary && boundary <= glyph_end(glyph))
-                .then_some(split_index)
-        })
-    })
+    let gaps = line.windows(2).enumerate().filter_map(|(index, pair)| {
+        let split_index = index + 1;
+        if split_index < 2 || line.len() - split_index < 2 {
+            return None;
+        }
+        let start = glyph_end(&pair[0]);
+        let end = glyph_progress(&pair[1]);
+        let tolerance = pair[0].size.max(pair[1].size).max(1.0) * ESTABLISHED_COLUMN_DRIFT;
+        let distance = boundary_distance(start, end, boundary);
+        (end >= start && distance <= tolerance).then_some((distance, split_index))
+    });
+    let whitespace = line.iter().enumerate().filter_map(|(index, glyph)| {
+        let split_index = index + 1;
+        if split_index < 2 || line.len() - split_index < 2 {
+            return None;
+        }
+        let whitespace = !glyph.text.is_empty() && glyph.text.chars().all(char::is_whitespace);
+        let start = glyph_progress(glyph);
+        let end = glyph_end(glyph);
+        let tolerance = glyph.size.max(1.0) * ESTABLISHED_COLUMN_DRIFT;
+        let distance = boundary_distance(start, end, boundary);
+        (whitespace && distance <= tolerance).then_some((distance, split_index))
+    });
+    gaps.chain(whitespace)
+        .min_by(|left, right| left.0.total_cmp(&right.0))
+        .map(|(_, index)| index)
 }
 
 /// Find a sub-em gutter only when the same empty interval persists across

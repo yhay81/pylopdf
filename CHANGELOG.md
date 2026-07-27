@@ -6,14 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-28
+
 ### Changed
 - Text extraction now recovers column-major reading order when long prose
   columns use a sustained sub-em gutter, including the bundled 1880 patent
   scan. Discovery requires four dense support lines, substantial text on both
   sides, and one plausible separator per line; aligned labels, dot leaders,
-  and dense table-like rows retain row-major order. The patent benchmark
-  similarity to pymupdf improved from 0.320 to 0.578 without changing the
-  published corpus results for the bill, form, NICS table, or user guide.
+  and dense table-like rows retain row-major order. Confirmed boundaries follow
+  up to 0.5 em of horizontal scan/OCR drift on continuation lines. The patent
+  benchmark similarity to pymupdf improved from 0.320 to 0.581 without changing
+  the published corpus results for the bill, form, NICS table, or user guide.
 - Pylopdf-owned generated-text preparation now grows normalized text,
   grapheme references, shaped-line and glyph collections, comb layouts, and
   input-derived widget/text operator buffers fallibly.

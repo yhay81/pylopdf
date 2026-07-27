@@ -75,6 +75,7 @@ deliberately does not implement.
   top-to-bottom within each column and columns from left to right. Sub-em
   gutters require dense repeated lines with substantial text on both sides;
   aligned labels, dot leaders, and dense multi-separator rows remain row-major.
+  A confirmed boundary follows small horizontal drift in scan/OCR text layers.
 - **`Page.find_tables()`** reconstructs axis-aligned bordered grids from strokes
   or thin filled rectangles, including rectangular merged cells. Opt in to
   high-confidence borderless detection with `strategy="text"`; aligned
