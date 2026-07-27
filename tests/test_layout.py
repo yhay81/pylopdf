@@ -333,6 +333,73 @@ def test_multicolumn_reading_order_follows_columns() -> None:
     assert [word[4] for word in page.get_text("words")] == [word for line in expected for word in line.split()]
 
 
+def test_narrow_multicolumn_gutter_follows_columns() -> None:
+    """Use repeated narrow gutters without splitting ordinary word spaces."""
+    rows = [
+        ("Left column row 1", "Right column row 1"),
+        ("Left column row 2", "Right column row 2"),
+        ("Left column row 3", "Right column row 3"),
+        ("Left column row 4", "Right column row 4"),
+    ]
+    stream = "BT /F1 14 Tf 20 270 Td (A heading spanning both columns) Tj ET\n"
+    for offset, (left, right) in enumerate(rows):
+        y = 230 - offset * 20
+        stream += f"BT /F1 12 Tf 20 {y} Td ({left}) Tj ET\n"
+        stream += f"BT /F1 12 Tf 148 {y} Td ({right}) Tj ET\n"
+    stream += "BT /F1 14 Tf 20 30 Td (A footer spanning both columns) Tj ET"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 300 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    expected = [
+        "A heading spanning both columns",
+        *(left for left, _ in rows),
+        *(right for _, right in rows),
+        "A footer spanning both columns",
+    ]
+    assert page.get_text().splitlines() == expected
+
+
+def test_repeated_multiseparator_rows_stay_row_major() -> None:
+    """Do not reinterpret a dense table-like layout as prose columns."""
+    rows = [
+        ("First field 0001", "Second field 0001", "Third field 0001"),
+        ("First field 0002", "Second field 0002", "Third field 0002"),
+        ("First field 0003", "Second field 0003", "Third field 0003"),
+        ("First field 0004", "Second field 0004", "Third field 0004"),
+    ]
+    stream = ""
+    for offset, row in enumerate(rows):
+        y = 170 - offset * 20
+        for x, text in zip((10, 73, 136), row, strict=True):
+            stream += f"BT /F1 6 Tf {x} {y} Td ({text}) Tj ET\n"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 200 200] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    assert page.get_text().splitlines() == [" ".join(row) for row in rows]
+
+
 def test_isolated_wide_gap_stays_on_one_line() -> None:
     """Do not mistake an isolated header and page number for two columns."""
     stream = "BT /F1 12 Tf 40 260 Td (Header) Tj ET\nBT /F1 12 Tf 300 260 Td (1) Tj ET"

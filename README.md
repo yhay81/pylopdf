@@ -44,7 +44,10 @@ the exact artifact depends on platform and Python ABI.
 - v0.10 includes native `cp314t` wheels for free-threaded Python 3.14
 - API modeled after [pymupdf](https://github.com/pymupdf/PyMuPDF)
 
-**Limitations**: multicolumn text follows deterministic whitespace gutters, and
+**Limitations**: multicolumn text follows deterministic whitespace gutters.
+Sub-em gutters require a dense run of repeated long text on both sides, so
+aligned labels, dot leaders, and dense multi-separator rows keep row-major
+order. `find_tables()` reconstructs bordered grids from strokes or thin filled rules,
 `find_tables()` reconstructs bordered grids from strokes or thin filled rules,
 including rectangular merged cells. It conservatively separates repeated text
 records when a generator omits internal rules inside an otherwise connected

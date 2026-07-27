@@ -243,6 +243,15 @@ def test_extract_text_page0(case: Case) -> None:
     assert case.snippet in doc.get_page_text(0)
 
 
+def test_narrow_patent_columns_keep_column_major_reading_order() -> None:
+    """Keep the two body columns separate despite their sub-em gutter."""
+    text = pylopdf.open(ASSETS / "patent-us223898.pdf").get_page_text(1)
+
+    assert text.index("Beit known") < text.index("sistance shall")
+    assert text.index("sistance shall") < text.index("dimensions and good conductors")
+    assert text.index("dimensions and good conductors") < text.index("globe cannot")
+
+
 @ALL
 def test_extract_drawings_page0(case: Case) -> None:
     """Interpret real vector paths without returning malformed commands."""
