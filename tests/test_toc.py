@@ -108,6 +108,32 @@ def test_toc_next_cycle_is_visited_once() -> None:
     assert doc.get_toc() == [[1, "A", 1]]
 
 
+def test_toc_destination_reference_cycle_is_visited_once() -> None:
+    doc = pylopdf.open(
+        stream=_build_outline_fixture(
+            {
+                4: "<< /First 5 0 R >>",
+                5: "<< /Title (A) /Dest 6 0 R >>",
+                6: "<< /D 6 0 R >>",
+            }
+        )
+    )
+    assert doc.get_toc() == []
+
+
+def test_toc_rejects_excessive_destination_depth() -> None:
+    objects: dict[int, str | bytes] = {
+        4: "<< /First 5 0 R >>",
+        5: "<< /Title (A) /Dest 6 0 R >>",
+    }
+    for object_id in range(6, 38):
+        objects[object_id] = f"<< /D {object_id + 1} 0 R >>"
+    objects[38] = "[3 0 R /Fit]"
+    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
+        doc.get_toc()
+
+
 def test_toc_rejects_excessive_depth() -> None:
     objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
     for object_id in range(5, 69):

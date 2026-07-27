@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Named-destination traversal/indexing and TOC page indexes, destination and
+  outline cycle tracking, outline stacks, returned entries, prepared writes,
+  and parent stacks now grow fallibly under their existing limits.
 - Page-label number-tree stacks, cycle detection, returned entries, and flat
   write arrays now grow fallibly under their existing limits. Returned ranges
   use an in-place sort with explicit value tie-breakers.

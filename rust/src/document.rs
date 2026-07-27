@@ -215,17 +215,29 @@ fn visit_named_destinations<'a>(
     root: &'a Object,
     mut visitor: impl FnMut(&'a [u8], &'a Object) -> PyResult<()>,
 ) -> PyResult<()> {
-    let mut stack = vec![(root, 1usize)];
+    let mut stack = Vec::new();
+    stack.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate named-destination tree stack: {error}"
+        ))
+    })?;
+    stack.push((root, 1usize));
     let mut visited = HashSet::new();
     let mut nodes = 0usize;
     let mut edges = 0usize;
     let mut entries = 0usize;
     let mut name_bytes = 0usize;
     while let Some((node_object, depth)) = stack.pop() {
-        if let Object::Reference(id) = node_object
-            && !visited.insert(*id)
-        {
-            continue;
+        if let Object::Reference(id) = node_object {
+            if visited.contains(id) {
+                continue;
+            }
+            visited.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow named-destination cycle detection: {error}"
+                ))
+            })?;
+            visited.insert(*id);
         }
         let Ok(node) = deref_object(doc, node_object).as_dict() else {
             continue;
@@ -254,7 +266,9 @@ fn visit_named_destinations<'a>(
                 let Ok(key) = deref_object(doc, key).as_str() else {
                     continue;
                 };
-                name_bytes = name_bytes.saturating_add(key.len());
+                name_bytes = name_bytes.checked_add(key.len()).ok_or_else(|| {
+                    PdfError::new_err("named-destination keys exceed the platform size limit")
+                })?;
                 if name_bytes > MAX_NAMED_DEST_NAME_BYTES {
                     return Err(PdfError::new_err(format!(
                         "named-destination keys exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
@@ -279,6 +293,11 @@ fn visit_named_destinations<'a>(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_EDGES}-edge safety limit"
                 )));
             }
+            stack.try_reserve(kids.len()).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow named-destination tree stack: {error}"
+                ))
+            })?;
             for kid in kids.iter().rev() {
                 stack.push((kid, depth + 1));
             }
@@ -301,7 +320,12 @@ fn named_destination_index(doc: &Document) -> PyResult<HashMap<&[u8], &Object>> 
         return Ok(index);
     };
     visit_named_destinations(doc, root, |key, value| {
-        index.entry(key).or_insert(value);
+        if !index.contains_key(key) {
+            index.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!("failed to grow named-destination index: {error}"))
+            })?;
+            index.insert(key, value);
+        }
         Ok(())
     })?;
     Ok(index)
@@ -370,7 +394,7 @@ fn outline_destination<'a>(doc: &'a Document, node: &'a Dictionary) -> Option<&'
 fn resolve_toc_page<'a>(
     doc: &'a Document,
     destination: &'a Object,
-    page_map: &BTreeMap<ObjectId, u32>,
+    page_map: &HashMap<ObjectId, u32>,
     named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
     source_bytes: &mut usize,
 ) -> PyResult<Option<u32>> {
@@ -379,9 +403,15 @@ fn resolve_toc_page<'a>(
     for _ in 0..MAX_TOC_DEST_DEPTH {
         match current {
             Object::Reference(id) => {
-                if !visited.insert(*id) {
+                if visited.contains(id) {
                     return Ok(None);
                 }
+                visited.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to grow TOC destination cycle detection: {error}"
+                    ))
+                })?;
+                visited.insert(*id);
                 let Ok(object) = doc.get_object(*id) else {
                     return Ok(None);
                 };
@@ -437,23 +467,36 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
         Ok(first) => (first, 1usize),
         Err(_) => (outlines_object, 0usize),
     };
-    let page_map: BTreeMap<ObjectId, u32> = doc
-        .get_pages()
-        .into_iter()
-        .map(|(number, id)| (id, number))
-        .collect();
+    let pages = doc.get_pages();
+    let mut page_map = HashMap::new();
+    page_map.try_reserve(pages.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate TOC page index: {error}"))
+    })?;
+    for (number, id) in pages {
+        page_map.insert(id, number);
+    }
     let mut named_destinations = None;
-    let mut stack = vec![(start, 1usize)];
+    let mut stack = Vec::new();
+    stack.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate TOC outline stack: {error}"))
+    })?;
+    stack.push((start, 1usize));
     let mut visited = HashSet::new();
     let mut nodes = 0usize;
     let mut source_bytes = 0usize;
     let mut returned_bytes = 0usize;
     let mut out = Vec::new();
     while let Some((node_object, depth)) = stack.pop() {
-        if let Object::Reference(id) = node_object
-            && !visited.insert(*id)
-        {
-            continue;
+        if let Object::Reference(id) = node_object {
+            if visited.contains(id) {
+                continue;
+            }
+            visited.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow TOC outline cycle detection: {error}"
+                ))
+            })?;
+            visited.insert(*id);
         }
         let Ok(node) = deref_object(doc, node_object).as_dict() else {
             continue;
@@ -479,16 +522,21 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 &mut source_bytes,
             )?
         {
+            if out.len() >= MAX_TOC_ENTRIES {
+                return Err(PdfError::new_err(format!(
+                    "TOC exceeds the {MAX_TOC_ENTRIES}-entry safety limit"
+                )));
+            }
+            if out.len() == out.capacity() {
+                out.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow returned TOC entries: {error}"))
+                })?;
+            }
             out.push((
                 u32::try_from(depth).map_err(|error| PdfError::new_err(error.to_string()))?,
                 title,
                 page,
             ));
-            if out.len() > MAX_TOC_ENTRIES {
-                return Err(PdfError::new_err(format!(
-                    "TOC exceeds the {MAX_TOC_ENTRIES}-entry safety limit"
-                )));
-            }
         }
 
         if let Ok(next) = node.get(b"Next") {
@@ -499,6 +547,11 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 return Err(PdfError::new_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
+            }
+            if stack.len() == stack.capacity() {
+                stack.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow TOC outline stack: {error}"))
+                })?;
             }
             stack.push((next, depth));
         }
@@ -515,6 +568,11 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 return Err(PdfError::new_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
+            }
+            if stack.len() == stack.capacity() {
+                stack.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow TOC outline stack: {error}"))
+                })?;
             }
             stack.push((first, depth + 1));
         }
@@ -6645,10 +6703,14 @@ impl _Document {
             )));
         }
         let pages = self.doc.get_pages();
-        let mut prepared = Vec::with_capacity(entries.len());
+        let mut prepared = Vec::new();
+        prepared.try_reserve_exact(entries.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate prepared TOC entries: {error}"))
+        })?;
         let mut source_bytes = 0usize;
         let mut encoded_bytes = 0usize;
         let mut previous_level = 0u32;
+        let mut max_level = 0usize;
         for (level, title, page) in entries {
             if level == 0 || level > previous_level.saturating_add(1) {
                 return Err(PdfError::new_err(format!(
@@ -6685,6 +6747,7 @@ impl _Document {
                 .ok_or_else(|| PdfError::new_err(format!("page {page} does not exist")))?;
             prepared.push((level, title, page_id));
             previous_level = level;
+            max_level = max_level.max(level as usize);
         }
         let is_empty = prepared.is_empty();
         if !is_empty {
@@ -6698,6 +6761,10 @@ impl _Document {
                 .checked_add(object_count)
                 .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
         }
+        let mut parents: Vec<u32> = Vec::new();
+        parents.try_reserve_exact(max_level).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate TOC parent stack: {error}"))
+        })?;
         self.doc.catalog().map_err(to_py_err)?;
 
         self.invalidate_hayro_pdf();
@@ -6713,7 +6780,6 @@ impl _Document {
             return Ok(());
         }
         // parents[level - 1] = latest bookmark ID at that level.
-        let mut parents: Vec<u32> = Vec::new();
         for (level, title, page_id) in prepared {
             let level = level as usize;
             let parent = if level >= 2 {
