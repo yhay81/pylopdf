@@ -106,8 +106,13 @@ overview.
   adjacent slot signatures overlap by at least 0.8. This inference is symmetric
   across right-angle rotations; hybrid grids score 0.95 while complete vector
   grids score 1.0. Materialization is capped at 4096 slots and merged-span
-  searches at 65,536 candidates. The opt-in borderless
-  `strategy="text"` requires at least three consecutive physical rows with the
+  searches at 65,536 candidates. Grid detection retains borrowed word glyph
+  slices instead of materializing page-wide duplicate strings; only accepted
+  cell text is owned. Rule components use a fallibly grown sorted vector rather
+  than a `BTreeMap`, and coordinate, edge-interval, hybrid-inference, cell,
+  coverage, anchor, and result buffers either grow fallibly or sort in place
+  without allocation. The opt-in borderless `strategy="text"` requires at
+  least three consecutive physical rows with the
   same segment count, aligned left or right edges, compatible leading, and
   clear gaps. Candidate segments borrow physical-line glyph slices rather than
   cloning text and font metadata for every qualifying row. Candidate runs,
