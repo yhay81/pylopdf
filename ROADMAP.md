@@ -525,6 +525,22 @@ product-quality decision.
       geometry materialization, oversized password KDF input, and aggregate
       text-size preflight while retaining paired benchmark evidence.
 
+### v0.13 — extraction fidelity and product refinement
+
+Under development. This line uses the post-v0.12 field and benchmark evidence
+to improve product behavior before the v1.0 API and limitation freeze.
+
+- [x] Recover column-major reading order for sustained sub-em prose gutters
+      without lowering the general line-split threshold. Four dense support
+      lines, substantial text on both sides, and one plausible separator per
+      line distinguish prose columns from aligned labels, dot leaders, and
+      multi-separator table rows. The bundled 1880 patent similarity proxy
+      improved from 0.320 to 0.578 while the bill, form, NICS table, and user
+      guide retained their prior corpus results.
+- Continue the limitation review from measured field cases; prefer extraction,
+  Markdown, OCR, and recovery improvements that increase end-to-end document
+  value without freezing the API prematurely.
+
 ### v1.0 — product-quality declaration of trust
 
 Target no earlier than 2026-08. v1.0 is not a calendar-driven promotion of the

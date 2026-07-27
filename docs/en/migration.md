@@ -72,7 +72,9 @@ deliberately does not implement.
   (no `html` / `rawdict` / `xml`). Span dicts carry `font` and pymupdf-style
   `flags` (bold/italic/serif/mono) for embedded fonts.
 - **Multicolumn text** follows deterministic whitespace gutters, reading
-  top-to-bottom within each column and columns from left to right.
+  top-to-bottom within each column and columns from left to right. Sub-em
+  gutters require dense repeated lines with substantial text on both sides;
+  aligned labels, dot leaders, and dense multi-separator rows remain row-major.
 - **`Page.find_tables()`** reconstructs axis-aligned bordered grids from strokes
   or thin filled rectangles, including rectangular merged cells. Opt in to
   high-confidence borderless detection with `strategy="text"`; aligned

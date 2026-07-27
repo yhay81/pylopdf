@@ -374,11 +374,32 @@ const LINE_SEGMENT_GAP: f64 = 2.0;
 /// Minimum whitespace gutter relative to the typical font size.
 const COLUMN_GUTTER: f64 = 1.5;
 
+/// Narrow gaps count only when they align across several physical lines.
+const NARROW_COLUMN_GAP: f64 = 0.35;
+
 /// Ignore full-width headings and footers while discovering column gutters.
 const MAX_COLUMN_LINE_WIDTH_RATIO: f64 = 0.75;
 
 /// Avoid treating an isolated side note or indentation as a separate column.
 const MIN_COLUMN_LINES: usize = 2;
+
+/// Require stronger repeated evidence before accepting a sub-em column gutter.
+const MIN_NARROW_COLUMN_LINES: usize = 4;
+
+/// Reject aligned labels, values, and dot leaders as column evidence.
+const MIN_NARROW_COLUMN_SIDE_GLYPHS: usize = 16;
+
+/// Require real text on both sides instead of punctuation-only leaders.
+const MIN_NARROW_COLUMN_SIDE_TEXT: usize = 4;
+
+/// Exclude dense table rows with several plausible vertical separators.
+const MAX_NARROW_COLUMN_GAPS_PER_LINE: usize = 1;
+
+/// Identify dense support runs before joining separated parts of one region.
+const MAX_NARROW_COLUMN_LEADING: f64 = 2.0;
+
+/// Absorb glyph-advance overlap around an otherwise established gutter.
+const NARROW_COLUMN_OVERLAP_TOLERANCE: f64 = 0.25;
 
 /// Require column candidates to coexist vertically over this fraction.
 const MIN_COLUMN_VERTICAL_OVERLAP: f64 = 0.25;
@@ -1029,6 +1050,9 @@ fn order_axis_page_lines(
             .then(left_bbox.0.total_cmp(&right_bbox.0))
             .then(line_source_order(left).cmp(&line_source_order(right)))
     });
+    if let Some(boundary) = narrow_column_boundary(&clustered, orientation)? {
+        return order_narrow_column_regions(clustered, orientation, boundary);
+    }
     if clustered
         .iter()
         .filter(|line| line_segment_count(line) > 1)
@@ -1167,6 +1191,25 @@ struct LineGeometry {
     size: f64,
 }
 
+#[derive(Clone, Copy)]
+struct ColumnGapEvent {
+    position: f64,
+    starts: bool,
+}
+
+#[derive(Clone, Copy)]
+struct NarrowColumnBoundary {
+    position: f64,
+    first_center: f64,
+    last_center: f64,
+}
+
+#[derive(Clone, Copy)]
+struct NarrowColumnSupport {
+    center: f64,
+    size: f64,
+}
+
 fn line_geometry(line: &[GlyphRecord], orientation: AxisOrientation) -> LineGeometry {
     LineGeometry {
         bbox: logical_line_bbox(line, orientation),
@@ -1208,6 +1251,362 @@ fn append_segment_geometry(
         )?;
     }
     Ok(())
+}
+
+fn gap_index_with_factor(
+    line: &[GlyphRecord],
+    boundary: f64,
+    minimum_factor: f64,
+    minimum_side_glyphs: usize,
+) -> Option<usize> {
+    line.windows(2).enumerate().find_map(|(index, pair)| {
+        let split_index = index + 1;
+        if split_index < minimum_side_glyphs || line.len() - split_index < minimum_side_glyphs {
+            return None;
+        }
+        let start = glyph_end(&pair[0]);
+        let end = glyph_progress(&pair[1]);
+        let minimum = pair[0].size.max(pair[1].size).max(1.0) * minimum_factor;
+        (end - start >= minimum && start <= boundary && boundary <= end).then_some(split_index)
+    })
+}
+
+fn narrow_gap_index(line: &[GlyphRecord], boundary: f64) -> Option<usize> {
+    let gap_count = narrow_gap_count(line);
+    if gap_count == 0 || gap_count > MAX_NARROW_COLUMN_GAPS_PER_LINE {
+        return None;
+    }
+    line.windows(2).enumerate().find_map(|(index, pair)| {
+        let (start, end) = narrow_gap_interval(line, index, pair)?;
+        (start <= boundary && boundary <= end).then_some(index + 1)
+    })
+}
+
+fn narrow_gap_count(line: &[GlyphRecord]) -> usize {
+    line.windows(2)
+        .enumerate()
+        .filter(|(index, pair)| narrow_gap_interval(line, *index, pair).is_some())
+        .take(MAX_NARROW_COLUMN_GAPS_PER_LINE + 1)
+        .count()
+}
+
+fn narrow_gap_interval(
+    line: &[GlyphRecord],
+    index: usize,
+    pair: &[GlyphRecord],
+) -> Option<(f64, f64)> {
+    let split_index = index + 1;
+    if split_index < MIN_NARROW_COLUMN_SIDE_GLYPHS
+        || line.len() - split_index < MIN_NARROW_COLUMN_SIDE_GLYPHS
+        || !has_narrow_column_text(&line[..split_index])
+        || !has_narrow_column_text(&line[split_index..])
+    {
+        return None;
+    }
+    let start = glyph_end(&pair[0]);
+    let end = glyph_progress(&pair[1]);
+    let minimum = pair[0].size.max(pair[1].size).max(1.0) * NARROW_COLUMN_GAP;
+    (end - start >= minimum).then_some((start, end))
+}
+
+fn has_narrow_column_text(glyphs: &[GlyphRecord]) -> bool {
+    glyphs
+        .iter()
+        .flat_map(|glyph| glyph.text.chars())
+        .filter(|character| character.is_alphanumeric())
+        .take(MIN_NARROW_COLUMN_SIDE_TEXT)
+        .count()
+        == MIN_NARROW_COLUMN_SIDE_TEXT
+}
+
+fn established_column_gap_index(line: &[GlyphRecord], boundary: f64) -> Option<usize> {
+    gap_index_with_factor(line, boundary, 0.0, 2).or_else(|| {
+        line.iter().enumerate().find_map(|(index, glyph)| {
+            let split_index = index + 1;
+            if split_index < 2 || line.len() - split_index < 2 {
+                return None;
+            }
+            let whitespace = !glyph.text.is_empty() && glyph.text.chars().all(char::is_whitespace);
+            (whitespace && glyph_progress(glyph) <= boundary && boundary <= glyph_end(glyph))
+                .then_some(split_index)
+        })
+    })
+}
+
+/// Find a sub-em gutter only when the same empty interval persists across
+/// several merged physical lines. This distinguishes narrow newspaper-style
+/// columns from ordinary word spaces without lowering the general line split.
+fn narrow_column_boundary(
+    lines: &[Vec<GlyphRecord>],
+    orientation: AxisOrientation,
+) -> Result<Option<NarrowColumnBoundary>, TextPageLimit> {
+    let mut events = Vec::new();
+    for line in lines {
+        let gap_count = narrow_gap_count(line);
+        if gap_count == 0 || gap_count > MAX_NARROW_COLUMN_GAPS_PER_LINE {
+            continue;
+        }
+        for (index, pair) in line.windows(2).enumerate() {
+            let Some((start, end)) = narrow_gap_interval(line, index, pair) else {
+                continue;
+            };
+            try_push_text(
+                &mut events,
+                ColumnGapEvent {
+                    position: start,
+                    starts: true,
+                },
+                "narrow-column gap events",
+            )?;
+            try_push_text(
+                &mut events,
+                ColumnGapEvent {
+                    position: end,
+                    starts: false,
+                },
+                "narrow-column gap events",
+            )?;
+        }
+    }
+    if events.len() < MIN_NARROW_COLUMN_LINES * 2 {
+        return Ok(None);
+    }
+    events.sort_unstable_by(|left, right| {
+        left.position
+            .total_cmp(&right.position)
+            .then(right.starts.cmp(&left.starts))
+    });
+    let mut active = 0usize;
+    let mut strongest = 0usize;
+    let mut position = 0.0;
+    for event in events {
+        if event.starts {
+            active += 1;
+            if active > strongest {
+                strongest = active;
+                position = event.position;
+            }
+        } else {
+            active = active.saturating_sub(1);
+        }
+    }
+    if strongest < MIN_NARROW_COLUMN_LINES {
+        return Ok(None);
+    }
+
+    let mut supports = Vec::new();
+    for line in lines {
+        if let Some(index) = narrow_gap_index(line, position) {
+            let left_geometry = line_geometry(&line[..index], orientation);
+            let right_geometry = line_geometry(&line[index..], orientation);
+            let center = (left_geometry.bbox.1
+                + left_geometry.bbox.3
+                + right_geometry.bbox.1
+                + right_geometry.bbox.3)
+                * 0.25;
+            try_push_text(
+                &mut supports,
+                NarrowColumnSupport {
+                    center,
+                    size: left_geometry.size.max(right_geometry.size),
+                },
+                "narrow-column support lines",
+            )?;
+        }
+    }
+    if supports.len() < MIN_NARROW_COLUMN_LINES {
+        return Ok(None);
+    }
+    supports.sort_unstable_by(|left, right| left.center.total_cmp(&right.center));
+    let mut first_dense_start = None;
+    let mut last_dense_end = None;
+    let mut group_start = 0usize;
+    for index in 1..=supports.len() {
+        let group_ended = if index == supports.len() {
+            true
+        } else {
+            let previous = supports[index - 1];
+            let current = supports[index];
+            let maximum_leading =
+                previous.size.max(current.size).max(1.0) * MAX_NARROW_COLUMN_LEADING;
+            current.center - previous.center > maximum_leading
+        };
+        if !group_ended {
+            continue;
+        }
+        if index - group_start >= MIN_NARROW_COLUMN_LINES {
+            first_dense_start.get_or_insert(group_start);
+            last_dense_end = Some(index);
+        }
+        group_start = index;
+    }
+    let (Some(region_start), Some(region_end)) = (first_dense_start, last_dense_end) else {
+        return Ok(None);
+    };
+    let mut first_center = supports[region_start].center;
+    let mut first_size = supports[region_start].size;
+    let mut last_center = supports[region_end - 1].center;
+    let mut last_size = supports[region_end - 1].size;
+    let mut established = Vec::new();
+    for line in lines {
+        if established_column_gap_index(line, position).is_some() {
+            let geometry = line_geometry(line, orientation);
+            try_push_text(
+                &mut established,
+                NarrowColumnSupport {
+                    center: (geometry.bbox.1 + geometry.bbox.3) * 0.5,
+                    size: geometry.size,
+                },
+                "established narrow-column lines",
+            )?;
+        }
+    }
+    established.sort_unstable_by(|left, right| left.center.total_cmp(&right.center));
+    for candidate in established.iter().rev() {
+        if candidate.center >= first_center {
+            continue;
+        }
+        let maximum_leading = candidate.size.max(first_size).max(1.0) * MAX_NARROW_COLUMN_LEADING;
+        if first_center - candidate.center > maximum_leading {
+            break;
+        }
+        first_center = candidate.center;
+        first_size = candidate.size;
+    }
+    for candidate in &established {
+        if candidate.center <= last_center {
+            continue;
+        }
+        let maximum_leading = candidate.size.max(last_size).max(1.0) * MAX_NARROW_COLUMN_LEADING;
+        if candidate.center - last_center > maximum_leading {
+            break;
+        }
+        last_center = candidate.center;
+        last_size = candidate.size;
+    }
+
+    let mut support = 0usize;
+    let mut geometry = Vec::new();
+    for line in lines {
+        let whole_geometry = line_geometry(line, orientation);
+        let center = (whole_geometry.bbox.1 + whole_geometry.bbox.3) * 0.5;
+        if center >= first_center
+            && center <= last_center
+            && let Some(index) = established_column_gap_index(line, position)
+        {
+            support += 1;
+            try_push_text(
+                &mut geometry,
+                line_geometry(&line[..index], orientation),
+                "narrow-column segment geometry",
+            )?;
+            try_push_text(
+                &mut geometry,
+                line_geometry(&line[index..], orientation),
+                "narrow-column segment geometry",
+            )?;
+            continue;
+        }
+        try_push_text(
+            &mut geometry,
+            whole_geometry,
+            "narrow-column segment geometry",
+        )?;
+    }
+    if support < MIN_NARROW_COLUMN_LINES || !valid_geometry_column_split(&geometry, position) {
+        return Ok(None);
+    }
+
+    let has_middle_spanning = geometry.iter().any(|line| {
+        let center = (line.bbox.1 + line.bbox.3) * 0.5;
+        let tolerance = line.size.max(1.0) * NARROW_COLUMN_OVERLAP_TOLERANCE;
+        line.bbox.0 < position - tolerance
+            && line.bbox.2 > position + tolerance
+            && center > first_center
+            && center < last_center
+    });
+    if has_middle_spanning {
+        return Ok(None);
+    }
+    Ok(Some(NarrowColumnBoundary {
+        position,
+        first_center,
+        last_center,
+    }))
+}
+
+fn split_owned_line_at(
+    line: Vec<GlyphRecord>,
+    index: usize,
+) -> Result<(Vec<GlyphRecord>, Vec<GlyphRecord>), TextPageLimit> {
+    let mut first = Vec::new();
+    first.try_reserve_exact(index).map_err(|error| {
+        TextPageLimit::Allocation(format!(
+            "failed to allocate narrow-column line segment: {error}"
+        ))
+    })?;
+    let mut second = Vec::new();
+    second
+        .try_reserve_exact(line.len() - index)
+        .map_err(|error| {
+            TextPageLimit::Allocation(format!(
+                "failed to allocate narrow-column line segment: {error}"
+            ))
+        })?;
+    for (position, glyph) in line.into_iter().enumerate() {
+        if position < index {
+            first.push(glyph);
+        } else {
+            second.push(glyph);
+        }
+    }
+    Ok((first, second))
+}
+
+fn order_narrow_column_regions(
+    lines: Vec<Vec<GlyphRecord>>,
+    orientation: AxisOrientation,
+    boundary: NarrowColumnBoundary,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut top = Vec::new();
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    let mut bottom = Vec::new();
+    for line in lines {
+        let geometry = line_geometry(&line, orientation);
+        let center = (geometry.bbox.1 + geometry.bbox.3) * 0.5;
+        if center >= boundary.first_center
+            && center <= boundary.last_center
+            && let Some(index) = established_column_gap_index(&line, boundary.position)
+        {
+            let (left_line, right_line) = split_owned_line_at(line, index)?;
+            try_push_text(&mut left, left_line, "narrow left-column text lines")?;
+            try_push_text(&mut right, right_line, "narrow right-column text lines")?;
+            continue;
+        }
+        if center < boundary.first_center {
+            try_push_text(&mut top, line, "narrow column-spanning headings")?;
+        } else if center > boundary.last_center {
+            try_push_text(&mut bottom, line, "narrow column-spanning footers")?;
+        } else if geometry.bbox.2 <= boundary.position {
+            try_push_text(&mut left, line, "narrow left-column text lines")?;
+        } else if geometry.bbox.0 >= boundary.position {
+            try_push_text(&mut right, line, "narrow right-column text lines")?;
+        } else {
+            try_push_text(&mut bottom, line, "narrow column-spanning footers")?;
+        }
+    }
+
+    for line in order_axis_page_lines(left, orientation)? {
+        try_push_text(&mut top, line, "ordered narrow-column text lines")?;
+    }
+    for line in order_axis_page_lines(right, orientation)? {
+        try_push_text(&mut top, line, "ordered narrow-column text lines")?;
+    }
+    for line in bottom {
+        try_push_text(&mut top, line, "ordered narrow-column text lines")?;
+    }
+    Ok(top)
 }
 
 fn typical_geometry_size(lines: &[LineGeometry]) -> Result<f64, TextPageLimit> {
