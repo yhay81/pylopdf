@@ -1352,6 +1352,16 @@ pub(crate) struct TextPage {
 
 pub(crate) enum SearchError {
     TooManyHits,
+    Allocation(String),
+}
+
+fn search_allocation_error(error: TextPageLimit) -> SearchError {
+    match error {
+        TextPageLimit::Allocation(message) => SearchError::Allocation(message),
+        TextPageLimit::TextSize(_) | TextPageLimit::GlyphCount(_) => {
+            unreachable!("fallible collection growth returns only allocation errors")
+        }
+    }
 }
 
 impl TextPage {
@@ -2689,24 +2699,32 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPa
 ///
 /// Insert synthetic spaces with no glyph mapping between words. When a ligature
 /// or lowercasing yields multiple characters, map all of them to the same glyph.
-fn line_search_index(line: &[GlyphRecord]) -> (String, Vec<Option<usize>>) {
+fn line_search_index(line: &[GlyphRecord]) -> Result<(String, Vec<Option<usize>>), SearchError> {
     let mut haystack = String::new();
-    let mut map: Vec<Option<usize>> = Vec::new();
+    let mut map = Vec::new();
     let mut prev_end: Option<f64> = None;
     for (index, glyph) in line.iter().enumerate() {
         if needs_gap(prev_end, glyph) && !haystack.ends_with(' ') {
-            haystack.push(' ');
-            map.push(None);
+            try_push_str_text(&mut haystack, " ", "search lowercase index")
+                .map_err(search_allocation_error)?;
+            try_push_text(&mut map, None, "search glyph map").map_err(search_allocation_error)?;
         }
         for ch in glyph.text.chars() {
             for lowered in ch.to_lowercase() {
-                haystack.push(lowered);
-                map.push(Some(index));
+                let mut encoded = [0u8; 4];
+                try_push_str_text(
+                    &mut haystack,
+                    lowered.encode_utf8(&mut encoded),
+                    "search lowercase index",
+                )
+                .map_err(search_allocation_error)?;
+                try_push_text(&mut map, Some(index), "search glyph map")
+                    .map_err(search_allocation_error)?;
             }
         }
         prev_end = Some(glyph_end(glyph));
     }
-    (haystack, map)
+    Ok((haystack, map))
 }
 
 /// Search page text case-insensitively and return one bbox per match.
@@ -2717,13 +2735,24 @@ fn search_lines(
     needle: &str,
     max_hits: Option<usize>,
 ) -> Result<Vec<BBox>, SearchError> {
-    let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
+    let mut needle_lower = String::new();
+    for ch in needle.chars() {
+        for lowered in ch.to_lowercase() {
+            let mut encoded = [0u8; 4];
+            try_push_str_text(
+                &mut needle_lower,
+                lowered.encode_utf8(&mut encoded),
+                "lowercase search needle",
+            )
+            .map_err(search_allocation_error)?;
+        }
+    }
     if needle_lower.is_empty() {
         return Ok(Vec::new());
     }
     let mut hits = Vec::new();
     for line in lines {
-        let (haystack, map) = line_search_index(line);
+        let (haystack, map) = line_search_index(line)?;
         let mut byte_cursor = 0;
         let mut char_cursor = 0;
         for (start, _) in haystack.match_indices(&needle_lower) {
@@ -2739,7 +2768,8 @@ fn search_lines(
                     return Err(SearchError::TooManyHits);
                 }
                 let matched = &line[first..=last];
-                hits.push(glyphs_bbox(matched));
+                try_push_text(&mut hits, glyphs_bbox(matched), "search result geometry")
+                    .map_err(search_allocation_error)?;
             }
             byte_cursor = end;
             char_cursor = char_start + char_len;
