@@ -345,13 +345,18 @@ pub fn display_rect_quad_pdf(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [
 
 /// Return the normalized bounding rectangle of PDF-space points.
 pub fn bounding_rect(points: &[(f64, f64)]) -> [f64; 4] {
+    bounding_rect_iter(points.iter().copied())
+}
+
+/// Return the normalized bounding rectangle of an owned point iterator.
+pub fn bounding_rect_iter(points: impl IntoIterator<Item = (f64, f64)>) -> [f64; 4] {
     let mut out = [
         f64::INFINITY,
         f64::INFINITY,
         f64::NEG_INFINITY,
         f64::NEG_INFINITY,
     ];
-    for &(x, y) in points {
+    for (x, y) in points {
         out[0] = out[0].min(x);
         out[1] = out[1].min(y);
         out[2] = out[2].max(x);
@@ -406,20 +411,25 @@ pub fn text_markup_ap_ops(
     quads: &[[(f64, f64); 4]],
     color: (f64, f64, f64),
     segment_counts: &[usize],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let paint = if matches!(kind, TextMarkupKind::Highlight) {
         "rg"
     } else {
         "RG"
     };
-    let mut out = format!(
+    let header = format!(
         "/PyloGS gs\n{} {} {} {paint}\n",
         fmt(color.0),
         fmt(color.1),
         fmt(color.2),
-    )
-    .into_bytes();
+    );
+    let mut out = Vec::new();
+    out.try_reserve(header.len())
+        .map_err(|error| format!("failed to allocate text-markup appearance: {error}"))?;
+    out.extend_from_slice(header.as_bytes());
     if !matches!(kind, TextMarkupKind::Highlight) {
+        out.try_reserve(4)
+            .map_err(|error| format!("failed to grow text-markup appearance: {error}"))?;
         out.extend_from_slice(b"1 w\n");
     }
 
@@ -427,50 +437,50 @@ pub fn text_markup_ap_ops(
         let [ul, ur, ll, lr] = *quad;
         match kind {
             TextMarkupKind::Highlight => {
-                out.extend_from_slice(
-                    format!(
-                        "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\nf\n",
-                        fmt(ul.0),
-                        fmt(ul.1),
-                        fmt(ur.0),
-                        fmt(ur.1),
-                        fmt(lr.0),
-                        fmt(lr.1),
-                        fmt(ll.0),
-                        fmt(ll.1),
-                    )
-                    .as_bytes(),
+                let command = format!(
+                    "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\nf\n",
+                    fmt(ul.0),
+                    fmt(ul.1),
+                    fmt(ur.0),
+                    fmt(ur.1),
+                    fmt(lr.0),
+                    fmt(lr.1),
+                    fmt(ll.0),
+                    fmt(ll.1),
                 );
+                out.try_reserve(command.len())
+                    .map_err(|error| format!("failed to grow text-markup appearance: {error}"))?;
+                out.extend_from_slice(command.as_bytes());
             }
             TextMarkupKind::Underline => {
                 let (normal, cross_length) = inward_normal(*quad);
                 let inset = cross_length.min(1.0);
                 let start = (ll.0 + normal.0 * inset, ll.1 + normal.1 * inset);
                 let end = (lr.0 + normal.0 * inset, lr.1 + normal.1 * inset);
-                out.extend_from_slice(
-                    format!(
-                        "{} {} m\n{} {} l\nS\n",
-                        fmt(start.0),
-                        fmt(start.1),
-                        fmt(end.0),
-                        fmt(end.1),
-                    )
-                    .as_bytes(),
+                let command = format!(
+                    "{} {} m\n{} {} l\nS\n",
+                    fmt(start.0),
+                    fmt(start.1),
+                    fmt(end.0),
+                    fmt(end.1),
                 );
+                out.try_reserve(command.len())
+                    .map_err(|error| format!("failed to grow text-markup appearance: {error}"))?;
+                out.extend_from_slice(command.as_bytes());
             }
             TextMarkupKind::StrikeOut => {
                 let start = midpoint(ul, ll);
                 let end = midpoint(ur, lr);
-                out.extend_from_slice(
-                    format!(
-                        "{} {} m\n{} {} l\nS\n",
-                        fmt(start.0),
-                        fmt(start.1),
-                        fmt(end.0),
-                        fmt(end.1),
-                    )
-                    .as_bytes(),
+                let command = format!(
+                    "{} {} m\n{} {} l\nS\n",
+                    fmt(start.0),
+                    fmt(start.1),
+                    fmt(end.0),
+                    fmt(end.1),
                 );
+                out.try_reserve(command.len())
+                    .map_err(|error| format!("failed to grow text-markup appearance: {error}"))?;
+                out.extend_from_slice(command.as_bytes());
             }
             TextMarkupKind::Squiggly => {
                 let segments = segment_counts[index];
@@ -483,19 +493,26 @@ pub fn text_markup_ap_ops(
                     let offset = inset + if point_index % 2 == 0 { amplitude } else { 0.0 };
                     let point = (base.0 + normal.0 * offset, base.1 + normal.1 * offset);
                     let operator = if point_index == 0 { "m" } else { "l" };
-                    out.extend_from_slice(
-                        format!("{} {} {operator}\n", fmt(point.0), fmt(point.1)).as_bytes(),
-                    );
+                    let command = format!("{} {} {operator}\n", fmt(point.0), fmt(point.1));
+                    out.try_reserve(command.len()).map_err(|error| {
+                        format!("failed to grow text-markup appearance: {error}")
+                    })?;
+                    out.extend_from_slice(command.as_bytes());
                 }
+                out.try_reserve(2)
+                    .map_err(|error| format!("failed to grow text-markup appearance: {error}"))?;
                 out.extend_from_slice(b"S\n");
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Build drawing operators for a pylopdf-created Highlight appearance.
-pub fn highlight_ap_ops(quads: &[[(f64, f64); 4]], color: (f64, f64, f64)) -> Vec<u8> {
+pub fn highlight_ap_ops(
+    quads: &[[(f64, f64); 4]],
+    color: (f64, f64, f64),
+) -> Result<Vec<u8>, String> {
     text_markup_ap_ops(TextMarkupKind::Highlight, quads, color, &[])
 }
 

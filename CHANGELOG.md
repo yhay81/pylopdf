@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Render-only AcroForm state substitutions and missing text-markup appearances
+  are now planned once with borrowed dictionary reads and fallible collections.
+  Quad bounding boxes avoid duplicate point vectors, appearance operator
+  buffers grow fallibly, and created Highlights finish their input-derived
+  preparation before cache invalidation or PDF mutation.
 - Batch rendering now preflights page pixels without an intermediate
   collection and grows serial, worker-local, merged, ordered, and final result
   vectors fallibly while preserving dynamic parallel scheduling.

@@ -134,7 +134,10 @@ def test_missing_highlight_appearance_rejects_malformed_opacity() -> None:
     assert not _has_yellowish(_region_pixels(page, page.rect))
 
 
-def test_missing_text_markup_appearances_render_without_mutating_source() -> None:
+@pytest.mark.parametrize("max_interpretation_size", [None, 1024 * 1024])
+def test_missing_text_markup_appearances_render_without_mutating_source(
+    max_interpretation_size: int | None,
+) -> None:
     """Render Underline, StrikeOut, and Squiggly dictionaries without `/AP`."""
     pdf = build_raw_pdf(
         {
@@ -156,7 +159,12 @@ def test_missing_text_markup_appearances_render_without_mutating_source() -> Non
             ),
         }
     )
-    document = pylopdf.open(stream=pdf)
+    document = pylopdf.open(
+        stream=pdf,
+        limits=pylopdf.DocumentLimits(
+            max_interpretation_size=max_interpretation_size,
+        ),
+    )
     page = document[0]
 
     assert [annotation["type"] for annotation in page.annots()] == [
