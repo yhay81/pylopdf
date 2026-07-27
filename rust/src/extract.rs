@@ -2842,7 +2842,7 @@ pub(crate) struct ImageUsage {
 struct ImageUsageCollector {
     usages: HashMap<(u32, u16), ImageUsage>,
     placements: usize,
-    error: Option<&'static str>,
+    error: Option<String>,
 }
 
 fn effective_dpi(transform: Affine) -> (Option<f64>, Option<f64>) {
@@ -2871,7 +2871,8 @@ impl ImageUsageCollector {
             return;
         }
         if self.placements >= MAX_IMAGE_USAGE_PLACEMENTS {
-            self.error = Some("image compression exceeds the 65536-placement safety limit");
+            self.error =
+                Some("image compression exceeds the 65536-placement safety limit".to_owned());
             return;
         }
         self.placements += 1;
@@ -2899,7 +2900,15 @@ impl ImageUsageCollector {
             return;
         }
         if self.usages.len() >= MAX_IMAGE_USAGE_OBJECTS {
-            self.error = Some("image compression exceeds the 16384-object safety limit");
+            self.error = Some("image compression exceeds the 16384-object safety limit".to_owned());
+            return;
+        }
+        if self.usages.len() == self.usages.capacity()
+            && let Err(error) = self.usages.try_reserve(1)
+        {
+            self.error = Some(format!(
+                "failed to grow image compression usage map: {error}"
+            ));
             return;
         }
         self.usages.insert(
@@ -2944,7 +2953,7 @@ impl Device<'_> for ImageUsageCollector {
 pub(crate) fn collect_image_usages(
     pdf: &Pdf,
     settings: InterpreterSettings,
-) -> Result<Vec<ImageUsage>, &'static str> {
+) -> Result<Vec<ImageUsage>, String> {
     let cache = InterpreterCache::new();
     let mut collector = ImageUsageCollector {
         usages: HashMap::new(),
@@ -2954,11 +2963,15 @@ pub(crate) fn collect_image_usages(
     for page in pdf.pages().iter() {
         let mut context = extraction_context(pdf, page, &cache, settings.clone());
         interpret_page(page, &mut context, &mut collector);
-        if let Some(error) = collector.error {
+        if let Some(error) = collector.error.take() {
             return Err(error);
         }
     }
-    let mut usages = collector.usages.into_values().collect::<Vec<_>>();
+    let mut usages = Vec::new();
+    usages
+        .try_reserve_exact(collector.usages.len())
+        .map_err(|error| format!("failed to allocate image compression usage result: {error}"))?;
+    usages.extend(collector.usages.into_values());
     usages.sort_unstable_by_key(|usage| usage.object_id);
     Ok(usages)
 }
