@@ -228,7 +228,8 @@ overview.
   lopdf document rather than cloning complete encoded sources per candidate.
   JPEG encoding writes through a boundary one byte below the source payload and
   stops as soon as the result cannot be smaller rather than materializing a
-  complete rejected encoding.
+  complete rejected encoding. The interpreted usage map and its sorted result
+  grow fallibly and return no partial aggregate on allocation refusal.
   Actual rewrites invalidate hayro and derived interpretation caches without
   making existing `Page` views stale; no-op calls preserve all caches. Reject
   more than 65,536 interpreted indirect raster placements, 16,384 unique
