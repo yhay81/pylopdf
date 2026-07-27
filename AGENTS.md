@@ -84,7 +84,14 @@ overview.
   layers before inline geometry sorting; preserve distinct overprints rather
   than interleaving or deduplicating their glyphs. Run detection compares the
   preceding retained glyph without cloning its text, and line/run/layer
-  collections grow fallibly.
+  collections grow fallibly. Glyph text stores single characters inline and
+  keeps one owned heap string only for multi-character mappings; equality is
+  textual, so a one-character CMap string still matches its inline form. Line
+  clustering partitions, sorts, and splits arena indexes, whose order equals
+  collection source order, instead of moving glyph records between
+  intermediate collections; materialization then moves each record once into
+  its clustered line, and whole-line ordering sorts precomputed per-line
+  geometry keys rather than rescanning glyphs inside sort comparators.
   `DocumentLimits.max_text_glyphs` bounds cumulative positioned glyph records
   before caching or structured Python output. Text and table interpretations
   of one page share one admission, failed pages consume no budget, and
