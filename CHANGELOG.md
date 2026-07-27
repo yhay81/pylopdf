@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Text and table layout ordering now uses in-place sorts with explicit
+  source-order or geometry tie-breakers. Admitted extraction no longer relies
+  on hidden stable-sort scratch allocation for glyph, line, size, or gutter
+  ordering.
 - `Page.get_drawings()` now rejects more than 131,072 aggregate stroke-dash
   values per page before string materialization. Dash serialization no longer
   builds a temporary string vector, and each path is transformed, bounded, and

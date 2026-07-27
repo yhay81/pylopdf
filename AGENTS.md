@@ -102,7 +102,10 @@ overview.
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. Gutter discovery
   uses lightweight segment bboxes and font-size samples; only confirmed columns
-  move glyphs into fallibly grown segment/region vectors. `find_tables` uses a
+  move glyphs into fallibly grown segment/region vectors. Glyph, line, size, and
+  gutter ordering uses in-place unstable sorts with explicit source-order or
+  geometry tie-breakers so admitted extraction does not require hidden
+  stable-sort scratch allocation. `find_tables` uses a
   separate bounded, generation-invalidated `TablePage` cache so normal text
   extraction does not collect or analyze vector rules. It collects at most
   4096 axis-aligned candidates from strokes or thin filled polygons. A table
