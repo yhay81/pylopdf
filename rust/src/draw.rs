@@ -669,57 +669,6 @@ pub(crate) fn fmt(v: f64) -> String {
     }
 }
 
-/// Register a font object reference in page Resources/Font.
-///
-/// Inherited attributes must already be materialized and Resources created.
-/// Resources and Font may both be indirect, so resolve IDs before mutable borrows.
-pub fn add_page_font(
-    doc: &mut Document,
-    page_id: ObjectId,
-    name: &str,
-    font_id: ObjectId,
-) -> Result<(), lopdf::Error> {
-    let res_ref = doc
-        .get_object(page_id)?
-        .as_dict()?
-        .get(b"Resources")
-        .ok()
-        .and_then(|r| r.as_reference().ok());
-    let font_ref = {
-        let resources = match res_ref {
-            Some(id) => doc.get_object(id)?.as_dict()?,
-            None => doc
-                .get_object(page_id)?
-                .as_dict()?
-                .get(b"Resources")?
-                .as_dict()?,
-        };
-        resources
-            .get(b"Font")
-            .ok()
-            .and_then(|f| f.as_reference().ok())
-    };
-    if let Some(fid) = font_ref {
-        let fonts = doc.get_object_mut(fid)?.as_dict_mut()?;
-        fonts.set(name, Object::Reference(font_id));
-        return Ok(());
-    }
-    let resources = match res_ref {
-        Some(id) => doc.get_object_mut(id)?.as_dict_mut()?,
-        None => doc
-            .get_object_mut(page_id)?
-            .as_dict_mut()?
-            .get_mut(b"Resources")?
-            .as_dict_mut()?,
-    };
-    if !resources.has(b"Font") {
-        resources.set("Font", Dictionary::new());
-    }
-    let fonts = resources.get_mut(b"Font")?.as_dict_mut()?;
-    fonts.set(name, Object::Reference(font_id));
-    Ok(())
-}
-
 /// Build text operators with display-space `point` as the baseline origin.
 ///
 /// `lines` contains WinAnsi/cp1252 bytes, one item per line. `Tm` receives
