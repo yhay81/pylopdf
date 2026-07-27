@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `Page.show_pdf_page()` now rejects source page content decoder errors and
+  unsupported filters before target mutation instead of treating encoded bytes
+  as drawing operators. Unfiltered source content stays borrowed during Form
+  assembly, canonical filter names avoid a duplicate encoded-stream copy, and
+  aggregate size refusal now reports `form_content_size`.
 - PDF byte and file writers now restore lopdf's ephemeral xref/object-stream
   IDs and trailer changes after successful or failed output. Repeated no-op
   serialization is byte-for-byte deterministic while documented save-option

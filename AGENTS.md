@@ -458,9 +458,14 @@ overview.
   right-angle steps, swaps the aspect ratio for 90/270, and composes with target
   page rotation in display space. Same-document `show_pdf_page` must clone the
   lopdf graph before importing the source Form XObject so the target page can
-  safely source itself without serialization or mutable aliasing. Annotations
-  must always include an appearance stream at `AP /N`, because hayro does not
-  render annotations without one. The immutable rendering snapshot
+  safely source itself without serialization or mutable aliasing. Form source
+  page content is strictly decoded under its aggregate boundary before target
+  invalidation or mutation; decoder errors and unsupported filters must not
+  fall back to encoded bytes, and size refusal uses `form_content_size`.
+  Unfiltered content remains borrowed while building the combined Form stream.
+  Annotations must always include an appearance
+  stream at `AP /N`, because hayro does not render annotations without one. The
+  immutable rendering snapshot
   conservatively synthesizes missing appearances for bounded RGB Highlight,
   Underline, StrikeOut, and Squiggly annotations with valid `QuadPoints`; this
   must not mutate the editable or saved PDF. Aggregate geometry stops at 4,096

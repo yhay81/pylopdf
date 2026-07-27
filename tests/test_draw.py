@@ -176,6 +176,29 @@ def _compressed_content_doc(decompressed_size: int) -> pylopdf.Document:
     )
 
 
+def _filtered_content_doc(
+    filter_name: str,
+    payload: bytes,
+    *,
+    decode_params: str = "",
+) -> pylopdf.Document:
+    stream = (
+        (f"<< /Length {len(payload)} /Filter /{filter_name} {decode_params}>>\nstream\n").encode()
+        + payload
+        + b"\nendstream"
+    )
+    return pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+                4: stream,
+            }
+        )
+    )
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
@@ -357,9 +380,45 @@ def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation
     before = target.tobytes()
     source = _compressed_content_doc(64 * 1024 * 1024)
 
-    with pytest.raises(pylopdf.PdfError, match="Form source page content exceeds"):
+    with pytest.raises(pylopdf.LimitError, match=r"Form source page content.*limit") as caught:
+        target[0].show_pdf_page((0, 0, 100, 100), source)
+    assert caught.value.code == "form_content_size"
+    assert target.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("filter_name", "payload", "decode_params"),
+    [
+        pytest.param("RunLengthDecode", b"unsupported", "", id="unsupported"),
+        pytest.param(
+            "FlateDecode",
+            zlib.compress(b"invalid predicted row"),
+            "/DecodeParms << /Predictor 12 /Columns 0 >> ",
+            id="decoder-error",
+        ),
+    ],
+)
+def test_show_pdf_page_rejects_undecodable_source_content_before_target_mutation(
+    filter_name: str,
+    payload: bytes,
+    decode_params: str,
+) -> None:
+    target = _resource_shape_doc("<< >>")
+    before = target.tobytes()
+    source = _filtered_content_doc(filter_name, payload, decode_params=decode_params)
+
+    with pytest.raises(pylopdf.PdfError, match="failed to decode Form source page content"):
         target[0].show_pdf_page((0, 0, 100, 100), source)
     assert target.tobytes() == before
+
+
+def test_show_pdf_page_decodes_abbreviated_source_content_filter() -> None:
+    target = _resource_shape_doc("<< >>")
+    operators = b"q 1 0 0 rg 0 0 200 100 re f Q"
+    source = _filtered_content_doc("Fl", zlib.compress(operators))
+
+    target[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
+    assert _pixel(target[0], 100, 50) == RED
 
 
 @pytest.mark.parametrize(
