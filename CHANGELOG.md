@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segments instead of cloning every glyph's text and font metadata. Candidate
   runs, geometry, cells, anchors, and cell strings grow fallibly, and an
   allocation refusal returns no partial table interpretation.
+- Bordered and hybrid table detection now retains borrowed word glyph slices
+  instead of duplicating every page word before accepting a grid. Rule
+  components, coordinate and edge analysis, hybrid candidates, cells,
+  coverage, anchors, and result materialization now grow fallibly or sort
+  in-place without allocation.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of
