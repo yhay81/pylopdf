@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Page annotation appends now validate and preallocate their final `/Annots`
+  target before creating annotation or appearance objects. Direct and unshared
+  indirect arrays reserve in place, while page-shared indirect arrays detach
+  fallibly; the final reference commit performs no collection growth. Link
+  annotations also build their complete dictionary before cache invalidation.
 - Render-only AcroForm state substitutions and missing text-markup appearances
   are now planned once with borrowed dictionary reads and fallible collections.
   Quad bounding boxes avoid duplicate point vectors, appearance operator

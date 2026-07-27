@@ -148,6 +148,13 @@ enum WidgetTextLayout {
 /// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
 type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
 
+/// Preallocated target for appending one page annotation without later growth.
+enum PageAnnotationAppendPlan {
+    Direct,
+    Indirect(ObjectId),
+    Replacement(Vec<Object>),
+}
+
 /// One link returned by read_links: kind, display Rect, URI, one-based lopdf
 /// destination page, destination display point, zoom, external file, and named
 /// destination or Named action.
@@ -4724,51 +4731,47 @@ impl _Document {
         Ok(annots)
     }
 
-    /// Preflight an annotation append before adding any dependent objects.
-    fn ensure_page_annotation_capacity(
-        &self,
+    /// Validate and preallocate one annotation append before dependent objects exist.
+    fn prepare_page_annotation_append(
+        &mut self,
         page_id: ObjectId,
-        additional: usize,
-    ) -> PyResult<()> {
-        let page = self
-            .doc
-            .get_object(page_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
-        let existing = match page.get(b"Annots") {
-            Ok(Object::Reference(id)) => self
+    ) -> PyResult<PageAnnotationAppendPlan> {
+        enum Target {
+            PageArray,
+            IndirectArray(ObjectId),
+            Missing,
+        }
+
+        let (target, existing) = {
+            let page = self
                 .doc
-                .get_object(*id)
-                .and_then(Object::as_array)
-                .map_err(to_py_err)?
-                .len(),
-            Ok(Object::Array(items)) => items.len(),
-            _ => 0,
+                .get_object(page_id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?;
+            match page.get(b"Annots") {
+                Ok(Object::Reference(id)) => {
+                    let items = self
+                        .doc
+                        .get_object(*id)
+                        .and_then(Object::as_array)
+                        .map_err(to_py_err)?;
+                    (Target::IndirectArray(*id), items.len())
+                }
+                Ok(Object::Array(items)) => (Target::PageArray, items.len()),
+                _ => (Target::Missing, 0),
+            }
         };
         let total = existing
-            .checked_add(additional)
+            .checked_add(1)
             .ok_or_else(|| PdfError::new_err("page annotations exceed the platform size limit"))?;
         if total > MAX_PAGE_ANNOTATIONS {
             return Err(PdfError::new_err(format!(
                 "page annotations exceed the {MAX_PAGE_ANNOTATIONS}-entry safety limit"
             )));
         }
-        Ok(())
-    }
 
-    /// Add an annotation reference to page `/Annots`, including indirect arrays.
-    fn push_page_annotation(&mut self, page_id: ObjectId, annot_id: ObjectId) -> PyResult<()> {
-        self.ensure_page_annotation_capacity(page_id, 1)?;
-        let array_ref = {
-            let page = self
-                .doc
-                .get_object(page_id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?;
-            page.get(b"Annots").ok().and_then(|a| a.as_reference().ok())
-        };
-        match array_ref {
-            Some(arr_id) => {
+        match target {
+            Target::IndirectArray(arr_id) => {
                 // copy_page/select duplicates may share indirect Annots arrays.
                 // Clone on write while shared so additions do not leak.
                 let shared = self.doc.get_pages().into_values().any(|other_page_id| {
@@ -4783,40 +4786,96 @@ impl _Document {
                             == Some(arr_id)
                 });
                 if shared {
-                    let mut arr = self
+                    let source = self
                         .doc
                         .get_object(arr_id)
                         .and_then(Object::as_array)
-                        .map_err(to_py_err)?
-                        .clone();
-                    arr.push(Object::Reference(annot_id));
-                    let page = self
-                        .doc
-                        .get_object_mut(page_id)
-                        .and_then(Object::as_dict_mut)
                         .map_err(to_py_err)?;
-                    page.set("Annots", arr);
+                    let mut detached = Vec::new();
+                    detached.try_reserve_exact(total).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to allocate detached page annotations: {error}"
+                        ))
+                    })?;
+                    for item in source {
+                        detached.push(item.clone());
+                    }
+                    Ok(PageAnnotationAppendPlan::Replacement(detached))
                 } else {
-                    let arr = self
+                    let items = self
                         .doc
                         .get_object_mut(arr_id)
                         .and_then(Object::as_array_mut)
                         .map_err(to_py_err)?;
-                    arr.push(Object::Reference(annot_id));
+                    items.try_reserve_exact(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow indirect page annotations: {error}"
+                        ))
+                    })?;
+                    Ok(PageAnnotationAppendPlan::Indirect(arr_id))
                 }
             }
-            None => {
+            Target::PageArray => {
                 let page = self
                     .doc
                     .get_object_mut(page_id)
                     .and_then(Object::as_dict_mut)
                     .map_err(to_py_err)?;
-                let mut arr = match page.get(b"Annots").and_then(Object::as_array) {
-                    Ok(existing) => existing.clone(),
-                    Err(_) => Vec::new(),
-                };
-                arr.push(Object::Reference(annot_id));
-                page.set("Annots", arr);
+                let items = page
+                    .get_mut(b"Annots")
+                    .and_then(Object::as_array_mut)
+                    .map_err(to_py_err)?;
+                items.try_reserve_exact(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow page annotations: {error}"))
+                })?;
+                Ok(PageAnnotationAppendPlan::Direct)
+            }
+            Target::Missing => {
+                let mut items = Vec::new();
+                items.try_reserve_exact(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate page annotations: {error}"))
+                })?;
+                Ok(PageAnnotationAppendPlan::Replacement(items))
+            }
+        }
+    }
+
+    /// Commit a preallocated annotation reference without growing a collection.
+    fn commit_page_annotation_append(
+        &mut self,
+        page_id: ObjectId,
+        plan: PageAnnotationAppendPlan,
+        annot_id: ObjectId,
+    ) -> PyResult<()> {
+        match plan {
+            PageAnnotationAppendPlan::Direct => {
+                let page = self
+                    .doc
+                    .get_object_mut(page_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                let items = page
+                    .get_mut(b"Annots")
+                    .and_then(Object::as_array_mut)
+                    .map_err(to_py_err)?;
+                items.push(Object::Reference(annot_id));
+            }
+            PageAnnotationAppendPlan::Indirect(array_id) => {
+                let items = self
+                    .doc
+                    .get_object_mut(array_id)
+                    .and_then(Object::as_array_mut)
+                    .map_err(to_py_err)?;
+                items.push(Object::Reference(annot_id));
+            }
+            PageAnnotationAppendPlan::Replacement(mut items) => {
+                items.push(Object::Reference(annot_id));
+                let page = self
+                    .doc
+                    .get_object_mut(page_id)
+                    .and_then(Object::as_dict_mut)
+                    .map_err(to_py_err)?;
+                page.set("Annots", items);
             }
         }
         Ok(())
@@ -7800,7 +7859,7 @@ impl _Document {
         };
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
-        self.ensure_page_annotation_capacity(page_id, 1)?;
+        let annotation_append = self.prepare_page_annotation_append(page_id)?;
 
         let mut quads = Vec::new();
         quads.try_reserve_exact(rects.len()).map_err(|error| {
@@ -7872,7 +7931,7 @@ impl _Document {
             annot.set("Contents", encoded_content);
         }
         let annot_id = self.doc.add_object(annot);
-        self.push_page_annotation(page_id, annot_id)
+        self.commit_page_annotation_append(page_id, annotation_append, annot_id)
     }
 
     /// Add a URI link annotation to display `rect` on a one-based page.
@@ -7885,11 +7944,10 @@ impl _Document {
         validate_annotation_input([b"Link".as_slice(), uri.as_bytes()], "URI")?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_id = self.page_id(page_number)?;
-        self.ensure_page_annotation_capacity(page_id, 1)?;
-        self.invalidate_hayro_pdf();
+        let annotation_append = self.prepare_page_annotation_append(page_id)?;
         let quad = draw::display_rect_quad_pdf(crop, rotation, [rect.0, rect.1, rect.2, rect.3]);
         let bbox = draw::bounding_rect(&quad);
-        let annot_id = self.doc.add_object(dictionary! {
+        let annotation = dictionary! {
             "Type" => "Annot",
             "Subtype" => "Link",
             "Rect" => Object::Array(bbox.iter().map(|&v| Object::Real(v as f32)).collect()),
@@ -7901,8 +7959,10 @@ impl _Document {
                 "S" => "URI",
                 "URI" => Object::string_literal(uri),
             },
-        });
-        self.push_page_annotation(page_id, annot_id)
+        };
+        self.invalidate_hayro_pdf();
+        let annot_id = self.doc.add_object(annotation);
+        self.commit_page_annotation_append(page_id, annotation_append, annot_id)
     }
 
     /// Read the XMP PDF/A claim from `pdfaid:part` and conformance.
