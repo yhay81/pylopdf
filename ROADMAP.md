@@ -534,9 +534,10 @@ to improve product behavior before the v1.0 API and limitation freeze.
       without lowering the general line-split threshold. Four dense support
       lines, substantial text on both sides, and one plausible separator per
       line distinguish prose columns from aligned labels, dot leaders, and
-      multi-separator table rows. The bundled 1880 patent similarity proxy
-      improved from 0.320 to 0.578 while the bill, form, NICS table, and user
-      guide retained their prior corpus results.
+      multi-separator table rows. Confirmed boundaries follow up to 0.5 em of
+      horizontal scan/OCR drift on continuation lines. The bundled 1880 patent
+      similarity proxy improved from 0.320 to 0.581 while the bill, form, NICS
+      table, and user guide retained their prior corpus results.
 - Continue the limitation review from measured field cases; prefer extraction,
   Markdown, OCR, and recovery improvements that increase end-to-end document
   value without freezing the API prematurely.

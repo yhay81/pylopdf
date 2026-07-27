@@ -370,6 +370,41 @@ def test_narrow_multicolumn_gutter_follows_columns() -> None:
     assert page.get_text().splitlines() == expected
 
 
+def test_established_narrow_gutter_follows_small_horizontal_drift() -> None:
+    """Keep continuation rows in columns when a scan gutter drifts slightly."""
+    rows = [
+        ("Left column row 1", "Right column row 1", 148),
+        ("Left column row 2", "Right column row 2", 148),
+        ("Left column row 3", "Right column row 3", 148),
+        ("Left column row 4", "Right column row 4", 148),
+        ("Left column row 5", "Right column row 5", 144),
+        ("Left column row 6", "Right column row 6", 144),
+    ]
+    stream = ""
+    for offset, (left, right, right_x) in enumerate(rows):
+        y = 250 - offset * 20
+        stream += f"BT /F1 12 Tf 20 {y} Td ({left}) Tj ET\n"
+        stream += f"BT /F1 12 Tf {right_x} {y} Td ({right}) Tj ET\n"
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 300 300] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        }
+    )
+
+    page = pylopdf.open(stream=pdf)[0]
+    assert page.get_text().splitlines() == [
+        *(left for left, _, _ in rows),
+        *(right for _, right, _ in rows),
+    ]
+
+
 def test_repeated_multiseparator_rows_stay_row_major() -> None:
     """Do not reinterpret a dense table-like layout as prose columns."""
     rows = [

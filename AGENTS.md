@@ -104,8 +104,9 @@ overview.
   gutters require at least four dense support lines, 16 glyphs and four
   alphanumeric characters on each side, and one plausible separator per line;
   aligned labels, dot leaders, and dense multi-separator rows remain row-major.
-  Confirmed narrow regions may absorb explicit whitespace and small
-  glyph-advance overlap on their continuation lines. Gutter discovery uses
+  Confirmed narrow regions may absorb explicit whitespace, up to 0.5 em of
+  horizontal scan/OCR drift, and small glyph-advance overlap on their
+  continuation lines. Gutter discovery uses
   lightweight segment bboxes and font-size samples; only confirmed columns
   move glyphs into fallibly grown segment/region vectors. Narrow-gap events,
   support samples, established-line geometry, and owned splits also grow
