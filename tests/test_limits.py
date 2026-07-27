@@ -272,6 +272,25 @@ def test_direct_object_depth_limit_ignores_reference_cycles() -> None:
     assert doc.page_count == 1
 
 
+def test_direct_object_depth_handles_wide_dictionaries_iteratively() -> None:
+    entries = " ".join(f"/K{index} [[0]]" for index in range(4_096))
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: f"<< {entries} >>",
+        }
+    )
+
+    doc = pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=4))
+    assert doc.complexity["max_object_depth"] == 4
+
+    with pytest.raises(pylopdf.LimitError) as depth:
+        pylopdf.open(stream=pdf, limits=pylopdf.DocumentLimits(max_object_depth=3))
+    assert _error_code(depth.value) == "object_depth"
+
+
 def test_page_content_and_general_stream_limits_are_independent() -> None:
     page_content = b" " * 200
     unused = b"x" * 200

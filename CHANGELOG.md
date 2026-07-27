@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Direct-object depth validation and complexity inspection now grow their
+  iterative traversal stack fallibly, including wide dictionaries and stream
+  dictionaries. Allocation refusal raises `PdfError` without exposing partial
+  complexity facts.
 - Documentation now constrains wide-screen guide content and the custom home
   composition to more readable measures. The four localized announcement
   banners now link to v0.12.0 and summarize its resource-safety and text-layout

@@ -90,7 +90,9 @@ the filter list.
 and maximum direct object depth. It neither decodes streams nor invokes the
 renderer, so it is suitable for routing work before extraction. Structural and
 decompression budgets validate the opened source; reopen generated output with
-the same policy when it must cross another trust boundary.
+the same policy when it must cross another trust boundary. Direct-depth
+validation and complexity inspection grow their iterative traversal stack
+fallibly, so allocation refusal raises `PdfError` without partial facts.
 
 `max_interpretation_size` applies when hayro first consumes retained input and
 whenever pylopdf must serialize current state after editing, decryption, or

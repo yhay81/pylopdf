@@ -3222,14 +3222,20 @@ fn decoded_stream_content(
 ///
 /// Indirect references are leaves here. This makes cycles harmless while
 /// bounding the recursive object shapes consumed by downstream libraries.
-fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> usize {
+fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> PyResult<usize> {
     enum Pending<'a> {
         Visit(&'a Object, usize),
         ArrayTail(&'a [Object], usize),
     }
 
     let mut maximum = 1usize;
-    let mut pending = vec![Pending::Visit(object, 1usize)];
+    let mut pending = Vec::new();
+    pending.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate direct-object depth traversal stack: {error}"
+        ))
+    })?;
+    pending.push(Pending::Visit(object, 1usize));
     while let Some(work) = pending.pop() {
         let (current, depth) = match work {
             Pending::Visit(current, depth) => (current, depth),
@@ -3238,6 +3244,11 @@ fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> usize {
                     continue;
                 };
                 if !remaining.is_empty() {
+                    pending.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow direct-object depth traversal stack: {error}"
+                        ))
+                    })?;
                     pending.push(Pending::ArrayTail(remaining, depth));
                 }
                 (current, depth)
@@ -3245,31 +3256,42 @@ fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> usize {
         };
         maximum = maximum.max(depth);
         if stop_above.is_some_and(|limit| maximum > limit) {
-            return maximum;
+            return Ok(maximum);
         }
         let child_depth = depth.saturating_add(1);
         match current {
             Object::Array(items) if !items.is_empty() => {
+                pending.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to grow direct-object depth traversal stack: {error}"
+                    ))
+                })?;
                 pending.push(Pending::ArrayTail(items, child_depth));
             }
             Object::Dictionary(dict) => {
-                pending.extend(
-                    dict.iter()
-                        .map(|(_, item)| Pending::Visit(item, child_depth)),
-                );
+                pending.try_reserve(dict.len()).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to grow direct-object depth traversal stack: {error}"
+                    ))
+                })?;
+                for (_, item) in dict.iter() {
+                    pending.push(Pending::Visit(item, child_depth));
+                }
             }
             Object::Stream(stream) => {
-                pending.extend(
-                    stream
-                        .dict
-                        .iter()
-                        .map(|(_, item)| Pending::Visit(item, child_depth)),
-                );
+                pending.try_reserve(stream.dict.len()).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to grow direct-object depth traversal stack: {error}"
+                    ))
+                })?;
+                for (_, item) in stream.dict.iter() {
+                    pending.push(Pending::Visit(item, child_depth));
+                }
             }
             _ => {}
         }
     }
-    maximum
+    Ok(maximum)
 }
 
 /// Collect cheap structural complexity without decoding streams.
@@ -3278,14 +3300,12 @@ fn document_complexity(doc: &Document) -> PyResult<ComplexityTuple> {
     let object_count = doc.objects.len();
     let mut stream_count = 0usize;
     let mut encoded_stream_bytes = 0u64;
-    let mut max_object_depth = doc
-        .trailer
-        .iter()
-        .map(|(_, object)| direct_object_depth(object, None))
-        .max()
-        .unwrap_or_default();
+    let mut max_object_depth = 0usize;
+    for (_, object) in doc.trailer.iter() {
+        max_object_depth = max_object_depth.max(direct_object_depth(object, None)?);
+    }
     for object in doc.objects.values() {
-        max_object_depth = max_object_depth.max(direct_object_depth(object, None));
+        max_object_depth = max_object_depth.max(direct_object_depth(object, None)?);
         if let Object::Stream(stream) = object {
             stream_count = stream_count.saturating_add(1);
             encoded_stream_bytes = encoded_stream_bytes.saturating_add(stream.content.len() as u64);
@@ -3534,24 +3554,21 @@ fn validate_structural_limits(
     }
 
     if let Some(limit) = limits.max_object_depth {
-        let depth = doc
+        for object in doc
             .trailer
             .iter()
-            .map(|(_, object)| direct_object_depth(object, Some(limit)))
-            .chain(
-                doc.objects
-                    .values()
-                    .map(|object| direct_object_depth(object, Some(limit))),
-            )
-            .max()
-            .unwrap_or_default();
-        if depth > limit {
-            return Err(limit_err(
-                "object_depth",
-                format!(
-                    "PDF direct object nesting depth is {depth}, exceeding the configured limit of {limit}"
-                ),
-            ));
+            .map(|(_, object)| object)
+            .chain(doc.objects.values())
+        {
+            let depth = direct_object_depth(object, Some(limit))?;
+            if depth > limit {
+                return Err(limit_err(
+                    "object_depth",
+                    format!(
+                        "PDF direct object nesting depth is {depth}, exceeding the configured limit of {limit}"
+                    ),
+                ));
+            }
         }
     }
 
