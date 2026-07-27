@@ -69,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   character-to-glyph maps, and result geometry fallibly. Allocation refusal
   returns `PdfError` without exposing partial hits, including when callers opt
   into trusted unbounded result counts.
+- Returning cached bordered or borderless tables now deep-copies cell strings,
+  anchors, and result vectors fallibly after clip filtering. Allocation refusal
+  returns `PdfError` without exposing partial tables or invalidating the cache.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

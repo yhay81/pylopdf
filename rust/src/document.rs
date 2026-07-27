@@ -6001,9 +6001,9 @@ impl _Document {
         };
         let settings = self.interpreter_settings();
         py.detach(|| {
-            Ok(self
-                .table_page(page_number, settings)?
-                .tables(text_strategy, clip))
+            self.table_page(page_number, settings)?
+                .tables(text_strategy, clip)
+                .map_err(text_page_limit_err)
         })
     }
 
