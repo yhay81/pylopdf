@@ -945,6 +945,7 @@ fn text_page_limit_err(error: crate::extract::TextPageLimit) -> PyErr {
                 "page text exceeds the remaining configured positioned-glyph budget of {limit}"
             ),
         ),
+        crate::extract::TextPageLimit::Allocation(message) => PdfError::new_err(message),
     }
 }
 

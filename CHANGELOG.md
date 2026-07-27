@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tensors, threshold/dilation/visited masks, connected-component stack, tile
   starts, candidates, and results fallibly. Allocation pressure returns
   `OcrError` instead of relying on infallible growth of pylopdf-owned buffers.
+- Text interpretation now grows positioned-glyph, table-rule, and font-cache
+  collections fallibly. Conservative vertical-CJK detection stops while
+  collecting its 4,097th candidate instead of materializing every candidate
+  before disabling inference, and its selection/partition buffers fail through
+  `PdfError` without caching a partial page.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

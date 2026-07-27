@@ -140,7 +140,11 @@ overview.
   Because hayro does not expose font WMode, mode-1 CJK lines are inferred only
   from conservative single-glyph vertical chains: top-to-bottom within a line,
   right-to-left across columns, with horizontal headings and footers preserved.
-  Ruby, warichu, and mixed-orientation typography are not interpreted.
+  Candidate collection stops at 4,097 before disabling inference, and its
+  selection/partition buffers plus the shared glyph, table-rule, and font-cache
+  collectors grow fallibly. Allocation refusal fails the interpretation
+  without caching a partial page. Ruby, warichu, and mixed-orientation
+  typography are not interpreted.
 - `Page.get_drawings` uses a separate hayro Device and releases the GIL. It
   returns interpreted fill/stroke paint operations as pymupdf-style
   `DrawingInfo` mappings in rotation-resolved display coordinates. Commands are
