@@ -5,7 +5,6 @@
 //! constructs this engine with explicit detector, recognizer, and dictionary
 //! paths.
 
-use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,7 +13,7 @@ use rten::{Model, RunOptions, ThreadPool};
 use rten_tensor::NdTensor;
 use rten_tensor::prelude::*;
 
-use crate::document::{LimitError, PdfError};
+use crate::document::{LimitError, PdfError, read_file_fallibly};
 use crate::pixmap::Pixmap;
 
 pyo3::create_exception!(
@@ -151,13 +150,12 @@ impl Engine {
                 path.display()
             ))
         };
-        let Some(limit) = max_model_size else {
-            return std::fs::read(path).map_err(io_error);
-        };
-        let remaining = limit.saturating_sub(*consumed);
         let file = std::fs::File::open(path).map_err(&io_error)?;
         let metadata_size = file.metadata().map_err(&io_error)?.len();
-        if metadata_size > remaining as u64 {
+        let remaining = max_model_size.map(|limit| limit.saturating_sub(*consumed));
+        if let (Some(limit), Some(remaining)) = (max_model_size, remaining)
+            && metadata_size > remaining as u64
+        {
             return Err(LimitError::new_err((
                 "ocr_model_size",
                 format!(
@@ -166,16 +164,15 @@ impl Engine {
                 ),
             )));
         }
-        let read_limit = remaining.saturating_add(1);
-        let mut data = Vec::with_capacity(
-            usize::try_from(metadata_size)
-                .unwrap_or(remaining)
-                .min(read_limit),
-        );
-        file.take(read_limit as u64)
-            .read_to_end(&mut data)
+        let read_limit = remaining.map(|remaining| remaining.saturating_add(1));
+        let initial_capacity = usize::try_from(metadata_size)
+            .unwrap_or(0)
+            .min(read_limit.unwrap_or(usize::MAX));
+        let data = read_file_fallibly(file, initial_capacity, read_limit, "OCR model input")
             .map_err(io_error)?;
-        if data.len() > remaining {
+        if let (Some(limit), Some(remaining)) = (max_model_size, remaining)
+            && data.len() > remaining
+        {
             return Err(LimitError::new_err((
                 "ocr_model_size",
                 format!(
@@ -184,7 +181,9 @@ impl Engine {
                 ),
             )));
         }
-        *consumed += data.len();
+        *consumed = consumed
+            .checked_add(data.len())
+            .ok_or_else(|| OcrError::new_err("cumulative OCR model input size overflowed"))?;
         Ok(data)
     }
 

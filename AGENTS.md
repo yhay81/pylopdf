@@ -211,8 +211,10 @@ overview.
   immutable model set and owns a dedicated 1–16 thread pool. Detector,
   recognizer, and dictionary paths share a default 64 MiB cumulative input
   budget enforced before RTen parses either model; `max_model_size=None` is
-  the explicit trusted-input opt-out. Dictionary materialization stops at
-  65,536 entries. Loading and inference release the GIL. OCR clones the
+  the explicit trusted-input opt-out. Path reads use fallible 64 KiB chunks and
+  admit at most one byte beyond the remaining bounded budget. Dictionary
+  materialization stops at 65,536 entries. Loading and inference release the
+  GIL. OCR clones the
   Pixmap's shared immutable RGBA backing, composites
   RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
   pixels, a 4096-candidate cap, and deterministic edge deduplication. The
@@ -366,11 +368,12 @@ overview.
   straight-alpha RGBA8 storage directly into Flate-compressed RGB plus an
   optional soft mask; fully opaque Pixmaps must not create a mask.
   Encoded `insert_image` input defaults to 64 MiB and PNG decode to 64,000,000
-  pixels. `filename=` reads through a bounded Rust path with the GIL released;
-  `stream=` is checked in Python before PyO3 copying and again in Rust. Preflight
-  PNG IHDR dimensions before allocating decoded storage. `max_size=None` and
-  `max_pixels=None` are explicit trusted-input opt-outs; failures use
-  `image_input_size` and `image_pixel_count`.
+  pixels. `filename=` reads through a bounded Rust path with the GIL released
+  and fallible 64 KiB retained-buffer growth; `stream=` is checked in Python
+  before PyO3 copying and again in Rust. Preflight PNG IHDR dimensions before
+  allocating decoded storage. `max_size=None` and `max_pixels=None` are explicit
+  trusted-input opt-outs; failures use `image_input_size` and
+  `image_pixel_count`.
   `insert_image(rotate=)` rotates every source clockwise in normalized
   right-angle steps, swaps the aspect ratio for 90/270, and composes with target
   page rotation in display space. Same-document `show_pdf_page` must clone the
@@ -407,9 +410,10 @@ overview.
   other scripts need an explicit font. `insert_text`, `insert_textbox`,
   `set_form_field`, and `set_fallback_font` share a 64 MiB default OpenType
   boundary. Python rejects buffer input before PyO3 copying; file input uses a
-  one-byte-overrun bounded Rust read with the GIL released. Direct byte/path
-  core variants repeat the check, `max_font_size=None` explicitly opts trusted
-  input out, and failures use `font_input_size` without mutation.
+  one-byte-overrun bounded Rust read with the GIL released and fallible 64 KiB
+  retained-buffer growth. Direct byte/path core variants repeat the check,
+  `max_font_size=None` explicitly opts trusted input out, and failures use
+  `font_input_size` without mutation.
   `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
   boundary. Python rejects text before normalization, tab expansion, or PyO3
   copying; textbox tab expansion is size-preflighted without materializing the

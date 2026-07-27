@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bounded in-memory PNG and serialized-PDF writers now use fallible growth
   after their size checks, returning ordinary encoding or `PdfError` failures
   instead of relying on infallible `Vec` extension within the configured limit.
+- PDF, encoded-image, OpenType-font, and OCR-model path reads now use fallible
+  64 KiB chunked buffer growth. Bounded reads still admit at most one byte
+  beyond their configured file or cumulative budget, while trusted unbounded
+  reads no longer delegate allocation to `std::fs::read`.
 
 ### Performance
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate
