@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Structural page imports, selections, duplicate tracking, inherited page
+  dictionaries, spliced orders, and root/rebuilt Kids arrays now grow fallibly.
+  Selection validates and plans all inputs before cache invalidation, while
+  page-tree rebuild preparation completes before dictionary mutation.
 - Info metadata returned maps, prepared write batches, direct single-entry
   copies, and encoded PDF strings now grow fallibly. Duplicate tracking uses a
   fixed bitset for the eight public keys.

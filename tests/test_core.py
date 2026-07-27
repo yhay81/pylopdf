@@ -245,6 +245,26 @@ def test_structural_batches_are_bounded_in_core(one_page_pdf: bytes) -> None:
     assert merging.page_count() == 1
 
 
+def test_select_rejects_invalid_page_before_mutation(one_page_pdf: bytes) -> None:
+    doc = _Document.load_bytes(one_page_pdf)
+    before = doc.save_bytes()
+
+    with pytest.raises(PdfError, match="page 2 does not exist"):
+        doc.select([1, 2])
+
+    assert doc.save_bytes() == before
+    assert doc.page_count() == 1
+
+
+def test_select_empty_document_preserves_future_object_ids() -> None:
+    doc = _Document()
+    doc.select([])
+    doc.new_page(None, 100.0, 100.0)
+
+    assert doc.page_count() == 1
+    assert _Document.load_bytes(doc.save_bytes()).page_count() == 1
+
+
 def test_text_replacement_is_bounded_in_core(one_page_pdf: bytes) -> None:
     doc = _Document.load_bytes(one_page_pdf)
     before = doc.save_bytes()

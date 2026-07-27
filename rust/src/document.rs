@@ -5043,7 +5043,12 @@ impl _Document {
         let new_max_id = other_doc.max_id;
 
         let other_pages = other_doc.get_pages();
-        let mut ordered_ids = Vec::with_capacity(page_numbers.len());
+        let mut ordered_ids = Vec::new();
+        ordered_ids
+            .try_reserve_exact(page_numbers.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate imported page order: {error}"))
+            })?;
         for number in page_numbers {
             let id = *other_pages
                 .get(number)
@@ -5052,7 +5057,14 @@ impl _Document {
         }
 
         // The source page tree is discarded; materialize inheritance per page.
-        let mut resolved_pages = Vec::with_capacity(ordered_ids.len());
+        let mut resolved_pages = Vec::new();
+        resolved_pages
+            .try_reserve_exact(ordered_ids.len())
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate imported page dictionaries: {error}"
+                ))
+            })?;
         for &page_id in &ordered_ids {
             let mut dict = resolve_inherited_page_dict(&other_doc, page_id).map_err(to_py_err)?;
             dict.set("Parent", pages_id);
@@ -5087,16 +5099,33 @@ impl _Document {
             .checked_add(new_ids.len())
             .ok_or_else(|| PdfError::new_err("page count limit reached"))?;
         let count = i64::try_from(total_count).map_err(|e| PdfError::new_err(e.to_string()))?;
+        let existing_kids = self
+            .doc
+            .get_object(pages_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(|pages| pages.get(b"Kids").and_then(Object::as_array).ok());
+        let existing_len = existing_kids.map_or(0, Vec::len);
+        let final_len = existing_len
+            .checked_add(new_ids.len())
+            .ok_or_else(|| PdfError::new_err("page-tree Kids exceed the platform size limit"))?;
+        let mut kids = Vec::new();
+        kids.try_reserve_exact(final_len).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate page-tree Kids: {error}"))
+        })?;
+        if let Some(existing_kids) = existing_kids {
+            for kid in existing_kids {
+                kids.push(kid.clone());
+            }
+        }
+        for id in new_ids {
+            kids.push(Object::Reference(id));
+        }
         let pages_dict = self
             .doc
             .get_object_mut(pages_id)
             .and_then(Object::as_dict_mut)
             .map_err(to_py_err)?;
-        let mut kids = match pages_dict.get(b"Kids").and_then(Object::as_array) {
-            Ok(kids) => kids.clone(),
-            Err(_) => Vec::new(),
-        };
-        kids.extend(new_ids.into_iter().map(Object::Reference));
         pages_dict.set("Kids", kids);
         pages_dict.set("Count", count);
         Ok(())
@@ -5105,11 +5134,24 @@ impl _Document {
     /// Return current pages with `new_ids` inserted at zero-based `position`.
     ///
     /// `new_ids` must not yet be reachable from root Kids or included by get_pages.
-    fn spliced_page_order(&self, new_ids: Vec<ObjectId>, position: Option<usize>) -> Vec<ObjectId> {
-        let mut order: Vec<ObjectId> = self.doc.get_pages().into_values().collect();
+    fn spliced_page_order(
+        &self,
+        new_ids: Vec<ObjectId>,
+        position: Option<usize>,
+    ) -> PyResult<Vec<ObjectId>> {
+        let pages = self.doc.get_pages();
+        let final_len = pages
+            .len()
+            .checked_add(new_ids.len())
+            .ok_or_else(|| PdfError::new_err("page order exceeds the platform size limit"))?;
+        let mut order = Vec::new();
+        order.try_reserve_exact(final_len).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate spliced page order: {error}"))
+        })?;
+        order.extend(pages.into_values());
         let pos = position.unwrap_or(order.len()).min(order.len());
         order.splice(pos..pos, new_ids);
-        order
+        Ok(order)
     }
 
     /// Create an AES-256 PDF 2.0 V5/R6 encrypted clone; leave self plaintext.
@@ -5152,13 +5194,34 @@ impl _Document {
     /// Materialize inheritance on every page and point Parent to root.
     /// The caller prunes obsolete intermediate nodes.
     fn rebuild_page_tree(&mut self, pages_id: ObjectId, ordered: Vec<ObjectId>) -> PyResult<()> {
+        self.doc
+            .get_object(pages_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        let count = i64::try_from(ordered.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+        let mut kids = Vec::new();
+        kids.try_reserve_exact(ordered.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate rebuilt page-tree Kids: {error}"
+            ))
+        })?;
+        let mut resolved_pages = Vec::new();
+        resolved_pages
+            .try_reserve_exact(ordered.len())
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate rebuilt page dictionaries: {error}"
+                ))
+            })?;
         for &page_id in &ordered {
             let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
             dict.set("Parent", pages_id);
+            kids.push(Object::Reference(page_id));
+            resolved_pages.push((page_id, dict));
+        }
+        for (page_id, dict) in resolved_pages {
             self.doc.objects.insert(page_id, Object::Dictionary(dict));
         }
-        let kids: Vec<Object> = ordered.iter().map(|&id| Object::Reference(id)).collect();
-        let count = i64::try_from(kids.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
         let pages_dict = self
             .doc
             .get_object_mut(pages_id)
@@ -6450,7 +6513,13 @@ impl _Document {
             )));
         }
         let count = u32::try_from(page_count).map_err(|e| PdfError::new_err(e.to_string()))?;
-        let all: Vec<u32> = (1..=count).collect();
+        let mut all = Vec::new();
+        all.try_reserve_exact(page_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate complete imported page range: {error}"
+            ))
+        })?;
+        all.extend(1..=count);
         self.merge_pages(py, other, all, None)
     }
 
@@ -6481,7 +6550,7 @@ impl _Document {
             match position {
                 None => self.append_pages(pages_id, new_ids)?,
                 Some(_) => {
-                    let order = self.spliced_page_order(new_ids, position);
+                    let order = self.spliced_page_order(new_ids, position)?;
                     self.rebuild_page_tree(pages_id, order)?;
                 }
             }
@@ -6515,7 +6584,7 @@ impl _Document {
         match position {
             None => self.append_pages(pages_id, vec![page_id]),
             Some(_) => {
-                let order = self.spliced_page_order(vec![page_id], position);
+                let order = self.spliced_page_order(vec![page_id], position)?;
                 self.rebuild_page_tree(pages_id, order)?;
                 self.doc.prune_objects();
                 Ok(())
@@ -6537,7 +6606,7 @@ impl _Document {
         match position {
             None => self.append_pages(pages_id, vec![new_id]),
             Some(_) => {
-                let order = self.spliced_page_order(vec![new_id], position);
+                let order = self.spliced_page_order(vec![new_id], position)?;
                 self.rebuild_page_tree(pages_id, order)?;
                 self.doc.prune_objects();
                 Ok(())
@@ -6554,27 +6623,97 @@ impl _Document {
                 "cannot select more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
             )));
         }
-        self.invalidate_hayro_pdf();
         let pages = self.doc.get_pages();
-        let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
-
-        // For repeated pages, create a copy with inheritance materialized because
-        // PDF page-tree Parent references must be unique.
-        let mut seen = HashSet::new();
-        let mut ordered = Vec::with_capacity(page_numbers.len());
+        let mut selected_ids = Vec::new();
+        selected_ids
+            .try_reserve_exact(page_numbers.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate selected page IDs: {error}"))
+            })?;
         for number in &page_numbers {
             let page_id = *pages
                 .get(number)
                 .ok_or_else(|| PdfError::new_err(format!("page {number} does not exist")))?;
+            selected_ids.push(page_id);
+        }
+        let existing_pages_id = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get(b"Pages").and_then(Object::as_reference).ok());
+        if !selected_ids.is_empty() && existing_pages_id.is_none() {
+            return Err(PdfError::new_err(
+                "document pages are not connected to a root Pages dictionary",
+            ));
+        }
+        if let Some(pages_id) = existing_pages_id {
+            self.doc
+                .get_object(pages_id)
+                .and_then(Object::as_dict)
+                .map_err(to_py_err)?;
+        }
+
+        // For repeated pages, create a copy with inheritance materialized because
+        // PDF page-tree Parent references must be unique.
+        let mut seen = HashSet::new();
+        seen.try_reserve(selected_ids.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate selected-page duplicate tracking: {error}"
+            ))
+        })?;
+        let count = i64::try_from(selected_ids.len()).map_err(|error| {
+            PdfError::new_err(format!("selected page count is not representable: {error}"))
+        })?;
+        let mut kids = Vec::new();
+        kids.try_reserve_exact(selected_ids.len())
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate selected page-tree Kids: {error}"
+                ))
+            })?;
+        let mut resolved_pages = Vec::new();
+        resolved_pages
+            .try_reserve_exact(selected_ids.len())
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate selected page dictionaries: {error}"
+                ))
+            })?;
+        let mut planned_max_id = self.doc.max_id;
+        for page_id in selected_ids {
             let use_id = if seen.insert(page_id) {
                 page_id
             } else {
-                let dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
-                self.doc.add_object(Object::Dictionary(dict))
+                planned_max_id = planned_max_id
+                    .checked_add(1)
+                    .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+                (planned_max_id, 0)
             };
-            ordered.push(use_id);
+            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            if let Some(pages_id) = existing_pages_id {
+                dict.set("Parent", pages_id);
+            }
+            kids.push(Object::Reference(use_id));
+            resolved_pages.push((use_id, dict));
         }
-        self.rebuild_page_tree(pages_id, ordered)?;
+
+        self.invalidate_hayro_pdf();
+        let pages_id = match existing_pages_id {
+            Some(pages_id) => pages_id,
+            None => self.ensure_page_tree().map_err(to_py_err)?,
+        };
+        for (page_id, mut dict) in resolved_pages {
+            dict.set("Parent", pages_id);
+            self.doc.objects.insert(page_id, Object::Dictionary(dict));
+        }
+        self.doc.max_id = self.doc.max_id.max(planned_max_id);
+        let pages_dict = self
+            .doc
+            .get_object_mut(pages_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?;
+        pages_dict.set("Kids", kids);
+        pages_dict.set("Count", count);
 
         // Remove pages and intermediate nodes that became unreachable.
         self.doc.prune_objects();
