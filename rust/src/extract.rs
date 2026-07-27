@@ -88,6 +88,16 @@ pub(crate) enum TextPageLimit {
     Allocation(String),
 }
 
+fn try_push_text<T>(values: &mut Vec<T>, value: T, label: &str) -> Result<(), TextPageLimit> {
+    if values.len() == values.capacity() {
+        values.try_reserve(1).map_err(|error| {
+            TextPageLimit::Allocation(format!("failed to grow {label}: {error}"))
+        })?;
+    }
+    values.push(value);
+    Ok(())
+}
+
 /// One axis-aligned stroked path segment in display coordinates.
 #[derive(Clone, Copy)]
 struct RuleSegment {
@@ -560,14 +570,7 @@ fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, T
         if cjk_indices.len() >= MAX_VERTICAL_CJK_CANDIDATES {
             return Ok(Vec::new());
         }
-        if cjk_indices.len() == cjk_indices.capacity() {
-            cjk_indices.try_reserve(1).map_err(|error| {
-                TextPageLimit::Allocation(format!(
-                    "failed to grow vertical-CJK candidate collection: {error}"
-                ))
-            })?;
-        }
-        cjk_indices.push(index);
+        try_push_text(&mut cjk_indices, index, "vertical-CJK candidate collection")?;
     }
     if cjk_indices.len() < MIN_VERTICAL_CJK_GLYPHS {
         return Ok(Vec::new());
@@ -600,14 +603,7 @@ fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, T
             }
         }
         if has_vertical_neighbour && !has_horizontal_neighbour {
-            if eligible.len() == eligible.capacity() {
-                eligible.try_reserve(1).map_err(|error| {
-                    TextPageLimit::Allocation(format!(
-                        "failed to grow vertical-CJK eligibility collection: {error}"
-                    ))
-                })?;
-            }
-            eligible.push(index);
+            try_push_text(&mut eligible, index, "vertical-CJK eligibility collection")?;
         }
     }
     Ok(eligible)
@@ -640,14 +636,7 @@ fn extract_inferred_vertical_cjk(
         } else {
             &mut remaining
         };
-        if target.len() == target.capacity() {
-            target.try_reserve(1).map_err(|error| {
-                TextPageLimit::Allocation(format!(
-                    "failed to grow vertical-CJK glyph partition: {error}"
-                ))
-            })?;
-        }
-        target.push(glyph);
+        try_push_text(target, glyph, "vertical-CJK glyph partition")?;
     }
     candidates.sort_by(|left, right| {
         left.x
@@ -665,9 +654,11 @@ fn extract_inferred_vertical_cjk(
                     <= first.size.max(glyph.size).max(1.0) * VERTICAL_LINE_TOLERANCE
         });
         if let Some(line) = matching_line {
-            line.push(glyph);
+            try_push_text(line, glyph, "vertical-CJK line")?;
         } else {
-            lines.push(vec![glyph]);
+            let mut line = Vec::new();
+            try_push_text(&mut line, glyph, "vertical-CJK line")?;
+            try_push_text(&mut lines, line, "vertical-CJK lines")?;
         }
     }
 
@@ -684,16 +675,24 @@ fn extract_inferred_vertical_cjk(
                 glyph.direction = (0.0, 1.0);
                 glyph.writing_mode = 1;
             }
-            accepted.push(line);
+            try_push_text(&mut accepted, line, "accepted vertical-CJK lines")?;
         } else {
-            remaining.extend(line);
+            for glyph in line {
+                try_push_text(
+                    &mut remaining,
+                    glyph,
+                    "remaining horizontal glyph collection",
+                )?;
+            }
         }
     }
     Ok((remaining, accepted))
 }
 
 /// Group glyphs whose transformed baseline itself is vertical.
-fn cluster_explicit_vertical(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+fn cluster_explicit_vertical(
+    mut glyphs: Vec<GlyphRecord>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
     glyphs.sort_by(|left, right| right.x.total_cmp(&left.x).then(left.y.total_cmp(&right.y)));
     let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
     for glyph in glyphs {
@@ -705,15 +704,20 @@ fn cluster_explicit_vertical(mut glyphs: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecor
                     > 0.9
         });
         if let Some(line) = matching_line {
-            line.push(glyph);
+            try_push_text(line, glyph, "explicit vertical line")?;
         } else {
-            lines.push(vec![glyph]);
+            let mut line = Vec::new();
+            try_push_text(&mut line, glyph, "explicit vertical line")?;
+            try_push_text(&mut lines, line, "explicit vertical lines")?;
         }
     }
-    lines
-        .into_iter()
-        .flat_map(split_overlapping_paint_layers)
-        .collect()
+    let mut split_lines = Vec::new();
+    for line in lines {
+        for split in split_overlapping_paint_layers(line)? {
+            try_push_text(&mut split_lines, split, "split explicit vertical lines")?;
+        }
+    }
+    Ok(split_lines)
 }
 
 struct PaintLayer {
@@ -753,50 +757,50 @@ fn paint_intervals_overlap(
 /// non-overlapping runs on one geometry-sorted line while retaining overlapping
 /// runs as separate lines. This preserves distinct overprints instead of
 /// deleting them.
-fn split_overlapping_paint_layers(mut line: Vec<GlyphRecord>) -> Vec<Vec<GlyphRecord>> {
+fn split_overlapping_paint_layers(
+    mut line: Vec<GlyphRecord>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
     if line.len() < 2 {
         sort_line_inline(&mut line);
-        return vec![line];
+        let mut lines = Vec::new();
+        try_push_text(&mut lines, line, "text paint layers")?;
+        return Ok(lines);
     }
     line.sort_by_key(|glyph| glyph.source_order);
 
     let mut runs: Vec<Vec<GlyphRecord>> = Vec::new();
-    let mut previous_progress: Option<f64> = None;
-    let mut previous_direction: Option<(f64, f64)> = None;
-    let mut previous_origin: Option<(f64, f64)> = None;
-    let mut previous_text: Option<String> = None;
     for glyph in line {
         let progress = glyph_progress(&glyph);
         let scale = glyph.size.max(1.0);
-        let direction_changed = previous_direction.is_some_and(|direction| {
-            direction.0 * glyph.direction.0 + direction.1 * glyph.direction.1 < 0.9
+        let previous = runs.last().and_then(|run| run.last());
+        let direction_changed = previous.is_some_and(|previous| {
+            previous.direction.0 * glyph.direction.0 + previous.direction.1 * glyph.direction.1
+                < 0.9
         });
-        let moved_backward = previous_progress
-            .is_some_and(|previous| progress < previous - scale * PAINT_RUN_RESET_TOLERANCE);
-        let repeated_at_same_origin =
-            previous_origin
-                .zip(previous_text.as_deref())
-                .is_some_and(|((x, y), text)| {
-                    (glyph.x - x).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
-                        && (glyph.y - y).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
-                        && glyph.text == text
-                });
+        let moved_backward = previous.is_some_and(|previous| {
+            progress < glyph_progress(previous) - scale * PAINT_RUN_RESET_TOLERANCE
+        });
+        let repeated_at_same_origin = previous.is_some_and(|previous| {
+            (glyph.x - previous.x).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
+                && (glyph.y - previous.y).abs() <= scale * PAINT_RUN_SAME_ORIGIN_TOLERANCE
+                && glyph.text == previous.text
+        });
         if runs.is_empty() || moved_backward || repeated_at_same_origin || direction_changed {
-            runs.push(Vec::new());
+            try_push_text(&mut runs, Vec::new(), "text paint runs")?;
         }
-        previous_progress = Some(progress);
-        previous_direction = Some(glyph.direction);
-        previous_origin = Some((glyph.x, glyph.y));
-        previous_text = Some(glyph.text.clone());
-        runs.last_mut()
-            .expect("a paint run was created immediately before")
-            .push(glyph);
+        try_push_text(
+            runs.last_mut()
+                .expect("a paint run was created immediately before"),
+            glyph,
+            "text paint-run glyphs",
+        )?;
     }
 
     if runs.len() == 1 {
         let mut line = runs.pop().expect("one paint run exists");
         sort_line_inline(&mut line);
-        return vec![line];
+        try_push_text(&mut runs, line, "text paint layers")?;
+        return Ok(runs);
     }
 
     let mut layers: Vec<PaintLayer> = Vec::new();
@@ -811,28 +815,46 @@ fn split_overlapping_paint_layers(mut line: Vec<GlyphRecord>) -> Vec<Vec<GlyphRe
                 .all(|existing| !paint_intervals_overlap(*existing, interval))
         });
         if let Some(layer) = compatible {
-            layer.glyphs.extend(run);
-            layer.intervals.push(interval);
+            for glyph in run {
+                try_push_text(&mut layer.glyphs, glyph, "text paint-layer glyphs")?;
+            }
+            try_push_text(&mut layer.intervals, interval, "text paint-layer intervals")?;
         } else {
-            layers.push(PaintLayer {
-                glyphs: run,
-                intervals: vec![interval],
-            });
+            let mut intervals = Vec::new();
+            try_push_text(&mut intervals, interval, "text paint-layer intervals")?;
+            try_push_text(
+                &mut layers,
+                PaintLayer {
+                    glyphs: run,
+                    intervals,
+                },
+                "text paint layers",
+            )?;
         }
     }
-    layers
-        .into_iter()
-        .map(|mut layer| {
-            sort_line_inline(&mut layer.glyphs);
-            layer.glyphs
-        })
-        .collect()
+    let mut split = Vec::new();
+    for mut layer in layers {
+        sort_line_inline(&mut layer.glyphs);
+        try_push_text(&mut split, layer.glyphs, "split text paint layers")?;
+    }
+    Ok(split)
 }
 
 /// Group glyphs into physical text lines.
 fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    let (explicit_vertical, horizontal): (Vec<_>, Vec<_>) =
-        glyphs.into_iter().partition(has_vertical_baseline);
+    let mut explicit_vertical = Vec::new();
+    let mut horizontal = Vec::new();
+    for glyph in glyphs {
+        if has_vertical_baseline(&glyph) {
+            try_push_text(
+                &mut explicit_vertical,
+                glyph,
+                "explicit vertical glyph partition",
+            )?;
+        } else {
+            try_push_text(&mut horizontal, glyph, "horizontal glyph partition")?;
+        }
+    }
     let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal)?;
 
     horizontal.sort_by(|a, b| a.y.total_cmp(&b.y).then(a.x.total_cmp(&b.x)));
@@ -841,22 +863,32 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
     for glyph in horizontal {
         let tolerance = glyph.size.max(1.0) * LINE_TOLERANCE;
         if (glyph.y - current_baseline).abs() <= tolerance {
-            lines
-                .last_mut()
-                .expect("a line was created immediately before")
-                .push(glyph);
+            try_push_text(
+                lines
+                    .last_mut()
+                    .expect("a line was created immediately before"),
+                glyph,
+                "physical text-line glyphs",
+            )?;
         } else {
             current_baseline = glyph.y;
-            lines.push(vec![glyph]);
+            let mut line = Vec::new();
+            try_push_text(&mut line, glyph, "physical text-line glyphs")?;
+            try_push_text(&mut lines, line, "physical text lines")?;
         }
     }
-    let lines = lines
-        .into_iter()
-        .flat_map(split_overlapping_paint_layers)
-        .collect::<Vec<_>>();
-    vertical_lines.extend(cluster_explicit_vertical(explicit_vertical));
-    let mut all_lines = lines;
-    all_lines.extend(vertical_lines);
+    let mut all_lines = Vec::new();
+    for line in lines {
+        for split in split_overlapping_paint_layers(line)? {
+            try_push_text(&mut all_lines, split, "split horizontal text lines")?;
+        }
+    }
+    for line in cluster_explicit_vertical(explicit_vertical)? {
+        try_push_text(&mut vertical_lines, line, "vertical text lines")?;
+    }
+    for line in vertical_lines {
+        try_push_text(&mut all_lines, line, "clustered text lines")?;
+    }
     Ok(all_lines)
 }
 
