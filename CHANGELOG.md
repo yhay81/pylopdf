@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines, source-order paint runs, overprint layers, and interval metadata
   fallibly. Overprint detection compares the preceding retained glyph directly
   instead of cloning its Unicode string for every glyph.
+- Reading-order analysis now detects sustained gutters from lightweight segment
+  bboxes and font-size samples. Non-column pages no longer clone every glyph
+  into a temporary segment tree; confirmed columns move glyphs once into
+  fallibly grown segments, recursive regions, headings, and footers.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

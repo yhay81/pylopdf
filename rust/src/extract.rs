@@ -915,6 +915,33 @@ fn split_line_segments(line: &[GlyphRecord]) -> Vec<Vec<GlyphRecord>> {
     segments
 }
 
+/// Split one owned physical line without cloning its glyph strings or metadata.
+fn split_line_segments_owned(
+    line: Vec<GlyphRecord>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut segments: Vec<Vec<GlyphRecord>> = Vec::new();
+    let mut previous_end: Option<f64> = None;
+    let mut previous_size = 0.0_f64;
+    for glyph in line {
+        let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
+        let starts_segment = segments.is_empty()
+            || previous_end.is_some_and(|end| glyph_progress(&glyph) - end > threshold);
+        previous_end = Some(glyph_end(&glyph));
+        previous_size = glyph.size;
+        if starts_segment {
+            try_push_text(&mut segments, Vec::new(), "owned text-line segments")?;
+        }
+        try_push_text(
+            segments
+                .last_mut()
+                .expect("a segment was created immediately before"),
+            glyph,
+            "owned text-line segment glyphs",
+        )?;
+    }
+    Ok(segments)
+}
+
 /// Count widely separated segments without cloning their glyphs.
 fn line_segment_count(line: &[GlyphRecord]) -> usize {
     let mut count = usize::from(!line.is_empty());
@@ -932,7 +959,9 @@ fn line_segment_count(line: &[GlyphRecord]) -> usize {
 }
 
 /// Split baseline bands only when a sustained page-level column gutter exists.
-fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
+fn order_page_lines(
+    clustered: Vec<Vec<GlyphRecord>>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
     if let Some(orientation) = uniform_axis_orientation(&clustered) {
         return order_axis_page_lines(clustered, orientation);
     }
@@ -949,7 +978,7 @@ fn order_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
 fn order_axis_page_lines(
     mut clustered: Vec<Vec<GlyphRecord>>,
     orientation: AxisOrientation,
-) -> Vec<Vec<GlyphRecord>> {
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
     clustered.sort_by(|left, right| {
         let left_bbox = logical_line_bbox(left, orientation);
         let right_bbox = logical_line_bbox(right, orientation);
@@ -965,39 +994,47 @@ fn order_axis_page_lines(
         .count()
         < MIN_COLUMN_LINES
     {
-        return clustered;
+        return Ok(clustered);
     }
-    let segments: Vec<Vec<GlyphRecord>> = clustered
-        .iter()
-        .flat_map(|line| split_line_segments(line))
-        .collect();
-    if column_boundary(&segments, orientation)
-        .is_some_and(|boundary| valid_column_split(&segments, boundary, orientation))
-    {
-        order_columns(segments, orientation)
-    } else {
-        clustered
+    let mut geometry = Vec::new();
+    for line in &clustered {
+        append_segment_geometry(line, orientation, &mut geometry)?;
     }
+    let Some(boundary) = geometry_column_boundary(&geometry)? else {
+        return Ok(clustered);
+    };
+    if !valid_geometry_column_split(&geometry, boundary) {
+        return Ok(clustered);
+    }
+    let mut segments = Vec::new();
+    for line in clustered {
+        for segment in split_line_segments_owned(line)? {
+            try_push_text(&mut segments, segment, "page text-line segments")?;
+        }
+    }
+    order_columns(segments, orientation)
 }
 
 /// Order vertical columns right-to-left, preserving horizontal headers and
 /// footers outside the vertical text region.
-fn order_vertical_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphRecord>> {
-    let vertical_bounds: Vec<BBox> = clustered
-        .iter()
-        .filter(|line| line.first().is_some_and(has_vertical_baseline))
-        .map(|line| line_bbox(line))
-        .collect();
-    let vertical_y0 = vertical_bounds
-        .iter()
-        .map(|(_, y0, _, _)| *y0)
-        .reduce(f64::min)
-        .unwrap_or(f64::NEG_INFINITY);
-    let vertical_y1 = vertical_bounds
-        .iter()
-        .map(|(_, _, _, y1)| *y1)
-        .reduce(f64::max)
-        .unwrap_or(f64::INFINITY);
+fn order_vertical_page_lines(
+    clustered: Vec<Vec<GlyphRecord>>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut vertical_y0 = f64::INFINITY;
+    let mut vertical_y1 = f64::NEG_INFINITY;
+    let mut has_vertical = false;
+    for line in &clustered {
+        if line.first().is_some_and(has_vertical_baseline) {
+            let (_, y0, _, y1) = line_bbox(line);
+            vertical_y0 = vertical_y0.min(y0);
+            vertical_y1 = vertical_y1.max(y1);
+            has_vertical = true;
+        }
+    }
+    if !has_vertical {
+        vertical_y0 = f64::NEG_INFINITY;
+        vertical_y1 = f64::INFINITY;
+    }
 
     let mut top = Vec::new();
     let mut vertical = Vec::new();
@@ -1005,26 +1042,32 @@ fn order_vertical_page_lines(clustered: Vec<Vec<GlyphRecord>>) -> Vec<Vec<GlyphR
     let mut bottom = Vec::new();
     for line in clustered {
         if line.first().is_some_and(has_vertical_baseline) {
-            vertical.push(line);
+            try_push_text(&mut vertical, line, "ordered vertical text lines")?;
             continue;
         }
         let (_, y0, _, y1) = line_bbox(&line);
         if y1 <= vertical_y0 {
-            top.push(line);
+            try_push_text(&mut top, line, "text lines above vertical content")?;
         } else if y0 >= vertical_y1 {
-            bottom.push(line);
+            try_push_text(&mut bottom, line, "text lines below vertical content")?;
         } else {
-            middle.push(line);
+            try_push_text(&mut middle, line, "text lines beside vertical content")?;
         }
     }
     top.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
     vertical.sort_by(|left, right| line_bbox(right).0.total_cmp(&line_bbox(left).0));
     middle.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
     bottom.sort_by(|left, right| line_bbox(left).1.total_cmp(&line_bbox(right).1));
-    top.extend(vertical);
-    top.extend(middle);
-    top.extend(bottom);
-    top
+    for line in vertical {
+        try_push_text(&mut top, line, "ordered mixed-orientation text lines")?;
+    }
+    for line in middle {
+        try_push_text(&mut top, line, "ordered mixed-orientation text lines")?;
+    }
+    for line in bottom {
+        try_push_text(&mut top, line, "ordered mixed-orientation text lines")?;
+    }
+    Ok(top)
 }
 
 /// Return a line's bbox without exposing the internal glyph representation.
@@ -1048,107 +1091,144 @@ fn logical_line_bbox(line: &[GlyphRecord], orientation: AxisOrientation) -> BBox
     (u0, v0, u1, v1)
 }
 
-/// Median font size across lines, used to make gutter thresholds scale-aware.
-fn typical_line_size(lines: &[Vec<GlyphRecord>]) -> f64 {
-    let mut sizes: Vec<f64> = lines
-        .iter()
-        .filter_map(|line| line.iter().map(|glyph| glyph.size).reduce(f64::max))
-        .filter(|size| size.is_finite() && *size > 0.0)
-        .collect();
-    if sizes.is_empty() {
-        return 12.0;
-    }
-    sizes.sort_by(f64::total_cmp);
-    sizes[sizes.len() / 2]
+#[derive(Clone, Copy)]
+struct LineGeometry {
+    bbox: BBox,
+    size: f64,
 }
 
-/// Find the strongest vertical whitespace gutter between line segments.
-fn column_boundary(lines: &[Vec<GlyphRecord>], orientation: AxisOrientation) -> Option<f64> {
-    if lines.len() < MIN_COLUMN_LINES * 2 {
-        return None;
+fn line_geometry(line: &[GlyphRecord], orientation: AxisOrientation) -> LineGeometry {
+    LineGeometry {
+        bbox: logical_line_bbox(line, orientation),
+        size: line
+            .iter()
+            .map(|glyph| glyph.size)
+            .filter(|size| size.is_finite() && *size > 0.0)
+            .reduce(f64::max)
+            .unwrap_or(12.0),
     }
-    let bounds: Vec<BBox> = lines
-        .iter()
-        .map(|line| logical_line_bbox(line, orientation))
-        .collect();
-    let region_x0 = bounds.iter().map(|(x0, _, _, _)| *x0).reduce(f64::min)?;
-    let region_x1 = bounds.iter().map(|(_, _, x1, _)| *x1).reduce(f64::max)?;
-    let region_width = region_x1 - region_x0;
-    if !region_width.is_finite() || region_width <= 0.0 {
-        return None;
-    }
+}
 
-    let mut intervals: Vec<(f64, f64)> = bounds
-        .iter()
-        .filter_map(|(x0, _, x1, _)| {
-            let width = x1 - x0;
-            (width <= region_width * MAX_COLUMN_LINE_WIDTH_RATIO).then_some((*x0, *x1))
-        })
-        .collect();
-    intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let first = intervals.first().copied()?;
-    let mut merged = vec![first];
-    for (x0, x1) in intervals.into_iter().skip(1) {
-        let last = merged
-            .last_mut()
-            .expect("the first interval was inserted immediately before");
-        if x0 <= last.1 {
-            last.1 = last.1.max(x1);
-        } else {
-            merged.push((x0, x1));
+fn append_segment_geometry(
+    line: &[GlyphRecord],
+    orientation: AxisOrientation,
+    output: &mut Vec<LineGeometry>,
+) -> Result<(), TextPageLimit> {
+    let mut segment_start = 0usize;
+    let mut previous_end: Option<f64> = None;
+    let mut previous_size = 0.0_f64;
+    for (index, glyph) in line.iter().enumerate() {
+        let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
+        if previous_end.is_some_and(|end| glyph_progress(glyph) - end > threshold) {
+            try_push_text(
+                output,
+                line_geometry(&line[segment_start..index], orientation),
+                "text segment geometry",
+            )?;
+            segment_start = index;
+        }
+        previous_end = Some(glyph_end(glyph));
+        previous_size = glyph.size;
+    }
+    if segment_start < line.len() {
+        try_push_text(
+            output,
+            line_geometry(&line[segment_start..], orientation),
+            "text segment geometry",
+        )?;
+    }
+    Ok(())
+}
+
+fn typical_geometry_size(lines: &[LineGeometry]) -> Result<f64, TextPageLimit> {
+    let mut sizes = Vec::new();
+    for line in lines {
+        if line.size.is_finite() && line.size > 0.0 {
+            try_push_text(&mut sizes, line.size, "text-line size sample")?;
         }
     }
-
-    let minimum_gap = (typical_line_size(lines) * COLUMN_GUTTER).max(12.0);
-    merged
-        .windows(2)
-        .filter_map(|pair| {
-            let gap = pair[1].0 - pair[0].1;
-            (gap >= minimum_gap).then_some((gap, (pair[0].1 + pair[1].0) * 0.5))
-        })
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, boundary)| boundary)
+    if sizes.is_empty() {
+        return Ok(12.0);
+    }
+    sizes.sort_by(f64::total_cmp);
+    Ok(sizes[sizes.len() / 2])
 }
 
-/// Return the vertical extent of lines entirely on one side of a gutter.
-fn side_vertical_extent(
-    lines: &[Vec<GlyphRecord>],
+/// Find the strongest logical-inline whitespace gutter from lightweight bboxes.
+fn geometry_column_boundary(lines: &[LineGeometry]) -> Result<Option<f64>, TextPageLimit> {
+    if lines.len() < MIN_COLUMN_LINES * 2 {
+        return Ok(None);
+    }
+    let Some(region_x0) = lines.iter().map(|line| line.bbox.0).reduce(f64::min) else {
+        return Ok(None);
+    };
+    let Some(region_x1) = lines.iter().map(|line| line.bbox.2).reduce(f64::max) else {
+        return Ok(None);
+    };
+    let region_width = region_x1 - region_x0;
+    if !region_width.is_finite() || region_width <= 0.0 {
+        return Ok(None);
+    }
+
+    let mut intervals = Vec::new();
+    for line in lines {
+        let width = line.bbox.2 - line.bbox.0;
+        if width <= region_width * MAX_COLUMN_LINE_WIDTH_RATIO {
+            try_push_text(
+                &mut intervals,
+                (line.bbox.0, line.bbox.2),
+                "text gutter intervals",
+            )?;
+        }
+    }
+    intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, mut current_end)) = intervals.first().copied() else {
+        return Ok(None);
+    };
+    let minimum_gap = (typical_geometry_size(lines)? * COLUMN_GUTTER).max(12.0);
+    let mut best: Option<(f64, f64)> = None;
+    for &(x0, x1) in intervals.iter().skip(1) {
+        if x0 <= current_end {
+            current_end = current_end.max(x1);
+        } else {
+            let gap = x0 - current_end;
+            if gap >= minimum_gap && best.is_none_or(|(best_gap, _)| gap > best_gap) {
+                best = Some((gap, (current_end + x0) * 0.5));
+            }
+            current_end = x1;
+        }
+    }
+    Ok(best.map(|(_, boundary)| boundary))
+}
+
+fn geometry_side_extent(
+    lines: &[LineGeometry],
     boundary: f64,
     left_side: bool,
-    orientation: AxisOrientation,
 ) -> Option<(f64, f64, usize)> {
     let mut y0 = f64::INFINITY;
     let mut y1 = f64::NEG_INFINITY;
     let mut count = 0;
     for line in lines {
-        let (line_x0, line_y0, line_x1, line_y1) = logical_line_bbox(line, orientation);
         let belongs = if left_side {
-            line_x1 <= boundary
+            line.bbox.2 <= boundary
         } else {
-            line_x0 >= boundary
+            line.bbox.0 >= boundary
         };
         if belongs {
-            y0 = y0.min(line_y0);
-            y1 = y1.max(line_y1);
+            y0 = y0.min(line.bbox.1);
+            y1 = y1.max(line.bbox.3);
             count += 1;
         }
     }
     (count > 0).then_some((y0, y1, count))
 }
 
-/// Validate that both sides are sustained columns rather than indentation.
-fn valid_column_split(
-    lines: &[Vec<GlyphRecord>],
-    boundary: f64,
-    orientation: AxisOrientation,
-) -> bool {
-    let Some((left_y0, left_y1, left_count)) =
-        side_vertical_extent(lines, boundary, true, orientation)
-    else {
+fn valid_geometry_column_split(lines: &[LineGeometry], boundary: f64) -> bool {
+    let Some((left_y0, left_y1, left_count)) = geometry_side_extent(lines, boundary, true) else {
         return false;
     };
-    let Some((right_y0, right_y1, right_count)) =
-        side_vertical_extent(lines, boundary, false, orientation)
+    let Some((right_y0, right_y1, right_count)) = geometry_side_extent(lines, boundary, false)
     else {
         return false;
     };
@@ -1165,57 +1245,73 @@ fn valid_column_split(
 fn order_columns(
     lines: Vec<Vec<GlyphRecord>>,
     orientation: AxisOrientation,
-) -> Vec<Vec<GlyphRecord>> {
-    let Some(boundary) = column_boundary(&lines, orientation) else {
-        return lines;
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut geometry = Vec::new();
+    for line in &lines {
+        try_push_text(
+            &mut geometry,
+            line_geometry(line, orientation),
+            "column text-line geometry",
+        )?;
+    }
+    let Some(boundary) = geometry_column_boundary(&geometry)? else {
+        return Ok(lines);
     };
-    if !valid_column_split(&lines, boundary, orientation) {
-        return lines;
+    if !valid_geometry_column_split(&geometry, boundary) {
+        return Ok(lines);
     }
 
-    let side_centers: Vec<f64> = lines
-        .iter()
-        .filter_map(|line| {
-            let (x0, y0, x1, y1) = logical_line_bbox(line, orientation);
-            (x1 <= boundary || x0 >= boundary).then_some((y0 + y1) * 0.5)
-        })
-        .collect();
-    let Some(first_center) = side_centers.iter().copied().reduce(f64::min) else {
-        return lines;
-    };
-    let Some(last_center) = side_centers.iter().copied().reduce(f64::max) else {
-        return lines;
-    };
-    let has_middle_spanning = lines.iter().any(|line| {
-        let (x0, y0, x1, y1) = logical_line_bbox(line, orientation);
-        let center = (y0 + y1) * 0.5;
-        x0 < boundary && x1 > boundary && center > first_center && center < last_center
+    let mut first_center = f64::INFINITY;
+    let mut last_center = f64::NEG_INFINITY;
+    let mut has_side_line = false;
+    for line in &geometry {
+        if line.bbox.2 <= boundary || line.bbox.0 >= boundary {
+            let center = (line.bbox.1 + line.bbox.3) * 0.5;
+            first_center = first_center.min(center);
+            last_center = last_center.max(center);
+            has_side_line = true;
+        }
+    }
+    if !has_side_line {
+        return Ok(lines);
+    }
+    let has_middle_spanning = geometry.iter().any(|line| {
+        let center = (line.bbox.1 + line.bbox.3) * 0.5;
+        line.bbox.0 < boundary
+            && line.bbox.2 > boundary
+            && center > first_center
+            && center < last_center
     });
     if has_middle_spanning {
-        return lines;
+        return Ok(lines);
     }
 
     let mut top = Vec::new();
     let mut left = Vec::new();
     let mut right = Vec::new();
     let mut bottom = Vec::new();
-    for line in lines {
-        let (x0, y0, x1, y1) = logical_line_bbox(&line, orientation);
-        if x1 <= boundary {
-            left.push(line);
-        } else if x0 >= boundary {
-            right.push(line);
-        } else if (y0 + y1) * 0.5 <= first_center {
-            top.push(line);
+    for (line, line_geometry) in lines.into_iter().zip(geometry) {
+        if line_geometry.bbox.2 <= boundary {
+            try_push_text(&mut left, line, "left-column text lines")?;
+        } else if line_geometry.bbox.0 >= boundary {
+            try_push_text(&mut right, line, "right-column text lines")?;
+        } else if (line_geometry.bbox.1 + line_geometry.bbox.3) * 0.5 <= first_center {
+            try_push_text(&mut top, line, "column-spanning headings")?;
         } else {
-            bottom.push(line);
+            try_push_text(&mut bottom, line, "column-spanning footers")?;
         }
     }
 
-    top.extend(order_columns(left, orientation));
-    top.extend(order_columns(right, orientation));
-    top.extend(bottom);
-    top
+    for line in order_columns(left, orientation)? {
+        try_push_text(&mut top, line, "ordered column text lines")?;
+    }
+    for line in order_columns(right, orientation)? {
+        try_push_text(&mut top, line, "ordered column text lines")?;
+    }
+    for line in bottom {
+        try_push_text(&mut top, line, "ordered column text lines")?;
+    }
+    Ok(top)
 }
 
 /// Reusable interpretation of one page.
@@ -1247,7 +1343,7 @@ impl TextPage {
         let (glyphs, _, text_size, glyph_count) =
             collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
         let physical_lines = cluster_lines(glyphs)?;
-        let lines = order_page_lines(physical_lines);
+        let lines = order_page_lines(physical_lines)?;
         Ok(Self {
             width: f64::from(width),
             height: f64::from(height),
