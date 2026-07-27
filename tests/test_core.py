@@ -119,6 +119,40 @@ def test_save_bytes_paths_are_bounded_in_core(one_page_pdf: bytes) -> None:
     assert encrypted_limit.value.args[0] == "pdf_output_size"
 
 
+def test_save_writer_temporary_state_is_restored(tmp_path: Path) -> None:
+    plain = _Document()
+    plain.new_page(None, 595.0, 842.0)
+    expected_plain = plain.save_bytes()
+    assert plain.save_bytes() == expected_plain
+
+    with pytest.raises(LimitError):
+        plain.save_bytes(16)
+    assert plain.save_bytes() == expected_plain
+
+    first_path = tmp_path / "plain-first.pdf"
+    second_path = tmp_path / "plain-second.pdf"
+    plain.save(str(first_path))
+    plain.save(str(second_path))
+    assert first_path.read_bytes() == expected_plain
+    assert second_path.read_bytes() == expected_plain
+
+    modern = _Document()
+    modern.new_page(None, 595.0, 842.0)
+    expected_modern = modern.save_bytes_with_object_streams()
+    assert modern.save_bytes_with_object_streams() == expected_modern
+
+    with pytest.raises(LimitError):
+        modern.save_bytes_with_object_streams(16)
+    assert modern.save_bytes_with_object_streams() == expected_modern
+
+    modern_first_path = tmp_path / "modern-first.pdf"
+    modern_second_path = tmp_path / "modern-second.pdf"
+    modern.save_with_object_streams(str(modern_first_path))
+    modern.save_with_object_streams(str(modern_second_path))
+    assert modern_first_path.read_bytes() == expected_modern
+    assert modern_second_path.read_bytes() == expected_modern
+
+
 def test_save_and_load_file(tmp_path, one_page_pdf: bytes) -> None:  # noqa: ANN001
     path = tmp_path / "out.pdf"
     doc = _Document.load_bytes(one_page_pdf)

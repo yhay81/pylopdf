@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- PDF byte and file writers now restore lopdf's ephemeral xref/object-stream
+  IDs and trailer changes after successful or failed output. Repeated no-op
+  serialization is byte-for-byte deterministic while documented save-option
+  mutations remain intact.
 - Page annotation appends now validate and preallocate their final `/Annots`
   target before creating annotation or appearance objects. Direct and unshared
   indirect arrays reserve in place, while page-shared indirect arrays detach

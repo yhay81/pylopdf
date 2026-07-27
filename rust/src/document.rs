@@ -1631,6 +1631,45 @@ impl Write for BoundedPdfOutput {
     }
 }
 
+/// Write one PDF while restoring lopdf's ephemeral xref writer state.
+///
+/// lopdf materializes neither object streams nor the final xref stream in
+/// `Document::objects`, but its writer still advances `max_id` for them and
+/// rewrites the trailer dictionary. Leaving those changes behind makes each
+/// otherwise identical save choose new object IDs. Save options may
+/// intentionally raise the PDF version and change the xref type; those fields
+/// are outside this snapshot and retain their existing mutation semantics.
+fn write_pdf_stably<W: Write>(
+    document: &mut Document,
+    target: &mut W,
+    options: Option<SaveOptions>,
+) -> std::io::Result<()> {
+    let max_id = document.max_id;
+    let trailer = document.trailer.clone();
+    let result = match options {
+        Some(options) => document.save_with_options(target, options),
+        None => document.save_to(target),
+    };
+    document.max_id = max_id;
+    document.trailer = trailer;
+    result
+}
+
+/// Stream one PDF file through the stable writer-state boundary.
+fn write_pdf_file_stably(
+    document: &mut Document,
+    path: &str,
+    options: Option<SaveOptions>,
+) -> std::io::Result<()> {
+    let file = std::fs::File::create(path)?;
+    let mut writer = std::io::BufWriter::new(file);
+    write_pdf_stably(document, &mut writer, options)?;
+    writer
+        .into_inner()
+        .map(|_| ())
+        .map_err(std::io::IntoInnerError::into_error)
+}
+
 /// Serialize through a writer that never retains bytes beyond `max_size`.
 fn serialize_pdf_with_limit(
     document: &mut Document,
@@ -1645,10 +1684,7 @@ fn serialize_pdf_with_limit(
         ));
     }
     let mut output = BoundedPdfOutput::new(max_size);
-    let result = match options {
-        Some(options) => document.save_with_options(&mut output, options).map(|_| ()),
-        None => document.save_to(&mut output).map(|_| ()),
-    };
+    let result = write_pdf_stably(document, &mut output, options);
     if output.exceeded {
         let limit = max_size.expect("an output can exceed only a configured limit");
         return Err(limit_err(
@@ -6743,9 +6779,7 @@ impl _Document {
     /// Save to a file path.
     fn save(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
         py.detach(|| {
-            self.doc
-                .save(path)
-                .map(|_| ())
+            write_pdf_file_stably(&mut self.doc, path, None)
                 .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
         })
     }
@@ -6763,15 +6797,7 @@ impl _Document {
     fn save_with_object_streams(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
         self.invalidate_hayro_pdf();
         py.detach(|| {
-            let file = std::fs::File::create(path)
-                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
-            let mut writer = std::io::BufWriter::new(file);
-            self.doc
-                .save_with_options(&mut writer, modern_save_options())
-                .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))?;
-            writer
-                .into_inner()
-                .map(|_| ())
+            write_pdf_file_stably(&mut self.doc, path, Some(modern_save_options()))
                 .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
         })
     }
