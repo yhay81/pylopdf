@@ -1,9 +1,9 @@
 //! AcroForm widget appearance primitives.
 
 use lopdf::{Dictionary, Document, Object, Stream, dictionary};
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::draw;
+use crate::layout::{collect_graphemes, copy_text, normalized_single_line};
 
 /// Resolved widget dimensions, rotation, background, and border.
 pub struct WidgetStyle {
@@ -27,14 +27,9 @@ pub fn standard_text_ops(
         return Ok(Vec::new());
     }
     let normalized = if multiline {
-        text.to_owned()
+        copy_text(text)?
     } else {
-        text.chars()
-            .map(|character| match character {
-                '\r' | '\n' => ' ',
-                other => other,
-            })
-            .collect()
+        normalized_single_line(text)?
     };
     let rect = style.content_rect();
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
@@ -77,7 +72,9 @@ pub fn validate_comb_text(text: &str, max_len: usize) -> Result<(), String> {
     if max_len == 0 {
         return Err("comb field MaxLen must be positive".to_owned());
     }
-    let count = normalized_single_line(text).graphemes(true).count();
+    let normalized = normalized_single_line(text)?;
+    let count =
+        unicode_segmentation::UnicodeSegmentation::graphemes(normalized.as_str(), true).count();
     if count > max_len {
         return Err(format!(
             "comb field value has {count} characters, exceeding MaxLen {max_len}"
@@ -95,8 +92,8 @@ pub fn standard_comb_text_ops(
     font_resource: &str,
 ) -> Result<Vec<u8>, String> {
     validate_comb_text(text, max_len)?;
-    let normalized = normalized_single_line(text);
-    let graphemes = normalized.graphemes(true).collect::<Vec<_>>();
+    let normalized = normalized_single_line(text)?;
+    let graphemes = collect_graphemes(&normalized)?;
     if graphemes.is_empty() {
         return Ok(Vec::new());
     }
@@ -109,20 +106,21 @@ pub fn standard_comb_text_ops(
     let cell_width = box_size.0 / max_len as f64;
     let mut font_size = box_size.1.min(12.0);
     let layouts = loop {
-        let candidates = graphemes
-            .iter()
-            .map(|grapheme| {
-                draw::standard_textbox_layout(
-                    grapheme,
-                    (cell_width, box_size.1),
-                    "Helvetica",
-                    font_size,
-                    1.0,
-                    false,
-                    Some(crate::layout::MAX_GENERATED_TEXT_LINES),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut candidates = Vec::new();
+        candidates
+            .try_reserve_exact(graphemes.len())
+            .map_err(|error| format!("failed to allocate comb field layout collection: {error}"))?;
+        for grapheme in &graphemes {
+            candidates.push(draw::standard_textbox_layout(
+                grapheme,
+                (cell_width, box_size.1),
+                "Helvetica",
+                font_size,
+                1.0,
+                false,
+                Some(crate::layout::MAX_GENERATED_TEXT_LINES),
+            )?);
+        }
         if candidates
             .iter()
             .all(|candidate| candidate.fits() && candidate.lines.len() == 1)
@@ -144,7 +142,7 @@ pub fn standard_comb_text_ops(
     let mut out = Vec::new();
     for (index, layout) in layouts.iter().enumerate() {
         let x0 = rect[0] + (start_slot + index) as f64 * cell_width;
-        out.extend_from_slice(&draw::textbox_text_ops(
+        let text_ops = draw::textbox_text_ops(
             [0.0, 0.0, style.layout_width, style.layout_height],
             0,
             [x0, rect[1], x0 + cell_width, rect[3]],
@@ -153,18 +151,12 @@ pub fn standard_comb_text_ops(
             font_resource,
             font_size,
             (0.0, 0.0, 0.0),
-        )?);
+        )?;
+        out.try_reserve(text_ops.len())
+            .map_err(|error| format!("failed to grow comb field text operators: {error}"))?;
+        out.extend(text_ops);
     }
     Ok(out)
-}
-
-fn normalized_single_line(text: &str) -> String {
-    text.chars()
-        .map(|character| match character {
-            '\r' | '\n' => ' ',
-            other => other,
-        })
-        .collect()
 }
 
 #[derive(Clone)]
@@ -291,25 +283,30 @@ impl WidgetStyle {
     }
 
     /// Combine the widget decoration with clipped text/Form drawing operators.
-    pub fn decorated_text_ops(&self, text_ops: &[u8]) -> Vec<u8> {
+    pub fn decorated_text_ops(&self, text_ops: &[u8]) -> Result<Vec<u8>, String> {
         let mut out = self.decoration_ops();
         if text_ops.is_empty() {
-            return out;
+            return Ok(out);
         }
         let rect = self.content_rect();
-        out.extend_from_slice(
-            format!(
-                "q\n{} {} {} {} re W n\n",
-                fmt(rect[0]),
-                fmt(rect[1]),
-                fmt((rect[2] - rect[0]).max(0.0)),
-                fmt((rect[3] - rect[1]).max(0.0)),
-            )
-            .as_bytes(),
+        let clip = format!(
+            "q\n{} {} {} {} re W n\n",
+            fmt(rect[0]),
+            fmt(rect[1]),
+            fmt((rect[2] - rect[0]).max(0.0)),
+            fmt((rect[3] - rect[1]).max(0.0)),
         );
+        let additional = clip
+            .len()
+            .checked_add(text_ops.len())
+            .and_then(|size| size.checked_add(2))
+            .ok_or_else(|| "widget appearance exceeds the platform size limit".to_owned())?;
+        out.try_reserve(additional)
+            .map_err(|error| format!("failed to grow widget appearance operators: {error}"))?;
+        out.extend_from_slice(clip.as_bytes());
         out.extend_from_slice(text_ops);
         out.extend_from_slice(b"Q\n");
-        out
+        Ok(out)
     }
 
     /// Draw the widget background and rectangular border.

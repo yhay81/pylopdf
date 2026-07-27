@@ -812,47 +812,50 @@ pub fn textbox_text_ops(
         } else {
             0.0
         };
-        out.extend_from_slice(
-            format!(
-                "{} Tw\n{} {} {} {} {} {} Tm\n",
-                fmt(word_space),
-                fmt(rx),
-                fmt(ry),
-                fmt(ux),
-                fmt(uy),
-                fmt(ox),
-                fmt(oy),
-            )
-            .as_bytes(),
+        let positioning = format!(
+            "{} Tw\n{} {} {} {} {} {} Tm\n",
+            fmt(word_space),
+            fmt(rx),
+            fmt(ry),
+            fmt(ux),
+            fmt(uy),
+            fmt(ox),
+            fmt(oy),
         );
+        out.try_reserve(positioning.len())
+            .map_err(|error| format!("failed to grow textbox text operators: {error}"))?;
+        out.extend_from_slice(positioning.as_bytes());
         let encoded = encode_cp1252(&line.text)?;
-        append_pdf_string(&mut out, &encoded);
+        append_pdf_string(&mut out, &encoded)?;
+        out.try_reserve(4)
+            .map_err(|error| format!("failed to grow textbox text operators: {error}"))?;
         out.extend_from_slice(b" Tj\n");
     }
+    out.try_reserve(5)
+        .map_err(|error| format!("failed to grow textbox text operators: {error}"))?;
     out.extend_from_slice(b"ET\nQ\n");
     Ok(out)
 }
 
 fn standard_text_width(text: &str, font: Base14Font, font_size: f64) -> Result<f64, String> {
-    let encoded = encode_cp1252(text)?;
     let metrics = font.metrics();
     let symbolic = matches!(font, Base14Font::Symbol | Base14Font::ZapfDingbats);
-    let units = encoded
-        .into_iter()
-        .map(|byte| {
-            if symbolic {
-                metrics
-                    .character_metrics
-                    .iter()
-                    .find(|metric| metric.code == i32::from(byte))
-                    .map(|metric| metric.width_x)
-            } else {
-                font.winansi_width(byte)
-            }
-            .unwrap_or(250.0)
-        })
-        .map(f64::from)
-        .sum::<f64>();
+    let mut units = 0.0;
+    for character in text.chars() {
+        let byte = cp1252_byte(character)
+            .ok_or_else(|| "Standard 14 text contains a character outside WinAnsi".to_owned())?;
+        let width = if symbolic {
+            metrics
+                .character_metrics
+                .iter()
+                .find(|metric| metric.code == i32::from(byte))
+                .map(|metric| metric.width_x)
+        } else {
+            font.winansi_width(byte)
+        }
+        .unwrap_or(250.0);
+        units += f64::from(width);
+    }
     Ok(units * font_size / 1000.0)
 }
 
@@ -877,50 +880,74 @@ fn base14_font(name: &str) -> Option<Base14Font> {
 }
 
 fn encode_cp1252(text: &str) -> Result<Vec<u8>, String> {
-    text.chars()
-        .map(|character| {
-            let code = character as u32;
-            match code {
-                0x00..=0x7f | 0xa0..=0xff => Ok(code as u8),
-                0x20ac => Ok(0x80),
-                0x201a => Ok(0x82),
-                0x0192 => Ok(0x83),
-                0x201e => Ok(0x84),
-                0x2026 => Ok(0x85),
-                0x2020 => Ok(0x86),
-                0x2021 => Ok(0x87),
-                0x02c6 => Ok(0x88),
-                0x2030 => Ok(0x89),
-                0x0160 => Ok(0x8a),
-                0x2039 => Ok(0x8b),
-                0x0152 => Ok(0x8c),
-                0x017d => Ok(0x8e),
-                0x2018 => Ok(0x91),
-                0x2019 => Ok(0x92),
-                0x201c => Ok(0x93),
-                0x201d => Ok(0x94),
-                0x2022 => Ok(0x95),
-                0x2013 => Ok(0x96),
-                0x2014 => Ok(0x97),
-                0x02dc => Ok(0x98),
-                0x2122 => Ok(0x99),
-                0x0161 => Ok(0x9a),
-                0x203a => Ok(0x9b),
-                0x0153 => Ok(0x9c),
-                0x017e => Ok(0x9e),
-                0x0178 => Ok(0x9f),
-                _ => Err("Standard 14 text contains a character outside WinAnsi".to_owned()),
-            }
-        })
-        .collect()
+    let mut encoded = Vec::new();
+    encoded
+        .try_reserve_exact(text.len())
+        .map_err(|error| format!("failed to allocate encoded Standard 14 text: {error}"))?;
+    for character in text.chars() {
+        encoded.push(
+            cp1252_byte(character).ok_or_else(|| {
+                "Standard 14 text contains a character outside WinAnsi".to_owned()
+            })?,
+        );
+    }
+    Ok(encoded)
+}
+
+fn cp1252_byte(character: char) -> Option<u8> {
+    let code = character as u32;
+    Some(match code {
+        0x00..=0x7f | 0xa0..=0xff => code as u8,
+        0x20ac => 0x80,
+        0x201a => 0x82,
+        0x0192 => 0x83,
+        0x201e => 0x84,
+        0x2026 => 0x85,
+        0x2020 => 0x86,
+        0x2021 => 0x87,
+        0x02c6 => 0x88,
+        0x2030 => 0x89,
+        0x0160 => 0x8a,
+        0x2039 => 0x8b,
+        0x0152 => 0x8c,
+        0x017d => 0x8e,
+        0x2018 => 0x91,
+        0x2019 => 0x92,
+        0x201c => 0x93,
+        0x201d => 0x94,
+        0x2022 => 0x95,
+        0x2013 => 0x96,
+        0x2014 => 0x97,
+        0x02dc => 0x98,
+        0x2122 => 0x99,
+        0x0161 => 0x9a,
+        0x203a => 0x9b,
+        0x0153 => 0x9c,
+        0x017e => 0x9e,
+        0x0178 => 0x9f,
+        _ => return None,
+    })
 }
 
 /// Return whether every character has a WinAnsi encoding.
 pub fn is_winansi(text: &str) -> bool {
-    encode_cp1252(text).is_ok()
+    text.chars()
+        .all(|character| cp1252_byte(character).is_some())
 }
 
-fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) {
+fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) -> Result<(), String> {
+    let additional = text
+        .iter()
+        .try_fold(2usize, |size, byte| {
+            size.checked_add(match byte {
+                b'(' | b')' | b'\\' => 2,
+                0x20..=0x7e => 1,
+                _ => 4,
+            })
+        })
+        .ok_or_else(|| "encoded Standard 14 text exceeds the platform size limit".to_owned())?;
+    out.try_reserve(additional)
+        .map_err(|error| format!("failed to grow encoded Standard 14 text: {error}"))?;
     out.push(b'(');
     for &byte in text {
         match byte {
@@ -929,10 +956,16 @@ fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) {
                 out.push(byte);
             }
             0x20..=0x7e => out.push(byte),
-            _ => out.extend_from_slice(format!("\\{byte:03o}").as_bytes()),
+            _ => out.extend_from_slice(&[
+                b'\\',
+                b'0' + ((byte >> 6) & 0x07),
+                b'0' + ((byte >> 3) & 0x07),
+                b'0' + (byte & 0x07),
+            ]),
         }
     }
     out.push(b')');
+    Ok(())
 }
 
 /// Wrap existing `/Contents` in q/Q streams once to isolate graphics state.

@@ -127,7 +127,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   展开量。可信插入input可用`max_text_size=None`显式取消，拒绝code为
   `text_input_size`或`text_line_count`。AcroForm文本／选项外观保留固定4,096行上限。
   UAX #14／grapheme index、行collection与保留的行text均采用fallible扩展，因此
-  allocation refusal不会暴露部分layout或document编辑。
+  allocation refusal不会暴露部分layout或document编辑。pylopdf自有的规范化、
+  grapheme引用、shaped line／glyph collection、WinAnsi输出与输入派生的text operator
+  扩展也采用fallible处理。Standard 14宽度检查不会分配encoded text copy。
+  allocation refusal返回`PdfError`；插入保持不修改文档，form fill则原子rollback。
 - `search_for()`将搜索词限制为4,096 UTF-8 byte，返回geometry默认限制为4,096项。
   Python在PyO3 copy前拒绝超限搜索词，Rust边界再次检查两项限制。可信结果集可用
   `max_hits=None`显式取消；拒绝code为`search_input_size`或

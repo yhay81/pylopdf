@@ -12,10 +12,9 @@ use krilla::page::PageSettings;
 use krilla::paint::Fill;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use read_fonts::TableProvider;
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::form;
-use crate::layout::layout_textbox;
+use crate::layout::{collect_graphemes, copy_text, layout_textbox, normalized_single_line};
 
 /// Generate one transparent page containing subset-embedded OpenType text.
 ///
@@ -41,10 +40,7 @@ pub fn embedded_text_page(
         .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
     let shaper_data = ShaperData::new(&shaping_font);
     let shaper = shaper_data.shaper(&shaping_font).build();
-    let shaped_lines = lines
-        .iter()
-        .map(|line| shape_line(line, &shaper))
-        .collect::<Result<Vec<_>, _>>()?;
+    let shaped_lines = shape_lines(lines.iter().map(String::as_str), &shaper)?;
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
 
@@ -127,11 +123,7 @@ pub fn embedded_textbox_page(
         return Ok((None, layout.spare_height));
     }
 
-    let shaped_lines = layout
-        .lines
-        .iter()
-        .map(|line| shape_line(&line.text, &shaper))
-        .collect::<Result<Vec<_>, _>>()?;
+    let shaped_lines = shape_lines(layout.lines.iter().map(|line| line.text.as_str()), &shaper)?;
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
 
@@ -209,14 +201,9 @@ pub fn embedded_widget_text_page(
     let shaper_data = ShaperData::new(&shaping_font);
     let shaper = shaper_data.shaper(&shaping_font).build();
     let normalized = if multiline {
-        text.to_owned()
+        copy_text(text)?
     } else {
-        text.chars()
-            .map(|character| match character {
-                '\r' | '\n' => ' ',
-                other => other,
-            })
-            .collect()
+        normalized_single_line(text)?
     };
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
     if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
@@ -252,11 +239,7 @@ pub fn embedded_widget_text_page(
         }
     };
 
-    let shaped_lines = layout
-        .lines
-        .iter()
-        .map(|line| shape_line(&line.text, &shaper))
-        .collect::<Result<Vec<_>, _>>()?;
+    let shaped_lines = shape_lines(layout.lines.iter().map(|line| line.text.as_str()), &shaper)?;
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
     let size = finite_f32(font_size, "font size")?;
@@ -323,14 +306,8 @@ pub fn embedded_widget_comb_text_page(
     let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
     let shaper_data = ShaperData::new(&shaping_font);
     let shaper = shaper_data.shaper(&shaping_font).build();
-    let normalized = text
-        .chars()
-        .map(|character| match character {
-            '\r' | '\n' => ' ',
-            other => other,
-        })
-        .collect::<String>();
-    let graphemes = normalized.graphemes(true).collect::<Vec<_>>();
+    let normalized = normalized_single_line(text)?;
+    let graphemes = collect_graphemes(&normalized)?;
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
     if box_size.0 <= 0.0 || box_size.1 <= 0.0 {
         return Err("widget has no usable text area".to_owned());
@@ -339,18 +316,19 @@ pub fn embedded_widget_comb_text_page(
 
     let mut font_size = (box_size.1 / (ascent + descent).max(0.01)).min(12.0);
     let shaped = loop {
-        let candidates = graphemes
-            .iter()
-            .map(|grapheme| {
-                let glyphs = shape_line(grapheme, &shaper)?;
-                let glyph_width = glyphs
-                    .iter()
-                    .map(|glyph| f64::from(glyph.x_advance) * font_size)
-                    .sum::<f64>()
-                    .abs();
-                Ok((glyphs, glyph_width))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+        let mut candidates = Vec::new();
+        candidates
+            .try_reserve_exact(graphemes.len())
+            .map_err(|error| format!("failed to allocate shaped comb field collection: {error}"))?;
+        for grapheme in &graphemes {
+            let glyphs = shape_line(grapheme, &shaper)?;
+            let glyph_width = glyphs
+                .iter()
+                .map(|glyph| f64::from(glyph.x_advance) * font_size)
+                .sum::<f64>()
+                .abs();
+            candidates.push((glyphs, glyph_width));
+        }
         if candidates
             .iter()
             .all(|(_, glyph_width)| *glyph_width <= cell_width)
@@ -457,6 +435,20 @@ fn justify_glyphs(glyphs: &mut [KrillaGlyph], text: &str, extra_em: f64) {
     }
 }
 
+fn shape_lines<'a>(
+    lines: impl ExactSizeIterator<Item = &'a str>,
+    shaper: &Shaper<'_>,
+) -> Result<Vec<Vec<KrillaGlyph>>, String> {
+    let mut shaped = Vec::new();
+    shaped
+        .try_reserve_exact(lines.len())
+        .map_err(|error| format!("failed to allocate shaped text line collection: {error}"))?;
+    for line in lines {
+        shaped.push(shape_line(line, shaper)?);
+    }
+    Ok(shaped)
+}
+
 fn shape_line(text: &str, shaper: &Shaper<'_>) -> Result<Vec<KrillaGlyph>, String> {
     if text.is_empty() {
         return Ok(Vec::new());
@@ -470,7 +462,10 @@ fn shape_line(text: &str, shaper: &Shaper<'_>) -> Result<Vec<KrillaGlyph>, Strin
     let positions = output.glyph_positions();
     let infos = output.glyph_infos();
     let units_per_em = shaper.units_per_em() as f32;
-    let mut glyphs = Vec::with_capacity(output.len());
+    let mut glyphs = Vec::new();
+    glyphs
+        .try_reserve_exact(output.len())
+        .map_err(|error| format!("failed to allocate shaped glyph collection: {error}"))?;
 
     for (index, (info, position)) in infos.iter().zip(positions).enumerate() {
         if info.glyph_id == 0 {

@@ -5307,7 +5307,9 @@ impl _Document {
                 }
             }
         };
-        let content = style.decorated_text_ops(&text_ops);
+        let content = style
+            .decorated_text_ops(&text_ops)
+            .map_err(generated_text_err)?;
         let appearance_id = self.doc.add_object(style.stream(resources, content));
         self.set_widget_normal_appearance(widget_id, Some(Object::Reference(appearance_id)))?;
         Ok(true)

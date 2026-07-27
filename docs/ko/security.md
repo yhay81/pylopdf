@@ -144,7 +144,11 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   `text_input_size` 또는`text_line_count`입니다. AcroForm text／choice appearance는
   고정4,096줄layout 상한을 유지합니다. UAX #14／grapheme index, 줄collection,
   유지하는 줄text는fallible하게 확장되므로 allocation refusal은 부분layout이나
-  document 편집을 노출하지 않습니다.
+  document 편집을 노출하지 않습니다. pylopdf가 소유한 정규화, grapheme 참조,
+  shaped line／glyph collection, WinAnsi 출력, 입력 기반text operator 확장도
+  fallible합니다. Standard 14 너비 검사는encoded text copy를 할당하지 않습니다.
+  allocation refusal은`PdfError`를 반환하며 삽입은non-mutating이고 form fill은
+  원자적으로rollback합니다.
 - `search_for()`의 검색어는UTF-8 4,096 byte, 반환geometry는 기본4,096건으로
   제한됩니다. Python은PyO3 copy 전에 초과 검색어를 거부하고Rust 경계도 두 제한을
   다시 검사합니다. 신뢰 가능한 결과 집합은`max_hits=None`으로 명시적으로 해제할

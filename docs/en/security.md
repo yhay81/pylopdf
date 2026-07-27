@@ -159,7 +159,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   `text_line_count`. AcroForm text and choice appearances retain the fixed
   4,096-line layout cap. UAX #14 and grapheme indexes, line collections, and
   retained line text grow fallibly, so allocation refusal exposes neither a
-  partial layout nor a document edit.
+  partial layout nor a document edit. Pylopdf-owned normalization, grapheme
+  references, shaped-line/glyph collections, WinAnsi output, and
+  input-derived text-operator growth are fallible; Standard 14 width checks do
+  not allocate an encoded text copy. Allocation refusal returns `PdfError`;
+  insertion remains nonmutating and form filling rolls back atomically.
 - `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
   returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
   copying and the Rust boundary repeats both limits. `max_hits=None` explicitly
