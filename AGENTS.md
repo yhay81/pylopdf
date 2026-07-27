@@ -126,8 +126,11 @@ overview.
   cloning text and font metadata for every qualifying row. Candidate runs,
   bounds, cells, anchors, and cell text grow fallibly, and an allocation
   refusal invalidates the complete table interpretation instead of returning
-  partial results. The text strategy intentionally does not run as the default
-  because aligned multicolumn prose is geometrically ambiguous.
+  partial results. Returning cached bordered or text tables deep-copies cell
+  text, anchors, and result vectors fallibly after clip filtering; refusal
+  exposes no partial result and preserves the cache. The text strategy
+  intentionally does not run as the default because aligned multicolumn prose
+  is geometrically ambiguous.
   `find_tables(clip=)` returns only complete candidate bboxes inside the
   display-coordinate region; it does not synthesize partial tables or reduce
   the cached full-page interpretation cost. `TableDiagnostics.confidence` is a

@@ -1458,17 +1458,43 @@ impl TablePage {
         self.glyph_count
     }
 
-    pub(crate) fn tables(&self, text_strategy: bool, clip: Option<BBox>) -> Vec<TableTuple> {
+    pub(crate) fn tables(
+        &self,
+        text_strategy: bool,
+        clip: Option<BBox>,
+    ) -> Result<Vec<TableTuple>, TextPageLimit> {
         let tables = if text_strategy {
             &self.text_tables
         } else {
             &self.tables
         };
-        tables
-            .iter()
-            .filter(|table| clip.is_none_or(|clip| bbox_is_inside(table.0, clip)))
-            .cloned()
-            .collect()
+        let mut output = Vec::new();
+        for table in tables {
+            if clip.is_some_and(|clip| !bbox_is_inside(table.0, clip)) {
+                continue;
+            }
+            let mut cells = Vec::new();
+            for cell in &table.3 {
+                let cloned = if let Some((bbox, text)) = cell {
+                    let mut cloned_text = String::new();
+                    try_push_str_text(&mut cloned_text, text.as_str(), "returned table cell text")?;
+                    Some((*bbox, cloned_text))
+                } else {
+                    None
+                };
+                try_push_text(&mut cells, cloned, "returned table cells")?;
+            }
+            let mut anchors = Vec::new();
+            for &anchor in &table.4 {
+                try_push_text(&mut anchors, anchor, "returned table cell anchors")?;
+            }
+            try_push_text(
+                &mut output,
+                (table.0, table.1, table.2, cells, anchors, table.5),
+                "returned tables",
+            )?;
+        }
+        Ok(output)
     }
 }
 
