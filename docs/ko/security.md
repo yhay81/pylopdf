@@ -59,16 +59,19 @@ Web profile은 현재 다음 상한을 독립적으로 적용합니다.
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
 `interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
-`form_field_input_size`, `annotation_input_size`, `xmp_metadata_size`,
+`form_field_input_size`, `form_content_size`, `annotation_input_size`, `xmp_metadata_size`,
 `metadata_input_size`, `toc_input_size`, `page_label_input_size`,
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
-`ocr_model_size`, `ocr_dictionary_entries`, `decompression_unverifiable` 중
+`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
+`decompression_unverifiable` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
+pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을materialize하기 전에
+16개 layer를 초과하는`/Filter` chain도 거부합니다.
 
 `doc.complexity`는 stream 디코딩이나 renderer 호출 없이 페이지, object, stream 수,
 인코딩된 stream byte, 직접 object 최대 깊이를 보고합니다. 무거운 추출 전에

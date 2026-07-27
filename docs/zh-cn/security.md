@@ -55,16 +55,18 @@ Web预设目前独立应用以下上限：
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
-`embedded_file_input_size`、`form_field_input_size`、`annotation_input_size`、
+`embedded_file_input_size`、`form_field_input_size`、`form_content_size`、
+`annotation_input_size`、
 `metadata_input_size`、`toc_input_size`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
 `font_input_size`、`text_input_size`、`text_line_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
-`decompression_unverifiable`之一；
+`stream_filter_count`、`decompression_unverifiable`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
-乐观解码。
+乐观解码。pylopdf自有的有界lopdf解码路径还会在materialize filter列表前拒绝
+超过16层的`/Filter` chain。
 
 `doc.complexity`无需解码流或调用renderer，即可报告页数、对象数、流数、编码流
 字节数以及直接对象最大深度，适合在重型提取前进行routing。结构和解压预算验证

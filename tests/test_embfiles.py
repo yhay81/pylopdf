@@ -193,6 +193,14 @@ def test_embfile_get_accepts_filter_abbreviations_and_rejects_decode_failures() 
     with pytest.raises(pylopdf.PdfError, match="invalid Filter"):
         malformed.embfile_get("payload.bin")
 
+    filters = b"[" + b" ".join([b"/FlateDecode"] * 17) + b"]"
+    excessive = pylopdf.open(
+        stream=_compressed_embfile_pdf(b"", filter_name=filters),
+    )
+    with pytest.raises(pylopdf.LimitError) as filter_count:
+        excessive.embfile_get("payload.bin")
+    assert filter_count.value.code == "stream_filter_count"
+
 
 @pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
 def test_embfile_get_rejects_non_integer_size_limits(max_size: object) -> None:

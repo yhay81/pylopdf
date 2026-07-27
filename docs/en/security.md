@@ -62,17 +62,20 @@ per-stream budget and cannot be combined with `limits=`.
 `file_size`, `page_count`, `object_count`, `object_depth`,
 `decompressed_size`, `page_content_size`, `total_decompressed_size`,
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
-`embedded_file_input_size`, `form_field_input_size`,
+`embedded_file_input_size`, `form_field_input_size`, `form_content_size`,
 `annotation_input_size`, `metadata_input_size`, `toc_input_size`,
 `page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
-`ocr_model_size`, `ocr_dictionary_entries`, or `decompression_unverifiable`.
+`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`, or
+`decompression_unverifiable`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
-instead of being decoded optimistically.
+instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
+paths also reject more than 16 sequential `/Filter` layers before materializing
+the filter list.
 
 `doc.complexity` reports page, object, and stream counts, encoded stream bytes,
 and maximum direct object depth. It neither decodes streams nor invokes the

@@ -130,6 +130,9 @@ const MAX_INHERITED_PAGE_TREE_DEPTH: usize = 64;
 const MAX_FORM_IMPORT_OBJECTS: usize = 65_536;
 const MAX_FORM_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 
+/// Bound sequential decoder work independently from each layer's byte budget.
+const MAX_STREAM_FILTERS: usize = 16;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -3076,6 +3079,56 @@ fn canonical_filter_name(filter: &[u8]) -> &[u8] {
     }
 }
 
+/// Reject a stream filter array before lopdf materializes or applies it.
+fn validate_stream_filter_count(stream: &Stream, context: &str) -> PyResult<()> {
+    let count = match stream.dict.get(b"Filter") {
+        Ok(Object::Name(_)) => 1,
+        Ok(Object::Array(filters)) => filters.len(),
+        _ => return Ok(()),
+    };
+    if count > MAX_STREAM_FILTERS {
+        return Err(limit_err(
+            "stream_filter_count",
+            format!(
+                "{context} uses {count} filter layers, exceeding the \
+                 {MAX_STREAM_FILTERS}-layer safety limit"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Build one normalized stream copy without infallibly cloning its payload.
+fn normalized_stream_copy(stream: &Stream, filters: &[&[u8]], context: &str) -> PyResult<Stream> {
+    let mut content = Vec::new();
+    content
+        .try_reserve_exact(stream.content.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate encoded {context} for filter normalization: {error}"
+            ))
+        })?;
+    content.extend_from_slice(&stream.content);
+    let normalized_filter = if filters.len() == 1 {
+        Object::Name(filters[0].to_vec())
+    } else {
+        Object::Array(
+            filters
+                .iter()
+                .map(|filter| Object::Name(filter.to_vec()))
+                .collect(),
+        )
+    };
+    let mut checked_stream = Stream {
+        dict: stream.dict.clone(),
+        content,
+        allows_compression: stream.allows_compression,
+        start_position: stream.start_position,
+    };
+    checked_stream.dict.set("Filter", normalized_filter);
+    Ok(checked_stream)
+}
+
 /// Decode a general-purpose stream with an optional bound on every filter layer.
 ///
 /// Unlike lopdf's lenient `get_plain_content`, reported decoder failures and
@@ -3101,6 +3154,7 @@ fn decoded_stream_content_cow<'a>(
         }
         return Ok(Cow::Borrowed(&stream.content));
     }
+    validate_stream_filter_count(stream, context)?;
 
     let raw_filters = stream
         .filters()
@@ -3145,34 +3199,7 @@ fn decoded_stream_content_cow<'a>(
         return decode(stream).map(Cow::Owned);
     }
 
-    let mut content = Vec::new();
-    content
-        .try_reserve_exact(stream.content.len())
-        .map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate encoded {context} for filter normalization: {error}"
-            ))
-        })?;
-    content.extend_from_slice(&stream.content);
-    let mut checked_stream = Stream {
-        dict: stream.dict.clone(),
-        content,
-        allows_compression: stream.allows_compression,
-        start_position: stream.start_position,
-    };
-    checked_stream.dict.set(
-        "Filter",
-        if normalized_filters.len() == 1 {
-            Object::Name(normalized_filters[0].to_vec())
-        } else {
-            Object::Array(
-                normalized_filters
-                    .iter()
-                    .map(|filter| Object::Name(filter.to_vec()))
-                    .collect(),
-            )
-        },
-    );
+    let checked_stream = normalized_stream_copy(stream, &normalized_filters, context)?;
     decode(&checked_stream).map(Cow::Owned)
 }
 
@@ -3368,6 +3395,7 @@ fn decoded_stream_size(
         }
         return Ok(stream.content.len());
     }
+    validate_stream_filter_count(stream, "PDF stream")?;
     let raw_filters = stream.filters().map_err(to_py_err)?;
     let filters: Vec<&[u8]> = raw_filters
         .iter()
@@ -3382,32 +3410,27 @@ fn decoded_stream_size(
         }
         return Ok(stream.content.len());
     }
-    // lopdf accepts canonical filter names only; normalize on the clone.
-    let mut checked_stream = stream.clone();
-    let normalized_filter = |selected: &[&[u8]]| {
-        if selected.len() == 1 {
-            Object::Name(selected[0].to_vec())
-        } else {
-            Object::Array(
-                selected
-                    .iter()
-                    .map(|filter| Object::Name(filter.to_vec()))
-                    .collect(),
-            )
-        }
-    };
-    checked_stream
-        .dict
-        .set("Filter", normalized_filter(&filters));
-
     let first_unsupported = filters
         .iter()
         .position(|filter| !LOPDF_FILTERS.contains(filter));
     match first_unsupported {
-        None => checked_stream
-            .get_plain_content_with_limit(max_output)
-            .map(|content| content.len())
-            .map_err(|error| decompression_err(error, limit_code)),
+        None => {
+            let canonical = raw_filters
+                .iter()
+                .zip(&filters)
+                .all(|(raw, normalized)| *raw == *normalized);
+            if canonical {
+                stream
+                    .get_plain_content_with_limit(max_output)
+                    .map(|content| content.len())
+                    .map_err(|error| decompression_err(error, limit_code))
+            } else {
+                normalized_stream_copy(stream, &filters, "PDF stream")?
+                    .get_plain_content_with_limit(max_output)
+                    .map(|content| content.len())
+                    .map_err(|error| decompression_err(error, limit_code))
+            }
+        }
         Some(index)
             if IMAGE_FILTERS.contains(&filters[index])
                 && index + 1 == filters.len()
@@ -3419,10 +3442,7 @@ fn decoded_stream_size(
             let prefix_size = if index == 0 {
                 0
             } else {
-                checked_stream
-                    .dict
-                    .set("Filter", normalized_filter(&filters[..index]));
-                checked_stream
+                normalized_stream_copy(stream, &filters[..index], "PDF stream")?
                     .get_plain_content_with_limit(max_output)
                     .map(|content| content.len())
                     .map_err(|error| decompression_err(error, limit_code))?
@@ -9479,6 +9499,11 @@ impl _Document {
         let streams = draw::inspect_page_contents(&self.doc, page_id).map_err(PdfError::new_err)?;
         let default_char = default_char.as_deref().unwrap_or("?");
         let replacement_count = py.detach(|| {
+            for stream_id in &streams {
+                if let Ok(stream) = self.doc.get_object(*stream_id).and_then(Object::as_stream) {
+                    validate_stream_filter_count(stream, "text replacement page content")?;
+                }
+            }
             // lopdf font lookup misses direct Resources inherited from a page
             // tree, so prepare the same materialized dictionary we will commit.
             let mut page = resolve_inherited_page_dict(&self.doc, page_id)?;

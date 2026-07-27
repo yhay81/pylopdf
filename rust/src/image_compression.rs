@@ -183,11 +183,12 @@ fn is_safe_image_stream<'a>(
         Some(b"DeviceRGB" | b"RGB") => ColorModel::Rgb,
         _ => return None,
     };
-    let filters = stream.filters().ok()?;
-    if filters.len() != 1 {
-        return None;
-    }
-    let (source, previous_quality) = match filters[0] {
+    let filter = match stream.dict.get(b"Filter").ok()? {
+        Object::Name(filter) => filter.as_slice(),
+        Object::Array(filters) if filters.len() == 1 => filters[0].as_name().ok()?,
+        _ => return None,
+    };
+    let (source, previous_quality) = match filter {
         b"DCTDecode" | b"DCT"
             if stream.dict.get(b"DecodeParms").is_err()
                 && stream.content.starts_with(&[0xFF, 0xD8, 0xFF]) =>
