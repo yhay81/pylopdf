@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - AcroForm field-tree stacks, cycle detection, inherited names/types, choice
-  arrays, joined values, and returned entries now grow fallibly under the
-  existing metadata limits. Field ordering uses an in-place sort with an
-  object-ID tie-breaker.
+  arrays, joined values, returned entries, widget lists, and button-state
+  materialization now grow fallibly under the existing metadata limits. Field
+  ordering uses an in-place sort with an object-ID tie-breaker.
 - Attachment name-tree traversal, inline-FileSpec validation, rewrite
   collection, returned names, and flat output arrays now grow fallibly under
   their existing bounds. Attachment name ordering now uses in-place sorts.

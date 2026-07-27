@@ -518,8 +518,9 @@ overview.
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
   4,096 choice-value items. Inherited values use shared storage during the
   walk and count once per returned leaf. Tree stacks, cycle sets, inherited
-  names/types, choice values, joined values, and returned entries grow
-  fallibly; returned ordering uses an in-place sort with object-ID tie-breaking.
+  names/types, choice values, joined values, returned entries, field-widget
+  lists, and button-state names grow fallibly; returned ordering uses an
+  in-place sort with object-ID tie-breaking.
   `set_form_field` must reject caller
   field names and values above 1 MiB before font discovery, button lookup, or
   file reads, repeat the check in Rust with `form_field_input_size`, enforce the
