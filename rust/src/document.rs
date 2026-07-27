@@ -166,7 +166,7 @@ type LinkTuple = (
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
 
 /// Info strings, page count, version, encryption, and startxref-repair status.
-type MetadataTuple = (BTreeMap<String, String>, u32, String, bool, bool);
+type MetadataTuple = (HashMap<String, String>, u32, String, bool, bool);
 
 /// Target geometry and drawing order for one placed PDF page.
 #[derive(Clone, Copy)]
@@ -1366,6 +1366,36 @@ fn add_info_metadata_budget(total: &mut usize, amount: usize, label: &str) -> Py
     Ok(())
 }
 
+fn try_clone_info_metadata_text(value: &str, label: &str) -> PyResult<String> {
+    let mut owned = String::new();
+    owned.try_reserve_exact(value.len()).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate Info metadata {label}: {error}"))
+    })?;
+    owned.push_str(value);
+    Ok(owned)
+}
+
+fn try_info_metadata_text_string(value: &str) -> PyResult<Object> {
+    let encoded_len = pdf_text_string_len(value)
+        .ok_or_else(|| PdfError::new_err("Info metadata text exceeds the platform size limit"))?;
+    let mut encoded = Vec::new();
+    encoded.try_reserve_exact(encoded_len).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate encoded Info metadata text: {error}"
+        ))
+    })?;
+    if value.is_ascii() {
+        encoded.extend_from_slice(value.as_bytes());
+        Ok(Object::String(encoded, StringFormat::Literal))
+    } else {
+        encoded.extend_from_slice(&[0xfe, 0xff]);
+        for unit in value.encode_utf16() {
+            encoded.extend_from_slice(&unit.to_be_bytes());
+        }
+        Ok(Object::String(encoded, StringFormat::Hexadecimal))
+    }
+}
+
 /// Return the trailer Info dictionary with one indirect reference resolved.
 fn info_dictionary(doc: &Document) -> Option<&Dictionary> {
     match doc.trailer.get(b"Info").ok()? {
@@ -1376,11 +1406,18 @@ fn info_dictionary(doc: &Document) -> Option<&Dictionary> {
 }
 
 /// Decode only the eight public standard Info fields under aggregate budgets.
-fn collect_info_metadata(doc: &Document) -> PyResult<BTreeMap<String, String>> {
-    let mut result = BTreeMap::new();
+fn collect_info_metadata(doc: &Document) -> PyResult<HashMap<String, String>> {
+    let mut result = HashMap::new();
     let Some(info) = info_dictionary(doc) else {
         return Ok(result);
     };
+    result
+        .try_reserve(INFO_METADATA_KEYS.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate returned Info metadata: {error}"
+            ))
+        })?;
     let mut source_bytes = 0usize;
     let mut returned_bytes = 0usize;
     for key in INFO_METADATA_KEYS {
@@ -1396,7 +1433,10 @@ fn collect_info_metadata(doc: &Document) -> PyResult<BTreeMap<String, String>> {
             continue;
         };
         add_info_metadata_budget(&mut returned_bytes, text.len(), "returned text")?;
-        result.insert(String::from_utf8_lossy(key).into_owned(), text);
+        let key = std::str::from_utf8(key)
+            .map_err(|error| PdfError::new_err(error.to_string()))
+            .and_then(|key| try_clone_info_metadata_text(key, "key"))?;
+        result.insert(key, text);
     }
     Ok(result)
 }
@@ -1404,7 +1444,7 @@ fn collect_info_metadata(doc: &Document) -> PyResult<BTreeMap<String, String>> {
 /// Convert PdfMetadata to a bounded Info dict and structural facts.
 fn pdf_metadata_to_tuple(
     meta: PdfMetadata,
-) -> PyResult<(BTreeMap<String, String>, u32, String, bool)> {
+) -> PyResult<(HashMap<String, String>, u32, String, bool)> {
     let PdfMetadata {
         title,
         author,
@@ -1422,7 +1462,12 @@ fn pdf_metadata_to_tuple(
     // pylopdf exposes only the standard fields. Release upstream custom clones
     // before materializing Python-facing strings.
     drop(custom);
-    let mut map = BTreeMap::new();
+    let mut map = HashMap::new();
+    map.try_reserve(INFO_METADATA_KEYS.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate returned Info metadata: {error}"
+        ))
+    })?;
     let pairs = [
         ("Title", title),
         ("Author", author),
@@ -1437,7 +1482,8 @@ fn pdf_metadata_to_tuple(
     for (key, value) in pairs {
         if let Some(v) = value {
             add_info_metadata_budget(&mut returned_bytes, v.len(), "returned text")?;
-            map.insert(key.to_string(), v);
+            let key = try_clone_info_metadata_text(key, "key")?;
+            map.insert(key, v);
         }
     }
     Ok((map, page_count, version, encrypted))
@@ -3400,21 +3446,31 @@ impl _Document {
                 INFO_METADATA_KEYS.len()
             )));
         }
-        let mut seen = HashSet::new();
+        let mut seen = 0u16;
         let mut source_bytes = 0usize;
         let mut encoded_bytes = 0usize;
-        let mut prepared = Vec::with_capacity(entries.len());
+        let mut prepared = Vec::new();
+        prepared.try_reserve_exact(entries.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate prepared Info metadata entries: {error}"
+            ))
+        })?;
         for (key, value) in entries {
-            if !INFO_METADATA_KEYS.contains(&key.as_bytes()) {
+            let Some(key_index) = INFO_METADATA_KEYS
+                .iter()
+                .position(|candidate| *candidate == key.as_bytes())
+            else {
                 return Err(PdfError::new_err(format!(
                     "unsupported Info metadata key: {key:?}"
                 )));
-            }
-            if !seen.insert(key.clone()) {
+            };
+            let key_bit = 1u16 << key_index;
+            if seen & key_bit != 0 {
                 return Err(PdfError::new_err(format!(
                     "duplicate Info metadata key: {key:?}"
                 )));
             }
+            seen |= key_bit;
             add_input_text_budget(
                 &mut source_bytes,
                 value.len(),
@@ -3438,7 +3494,7 @@ impl _Document {
                     "metadata_input_size",
                     "Info metadata encoded text",
                 )?;
-                Some(text_string(&value))
+                Some(try_info_metadata_text_string(&value)?)
             };
             prepared.push((key.into_bytes(), encoded));
         }
@@ -6107,13 +6163,51 @@ impl _Document {
     }
 
     /// Return the eight standard Info strings under aggregate text budgets.
-    fn get_metadata(&self, py: Python<'_>) -> PyResult<BTreeMap<String, String>> {
+    fn get_metadata(&self, py: Python<'_>) -> PyResult<HashMap<String, String>> {
         py.detach(|| collect_info_metadata(&self.doc))
     }
 
     /// Set an Info entry, deleting it when the value is empty.
     fn set_metadata(&mut self, key: &str, value: &str) -> PyResult<()> {
-        self.set_metadata_entries(vec![(key.to_owned(), value.to_owned())])
+        if !INFO_METADATA_KEYS.contains(&key.as_bytes()) {
+            return Err(PdfError::new_err(format!(
+                "unsupported Info metadata key: {key:?}"
+            )));
+        }
+        let mut source_bytes = 0usize;
+        add_input_text_budget(
+            &mut source_bytes,
+            value.len(),
+            MAX_INFO_METADATA_TEXT_BYTES,
+            "metadata_input_size",
+            "Info metadata source text",
+        )?;
+        if !value.is_empty() {
+            let encoded_len = pdf_text_string_len(value).ok_or_else(|| {
+                limit_err(
+                    "metadata_input_size",
+                    "Info metadata encoded text exceeds the platform text-size limit",
+                )
+            })?;
+            let mut encoded_bytes = 0usize;
+            add_input_text_budget(
+                &mut encoded_bytes,
+                encoded_len,
+                MAX_INFO_METADATA_TEXT_BYTES,
+                "metadata_input_size",
+                "Info metadata encoded text",
+            )?;
+        }
+        let key = try_clone_info_metadata_text(key, "input key")?;
+        let value = try_clone_info_metadata_text(value, "input value")?;
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate prepared Info metadata entries: {error}"
+            ))
+        })?;
+        entries.push((key, value));
+        self.set_metadata_entries(entries)
     }
 
     /// Atomically update multiple standard Info entries.

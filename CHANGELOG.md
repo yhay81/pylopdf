@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Info metadata returned maps, prepared write batches, direct single-entry
+  copies, and encoded PDF strings now grow fallibly. Duplicate tracking uses a
+  fixed bitset for the eight public keys.
 - Named-destination traversal/indexing and TOC page indexes, destination and
   outline cycle tracking, outline stacks, returned entries, prepared writes,
   and parent stacks now grow fallibly under their existing limits.
