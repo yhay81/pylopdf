@@ -52,6 +52,11 @@ Web预设目前独立应用以下上限：
 如需适配其他负载，可直接构造`DocumentLimits(...)`。每个非`None`值必须是正整数。
 原有`max_decompressed_size=`仍可作为单流预算的兼容简写，但不能与`limits=`同时使用。
 
+当页数或页面内容预算需要构建页面索引时，pylopdf会迭代遍历page tree。它会拒绝
+重复使用的Page／Pages对象与cycle、超过32次引用的间接`/Kids` chain、超过256层的
+内部tree，以及超过间接对象数的edge。`max_pages`遍历遇到第一个超出配置上限的页面
+时会立即停止。
+
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、

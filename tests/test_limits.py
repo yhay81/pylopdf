@@ -41,6 +41,34 @@ def _page_content_array_pdf(count: int) -> bytes:
     )
 
 
+def _deep_page_tree_pdf(internal_nodes: int) -> bytes:
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+    }
+    for offset in range(internal_nodes):
+        object_number = 2 + offset
+        child_number = object_number + 1
+        objects[object_number] = f"<< /Type /Pages /Kids [{child_number} 0 R] /Count 1 >>"
+    page_number = 2 + internal_nodes
+    objects[page_number] = f"<< /Type /Page /Parent {page_number - 1} 0 R /MediaBox [0 0 100 100] >>"
+    return build_raw_pdf(objects)
+
+
+def _indirect_kids_pdf(reference_depth: int) -> bytes:
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids 3 0 R /Count 1 >>",
+    }
+    for offset in range(reference_depth - 1):
+        object_number = 3 + offset
+        objects[object_number] = f"{object_number + 1} 0 R"
+    array_number = 2 + reference_depth
+    page_number = array_number + 1
+    objects[array_number] = f"[{page_number} 0 R]"
+    objects[page_number] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>"
+    return build_raw_pdf(objects)
+
+
 def test_document_limits_validate_values() -> None:
     assert pylopdf.DocumentLimits().max_pages is None
     with pytest.raises(TypeError, match="max_pages"):
@@ -101,6 +129,104 @@ def test_page_and_object_limits() -> None:
     with pytest.raises(pylopdf.LimitError) as objects:
         pylopdf.open(stream=data, limits=pylopdf.DocumentLimits(max_objects=4))
     assert _error_code(objects.value) == "object_count"
+
+
+@pytest.mark.parametrize(
+    ("objects", "message"),
+    [
+        pytest.param(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+            },
+            "cycle",
+            id="cycle",
+        ),
+        pytest.param(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 3 0 R] /Count 2 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            },
+            "reuses object",
+            id="reused-page",
+        ),
+        pytest.param(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids 3 0 R /Count 1 >>",
+                3: "3 0 R",
+            },
+            "Kids contains a reference cycle",
+            id="kids-reference-cycle",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "limits",
+    [
+        pytest.param(
+            pylopdf.DocumentLimits(max_pages=10),
+            id="page-count-policy",
+        ),
+        pytest.param(
+            pylopdf.DocumentLimits(max_page_content_size=1024),
+            id="page-content-policy",
+        ),
+    ],
+)
+def test_bounded_page_tree_walk_rejects_cycles_and_reuse(
+    objects: dict[int, str | bytes],
+    message: str,
+    limits: pylopdf.DocumentLimits,
+) -> None:
+    with pytest.raises(pylopdf.PdfError, match=message):
+        pylopdf.open(
+            stream=build_raw_pdf(objects),
+            limits=limits,
+        )
+
+
+def test_bounded_page_tree_walk_has_an_iterative_depth_boundary() -> None:
+    exact = pylopdf.open(
+        stream=_deep_page_tree_pdf(256),
+        limits=pylopdf.DocumentLimits(max_pages=1),
+    )
+    assert exact.page_count == 1
+
+    with pytest.raises(pylopdf.PdfError, match="256-level safety limit"):
+        pylopdf.open(
+            stream=_deep_page_tree_pdf(257),
+            limits=pylopdf.DocumentLimits(max_pages=1),
+        )
+
+
+def test_bounded_page_tree_walk_limits_indirect_kids_references() -> None:
+    exact = pylopdf.open(
+        stream=_indirect_kids_pdf(32),
+        limits=pylopdf.DocumentLimits(max_pages=1),
+    )
+    assert exact.page_count == 1
+
+    with pytest.raises(pylopdf.PdfError, match="32-reference-depth safety limit"):
+        pylopdf.open(
+            stream=_indirect_kids_pdf(33),
+            limits=pylopdf.DocumentLimits(max_pages=1),
+        )
+
+
+def test_bounded_page_tree_walk_limits_edges_by_object_count() -> None:
+    pdf = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [null null null] /Count 0 >>",
+        }
+    )
+    with pytest.raises(pylopdf.PdfError, match="edge object-count safety limit"):
+        pylopdf.open(
+            stream=pdf,
+            limits=pylopdf.DocumentLimits(max_pages=1),
+        )
 
 
 def test_direct_object_depth_limit_ignores_reference_cycles() -> None:
