@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Batch rendering now preflights page pixels without an intermediate
+  collection and grows serial, worker-local, merged, ordered, and final result
+  vectors fallibly while preserving dynamic parallel scheduling.
 - Structural page imports, selections, duplicate tracking, inherited page
   dictionaries, spliced orders, and root/rebuilt Kids arrays now grow fallibly.
   Selection validates and plans all inputs before cache invalidation, while
