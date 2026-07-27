@@ -98,6 +98,14 @@ fn try_push_text<T>(values: &mut Vec<T>, value: T, label: &str) -> Result<(), Te
     Ok(())
 }
 
+fn try_push_str_text(value: &mut String, text: &str, label: &str) -> Result<(), TextPageLimit> {
+    value
+        .try_reserve(text.len())
+        .map_err(|error| TextPageLimit::Allocation(format!("failed to grow {label}: {error}")))?;
+    value.push_str(text);
+    Ok(())
+}
+
 /// One axis-aligned stroked path segment in display coordinates.
 #[derive(Clone, Copy)]
 struct RuleSegment {
@@ -892,27 +900,33 @@ fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, Text
     Ok(all_lines)
 }
 
-/// Split independently positioned columns or table cells sharing one baseline.
-fn split_line_segments(line: &[GlyphRecord]) -> Vec<Vec<GlyphRecord>> {
-    let mut segments: Vec<Vec<GlyphRecord>> = Vec::new();
+/// Borrow independently positioned columns or table cells sharing one baseline.
+fn split_line_segment_slices(line: &[GlyphRecord]) -> Result<Vec<&[GlyphRecord]>, TextPageLimit> {
+    let mut segments = Vec::new();
+    let mut segment_start = 0;
     let mut previous_end: Option<f64> = None;
     let mut previous_size = 0.0_f64;
-    for glyph in line {
+    for (index, glyph) in line.iter().enumerate() {
         let threshold = previous_size.max(glyph.size).max(1.0) * LINE_SEGMENT_GAP;
         if previous_end.is_some_and(|end| glyph_progress(glyph) - end > threshold) {
-            segments.push(Vec::new());
+            try_push_text(
+                &mut segments,
+                &line[segment_start..index],
+                "borrowed text-line segments",
+            )?;
+            segment_start = index;
         }
         previous_end = Some(glyph_end(glyph));
         previous_size = glyph.size;
-        if segments.is_empty() {
-            segments.push(Vec::new());
-        }
-        segments
-            .last_mut()
-            .expect("a segment was created immediately before")
-            .push(glyph.clone());
     }
-    segments
+    if segment_start < line.len() {
+        try_push_text(
+            &mut segments,
+            &line[segment_start..],
+            "borrowed text-line segments",
+        )?;
+    }
+    Ok(segments)
 }
 
 /// Split one owned physical line without cloning its glyph strings or metadata.
@@ -1406,9 +1420,11 @@ impl TablePage {
         let (glyphs, rules, text_size, glyph_count) =
             collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
         let physical_lines = cluster_lines(glyphs)?;
+        let tables = detect_grid_tables(&physical_lines, &rules);
+        let text_tables = detect_text_tables(&physical_lines)?;
         Ok(Self {
-            tables: detect_grid_tables(&physical_lines, &rules),
-            text_tables: detect_text_tables(&physical_lines),
+            tables,
+            text_tables,
             text_size,
             glyph_count,
         })
@@ -2053,16 +2069,32 @@ fn cell_text(lines: &[Vec<WordTuple>], (x0, y0, x1, y1): BBox) -> String {
 }
 
 /// Return one cell's text from an already-separated line segment.
-fn text_segment_value(segment: &[GlyphRecord]) -> String {
-    split_words(segment)
-        .into_iter()
-        .map(|(_, text)| text)
-        .collect::<Vec<_>>()
-        .join(" ")
+fn text_segment_value(segment: &[GlyphRecord]) -> Result<String, TextPageLimit> {
+    let mut text = String::new();
+    let mut previous_end: Option<f64> = None;
+    let mut in_word = false;
+    let mut pending_separator = false;
+    for glyph in segment {
+        let is_space = glyph.text.chars().all(char::is_whitespace);
+        if (is_space || needs_gap(previous_end, glyph)) && in_word {
+            in_word = false;
+            pending_separator = true;
+        }
+        if !is_space {
+            if pending_separator && !text.is_empty() {
+                try_push_str_text(&mut text, " ", "borderless table cell text")?;
+            }
+            try_push_str_text(&mut text, glyph.text.as_str(), "borderless table cell text")?;
+            in_word = true;
+            pending_separator = false;
+        }
+        previous_end = Some(glyph_end(glyph));
+    }
+    Ok(text)
 }
 
 /// Bounding box around all segments in one inferred text-table row.
-fn segmented_row_bbox(row: &[Vec<GlyphRecord>]) -> BBox {
+fn segmented_row_bbox(row: &[&[GlyphRecord]]) -> BBox {
     let mut x0 = f64::INFINITY;
     let mut y0 = f64::INFINITY;
     let mut x1 = f64::NEG_INFINITY;
@@ -2078,7 +2110,7 @@ fn segmented_row_bbox(row: &[Vec<GlyphRecord>]) -> BBox {
 }
 
 /// Representative font size for one inferred text-table row.
-fn segmented_row_size(row: &[Vec<GlyphRecord>]) -> f64 {
+fn segmented_row_size(row: &[&[GlyphRecord]]) -> f64 {
     row.iter()
         .flat_map(|segment| segment.iter())
         .map(|glyph| glyph.size)
@@ -2087,9 +2119,9 @@ fn segmented_row_size(row: &[Vec<GlyphRecord>]) -> f64 {
 
 /// Return whether two physical rows can belong to one borderless table.
 fn text_rows_compatible(
-    first: &[Vec<GlyphRecord>],
-    previous: &[Vec<GlyphRecord>],
-    current: &[Vec<GlyphRecord>],
+    first: &[&[GlyphRecord]],
+    previous: &[&[GlyphRecord]],
+    current: &[&[GlyphRecord]],
 ) -> bool {
     if first.len() != current.len() || previous.len() != current.len() {
         return false;
@@ -2117,7 +2149,7 @@ fn text_rows_compatible(
 /// Confidence is a deterministic ranking heuristic, not a calibrated
 /// probability. The component metrics stay public so callers can apply their
 /// own thresholds.
-fn text_table_diagnostics(rows: &[Vec<Vec<GlyphRecord>>]) -> TableDiagnosticsTuple {
+fn text_table_diagnostics(rows: &[Vec<&[GlyphRecord]>]) -> TableDiagnosticsTuple {
     let anchor = &rows[0];
     let mut alignment_error_em = 0.0_f64;
     for row in rows.iter().skip(1) {
@@ -2140,35 +2172,28 @@ fn text_table_diagnostics(rows: &[Vec<Vec<GlyphRecord>>]) -> TableDiagnosticsTup
         .flat_map(|row| {
             let scale = segmented_row_size(row).max(1.0);
             row.windows(2).map(move |pair| {
-                let (_, _, left_x1, _) = line_bbox(&pair[0]);
-                let (right_x0, _, _, _) = line_bbox(&pair[1]);
+                let (_, _, left_x1, _) = line_bbox(pair[0]);
+                let (right_x0, _, _, _) = line_bbox(pair[1]);
                 (right_x0 - left_x1) / scale
             })
         })
         .reduce(f64::min)
         .unwrap_or(0.0);
 
-    let row_bboxes: Vec<BBox> = rows.iter().map(|row| segmented_row_bbox(row)).collect();
-    let normalized_row_gaps: Vec<f64> = rows
-        .windows(2)
-        .zip(row_bboxes.windows(2))
-        .map(|(row_pair, bbox_pair)| {
-            let scale = segmented_row_size(&row_pair[0])
-                .max(segmented_row_size(&row_pair[1]))
-                .max(1.0);
-            (bbox_pair[1].1 - bbox_pair[0].3) / scale
-        })
-        .collect();
-    let minimum_row_gap = normalized_row_gaps
-        .iter()
-        .copied()
-        .reduce(f64::min)
-        .unwrap_or(0.0);
-    let maximum_row_gap = normalized_row_gaps
-        .iter()
-        .copied()
-        .reduce(f64::max)
-        .unwrap_or(0.0);
+    let mut minimum_row_gap = f64::INFINITY;
+    let mut maximum_row_gap = f64::NEG_INFINITY;
+    for pair in rows.windows(2) {
+        let scale = segmented_row_size(&pair[0])
+            .max(segmented_row_size(&pair[1]))
+            .max(1.0);
+        let gap = (segmented_row_bbox(&pair[1]).1 - segmented_row_bbox(&pair[0]).3) / scale;
+        minimum_row_gap = minimum_row_gap.min(gap);
+        maximum_row_gap = maximum_row_gap.max(gap);
+    }
+    if !minimum_row_gap.is_finite() {
+        minimum_row_gap = 0.0;
+        maximum_row_gap = 0.0;
+    }
     let row_gap_variation_em = maximum_row_gap - minimum_row_gap;
 
     let row_depth = (rows.len().saturating_sub(MIN_TEXT_TABLE_ROWS) as f64 + 1.0) / 3.0;
@@ -2191,72 +2216,113 @@ fn text_table_diagnostics(rows: &[Vec<Vec<GlyphRecord>>]) -> TableDiagnosticsTup
 }
 
 /// Materialize one run of aligned borderless rows.
-fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
+fn text_table_from_rows(rows: &[Vec<&[GlyphRecord]>]) -> Result<Option<TableTuple>, TextPageLimit> {
     if rows.len() < MIN_TEXT_TABLE_ROWS {
-        return None;
+        return Ok(None);
     }
     let row_count_usize = rows.len();
     let column_count_usize = rows[0].len();
     if !(2..=MAX_TEXT_TABLE_COLUMNS).contains(&column_count_usize) {
-        return None;
+        return Ok(None);
     }
-    let slot_count = row_count_usize.checked_mul(column_count_usize)?;
+    let Some(slot_count) = row_count_usize.checked_mul(column_count_usize) else {
+        return Ok(None);
+    };
     if slot_count > MAX_TABLE_CELLS {
-        return None;
+        return Ok(None);
     }
 
-    let mut x_bounds = Vec::with_capacity(column_count_usize + 1);
-    x_bounds.push(
-        rows.iter()
-            .map(|row| line_bbox(&row[0]).0)
-            .reduce(f64::min)?,
-    );
+    let Some(first_x) = rows.iter().map(|row| line_bbox(row[0]).0).reduce(f64::min) else {
+        return Ok(None);
+    };
+    let mut x_bounds = Vec::new();
+    try_push_text(&mut x_bounds, first_x, "borderless table x bounds")?;
     for column in 1..column_count_usize {
-        let left_end = rows
+        let Some(left_end) = rows
             .iter()
-            .map(|row| line_bbox(&row[column - 1]).2)
-            .reduce(f64::max)?;
-        let right_start = rows
+            .map(|row| line_bbox(row[column - 1]).2)
+            .reduce(f64::max)
+        else {
+            return Ok(None);
+        };
+        let Some(right_start) = rows
             .iter()
-            .map(|row| line_bbox(&row[column]).0)
-            .reduce(f64::min)?;
+            .map(|row| line_bbox(row[column]).0)
+            .reduce(f64::min)
+        else {
+            return Ok(None);
+        };
         if right_start <= left_end {
-            return None;
+            return Ok(None);
         }
-        x_bounds.push((left_end + right_start) * 0.5);
+        try_push_text(
+            &mut x_bounds,
+            (left_end + right_start) * 0.5,
+            "borderless table x bounds",
+        )?;
     }
-    x_bounds.push(
-        rows.iter()
-            .map(|row| line_bbox(&row[column_count_usize - 1]).2)
-            .reduce(f64::max)?,
-    );
+    let Some(last_x) = rows
+        .iter()
+        .map(|row| line_bbox(row[column_count_usize - 1]).2)
+        .reduce(f64::max)
+    else {
+        return Ok(None);
+    };
+    try_push_text(&mut x_bounds, last_x, "borderless table x bounds")?;
 
-    let row_bboxes: Vec<BBox> = rows.iter().map(|row| segmented_row_bbox(row)).collect();
-    let mut y_bounds = Vec::with_capacity(row_count_usize + 1);
-    y_bounds.push(row_bboxes[0].1);
+    let mut row_bboxes = Vec::new();
+    for row in rows {
+        try_push_text(
+            &mut row_bboxes,
+            segmented_row_bbox(row),
+            "borderless table row bounds",
+        )?;
+    }
+    let mut y_bounds = Vec::new();
+    try_push_text(&mut y_bounds, row_bboxes[0].1, "borderless table y bounds")?;
     for pair in row_bboxes.windows(2) {
-        y_bounds.push((pair[0].3 + pair[1].1) * 0.5);
+        try_push_text(
+            &mut y_bounds,
+            (pair[0].3 + pair[1].1) * 0.5,
+            "borderless table y bounds",
+        )?;
     }
-    y_bounds.push(row_bboxes[row_count_usize - 1].3);
+    try_push_text(
+        &mut y_bounds,
+        row_bboxes[row_count_usize - 1].3,
+        "borderless table y bounds",
+    )?;
 
-    let mut cells = Vec::with_capacity(row_count_usize * column_count_usize);
+    let mut cells = Vec::new();
     for (row_index, row) in rows.iter().enumerate() {
         for (column_index, segment) in row.iter().enumerate() {
-            cells.push(Some((
+            let cell = Some((
                 (
                     x_bounds[column_index],
                     y_bounds[row_index],
                     x_bounds[column_index + 1],
                     y_bounds[row_index + 1],
                 ),
-                text_segment_value(segment),
-            )));
+                text_segment_value(segment)?,
+            ));
+            try_push_text(&mut cells, cell, "borderless table cells")?;
         }
     }
-    let row_count = u32::try_from(row_count_usize).ok()?;
-    let column_count = u32::try_from(column_count_usize).ok()?;
+    let Ok(row_count) = u32::try_from(row_count_usize) else {
+        return Ok(None);
+    };
+    let Ok(column_count) = u32::try_from(column_count_usize) else {
+        return Ok(None);
+    };
     let diagnostics = text_table_diagnostics(rows);
-    Some((
+    let Ok(slot_count) = u32::try_from(slot_count) else {
+        return Ok(None);
+    };
+    let mut cell_anchors = Vec::new();
+    for anchor in 0..slot_count {
+        try_push_text(&mut cell_anchors, anchor, "borderless table cell anchors")?;
+    }
+    Ok(Some((
         (
             x_bounds[0],
             y_bounds[0],
@@ -2266,31 +2332,42 @@ fn text_table_from_rows(rows: &[Vec<Vec<GlyphRecord>>]) -> Option<TableTuple> {
         row_count,
         column_count,
         cells,
-        (0..u32::try_from(slot_count).ok()?).collect(),
+        cell_anchors,
         diagnostics,
-    ))
+    )))
+}
+
+fn flush_text_table_run(
+    run: &mut Vec<Vec<&[GlyphRecord]>>,
+    tables: &mut Vec<TableTuple>,
+) -> Result<(), TextPageLimit> {
+    if let Some(table) = text_table_from_rows(run)? {
+        try_push_text(tables, table, "borderless tables")?;
+    }
+    run.clear();
+    Ok(())
 }
 
 /// Detect opt-in borderless tables from sustained aligned text segments.
-fn detect_text_tables(physical_lines: &[Vec<GlyphRecord>]) -> Vec<TableTuple> {
+fn detect_text_tables(
+    physical_lines: &[Vec<GlyphRecord>],
+) -> Result<Vec<TableTuple>, TextPageLimit> {
     let mut tables = Vec::new();
-    let mut run: Vec<Vec<Vec<GlyphRecord>>> = Vec::new();
-    let flush = |run: &mut Vec<Vec<Vec<GlyphRecord>>>, tables: &mut Vec<TableTuple>| {
-        if let Some(table) = text_table_from_rows(run) {
-            tables.push(table);
-        }
-        run.clear();
-    };
+    let mut run = Vec::new();
 
     for line in physical_lines {
         let segment_count = line_segment_count(line);
-        let segments = (!line.is_empty()
+        let segments = if !line.is_empty()
             && !has_vertical_baseline(&line[0])
-            && (2..=MAX_TEXT_TABLE_COLUMNS).contains(&segment_count))
-        .then(|| split_line_segments(line))
-        .filter(|segments| segments.len() == segment_count);
+            && (2..=MAX_TEXT_TABLE_COLUMNS).contains(&segment_count)
+        {
+            let segments = split_line_segment_slices(line)?;
+            (segments.len() == segment_count).then_some(segments)
+        } else {
+            None
+        };
         let Some(segments) = segments else {
-            flush(&mut run, &mut tables);
+            flush_text_table_run(&mut run, &mut tables)?;
             continue;
         };
         if run.is_empty()
@@ -2300,14 +2377,14 @@ fn detect_text_tables(physical_lines: &[Vec<GlyphRecord>]) -> Vec<TableTuple> {
                 &segments,
             )
         {
-            run.push(segments);
+            try_push_text(&mut run, segments, "borderless table row run")?;
         } else {
-            flush(&mut run, &mut tables);
-            run.push(segments);
+            flush_text_table_run(&mut run, &mut tables)?;
+            try_push_text(&mut run, segments, "borderless table row run")?;
         }
     }
-    flush(&mut run, &mut tables);
-    tables
+    flush_text_table_run(&mut run, &mut tables)?;
+    Ok(tables)
 }
 
 /// Detect high-confidence rectangular tables from connected vector-rule grids.

@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bboxes and font-size samples. Non-column pages no longer clone every glyph
   into a temporary segment tree; confirmed columns move glyphs once into
   fallibly grown segments, recursive regions, headings, and footers.
+- Borderless-table detection now borrows glyph slices for qualifying row
+  segments instead of cloning every glyph's text and font metadata. Candidate
+  runs, geometry, cells, anchors, and cell strings grow fallibly, and an
+  allocation refusal returns no partial table interpretation.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

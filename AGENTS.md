@@ -109,13 +109,17 @@ overview.
   searches at 65,536 candidates. The opt-in borderless
   `strategy="text"` requires at least three consecutive physical rows with the
   same segment count, aligned left or right edges, compatible leading, and
-  clear gaps. It intentionally does not run as the default because aligned
-  multicolumn prose is geometrically ambiguous. `find_tables(clip=)` returns
-  only complete candidate bboxes inside the display-coordinate region; it does
-  not synthesize partial tables or reduce the cached full-page interpretation
-  cost. `TableDiagnostics.confidence` is a deterministic ranking heuristic,
-  not a probability. Text diagnostics retain em-normalized alignment error,
-  minimum gutter, and row-gap variation.
+  clear gaps. Candidate segments borrow physical-line glyph slices rather than
+  cloning text and font metadata for every qualifying row. Candidate runs,
+  bounds, cells, anchors, and cell text grow fallibly, and an allocation
+  refusal invalidates the complete table interpretation instead of returning
+  partial results. The text strategy intentionally does not run as the default
+  because aligned multicolumn prose is geometrically ambiguous.
+  `find_tables(clip=)` returns only complete candidate bboxes inside the
+  display-coordinate region; it does not synthesize partial tables or reduce
+  the cached full-page interpretation cost. `TableDiagnostics.confidence` is a
+  deterministic ranking heuristic, not a probability. Text diagnostics retain
+  em-normalized alignment error, minimum gutter, and row-gap variation.
   `Document.to_markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
   candidates or `None` to disable table conversion. Document conversion stops
