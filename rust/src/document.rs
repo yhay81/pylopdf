@@ -125,6 +125,11 @@ const MAX_PAGE_RESOURCE_DIRECT_BYTES: usize = 1024 * 1024;
 const MAX_PAGE_RESOURCE_REFERENCE_DEPTH: usize = 32;
 const MAX_PAGE_RESOURCE_DIRECT_DEPTH: usize = 32;
 
+/// Bound page-tree inheritance and one generated Form XObject import.
+const MAX_INHERITED_PAGE_TREE_DEPTH: usize = 64;
+const MAX_FORM_IMPORT_OBJECTS: usize = 65_536;
+const MAX_FORM_CONTENT_BYTES: usize = 64 * 1024 * 1024;
+
 /// Bound standard document Info metadata reads and writes.
 const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Title",
@@ -244,6 +249,15 @@ impl PageResourcePlan {
 struct PageDrawingPlan {
     content: draw::ContentAppendPlan,
     resource: PageResourcePlan,
+}
+
+/// Source-owned objects and Form stream prepared before target mutation.
+struct FormImportPlan {
+    objects: Vec<(ObjectId, Object)>,
+    form: Stream,
+    new_max_id: u32,
+    crop: [f64; 4],
+    rotation: i64,
 }
 
 /// One EmbeddedFiles name-tree item: display name and FileSpec object.
@@ -1665,28 +1679,57 @@ fn serialize_pdf(
 ///
 /// Merge discards the source page tree, so inherited attributes must move onto
 /// the page itself.
-fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> lopdf::Result<Dictionary> {
-    let mut dict = doc.get_object(page_id)?.as_dict()?.clone();
-    for key in INHERITABLE_PAGE_KEYS {
-        if dict.has(key) {
-            continue;
+fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Dictionary> {
+    let page = doc
+        .get_object(page_id)
+        .and_then(Object::as_dict)
+        .map_err(to_py_err)?;
+    let mut dict = page.clone();
+    let mut missing = INHERITABLE_PAGE_KEYS.map(|key| !dict.has(key));
+    if !missing.iter().any(|&value| value) {
+        return Ok(dict);
+    }
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_INHERITED_PAGE_TREE_DEPTH)
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to inspect inherited page attributes: {error}"
+            ))
+        })?;
+    visited.push(page_id);
+    let mut parent = page.get(b"Parent").and_then(Object::as_reference).ok();
+    while let Some(parent_id) = parent {
+        if visited.contains(&parent_id) {
+            return Err(PdfError::new_err(
+                "page inheritance tree contains a reference cycle",
+            ));
         }
-        let mut parent = dict.get(b"Parent").and_then(Object::as_reference).ok();
-        let mut visited = HashSet::from([page_id]);
-        while let Some(parent_id) = parent {
-            if !visited.insert(parent_id) {
-                return Err(lopdf::Error::ReferenceCycle(parent_id));
-            }
-            let parent_dict = doc.get_object(parent_id)?.as_dict()?;
-            if let Ok(value) = parent_dict.get(key) {
-                dict.set(key, value.clone());
-                break;
-            }
-            parent = parent_dict
-                .get(b"Parent")
-                .and_then(Object::as_reference)
-                .ok();
+        if visited.len() >= MAX_INHERITED_PAGE_TREE_DEPTH {
+            return Err(PdfError::new_err(format!(
+                "page inheritance tree exceeds the {MAX_INHERITED_PAGE_TREE_DEPTH}-level safety limit"
+            )));
         }
+        visited.push(parent_id);
+        let parent_dict = doc
+            .get_object(parent_id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?;
+        for (index, key) in INHERITABLE_PAGE_KEYS.iter().enumerate() {
+            if missing[index]
+                && let Ok(value) = parent_dict.get(key)
+            {
+                dict.set(*key, value.clone());
+                missing[index] = false;
+            }
+        }
+        if !missing.iter().any(|&value| value) {
+            break;
+        }
+        parent = parent_dict
+            .get(b"Parent")
+            .and_then(Object::as_reference)
+            .ok();
     }
     Ok(dict)
 }
@@ -1882,7 +1925,7 @@ fn prepare_page_resource(
     page_id: ObjectId,
     kind: PageResourceKind,
 ) -> PyResult<PageResourcePlan> {
-    let mut page = resolve_inherited_page_dict(doc, page_id).map_err(to_py_err)?;
+    let mut page = resolve_inherited_page_dict(doc, page_id)?;
     let mut resources = match page.get(b"Resources") {
         Ok(object) => {
             let resolved = resolve_page_resource_dictionary(doc, object, "page Resources")?;
@@ -1968,16 +2011,77 @@ fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]
     ])
 }
 
-/// Import a page as an unplaced Form XObject and return its display metadata.
-///
-/// This is shared by page placement and krilla-generated widget appearances.
-fn import_page_as_form(
-    target: &mut Document,
+fn collect_form_page_content(doc: &Document, page_id: ObjectId) -> PyResult<Vec<u8>> {
+    let streams = draw::inspect_page_contents(doc, page_id).map_err(PdfError::new_err)?;
+    let payload_limit = MAX_FORM_CONTENT_BYTES - 5;
+    let mut content = Vec::new();
+    for stream_id in streams {
+        let Ok(stream) = doc.get_object(stream_id).and_then(Object::as_stream) else {
+            continue;
+        };
+        let remaining = payload_limit.saturating_sub(content.len());
+        if remaining == 0 {
+            return Err(PdfError::new_err(format!(
+                "Form source page content exceeds the {MAX_FORM_CONTENT_BYTES}-byte safety limit"
+            )));
+        }
+        let data_limit = remaining - 1;
+        let decoded = match stream.decompressed_content_with_limit(data_limit) {
+            Ok(data) => Cow::Owned(data),
+            Err(lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                return Err(PdfError::new_err(format!(
+                    "Form source page content exceeds the {MAX_FORM_CONTENT_BYTES}-byte safety limit"
+                )));
+            }
+            Err(_) => {
+                if stream.content.len() > data_limit {
+                    return Err(PdfError::new_err(format!(
+                        "Form source page content exceeds the {MAX_FORM_CONTENT_BYTES}-byte safety limit"
+                    )));
+                }
+                Cow::Borrowed(stream.content.as_slice())
+            }
+        };
+        let addition = decoded.len().checked_add(1).ok_or_else(|| {
+            PdfError::new_err("Form source page content exceeds the platform size limit")
+        })?;
+        content.try_reserve_exact(addition).map_err(|error| {
+            PdfError::new_err(format!("failed to grow Form source page content: {error}"))
+        })?;
+        content.extend_from_slice(&decoded);
+        content.push(b'\n');
+    }
+    content.try_reserve_exact(5).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate Form source page wrapper: {error}"
+        ))
+    })?;
+    let payload_len = content.len();
+    content.resize(payload_len + 5, 0);
+    content.copy_within(0..payload_len, 2);
+    content[..2].copy_from_slice(b"q\n");
+    content[payload_len + 2..].copy_from_slice(b"\nQ\n");
+    Ok(content)
+}
+
+/// Prepare one source page as an unplaced Form without mutating the target.
+fn prepare_page_form_import(
+    target_max_id: u32,
     mut source: Document,
     page_number: u32,
-) -> PyResult<(ObjectId, [f64; 4], i64)> {
-    let starting_id = target
-        .max_id
+) -> PyResult<FormImportPlan> {
+    if source.objects.len() > MAX_FORM_IMPORT_OBJECTS {
+        return Err(PdfError::new_err(format!(
+            "Form import exceeds the {MAX_FORM_IMPORT_OBJECTS}-object safety limit"
+        )));
+    }
+    let object_count = u32::try_from(source.objects.len())
+        .map_err(|error| PdfError::new_err(error.to_string()))?;
+    target_max_id
+        .checked_add(object_count)
+        .and_then(|highest_source_id| highest_source_id.checked_add(1))
+        .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+    let starting_id = target_max_id
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
     source.renumber_objects_with(starting_id);
@@ -1985,7 +2089,7 @@ fn import_page_as_form(
         .get_pages()
         .get(&page_number)
         .ok_or_else(|| PdfError::new_err(format!("source page {page_number} does not exist")))?;
-    let source_dict = resolve_inherited_page_dict(&source, source_id).map_err(to_py_err)?;
+    let source_dict = resolve_inherited_page_dict(&source, source_id)?;
     let source_crop = resolve_box(&source, &source_dict, b"CropBox")
         .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
         .unwrap_or([0.0, 0.0, 595.0, 842.0]);
@@ -1996,9 +2100,7 @@ fn import_page_as_form(
         .unwrap_or(0)
         .rem_euclid(360);
 
-    let mut form_content = b"q\n".to_vec();
-    form_content.extend_from_slice(&source.get_page_content(source_id));
-    form_content.extend_from_slice(b"\nQ\n");
+    let form_content = collect_form_page_content(&source, source_id)?;
     let mut form_dict = dictionary! {
         "Type" => "XObject",
         "Subtype" => "Form",
@@ -2018,17 +2120,50 @@ fn import_page_as_form(
     }
 
     let new_max_id = source.max_id;
+    let mut objects = Vec::new();
+    objects
+        .try_reserve_exact(source.objects.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate Form import objects: {error}"))
+        })?;
     for (id, object) in source.objects {
         match object.type_name().unwrap_or(b"") {
             b"Catalog" | b"Pages" | b"Page" => {}
-            _ => {
-                target.objects.insert(id, object);
-            }
+            _ => objects.push((id, object)),
         }
     }
-    target.max_id = new_max_id;
-    let form_id = target.add_object(Stream::new(form_dict, form_content).with_compression(false));
-    Ok((form_id, source_crop, source_rotation))
+    Ok(FormImportPlan {
+        objects,
+        form: Stream::new(form_dict, form_content).with_compression(false),
+        new_max_id,
+        crop: source_crop,
+        rotation: source_rotation,
+    })
+}
+
+/// Commit a fully prepared Form import without further recoverable work.
+fn commit_page_form_import(
+    target: &mut Document,
+    plan: FormImportPlan,
+) -> (ObjectId, [f64; 4], i64) {
+    for (id, object) in plan.objects {
+        target.objects.insert(id, object);
+    }
+    target.max_id = plan.new_max_id;
+    let form_id = target.add_object(plan.form);
+    (form_id, plan.crop, plan.rotation)
+}
+
+/// Import a page as an unplaced Form XObject and return its display metadata.
+///
+/// This is shared by page placement and krilla-generated widget appearances.
+fn import_page_as_form(
+    target: &mut Document,
+    source: Document,
+    page_number: u32,
+) -> PyResult<(ObjectId, [f64; 4], i64)> {
+    let plan = prepare_page_form_import(target.max_id, source, page_number)?;
+    Ok(commit_page_form_import(target, plan))
 }
 
 /// Extract an XMP value from `key="v"` attributes or `<key>v</key>` elements.
@@ -4064,11 +4199,26 @@ impl _Document {
     /// Read a page attribute while resolving inheritance and indirect references.
     fn resolve_page_attr(&self, page_id: ObjectId, key: &[u8]) -> PyResult<Option<Object>> {
         let mut current = Some(page_id);
-        let mut visited = HashSet::new();
+        let mut visited = Vec::new();
+        visited
+            .try_reserve_exact(MAX_INHERITED_PAGE_TREE_DEPTH)
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to inspect inherited page attribute: {error}"
+                ))
+            })?;
         while let Some(id) = current {
-            if !visited.insert(id) {
-                return Err(to_py_err(lopdf::Error::ReferenceCycle(id)));
+            if visited.contains(&id) {
+                return Err(PdfError::new_err(
+                    "page inheritance tree contains a reference cycle",
+                ));
             }
+            if visited.len() >= MAX_INHERITED_PAGE_TREE_DEPTH {
+                return Err(PdfError::new_err(format!(
+                    "page inheritance tree exceeds the {MAX_INHERITED_PAGE_TREE_DEPTH}-level safety limit"
+                )));
+            }
+            visited.push(id);
             let dict = self
                 .doc
                 .get_object(id)
@@ -4158,13 +4308,11 @@ impl _Document {
         &mut self,
         page_id: ObjectId,
         target_geometry: ([f64; 4], i64),
-        source: Document,
-        src_page_number: u32,
+        form_plan: FormImportPlan,
         placement: PagePlacement,
         drawing_plan: PageDrawingPlan,
     ) -> PyResult<()> {
-        let (form_id, src_crop, src_rotation) =
-            import_page_as_form(&mut self.doc, source, src_page_number)?;
+        let (form_id, src_crop, src_rotation) = commit_page_form_import(&mut self.doc, form_plan);
         let content = draw::PlacedContent::Form {
             crop: src_crop,
             rotation: src_rotation,
@@ -5490,7 +5638,7 @@ impl _Document {
                 ))
             })?;
         for &page_id in &ordered_ids {
-            let mut dict = resolve_inherited_page_dict(&other_doc, page_id).map_err(to_py_err)?;
+            let mut dict = resolve_inherited_page_dict(&other_doc, page_id)?;
             dict.set("Parent", pages_id);
             resolved_pages.push((page_id, dict));
         }
@@ -5638,7 +5786,7 @@ impl _Document {
                 ))
             })?;
         for &page_id in &ordered {
-            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
             dict.set("Parent", pages_id);
             kids.push(Object::Reference(page_id));
             resolved_pages.push((page_id, dict));
@@ -7024,7 +7172,7 @@ impl _Document {
         self.invalidate_hayro_pdf();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let source_id = self.page_id(page_number)?;
-        let mut dict = resolve_inherited_page_dict(&self.doc, source_id).map_err(to_py_err)?;
+        let mut dict = resolve_inherited_page_dict(&self.doc, source_id)?;
         dict.set("Parent", pages_id);
         let new_id = self.doc.add_object(Object::Dictionary(dict));
         match position {
@@ -7113,7 +7261,7 @@ impl _Document {
                     .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
                 (planned_max_id, 0)
             };
-            let mut dict = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
             if let Some(pages_id) = existing_pages_id {
                 dict.set("Parent", pages_id);
             }
@@ -7801,13 +7949,15 @@ impl _Document {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
         };
+        let form_plan = py.detach(|| {
+            prepare_page_form_import(self.doc.max_id, other.doc.clone(), src_page_number)
+        })?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                other.doc.clone(),
-                src_page_number,
+                form_plan,
                 placement,
                 drawing_plan,
             )
@@ -7831,14 +7981,16 @@ impl _Document {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
         };
+        let form_plan = py.detach(|| {
+            let source = self.doc.clone();
+            prepare_page_form_import(self.doc.max_id, source, src_page_number)
+        })?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
-            let source = self.doc.clone();
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                source,
-                src_page_number,
+                form_plan,
                 placement,
                 drawing_plan,
             )
@@ -9014,13 +9166,14 @@ impl _Document {
             rect: [0.0, 0.0, page_size.0, page_size.1],
             keep_proportion: false,
         };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                generated_doc,
-                1,
+                form_plan,
                 placement,
                 drawing_plan,
             )
@@ -9143,13 +9296,14 @@ impl _Document {
             rect: [0.0, 0.0, page_size.0, page_size.1],
             keep_proportion: false,
         };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
         self.invalidate_hayro_pdf();
         py.detach(|| {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                generated_doc,
-                1,
+                form_plan,
                 placement,
                 drawing_plan,
             )
@@ -9267,7 +9421,7 @@ impl _Document {
         let replacement_count = py.detach(|| {
             // lopdf font lookup misses direct Resources inherited from a page
             // tree, so prepare the same materialized dictionary we will commit.
-            let mut page = resolve_inherited_page_dict(&self.doc, page_id).map_err(to_py_err)?;
+            let mut page = resolve_inherited_page_dict(&self.doc, page_id)?;
             let content_data = match max_size {
                 Some(limit) => {
                     let decode_limit = limit.saturating_sub(streams.len());

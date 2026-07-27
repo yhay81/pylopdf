@@ -138,6 +138,44 @@ def _shared_resource_doc() -> pylopdf.Document:
     )
 
 
+def _page_parent_chain_doc(depth: int, *, cycle: bool = False) -> pylopdf.Document:
+    objects: dict[int, bytes | str] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+        3: "<< /Type /Page /Parent 4 0 R >>",
+    }
+    if cycle:
+        objects[4] = "<< /Type /Pages /Parent 4 0 R >>"
+    else:
+        for offset in range(depth):
+            object_number = 4 + offset
+            parent_number = object_number + 1 if offset + 1 < depth else 2
+            objects[object_number] = f"<< /Type /Pages /Parent {parent_number} 0 R >>"
+    return pylopdf.open(stream=build_raw_pdf(objects))
+
+
+def _compressed_content_doc(decompressed_size: int) -> pylopdf.Document:
+    compressor = zlib.compressobj()
+    chunk = b"q" * (1024 * 1024)
+    parts = [
+        compressor.compress(chunk[: min(len(chunk), decompressed_size - offset)])
+        for offset in range(0, decompressed_size, len(chunk))
+    ]
+    parts.append(compressor.flush())
+    compressed = b"".join(parts)
+    stream = f"<< /Length {len(compressed)} /Filter /FlateDecode >>\nstream\n".encode() + compressed + b"\nendstream"
+    return pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+                4: stream,
+            }
+        )
+    )
+
+
 def _split_pixmap() -> pylopdf.Pixmap:
     """Render a wide image with red on the left and green on the right."""
     source = _new_page_doc(20, 10)
@@ -271,6 +309,57 @@ def test_drawing_detaches_shared_resources_from_other_pages() -> None:
     compacted = doc.tobytes(garbage=True)
     assert b"/PyloX" not in compacted
     assert _pixel(pylopdf.open(stream=compacted)[0], 100, 50) == RED
+
+
+def test_drawing_accepts_exact_page_inheritance_depth_boundary() -> None:
+    doc = _page_parent_chain_doc(62)
+    doc[0].insert_text((10, 20), "Text")
+    assert "Text" in doc[0].get_text()
+
+
+@pytest.mark.parametrize(
+    ("doc", "message"),
+    [
+        pytest.param(
+            _page_parent_chain_doc(63),
+            "64-level safety limit",
+            id="depth",
+        ),
+        pytest.param(
+            _page_parent_chain_doc(1, cycle=True),
+            "reference cycle",
+            id="cycle",
+        ),
+    ],
+)
+def test_drawing_rejects_page_inheritance_amplification(
+    doc: pylopdf.Document,
+    message: str,
+) -> None:
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match=message):
+        doc[0].insert_text((10, 20), "Text")
+    assert doc.tobytes() == before
+
+
+def test_show_pdf_page_rejects_source_inheritance_before_target_mutation() -> None:
+    target = _resource_shape_doc("<< >>")
+    before = target.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+        target[0].show_pdf_page((0, 0, 100, 100), _page_parent_chain_doc(63))
+    assert target.tobytes() == before
+
+
+def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation() -> None:
+    target = _resource_shape_doc("<< >>")
+    before = target.tobytes()
+    source = _compressed_content_doc(64 * 1024 * 1024)
+
+    with pytest.raises(pylopdf.PdfError, match="Form source page content exceeds"):
+        target[0].show_pdf_page((0, 0, 100, 100), source)
+    assert target.tobytes() == before
 
 
 @pytest.mark.parametrize(

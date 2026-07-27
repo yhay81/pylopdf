@@ -431,7 +431,12 @@ overview.
   before dependent work. Reject resource dictionaries above 4,096 entries,
   indirect chains above 32 levels or with cycles, and direct shapes above 8,192
   objects, 32 levels, or 1 MiB; reserve the generated name with a null slot and
-  replace it without collection growth at commit.
+  replace it without collection growth at commit. Resolve all four inheritable
+  page attributes in one parent-tree pass with a 64-level/cycle boundary.
+  Form-XObject imports admit at most 65,536 source objects and 64 MiB of wrapped
+  decoded page content. They prepare bounded content, inherited geometry, and
+  the complete movable object collection before cache invalidation or target
+  mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
