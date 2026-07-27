@@ -11,6 +11,7 @@ use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
     InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
@@ -2806,7 +2807,7 @@ fn search_lines(
 }
 
 /// Extracted image: `(width, height, page bbox, "jpeg"/"png", bytes)`.
-pub(crate) type ImageTuple = (u32, u32, BBox, String, Vec<u8>);
+pub(crate) type ImageTuple = (u32, u32, BBox, &'static str, Vec<u8>);
 type EncodedRasterPng = (u32, u32, Vec<u8>);
 
 /// Keep one page from multiplying repeated image placements into unbounded output.
@@ -2968,7 +2969,7 @@ struct ImageCollector {
     placements: usize,
     pixels: u64,
     bytes: usize,
-    error: Option<&'static str>,
+    error: Option<String>,
 }
 
 /// JPEG magic number (SOI marker).
@@ -2982,7 +2983,7 @@ const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
 fn try_jpeg_passthrough(
     stream: &hayro::hayro_syntax::object::Stream<'_>,
     max_bytes: usize,
-) -> Result<Option<Vec<u8>>, &'static str> {
+) -> Result<Option<Vec<u8>>, String> {
     use std::io::Read;
     let filters = stream.filters();
     let data = match filters.as_slice() {
@@ -2992,25 +2993,45 @@ fn try_jpeg_passthrough(
                 return Ok(None);
             }
             if data.len() > max_bytes {
-                return Err(IMAGE_BYTE_LIMIT_ERROR);
+                return Err(IMAGE_BYTE_LIMIT_ERROR.to_owned());
             }
-            data.into_owned()
+            match data {
+                Cow::Owned(data) => data,
+                Cow::Borrowed(data) => {
+                    let mut owned = Vec::new();
+                    owned.try_reserve_exact(data.len()).map_err(|error| {
+                        format!("failed to allocate JPEG extraction payload: {error}")
+                    })?;
+                    owned.extend_from_slice(data);
+                    owned
+                }
+            }
         }
         [Filter::FlateDecode, Filter::DctDecode] => {
             let mut out = Vec::new();
-            let result = flate2::read::ZlibDecoder::new(stream.raw_data().as_ref())
-                .take(
-                    u64::try_from(max_bytes)
-                        .unwrap_or(u64::MAX)
-                        .saturating_add(1),
-                )
-                .read_to_end(&mut out);
-            if out.len() > max_bytes {
-                return Err(IMAGE_BYTE_LIMIT_ERROR);
-            }
-            if result.is_err() {
-                // Preserve the existing decode-to-PNG fallback.
-                return Ok(None);
+            let raw_data = stream.raw_data();
+            let mut decoder = flate2::read::ZlibDecoder::new(raw_data.as_ref()).take(
+                u64::try_from(max_bytes)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(1),
+            );
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let amount = match decoder.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(amount) => amount,
+                    Err(_) => {
+                        // Preserve the existing decode-to-PNG fallback.
+                        return Ok(None);
+                    }
+                };
+                out.try_reserve_exact(amount).map_err(|error| {
+                    format!("failed to allocate Flate-to-JPEG extraction payload: {error}")
+                })?;
+                out.extend_from_slice(&buffer[..amount]);
+                if out.len() > max_bytes {
+                    return Err(IMAGE_BYTE_LIMIT_ERROR.to_owned());
+                }
             }
             out
         }
@@ -3065,12 +3086,14 @@ pub(crate) fn write_png<W: Write>(
 pub(crate) enum PngEncodeError {
     Encoding(png::EncodingError),
     OutputLimit,
+    Allocation(String),
 }
 
 struct BoundedPngOutput {
     bytes: Vec<u8>,
     max_size: Option<usize>,
     exceeded: bool,
+    allocation_error: Option<String>,
 }
 
 impl BoundedPngOutput {
@@ -3079,6 +3102,7 @@ impl BoundedPngOutput {
             bytes: Vec::new(),
             max_size,
             exceeded: false,
+            allocation_error: None,
         }
     }
 }
@@ -3099,9 +3123,10 @@ impl Write for BoundedPngOutput {
             self.exceeded = true;
             return Err(io::Error::other("PNG output size limit exceeded"));
         }
-        self.bytes
-            .try_reserve(buffer.len())
-            .map_err(|error| io::Error::other(format!("failed to allocate PNG output: {error}")))?;
+        if let Err(error) = self.bytes.try_reserve(buffer.len()) {
+            self.allocation_error = Some(format!("failed to allocate PNG output: {error}"));
+            return Err(io::Error::other("failed to allocate PNG output"));
+        }
         self.bytes.extend_from_slice(buffer);
         Ok(())
     }
@@ -3125,32 +3150,40 @@ pub(crate) fn encode_png_bounded(
     if output.exceeded {
         return Err(PngEncodeError::OutputLimit);
     }
+    if let Some(error) = output.allocation_error {
+        return Err(PngEncodeError::Allocation(error));
+    }
     result.map_err(PngEncodeError::Encoding)?;
     Ok(output.bytes)
 }
 
 fn write_luma_alpha(output: &mut dyn Write, luma: &[u8], alpha: &[u8]) -> io::Result<()> {
-    let mut buffer = Vec::with_capacity(PNG_ALPHA_SCRATCH_BYTES);
+    let mut buffer = [0u8; PNG_ALPHA_SCRATCH_BYTES];
+    let mut used = 0;
     for (gray, alpha) in luma.iter().zip(alpha) {
-        buffer.extend_from_slice(&[*gray, *alpha]);
-        if buffer.len() >= PNG_ALPHA_SCRATCH_BYTES {
+        buffer[used] = *gray;
+        buffer[used + 1] = *alpha;
+        used += 2;
+        if used == PNG_ALPHA_SCRATCH_BYTES {
             output.write_all(&buffer)?;
-            buffer.clear();
+            used = 0;
         }
     }
-    output.write_all(&buffer)
+    output.write_all(&buffer[..used])
 }
 
 fn write_rgb_alpha(output: &mut dyn Write, rgb: &[u8], alpha: &[u8]) -> io::Result<()> {
-    let mut buffer = Vec::with_capacity(PNG_ALPHA_SCRATCH_BYTES);
+    let mut buffer = [0u8; PNG_ALPHA_SCRATCH_BYTES];
+    let mut used = 0;
     for (rgb, alpha) in rgb.chunks_exact(3).zip(alpha) {
-        buffer.extend_from_slice(&[rgb[0], rgb[1], rgb[2], *alpha]);
-        if buffer.len() >= PNG_ALPHA_SCRATCH_BYTES {
+        buffer[used..used + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], *alpha]);
+        used += 4;
+        if used == PNG_ALPHA_SCRATCH_BYTES {
             output.write_all(&buffer)?;
-            buffer.clear();
+            used = 0;
         }
     }
-    output.write_all(&buffer)
+    output.write_all(&buffer[..used])
 }
 
 fn encode_png_stream_bounded(
@@ -3178,14 +3211,18 @@ fn encode_png_stream_bounded(
     if output.exceeded {
         return Err(PngEncodeError::OutputLimit);
     }
+    if let Some(error) = output.allocation_error {
+        return Err(PngEncodeError::Allocation(error));
+    }
     result.map_err(PngEncodeError::Encoding)?;
     Ok(output.bytes)
 }
 
-fn extracted_png(result: Result<Vec<u8>, PngEncodeError>) -> Result<Option<Vec<u8>>, &'static str> {
+fn extracted_png(result: Result<Vec<u8>, PngEncodeError>) -> Result<Option<Vec<u8>>, String> {
     match result {
         Ok(data) => Ok(Some(data)),
-        Err(PngEncodeError::OutputLimit) => Err(IMAGE_BYTE_LIMIT_ERROR),
+        Err(PngEncodeError::OutputLimit) => Err(IMAGE_BYTE_LIMIT_ERROR.to_owned()),
+        Err(PngEncodeError::Allocation(error)) => Err(error),
         Err(PngEncodeError::Encoding(_)) => Ok(None),
     }
 }
@@ -3195,7 +3232,7 @@ fn encode_raster_png(
     image: ImageData,
     alpha: Option<LumaData>,
     max_size: usize,
-) -> Result<Option<EncodedRasterPng>, &'static str> {
+) -> Result<Option<EncodedRasterPng>, String> {
     let (rgb, width, height) = match image {
         ImageData::Rgb(rgb) => (rgb.data, rgb.width, rgb.height),
         ImageData::Luma(luma) => {
@@ -3248,17 +3285,17 @@ fn encode_raster_png(
 impl ImageCollector {
     fn admit(&mut self, width: u32, height: u32) -> bool {
         if self.placements >= MAX_EXTRACTED_IMAGE_PLACEMENTS {
-            self.error = Some(IMAGE_PLACEMENT_LIMIT_ERROR);
+            self.error = Some(IMAGE_PLACEMENT_LIMIT_ERROR.to_owned());
             return false;
         }
         self.placements += 1;
         let pixels = u64::from(width) * u64::from(height);
         let Some(total) = self.pixels.checked_add(pixels) else {
-            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR);
+            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR.to_owned());
             return false;
         };
         if total > MAX_EXTRACTED_IMAGE_PIXELS {
-            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR);
+            self.error = Some(IMAGE_PIXEL_LIMIT_ERROR.to_owned());
             return false;
         }
         self.pixels = total;
@@ -3267,11 +3304,19 @@ impl ImageCollector {
 
     fn push(&mut self, image: ImageTuple) {
         let Some(total) = self.bytes.checked_add(image.4.len()) else {
-            self.error = Some(IMAGE_BYTE_LIMIT_ERROR);
+            self.error = Some(IMAGE_BYTE_LIMIT_ERROR.to_owned());
             return;
         };
         if total > MAX_EXTRACTED_IMAGE_BYTES {
-            self.error = Some(IMAGE_BYTE_LIMIT_ERROR);
+            self.error = Some(IMAGE_BYTE_LIMIT_ERROR.to_owned());
+            return;
+        }
+        if self.images.len() == self.images.capacity()
+            && let Err(error) = self.images.try_reserve(1)
+        {
+            self.error = Some(format!(
+                "failed to grow extracted image placement collection: {error}"
+            ));
             return;
         }
         self.bytes = total;
@@ -3314,13 +3359,7 @@ impl Device<'_> for ImageCollector {
                     MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes),
                 ) {
                     Ok(Some(jpeg)) => {
-                        self.push((
-                            raster.width(),
-                            raster.height(),
-                            bbox,
-                            "jpeg".to_owned(),
-                            jpeg,
-                        ));
+                        self.push((raster.width(), raster.height(), bbox, "jpeg", jpeg));
                         return;
                     }
                     Ok(None) => {}
@@ -3336,7 +3375,7 @@ impl Device<'_> for ImageCollector {
                         MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes),
                     ) {
                         Ok(Some((width, height, data))) => {
-                            self.push((width, height, bbox, "png".to_owned(), data));
+                            self.push((width, height, bbox, "png", data));
                         }
                         Ok(None) => {}
                         Err(error) => self.error = Some(error),
@@ -3354,9 +3393,7 @@ impl Device<'_> for ImageCollector {
                         png::Compression::Balanced,
                         Some(MAX_EXTRACTED_IMAGE_BYTES.saturating_sub(self.bytes)),
                     )) {
-                        Ok(Some(data)) => {
-                            self.push((luma.width, luma.height, bbox, "png".to_owned(), data))
-                        }
+                        Ok(Some(data)) => self.push((luma.width, luma.height, bbox, "png", data)),
                         Ok(None) => {}
                         Err(error) => self.error = Some(error),
                     },
@@ -3392,7 +3429,7 @@ pub(crate) fn extract_page_images(
     pdf: &Pdf,
     page: &Page<'_>,
     settings: InterpreterSettings,
-) -> Result<Vec<ImageTuple>, &'static str> {
+) -> Result<Vec<ImageTuple>, String> {
     let cache = InterpreterCache::new();
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = ImageCollector {
