@@ -386,8 +386,11 @@ overview.
   bytes conversion, grows retained output fallibly, and raises stable code
   `pdf_output_size` for the configured boundary. `max_size=None` is the explicit
   trusted-input opt-out. File `save` remains streamed and outside this in-memory
-  output boundary. Preserve the documented mutation semantics of `garbage`,
-  `deflate`, and `object_streams` on output refusal.
+  output boundary. Restore lopdf's temporary xref/object-stream `max_id` and
+  trailer writes after every successful or failed byte/file serialization so
+  repeated no-op output is deterministic. Preserve the documented mutation
+  semantics of `garbage`, `deflate`, and the PDF-version/xref-mode changes from
+  `object_streams` on output refusal.
 - TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
   compatibility. All other page APIs are zero-based.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
