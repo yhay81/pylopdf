@@ -159,7 +159,7 @@ fn single_line(text: String, width: f64) -> Result<Vec<TextBoxLine>, String> {
     Ok(lines)
 }
 
-fn copy_text(text: &str) -> Result<String, String> {
+pub(crate) fn copy_text(text: &str) -> Result<String, String> {
     let mut copy = String::new();
     copy.try_reserve_exact(text.len())
         .map_err(|error| format!("failed to allocate laid-out text: {error}"))?;
@@ -167,18 +167,40 @@ fn copy_text(text: &str) -> Result<String, String> {
     Ok(copy)
 }
 
+pub(crate) fn normalized_single_line(text: &str) -> Result<String, String> {
+    let mut normalized = String::new();
+    normalized
+        .try_reserve_exact(text.len())
+        .map_err(|error| format!("failed to allocate normalized text: {error}"))?;
+    for character in text.chars() {
+        normalized.push(match character {
+            '\r' | '\n' => ' ',
+            other => other,
+        });
+    }
+    Ok(normalized)
+}
+
+pub(crate) fn collect_graphemes(text: &str) -> Result<Vec<&str>, String> {
+    collect_items(text.graphemes(true), "grapheme collection")
+}
+
 fn collect_offsets(
     offsets: impl Iterator<Item = usize>,
     context: &str,
 ) -> Result<Vec<usize>, String> {
+    collect_items(offsets, context)
+}
+
+fn collect_items<T>(items: impl Iterator<Item = T>, context: &str) -> Result<Vec<T>, String> {
     let mut collected = Vec::new();
-    for offset in offsets {
+    for item in items {
         if collected.len() == collected.capacity() {
             collected
                 .try_reserve(1)
                 .map_err(|error| format!("failed to grow text {context}: {error}"))?;
         }
-        collected.push(offset);
+        collected.push(item);
     }
     Ok(collected)
 }

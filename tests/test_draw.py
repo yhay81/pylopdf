@@ -1140,6 +1140,15 @@ def test_insert_text_survives_save_roundtrip() -> None:
     assert "Persistent" in reopened[0].get_text()
 
 
+def test_insert_text_standard14_escapes_binary_and_delimiters() -> None:
+    doc = pylopdf.Document()
+    doc.new_page()
+
+    doc[0].insert_text((10, 20), "\x01(A)\\€")
+
+    assert b"(\\001\\(A\\)\\\\\\200) Tj" in doc.tobytes()
+
+
 def test_insert_text_page_numbering_recipe() -> None:
     # Exact page-number recipe published in the README.
     doc = pylopdf.Document()

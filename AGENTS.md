@@ -521,8 +521,13 @@ overview.
   plus binary refinement so long unbreakable runs do not repeatedly rescan or
   measure complete tails. Boundary indexes, line collections, and retained line
   text grow fallibly; allocation refusal becomes `PdfError` without exposing a
-  partial layout or mutating the document. `max_text_size=None` explicitly opts
-  trusted insertion input out, failures use `text_input_size` or
+  partial layout or mutating the document. Pylopdf-owned single-line
+  normalization, grapheme references, shaped-line/glyph collections, WinAnsi
+  output, and input-derived text-operator growth are also fallible. Standard 14
+  width checks and WinAnsi support probes do not allocate an encoded text copy.
+  Allocation refusal returns `PdfError`; insertion keeps its no-draw boundary
+  and form filling uses its document rollback. `max_text_size=None` explicitly
+  opts trusted insertion input out, failures use `text_input_size` or
   `text_line_count`. Paragraph layout remains outside `insert_text`. RTL shapes
   render, but extraction currently follows visual order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license

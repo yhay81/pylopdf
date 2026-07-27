@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Pylopdf-owned generated-text preparation now grows normalized text,
+  grapheme references, shaped-line and glyph collections, comb layouts, and
+  input-derived widget/text operator buffers fallibly.
+  Standard 14 width checks validate WinAnsi without an encoded allocation, and
+  final PDF literal escaping writes octal bytes without temporary formatting
+  strings. Allocation refusal raises `PdfError`; insertion remains nonmutating
+  and form filling rolls back atomically.
 - Shared textbox layout now grows UAX #14 and grapheme indexes, paragraph and
   wrapped-line collections, and retained line text fallibly. Allocation
   refusal raises `PdfError` without exposing a partial layout or mutating the
