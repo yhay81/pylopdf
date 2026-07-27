@@ -354,7 +354,11 @@ overview.
   per call in both Python and Rust. Iterable materialization stops at the
   4,097th item, and range insertion checks its size before allocation or graph
   import. `delete_pages([])` is a true no-op: do not invalidate caches or bump
-  the Python generation.
+  the Python generation. Imported and selected page orders, duplicate tracking,
+  inherited page dictionaries, spliced orders, and root/rebuilt Kids arrays
+  grow fallibly. `select` validates and plans all page IDs and duplicate copies
+  before cache invalidation or PDF mutation; page-tree rebuilds resolve every
+  page and allocate the final Kids array before committing dictionaries.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
