@@ -198,7 +198,7 @@ def test_text_glyph_budget_is_cumulative_without_double_charging_pages() -> None
     assert cumulative[2].get_text() == ""
 
 
-def test_interpretation_budget_bounds_original_and_edited_snapshots() -> None:
+def test_interpretation_budget_bounds_original_and_edited_snapshots(tmp_path: Path) -> None:
     source = build_pdf(["one"])
     exact_source = pylopdf.open(
         stream=source,
@@ -214,6 +214,17 @@ def test_interpretation_budget_bounds_original_and_edited_snapshots() -> None:
     with pytest.raises(pylopdf.LimitError) as source_error:
         bounded_source[0].get_text()
     assert _error_code(source_error.value) == "interpretation_size"
+
+    path = tmp_path / "oversized-interpretation.pdf"
+    path.write_bytes(source)
+    bounded_path = pylopdf.open(
+        path,
+        limits=pylopdf.DocumentLimits(max_interpretation_size=len(source) - 1),
+    )
+    assert bounded_path.page_count == 1
+    with pytest.raises(pylopdf.LimitError) as path_error:
+        bounded_path[0].get_text()
+    assert _error_code(path_error.value) == "interpretation_size"
 
     baseline = pylopdf.Document()
     baseline.new_page()
