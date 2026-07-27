@@ -90,8 +90,8 @@ plugins:
 
 extra:
   current_language: ja
-  announcement: "pylopdf 0.10.0 · 堅牢化、再利用可能なレイアウト、並列描画、CPython 3.14t"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.10.0"
+  announcement: "pylopdf 0.12.0 · 資源上限の深化、安全な編集、text layout／検索の高速化"
+  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.12.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English

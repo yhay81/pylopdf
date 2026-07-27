@@ -3,8 +3,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pylopdf
+
 _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOW = _ROOT / ".github" / "workflows" / "release.yml"
+_DOC_CONFIGS = (
+    _ROOT / "mkdocs.yml",
+    _ROOT / "mkdocs.ja.yml",
+    _ROOT / "mkdocs.zh-cn.yml",
+    _ROOT / "mkdocs.ko.yml",
+)
 _NATIVE_PLATFORMS = [
     ("ubuntu-latest", "x86_64-unknown-linux-gnu"),
     ("ubuntu-24.04-arm", "aarch64-unknown-linux-gnu"),
@@ -31,3 +39,14 @@ def test_every_native_release_wheel_runs_on_its_own_architecture() -> None:
         assert _MATRIX_ENTRY.findall(job) == _NATIVE_PLATFORMS
         assert "matrix.platform.smoke" not in job
         assert "python tools/smoke_artifact.py dist" in job
+
+
+def test_documentation_announcement_tracks_package_version() -> None:
+    version = pylopdf.__version__
+    expected_prefix = f'announcement: "pylopdf {version} ·'
+    expected_url = f'announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v{version}"'
+
+    for config_path in _DOC_CONFIGS:
+        config = config_path.read_text(encoding="utf-8")
+        assert expected_prefix in config, config_path.name
+        assert expected_url in config, config_path.name
