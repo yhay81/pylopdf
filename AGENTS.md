@@ -91,10 +91,18 @@ overview.
   refusals use `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
   When `max_text_size` is configured, plain-text assembly preflights its exact
-  UTF-8 size and caps one private extraction batch at twice that payload budget
+  UTF-8 size and caps one extraction batch at twice that payload budget
   because inferred gaps plus line endings cannot outnumber non-empty glyph
   records. The batch accepts at most 4,096 page entries, so repeated page
-  numbers cannot amplify a bounded interpretation without bound. Plain-text
+  numbers cannot amplify a bounded interpretation without bound.
+  `Document.get_text(pages=None)` is the public batched entry. One batch
+  shares one call-scoped hayro `InterpreterCache` across its pages, so a font
+  reused by several pages parses once per call; single-page interpretation
+  keeps one per-call cache. No interpreter cache crosses threads or survives
+  `invalidate_hayro_pdf`. Batched and single-page interpretation temporarily
+  detach the hayro snapshot so budget admission and LRU insertion can run
+  beside the cache borrow; helpers on that path must not touch `hayro_pdf` or
+  `hayro_source`, and the snapshot is restored on success and failure. Plain-text
   output, multi-page joining, and structured span/word/line/block
   materialization grow fallibly; allocation refusal returns `PdfError` without
   discarding or partially exposing the cached page interpretation. Structured

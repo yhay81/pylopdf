@@ -9,6 +9,7 @@ use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use hayro::hayro_interpret::InterpreterCache;
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
 use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning};
@@ -5747,33 +5748,41 @@ impl _Document {
             .expect("constructed immediately before"))
     }
 
-    /// Return a cached, owned interpretation of a one-based page.
-    fn text_page(
+    /// Refresh a cached text page's LRU position; return false when uncached.
+    fn touch_text_page(&mut self, page_number: u32) -> bool {
+        if !self.text_pages.contains_key(&page_number) {
+            return false;
+        }
+        self.text_page_order.retain(|number| *number != page_number);
+        self.text_page_order.push_back(page_number);
+        true
+    }
+
+    /// Interpret one uncached page with the caller's interpreter cache, then
+    /// admit and insert it into the bounded text-page cache.
+    ///
+    /// `pdf` must be the document's detached hayro snapshot: the interpreter
+    /// cache borrows it, so the caller temporarily takes `hayro_pdf` and
+    /// restores it afterwards. Nothing here may touch `hayro_pdf` or
+    /// `hayro_source`.
+    fn interpret_text_page<'a>(
         &mut self,
+        pdf: &'a Pdf,
+        cache: &InterpreterCache<'a>,
         page_number: u32,
         settings: InterpreterSettings,
-    ) -> PyResult<&crate::extract::TextPage> {
-        if self.text_pages.contains_key(&page_number) {
-            self.text_page_order.retain(|number| *number != page_number);
-            self.text_page_order.push_back(page_number);
-            return Ok(self
-                .text_pages
-                .get(&page_number)
-                .expect("cache key was checked immediately before"));
-        }
-
+    ) -> PyResult<()> {
+        debug_assert!(!self.text_pages.contains_key(&page_number));
         let text_budget = self.text_budget(page_number)?;
         let glyph_budget = self.glyph_budget(page_number)?;
-        let text_page = {
-            let pdf = self.hayro_view()?;
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TextPage::new(pdf, page, settings, text_budget, glyph_budget)
-                .map_err(text_page_limit_err)?
-        };
+        let pages = pdf.pages();
+        let page = page_number
+            .checked_sub(1)
+            .and_then(|index| pages.get(index as usize))
+            .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+        let text_page =
+            crate::extract::TextPage::new(pdf, page, cache, settings, text_budget, glyph_budget)
+                .map_err(text_page_limit_err)?;
         self.admit_text_usage(page_number, text_page.text_size(), text_page.glyph_count())?;
 
         if self.text_pages.len() >= TEXT_PAGE_CACHE_CAPACITY
@@ -5783,40 +5792,114 @@ impl _Document {
         }
         self.text_pages.insert(page_number, text_page);
         self.text_page_order.push_back(page_number);
-        Ok(self
-            .text_pages
-            .get(&page_number)
-            .expect("text page was inserted immediately before"))
+        Ok(())
     }
 
-    /// Return a cached, owned table interpretation of a one-based page.
-    fn table_page(
+    /// Return a cached, owned interpretation of a one-based page.
+    fn text_page(
         &mut self,
         page_number: u32,
         settings: InterpreterSettings,
-    ) -> PyResult<&crate::extract::TablePage> {
-        if self.table_pages.contains_key(&page_number) {
-            self.table_page_order
-                .retain(|number| *number != page_number);
-            self.table_page_order.push_back(page_number);
-            return Ok(self
-                .table_pages
-                .get(&page_number)
-                .expect("cache key was checked immediately before"));
+    ) -> PyResult<&crate::extract::TextPage> {
+        if !self.touch_text_page(page_number) {
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .take()
+                .expect("hayro view was built immediately before");
+            let cache = InterpreterCache::new();
+            let interpreted = self.interpret_text_page(&pdf, &cache, page_number, settings);
+            drop(cache);
+            self.hayro_pdf = Some(pdf);
+            interpreted?;
         }
+        Ok(self
+            .text_pages
+            .get(&page_number)
+            .expect("text page was interpreted immediately before"))
+    }
 
+    /// Assemble plain text for one page batch from the detached hayro view.
+    ///
+    /// The same detached-snapshot contract as `interpret_text_page` applies.
+    fn extract_text_batch<'a>(
+        &mut self,
+        pdf: &'a Pdf,
+        cache: &InterpreterCache<'a>,
+        page_numbers: &[u32],
+        max_output_size: Option<usize>,
+        settings: &InterpreterSettings,
+    ) -> PyResult<String> {
+        let mut out = String::new();
+        for number in page_numbers {
+            let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
+            if !self.touch_text_page(*number) {
+                self.interpret_text_page(pdf, cache, *number, settings.clone())?;
+            }
+            let page_text = self
+                .text_pages
+                .get(number)
+                .expect("text page was interpreted immediately before")
+                .text(remaining)
+                .map_err(|error| match error {
+                    crate::extract::TextPageLimit::TextSize(_) => {
+                        if let Some(limit) = max_output_size {
+                            limit_err(
+                                "text_size",
+                                format!(
+                                    "plain text output exceeds the {limit}-byte limit derived from max_text_size"
+                                ),
+                            )
+                        } else {
+                            limit_err(
+                                "text_size",
+                                "plain text output exceeds the platform limit",
+                            )
+                        }
+                    }
+                    other => text_page_limit_err(other),
+                })?;
+            out.try_reserve(page_text.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to grow multi-page text output: {error}"))
+            })?;
+            out.push_str(&page_text);
+        }
+        Ok(out)
+    }
+
+    /// Refresh a cached table page's LRU position; return false when uncached.
+    fn touch_table_page(&mut self, page_number: u32) -> bool {
+        if !self.table_pages.contains_key(&page_number) {
+            return false;
+        }
+        self.table_page_order
+            .retain(|number| *number != page_number);
+        self.table_page_order.push_back(page_number);
+        true
+    }
+
+    /// Interpret one uncached page's tables with the caller's interpreter
+    /// cache, then admit and insert them into the bounded table-page cache.
+    ///
+    /// The same detached-snapshot contract as `interpret_text_page` applies.
+    fn interpret_table_page<'a>(
+        &mut self,
+        pdf: &'a Pdf,
+        cache: &InterpreterCache<'a>,
+        page_number: u32,
+        settings: InterpreterSettings,
+    ) -> PyResult<()> {
+        debug_assert!(!self.table_pages.contains_key(&page_number));
         let text_budget = self.text_budget(page_number)?;
         let glyph_budget = self.glyph_budget(page_number)?;
-        let table_page = {
-            let pdf = self.hayro_view()?;
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::TablePage::new(pdf, page, settings, text_budget, glyph_budget)
-                .map_err(text_page_limit_err)?
-        };
+        let pages = pdf.pages();
+        let page = page_number
+            .checked_sub(1)
+            .and_then(|index| pages.get(index as usize))
+            .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+        let table_page =
+            crate::extract::TablePage::new(pdf, page, cache, settings, text_budget, glyph_budget)
+                .map_err(text_page_limit_err)?;
         self.admit_text_usage(
             page_number,
             table_page.text_size(),
@@ -5830,10 +5913,31 @@ impl _Document {
         }
         self.table_pages.insert(page_number, table_page);
         self.table_page_order.push_back(page_number);
+        Ok(())
+    }
+
+    /// Return a cached, owned table interpretation of a one-based page.
+    fn table_page(
+        &mut self,
+        page_number: u32,
+        settings: InterpreterSettings,
+    ) -> PyResult<&crate::extract::TablePage> {
+        if !self.touch_table_page(page_number) {
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .take()
+                .expect("hayro view was built immediately before");
+            let cache = InterpreterCache::new();
+            let interpreted = self.interpret_table_page(&pdf, &cache, page_number, settings);
+            drop(cache);
+            self.hayro_pdf = Some(pdf);
+            interpreted?;
+        }
         Ok(self
             .table_pages
             .get(&page_number)
-            .expect("table page was inserted immediately before"))
+            .expect("table page was interpreted immediately before"))
     }
 
     /// Build InterpreterSettings with fallbacks and the warning sink.
@@ -7189,38 +7293,26 @@ impl _Document {
                 })
             })
             .transpose()?;
+        // An empty batch must stay a true no-op that never builds the
+        // rendering and extraction snapshot or consults its size limit.
+        if page_numbers.is_empty() {
+            return Ok(String::new());
+        }
         let settings = self.interpreter_settings();
         py.detach(|| {
-            let mut out = String::new();
-            for number in &page_numbers {
-                let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
-                let page_text = self
-                    .text_page(*number, settings.clone())?
-                    .text(remaining)
-                    .map_err(|error| match error {
-                        crate::extract::TextPageLimit::TextSize(_) => {
-                            if let Some(limit) = max_output_size {
-                                limit_err(
-                                    "text_size",
-                                    format!(
-                                        "plain text output exceeds the {limit}-byte limit derived from max_text_size"
-                                    ),
-                                )
-                            } else {
-                                limit_err(
-                                    "text_size",
-                                    "plain text output exceeds the platform limit",
-                                )
-                            }
-                        }
-                        other => text_page_limit_err(other),
-                    })?;
-                out.try_reserve(page_text.len()).map_err(|error| {
-                    PdfError::new_err(format!("failed to grow multi-page text output: {error}"))
-                })?;
-                out.push_str(&page_text);
-            }
-            Ok(out)
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .take()
+                .expect("hayro view was built immediately before");
+            // Share one interpreter cache across the batch so fonts reused by
+            // several pages parse once per call instead of once per page.
+            let cache = InterpreterCache::new();
+            let extracted =
+                self.extract_text_batch(&pdf, &cache, &page_numbers, max_output_size, &settings);
+            drop(cache);
+            self.hayro_pdf = Some(pdf);
+            extracted
         })
     }
 

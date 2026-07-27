@@ -1894,16 +1894,24 @@ fn search_allocation_error(error: TextPageLimit) -> SearchError {
 }
 
 impl TextPage {
-    pub(crate) fn new(
-        pdf: &Pdf,
-        page: &Page<'_>,
+    pub(crate) fn new<'a>(
+        pdf: &'a Pdf,
+        page: &Page<'a>,
+        cache: &InterpreterCache<'a>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
-        let (glyphs, _, text_size, glyph_count) =
-            collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
+        let (glyphs, _, text_size, glyph_count) = collect_page_marks(
+            pdf,
+            page,
+            cache,
+            settings,
+            false,
+            max_text_size,
+            max_glyph_count,
+        )?;
         let physical_lines = cluster_lines(glyphs)?;
         let lines = order_page_lines(physical_lines)?;
         Ok(Self {
@@ -1959,15 +1967,23 @@ pub(crate) struct TablePage {
 }
 
 impl TablePage {
-    pub(crate) fn new(
-        pdf: &Pdf,
-        page: &Page<'_>,
+    pub(crate) fn new<'a>(
+        pdf: &'a Pdf,
+        page: &Page<'a>,
+        cache: &InterpreterCache<'a>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
-        let (glyphs, rules, text_size, glyph_count) =
-            collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
+        let (glyphs, rules, text_size, glyph_count) = collect_page_marks(
+            pdf,
+            page,
+            cache,
+            settings,
+            true,
+            max_text_size,
+            max_glyph_count,
+        )?;
         let physical_lines = cluster_lines(glyphs)?;
         let tables = detect_grid_tables(&physical_lines, &rules)?;
         let text_tables = detect_text_tables(&physical_lines)?;
@@ -3951,7 +3967,7 @@ impl Device<'_> for ImageCollector {
 fn extraction_context<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
-    cache: &'a InterpreterCache<'a>,
+    cache: &InterpreterCache<'a>,
     settings: InterpreterSettings,
 ) -> Context<'a> {
     let (width, height) = page.render_dimensions();
@@ -4453,16 +4469,19 @@ pub(crate) fn extract_page_drawings(
 }
 
 /// Interpret a page once and optionally collect vector table rules.
-fn collect_page_marks(
-    pdf: &Pdf,
-    page: &Page<'_>,
+///
+/// The caller owns the interpreter cache so one batched call can reuse parsed
+/// fonts across pages instead of re-parsing them for every page.
+fn collect_page_marks<'a>(
+    pdf: &'a Pdf,
+    page: &Page<'a>,
+    cache: &InterpreterCache<'a>,
     settings: InterpreterSettings,
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
 ) -> Result<(Vec<GlyphRecord>, Vec<RuleSegment>, usize, usize), TextPageLimit> {
-    let cache = InterpreterCache::new();
-    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut context = extraction_context(pdf, page, cache, settings);
     let mut collector = TextCollector {
         glyphs: Vec::new(),
         rules: Vec::new(),

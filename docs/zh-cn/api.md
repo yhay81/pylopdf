@@ -25,6 +25,7 @@ password input上限为127个UTF-8 byte。
 | `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
+| `get_text(pages=None)` | 单次batch最多提取4,096页的plain text，共享一个interpreter font cache（`None`表示所有页） |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 有上限的PNG、带4,096页及累计encoded output上限的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
