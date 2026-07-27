@@ -5173,17 +5173,27 @@ fn visit_embedded_files<'a, T>(
         return Ok(None);
     };
     let mut visited = HashSet::new();
-    let mut stack = vec![(root, 1usize)];
+    let mut stack = Vec::new();
+    stack.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!("failed to allocate attachment tree stack: {error}"))
+    })?;
+    stack.push((root, 1usize));
     let mut nodes = 0usize;
     let mut edges = 0usize;
     let mut pairs_seen = 0usize;
     let mut encoded_name_bytes = 0usize;
     let mut name_bytes = 0usize;
     while let Some((node_object, depth)) = stack.pop() {
-        if let Object::Reference(id) = node_object
-            && !visited.insert(*id)
-        {
-            continue;
+        if let Object::Reference(id) = node_object {
+            if visited.contains(id) {
+                continue;
+            }
+            if visited.len() == visited.capacity() {
+                visited.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow attachment tree cycle set: {error}"))
+                })?;
+            }
+            visited.insert(*id);
         }
         let Ok(node) = deref_object(doc, node_object).as_dict() else {
             continue;
@@ -5253,6 +5263,9 @@ fn visit_embedded_files<'a, T>(
                     "attachment name tree exceeds the {MAX_EMBEDDED_FILE_TREE_NODES}-edge safety limit"
                 )));
             }
+            stack.try_reserve(kids.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to grow attachment tree stack: {error}"))
+            })?;
             for kid in kids {
                 stack.push((kid, depth + 1));
             }
@@ -5273,7 +5286,13 @@ fn embedded_file_shape_error(detail: &str, limit: usize) -> PyErr {
 /// FileSpecs without allowing custom keys to amplify one add/delete operation
 /// through an arbitrarily deep or wide clone.
 fn validate_inline_embedded_filespec(object: &Object) -> PyResult<()> {
-    let mut pending = vec![(object, 1usize)];
+    let mut pending = Vec::new();
+    pending.try_reserve_exact(1).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate inline attachment validation stack: {error}"
+        ))
+    })?;
+    pending.push((object, 1usize));
     let mut objects = 0usize;
     let mut bytes = 0usize;
     while let Some((current, depth)) = pending.pop() {
@@ -5344,6 +5363,11 @@ fn validate_inline_embedded_filespec(object: &Object) -> PyResult<()> {
                 MAX_EMBEDDED_FILE_DIRECT_OBJECTS,
             ));
         }
+        pending.try_reserve(child_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow inline attachment validation stack: {error}"
+            ))
+        })?;
         let child_depth = depth + 1;
         match current {
             Object::Array(items) => {
@@ -5367,6 +5391,13 @@ fn collect_embedded_files(doc: &Document) -> PyResult<Vec<EmbeddedFileEntry>> {
     visit_embedded_files(doc, |name, value| {
         if matches!(value, Object::Dictionary(_)) {
             validate_inline_embedded_filespec(value)?;
+        }
+        if out.len() == out.capacity() {
+            out.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to grow attachment rewrite collection: {error}"
+                ))
+            })?;
         }
         out.push((name, value.clone()));
         Ok(None::<()>)
@@ -5400,8 +5431,17 @@ fn write_embedded_files(
     mut entries: Vec<EmbeddedFileEntry>,
     target: EmbeddedFilesWriteTarget,
 ) -> PyResult<()> {
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut flat = Vec::with_capacity(entries.len() * 2);
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let flat_len = entries
+        .len()
+        .checked_mul(2)
+        .ok_or_else(|| PdfError::new_err("attachment rewrite array length overflowed"))?;
+    let mut flat = Vec::new();
+    flat.try_reserve_exact(flat_len).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate attachment rewrite array: {error}"
+        ))
+    })?;
     for (name, filespec) in entries {
         flat.push(text_string(&name));
         flat.push(filespec);
@@ -7616,10 +7656,15 @@ impl _Document {
         py.detach(|| {
             let mut names = Vec::new();
             visit_embedded_files(&self.doc, |name, _| {
+                if names.len() == names.capacity() {
+                    names.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!("failed to grow attachment name result: {error}"))
+                    })?;
+                }
                 names.push(name);
                 Ok(None::<()>)
             })?;
-            names.sort();
+            names.sort_unstable();
             Ok(names)
         })
     }
