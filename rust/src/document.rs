@@ -2062,22 +2062,12 @@ fn collect_form_page_content(doc: &Document, page_id: ObjectId) -> PyResult<Vec<
             )));
         }
         let data_limit = remaining - 1;
-        let decoded = match stream.decompressed_content_with_limit(data_limit) {
-            Ok(data) => Cow::Owned(data),
-            Err(lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
-                return Err(PdfError::new_err(format!(
-                    "Form source page content exceeds the {MAX_FORM_CONTENT_BYTES}-byte safety limit"
-                )));
-            }
-            Err(_) => {
-                if stream.content.len() > data_limit {
-                    return Err(PdfError::new_err(format!(
-                        "Form source page content exceeds the {MAX_FORM_CONTENT_BYTES}-byte safety limit"
-                    )));
-                }
-                Cow::Borrowed(stream.content.as_slice())
-            }
-        };
+        let decoded = decoded_stream_content_cow(
+            stream,
+            Some(data_limit),
+            "form_content_size",
+            "Form source page content",
+        )?;
         let addition = decoded.len().checked_add(1).ok_or_else(|| {
             PdfError::new_err("Form source page content exceeds the platform size limit")
         })?;
@@ -3088,14 +3078,15 @@ fn canonical_filter_name(filter: &[u8]) -> &[u8] {
 
 /// Decode a general-purpose stream with an optional bound on every filter layer.
 ///
-/// Unlike lopdf's lenient `get_plain_content`, malformed or unsupported filters
-/// are errors rather than a reason to return encoded bytes as if they were plain.
-fn decoded_stream_content(
-    stream: &Stream,
+/// Unlike lopdf's lenient `get_plain_content`, reported decoder failures and
+/// unsupported filters are errors rather than a reason to return encoded bytes
+/// as if they were plain.
+fn decoded_stream_content_cow<'a>(
+    stream: &'a Stream,
     max_size: Option<usize>,
     limit_code: &'static str,
     context: &str,
-) -> PyResult<Vec<u8>> {
+) -> PyResult<Cow<'a, [u8]>> {
     let reject_raw = |length: usize, limit: usize| {
         limit_err(
             limit_code,
@@ -3108,7 +3099,7 @@ fn decoded_stream_content(
         {
             return Err(reject_raw(stream.content.len(), limit));
         }
-        return Ok(stream.content.clone());
+        return Ok(Cow::Borrowed(&stream.content));
     }
 
     let raw_filters = stream
@@ -3120,26 +3111,12 @@ fn decoded_stream_content(
         {
             return Err(reject_raw(stream.content.len(), limit));
         }
-        return Ok(stream.content.clone());
+        return Ok(Cow::Borrowed(&stream.content));
     }
     let normalized_filters: Vec<&[u8]> = raw_filters
         .iter()
         .map(|filter| canonical_filter_name(filter))
         .collect();
-    let mut checked_stream = stream.clone();
-    checked_stream.dict.set(
-        "Filter",
-        if normalized_filters.len() == 1 {
-            Object::Name(normalized_filters[0].to_vec())
-        } else {
-            Object::Array(
-                normalized_filters
-                    .iter()
-                    .map(|filter| Object::Name(filter.to_vec()))
-                    .collect(),
-            )
-        },
-    );
     let decode_error = |error: lopdf::Error| {
         if matches!(
             error,
@@ -3154,11 +3131,68 @@ fn decoded_stream_content(
             PdfError::new_err(format!("failed to decode {context}: {error}"))
         }
     };
-    match max_size {
-        Some(limit) => checked_stream
+    let decode = |candidate: &Stream| match max_size {
+        Some(limit) => candidate
             .decompressed_content_with_limit(limit)
             .map_err(decode_error),
-        None => checked_stream.decompressed_content().map_err(decode_error),
+        None => candidate.decompressed_content().map_err(decode_error),
+    };
+    if raw_filters
+        .iter()
+        .zip(&normalized_filters)
+        .all(|(raw, normalized)| *raw == *normalized)
+    {
+        return decode(stream).map(Cow::Owned);
+    }
+
+    let mut content = Vec::new();
+    content
+        .try_reserve_exact(stream.content.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate encoded {context} for filter normalization: {error}"
+            ))
+        })?;
+    content.extend_from_slice(&stream.content);
+    let mut checked_stream = Stream {
+        dict: stream.dict.clone(),
+        content,
+        allows_compression: stream.allows_compression,
+        start_position: stream.start_position,
+    };
+    checked_stream.dict.set(
+        "Filter",
+        if normalized_filters.len() == 1 {
+            Object::Name(normalized_filters[0].to_vec())
+        } else {
+            Object::Array(
+                normalized_filters
+                    .iter()
+                    .map(|filter| Object::Name(filter.to_vec()))
+                    .collect(),
+            )
+        },
+    );
+    decode(&checked_stream).map(Cow::Owned)
+}
+
+/// Materialize a strictly decoded stream for Python-owned return data.
+fn decoded_stream_content(
+    stream: &Stream,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    context: &str,
+) -> PyResult<Vec<u8>> {
+    match decoded_stream_content_cow(stream, max_size, limit_code, context)? {
+        Cow::Owned(data) => Ok(data),
+        Cow::Borrowed(data) => {
+            let mut owned = Vec::new();
+            owned.try_reserve_exact(data.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate {context}: {error}"))
+            })?;
+            owned.extend_from_slice(data);
+            Ok(owned)
+        }
     }
 }
 
