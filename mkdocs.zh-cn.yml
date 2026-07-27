@@ -90,8 +90,8 @@ plugins:
 
 extra:
   current_language: zh-Hans
-  announcement: "pylopdf 0.10.0 · 解析加固、可复用布局、并行渲染与CPython 3.14t"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.10.0"
+  announcement: "pylopdf 0.12.0 · 更完善的资源上限、更安全的编辑与更快的文本布局／搜索"
+  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.12.0"
   social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English

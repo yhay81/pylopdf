@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Documentation now constrains wide-screen guide content and the custom home
+  composition to more readable measures. The four localized announcement
+  banners now link to v0.12.0 and summarize its resource-safety and text-layout
+  improvements instead of advertising v0.10.0.
 - Resource-policy page indexing now uses an iterative, fallibly grown page-tree
   walker instead of lopdf's silent 256-level truncation and infallible final
   collection. Policies that inspect pages reject reused Page/Pages objects,
