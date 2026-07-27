@@ -257,6 +257,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(mhlw.page_count == _EXPECTED_TWO_PAGES, "MHLW fixture has the wrong page count")
     _require(_CASE_LAW in mhlw_text[0], "MHLW fixture lost embedded Japanese text")
     _require(_CASE_LAW in mhlw_markdown, "MHLW Markdown lost embedded Japanese text")
+    _require(mhlw.get_text() == "".join(mhlw_text), "batched get_text diverged from per-page extraction")
 
     form_bytes = (real_world / "f1040.pdf").read_bytes()
     form = pylopdf.Document(stream=form_bytes)

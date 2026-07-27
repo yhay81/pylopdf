@@ -105,6 +105,14 @@ def test_metadata_format(case: Case) -> None:
 
 
 @ALL
+def test_batched_get_text_matches_per_page(case: Case) -> None:
+    """One shared-interpreter-cache batch must equal fresh per-page extraction."""
+    batched = pylopdf.open(ASSETS / case.name).get_text()
+    per_page = "".join(pylopdf.open(ASSETS / case.name).get_page_text(pno) for pno in range(case.pages))
+    assert batched == per_page
+
+
+@ALL
 def test_peek_metadata_matches_full_load(case: Case) -> None:
     """peek_metadata returns the same page count as a full load."""
     meta = pylopdf.peek_metadata(ASSETS / case.name)

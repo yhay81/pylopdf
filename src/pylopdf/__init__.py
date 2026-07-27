@@ -120,6 +120,7 @@ _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
 _MAX_RENDER_BATCH_PAGES = 4096
 _MAX_MARKDOWN_PAGES = 4096
 _MAX_STRUCTURAL_PAGE_BATCH = 4096
+_MAX_TEXT_EXTRACTION_PAGES = 4096
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
 _TEMPORARY_FILE_ATTEMPTS = 100
 
@@ -3126,6 +3127,29 @@ class Document:
         _validate_optional_positive_int("max_size", max_size)
         claim = self._doc.pdfa_claim(max_size)
         return None if claim is None else (int(claim[0]), claim[1])
+
+    def get_text(self, pages: Iterable[int] | None = None) -> str:
+        """Extract plain text from the given pages in one batched call.
+
+        ``pages`` is a sequence of zero-based page numbers extracted in the
+        given order; ``None`` means every page, negative values count from the
+        end, and duplicates are allowed. One call accepts at most 4,096 page
+        entries. The batch shares one interpreter font cache, so a font reused
+        across pages is parsed once per call rather than once per page; the
+        returned text equals joining single-page :meth:`get_page_text` output
+        in the same order.
+        """
+        self._ensure_open()
+        page_numbers: list[int] = []
+        page_iter = range(self.page_count) if pages is None else pages
+        for pno in page_iter:
+            if len(page_numbers) >= _MAX_TEXT_EXTRACTION_PAGES:
+                msg = f"pages cannot contain more than {_MAX_TEXT_EXTRACTION_PAGES} entries"
+                raise ValueError(msg)
+            page_numbers.append(self._lopdf_page_number(pno))
+        text = self._doc.extract_text(page_numbers)
+        self._emit_warnings()
+        return text
 
     @overload
     def get_page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...

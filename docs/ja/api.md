@@ -25,6 +25,7 @@ password inputはUTF-8 127 byteが上限です。
 | `is_repaired` | 最終classic `startxref`の誤りを読み込み時に修復したか。保存するとxref dataを正規化 |
 | `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
+| `get_text(pages=None)` | 最大4,096 pageを1回のbatchで抽出するplain text。interpreter font cacheを共有（`None`で全page） |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。最大4,096 page・累積UTF-8出力上限（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 上限付きPNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
