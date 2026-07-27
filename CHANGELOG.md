@@ -34,12 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through fallible allocation. Sources above a finite
   `max_interpretation_size` retain only their size and limit until the existing
   first-interpretation refusal, rather than retaining over-limit PDF bytes.
+- Native OCR now allocates its rotation raster, detector and recognizer input
+  tensors, threshold/dilation/visited masks, connected-component stack, tile
+  starts, candidates, and results fallibly. Allocation pressure returns
+  `OcrError` instead of relying on infallible growth of pylopdf-owned buffers.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of
   cloning the complete encoded payload. PNG alpha separation compacts decoded
   color samples in place instead of allocating a second complete color plane,
   and decoded, alpha, Pixmap RGB, and Flate output buffers now grow fallibly.
+- The native OCR field suite reproduced identical word counts and strict/NFKC
+  CER after fallible buffer integration. All four single-run elapsed times
+  decreased on the recorded Windows host; the bounded shared-engine check also
+  retained exact sequential-output equality at admission limits 1 and 2.
 - `Document.compress_images()` now borrows candidate JPEG bytes and Flate
   streams through admission, decode, resize, and re-encode. It releases those
   borrows before mutating the atomic lopdf clone instead of cloning every

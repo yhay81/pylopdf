@@ -1,8 +1,8 @@
 # pylopdf native OCR results
 
-- Run at: 2026-07-25 13:10 UTC
+- Run at: 2026-07-27 01:00 UTC
 - Environment: Windows-11-10.0.26200-SP0 / Python 3.14.6 / CPU AMD64 Family 23 Model 113 Stepping 0, AuthenticAMD
-- Versions: pylopdf 0.10.0, pylopdf-ocr-models 0.1.0
+- Versions: pylopdf 0.12.0, pylopdf-ocr-models 0.1.0
 - Fixtures (sources and licenses in `tests/assets/real_world/README.md`):
   - `mhlw-digital`: `tests/assets/real_world/mhlw-doc.pdf` - embedded text retained as independent ground truth
   - `bunka-scan`: `tests/assets/real_world/bunka-kokugo-series-019-p4.pdf` - image-only archival scan with manually verified ground truth
@@ -12,10 +12,10 @@
 
 | Case | DPI | Words | Strict expected / actual | Strict edits | Strict CER | NFKC expected / actual | NFKC edits | NFKC CER | Elapsed |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| mhlw-digital | 150 | 47 | 1188 / 1182 | 45 | 3.788% | 1188 / 1182 | 10 | 0.842% | 5.50s |
-| mhlw-digital | 300 | 48 | 1188 / 1181 | 44 | 3.704% | 1188 / 1181 | 10 | 0.842% | 13.87s |
-| bunka-scan | 150 | 19 | 384 / 383 | 7 | 1.823% | 384 / 383 | 6 | 1.562% | 2.05s |
-| bunka-scan | 300 | 23 | 384 / 385 | 5 | 1.302% | 384 / 385 | 4 | 1.042% | 5.37s |
+| mhlw-digital | 150 | 47 | 1188 / 1182 | 45 | 3.788% | 1188 / 1182 | 10 | 0.842% | 4.70s |
+| mhlw-digital | 300 | 48 | 1188 / 1181 | 44 | 3.704% | 1188 / 1181 | 10 | 0.842% | 10.75s |
+| bunka-scan | 150 | 19 | 384 / 383 | 7 | 1.823% | 384 / 383 | 6 | 1.562% | 1.98s |
+| bunka-scan | 300 | 23 | 384 / 385 | 5 | 1.302% | 384 / 385 | 4 | 1.042% | 4.69s |
 
 Strict CER removes whitespace only. NFKC CER additionally folds compatibility
 forms such as full-width Latin characters. Elapsed time includes page rendering,
@@ -28,8 +28,8 @@ The 2 selected documents run through one shared engine at 150 dpi. The timer sta
 
 | `max_concurrent` | Calls | Words | Exact reference match | Elapsed |
 |---:|---:|---:|:---:|---:|
-| 1 | 2 | 66 | yes | 6.31s |
-| 2 | 2 | 66 | yes | 6.75s |
+| 1 | 2 | 66 | yes | 6.19s |
+| 2 | 2 | 66 | yes | 5.70s |
 
 This is a bounded field check, not a throughput claim: simultaneous calls own
 separate raster and inference buffers, so peak memory grows with the admission
