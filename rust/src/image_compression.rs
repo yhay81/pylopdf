@@ -81,11 +81,12 @@ impl CandidateSource<'_> {
     }
 }
 
-fn mask_references(doc: &Document, usages: &[ImageUsage]) -> HashSet<ObjectId> {
-    let candidates = usages
-        .iter()
-        .map(|usage| usage.object_id)
-        .collect::<HashSet<_>>();
+fn mask_references(doc: &Document, usages: &[ImageUsage]) -> Result<HashSet<ObjectId>, String> {
+    let mut candidates = HashSet::new();
+    candidates
+        .try_reserve(usages.len())
+        .map_err(|error| format!("failed to allocate image compression candidate set: {error}"))?;
+    candidates.extend(usages.iter().map(|usage| usage.object_id));
     let mut references = HashSet::new();
     for object in doc.objects.values() {
         let Ok(stream) = object.as_stream() else {
@@ -94,12 +95,18 @@ fn mask_references(doc: &Document, usages: &[ImageUsage]) -> HashSet<ObjectId> {
         for key in [b"SMask".as_slice(), b"Mask".as_slice()] {
             if let Ok(Object::Reference(id)) = stream.dict.get(key)
                 && candidates.contains(id)
+                && !references.contains(id)
             {
+                if references.len() == references.capacity() {
+                    references.try_reserve(1).map_err(|error| {
+                        format!("failed to grow image compression mask-reference set: {error}")
+                    })?;
+                }
                 references.insert(*id);
             }
         }
     }
-    references
+    Ok(references)
 }
 
 fn direct_name<'a>(dict: &'a Dictionary, key: &[u8]) -> Option<&'a [u8]> {
@@ -593,7 +600,7 @@ pub(crate) fn compress_images(
 ) -> Result<CompressionResult, String> {
     let considered =
         u32::try_from(usages.len()).map_err(|_| "image count overflowed".to_owned())?;
-    let mask_ids = mask_references(doc, usages);
+    let mask_ids = mask_references(doc, usages)?;
     let mut rewritten = 0u32;
     let mut bytes_before = 0u64;
     let mut bytes_after = 0u64;
