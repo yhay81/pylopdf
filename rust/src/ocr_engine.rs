@@ -57,6 +57,14 @@ fn try_push<T>(values: &mut Vec<T>, value: T, label: &str) -> Result<(), String>
     Ok(())
 }
 
+fn try_push_str(value: &mut String, text: &str, label: &str) -> Result<(), String> {
+    value
+        .try_reserve(text.len())
+        .map_err(|error| format!("failed to grow {label}: {error}"))?;
+    value.push_str(text);
+    Ok(())
+}
+
 fn rotate_rgba(
     pixels: &[u8],
     width: usize,
@@ -254,7 +262,11 @@ impl Engine {
                     ),
                 )));
             }
-            characters.push(character.to_owned());
+            let mut owned = String::new();
+            try_push_str(&mut owned, character, "OCR dictionary entry")
+                .map_err(OcrError::new_err)?;
+            try_push(&mut characters, owned, "OCR dictionary entries")
+                .map_err(OcrError::new_err)?;
         }
         if characters.is_empty() {
             return Err(OcrError::new_err(format!(
@@ -307,8 +319,8 @@ impl Engine {
         }
 
         let mut candidates = self.detect_tiled(pixels, width, height, tile_size, overlap)?;
-        merge_candidates(&mut candidates);
-        sort_candidates(&mut candidates);
+        merge_candidates(&mut candidates)?;
+        sort_candidates(&mut candidates)?;
 
         let mut results = Vec::new();
         results
@@ -492,9 +504,9 @@ impl Engine {
             }
             if best_index != 0 && best_index != previous {
                 if best_index == self.characters.len() + 1 {
-                    text.push(' ');
+                    try_push_str(&mut text, " ", "OCR recognized text")?;
                 } else if let Some(token) = self.characters.get(best_index - 1) {
-                    text.push_str(token);
+                    try_push_str(&mut text, token, "OCR recognized text")?;
                 }
                 confidence_sum += best_value.clamp(0.0, 1.0);
                 confidence_count += 1;
@@ -511,11 +523,12 @@ impl Engine {
 }
 
 fn tile_starts(length: usize, tile_size: usize, overlap: usize) -> Result<Vec<usize>, String> {
+    let mut starts = Vec::new();
+    try_push(&mut starts, 0, "OCR tile starts")?;
     if length <= tile_size {
-        return Ok(vec![0]);
+        return Ok(starts);
     }
     let step = tile_size - overlap;
-    let mut starts = vec![0];
     let mut next = step;
     while next + tile_size < length {
         try_push(&mut starts, next, "OCR tile starts")?;
@@ -673,7 +686,7 @@ fn connected_candidates(
     Ok(candidates)
 }
 
-fn merge_candidates(candidates: &mut Vec<Candidate>) {
+fn merge_candidates(candidates: &mut Vec<Candidate>) -> Result<(), String> {
     fn root(parents: &mut [usize], mut index: usize) -> usize {
         let mut result = index;
         while parents[result] != result {
@@ -687,7 +700,11 @@ fn merge_candidates(candidates: &mut Vec<Candidate>) {
         result
     }
 
-    let mut parents = (0..candidates.len()).collect::<Vec<_>>();
+    let mut parents = Vec::new();
+    parents
+        .try_reserve_exact(candidates.len())
+        .map_err(|error| format!("failed to allocate OCR candidate merge parents: {error}"))?;
+    parents.extend(0..candidates.len());
     for index in 0..candidates.len() {
         for other_index in index + 1..candidates.len() {
             let left = candidates[index];
@@ -710,7 +727,7 @@ fn merge_candidates(candidates: &mut Vec<Candidate>) {
         }
     }
 
-    let mut groups = vec![None; candidates.len()];
+    let mut groups = filled_vec(candidates.len(), None, "OCR candidate merge groups")?;
     for (index, candidate) in candidates.iter().copied().enumerate() {
         let group = root(&mut parents, index);
         groups[group] = Some(
@@ -719,14 +736,22 @@ fn merge_candidates(candidates: &mut Vec<Candidate>) {
                 .unwrap_or(candidate),
         );
     }
-    *candidates = groups.into_iter().flatten().collect();
+    candidates.clear();
+    for candidate in groups.into_iter().flatten() {
+        try_push(candidates, candidate, "merged OCR candidates")?;
+    }
+    Ok(())
 }
 
-fn sort_top_to_bottom(candidates: &mut Vec<Candidate>) {
-    candidates.sort_by(|left, right| {
+fn sort_top_to_bottom(candidates: &mut Vec<Candidate>) -> Result<(), String> {
+    candidates.sort_unstable_by(|left, right| {
         ((left.y0 + left.y1) * 0.5)
             .total_cmp(&((right.y0 + right.y1) * 0.5))
             .then_with(|| left.x0.total_cmp(&right.x0))
+            .then_with(|| left.y0.total_cmp(&right.y0))
+            .then_with(|| left.x1.total_cmp(&right.x1))
+            .then_with(|| left.y1.total_cmp(&right.y1))
+            .then_with(|| left.score.total_cmp(&right.score))
     });
     let mut rows: Vec<Vec<Candidate>> = Vec::new();
     for candidate in candidates.drain(..) {
@@ -738,57 +763,94 @@ fn sort_top_to_bottom(candidates: &mut Vec<Candidate>) {
                 (anchor.y0 - candidate.y0).abs() <= tolerance
             });
         if same_row {
-            rows.last_mut()
-                .expect("a matching row was found immediately before")
-                .push(candidate);
+            try_push(
+                rows.last_mut()
+                    .expect("a matching row was found immediately before"),
+                candidate,
+                "OCR row candidates",
+            )?;
         } else {
-            rows.push(vec![candidate]);
+            let mut row = Vec::new();
+            try_push(&mut row, candidate, "OCR row candidates")?;
+            try_push(&mut rows, row, "OCR candidate rows")?;
         }
     }
     for row in &mut rows {
-        row.sort_by(|left, right| left.x0.total_cmp(&right.x0));
+        row.sort_unstable_by(|left, right| {
+            left.x0
+                .total_cmp(&right.x0)
+                .then_with(|| left.y0.total_cmp(&right.y0))
+                .then_with(|| left.x1.total_cmp(&right.x1))
+                .then_with(|| left.y1.total_cmp(&right.y1))
+                .then_with(|| left.score.total_cmp(&right.score))
+        });
     }
-    *candidates = rows.into_iter().flatten().collect();
+    for row in rows {
+        for candidate in row {
+            try_push(candidates, candidate, "row-ordered OCR candidates")?;
+        }
+    }
+    Ok(())
 }
 
-fn typical_candidate_height(candidates: &[Candidate]) -> f32 {
-    let mut heights = candidates
-        .iter()
-        .map(|candidate| candidate.height())
-        .filter(|height| height.is_finite() && *height > 0.0)
-        .collect::<Vec<_>>();
+fn typical_candidate_height(candidates: &[Candidate]) -> Result<f32, String> {
+    let mut heights = Vec::new();
+    for candidate in candidates {
+        let height = candidate.height();
+        if height.is_finite() && height > 0.0 {
+            try_push(&mut heights, height, "OCR candidate height samples")?;
+        }
+    }
     if heights.is_empty() {
-        return 12.0;
+        return Ok(12.0);
     }
-    heights.sort_by(f32::total_cmp);
-    heights[heights.len() / 2]
+    heights.sort_unstable_by(f32::total_cmp);
+    Ok(heights[heights.len() / 2])
 }
 
-fn candidate_column_boundary(candidates: &[Candidate]) -> Option<f32> {
+fn candidate_column_boundary(candidates: &[Candidate]) -> Result<Option<f32>, String> {
     if candidates.len() < MIN_COLUMN_LINES * 2 {
-        return None;
+        return Ok(None);
     }
-    let region_x0 = candidates
+    let Some(region_x0) = candidates
         .iter()
         .map(|candidate| candidate.x0)
-        .reduce(f32::min)?;
-    let region_x1 = candidates
+        .reduce(f32::min)
+    else {
+        return Ok(None);
+    };
+    let Some(region_x1) = candidates
         .iter()
         .map(|candidate| candidate.x1)
-        .reduce(f32::max)?;
+        .reduce(f32::max)
+    else {
+        return Ok(None);
+    };
     let region_width = region_x1 - region_x0;
     if !region_width.is_finite() || region_width <= 0.0 {
-        return None;
+        return Ok(None);
     }
 
-    let mut intervals = candidates
-        .iter()
-        .filter(|candidate| candidate.width() <= region_width * MAX_COLUMN_LINE_WIDTH_RATIO)
-        .map(|candidate| (candidate.x0, candidate.x1))
-        .collect::<Vec<_>>();
-    intervals.sort_by(|left, right| left.0.total_cmp(&right.0));
-    let first = intervals.first().copied()?;
-    let mut merged = vec![first];
+    let mut intervals = Vec::new();
+    for candidate in candidates {
+        if candidate.width() <= region_width * MAX_COLUMN_LINE_WIDTH_RATIO {
+            try_push(
+                &mut intervals,
+                (candidate.x0, candidate.x1),
+                "OCR gutter intervals",
+            )?;
+        }
+    }
+    intervals.sort_unstable_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then_with(|| left.1.total_cmp(&right.1))
+    });
+    let Some(first) = intervals.first().copied() else {
+        return Ok(None);
+    };
+    let mut merged = Vec::new();
+    try_push(&mut merged, first, "merged OCR gutter intervals")?;
     for (x0, x1) in intervals.into_iter().skip(1) {
         let last = merged
             .last_mut()
@@ -796,19 +858,19 @@ fn candidate_column_boundary(candidates: &[Candidate]) -> Option<f32> {
         if x0 <= last.1 {
             last.1 = last.1.max(x1);
         } else {
-            merged.push((x0, x1));
+            try_push(&mut merged, (x0, x1), "merged OCR gutter intervals")?;
         }
     }
 
-    let minimum_gap = (typical_candidate_height(candidates) * COLUMN_GUTTER).max(12.0);
-    merged
+    let minimum_gap = (typical_candidate_height(candidates)? * COLUMN_GUTTER).max(12.0);
+    Ok(merged
         .windows(2)
         .filter_map(|pair| {
             let gap = pair[1].0 - pair[0].1;
             (gap >= minimum_gap).then_some((gap, (pair[0].1 + pair[1].0) * 0.5))
         })
         .max_by(|left, right| left.0.total_cmp(&right.0))
-        .map(|(_, boundary)| boundary)
+        .map(|(_, boundary)| boundary))
 }
 
 fn candidate_side_extent(
@@ -852,28 +914,34 @@ fn valid_candidate_column_split(candidates: &[Candidate], boundary: f32) -> bool
     overlap > 0.0 && shorter_height > 0.0 && overlap / shorter_height >= MIN_COLUMN_VERTICAL_OVERLAP
 }
 
-fn order_candidate_columns(candidates: Vec<Candidate>, depth: usize) -> Vec<Candidate> {
+fn order_candidate_columns(
+    candidates: Vec<Candidate>,
+    depth: usize,
+) -> Result<Vec<Candidate>, String> {
     if depth >= MAX_COLUMN_DEPTH {
-        return candidates;
+        return Ok(candidates);
     }
-    let Some(boundary) = candidate_column_boundary(&candidates) else {
-        return candidates;
+    let Some(boundary) = candidate_column_boundary(&candidates)? else {
+        return Ok(candidates);
     };
     if !valid_candidate_column_split(&candidates, boundary) {
-        return candidates;
+        return Ok(candidates);
     }
 
-    let side_centers = candidates
-        .iter()
-        .filter(|candidate| candidate.x1 <= boundary || candidate.x0 >= boundary)
-        .map(|candidate| (candidate.y0 + candidate.y1) * 0.5)
-        .collect::<Vec<_>>();
-    let Some(first_center) = side_centers.iter().copied().reduce(f32::min) else {
-        return candidates;
-    };
-    let Some(last_center) = side_centers.iter().copied().reduce(f32::max) else {
-        return candidates;
-    };
+    let mut first_center = f32::INFINITY;
+    let mut last_center = f32::NEG_INFINITY;
+    let mut has_side_candidate = false;
+    for candidate in &candidates {
+        if candidate.x1 <= boundary || candidate.x0 >= boundary {
+            let center = (candidate.y0 + candidate.y1) * 0.5;
+            first_center = first_center.min(center);
+            last_center = last_center.max(center);
+            has_side_candidate = true;
+        }
+    }
+    if !has_side_candidate {
+        return Ok(candidates);
+    }
     if candidates.iter().any(|candidate| {
         let center = (candidate.y0 + candidate.y1) * 0.5;
         candidate.x0 < boundary
@@ -881,7 +949,7 @@ fn order_candidate_columns(candidates: Vec<Candidate>, depth: usize) -> Vec<Cand
             && center > first_center
             && center < last_center
     }) {
-        return candidates;
+        return Ok(candidates);
     }
 
     let mut top = Vec::new();
@@ -890,25 +958,32 @@ fn order_candidate_columns(candidates: Vec<Candidate>, depth: usize) -> Vec<Cand
     let mut bottom = Vec::new();
     for candidate in candidates {
         if candidate.x1 <= boundary {
-            left.push(candidate);
+            try_push(&mut left, candidate, "left-column OCR candidates")?;
         } else if candidate.x0 >= boundary {
-            right.push(candidate);
+            try_push(&mut right, candidate, "right-column OCR candidates")?;
         } else if (candidate.y0 + candidate.y1) * 0.5 <= first_center {
-            top.push(candidate);
+            try_push(&mut top, candidate, "OCR candidates above columns")?;
         } else {
-            bottom.push(candidate);
+            try_push(&mut bottom, candidate, "OCR candidates below columns")?;
         }
     }
 
-    top.extend(order_candidate_columns(left, depth + 1));
-    top.extend(order_candidate_columns(right, depth + 1));
-    top.extend(bottom);
-    top
+    for candidate in order_candidate_columns(left, depth + 1)? {
+        try_push(&mut top, candidate, "ordered OCR candidates")?;
+    }
+    for candidate in order_candidate_columns(right, depth + 1)? {
+        try_push(&mut top, candidate, "ordered OCR candidates")?;
+    }
+    for candidate in bottom {
+        try_push(&mut top, candidate, "ordered OCR candidates")?;
+    }
+    Ok(top)
 }
 
-fn sort_candidates(candidates: &mut Vec<Candidate>) {
-    sort_top_to_bottom(candidates);
-    *candidates = order_candidate_columns(std::mem::take(candidates), 0);
+fn sort_candidates(candidates: &mut Vec<Candidate>) -> Result<(), String> {
+    sort_top_to_bottom(candidates)?;
+    *candidates = order_candidate_columns(std::mem::take(candidates), 0)?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

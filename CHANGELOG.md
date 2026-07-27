@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Native OCR dictionary entries, tile positions, recognized text, candidate
+  union-find, row/column ordering, height samples, and gutter collections now
+  grow fallibly under their existing caps. Candidate ordering uses in-place
+  sorts with explicit geometry tie-breakers.
 - Text and table layout ordering now uses in-place sorts with explicit
   source-order or geometry tie-breakers. Admitted extraction no longer relies
   on hidden stable-sort scratch allocation for glyph, line, size, or gutter
