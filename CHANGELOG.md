@@ -60,6 +60,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   components, coordinate and edge analysis, hybrid candidates, cells,
   coverage, anchors, and result materialization now grow fallibly or sort
   in-place without allocation.
+- Plain-text extraction and structured span, word, line, and block
+  materialization now grow strings and vectors fallibly. Multi-page text
+  joining reports allocation refusal as `PdfError`, and word output reuses
+  borrowed glyph slices instead of building a temporary reference vector for
+  every word.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of

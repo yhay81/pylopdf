@@ -89,7 +89,12 @@ overview.
   UTF-8 size and caps one private extraction batch at twice that payload budget
   because inferred gaps plus line endings cannot outnumber non-empty glyph
   records. The batch accepts at most 4,096 page entries, so repeated page
-  numbers cannot amplify a bounded interpretation without bound.
+  numbers cannot amplify a bounded interpretation without bound. Plain-text
+  output, multi-page joining, and structured span/word/line/block
+  materialization grow fallibly; allocation refusal returns `PdfError` without
+  discarding or partially exposing the cached page interpretation. Structured
+  word generation reuses borrowed glyph slices instead of building a temporary
+  reference vector for every word.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. Gutter discovery

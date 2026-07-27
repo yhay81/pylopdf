@@ -1376,17 +1376,18 @@ impl TextPage {
         })
     }
 
-    pub(crate) fn text(&self, max_size: Option<usize>) -> Result<String, usize> {
+    pub(crate) fn text(&self, max_size: Option<usize>) -> Result<String, TextPageLimit> {
         let size = max_size
             .map(|limit| {
-                let size = assembled_text_size(&self.lines).ok_or(usize::MAX)?;
+                let size =
+                    assembled_text_size(&self.lines).ok_or(TextPageLimit::TextSize(limit))?;
                 if size > limit {
-                    return Err(limit);
+                    return Err(TextPageLimit::TextSize(limit));
                 }
                 Ok(size)
             })
             .transpose()?;
-        Ok(assemble_text(&self.lines, size))
+        assemble_text(&self.lines, size)
     }
 
     pub(crate) fn text_size(&self) -> usize {
@@ -1397,8 +1398,8 @@ impl TextPage {
         self.glyph_count
     }
 
-    pub(crate) fn layout(&self) -> (f64, f64, Vec<BlockTuple>) {
-        (self.width, self.height, assemble_layout(&self.lines))
+    pub(crate) fn layout(&self) -> Result<(f64, f64, Vec<BlockTuple>), TextPageLimit> {
+        Ok((self.width, self.height, assemble_layout(&self.lines)?))
     }
 
     pub(crate) fn search(
@@ -1517,27 +1518,35 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
 }
 
 /// Assemble glyphs into top-to-bottom, left-to-right plain text.
-fn assemble_text(lines: &[Vec<GlyphRecord>], exact_size: Option<usize>) -> String {
-    let mut out = String::with_capacity(exact_size.unwrap_or(0));
+fn assemble_text(
+    lines: &[Vec<GlyphRecord>],
+    exact_size: Option<usize>,
+) -> Result<String, TextPageLimit> {
+    let mut out = String::new();
+    if let Some(size) = exact_size {
+        out.try_reserve_exact(size).map_err(|error| {
+            TextPageLimit::Allocation(format!("failed to reserve plain text output: {error}"))
+        })?;
+    }
     for line in lines {
         let mut prev_end: Option<f64> = None;
         for glyph in line {
             if needs_gap(prev_end, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
-                out.push(' ');
+                try_push_str_text(&mut out, " ", "plain text output")?;
             }
-            out.push_str(&glyph.text);
+            try_push_str_text(&mut out, glyph.text.as_str(), "plain text output")?;
             prev_end = Some(glyph_end(glyph));
         }
         // Drop extra whitespace glyphs at line ends.
         while out.ends_with(' ') {
             out.pop();
         }
-        out.push('\n');
+        try_push_str_text(&mut out, "\n", "plain text output")?;
     }
     if let Some(size) = exact_size {
         debug_assert_eq!(out.len(), size);
     }
-    out
+    Ok(out)
 }
 
 /// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
@@ -1636,8 +1645,8 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
 }
 
 /// Split a line into contiguous spans sharing size and font.
-fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
-    let mut spans: Vec<SpanTuple> = Vec::new();
+fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
+    let mut spans = Vec::new();
     let mut start = 0;
     for i in 1..=line.len() {
         let boundary = i == line.len() || {
@@ -1650,61 +1659,46 @@ fn split_spans(line: &[GlyphRecord]) -> Vec<SpanTuple> {
             let mut prev_end: Option<f64> = None;
             for glyph in glyphs {
                 if needs_gap(prev_end, glyph) && !text.ends_with(' ') {
-                    text.push(' ');
+                    try_push_str_text(&mut text, " ", "layout span text")?;
                 }
-                text.push_str(&glyph.text);
+                try_push_str_text(&mut text, glyph.text.as_str(), "layout span text")?;
                 prev_end = Some(glyph_end(glyph));
             }
-            spans.push((
-                glyphs_bbox(glyphs),
-                text,
-                glyphs.iter().map(|g| g.size).fold(0.0, f64::max),
-                (glyphs[0].x, glyphs[0].y),
-                glyphs[0].font.name.to_string(),
-                glyphs[0].font.flags,
-            ));
+            let mut font_name = String::new();
+            try_push_str_text(
+                &mut font_name,
+                &glyphs[0].font.name,
+                "layout span font name",
+            )?;
+            try_push_text(
+                &mut spans,
+                (
+                    glyphs_bbox(glyphs),
+                    text,
+                    glyphs.iter().map(|g| g.size).fold(0.0, f64::max),
+                    (glyphs[0].x, glyphs[0].y),
+                    font_name,
+                    glyphs[0].font.flags,
+                ),
+                "layout spans",
+            )?;
             start = i;
         }
     }
-    spans
+    Ok(spans)
 }
 
 /// Split a line into words delimited by whitespace and gaps.
-fn split_words(line: &[GlyphRecord]) -> Vec<WordTuple> {
-    let mut words: Vec<WordTuple> = Vec::new();
-    let mut current: Vec<&GlyphRecord> = Vec::new();
-    let mut prev_end: Option<f64> = None;
-    let mut flush = |current: &mut Vec<&GlyphRecord>| {
-        if current.is_empty() {
-            return;
+fn split_words(line: &[GlyphRecord]) -> Result<Vec<WordTuple>, TextPageLimit> {
+    let mut words = Vec::new();
+    for (bbox, glyphs) in split_word_slices(line)? {
+        let mut text = String::new();
+        for glyph in glyphs {
+            try_push_str_text(&mut text, glyph.text.as_str(), "layout word text")?;
         }
-        let text: String = current.iter().map(|g| g.text.as_str()).collect();
-        let mut x0 = f64::INFINITY;
-        let mut y0 = f64::INFINITY;
-        let mut x1 = f64::NEG_INFINITY;
-        let mut y1 = f64::NEG_INFINITY;
-        for g in current.iter() {
-            let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = glyph_bbox(g);
-            x0 = x0.min(glyph_x0);
-            y0 = y0.min(glyph_y0);
-            x1 = x1.max(glyph_x1);
-            y1 = y1.max(glyph_y1);
-        }
-        words.push(((x0, y0, x1, y1), text));
-        current.clear();
-    };
-    for glyph in line {
-        let is_space = glyph.text.chars().all(char::is_whitespace);
-        if is_space || needs_gap(prev_end, glyph) {
-            flush(&mut current);
-        }
-        if !is_space {
-            current.push(glyph);
-        }
-        prev_end = Some(glyph_end(glyph));
+        try_push_text(&mut words, (bbox, text), "layout words")?;
     }
-    flush(&mut current);
-    words
+    Ok(words)
 }
 
 /// Borrow words without materializing duplicate text for table detection.
@@ -1721,7 +1715,7 @@ fn split_word_slices(line: &[GlyphRecord]) -> Result<Vec<BorrowedWord<'_>>, Text
             try_push_text(
                 &mut words,
                 (glyphs_bbox(glyphs), glyphs),
-                "borrowed table words",
+                "borrowed text words",
             )?;
         }
         if !is_space && word_start.is_none() {
@@ -1734,7 +1728,7 @@ fn split_word_slices(line: &[GlyphRecord]) -> Result<Vec<BorrowedWord<'_>>, Text
         try_push_text(
             &mut words,
             (glyphs_bbox(glyphs), glyphs),
-            "borrowed table words",
+            "borrowed text words",
         )?;
     }
     Ok(words)
@@ -2624,8 +2618,8 @@ fn line_direction(line: &[GlyphRecord]) -> ((f64, f64), u8) {
 }
 
 /// Assemble collected glyphs into blocks, lines, spans, and words.
-fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Vec<BlockTuple> {
-    let mut blocks: Vec<Vec<&[GlyphRecord]>> = Vec::new();
+fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPageLimit> {
+    let mut blocks = Vec::new();
     let mut prev_baseline: Option<f64> = None;
     let mut prev_size = 0.0_f64;
     let mut prev_vertical = false;
@@ -2644,46 +2638,51 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Vec<BlockTuple> {
             None => true,
         };
         if new_block {
-            blocks.push(Vec::new());
+            try_push_text(&mut blocks, Vec::new(), "layout block lines")?;
         }
         prev_baseline = Some(baseline);
         prev_size = line_size;
         prev_vertical = vertical;
-        blocks
-            .last_mut()
-            .expect("a block was created immediately before")
-            .push(line);
+        try_push_text(
+            blocks
+                .last_mut()
+                .expect("a block was created immediately before"),
+            line.as_slice(),
+            "layout block lines",
+        )?;
     }
 
-    blocks
-        .into_iter()
-        .map(|block_lines| {
-            let line_tuples: Vec<LineTuple> = block_lines
-                .iter()
-                .map(|line| {
-                    let (direction, writing_mode) = line_direction(line);
-                    (
-                        glyphs_bbox(line),
-                        split_spans(line),
-                        split_words(line),
-                        direction,
-                        writing_mode,
-                    )
-                })
-                .collect();
-            let mut x0 = f64::INFINITY;
-            let mut y0 = f64::INFINITY;
-            let mut x1 = f64::NEG_INFINITY;
-            let mut y1 = f64::NEG_INFINITY;
-            for ((lx0, ly0, lx1, ly1), _, _, _, _) in &line_tuples {
-                x0 = x0.min(*lx0);
-                y0 = y0.min(*ly0);
-                x1 = x1.max(*lx1);
-                y1 = y1.max(*ly1);
-            }
-            ((x0, y0, x1, y1), line_tuples)
-        })
-        .collect()
+    let mut output = Vec::new();
+    for block_lines in blocks {
+        let mut line_tuples = Vec::new();
+        for line in block_lines {
+            let (direction, writing_mode) = line_direction(line);
+            let tuple = (
+                glyphs_bbox(line),
+                split_spans(line)?,
+                split_words(line)?,
+                direction,
+                writing_mode,
+            );
+            try_push_text(&mut line_tuples, tuple, "layout lines")?;
+        }
+        let mut x0 = f64::INFINITY;
+        let mut y0 = f64::INFINITY;
+        let mut x1 = f64::NEG_INFINITY;
+        let mut y1 = f64::NEG_INFINITY;
+        for ((lx0, ly0, lx1, ly1), _, _, _, _) in &line_tuples {
+            x0 = x0.min(*lx0);
+            y0 = y0.min(*ly0);
+            x1 = x1.max(*lx1);
+            y1 = y1.max(*ly1);
+        }
+        try_push_text(
+            &mut output,
+            ((x0, y0, x1, y1), line_tuples),
+            "layout blocks",
+        )?;
+    }
+    Ok(output)
 }
 
 /// Build lowercase search text and a character-to-glyph map from a line.
