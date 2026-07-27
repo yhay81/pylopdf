@@ -569,6 +569,55 @@ struct DocumentLimits {
 /// Cheap structural facts that require neither stream decoding nor rendering.
 type ComplexityTuple = (usize, usize, usize, u64, usize);
 
+/// Original unencrypted input retained for the first render or extraction.
+enum HayroSource {
+    Unavailable,
+    Bytes(Vec<u8>),
+    TooLarge { actual: usize, limit: usize },
+}
+
+impl HayroSource {
+    fn from_owned(data: Vec<u8>, max_size: Option<usize>) -> Self {
+        match max_size {
+            Some(limit) if data.len() > limit => Self::TooLarge {
+                actual: data.len(),
+                limit,
+            },
+            _ => Self::Bytes(data),
+        }
+    }
+
+    fn from_optional_owned(data: Option<Vec<u8>>, max_size: Option<usize>) -> Self {
+        data.map_or(Self::Unavailable, |data| Self::from_owned(data, max_size))
+    }
+
+    fn from_borrowed(data: &[u8], max_size: Option<usize>) -> PyResult<Self> {
+        if let Some(limit) = max_size
+            && data.len() > limit
+        {
+            return Ok(Self::TooLarge {
+                actual: data.len(),
+                limit,
+            });
+        }
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(data.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate rendering and extraction source: {error}"
+            ))
+        })?;
+        owned.extend_from_slice(data);
+        Ok(Self::Bytes(owned))
+    }
+
+    fn take_bytes(&mut self) -> Option<Vec<u8>> {
+        match std::mem::replace(self, Self::Unavailable) {
+            Self::Bytes(data) => Some(data),
+            Self::Unavailable | Self::TooLarge { .. } => None,
+        }
+    }
+}
+
 /// Page dictionary keys that may be inherited from parent nodes.
 const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
@@ -3139,7 +3188,7 @@ pub struct _Document {
     /// This avoids a potentially expensive lopdf serialization before the
     /// first render or extraction. Any edit discards it together with the
     /// parsed hayro view.
-    hayro_source: Option<Vec<u8>>,
+    hayro_source: HayroSource,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
@@ -3178,7 +3227,7 @@ impl _Document {
     ) -> Self {
         Self::from_loaded_doc(
             doc,
-            hayro_source,
+            HayroSource::from_optional_owned(hayro_source, max_interpretation_size),
             max_text_size,
             max_interpretation_size,
             max_text_glyphs,
@@ -3189,7 +3238,7 @@ impl _Document {
     /// Construct from a loaded document and retain visible recovery state.
     fn from_loaded_doc(
         doc: Document,
-        hayro_source: Option<Vec<u8>>,
+        hayro_source: HayroSource,
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
@@ -3351,7 +3400,7 @@ impl _Document {
     /// Drop cached views; call at the start of every editing method.
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
-        self.hayro_source = None;
+        self.hayro_source = HayroSource::Unavailable;
         self.invalidate_interpreted_pages();
     }
 
@@ -4523,11 +4572,24 @@ impl _Document {
             let expected_pages = self.doc.get_pages().len();
             let prepare_appearances =
                 has_state_appearances(&self.doc) || has_missing_text_markup_appearances(&self.doc);
-            if !prepare_appearances && let Some(data) = self.hayro_source.as_deref() {
-                self.validate_interpretation_source(data)?;
+            if !prepare_appearances {
+                match &self.hayro_source {
+                    HayroSource::TooLarge { actual, limit } => {
+                        return Err(limit_err(
+                            "interpretation_size",
+                            format!(
+                                "rendering and extraction source is {actual} bytes, exceeding the configured limit of {limit}"
+                            ),
+                        ));
+                    }
+                    HayroSource::Bytes(data) => {
+                        self.validate_interpretation_source(data)?;
+                    }
+                    HayroSource::Unavailable => {}
+                }
             }
             let source_pdf = (!prepare_appearances)
-                .then(|| self.hayro_source.take())
+                .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
                 .filter(|pdf| pdf.pages().len() == expected_pages);
@@ -5485,7 +5547,11 @@ impl _Document {
             }
             let is_repaired = repaired.is_some();
             let source = repaired.unwrap_or(data);
-            let hayro_source = (!doc.was_encrypted()).then_some(source);
+            let hayro_source = if doc.was_encrypted() {
+                HayroSource::Unavailable
+            } else {
+                HayroSource::from_owned(source, limits.max_interpretation_size)
+            };
             Ok(Self::from_loaded_doc(
                 doc,
                 hayro_source,
@@ -5576,9 +5642,14 @@ impl _Document {
             }
             let is_repaired = repaired.is_some();
             let hayro_source = if doc.was_encrypted() {
-                None
+                HayroSource::Unavailable
             } else {
-                Some(repaired.unwrap_or_else(|| data.to_vec()))
+                match repaired {
+                    Some(repaired) => {
+                        HayroSource::from_owned(repaired, limits.max_interpretation_size)
+                    }
+                    None => HayroSource::from_borrowed(data, limits.max_interpretation_size)?,
+                }
             };
             Ok(Self::from_loaded_doc(
                 doc,

@@ -257,7 +257,10 @@ overview.
   original input and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
   constructing the state-normalized render copy. The bounded writer must not
-  install a partial hayro cache; failures use `interpretation_size`. Its
+  install a partial hayro cache. Original input above a finite limit retains
+  only its size and limit until first-interpretation refusal; admitted
+  in-memory input copies use fallible exact allocation. Failures use
+  `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves

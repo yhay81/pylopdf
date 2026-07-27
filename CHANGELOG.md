@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copy fallibly after confirming the narrow repair shape. Allocation refusal
   is reported as a normal `PdfError` instead of relying on infallible `Vec`
   growth or being hidden behind the original parse failure.
+- In-memory opens now copy an admitted original rendering/extraction source
+  through fallible allocation. Sources above a finite
+  `max_interpretation_size` retain only their size and limit until the existing
+  first-interpretation refusal, rather than retaining over-limit PDF bytes.
 
 ### Performance
 - Image insertion now moves JPEG input directly into its XObject instead of
