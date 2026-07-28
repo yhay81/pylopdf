@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://yhay81.github.io/pylopdf/
+    url: https://pylopdf.haya.works/
     about: Read the guides, API overview, known limits, and pymupdf migration notes.
   - name: Security vulnerability
     url: https://github.com/yhay81/pylopdf/security/advisories/new

@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.855 with the other corpus results unchanged.
 
 ### Changed
+- The documentation site moved to its own domain,
+  <https://pylopdf.haya.works/>, served by GitHub Pages through a Cloudflare
+  DNS zone. Locale paths are unchanged apart from the host and the removed
+  `/pylopdf` prefix (for example `/ja/`, `/zh-cn/`, `/ko/`), and GitHub Pages
+  redirects the previous `yhay81.github.io/pylopdf/` URLs.
 - The repository README was restructured into a concise project overview —
   comparison, install, quickstart, features, limitations, and tested
   ecosystem recipes — that links to the documentation site instead of

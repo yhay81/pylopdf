@@ -27,7 +27,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/yhay81/pylopdf"
-Documentation = "https://yhay81.github.io/pylopdf/"
+Documentation = "https://pylopdf.haya.works/"
 Changelog = "https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md"
 Issues = "https://github.com/yhay81/pylopdf/issues"
 Source = "https://github.com/yhay81/pylopdf"

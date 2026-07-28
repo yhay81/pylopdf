@@ -578,7 +578,7 @@ known-limit behavior are polished together.
   review; the snapshot is a review gate, not a premature compatibility claim.
 - [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
       Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document
-      theme at <https://yhay81.github.io/pylopdf/>. Includes per-locale strict
+      theme at <https://pylopdf.haya.works/>. Includes per-locale strict
       builds, search, dark mode, same-page switching, `llms.txt`, and an Open
       Graph card. English is canonical; Japanese, Simplified Chinese, and Korean
       are first-class translations defined in `LANGUAGES.md`. `docs.yml`
