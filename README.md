@@ -9,11 +9,11 @@
 pymupdf-style API on a pure-Rust core, MIT licensed, with no mandatory Python
 dependencies.**
 
-[Documentation](https://yhay81.github.io/pylopdf/) ·
-[Getting started](https://yhay81.github.io/pylopdf/getting-started/) ·
-[API reference](https://yhay81.github.io/pylopdf/api/) ·
-[pymupdf migration guide](https://yhay81.github.io/pylopdf/migration/) ·
-[Benchmarks](https://yhay81.github.io/pylopdf/benchmarks/)
+[Documentation](https://pylopdf.haya.works/) ·
+[Getting started](https://pylopdf.haya.works/getting-started/) ·
+[API reference](https://pylopdf.haya.works/api/) ·
+[pymupdf migration guide](https://pylopdf.haya.works/migration/) ·
+[Benchmarks](https://pylopdf.haya.works/benchmarks/)
 
 pylopdf combines the 2026 Rust PDF ecosystem behind one Python API:
 [lopdf](https://github.com/J-F-Liu/lopdf) for editing,
@@ -46,7 +46,7 @@ Wheel sizes are the ranges of published files for pylopdf 0.10.0, pymupdf
   `cp314t` wheel for free-threaded Python
 - **Familiar**: the API is modeled after
   [pymupdf](https://github.com/pymupdf/PyMuPDF), with a
-  [migration guide](https://yhay81.github.io/pylopdf/migration/)
+  [migration guide](https://pylopdf.haya.works/migration/)
 
 ## Install
 
@@ -121,9 +121,9 @@ doc = pylopdf.open("locked.pdf", password="secret")
 info = pylopdf.peek_metadata("input.pdf")    # page count / encryption, no full parse
 ```
 
-The [getting started guide](https://yhay81.github.io/pylopdf/getting-started/)
+The [getting started guide](https://pylopdf.haya.works/getting-started/)
 walks through each area; the
-[API reference](https://yhay81.github.io/pylopdf/api/) documents every method,
+[API reference](https://pylopdf.haya.works/api/) documents every method,
 default, and resource boundary.
 
 ## Features
@@ -147,14 +147,14 @@ default, and resource boundary.
 - **Untrusted input policy** — `DocumentLimits.web()` bounds file size, pages,
   objects, decompression, glyph and output budgets in one opt-in profile;
   every documented cap raises a typed `LimitError` instead of degrading
-  silently ([security model](https://yhay81.github.io/pylopdf/security/))
+  silently ([security model](https://pylopdf.haya.works/security/))
 - **WebAssembly** — a static PyEmscripten wheel runs on Cloudflare Python
   Workers, verified end-to-end every release
-  ([guide](https://yhay81.github.io/pylopdf/wasm/))
+  ([guide](https://pylopdf.haya.works/wasm/))
 - **Concurrency** — heavy operations release the GIL, distinct `Document`
   objects work in parallel, and a native `cp314t` wheel supports
   free-threaded Python 3.14
-  ([contract](https://yhay81.github.io/pylopdf/concurrency/))
+  ([contract](https://pylopdf.haya.works/concurrency/))
 
 ## Limitations
 
@@ -166,14 +166,14 @@ currently follows visual order, and ruby, warichu, and mixed-orientation
 Japanese typography are not interpreted semantically. Typesetting, PDF/A
 output, and digital signatures are intentionally out of scope — see the
 ecosystem recipes below. The
-[API stability policy](https://yhay81.github.io/pylopdf/stability/) defines
+[API stability policy](https://pylopdf.haya.works/stability/) defines
 what may change before and after v1.0.
 
 ## Ecosystem recipes
 
 pylopdf stays a lightweight core; adjacent concerns pair with established
 libraries. These recipes are covered by integration tests and detailed in the
-[ecosystem guide](https://yhay81.github.io/pylopdf/ecosystem/).
+[ecosystem guide](https://pylopdf.haya.works/ecosystem/).
 
 **Typesetting and PDF/A output —
 [typst](https://typst.app/)** (via

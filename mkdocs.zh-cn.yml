@@ -1,5 +1,5 @@
 site_name: pylopdf
-site_url: https://yhay81.github.io/pylopdf/zh-cn/
+site_url: https://pylopdf.haya.works/zh-cn/
 site_description: 以Rust为核心、符合Python使用习惯的PDF编辑、提取与渲染库。MIT许可、无必需Python依赖、轻量wheel。
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
@@ -92,19 +92,19 @@ extra:
   current_language: zh-Hans
   announcement: "pylopdf 0.13.0 · 窄栏阅读顺序恢复与内存分配加固"
   announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.13.0"
-  social_image: "https://yhay81.github.io/pylopdf/assets/images/pylopdf-social-card.png"
+  social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English
-      link: https://yhay81.github.io/pylopdf/
+      link: https://pylopdf.haya.works/
       lang: en
     - name: 日本語
-      link: https://yhay81.github.io/pylopdf/ja/
+      link: https://pylopdf.haya.works/ja/
       lang: ja
     - name: 简体中文
-      link: https://yhay81.github.io/pylopdf/zh-cn/
+      link: https://pylopdf.haya.works/zh-cn/
       lang: zh-Hans
     - name: 한국어
-      link: https://yhay81.github.io/pylopdf/ko/
+      link: https://pylopdf.haya.works/ko/
       lang: ko
   social:
     - icon: fontawesome/brands/github

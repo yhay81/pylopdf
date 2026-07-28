@@ -2,24 +2,24 @@
 
 > Python-native PDF editing, extraction and rendering powered by Rust.
 
-Canonical documentation: https://yhay81.github.io/pylopdf/
-Japanese documentation: https://yhay81.github.io/pylopdf/ja/
-Simplified Chinese documentation: https://yhay81.github.io/pylopdf/zh-cn/
-Korean documentation: https://yhay81.github.io/pylopdf/ko/
+Canonical documentation: https://pylopdf.haya.works/
+Japanese documentation: https://pylopdf.haya.works/ja/
+Simplified Chinese documentation: https://pylopdf.haya.works/zh-cn/
+Korean documentation: https://pylopdf.haya.works/ko/
 Source: https://github.com/yhay81/pylopdf
 PyPI: https://pypi.org/project/pylopdf/
 
 Core pages:
-- Getting started: https://yhay81.github.io/pylopdf/getting-started/
-- WebAssembly compatibility: https://yhay81.github.io/pylopdf/wasm/
-- API overview: https://yhay81.github.io/pylopdf/api/
-- Ecosystem recipes: https://yhay81.github.io/pylopdf/ecosystem/
-- Migrating from pymupdf: https://yhay81.github.io/pylopdf/migration/
-- Benchmarks: https://yhay81.github.io/pylopdf/benchmarks/
-- Concurrency: https://yhay81.github.io/pylopdf/concurrency/
-- Security: https://yhay81.github.io/pylopdf/security/
-- API stability: https://yhay81.github.io/pylopdf/stability/
-- Language policy: https://yhay81.github.io/pylopdf/languages/
+- Getting started: https://pylopdf.haya.works/getting-started/
+- WebAssembly compatibility: https://pylopdf.haya.works/wasm/
+- API overview: https://pylopdf.haya.works/api/
+- Ecosystem recipes: https://pylopdf.haya.works/ecosystem/
+- Migrating from pymupdf: https://pylopdf.haya.works/migration/
+- Benchmarks: https://pylopdf.haya.works/benchmarks/
+- Concurrency: https://pylopdf.haya.works/concurrency/
+- Security: https://pylopdf.haya.works/security/
+- API stability: https://pylopdf.haya.works/stability/
+- Language policy: https://pylopdf.haya.works/languages/
 
 Key facts:
 - MIT licensed.
