@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.855 with the other corpus results unchanged.
 
 ### Changed
+- The repository README was restructured into a concise project overview —
+  comparison, install, quickstart, features, limitations, and tested
+  ecosystem recipes — that links to the documentation site instead of
+  duplicating its full API tables. The separate Japanese README pointer file
+  was removed; localized documentation remains available through the
+  published site's language switcher.
 - One text-extraction batch now shares one call-scoped hayro interpreter
   cache across its pages, so a font reused by several pages is parsed once
   per call instead of once per page. The benchmark all-pages extraction
