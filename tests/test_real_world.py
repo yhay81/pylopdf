@@ -312,6 +312,33 @@ def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
         pytest.xfail("hayro 0.7.1 omits these Type 3 stencil glyphs on this renderer target")
 
 
+def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
+    """Pin the Type 3 no-ToUnicode extraction gap (LaurenzV/hayro#1331).
+
+    The fixture draws ``(A)Tj`` three times from a Type 3 font whose
+    ``/Differences [65 /C1]`` name is not AGL-mappable and that has no
+    ToUnicode CMap, so hayro cannot determine any Unicode value. MuPDF
+    recovers "A A A" through a raw character-code fallback.
+    """
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+    words = [word[4] for word in page.get_text("words")]
+
+    if not words:
+        pytest.xfail("hayro 0.7 maps Type 3 glyphs to Unicode only via a ToUnicode CMap (LaurenzV/hayro#1331)")
+    assert words == ["A", "A", "A"]
+
+
+def test_pdfium_type3_skipped_glyphs_emit_one_warning() -> None:
+    """Losing no-Unicode glyphs must be visible as one PylopdfWarning."""
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+
+    with pytest.warns(pylopdf.PylopdfWarning, match="no Unicode mapping") as caught:
+        page.get_text("text")
+
+    messages = [str(warning.message) for warning in caught if "no Unicode mapping" in str(warning.message)]
+    assert len(messages) == 1
+
+
 def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
     """Decode an ASCIIHex/LZW/JPX image chain through both image APIs."""
     page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf")[0]

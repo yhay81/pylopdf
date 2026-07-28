@@ -78,7 +78,12 @@ overview.
   grow fallibly; allocation refusal raises `PdfError` without returning partial
   hits, including trusted `max_hits=None` searches.
   CJK fallback configuration also applies to extraction, including invisible OCR
-  text. Hayro normalizes glyph space to 1000 upem, so font size is the transform
+  text. Glyphs hayro delivers without any Unicode mapping (for example a Type 3
+  font with no ToUnicode CMap, upstream gap LaurenzV/hayro#1331) are skipped;
+  each fresh page interpretation with such glyphs surfaces one deduplicated
+  static `PylopdfWarning` through the pending-warnings sink, and
+  `pdfium-type3.pdf` pins the extraction gap as an upstream-linked expected
+  failure. Hayro normalizes glyph space to 1000 upem, so font size is the transform
   factor × 1000. Vertical bboxes approximate baseline ± a size ratio.
   Overlapping paint runs on one baseline are split into source-order logical
   layers before inline geometry sorting; preserve distinct overprints rather
