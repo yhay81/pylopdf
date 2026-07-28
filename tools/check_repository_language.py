@@ -24,7 +24,6 @@ TEXT_SUFFIXES = {
     ".yml",
 }
 LOCALIZED_FILES = {
-    Path("README.ja.md"),
     Path("mkdocs.ja.yml"),
     Path("mkdocs.ko.yml"),
     Path("mkdocs.zh-cn.yml"),
