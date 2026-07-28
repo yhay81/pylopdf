@@ -324,9 +324,7 @@ def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
     words = [word[4] for word in page.get_text("words")]
 
     if not words:
-        pytest.xfail(
-            "hayro 0.7 maps Type 3 glyphs to Unicode only via a ToUnicode CMap (LaurenzV/hayro#1331)"
-        )
+        pytest.xfail("hayro 0.7 maps Type 3 glyphs to Unicode only via a ToUnicode CMap (LaurenzV/hayro#1331)")
     assert words == ["A", "A", "A"]
 
 
