@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.get_text(pages=None)` extracts plain text from up to 4,096 pages
+  in one batched call. `pages` follows the `render_pages` convention:
+  zero-based numbers in the given order, `None` for every page, negative
+  values counting from the end, and duplicates allowed. The result equals
+  joining single-page `get_page_text` output in the same order.
 - Text extraction now emits a deduplicated `PylopdfWarning` when hayro
   delivers glyphs without any Unicode mapping (for example a Type 3 font
   without a ToUnicode CMap) instead of dropping them silently. The bundled
@@ -24,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.855 with the other corpus results unchanged.
 
 ### Changed
+- One text-extraction batch now shares one call-scoped hayro interpreter
+  cache across its pages, so a font reused by several pages is parsed once
+  per call instead of once per page. The benchmark all-pages extraction
+  sweep now measures batched `Document.get_text()`: on the benchmark
+  machine the 27-page user guide with 30 distinct fonts dropped from
+  128.9 ms to 53.0 ms and the CJK ministry document from 14.5 ms to
+  12.3 ms, while few-font corpus sweeps and single-page calls keep their
+  previous behavior. The extracted-content quality proxy is unchanged.
 - The benchmark report now notes that remaining low similarity scores can
   reflect the pymupdf reference convention rather than pylopdf quality:
   pymupdf emits unsorted content order on the rotated Senate table (its own

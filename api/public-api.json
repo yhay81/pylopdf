@@ -431,6 +431,24 @@
             "returns": "tuple[int, str] | None"
           }
         },
+        "get_text": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[int] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "pages"
+              }
+            ],
+            "returns": "str"
+          }
+        },
         "get_toc": {
           "kind": "method",
           "signature": {

@@ -53,12 +53,93 @@ fn font_info_of(glyph: &hayro::hayro_interpret::font::OutlineGlyph) -> FontInfo 
     FontInfo { name, flags }
 }
 
+/// Unicode text of one glyph, mirroring hayro's `BfString` shape.
+///
+/// Single characters dominate real documents and stay inline, so collecting a
+/// glyph does not require one heap string per glyph. Ligatures and
+/// multi-character CMap mappings keep one owned heap string.
+enum GlyphText {
+    /// A single character, stored without heap allocation.
+    Char(char),
+    /// A multi-character mapping such as a ligature or CMap expansion.
+    Heap(Box<str>),
+}
+
+impl GlyphText {
+    /// UTF-8 byte length.
+    fn len(&self) -> usize {
+        match self {
+            Self::Char(c) => c.len_utf8(),
+            Self::Heap(s) => s.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Char(_) => false,
+            Self::Heap(s) => s.is_empty(),
+        }
+    }
+
+    fn chars(&self) -> GlyphTextChars<'_> {
+        match self {
+            Self::Char(c) => GlyphTextChars::Char(Some(*c)),
+            Self::Heap(s) => GlyphTextChars::Str(s.chars()),
+        }
+    }
+
+    fn ends_with(&self, needle: char) -> bool {
+        match self {
+            Self::Char(c) => *c == needle,
+            Self::Heap(s) => s.ends_with(needle),
+        }
+    }
+
+    /// Number of trailing ASCII space bytes.
+    fn trailing_spaces(&self) -> usize {
+        match self {
+            Self::Char(c) => usize::from(*c == ' '),
+            Self::Heap(s) => s.bytes().rev().take_while(|byte| *byte == b' ').count(),
+        }
+    }
+}
+
+/// Compare textual content, so a one-character CMap string equals its inline
+/// character representation.
+impl PartialEq for GlyphText {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Char(left), Self::Char(right)) => left == right,
+            (Self::Heap(left), Self::Heap(right)) => left == right,
+            (Self::Char(c), Self::Heap(s)) | (Self::Heap(s), Self::Char(c)) => {
+                let mut encoded = [0u8; 4];
+                c.encode_utf8(&mut encoded).as_bytes() == s.as_bytes()
+            }
+        }
+    }
+}
+
+/// Character iterator over either glyph-text representation.
+enum GlyphTextChars<'a> {
+    Char(Option<char>),
+    Str(std::str::Chars<'a>),
+}
+
+impl Iterator for GlyphTextChars<'_> {
+    type Item = char;
+    fn next(&mut self) -> Option<char> {
+        match self {
+            Self::Char(c) => c.take(),
+            Self::Str(chars) => chars.next(),
+        }
+    }
+}
+
 /// One collected glyph in top-left-origin, downward-y display coordinates after
 /// the renderer's `initial_transform`, with page rotation resolved.
-#[derive(Clone)]
 struct GlyphRecord {
     /// Unicode representation; ligatures may contain multiple characters.
-    text: String,
+    text: GlyphText,
     /// Baseline-origin x.
     x: f64,
     /// Baseline-origin y, increasing downward.
@@ -117,6 +198,23 @@ fn try_push_str_text(value: &mut String, text: &str, label: &str) -> Result<(), 
     Ok(())
 }
 
+fn try_push_glyph_text(
+    value: &mut String,
+    text: &GlyphText,
+    label: &str,
+) -> Result<(), TextPageLimit> {
+    match text {
+        GlyphText::Char(c) => {
+            value.try_reserve(c.len_utf8()).map_err(|error| {
+                TextPageLimit::Allocation(format!("failed to grow {label}: {error}"))
+            })?;
+            value.push(*c);
+            Ok(())
+        }
+        GlyphText::Heap(s) => try_push_str_text(value, s, label),
+    }
+}
+
 /// One axis-aligned stroked path segment in display coordinates.
 #[derive(Clone, Copy)]
 struct RuleSegment {
@@ -135,6 +233,9 @@ struct TextCollector {
     collect_rules: bool,
     /// font_key → FontInfo cache, resolving font_data only once per font.
     font_infos: HashMap<u128, FontInfo>,
+    /// Most recent font lookup; consecutive glyphs usually share one font, so
+    /// this skips two hash probes per glyph inside unbroken text runs.
+    last_font: Option<(u128, FontInfo)>,
     /// Cumulative UTF-8 bytes in accepted glyph Unicode.
     text_size: usize,
     /// Optional document-wide budget remaining for this interpretation.
@@ -247,8 +348,24 @@ impl Device<'_> for TextCollector {
             return;
         };
         let text = match unicode {
-            BfString::Char(c) => c.to_string(),
-            BfString::String(s) => s,
+            BfString::Char(c) => GlyphText::Char(c),
+            // Keep hayro's owned string, but never shrink it with an
+            // infallible realloc: copy fallibly when capacity exceeds length.
+            BfString::String(s) => {
+                if s.capacity() == s.len() {
+                    GlyphText::Heap(s.into_boxed_str())
+                } else {
+                    let mut exact = String::new();
+                    if let Err(error) = exact.try_reserve_exact(s.len()) {
+                        self.limit_error = Some(TextPageLimit::Allocation(format!(
+                            "failed to allocate glyph text: {error}"
+                        )));
+                        return;
+                    }
+                    exact.push_str(&s);
+                    GlyphText::Heap(exact.into_boxed_str())
+                }
+            }
         };
         if text.is_empty() {
             return;
@@ -297,19 +414,27 @@ impl Device<'_> for TextCollector {
         let (advance_width, font_key, font) = match glyph {
             Glyph::Outline(g) => {
                 let key = g.font_cache_key();
-                if !self.font_infos.contains_key(&key)
-                    && let Err(error) = self.font_infos.try_reserve(1)
+                let info = if let Some((last_key, last_info)) = &self.last_font
+                    && *last_key == key
                 {
-                    self.limit_error = Some(TextPageLimit::Allocation(format!(
-                        "failed to grow extraction font cache: {error}"
-                    )));
-                    return;
-                }
-                let info = self
-                    .font_infos
-                    .entry(key)
-                    .or_insert_with(|| font_info_of(g))
-                    .clone();
+                    last_info.clone()
+                } else {
+                    if !self.font_infos.contains_key(&key)
+                        && let Err(error) = self.font_infos.try_reserve(1)
+                    {
+                        self.limit_error = Some(TextPageLimit::Allocation(format!(
+                            "failed to grow extraction font cache: {error}"
+                        )));
+                        return;
+                    }
+                    let info = self
+                        .font_infos
+                        .entry(key)
+                        .or_insert_with(|| font_info_of(g))
+                        .clone();
+                    self.last_font = Some((key, info.clone()));
+                    info
+                };
                 (g.advance_width().map(f64::from), key, info)
             }
             Glyph::Type3(_) => (None, 0, FontInfo::default()),
@@ -587,7 +712,7 @@ fn uniform_axis_orientation(lines: &[Vec<GlyphRecord>]) -> Option<AxisOrientatio
 }
 
 /// Return whether all visible characters are CJK or full-width punctuation.
-fn is_cjk_text(text: &str) -> bool {
+fn is_cjk_text(text: &GlyphText) -> bool {
     let mut saw_character = false;
     for ch in text.chars().filter(|ch| !ch.is_whitespace()) {
         saw_character = true;
@@ -612,9 +737,15 @@ fn is_cjk_text(text: &str) -> bool {
 /// Identify CJK glyphs that advance vertically even though hayro reports the
 /// font's transformed horizontal basis. Requiring a local vertical neighbour
 /// and no local horizontal neighbour avoids reclassifying normal CJK rows.
-fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, TextPageLimit> {
+///
+/// `glyphs` selects candidates from `arena`; returned values are arena indexes.
+fn inferred_vertical_cjk_indices(
+    arena: &[GlyphRecord],
+    glyphs: &[usize],
+) -> Result<Vec<usize>, TextPageLimit> {
     let mut cjk_indices = Vec::new();
-    for (index, glyph) in glyphs.iter().enumerate() {
+    for &index in glyphs {
+        let glyph = &arena[index];
         if has_vertical_baseline(glyph) || !is_cjk_text(&glyph.text) {
             continue;
         }
@@ -629,14 +760,14 @@ fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, T
 
     let mut eligible = Vec::new();
     for &index in &cjk_indices {
-        let glyph = &glyphs[index];
+        let glyph = &arena[index];
         let mut has_vertical_neighbour = false;
         let mut has_horizontal_neighbour = false;
         for &other_index in &cjk_indices {
             if other_index == index {
                 continue;
             }
-            let other = &glyphs[other_index];
+            let other = &arena[other_index];
             if other.font_key != glyph.font_key {
                 continue;
             }
@@ -661,82 +792,95 @@ fn inferred_vertical_cjk_indices(glyphs: &[GlyphRecord]) -> Result<Vec<usize>, T
 }
 
 /// Extract conservative CJK vertical chains from otherwise horizontal glyphs.
+///
+/// Accepted chains rewrite their arena records to a vertical direction and
+/// writing mode 1. Record positions never move, so arena indexes stay valid
+/// for every other in-flight index list.
 fn extract_inferred_vertical_cjk(
-    glyphs: Vec<GlyphRecord>,
-) -> Result<(Vec<GlyphRecord>, Vec<Vec<GlyphRecord>>), TextPageLimit> {
-    let eligible = inferred_vertical_cjk_indices(&glyphs)?;
+    arena: &mut [GlyphRecord],
+    glyphs: Vec<usize>,
+) -> Result<(Vec<usize>, Vec<Vec<usize>>), TextPageLimit> {
+    let eligible = inferred_vertical_cjk_indices(arena, &glyphs)?;
     if eligible.len() < MIN_VERTICAL_CJK_GLYPHS {
         return Ok((glyphs, Vec::new()));
     }
 
     let mut selected = Vec::new();
-    selected.try_reserve_exact(glyphs.len()).map_err(|error| {
+    selected.try_reserve_exact(arena.len()).map_err(|error| {
         TextPageLimit::Allocation(format!(
             "failed to allocate vertical-CJK selection mask: {error}"
         ))
     })?;
-    selected.resize(glyphs.len(), false);
+    selected.resize(arena.len(), false);
     for index in eligible {
         selected[index] = true;
     }
     let mut candidates = Vec::new();
     let mut remaining = Vec::new();
-    for (index, glyph) in glyphs.into_iter().enumerate() {
+    for index in glyphs {
         let target = if selected[index] {
             &mut candidates
         } else {
             &mut remaining
         };
-        try_push_text(target, glyph, "vertical-CJK glyph partition")?;
+        try_push_text(target, index, "vertical-CJK glyph partition")?;
     }
-    candidates.sort_unstable_by(|left, right| {
-        left.x
-            .total_cmp(&right.x)
-            .then(left.font_key.cmp(&right.font_key))
-            .then(left.y.total_cmp(&right.y))
-            .then(left.source_order.cmp(&right.source_order))
+    // Arena indexes equal collection source order, so comparing indexes is the
+    // explicit source-order tie-breaker.
+    candidates.sort_unstable_by(|&left, &right| {
+        let (l, r) = (&arena[left], &arena[right]);
+        l.x.total_cmp(&r.x)
+            .then(l.font_key.cmp(&r.font_key))
+            .then(l.y.total_cmp(&r.y))
+            .then(left.cmp(&right))
     });
 
-    let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
-    for glyph in candidates {
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    for index in candidates {
+        let (glyph_font_key, glyph_x, glyph_size) = {
+            let glyph = &arena[index];
+            (glyph.font_key, glyph.x, glyph.size)
+        };
         let matching_line = lines.iter_mut().find(|line| {
-            let first = &line[0];
-            first.font_key == glyph.font_key
-                && (first.x - glyph.x).abs()
-                    <= first.size.max(glyph.size).max(1.0) * VERTICAL_LINE_TOLERANCE
+            let first = &arena[line[0]];
+            first.font_key == glyph_font_key
+                && (first.x - glyph_x).abs()
+                    <= first.size.max(glyph_size).max(1.0) * VERTICAL_LINE_TOLERANCE
         });
         if let Some(line) = matching_line {
-            try_push_text(line, glyph, "vertical-CJK line")?;
+            try_push_text(line, index, "vertical-CJK line")?;
         } else {
             let mut line = Vec::new();
-            try_push_text(&mut line, glyph, "vertical-CJK line")?;
+            try_push_text(&mut line, index, "vertical-CJK line")?;
             try_push_text(&mut lines, line, "vertical-CJK lines")?;
         }
     }
 
     let mut accepted = Vec::new();
     for mut line in lines {
-        line.sort_unstable_by(|left, right| {
-            left.y
-                .total_cmp(&right.y)
-                .then(left.source_order.cmp(&right.source_order))
+        line.sort_unstable_by(|&left, &right| {
+            arena[left]
+                .y
+                .total_cmp(&arena[right].y)
+                .then(left.cmp(&right))
         });
         let continuous = line.windows(2).all(|pair| {
-            let scale = pair[0].size.max(pair[1].size).max(1.0);
-            let gap = pair[1].y - pair[0].y;
+            let (first, second) = (&arena[pair[0]], &arena[pair[1]]);
+            let scale = first.size.max(second.size).max(1.0);
+            let gap = second.y - first.y;
             gap >= scale * 0.35 && gap <= scale * 1.35
         });
         if line.len() >= MIN_VERTICAL_CJK_GLYPHS && continuous {
-            for glyph in &mut line {
-                glyph.direction = (0.0, 1.0);
-                glyph.writing_mode = 1;
+            for &index in &line {
+                arena[index].direction = (0.0, 1.0);
+                arena[index].writing_mode = 1;
             }
             try_push_text(&mut accepted, line, "accepted vertical-CJK lines")?;
         } else {
-            for glyph in line {
+            for index in line {
                 try_push_text(
                     &mut remaining,
-                    glyph,
+                    index,
                     "remaining horizontal glyph collection",
                 )?;
             }
@@ -747,35 +891,36 @@ fn extract_inferred_vertical_cjk(
 
 /// Group glyphs whose transformed baseline itself is vertical.
 fn cluster_explicit_vertical(
-    mut glyphs: Vec<GlyphRecord>,
-) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    glyphs.sort_unstable_by(|left, right| {
-        right
-            .x
-            .total_cmp(&left.x)
-            .then(left.y.total_cmp(&right.y))
-            .then(left.source_order.cmp(&right.source_order))
+    arena: &[GlyphRecord],
+    mut glyphs: Vec<usize>,
+) -> Result<Vec<Vec<usize>>, TextPageLimit> {
+    glyphs.sort_unstable_by(|&left, &right| {
+        let (l, r) = (&arena[left], &arena[right]);
+        r.x.total_cmp(&l.x)
+            .then(l.y.total_cmp(&r.y))
+            .then(left.cmp(&right))
     });
-    let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
-    for glyph in glyphs {
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    for index in glyphs {
+        let glyph = &arena[index];
         let matching_line = lines.iter_mut().find(|line| {
-            let first = &line[0];
+            let first = &arena[line[0]];
             let scale = first.size.max(glyph.size).max(1.0);
             (first.x - glyph.x).abs() <= scale * VERTICAL_LINE_TOLERANCE
                 && first.direction.0 * glyph.direction.0 + first.direction.1 * glyph.direction.1
                     > 0.9
         });
         if let Some(line) = matching_line {
-            try_push_text(line, glyph, "explicit vertical line")?;
+            try_push_text(line, index, "explicit vertical line")?;
         } else {
             let mut line = Vec::new();
-            try_push_text(&mut line, glyph, "explicit vertical line")?;
+            try_push_text(&mut line, index, "explicit vertical line")?;
             try_push_text(&mut lines, line, "explicit vertical lines")?;
         }
     }
     let mut split_lines = Vec::new();
     for line in lines {
-        for split in split_overlapping_paint_layers(line)? {
+        for split in split_overlapping_paint_layers(arena, line)? {
             try_push_text(&mut split_lines, split, "split explicit vertical lines")?;
         }
     }
@@ -783,23 +928,44 @@ fn cluster_explicit_vertical(
 }
 
 struct PaintLayer {
-    glyphs: Vec<GlyphRecord>,
+    glyphs: Vec<usize>,
     intervals: Vec<(f64, f64, f64)>,
 }
 
-fn sort_line_inline(line: &mut [GlyphRecord]) {
-    line.sort_unstable_by(|left, right| {
-        glyph_progress(left)
-            .total_cmp(&glyph_progress(right))
-            .then(left.source_order.cmp(&right.source_order))
+fn sort_line_inline(arena: &[GlyphRecord], line: &mut [usize]) {
+    line.sort_unstable_by(|&left, &right| {
+        glyph_progress(&arena[left])
+            .total_cmp(&glyph_progress(&arena[right]))
+            .then(left.cmp(&right))
     });
 }
 
-fn paint_run_interval(run: &[GlyphRecord]) -> (f64, f64, f64) {
-    let (x0, y0, x1, y1) = glyphs_bbox(run);
-    let vertical = run.first().is_some_and(has_vertical_baseline);
+/// Glyph bounding box over arena indexes without materializing the records.
+fn indexed_glyphs_bbox(arena: &[GlyphRecord], indexes: &[usize]) -> BBox {
+    let mut x0 = f64::INFINITY;
+    let mut y0 = f64::INFINITY;
+    let mut x1 = f64::NEG_INFINITY;
+    let mut y1 = f64::NEG_INFINITY;
+    for &index in indexes {
+        let (glyph_x0, glyph_y0, glyph_x1, glyph_y1) = glyph_bbox(&arena[index]);
+        x0 = x0.min(glyph_x0);
+        y0 = y0.min(glyph_y0);
+        x1 = x1.max(glyph_x1);
+        y1 = y1.max(glyph_y1);
+    }
+    (x0, y0, x1, y1)
+}
+
+fn paint_run_interval(arena: &[GlyphRecord], run: &[usize]) -> (f64, f64, f64) {
+    let (x0, y0, x1, y1) = indexed_glyphs_bbox(arena, run);
+    let vertical = run
+        .first()
+        .is_some_and(|&index| has_vertical_baseline(&arena[index]));
     let (start, end) = if vertical { (y0, y1) } else { (x0, x1) };
-    let scale = run.iter().map(|glyph| glyph.size).fold(1.0, f64::max);
+    let scale = run
+        .iter()
+        .map(|&index| arena[index].size)
+        .fold(1.0, f64::max);
     (start, end, scale)
 }
 
@@ -820,21 +986,27 @@ fn paint_intervals_overlap(
 /// runs as separate lines. This preserves distinct overprints instead of
 /// deleting them.
 fn split_overlapping_paint_layers(
-    mut line: Vec<GlyphRecord>,
-) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    arena: &[GlyphRecord],
+    mut line: Vec<usize>,
+) -> Result<Vec<Vec<usize>>, TextPageLimit> {
     if line.len() < 2 {
-        sort_line_inline(&mut line);
+        sort_line_inline(arena, &mut line);
         let mut lines = Vec::new();
         try_push_text(&mut lines, line, "text paint layers")?;
         return Ok(lines);
     }
-    line.sort_unstable_by_key(|glyph| glyph.source_order);
+    // Arena indexes equal collection source order.
+    line.sort_unstable();
 
-    let mut runs: Vec<Vec<GlyphRecord>> = Vec::new();
-    for glyph in line {
-        let progress = glyph_progress(&glyph);
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    for index in line {
+        let glyph = &arena[index];
+        let progress = glyph_progress(glyph);
         let scale = glyph.size.max(1.0);
-        let previous = runs.last().and_then(|run| run.last());
+        let previous = runs
+            .last()
+            .and_then(|run| run.last())
+            .map(|&previous| &arena[previous]);
         let direction_changed = previous.is_some_and(|previous| {
             previous.direction.0 * glyph.direction.0 + previous.direction.1 * glyph.direction.1
                 < 0.9
@@ -853,21 +1025,21 @@ fn split_overlapping_paint_layers(
         try_push_text(
             runs.last_mut()
                 .expect("a paint run was created immediately before"),
-            glyph,
+            index,
             "text paint-run glyphs",
         )?;
     }
 
     if runs.len() == 1 {
         let mut line = runs.pop().expect("one paint run exists");
-        sort_line_inline(&mut line);
+        sort_line_inline(arena, &mut line);
         try_push_text(&mut runs, line, "text paint layers")?;
         return Ok(runs);
     }
 
     let mut layers: Vec<PaintLayer> = Vec::new();
     for run in runs {
-        let interval = paint_run_interval(&run);
+        let interval = paint_run_interval(arena, &run);
         // Merge only into the latest layer. Searching older compatible layers
         // would move this run before an intervening overprint.
         let compatible = layers.last_mut().filter(|layer| {
@@ -877,8 +1049,8 @@ fn split_overlapping_paint_layers(
                 .all(|existing| !paint_intervals_overlap(*existing, interval))
         });
         if let Some(layer) = compatible {
-            for glyph in run {
-                try_push_text(&mut layer.glyphs, glyph, "text paint-layer glyphs")?;
+            for index in run {
+                try_push_text(&mut layer.glyphs, index, "text paint-layer glyphs")?;
             }
             try_push_text(&mut layer.intervals, interval, "text paint-layer intervals")?;
         } else {
@@ -896,67 +1068,112 @@ fn split_overlapping_paint_layers(
     }
     let mut split = Vec::new();
     for mut layer in layers {
-        sort_line_inline(&mut layer.glyphs);
+        sort_line_inline(arena, &mut layer.glyphs);
         try_push_text(&mut split, layer.glyphs, "split text paint layers")?;
     }
     Ok(split)
 }
 
 /// Group glyphs into physical text lines.
+///
+/// Partitioning, sorting, and run/layer splitting work on arena indexes so the
+/// roughly 128-byte records are not moved through every intermediate
+/// collection; `materialize_lines` then moves each record once into its final
+/// clustered line.
 fn cluster_lines(glyphs: Vec<GlyphRecord>) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    let mut explicit_vertical = Vec::new();
-    let mut horizontal = Vec::new();
-    for glyph in glyphs {
-        if has_vertical_baseline(&glyph) {
+    let mut arena = glyphs;
+    let mut explicit_vertical: Vec<usize> = Vec::new();
+    let mut horizontal: Vec<usize> = Vec::new();
+    for (index, glyph) in arena.iter().enumerate() {
+        if has_vertical_baseline(glyph) {
             try_push_text(
                 &mut explicit_vertical,
-                glyph,
+                index,
                 "explicit vertical glyph partition",
             )?;
         } else {
-            try_push_text(&mut horizontal, glyph, "horizontal glyph partition")?;
+            try_push_text(&mut horizontal, index, "horizontal glyph partition")?;
         }
     }
-    let (mut horizontal, mut vertical_lines) = extract_inferred_vertical_cjk(horizontal)?;
+    let (mut horizontal, mut vertical_lines) =
+        extract_inferred_vertical_cjk(&mut arena, horizontal)?;
 
-    horizontal.sort_unstable_by(|left, right| {
-        left.y
-            .total_cmp(&right.y)
-            .then(left.x.total_cmp(&right.x))
-            .then(left.source_order.cmp(&right.source_order))
+    horizontal.sort_unstable_by(|&left, &right| {
+        let (l, r) = (&arena[left], &arena[right]);
+        l.y.total_cmp(&r.y)
+            .then(l.x.total_cmp(&r.x))
+            .then(left.cmp(&right))
     });
-    let mut lines: Vec<Vec<GlyphRecord>> = Vec::new();
+    let mut lines: Vec<Vec<usize>> = Vec::new();
     let mut current_baseline = f64::NEG_INFINITY;
-    for glyph in horizontal {
+    for index in horizontal {
+        let glyph = &arena[index];
         let tolerance = glyph.size.max(1.0) * LINE_TOLERANCE;
         if (glyph.y - current_baseline).abs() <= tolerance {
             try_push_text(
                 lines
                     .last_mut()
                     .expect("a line was created immediately before"),
-                glyph,
+                index,
                 "physical text-line glyphs",
             )?;
         } else {
             current_baseline = glyph.y;
             let mut line = Vec::new();
-            try_push_text(&mut line, glyph, "physical text-line glyphs")?;
+            try_push_text(&mut line, index, "physical text-line glyphs")?;
             try_push_text(&mut lines, line, "physical text lines")?;
         }
     }
-    let mut all_lines = Vec::new();
+    let mut all_lines: Vec<Vec<usize>> = Vec::new();
     for line in lines {
-        for split in split_overlapping_paint_layers(line)? {
+        for split in split_overlapping_paint_layers(&arena, line)? {
             try_push_text(&mut all_lines, split, "split horizontal text lines")?;
         }
     }
-    for line in cluster_explicit_vertical(explicit_vertical)? {
+    for line in cluster_explicit_vertical(&arena, explicit_vertical)? {
         try_push_text(&mut vertical_lines, line, "vertical text lines")?;
     }
     for line in vertical_lines {
         try_push_text(&mut all_lines, line, "clustered text lines")?;
     }
-    Ok(all_lines)
+    materialize_lines(arena, all_lines)
+}
+
+/// Move each collected glyph once from the arena into its clustered line.
+fn materialize_lines(
+    arena: Vec<GlyphRecord>,
+    lines: Vec<Vec<usize>>,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut slots = Vec::new();
+    slots.try_reserve_exact(arena.len()).map_err(|error| {
+        TextPageLimit::Allocation(format!(
+            "failed to allocate glyph materialization slots: {error}"
+        ))
+    })?;
+    slots.extend(arena.into_iter().map(Some));
+    let mut output = Vec::new();
+    output.try_reserve_exact(lines.len()).map_err(|error| {
+        TextPageLimit::Allocation(format!("failed to allocate clustered text lines: {error}"))
+    })?;
+    for line in lines {
+        let mut materialized = Vec::new();
+        materialized
+            .try_reserve_exact(line.len())
+            .map_err(|error| {
+                TextPageLimit::Allocation(format!(
+                    "failed to allocate clustered text-line glyphs: {error}"
+                ))
+            })?;
+        for index in line {
+            materialized.push(
+                slots[index]
+                    .take()
+                    .expect("each glyph index is clustered into exactly one line"),
+            );
+        }
+        output.push(materialized);
+    }
+    Ok(output)
 }
 
 /// Borrow independently positioned columns or table cells sharing one baseline.
@@ -1049,18 +1266,35 @@ fn order_page_lines(
 
 /// Order a uniformly axis-aligned page in its logical inline/block space.
 fn order_axis_page_lines(
-    mut clustered: Vec<Vec<GlyphRecord>>,
+    clustered: Vec<Vec<GlyphRecord>>,
     orientation: AxisOrientation,
 ) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
-    clustered.sort_unstable_by(|left, right| {
-        let left_bbox = logical_line_bbox(left, orientation);
-        let right_bbox = logical_line_bbox(right, orientation);
-        left_bbox
-            .1
-            .total_cmp(&right_bbox.1)
-            .then(left_bbox.0.total_cmp(&right_bbox.0))
-            .then(line_source_order(left).cmp(&line_source_order(right)))
+    // Precompute each line's geometry key once instead of rescanning both
+    // lines' glyphs inside every sort comparison.
+    let mut decorated = Vec::new();
+    decorated
+        .try_reserve_exact(clustered.len())
+        .map_err(|error| {
+            TextPageLimit::Allocation(format!("failed to allocate line ordering keys: {error}"))
+        })?;
+    for line in clustered {
+        let bbox = logical_line_bbox(&line, orientation);
+        let source_order = line_source_order(&line);
+        decorated.push((bbox.1, bbox.0, source_order, line));
+    }
+    decorated.sort_unstable_by(|left, right| {
+        left.0
+            .total_cmp(&right.0)
+            .then(left.1.total_cmp(&right.1))
+            .then(left.2.cmp(&right.2))
     });
+    let mut clustered = Vec::new();
+    clustered
+        .try_reserve_exact(decorated.len())
+        .map_err(|error| {
+            TextPageLimit::Allocation(format!("failed to allocate ordered text lines: {error}"))
+        })?;
+    clustered.extend(decorated.into_iter().map(|(_, _, _, line)| line));
     if let Some(boundary) = narrow_column_boundary(&clustered, orientation)? {
         return order_narrow_column_regions(clustered, orientation, boundary);
     }
@@ -1131,30 +1365,10 @@ fn order_vertical_page_lines(
             try_push_text(&mut middle, line, "text lines beside vertical content")?;
         }
     }
-    top.sort_unstable_by(|left, right| {
-        line_bbox(left)
-            .1
-            .total_cmp(&line_bbox(right).1)
-            .then(line_source_order(left).cmp(&line_source_order(right)))
-    });
-    vertical.sort_unstable_by(|left, right| {
-        line_bbox(right)
-            .0
-            .total_cmp(&line_bbox(left).0)
-            .then(line_source_order(left).cmp(&line_source_order(right)))
-    });
-    middle.sort_unstable_by(|left, right| {
-        line_bbox(left)
-            .1
-            .total_cmp(&line_bbox(right).1)
-            .then(line_source_order(left).cmp(&line_source_order(right)))
-    });
-    bottom.sort_unstable_by(|left, right| {
-        line_bbox(left)
-            .1
-            .total_cmp(&line_bbox(right).1)
-            .then(line_source_order(left).cmp(&line_source_order(right)))
-    });
+    let mut top = sort_lines_by_bbox_key(top, |line| line_bbox(line).1, false)?;
+    let vertical = sort_lines_by_bbox_key(vertical, |line| line_bbox(line).0, true)?;
+    let middle = sort_lines_by_bbox_key(middle, |line| line_bbox(line).1, false)?;
+    let bottom = sort_lines_by_bbox_key(bottom, |line| line_bbox(line).1, false)?;
     for line in vertical {
         try_push_text(&mut top, line, "ordered mixed-orientation text lines")?;
     }
@@ -1170,6 +1384,39 @@ fn order_vertical_page_lines(
 /// Return a line's bbox without exposing the internal glyph representation.
 fn line_bbox(line: &[GlyphRecord]) -> BBox {
     glyphs_bbox(line)
+}
+
+/// Sort whole lines by one precomputed geometry key with the explicit
+/// source-order tie-breaker, scanning each line's glyphs once instead of on
+/// every comparison.
+fn sort_lines_by_bbox_key(
+    lines: Vec<Vec<GlyphRecord>>,
+    key: impl Fn(&[GlyphRecord]) -> f64,
+    descending: bool,
+) -> Result<Vec<Vec<GlyphRecord>>, TextPageLimit> {
+    let mut decorated = Vec::new();
+    decorated.try_reserve_exact(lines.len()).map_err(|error| {
+        TextPageLimit::Allocation(format!("failed to allocate line ordering keys: {error}"))
+    })?;
+    for line in lines {
+        let key_value = key(&line);
+        let source_order = line_source_order(&line);
+        decorated.push((key_value, source_order, line));
+    }
+    decorated.sort_unstable_by(|left, right| {
+        let ordering = if descending {
+            right.0.total_cmp(&left.0)
+        } else {
+            left.0.total_cmp(&right.0)
+        };
+        ordering.then(left.1.cmp(&right.1))
+    });
+    let mut lines = Vec::new();
+    lines.try_reserve_exact(decorated.len()).map_err(|error| {
+        TextPageLimit::Allocation(format!("failed to allocate ordered text lines: {error}"))
+    })?;
+    lines.extend(decorated.into_iter().map(|(_, _, line)| line));
+    Ok(lines)
 }
 
 /// Earliest callback order in one non-empty physical line.
@@ -1899,15 +2146,24 @@ fn search_allocation_error(error: TextPageLimit) -> SearchError {
 }
 
 impl TextPage {
-    pub(crate) fn new(
-        pdf: &Pdf,
-        page: &Page<'_>,
+    pub(crate) fn new<'a>(
+        pdf: &'a Pdf,
+        page: &Page<'a>,
+        cache: &InterpreterCache<'a>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
         let (width, height) = page.render_dimensions();
-        let marks = collect_page_marks(pdf, page, settings, false, max_text_size, max_glyph_count)?;
+        let marks = collect_page_marks(
+            pdf,
+            page,
+            cache,
+            settings,
+            false,
+            max_text_size,
+            max_glyph_count,
+        )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let lines = order_page_lines(physical_lines)?;
         Ok(Self {
@@ -1969,14 +2225,23 @@ pub(crate) struct TablePage {
 }
 
 impl TablePage {
-    pub(crate) fn new(
-        pdf: &Pdf,
-        page: &Page<'_>,
+    pub(crate) fn new<'a>(
+        pdf: &'a Pdf,
+        page: &Page<'a>,
+        cache: &InterpreterCache<'a>,
         settings: InterpreterSettings,
         max_text_size: Option<usize>,
         max_glyph_count: Option<usize>,
     ) -> Result<Self, TextPageLimit> {
-        let marks = collect_page_marks(pdf, page, settings, true, max_text_size, max_glyph_count)?;
+        let marks = collect_page_marks(
+            pdf,
+            page,
+            cache,
+            settings,
+            true,
+            max_text_size,
+            max_glyph_count,
+        )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
         let tables = detect_grid_tables(&physical_lines, &marks.rules)?;
         let text_tables = detect_text_tables(&physical_lines)?;
@@ -2074,13 +2339,7 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
                 trailing_spaces = trailing_spaces.checked_add(1)?;
             }
             line_size = line_size.checked_add(glyph.text.len())?;
-            let glyph_trailing_spaces = glyph
-                .text
-                .as_bytes()
-                .iter()
-                .rev()
-                .take_while(|byte| **byte == b' ')
-                .count();
+            let glyph_trailing_spaces = glyph.text.trailing_spaces();
             if glyph_trailing_spaces == glyph.text.len() {
                 trailing_spaces = trailing_spaces.checked_add(glyph_trailing_spaces)?;
             } else {
@@ -2113,7 +2372,7 @@ fn assemble_text(
             if needs_gap(prev_end, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
                 try_push_str_text(&mut out, " ", "plain text output")?;
             }
-            try_push_str_text(&mut out, glyph.text.as_str(), "plain text output")?;
+            try_push_glyph_text(&mut out, &glyph.text, "plain text output")?;
             prev_end = Some(glyph_end(glyph));
         }
         // Drop extra whitespace glyphs at line ends.
@@ -2240,7 +2499,7 @@ fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
                 if needs_gap(prev_end, glyph) && !text.ends_with(' ') {
                     try_push_str_text(&mut text, " ", "layout span text")?;
                 }
-                try_push_str_text(&mut text, glyph.text.as_str(), "layout span text")?;
+                try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
                 prev_end = Some(glyph_end(glyph));
             }
             let mut font_name = String::new();
@@ -2273,7 +2532,7 @@ fn split_words(line: &[GlyphRecord]) -> Result<Vec<WordTuple>, TextPageLimit> {
     for (bbox, glyphs) in split_word_slices(line)? {
         let mut text = String::new();
         for glyph in glyphs {
-            try_push_str_text(&mut text, glyph.text.as_str(), "layout word text")?;
+            try_push_glyph_text(&mut text, &glyph.text, "layout word text")?;
         }
         try_push_text(&mut words, (bbox, text), "layout words")?;
     }
@@ -2733,7 +2992,7 @@ fn cell_text(
                 try_push_str_text(&mut text, " ", "bordered table cell text")?;
             }
             for glyph in glyphs {
-                try_push_str_text(&mut text, glyph.text.as_str(), "bordered table cell text")?;
+                try_push_glyph_text(&mut text, &glyph.text, "bordered table cell text")?;
             }
             has_word = true;
             has_row = true;
@@ -2758,7 +3017,7 @@ fn text_segment_value(segment: &[GlyphRecord]) -> Result<String, TextPageLimit> 
             if pending_separator && !text.is_empty() {
                 try_push_str_text(&mut text, " ", "borderless table cell text")?;
             }
-            try_push_str_text(&mut text, glyph.text.as_str(), "borderless table cell text")?;
+            try_push_glyph_text(&mut text, &glyph.text, "borderless table cell text")?;
             in_word = true;
             pending_separator = false;
         }
@@ -3965,7 +4224,7 @@ impl Device<'_> for ImageCollector {
 fn extraction_context<'a>(
     pdf: &'a Pdf,
     page: &Page<'a>,
-    cache: &'a InterpreterCache<'a>,
+    cache: &InterpreterCache<'a>,
     settings: InterpreterSettings,
 ) -> Context<'a> {
     let (width, height) = page.render_dimensions();
@@ -4476,21 +4735,25 @@ struct PageMarks {
 }
 
 /// Interpret a page once and optionally collect vector table rules.
-fn collect_page_marks(
-    pdf: &Pdf,
-    page: &Page<'_>,
+///
+/// The caller owns the interpreter cache so one batched call can reuse parsed
+/// fonts across pages instead of re-parsing them for every page.
+fn collect_page_marks<'a>(
+    pdf: &'a Pdf,
+    page: &Page<'a>,
+    cache: &InterpreterCache<'a>,
     settings: InterpreterSettings,
     collect_rules: bool,
     max_text_size: Option<usize>,
     max_glyph_count: Option<usize>,
 ) -> Result<PageMarks, TextPageLimit> {
-    let cache = InterpreterCache::new();
-    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut context = extraction_context(pdf, page, cache, settings);
     let mut collector = TextCollector {
         glyphs: Vec::new(),
         rules: Vec::new(),
         collect_rules,
         font_infos: HashMap::new(),
+        last_font: None,
         text_size: 0,
         max_text_size,
         max_glyph_count,

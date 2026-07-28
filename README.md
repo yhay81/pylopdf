@@ -387,6 +387,7 @@ signed_pdf: bytes = out.getvalue()
 | `metadata` | Bounded standard metadata dict (title, author, subject, keywords, creator, producer, creationDate, modDate, format); 1 MiB aggregate Info text |
 | `set_metadata(dict)` | Atomically set standard metadata under a 1 MiB pre-PyO3 UTF-8/encoded boundary (empty string deletes the entry) |
 | `get_page_text(pno, option="text")` | Extract text (or positioned layout: `"words"` / `"blocks"` / `"dict"`) |
+| `get_text(pages=None)` | Extract plain text from up to 4,096 pages in one batch sharing one interpreter font cache (`None` means every page) |
 | `render_page(pno, scale=1.0, dpi=None, background=None, max_size=64 MiB)` | Render bounded PNG bytes; `dpi` replaces `scale`, `background` is an RGB(A) fill (max 65,535 px per side / 64 MP total); `None` opts out |
 | `render_pages(pages=None, scale=1.0, workers=None, max_size=512 MiB, ...)` | Render up to 4,096 ordered PNGs from one immutable snapshot; up to 4 workers by default, ~512 MB estimated live-work concurrency, and a cumulative encoded-output cap (`None` opts out) |
 | `render_page_svg(pno, max_size=64 MiB)` | Render bounded UTF-8 SVG; over-limit output is rejected before Python string conversion, `None` opts out |

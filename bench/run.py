@@ -88,7 +88,7 @@ except Exception:  # pragma: no cover
 
 def _pylopdf_extract(data: bytes) -> str:
     with pylopdf.open(stream=data) as doc:
-        return "".join(doc.get_page_text(i) for i in range(doc.page_count))
+        return doc.get_text()
 
 
 def _pylopdf_merge(docs: list[bytes]) -> bytes:

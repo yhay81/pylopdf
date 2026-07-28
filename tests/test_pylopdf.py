@@ -128,6 +128,41 @@ def test_get_page_text_out_of_range(one_page_pdf: bytes) -> None:
         doc.get_page_text(1)
 
 
+def test_get_text_batches_every_page(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    expected = "".join(doc.get_page_text(pno) for pno in range(doc.page_count))
+    assert doc.get_text() == expected
+    assert "Page one" in expected
+    assert "Page three" in expected
+
+
+def test_get_text_page_selection(three_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=three_page_pdf)
+    reordered = doc.get_page_text(2) + doc.get_page_text(0) + doc.get_page_text(2)
+    assert doc.get_text([2, 0, 2]) == reordered
+    assert doc.get_text([-1]) == doc.get_page_text(2)
+    assert doc.get_text([]) == ""
+
+
+def test_get_text_out_of_range(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(IndexError):
+        doc.get_text([1])
+
+
+def test_get_text_rejects_oversized_batch(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    with pytest.raises(ValueError, match="cannot contain more than 4096 entries"):
+        doc.get_text([0] * 4097)
+
+
+def test_get_text_on_closed_document(one_page_pdf: bytes) -> None:
+    doc = pylopdf.Document(stream=one_page_pdf)
+    doc.close()
+    with pytest.raises(pylopdf.DocumentClosedError):
+        doc.get_text()
+
+
 def test_delete_page(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     doc.delete_page(0)

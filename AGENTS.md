@@ -89,17 +89,32 @@ overview.
   layers before inline geometry sorting; preserve distinct overprints rather
   than interleaving or deduplicating their glyphs. Run detection compares the
   preceding retained glyph without cloning its text, and line/run/layer
-  collections grow fallibly.
+  collections grow fallibly. Glyph text stores single characters inline and
+  keeps one owned heap string only for multi-character mappings; equality is
+  textual, so a one-character CMap string still matches its inline form. Line
+  clustering partitions, sorts, and splits arena indexes, whose order equals
+  collection source order, instead of moving glyph records between
+  intermediate collections; materialization then moves each record once into
+  its clustered line, and whole-line ordering sorts precomputed per-line
+  geometry keys rather than rescanning glyphs inside sort comparators.
   `DocumentLimits.max_text_glyphs` bounds cumulative positioned glyph records
   before caching or structured Python output. Text and table interpretations
   of one page share one admission, failed pages consume no budget, and
   refusals use `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
   When `max_text_size` is configured, plain-text assembly preflights its exact
-  UTF-8 size and caps one private extraction batch at twice that payload budget
+  UTF-8 size and caps one extraction batch at twice that payload budget
   because inferred gaps plus line endings cannot outnumber non-empty glyph
   records. The batch accepts at most 4,096 page entries, so repeated page
-  numbers cannot amplify a bounded interpretation without bound. Plain-text
+  numbers cannot amplify a bounded interpretation without bound.
+  `Document.get_text(pages=None)` is the public batched entry. One batch
+  shares one call-scoped hayro `InterpreterCache` across its pages, so a font
+  reused by several pages parses once per call; single-page interpretation
+  keeps one per-call cache. No interpreter cache crosses threads or survives
+  `invalidate_hayro_pdf`. Batched and single-page interpretation temporarily
+  detach the hayro snapshot so budget admission and LRU insertion can run
+  beside the cache borrow; helpers on that path must not touch `hayro_pdf` or
+  `hayro_source`, and the snapshot is restored on success and failure. Plain-text
   output, multi-page joining, and structured span/word/line/block
   materialization grow fallibly; allocation refusal returns `PdfError` without
   discarding or partially exposing the cached page interpretation. Structured
