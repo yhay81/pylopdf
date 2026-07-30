@@ -7,6 +7,7 @@ import pylopdf
 
 _ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOW = _ROOT / ".github" / "workflows" / "release.yml"
+_FONTS_WORKFLOW = _ROOT / ".github" / "workflows" / "release-fonts.yml"
 _DOC_CONFIGS = (
     _ROOT / "mkdocs.yml",
     _ROOT / "mkdocs.ja.yml",
@@ -50,3 +51,13 @@ def test_documentation_announcement_tracks_package_version() -> None:
         config = config_path.read_text(encoding="utf-8")
         assert expected_prefix in config, config_path.name
         assert expected_url in config, config_path.name
+
+
+def test_font_release_attests_a_content_complete_reproducible_sbom() -> None:
+    workflow = _FONTS_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "python tools/generate_font_sbom.py" in workflow
+    assert '--source-commit "$GITHUB_SHA"' in workflow
+    assert '--source-date-epoch "$(git show -s --format=%ct "$GITHUB_SHA")"' in workflow
+    assert "sbom-path: release/sbom.spdx.json" in workflow
+    assert "anchore/sbom-action" not in workflow
