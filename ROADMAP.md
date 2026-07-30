@@ -563,9 +563,12 @@ recovery. Work beyond the release continues on the same line.
 
 ### v1.0 — product-quality declaration of trust
 
-Target no earlier than 2026-08. v1.0 is not a calendar-driven promotion of the
-current API. It follows v0.10 through v0.12 field use and ships only after the
-library's product experience, error recovery, documentation, performance, and
+No target date or minor release is assigned. Continue the 0.x line until
+pylopdf has sustained external adoption, an indicative signal of roughly 1,000
+GitHub stars, independent field reports across its core workflows, and enough
+limitation evidence to make a durable compatibility promise. Stars are an
+adoption signal rather than a mechanical release trigger: v1.0 still ships only
+after product experience, error recovery, documentation, performance, and
 known-limit behavior are polished together.
 
 - [x] Publish the semantic-versioning and deprecation policy before the final
@@ -574,8 +577,9 @@ known-limit behavior are polished together.
       two-minor-and-six-month deprecation window. A deterministic 0.12 candidate
       snapshot now reviews exports, signatures, members, mapping keys, aliases,
       constants, and exception inheritance on every native Python test lane.
-- Freeze the v1.0 API only after 0.12 field use and the remaining limitation
-  review; the snapshot is a review gate, not a premature compatibility claim.
+- Freeze the v1.0 API only after repeated 0.x field use, meaningful external
+  adoption, and the remaining limitation review; the snapshot is a review gate,
+  not a premature compatibility claim.
 - [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
       Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document
       theme at <https://pylopdf.haya.works/>. Includes per-locale strict

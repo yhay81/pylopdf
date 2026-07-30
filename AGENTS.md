@@ -838,8 +838,10 @@ integrations, a watchlist, and explicit non-goals.
   with the post-v1.0 SemVer and deprecation contract published in four
   languages. The separately versioned OCR model package remains independently
   gated. Incremental save was rejected after OSS analysis and remains on the
-  watchlist. v1.0 is targeted no earlier than 2026-08, after field feedback
-  and further product refinement rather than as a deadline-driven API freeze.
+  watchlist. v1.0 has no target date: continue the 0.x line until sustained
+  field feedback, meaningful external adoption with roughly 1,000 GitHub stars
+  as an indicative signal, and further product refinement justify the API
+  freeze. Stars are not a mechanical release trigger.
 - lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
   An upstream fix remains a parallel contribution candidate.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.
