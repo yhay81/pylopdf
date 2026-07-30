@@ -2006,8 +2006,9 @@ class Page:
         ``fontname`` is otherwise ignored for embedded fonts. A single line
         should use one script and the selected font must contain all needed
         glyphs; no per-glyph fallback or paragraph layout is performed. RTL
-        glyph shaping renders correctly, but extraction currently follows
-        visual rather than logical order.
+        glyph shaping renders correctly. Pure RTL lines without Latin or
+        numeric runs extract in logical Unicode order; mixed-direction
+        paragraph layout remains in producer visual order.
 
         ``\n`` starts a new line at 1.2 times ``fontsize``. Text remains
         visually upright on rotated pages. ``overlay=False`` draws below

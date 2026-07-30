@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import build_nonembedded_cjk_pdf, build_pdf, build_raw_pdf
+from conftest import build_nonembedded_cjk_pdf, build_pdf, build_raw_pdf, build_visual_rtl_pdf
 
 import pylopdf
 
@@ -271,6 +271,53 @@ def test_horizontal_cjk_is_not_misclassified_as_vertical() -> None:
     assert page.get_text() == "こんにちは日本語\n"
     assert line["dir"] == pytest.approx((1.0, 0.0))
     assert line["wmode"] == 0
+
+
+def test_pure_rtl_lines_use_logical_order_across_text_apis() -> None:
+    """Restore visual-order Hebrew and Arabic without altering numeric mixtures."""
+    hebrew_visual = "0001000200030004000500010003000200060007"
+    arabic_visual = "0010001100120013001100120014000500120014001500160010"
+    mixed_visual = "0001000200030004000500330032003100050001000300020006"
+    stream = (
+        f"BT /F1 20 Tf 40 240 Td <{hebrew_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 190 Td <{arabic_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 140 Td <{mixed_visual}> Tj ET"
+    )
+    page = pylopdf.open(stream=build_visual_rtl_pdf(stream))[0]
+    hebrew = "שְלום עולם"
+    arabic = "مرحبا بالعالم"
+    untouched_mixed = "םלוע 321 םולש"
+
+    assert page.get_text().splitlines() == [hebrew, arabic, untouched_mixed]
+    assert page.parent.get_text() == f"{hebrew}\n{arabic}\n{untouched_mixed}\n"
+
+    words = page.get_text("words")
+    assert [word[4] for word in words] == [
+        "שְלום",
+        "עולם",
+        "مرحبا",
+        "بالعالم",
+        "םלוע",
+        "321",
+        "םולש",
+    ]
+    assert words[0][0] > words[1][0]
+    assert words[2][0] > words[3][0]
+
+    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
+    assert [span["text"] for line in lines for span in line["spans"]] == [
+        hebrew,
+        arabic,
+        untouched_mixed,
+    ]
+    assert len(page.search_for("שְלום")) == 1
+    assert len(page.search_for("بالعالم")) == 1
+    assert page.search_for("שלום") == []
+
+    markdown = page.to_markdown()
+    assert hebrew in markdown
+    assert arabic in markdown
+    assert untouched_mixed in markdown
 
 
 def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:

@@ -984,6 +984,7 @@ dependencies = [
  "read-fonts 0.41.0",
  "rten",
  "rten-tensor",
+ "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",
  "zune-jpeg",

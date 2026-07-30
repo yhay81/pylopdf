@@ -83,8 +83,9 @@ sourceを省略し`pylopdf[cjk]`が入っていれば、日本語・漢字には
 Times系`fontname`にはNoto Serifを自動選択します。これはrun全体で1 fontを選ぶ動作で、
 glyphごとのfallbackではありません。Hangul、中国語地域に合う字形、他script、別書体は
 OpenType fontを明示します。各行の字形処理は行いますが、双方向paragraph layoutと
-折り返しは行いません。RTLの字形処理結果は正しく描画されますが、現時点の抽出順は
-論理順ではなく視覚順です。
+折り返しは行いません。RTLの字形処理結果は正しく描画されます。Latin文字や数字の
+runを含まない純RTL行は論理Unicode順で抽出されますが、混在方向のparagraphは
+producerの視覚順を維持します。
 
 `insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode
 改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には

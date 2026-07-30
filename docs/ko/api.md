@@ -84,7 +84,9 @@ Noto Sans를, Times `fontname`에는 Noto Serif를 자동 선택합니다. 이�
 font 하나를 고르는 것이며 glyph별 fallback이 아닙니다. 이 JP subset에는 Hangul이
 없으므로 한국어에는 Noto Sans KR 같은 OpenType font를 명시해야 합니다. 다른 script나
 서체도 마찬가지입니다. 각 줄은 shaping하지만 양방향 문단 layout과 줄바꿈은 제공하지
-않습니다. RTL은 올바르게 렌더링되지만 추출은 현재 visual order입니다.
+않습니다. RTL은 올바르게 렌더링됩니다. Latin 문자나 숫자 run이 없는 순수 RTL 줄은
+논리적 Unicode 순서로 추출하지만, 혼합 방향 paragraph는 producer의 visual order를
+유지합니다.
 
 `insert_textbox`는 리치 텍스트 엔진이 아니라 명시적 줄바꿈, tab 확장, CJK의 Unicode
 줄바꿈 기회, 너무 긴 단어의 grapheme 안전 긴급 줄바꿈을 처리합니다. 정렬 상수는

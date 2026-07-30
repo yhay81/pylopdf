@@ -101,6 +101,69 @@ def build_nonembedded_cjk_pdf(text: str = "こんにちは日本語") -> bytes:
     return bytes(out)
 
 
+def build_visual_rtl_pdf(content_stream: str, *, width: int = 340, height: int = 300) -> bytes:
+    """Build visual-order Hebrew/Arabic text with an Identity-H ToUnicode CMap."""
+    cmap = """/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+17 beginbfchar
+<0001> <05DD>
+<0002> <05DC>
+<0003> <05D5>
+<0004> <05E2>
+<0005> <0020>
+<0006> <05E9>
+<0007> <05B0>
+<0010> <0645>
+<0011> <0644>
+<0012> <0627>
+<0013> <0639>
+<0014> <0628>
+<0015> <062D>
+<0016> <0631>
+<0031> <0031>
+<0032> <0032>
+<0033> <0033>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end"""
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                f"<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 {width} {height}] "
+                "/Resources << /Font << /F1 3 0 R /F2 9 0 R >> >> >>"
+            ),
+            3: (
+                "<< /Type /Font /Subtype /Type0 /BaseFont /Arial /Encoding /Identity-H "
+                "/DescendantFonts [6 0 R] /ToUnicode 8 0 R >>"
+            ),
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(content_stream)} >>\nstream\n{content_stream}\nendstream",
+            6: (
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Arial "
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+                "/FontDescriptor 7 0 R /DW 1000 /CIDToGIDMap /Identity >>"
+            ),
+            7: (
+                "<< /Type /FontDescriptor /FontName /Arial /Flags 4 "
+                "/FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 800 "
+                "/Descent -200 /CapHeight 700 /StemV 80 >>"
+            ),
+            8: f"<< /Length {len(cmap)} >>\nstream\n{cmap}\nendstream",
+            9: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        }
+    )
+
+
 def png_size(data: bytes) -> tuple[int, int]:
     """Read ``(width, height)`` from a PNG IHDR chunk."""
     assert data.startswith(b"\x89PNG\r\n\x1a\n")

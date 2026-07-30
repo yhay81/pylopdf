@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, build_visual_rtl_pdf
 
 import pylopdf
 
@@ -189,6 +189,51 @@ def test_find_bordered_table() -> None:
     assert table.diagnostics == pylopdf.TableDiagnostics("lines", 1.0, None, None, None)
     assert table.extract() == [["Name", "Value"], ["Alpha", "42"]]
     assert table.to_markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
+
+
+def test_bordered_table_restores_pure_rtl_cell_text() -> None:
+    """Keep table materialization consistent with logical page extraction."""
+    hebrew_visual = "0001000200030004000500010003000200060007"
+    stream = (
+        "q 0 G 1 w\n"
+        "40 260 m 300 260 l\n"
+        "40 220 m 300 220 l\n"
+        "40 180 m 300 180 l\n"
+        "40 180 m 40 260 l\n"
+        "170 180 m 170 260 l\n"
+        "300 180 m 300 260 l\n"
+        "S Q\n"
+        "BT /F2 12 Tf 50 235 Td (Name) Tj ET\n"
+        "BT /F2 12 Tf 180 235 Td (Value) Tj ET\n"
+        f"BT /F1 10 Tf 50 195 Td <{hebrew_visual}> Tj ET\n"
+        "BT /F2 12 Tf 180 195 Td (42) Tj ET"
+    )
+    page = pylopdf.open(stream=build_visual_rtl_pdf(stream))[0]
+    table = page.find_tables()[0]
+
+    assert table.extract() == [["Name", "Value"], ["שְלום עולם", "42"]]
+    assert "שְלום עולם" in table.to_markdown()
+    assert "שְלום עולם" in page.parent.to_markdown()
+
+
+def test_borderless_table_restores_pure_rtl_cell_text() -> None:
+    """Apply the same logical ordering to accepted text-table segments."""
+    hebrew_visual = "0001000200030004000500010003000200060007"
+    rows = "\n".join(
+        (
+            f"BT /F1 10 Tf 40 {240 - row * 30} Td <{hebrew_visual}> Tj ET\n"
+            f"BT /F2 12 Tf 200 {240 - row * 30} Td ({row + 1}) Tj ET"
+        )
+        for row in range(3)
+    )
+    page = pylopdf.open(stream=build_visual_rtl_pdf(rows))[0]
+    table = page.find_tables(strategy="text")[0]
+
+    assert table.extract() == [
+        ["שְלום עולם", "1"],
+        ["שְלום עולם", "2"],
+        ["שְלום עולם", "3"],
+    ]
 
 
 def test_table_markdown_preflights_escaped_utf8_output() -> None:

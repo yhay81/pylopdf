@@ -31,6 +31,9 @@ pdf-base14-metrics = "0.0.1"
 # Apply UAX #14 wrapping to Latin, CJK, and mixed-script text.
 unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12"
+# Classify extracted lines conservatively before restoring pure RTL text from
+# display order to logical Unicode order.
+unicode-bidi = "0.3.18"
 # generate-import-lib enables Windows builds in Python-free containers/cross environments.
 pyo3 = { version = "0.29.0", features = ["abi3-py310", "generate-import-lib"] }
 # Used for coordinate transforms in the hayro text-extraction Device; align versions.
