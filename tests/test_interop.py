@@ -74,12 +74,12 @@ def test_pdfa_claim_reads_typst_output() -> None:
 
 
 def test_typst_japanese_watermark_via_show_pdf_page() -> None:
-    """Apply a CJK watermark built with typst and fonts-cjk to every page.
+    """Apply a Japanese watermark built with typst and fonts-jp to every page.
 
     typst subset-embeds the font, so watermark text extracts and renders without
     pylopdf's CJK fallback.
     """
-    fonts = pytest.importorskip("pylopdf_fonts_cjk", reason="cjk extra is not installed")
+    fonts = pytest.importorskip("pylopdf_fonts_jp", reason="jp extra is not installed")
     stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
 #set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))

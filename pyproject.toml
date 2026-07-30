@@ -33,8 +33,17 @@ Issues = "https://github.com/yhay81/pylopdf/issues"
 Source = "https://github.com/yhay81/pylopdf"
 
 [project.optional-dependencies]
-# JP fonts for non-embedded rendering and automatic Japanese/Han generation.
-cjk = ["pylopdf-fonts-cjk>=0.1.0"]
+# Script and locale-specific fonts for automatic generation.
+ar = ["pylopdf-fonts-ar>=0.1.0,<0.2"]
+he = ["pylopdf-fonts-he>=0.1.0,<0.2"]
+hi = ["pylopdf-fonts-hi>=0.1.0,<0.2"]
+jp = ["pylopdf-fonts-jp>=0.1.0,<0.2"]
+ko = ["pylopdf-fonts-ko>=0.1.0,<0.2"]
+th = ["pylopdf-fonts-th>=0.1.0,<0.2"]
+zh-cn = ["pylopdf-fonts-zh-cn>=0.1.0,<0.2"]
+zh-tw = ["pylopdf-fonts-zh-tw>=0.1.0,<0.2"]
+# Compatibility alias for the former Japanese-only extra name.
+cjk = ["pylopdf-fonts-jp>=0.1.0,<0.2"]
 # PP-OCRv6 small detector, recognizer, and multilingual dictionary.
 ocr = ["pylopdf-ocr-models>=0.1.0,<0.2"]
 
@@ -86,11 +95,28 @@ cache-keys = [
 ]
 
 [tool.uv.workspace]
-members = ["fonts/pylopdf-fonts-cjk", "models/pylopdf-ocr-models"]
+members = [
+    "fonts/pylopdf-fonts-ar",
+    "fonts/pylopdf-fonts-he",
+    "fonts/pylopdf-fonts-hi",
+    "fonts/pylopdf-fonts-jp",
+    "fonts/pylopdf-fonts-ko",
+    "fonts/pylopdf-fonts-th",
+    "fonts/pylopdf-fonts-zh-cn",
+    "fonts/pylopdf-fonts-zh-tw",
+    "models/pylopdf-ocr-models",
+]
 
 [tool.uv.sources]
 # Resolve data-only extras to their workspace packages during local development.
-pylopdf-fonts-cjk = { workspace = true }
+pylopdf-fonts-ar = { workspace = true }
+pylopdf-fonts-he = { workspace = true }
+pylopdf-fonts-hi = { workspace = true }
+pylopdf-fonts-jp = { workspace = true }
+pylopdf-fonts-ko = { workspace = true }
+pylopdf-fonts-th = { workspace = true }
+pylopdf-fonts-zh-cn = { workspace = true }
+pylopdf-fonts-zh-tw = { workspace = true }
 pylopdf-ocr-models = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -102,8 +128,18 @@ module = "pypdf.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Allow type checking without the cjk extra installed.
-module = "pylopdf_fonts_cjk"
+# Allow type checking without locale-specific font extras installed.
+module = [
+    "pylopdf_fonts_cjk",
+    "pylopdf_fonts_ar",
+    "pylopdf_fonts_he",
+    "pylopdf_fonts_hi",
+    "pylopdf_fonts_jp",
+    "pylopdf_fonts_ko",
+    "pylopdf_fonts_th",
+    "pylopdf_fonts_zh_cn",
+    "pylopdf_fonts_zh_tw",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

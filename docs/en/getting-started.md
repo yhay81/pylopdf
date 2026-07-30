@@ -11,13 +11,20 @@ description: Install pylopdf and learn its core editing, rendering, extraction a
 pip install pylopdf
 ```
 
-For rendering Japanese PDFs without embedded fonts, or auto-subsetting a JP font
-for Japanese/Han `insert_text` and `insert_textbox`, install the bundled Noto
-Sans/Serif JP package:
+Install only the locale or script fonts your workload needs:
 
 ```bash
-pip install pylopdf[cjk]
+pip install "pylopdf[jp]"     # Japanese fallback and generation
+pip install "pylopdf[ko]"     # Korean
+pip install "pylopdf[zh-cn]"  # Simplified Chinese
+pip install "pylopdf[zh-tw]"  # Traditional Chinese
+pip install "pylopdf[ar]"     # Arabic generation (also: he, hi, th)
 ```
+
+The four CJK locale extras support both rendering non-embedded Adobe CJK fonts
+and subset-embedded generation. Arabic, Hebrew, Devanagari, and Thai packages
+are generation providers. The former Japanese-only `pylopdf[cjk]` name remains
+as a compatibility alias for `pylopdf[jp]`.
 
 Release CI installs every native platform wheel on an architecture-matched
 runner and exercises PDF creation, saving, reopening, extraction, rendering,
@@ -104,7 +111,8 @@ page.insert_image(page.search_for("Approved")[0], stream=stamp_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
 page.show_pdf_page(page.rect, letterhead)                    # vector overlay; same-document src also works
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18)             # auto-subset with pylopdf[cjk]
+page.insert_text((40, 70), "社外秘", fontsize=18)             # auto-subset with pylopdf[jp]
+page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
@@ -114,7 +122,7 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```python
 page.insert_ocr_text_layer(ocr_words)        # searchable PDFs from any OCR output
 doc.set_form_field("customer", "Alice")      # native AcroForm appearance
-doc.set_form_field("customer_ja", "山田 太郎")  # auto-subset with pylopdf[cjk]
+doc.set_form_field("customer_ja", "山田 太郎")  # auto-subset with pylopdf[jp]
 md = doc.to_markdown()                       # RAG-ready Markdown
 ```
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import build_raw_pdf
@@ -10,7 +11,7 @@ from conftest import build_raw_pdf
 import pylopdf
 
 NOTO_SANS_JP = (
-    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk" / "NotoSansJP-Regular.otf"
+    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
 )
 
 
@@ -130,7 +131,7 @@ def test_get_form_fields_lists_all() -> None:
 
 
 def test_fill_text_field_roundtrip_without_unicode_font(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pylopdf, "_bundled_cjk_fonts", lambda: ())
+    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: ())
     doc = pylopdf.open(stream=_build_form_pdf())
     assert _opaque_pixels(doc, (45, 67, 255, 97)) == 0
     doc.set_form_field("customer", "山田 太郎")
@@ -158,9 +159,10 @@ def test_fill_unicode_text_with_embedded_font_renders_and_roundtrips() -> None:
     assert _opaque_pixels(reopened, (45, 67, 255, 97)) > 0
 
 
-def test_fill_unicode_text_auto_uses_optional_cjk_font(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fill_unicode_text_auto_uses_optional_jp_font(monkeypatch: pytest.MonkeyPatch) -> None:
     font_data = NOTO_SANS_JP.read_bytes()
-    monkeypatch.setattr(pylopdf, "_bundled_cjk_fonts", lambda: (("sans", font_data),))
+    provider = SimpleNamespace(language="ja", extra="jp", sans=font_data, serif=font_data)
+    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
     doc = pylopdf.open(stream=_build_form_pdf())
     doc.set_form_field("customer", "山田 太郎")
     assert _opaque_pixels(doc, (45, 67, 255, 97)) > 0

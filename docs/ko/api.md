@@ -29,11 +29,11 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 최대4,096 page 및 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 상한이 있는PNG, 4,096 page 및 누적encoded output 상한이 있는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
-| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 임베드되지 않은 글꼴의 상한이 있는CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
+| `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete/insert batch는4,096 entry로 제한 |
 | `get_toc()` / `set_toc(toc)` | cycle을 처리하는 제한된 목차（페이지는 1부터, 4,096 entry/node, 8,192 edge, 깊이64, text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=` `deflate=` `object_streams=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
@@ -65,8 +65,8 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. `pylopdf[cjk]`는JP font 자동 선택. 해당 신뢰 가능한input은`None`으로 해제 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType 또는 자동JP font 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
@@ -79,11 +79,13 @@ layer 이름, text, image, annotation은 반환하지 않지만 optional-content
 적용합니다. 결과가8,192 paths 또는131,072 commands를 넘으면 잘라내지 않고 거부합니다.
 
 내장 글꼴을 사용하는 `insert_text`에는 필요한 모든 글리프를 포함한 단일 글꼴이
-필요합니다. source를 생략하고 `pylopdf[cjk]`를 설치하면 일본어／한자에 JP subset
-Noto Sans를, Times `fontname`에는 Noto Serif를 자동 선택합니다. 이는 run 전체에서
-font 하나를 고르는 것이며 glyph별 fallback이 아닙니다. 이 JP subset에는 Hangul이
-없으므로 한국어에는 Noto Sans KR 같은 OpenType font를 명시해야 합니다. 다른 script나
-서체도 마찬가지입니다. 각 줄은 shaping하지만 양방향 문단 layout과 줄바꿈은 제공하지
+필요합니다. `pylopdf[ar]`, `[he]`, `[hi]`, `[jp]`, `[ko]`, `[th]`,
+`[zh-cn]`, `[zh-tw]`는 Noto Sans／Serif 생성 font를 제공합니다. Kana, Hangul,
+Bopomofo, Arabic, Hebrew, Devanagari, Thai는 설치된 provider를 자동 선택합니다.
+순수 한자는 호환성을 위해 JP를 우선하며 지역 glyph가 중요하면
+`font_language="ko"`, `"zh-CN"`, `"zh-TW"` 또는 `"ja"`를 지정합니다. run
+전체에서 font 하나를 고르며 glyph별 fallback은 아닙니다. 각 줄은 shaping하지만
+양방향 문단 layout과 줄바꿈은 제공하지
 않습니다. RTL은 올바르게 렌더링됩니다. Latin 문자나 숫자 run이 없는 순수 RTL 줄은
 논리적 Unicode 순서로 추출하지만, 혼합 방향 paragraph는 producer의 visual order를
 유지합니다.
@@ -96,9 +98,9 @@ font 하나를 고르는 것이며 glyph별 fallback이 아닙니다. 이 JP sub
 
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
-또는 `fontbuffer`를 지정해 서브셋 내장합니다. `pylopdf[cjk]`가 설치되어 있으면
-WinAnsi 밖의 값에 JP subset sans를 시도합니다. Hangul에는 Noto Sans KR 같은 font를
-명시해야 합니다. 비어 있지 않은 기존 버튼 appearance는
+또는 `fontbuffer`를 지정해 서브셋 내장합니다. 설치된script／locale provider는
+`insert_text`와 같은 규칙으로 선택하며 모호한 한자는`font_language`로 지정합니다.
+비어 있지 않은 기존 버튼 appearance는
 보존하고 누락된 상태만 벡터로 만듭니다. 다른 WinAnsi 필드의 누락된 appearance도
 함께 채우며, 입력 가능한 모든 widget이 자체 완결일 때만 `NeedAppearances`를
 해제합니다. comb 텍스트 필드는 상속된 `MaxLen`과 정렬을 따르고 각 Unicode

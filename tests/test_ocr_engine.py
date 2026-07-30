@@ -13,7 +13,7 @@ import pylopdf
 from pylopdf.pylopdf_core import _OcrEngine
 
 MODEL_ROOT = Path(__file__).parents[1] / "models" / "pylopdf-ocr-models" / "src" / "pylopdf_ocr_models"
-FONT_ROOT = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk"
+FONT_ROOT = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp"
 
 
 @pytest.fixture(scope="module")

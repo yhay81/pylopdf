@@ -11,13 +11,19 @@ description: 安装pylopdf，并学习编辑、渲染、提取和写入PDF的核
 pip install pylopdf
 ```
 
-可选font package包含Noto Sans/Serif JP，用于渲染缺少嵌入字体的日文PDF，也可在
-日文／汉字`insert_text`和`insert_textbox`中自动subset。中文本地字形和Hangul需要
-显式传入匹配的font：
+只需安装工作负载所需的语言或地区font：
 
 ```bash
-pip install pylopdf[cjk]
+pip install "pylopdf[jp]"     # 日语fallback与生成
+pip install "pylopdf[ko]"     # 韩语
+pip install "pylopdf[zh-cn]"  # 简体中文
+pip install "pylopdf[zh-tw]"  # 繁体中文
+pip install "pylopdf[ar]"     # 阿拉伯语生成（另有he、hi、th）
 ```
+
+四个CJK地区extra同时支持未嵌入Adobe CJK font的渲染fallback与subset嵌入生成。
+`ar`、`he`、`hi`、`th`提供生成font。旧的日语专用`pylopdf[cjk]`仍作为
+`pylopdf[jp]`的兼容别名。
 
 release CI 会在architecture匹配的runner上安装每个native platform wheel，并验证PDF
 创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖全部五个

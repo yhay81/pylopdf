@@ -3,6 +3,7 @@
   "exports": [
     "AnnotationInfo",
     "BlockEntry",
+    "CjkFontLanguage",
     "Document",
     "DocumentClosedError",
     "DocumentComplexity",
@@ -11,6 +12,7 @@
     "DrawingInfo",
     "DrawingItem",
     "EncryptedDocumentError",
+    "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
     "ImageCompressionResult",
@@ -76,6 +78,10 @@
     "BlockEntry": {
       "kind": "type-alias",
       "target": "tuple[float, float, float, float, str, int, int]"
+    },
+    "CjkFontLanguage": {
+      "kind": "type-alias",
+      "target": "Literal['ja', 'ko', 'zh-CN', 'zh-TW']"
     },
     "Document": {
       "kind": "class",
@@ -775,6 +781,12 @@
                 "name": "index"
               },
               {
+                "annotation": "CjkFontLanguage",
+                "default": "ja",
+                "kind": "keyword_only",
+                "name": "font_language"
+              },
+              {
                 "annotation": "int | None",
                 "default": 67108864,
                 "kind": "keyword_only",
@@ -819,6 +831,12 @@
                 "default": 0,
                 "kind": "keyword_only",
                 "name": "fontindex"
+              },
+              {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font_language"
               },
               {
                 "annotation": "int | None",
@@ -1228,6 +1246,10 @@
       ],
       "kind": "exception",
       "members": {}
+    },
+    "FontLanguage": {
+      "kind": "type-alias",
+      "target": "Literal['ar', 'he', 'hi', 'ja', 'ko', 'th', 'zh-CN', 'zh-TW']"
     },
     "FormFieldInfo": {
       "fields": {
@@ -1985,6 +2007,12 @@
                 "name": "fontindex"
               },
               {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font_language"
+              },
+              {
                 "annotation": "tuple[float, float, float]",
                 "default": [
                   0.0,
@@ -2063,6 +2091,12 @@
                 "default": 0,
                 "kind": "keyword_only",
                 "name": "fontindex"
+              },
+              {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font_language"
               },
               {
                 "annotation": "tuple[float, float, float]",

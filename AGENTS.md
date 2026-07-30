@@ -455,14 +455,18 @@ overview.
   `MetadataProbe.repaired` retain it, and saving normalizes the xref data.
 - CJK fallback replaces hayro's `font_resolver`
   (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
-  `CIDSystemInfo` or the `BaseFont` name. Serif-like names use the serif slot;
-  other names use sans. Font files come from
-  `fonts/pylopdf-fonts-cjk/`, an uv workspace member exposed through the `[cjk]`
-  extra and auto-detected during rendering. Explicit and auto-selected fallback
-  font input shares the 64 MiB default OpenType boundary described below.
-  Auto-discovery keeps package assets as paths and reads both sans and serif
-  successfully before one cache update. Failed path reads or size checks must
-  preserve configured fonts and caches.
+  `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
+  CNS1 to independent `ja`, `ko`, `zh-CN`, and `zh-TW` slots, and use
+  conservative BaseFont-name hints only when collection metadata is absent.
+  Serif-like names use the serif slot; other names use sans. Font files come
+  from locale workspace packages under `fonts/pylopdf-fonts-{jp,ko,zh-cn,zh-tw}/`
+  and are exposed through matching extras. The legacy `[cjk]` extra is a
+  compatibility alias for `[jp]`, and an already installed
+  `pylopdf_fonts_cjk` package remains detectable. Explicit and auto-selected
+  fallback font input shares the 64 MiB default OpenType boundary described
+  below. Auto-discovery keeps package assets as paths and must read every
+  selected sans/serif pair successfully before one cache update. Failed path
+  reads or size checks must preserve configured fonts and caches.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later
@@ -546,10 +550,12 @@ overview.
   in target display coordinates, subset-embeds the selected OpenType face, and
   returns bytes that the existing lopdf Form-XObject path imports. It releases
   the GIL and rejects missing glyphs. Without an explicit font source,
-  Japanese/Han text auto-selects the optional `pylopdf[cjk]` JP-subset sans
-  font, or serif for Times aliases. This selects one font for the complete run;
-  it is not per-glyph fallback. Hangul, locale-specific Chinese typography, and
-  other scripts need an explicit font. `insert_text`, `insert_textbox`,
+  optional providers `pylopdf[ar]`, `[he]`, `[hi]`, `[jp]`, `[ko]`, `[th]`,
+  `[zh-cn]`, and `[zh-tw]` supply Noto Sans/Serif fonts. Unambiguous script
+  markers select a provider; pure Han remains JP-first for compatibility and
+  `font_language` resolves the intended locale. This selects one font for the
+  complete run; it is not per-glyph fallback. Mixed provider scripts require
+  an explicit font. `insert_text`, `insert_textbox`,
   `set_form_field`, and `set_fallback_font` share a 64 MiB default OpenType
   boundary. Python rejects buffer input before PyO3 copying; file input uses a
   one-byte-overrun bounded Rust read with the GIL released and fallible 64 KiB
@@ -576,7 +582,10 @@ overview.
   `text_line_count`. Paragraph layout remains outside `insert_text`. Pure RTL
   lines without Latin or numeric runs round-trip through extraction in logical
   Unicode order; mixed-direction paragraph layout remains in producer visual
-  order.
+  order. krilla emits `/ActualText` for complex glyph-to-Unicode mappings.
+  Generated PDFs retain it for compliant viewers, but hayro 0.7 does not expose
+  that property to extraction devices, so some reordered or context-dependent
+  complex-script clusters remain an explicit pylopdf extraction limitation.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
@@ -816,12 +825,13 @@ overview.
 3. GitHub Actions (`release.yml`) builds abi3 and cp314t wheels plus the sdist
    for five platforms and publishes through PyPI Trusted Publishing.
 
-The font wheel has a separate release process. Update the version in
-`fonts/pylopdf-fonts-cjk/pyproject.toml`, then push a `fonts-vX.Y.Z` tag to run
-`release-fonts.yml`. The first release requires registering the
-`pylopdf-fonts-cjk` Trusted Publisher on PyPI with workflow
-`release-fonts.yml` and environment `pypi`. Publish the font wheel before the
-main package because the main `[cjk]` extra references it.
+Locale/script font wheels have a separate release process. Update the selected
+`fonts/pylopdf-fonts-{locale}/pyproject.toml`, then push a
+`fonts-{locale}-vX.Y.Z` tag to run `release-fonts.yml`. Supported release codes
+are `ar`, `he`, `hi`, `jp`, `ko`, `th`, `zh-cn`, and `zh-tw`. Every PyPI
+project requires a Trusted Publisher with workflow `release-fonts.yml` and
+environment `pypi`. Publish every wheel referenced by a main-package extra
+before releasing that main package.
 
 The OCR model wheel also releases separately. Update the version in
 `models/pylopdf-ocr-models/pyproject.toml` and

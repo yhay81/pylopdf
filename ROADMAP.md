@@ -703,6 +703,15 @@ known-limit behavior are polished together.
       without weakening the single-font, no-per-glyph-fallback boundary.
       Hangul and locale-specific Chinese typography remain explicit-font cases
       until the data package has measured pan-CJK coverage.
+- [x] Replace the misleading Japanese-only CJK product boundary with
+      locale/script providers. `[jp]`, `[ko]`, `[zh-cn]`, and `[zh-tw]` route
+      non-embedded Adobe CJK collections to matching Noto regional glyphs and
+      also provide generation fonts; `[ar]`, `[he]`, `[hi]`, and `[th]` add
+      shaped generation providers. `font_language` resolves ambiguous Han,
+      `[cjk]` remains a `[jp]` compatibility alias, and save/reopen conformance
+      covers every provider. Thai, Lao, Khmer, and Myanmar extraction no longer
+      invent spaces inside no-space-script runs, and Markdown joins their
+      wrapped physical lines without inserting Latin-style spaces.
 - [x] Remove the Pillow/PNG round-trip from rendered-image reuse:
       `Page.insert_image(pixmap=)` now converts immutable straight-alpha RGBA8
       storage directly into a Flate-compressed PDF Image XObject, preserves

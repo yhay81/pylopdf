@@ -39,17 +39,17 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 
 ## 조판된 CJK 워터마크와 헤더 — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf는 `insert_text(fontfile=...)`와 Noto Sans KR 같은 font로 한국어를 직접
-그릴 수 있습니다. `pylopdf[cjk]` 자동 선택은 JP subset이며 Hangul을 포함하지
-않습니다. 스탬프에 더 복잡한 한 페이지 조판이 필요하면 typst로
+pylopdf는 `pylopdf[ko]` 설치 후 `insert_text()`로 한국어를 직접 그릴 수
+있습니다. `[jp]`, `[zh-cn]`, `[zh-tw]`는 다른 CJK 지역 glyph를 제공합니다.
+스탬프에 더 복잡한 한 페이지 조판이 필요하면 typst로
 조판하고(글꼴은 부분 집합으로 포함됨), 각 페이지에 벡터로 합성합니다.
 
 ```python
-from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]
+from pylopdf_fonts_ko import sans_path  # pip install pylopdf[ko]
 
 stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
-#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#set text(font: "Noto Sans KR", size: 48pt, fill: rgb(255, 0, 0, 40%))
 #align(center + horizon)[대외비]
 """
 stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))

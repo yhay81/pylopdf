@@ -193,6 +193,31 @@ def test_cjk_lines_join_without_space() -> None:
     assert "日本語の折り返しは空白なしで繋がる" in md
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("ภาษาไทยไม่มี", "ช่องว่าง"),
+        ("ພາສາລາວບໍ່ມີ", "ຊ່ອງຫວ່າງ"),
+        ("ភាសាខ្មែរមិនមាន", "ចន្លោះ"),
+        ("မြန်မာစာတွင်", "နေရာလွတ်"),
+    ],
+)
+def test_no_space_scripts_join_wrapped_lines_without_ascii_gap(first: str, second: str) -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=300, height=200)
+    doc[0].insert_ocr_text_layer(
+        [
+            (50, 50, 200, 64, first),
+            (50, 66, 200, 80, second),
+        ]
+    )
+
+    markdown = doc.to_markdown()
+
+    assert first + second in markdown
+    assert first + " " + second not in markdown
+
+
 def test_latin_lines_join_with_space() -> None:
     doc = pylopdf.Document()
     doc.new_page(width=300, height=200)

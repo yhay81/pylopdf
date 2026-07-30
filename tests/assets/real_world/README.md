@@ -43,8 +43,8 @@ Every bundled document has a redistributable license.
 ## Covered dimensions
 
 - Encrypted PDFs in `tests/assets/encrypted/`: RC4-40/128, AES-128, and AES-256.
-- Non-embedded CJK fonts through synthetic PDFs in `tests/test_cjk.py` and
-  `pylopdf[cjk]`.
+- Non-embedded CJK fonts through synthetic PDFs in
+  `tests/test_locale_fonts.py` and locale-specific font extras.
 - Scans using CCITTFaxDecode plus an OCR layer (`patent-us223898.pdf`), and
   DCTDecode plus JBIG2Decode without a text layer
   (`wdl6812-manuscript.pdf`). `bunka-kokugo-series-019-p4.pdf` adds a clean

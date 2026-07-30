@@ -33,7 +33,7 @@ text and form appearances.
 | Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
 | Text extraction | ✅ (positioned text, tables, Markdown) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
 | Encryption (AES-256) | ✅ read & write | ✅ | ✅ | read only | undocumented | ✅ (via qpdf) |
-| Japanese font fallback / generation | ✅ ([cjk] extra) | ✅ | — | manual | — | — |
+| Locale-aware multilingual fonts | ✅ (optional extras) | ✅ | — | manual | — | — |
 | Implementation | **pure Rust** | C/C++ | Python | C++ (PDFium) | Rust | C++ (qpdf) |
 
 Wheel sizes are the ranges of published files for pylopdf 0.10.0, pymupdf
@@ -57,11 +57,20 @@ pip install pylopdf
 Optional extras:
 
 ```bash
-pip install "pylopdf[cjk]"   # Noto Sans/Serif JP: render Japanese PDFs without
-                             # embedded fonts, auto-subset JP text generation
+pip install "pylopdf[jp]"    # Japanese rendering fallback and text generation
+pip install "pylopdf[ko]"    # Korean
+pip install "pylopdf[zh-cn]" # Simplified Chinese
+pip install "pylopdf[zh-tw]" # Traditional Chinese
+pip install "pylopdf[ar]"    # Arabic generation (also: he, hi, th)
 pip install "pylopdf[ocr]"   # offline PP-OCRv6 recognition, pure Rust,
                              # no system executables or network at runtime
 ```
+
+The locale-specific CJK extras provide both non-embedded PDF fallback and
+generation fonts. The `ar`, `he`, `hi`, and `th` extras provide generation
+fonts for Arabic, Hebrew, Devanagari, and Thai. `pylopdf[cjk]` remains a
+compatibility alias for the former Japanese-only extra; new installations
+should use `pylopdf[jp]`.
 
 Building from source requires a Rust toolchain: `uv sync`.
 
@@ -92,11 +101,12 @@ merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))
 merged.insert_pdf(pylopdf.open("b.pdf"), from_page=0, to_page=2)
 
-# Generate: images, overlays, shaped text (CJK auto-subsets with pylopdf[cjk])
+# Generate: images, overlays, shaped subset-embedded multilingual text
 page = doc[0]
 page.insert_image((72, 72, 200, 200), filename="logo.png")
 page.show_pdf_page(page.rect, letterhead)    # vector overlay from another PDF
 page.insert_text((40, 80), "社外秘", fontsize=20, color=(0.8, 0, 0))
+page.insert_text((40, 120), "简体中文", fontsize=20, font_language="zh-CN")
 page.replace_text("DRAFT", "FINAL")
 page.add_highlight_annot(page.search_for("important"))
 

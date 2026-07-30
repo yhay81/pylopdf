@@ -69,7 +69,7 @@ def test_ocr_layer_is_invisible() -> None:
 
 def test_ocr_layer_does_not_need_fallback_fonts() -> None:
     # A non-embedded reference font remains extractable when CJK fallbacks are
-    # disabled, proving independence from the [cjk] extra.
+    # disabled, proving independence from optional locale font extras.
     doc = _blank_page_doc()
     doc.set_fallback_font(None)
     page = doc[0]

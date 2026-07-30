@@ -1,8 +1,7 @@
-"""Tests for fallback rendering with non-embedded CJK fonts.
+"""Tests for locale-specific rendering of non-embedded CJK fonts.
 
-The tests use the bundled Noto Sans/Serif JP fonts under
-fonts/pylopdf-fonts-cjk/. Auto-discovery runs only when pylopdf_fonts_cjk is
-installed, as it is under ``uv sync --all-extras`` and in CI.
+Auto-discovery runs for the installed JP, KR, SC, and TC data packages, as it
+does under ``uv sync --all-extras`` and in CI.
 """
 
 from __future__ import annotations
@@ -10,13 +9,20 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import build_nonembedded_cjk_pdf
+from conftest import build_nonembedded_cjk_pdf, build_nonembedded_locale_cjk_pdf
 
 import pylopdf
 
-FONTS_DIR = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk"
+FONTS_DIR = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp"
 SANS = FONTS_DIR / "NotoSansJP-Regular.otf"
 SERIF = FONTS_DIR / "NotoSerifJP-Regular.otf"
+FONT_ROOT = Path(__file__).parents[1] / "fonts"
+LOCALE_SANS = {
+    "ja": SANS,
+    "ko": FONT_ROOT / "pylopdf-fonts-ko" / "src" / "pylopdf_fonts_ko" / "NotoSansKR-Regular.otf",
+    "zh-CN": (FONT_ROOT / "pylopdf-fonts-zh-cn" / "src" / "pylopdf_fonts_zh_cn" / "NotoSansSC-Regular.otf"),
+    "zh-TW": (FONT_ROOT / "pylopdf-fonts-zh-tw" / "src" / "pylopdf_fonts_zh_tw" / "NotoSansTC-Regular.otf"),
+}
 
 
 def render_blank_baseline() -> bytes:
@@ -97,11 +103,48 @@ def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
 
 
 def test_auto_discovery_via_extra() -> None:
-    """Auto-render CJK when pylopdf[cjk] is installed."""
-    pytest.importorskip("pylopdf_fonts_cjk")
+    """Auto-render Japanese text when pylopdf[jp] is installed."""
+    pytest.importorskip("pylopdf_fonts_jp")
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     png = doc.render_page(0, 1.0)
     assert png != render_blank_baseline()
+
+
+@pytest.mark.parametrize(
+    ("font_language", "text"),
+    [("ko", "한국어"), ("zh-CN", "简体中文"), ("zh-TW", "繁體中文")],
+)
+def test_locale_fallback_matches_adobe_character_collection(
+    font_language: pylopdf.CjkFontLanguage,
+    text: str,
+) -> None:
+    """Render each predefined Adobe collection through its matching locale slot."""
+    pdf = build_nonembedded_locale_cjk_pdf(text, font_language)
+    blank = pylopdf.open(stream=pdf)
+    blank.set_fallback_font(None)
+    blank_png = blank.render_page(0)
+
+    doc = pylopdf.open(stream=pdf)
+    doc.set_fallback_font(LOCALE_SANS[font_language], font_language=font_language)
+
+    assert doc.render_page(0) != blank_png
+    assert doc.get_page_text(0).strip() == text
+
+
+@pytest.mark.parametrize("wrong_language", ["ja", "ko", "zh-TW"])
+def test_wrong_locale_does_not_override_matching_collection(
+    wrong_language: pylopdf.CjkFontLanguage,
+) -> None:
+    """Do not send any configured non-SC font into an Adobe-GB1 request."""
+    pdf = build_nonembedded_locale_cjk_pdf("简体中文", "zh-CN")
+    blank = pylopdf.open(stream=pdf)
+    blank.set_fallback_font(None)
+    blank_png = blank.render_page(0)
+
+    doc = pylopdf.open(stream=pdf)
+    doc.set_fallback_font(LOCALE_SANS[wrong_language], font_language=wrong_language)
+
+    assert doc.render_page(0) == blank_png
 
 
 def test_nonembedded_cjk_extract_text() -> None:

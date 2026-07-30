@@ -27,7 +27,7 @@ _ASSETS = (
     "tests/assets/real_world/senate-expenditures.pdf",
     "tests/assets/real_world/bunka-kokugo-series-019-p4.pdf",
     "tests/assets/encrypted/user-aes-256.pdf",
-    "fonts/pylopdf-fonts-cjk/src/pylopdf_fonts_cjk/NotoSansJP-Regular.otf",
+    "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf",
 )
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _EXPECTED_TWO_PAGES = 2
@@ -406,7 +406,7 @@ def _layout_results() -> dict[str, Any]:
 def _generation_results(root: Path) -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
-    font = (root / "fonts/pylopdf-fonts-cjk/src/pylopdf_fonts_cjk/NotoSansJP-Regular.otf").read_bytes()
+    font = (root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
     document = pylopdf.Document()
     _require(document.page_count == 0, "new document is not empty")
     first = document.new_page(width=240, height=180)
