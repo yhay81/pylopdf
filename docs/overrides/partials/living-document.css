@@ -8,6 +8,9 @@
   --living-cobalt: #1d4ed8;
   --living-cobalt-dark: #153aa5;
   --living-vermillion: #e44b2d;
+  --living-selection-bg: #153aa5;
+  --living-selection-fg: #fffdf8;
+  --living-footer-link-hover: #a7bdff;
   --living-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --living-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --living-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -57,6 +60,9 @@ html[lang="ko"] {
   --living-cobalt: #86a8ff;
   --living-cobalt-dark: #a7bdff;
   --living-vermillion: #ff7358;
+  --living-selection-bg: #a7bdff;
+  --living-selection-fg: #171a1f;
+  --living-footer-link-hover: #153aa5;
   --md-default-fg-color: var(--living-ink);
   --md-default-fg-color--light: #c2bbb0;
   --md-default-fg-color--lighter: #999287;
@@ -83,6 +89,17 @@ body {
     radial-gradient(circle at 90% 12%, color-mix(in srgb, var(--living-cobalt) 7%, transparent), transparent 28rem),
     var(--living-paper);
   color: var(--living-ink);
+}
+
+::selection {
+  background: var(--living-selection-bg);
+  color: var(--living-selection-fg);
+  text-shadow: none;
+}
+
+.md-typeset a::selection,
+.md-footer a::selection {
+  color: var(--living-selection-fg);
 }
 
 .md-grid {
@@ -212,6 +229,16 @@ body {
   border-radius: 0;
 }
 
+.md-typeset :not(pre) > code {
+  border: 1px solid var(--living-rule);
+  background: color-mix(in srgb, var(--living-cobalt) 6%, var(--living-paper-deep));
+  color: var(--living-ink);
+}
+
+.md-typeset a code {
+  color: var(--living-cobalt-dark);
+}
+
 .md-typeset pre > code {
   border-left: 0.18rem solid var(--living-vermillion);
 }
@@ -261,12 +288,27 @@ body {
 }
 
 .md-footer {
+  --md-primary-bg-color: var(--living-paper);
+  --md-primary-bg-color--light: color-mix(in srgb, var(--living-paper) 72%, transparent);
   border-top: 1px solid var(--living-rule);
   background: var(--living-ink);
+  color: var(--living-paper);
 }
 
 .md-footer-meta {
   background: color-mix(in srgb, var(--living-ink) 94%, black);
+  color: var(--living-paper);
+}
+
+html .md-footer-meta.md-typeset .md-copyright,
+html .md-footer-meta.md-typeset .md-copyright a,
+html .md-footer-meta.md-typeset a.md-social__link {
+  color: var(--living-paper);
+}
+
+html .md-footer-meta.md-typeset .md-copyright a:is(:focus, :hover),
+html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
+  color: var(--living-footer-link-hover);
 }
 
 .md-content:has(.living-home),

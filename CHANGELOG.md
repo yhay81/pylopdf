@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([LaurenzV/hayro#1331](https://github.com/LaurenzV/hayro/issues/1331)).
 
 ### Fixed
+- The documentation footer now retains readable foreground contrast in both
+  color schemes. Text selection uses a theme-aware blue highlight with an
+  explicit contrasting foreground, including selected links. Inline code now
+  uses a subtle paper background so linked code remains legible while fenced
+  code blocks retain their dark treatment.
 - Pure right-to-left lines without Latin or numeric runs are now restored from
   visual glyph order to logical Unicode order across plain text, positioned
   words and spans, search geometry, table cells, and Markdown. The conservative

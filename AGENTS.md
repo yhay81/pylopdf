@@ -45,6 +45,11 @@ overview.
   production validation, build all four configurations in EN → JA → zh-CN → KO
   order with `uv run --no-sync zensical build -f <config> -c -s`. A push to
   `main` deploys the site through `docs.yml`.
+  The custom theme keeps footer foreground and background colors inverted in
+  both color schemes. Text selection uses explicit foreground and background
+  variables, including selected links. Inline code uses a subtle paper
+  background while fenced code remains dark. Retain at least WCAG AA contrast,
+  including links inside inline code.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets` /
   `cargo fmt --manifest-path rust/Cargo.toml`
 - Do not add Rust unit tests. Verify all behavior through Python tests in
