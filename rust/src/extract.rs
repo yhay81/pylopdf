@@ -20,6 +20,7 @@ use std::sync::Arc;
 use hayro::hayro_syntax::page::Page;
 use hayro::hayro_syntax::{Filter, Pdf};
 use kurbo::{Affine, Cap, CubicBez, Join, Line, PathEl, PathSeg, Point, QuadBez, Rect, Shape};
+use unicode_bidi::{BidiClass, bidi_class};
 
 /// Per-font display attributes propagated to spans with pymupdf-compatible flags.
 #[derive(Clone, Default)]
@@ -140,6 +141,8 @@ impl Iterator for GlyphTextChars<'_> {
 struct GlyphRecord {
     /// Unicode representation; ligatures may contain multiple characters.
     text: GlyphText,
+    /// Cached Unicode bidi properties used by logical-order assembly.
+    bidi_flags: u8,
     /// Baseline-origin x.
     x: f64,
     /// Baseline-origin y, increasing downward.
@@ -453,8 +456,10 @@ impl Device<'_> for TextCollector {
         // Context initial_transform already flips y and applies rotation, so
         // transformed coordinates are directly in top-left-origin display space.
         let source_order = self.glyphs.len();
+        let bidi_flags = glyph_bidi_flags(&text);
         self.glyphs.push(GlyphRecord {
             text,
+            bidi_flags,
             x: origin.x,
             y: origin.y,
             size,
@@ -2165,7 +2170,10 @@ impl TextPage {
             max_glyph_count,
         )?;
         let physical_lines = cluster_lines(marks.glyphs)?;
-        let lines = order_page_lines(physical_lines)?;
+        let mut lines = order_page_lines(physical_lines)?;
+        for line in &mut lines {
+            logicalize_pure_rtl_line(line);
+        }
         Ok(Self {
             width: f64::from(width),
             height: f64::from(height),
@@ -2312,16 +2320,162 @@ fn glyph_progress(glyph: &GlyphRecord) -> f64 {
 }
 
 /// Decide whether to insert a space from the gap between adjacent glyphs.
-fn needs_gap(prev_end: Option<f64>, glyph: &GlyphRecord) -> bool {
+///
+/// Logical RTL restoration can make adjacent records progress backwards along
+/// the baseline. Compare their complete inline intervals so inferred word
+/// spaces remain symmetric without changing geometry-based line discovery.
+fn needs_gap(previous: Option<&GlyphRecord>, glyph: &GlyphRecord) -> bool {
     if glyph.writing_mode == 1 {
         return false;
     }
-    prev_end.is_some_and(|end| glyph_progress(glyph) - end > glyph.size.max(1.0) * WORD_GAP)
+    previous.is_some_and(|previous| {
+        if glyph_is_nonspacing_mark(glyph) {
+            return false;
+        }
+        let previous_start = glyph_progress(previous);
+        let previous_end = glyph_end(previous);
+        let glyph_start = glyph_progress(glyph);
+        let glyph_end = glyph_end(glyph);
+        let gap = if glyph_start >= previous_start {
+            glyph_start - previous_end
+        } else {
+            previous_start - glyph_end
+        };
+        gap > previous.size.max(glyph.size).max(1.0) * WORD_GAP
+    })
 }
 
 /// End position of one glyph along its line's baseline.
 fn glyph_end(glyph: &GlyphRecord) -> f64 {
     glyph_progress(glyph) + glyph.advance
+}
+
+/// Return whether a line contains strong RTL text and no LTR or numeric run.
+///
+/// Geometry alone cannot recover arbitrary mixed-direction paragraph layout.
+/// Restrict in-place restoration to pure RTL lines so Latin and number runs
+/// that a producer already positioned deliberately are never corrupted.
+fn glyphs_are_pure_rtl<'a>(glyphs: impl IntoIterator<Item = &'a GlyphRecord>) -> bool {
+    let mut saw_rtl = false;
+    for glyph in glyphs {
+        if glyph.bidi_flags & BIDI_DISALLOWED != 0 {
+            return false;
+        }
+        saw_rtl |= glyph.bidi_flags & BIDI_RTL_STRONG != 0;
+    }
+    saw_rtl
+}
+
+fn is_pure_rtl_line(line: &[GlyphRecord]) -> bool {
+    glyphs_are_pure_rtl(line)
+}
+
+fn glyph_is_nonspacing_mark(glyph: &GlyphRecord) -> bool {
+    glyph.bidi_flags & BIDI_NSM_ONLY != 0
+}
+
+const BIDI_RTL_STRONG: u8 = 1;
+const BIDI_DISALLOWED: u8 = 1 << 1;
+const BIDI_NSM_ONLY: u8 = 1 << 2;
+
+/// Summarize the bidi properties needed by extraction once at collection time.
+fn glyph_bidi_flags(text: &GlyphText) -> u8 {
+    match text {
+        GlyphText::Char(ch) => char_bidi_flags(*ch),
+        GlyphText::Heap(text) => {
+            let mut flags = 0;
+            let mut nsm_only = true;
+            for ch in text.chars() {
+                let char_flags = char_bidi_flags(ch);
+                flags |= char_flags & (BIDI_RTL_STRONG | BIDI_DISALLOWED);
+                nsm_only &= char_flags & BIDI_NSM_ONLY != 0;
+            }
+            if nsm_only {
+                flags |= BIDI_NSM_ONLY;
+            }
+            flags
+        }
+    }
+}
+
+fn char_bidi_flags(ch: char) -> u8 {
+    // ASCII dominates common PDF text and never contains a nonspacing mark.
+    // Letters and digits make a line ineligible for pure RTL restoration; the
+    // remaining ASCII classes are permitted neutrals.
+    if ch.is_ascii() {
+        return if ch.is_ascii_alphanumeric() {
+            BIDI_DISALLOWED
+        } else {
+            0
+        };
+    }
+    match bidi_class(ch) {
+        BidiClass::R | BidiClass::AL => BIDI_RTL_STRONG,
+        BidiClass::NSM => BIDI_NSM_ONLY,
+        BidiClass::ON
+        | BidiClass::WS
+        | BidiClass::B
+        | BidiClass::S
+        | BidiClass::BN
+        | BidiClass::CS
+        | BidiClass::ES
+        | BidiClass::ET => 0,
+        _ => BIDI_DISALLOWED,
+    }
+}
+
+/// Restore one pure RTL line from display order to logical Unicode order.
+///
+/// Reverse glyph records rather than scalar values so multi-character CMap
+/// mappings stay intact. A shaped base followed by separate nonspacing-mark
+/// records is reversed as one cluster without allocating an index vector.
+fn logicalize_pure_rtl_line(line: &mut [GlyphRecord]) {
+    if !is_pure_rtl_line(line) {
+        return;
+    }
+    line.reverse();
+    let mut index = 0;
+    while index < line.len() {
+        if !glyph_is_nonspacing_mark(&line[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < line.len() && glyph_is_nonspacing_mark(&line[index]) {
+            index += 1;
+        }
+        if index < line.len() {
+            line[start..=index].reverse();
+            index += 1;
+        }
+    }
+}
+
+/// Append one glyph slice in logical order without allocating an index vector.
+fn try_push_logical_glyphs(
+    output: &mut String,
+    glyphs: &[GlyphRecord],
+    label: &str,
+) -> Result<(), TextPageLimit> {
+    if !is_pure_rtl_line(glyphs) {
+        for glyph in glyphs {
+            try_push_glyph_text(output, &glyph.text, label)?;
+        }
+        return Ok(());
+    }
+
+    let mut end = glyphs.len();
+    while end > 0 {
+        let mut start = end - 1;
+        while start > 0 && glyph_is_nonspacing_mark(&glyphs[start]) {
+            start -= 1;
+        }
+        for glyph in &glyphs[start..end] {
+            try_push_glyph_text(output, &glyph.text, label)?;
+        }
+        end = start;
+    }
+    Ok(())
 }
 
 /// Calculate the exact plain-text size before allocating the returned string.
@@ -2332,9 +2486,9 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
         let mut trailing_spaces = 0usize;
         let mut ends_with_space = false;
         let mut ends_with_newline = line_index > 0;
-        let mut prev_end: Option<f64> = None;
+        let mut previous: Option<&GlyphRecord> = None;
         for glyph in line {
-            if needs_gap(prev_end, glyph) && !ends_with_space && !ends_with_newline {
+            if needs_gap(previous, glyph) && !ends_with_space && !ends_with_newline {
                 line_size = line_size.checked_add(1)?;
                 trailing_spaces = trailing_spaces.checked_add(1)?;
             }
@@ -2347,7 +2501,9 @@ fn assembled_text_size(lines: &[Vec<GlyphRecord>]) -> Option<usize> {
             }
             ends_with_space = glyph.text.ends_with(' ');
             ends_with_newline = glyph.text.ends_with('\n');
-            prev_end = Some(glyph_end(glyph));
+            if !glyph_is_nonspacing_mark(glyph) {
+                previous = Some(glyph);
+            }
         }
         line_size = line_size.checked_sub(trailing_spaces)?;
         total = total.checked_add(line_size)?.checked_add(1)?;
@@ -2367,13 +2523,15 @@ fn assemble_text(
         })?;
     }
     for line in lines {
-        let mut prev_end: Option<f64> = None;
+        let mut previous: Option<&GlyphRecord> = None;
         for glyph in line {
-            if needs_gap(prev_end, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
+            if needs_gap(previous, glyph) && !out.ends_with(' ') && !out.ends_with('\n') {
                 try_push_str_text(&mut out, " ", "plain text output")?;
             }
             try_push_glyph_text(&mut out, &glyph.text, "plain text output")?;
-            prev_end = Some(glyph_end(glyph));
+            if !glyph_is_nonspacing_mark(glyph) {
+                previous = Some(glyph);
+            }
         }
         // Drop extra whitespace glyphs at line ends.
         while out.ends_with(' ') {
@@ -2494,13 +2652,15 @@ fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
         if boundary {
             let glyphs = &line[start..i];
             let mut text = String::new();
-            let mut prev_end: Option<f64> = None;
+            let mut previous: Option<&GlyphRecord> = None;
             for glyph in glyphs {
-                if needs_gap(prev_end, glyph) && !text.ends_with(' ') {
+                if needs_gap(previous, glyph) && !text.ends_with(' ') {
                     try_push_str_text(&mut text, " ", "layout span text")?;
                 }
                 try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
-                prev_end = Some(glyph_end(glyph));
+                if !glyph_is_nonspacing_mark(glyph) {
+                    previous = Some(glyph);
+                }
             }
             let mut font_name = String::new();
             try_push_str_text(
@@ -2543,10 +2703,10 @@ fn split_words(line: &[GlyphRecord]) -> Result<Vec<WordTuple>, TextPageLimit> {
 fn split_word_slices(line: &[GlyphRecord]) -> Result<Vec<BorrowedWord<'_>>, TextPageLimit> {
     let mut words = Vec::new();
     let mut word_start = None;
-    let mut previous_end = None;
+    let mut previous = None;
     for (index, glyph) in line.iter().enumerate() {
         let is_space = glyph.text.chars().all(char::is_whitespace);
-        if (is_space || needs_gap(previous_end, glyph))
+        if (is_space || needs_gap(previous, glyph))
             && let Some(start) = word_start.take()
         {
             let glyphs = &line[start..index];
@@ -2559,7 +2719,9 @@ fn split_word_slices(line: &[GlyphRecord]) -> Result<Vec<BorrowedWord<'_>>, Text
         if !is_space && word_start.is_none() {
             word_start = Some(index);
         }
-        previous_end = Some(glyph_end(glyph));
+        if !glyph_is_nonspacing_mark(glyph) {
+            previous = Some(glyph);
+        }
     }
     if let Some(start) = word_start {
         let glyphs = &line[start..];
@@ -2976,26 +3138,48 @@ fn cell_text(
     let mut has_row = false;
     for line in lines {
         let mut has_word = false;
-        for &((word_x0, word_y0, word_x1, word_y1), glyphs) in line {
+        let inside_cell = |&&((word_x0, word_y0, word_x1, word_y1), _): &&BorrowedWord<'_>| {
             let center_x = (word_x0 + word_x1) * 0.5;
             let center_y = (word_y0 + word_y1) * 0.5;
-            if center_x < x0 - TABLE_SNAP_TOLERANCE
-                || center_x > x1 + TABLE_SNAP_TOLERANCE
-                || center_y < y0 - TABLE_SNAP_TOLERANCE
-                || center_y > y1 + TABLE_SNAP_TOLERANCE
-            {
-                continue;
+            center_x >= x0 - TABLE_SNAP_TOLERANCE
+                && center_x <= x1 + TABLE_SNAP_TOLERANCE
+                && center_y >= y0 - TABLE_SNAP_TOLERANCE
+                && center_y <= y1 + TABLE_SNAP_TOLERANCE
+        };
+        let pure_rtl = glyphs_are_pure_rtl(
+            line.iter()
+                .filter(inside_cell)
+                .flat_map(|(_, glyphs)| glyphs.iter()),
+        );
+        let mut append_word =
+            |&((word_x0, word_y0, word_x1, word_y1), glyphs): &BorrowedWord<'_>| {
+                let center_x = (word_x0 + word_x1) * 0.5;
+                let center_y = (word_y0 + word_y1) * 0.5;
+                if center_x < x0 - TABLE_SNAP_TOLERANCE
+                    || center_x > x1 + TABLE_SNAP_TOLERANCE
+                    || center_y < y0 - TABLE_SNAP_TOLERANCE
+                    || center_y > y1 + TABLE_SNAP_TOLERANCE
+                {
+                    return Ok(());
+                }
+                if !has_word && has_row {
+                    try_push_str_text(&mut text, "\n", "bordered table cell text")?;
+                } else if has_word {
+                    try_push_str_text(&mut text, " ", "bordered table cell text")?;
+                }
+                try_push_logical_glyphs(&mut text, glyphs, "bordered table cell text")?;
+                has_word = true;
+                has_row = true;
+                Ok::<(), TextPageLimit>(())
+            };
+        if pure_rtl {
+            for word in line.iter().rev() {
+                append_word(word)?;
             }
-            if !has_word && has_row {
-                try_push_str_text(&mut text, "\n", "bordered table cell text")?;
-            } else if has_word {
-                try_push_str_text(&mut text, " ", "bordered table cell text")?;
+        } else {
+            for word in line {
+                append_word(word)?;
             }
-            for glyph in glyphs {
-                try_push_glyph_text(&mut text, &glyph.text, "bordered table cell text")?;
-            }
-            has_word = true;
-            has_row = true;
         }
     }
     Ok(text)
@@ -3003,25 +3187,23 @@ fn cell_text(
 
 /// Return one cell's text from an already-separated line segment.
 fn text_segment_value(segment: &[GlyphRecord]) -> Result<String, TextPageLimit> {
+    let words = split_word_slices(segment)?;
     let mut text = String::new();
-    let mut previous_end: Option<f64> = None;
-    let mut in_word = false;
-    let mut pending_separator = false;
-    for glyph in segment {
-        let is_space = glyph.text.chars().all(char::is_whitespace);
-        if (is_space || needs_gap(previous_end, glyph)) && in_word {
-            in_word = false;
-            pending_separator = true;
+    let pure_rtl = is_pure_rtl_line(segment);
+    let mut append_word = |glyphs: &[GlyphRecord]| {
+        if !text.is_empty() {
+            try_push_str_text(&mut text, " ", "borderless table cell text")?;
         }
-        if !is_space {
-            if pending_separator && !text.is_empty() {
-                try_push_str_text(&mut text, " ", "borderless table cell text")?;
-            }
-            try_push_glyph_text(&mut text, &glyph.text, "borderless table cell text")?;
-            in_word = true;
-            pending_separator = false;
+        try_push_logical_glyphs(&mut text, glyphs, "borderless table cell text")
+    };
+    if pure_rtl {
+        for (_, glyphs) in words.iter().rev() {
+            append_word(glyphs)?;
         }
-        previous_end = Some(glyph_end(glyph));
+    } else {
+        for (_, glyphs) in &words {
+            append_word(glyphs)?;
+        }
     }
     Ok(text)
 }
@@ -3530,9 +3712,9 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPa
 fn line_search_index(line: &[GlyphRecord]) -> Result<(String, Vec<Option<usize>>), SearchError> {
     let mut haystack = String::new();
     let mut map = Vec::new();
-    let mut prev_end: Option<f64> = None;
+    let mut previous: Option<&GlyphRecord> = None;
     for (index, glyph) in line.iter().enumerate() {
-        if needs_gap(prev_end, glyph) && !haystack.ends_with(' ') {
+        if needs_gap(previous, glyph) && !haystack.ends_with(' ') {
             try_push_str_text(&mut haystack, " ", "search lowercase index")
                 .map_err(search_allocation_error)?;
             try_push_text(&mut map, None, "search glyph map").map_err(search_allocation_error)?;
@@ -3550,7 +3732,9 @@ fn line_search_index(line: &[GlyphRecord]) -> Result<(String, Vec<Option<usize>>
                     .map_err(search_allocation_error)?;
             }
         }
-        prev_end = Some(glyph_end(glyph));
+        if !glyph_is_nonspacing_mark(glyph) {
+            previous = Some(glyph);
+        }
     }
     Ok((haystack, map))
 }

@@ -87,8 +87,9 @@ Japanese/Han, or Noto Serif for a Times `fontname`. This is one whole-run font,
 not per-glyph fallback. Pass an explicit OpenType font for Hangul,
 locale-specific Chinese glyph forms, other scripts, or another typeface. Each
 line is shaped, but bidirectional paragraph layout and wrapping remain outside
-this primitive. RTL shaping renders correctly; extraction currently follows
-visual rather than logical order.
+this primitive. RTL shaping renders correctly. Pure RTL lines without Latin or
+numeric runs extract in logical Unicode order; mixed-direction paragraphs
+remain in producer visual order.
 
 `insert_textbox` adds wrapping without becoming a rich-text engine. It preserves
 explicit newlines, expands tabs, breaks CJK at Unicode opportunities, and uses

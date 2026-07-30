@@ -80,7 +80,8 @@ text、image或annotation，但仍会应用optional-content的可见性。结果
 `pylopdf[cjk]`时，日文／汉字会自动使用JP subset的Noto Sans，Times `fontname`则使用
 Noto Serif。这是整段只选一个font，并非逐glyph fallback。简体中文排版应显式传入
 Noto Sans SC等匹配本地字形的OpenType font；Hangul、其他script或其他书体同样如此。
-每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染，但提取目前遵循
+每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。不含拉丁文字或
+数字run的纯RTL行会按逻辑Unicode顺序提取；混合方向的paragraph仍保留producer的
 visual order。
 
 `insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，

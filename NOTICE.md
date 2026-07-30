@@ -22,7 +22,9 @@ APAFML. The required Adobe license text is distributed in
 
 pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
 `unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
-grapheme-safe emergency breaks.
+grapheme-safe emergency breaks. It uses `unicode-bidi` 0.3.18 (MIT OR
+Apache-2.0) to classify extracted pure RTL lines before restoring logical
+Unicode order.
 
 pylopdf uses zune-jpeg 0.5.15 to decode JPEG image XObjects. zune-jpeg is
 available under MIT OR Apache-2.0 OR Zlib:

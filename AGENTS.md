@@ -119,7 +119,15 @@ overview.
   materialization grow fallibly; allocation refusal returns `PdfError` without
   discarding or partially exposing the cached page interpretation. Structured
   word generation reuses borrowed glyph slices instead of building a temporary
-  reference vector for every word.
+  reference vector for every word. After geometry-driven line and column
+  discovery, lines containing strong RTL text but no Latin or numeric runs are
+  reversed in place into logical Unicode order. Multi-character CMap mappings
+  remain intact, separate nonspacing-mark glyphs stay with their base, and
+  symmetric inline-gap checks keep inferred spaces valid in either direction.
+  Cache the required bidi properties once per collected glyph rather than
+  repeating Unicode table lookups during each output materialization.
+  Search, spans, words, tables, and Markdown share that order. Mixed-direction
+  paragraph layout remains in producer visual order.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. Baseline bands
@@ -560,8 +568,10 @@ overview.
   Allocation refusal returns `PdfError`; insertion keeps its no-draw boundary
   and form filling uses its document rollback. `max_text_size=None` explicitly
   opts trusted insertion input out, failures use `text_input_size` or
-  `text_line_count`. Paragraph layout remains outside `insert_text`. RTL shapes
-  render, but extraction currently follows visual order.
+  `text_line_count`. Paragraph layout remains outside `insert_text`. Pure RTL
+  lines without Latin or numeric runs round-trip through extraction in logical
+  Unicode order; mixed-direction paragraph layout remains in producer visual
+  order.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.

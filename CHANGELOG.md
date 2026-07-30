@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([LaurenzV/hayro#1331](https://github.com/LaurenzV/hayro/issues/1331)).
 
 ### Fixed
+- Pure right-to-left lines without Latin or numeric runs are now restored from
+  visual glyph order to logical Unicode order across plain text, positioned
+  words and spans, search geometry, table cells, and Markdown. The conservative
+  boundary leaves mixed-direction lines in producer visual order rather than
+  guessing their paragraph layout; separate nonspacing-mark glyphs remain
+  attached to their base characters.
 - Wide-gutter column detection no longer splits spreadsheet-like rows into
   label, grid, and total blocks. A candidate gutter is rejected when the
   baseline bands it bisects fragment into more than four same-baseline cell
