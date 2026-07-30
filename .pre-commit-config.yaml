@@ -15,9 +15,9 @@ repos:
     rev: v6.0.0 # Use the ref you want to point at
     hooks:
       - id: check-added-large-files
-        # Versioned OCR data is intentionally packaged in a separate wheel;
-        # SHA256SUMS, CI verification, and release attestations cover it.
-        exclude: ^models/pylopdf-ocr-models/src/pylopdf_ocr_models/.*\.rten$
+        # Versioned OCR/font data is intentionally packaged in separate wheels;
+        # recorded hashes, CI verification, and release attestations cover it.
+        exclude: ^(models/pylopdf-ocr-models/src/pylopdf_ocr_models/.*\.rten|fonts/pylopdf-fonts-[^/]+/src/[^/]+/.*\.(otf|ttf))$
       - id: check-ast
       - id: check-builtin-literals
       - id: check-case-conflict

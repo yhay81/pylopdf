@@ -9,7 +9,14 @@ resolution-markers = [
 [manifest]
 members = [
     "pylopdf",
-    "pylopdf-fonts-cjk",
+    "pylopdf-fonts-ar",
+    "pylopdf-fonts-he",
+    "pylopdf-fonts-hi",
+    "pylopdf-fonts-jp",
+    "pylopdf-fonts-ko",
+    "pylopdf-fonts-th",
+    "pylopdf-fonts-zh-cn",
+    "pylopdf-fonts-zh-tw",
     "pylopdf-ocr-models",
 ]
 
@@ -1087,11 +1094,35 @@ version = "0.13.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
+ar = [
+    { name = "pylopdf-fonts-ar" },
+]
 cjk = [
-    { name = "pylopdf-fonts-cjk" },
+    { name = "pylopdf-fonts-jp" },
+]
+he = [
+    { name = "pylopdf-fonts-he" },
+]
+hi = [
+    { name = "pylopdf-fonts-hi" },
+]
+jp = [
+    { name = "pylopdf-fonts-jp" },
+]
+ko = [
+    { name = "pylopdf-fonts-ko" },
 ]
 ocr = [
     { name = "pylopdf-ocr-models" },
+]
+th = [
+    { name = "pylopdf-fonts-th" },
+]
+zh-cn = [
+    { name = "pylopdf-fonts-zh-cn" },
+]
+zh-tw = [
+    { name = "pylopdf-fonts-zh-tw" },
 ]
 
 [package.dev-dependencies]
@@ -1120,10 +1151,18 @@ interop = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pylopdf-fonts-cjk", marker = "extra == 'cjk'", editable = "fonts/pylopdf-fonts-cjk" },
+    { name = "pylopdf-fonts-ar", marker = "extra == 'ar'", editable = "fonts/pylopdf-fonts-ar" },
+    { name = "pylopdf-fonts-he", marker = "extra == 'he'", editable = "fonts/pylopdf-fonts-he" },
+    { name = "pylopdf-fonts-hi", marker = "extra == 'hi'", editable = "fonts/pylopdf-fonts-hi" },
+    { name = "pylopdf-fonts-jp", marker = "extra == 'cjk'", editable = "fonts/pylopdf-fonts-jp" },
+    { name = "pylopdf-fonts-jp", marker = "extra == 'jp'", editable = "fonts/pylopdf-fonts-jp" },
+    { name = "pylopdf-fonts-ko", marker = "extra == 'ko'", editable = "fonts/pylopdf-fonts-ko" },
+    { name = "pylopdf-fonts-th", marker = "extra == 'th'", editable = "fonts/pylopdf-fonts-th" },
+    { name = "pylopdf-fonts-zh-cn", marker = "extra == 'zh-cn'", editable = "fonts/pylopdf-fonts-zh-cn" },
+    { name = "pylopdf-fonts-zh-tw", marker = "extra == 'zh-tw'", editable = "fonts/pylopdf-fonts-zh-tw" },
     { name = "pylopdf-ocr-models", marker = "extra == 'ocr'", editable = "models/pylopdf-ocr-models" },
 ]
-provides-extras = ["cjk", "ocr"]
+provides-extras = ["ar", "he", "hi", "jp", "ko", "th", "zh-cn", "zh-tw", "cjk", "ocr"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -1146,9 +1185,44 @@ interop = [
 ]
 
 [[package]]
-name = "pylopdf-fonts-cjk"
+name = "pylopdf-fonts-ar"
 version = "0.1.0"
-source = { editable = "fonts/pylopdf-fonts-cjk" }
+source = { editable = "fonts/pylopdf-fonts-ar" }
+
+[[package]]
+name = "pylopdf-fonts-he"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-he" }
+
+[[package]]
+name = "pylopdf-fonts-hi"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-hi" }
+
+[[package]]
+name = "pylopdf-fonts-jp"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-jp" }
+
+[[package]]
+name = "pylopdf-fonts-ko"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-ko" }
+
+[[package]]
+name = "pylopdf-fonts-th"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-th" }
+
+[[package]]
+name = "pylopdf-fonts-zh-cn"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-zh-cn" }
+
+[[package]]
+name = "pylopdf-fonts-zh-tw"
+version = "0.1.0"
+source = { editable = "fonts/pylopdf-fonts-zh-tw" }
 
 [[package]]
 name = "pylopdf-ocr-models"

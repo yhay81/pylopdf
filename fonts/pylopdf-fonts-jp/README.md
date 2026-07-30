@@ -1,4 +1,4 @@
-# pylopdf-fonts-cjk
+# pylopdf-fonts-jp
 
 A data-only package containing Japanese fallback and generation fonts for
 [pylopdf](https://github.com/yhay81/pylopdf). It renders PDFs that reference
@@ -8,7 +8,7 @@ Japanese fonts without embedding the font programs and lets `insert_text` /
 Install it through the main package extra:
 
 ```bash
-pip install "pylopdf[cjk]"
+pip install "pylopdf[jp]"
 ```
 
 When installed, pylopdf discovers it automatically for non-embedded CID fonts,
@@ -22,9 +22,16 @@ one complete font run; it is not per-glyph fallback.
 
 ## Bundled fonts
 
-| File | Typeface | Source |
+| File | Typeface | Source SHA-256 |
 |---|---|---|
-| `NotoSansJP-Regular.otf` | Noto Sans JP | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk), `Sans/SubsetOTF/JP` |
-| `NotoSerifJP-Regular.otf` | Noto Serif JP | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk), `Serif/SubsetOTF/JP` |
+| `NotoSansJP-Regular.otf` | Noto Sans JP | `dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073` |
+| `NotoSerifJP-Regular.otf` | Noto Serif JP | `2c9a12dbd4f2408c4610c7ee84a108b62d7236c3775baed618c64d9cb44b2f04` |
 
-Both fonts are licensed under the SIL Open Font License 1.1. See `LICENSE`.
+The files come from
+[`notofonts/noto-cjk`](https://github.com/notofonts/noto-cjk), under
+`Sans/SubsetOTF/JP` and `Serif/SubsetOTF/JP`. Both are licensed under the
+SIL Open Font License 1.1. See `LICENSE`.
+
+The distribution replaces the legacy `pylopdf-fonts-cjk` name. pylopdf still
+detects that package when it is already installed, and the `pylopdf[cjk]`
+extra remains as a compatibility alias for `pylopdf[jp]`.

@@ -3823,23 +3823,142 @@ fn validate_decompression_limits(
     Ok(())
 }
 
-/// Fallback font used for non-embedded CJK fonts during rendering.
+/// One locale-specific fallback pair for non-embedded CJK fonts.
 #[derive(Default, Clone)]
-struct FallbackFonts {
+struct FallbackFontPair {
     /// Sans/gothic family and the default when style is unknown.
     sans: Option<(Arc<Vec<u8>>, u32)>,
     /// Mincho-style serif font.
     serif: Option<(Arc<Vec<u8>>, u32)>,
 }
 
-/// Lowercase BaseFont-name patterns indicating CJK.
-const CJK_NAME_HINTS: [&str; 12] = [
+impl FallbackFontPair {
+    fn pick(&self, prefers_serif: bool) -> Option<&(Arc<Vec<u8>>, u32)> {
+        if prefers_serif {
+            self.serif.as_ref().or(self.sans.as_ref())
+        } else {
+            self.sans.as_ref().or(self.serif.as_ref())
+        }
+    }
+
+    fn is_configured(&self) -> bool {
+        self.sans.is_some() || self.serif.is_some()
+    }
+}
+
+/// Locale slots aligned with the four predefined Adobe CJK collections.
+#[derive(Default, Clone)]
+struct FallbackFonts {
+    ja: FallbackFontPair,
+    ko: FallbackFontPair,
+    zh_cn: FallbackFontPair,
+    zh_tw: FallbackFontPair,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CjkFontLanguage {
+    Ja,
+    Ko,
+    ZhCn,
+    ZhTw,
+}
+
+impl CjkFontLanguage {
+    fn parse(language: &str) -> PyResult<Self> {
+        match language {
+            "ja" => Ok(Self::Ja),
+            "ko" => Ok(Self::Ko),
+            "zh-CN" => Ok(Self::ZhCn),
+            "zh-TW" => Ok(Self::ZhTw),
+            _ => Err(PdfError::new_err(format!(
+                "font language must be 'ja', 'ko', 'zh-CN', or 'zh-TW': {language:?}"
+            ))),
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Ja => 0,
+            Self::Ko => 1,
+            Self::ZhCn => 2,
+            Self::ZhTw => 3,
+        }
+    }
+}
+
+impl FallbackFonts {
+    fn pair(&self, language: CjkFontLanguage) -> &FallbackFontPair {
+        match language {
+            CjkFontLanguage::Ja => &self.ja,
+            CjkFontLanguage::Ko => &self.ko,
+            CjkFontLanguage::ZhCn => &self.zh_cn,
+            CjkFontLanguage::ZhTw => &self.zh_tw,
+        }
+    }
+
+    fn pair_mut(&mut self, language: CjkFontLanguage) -> &mut FallbackFontPair {
+        match language {
+            CjkFontLanguage::Ja => &mut self.ja,
+            CjkFontLanguage::Ko => &mut self.ko,
+            CjkFontLanguage::ZhCn => &mut self.zh_cn,
+            CjkFontLanguage::ZhTw => &mut self.zh_tw,
+        }
+    }
+
+    fn is_configured(&self) -> bool {
+        self.ja.is_configured()
+            || self.ko.is_configured()
+            || self.zh_cn.is_configured()
+            || self.zh_tw.is_configured()
+    }
+}
+
+/// Lowercase BaseFont-name patterns indicating Japanese fonts.
+const JP_NAME_HINTS: [&str; 12] = [
     "mincho", "gothic", "ryumin", "kozmin", "kozgo", "kozuka", "meiryo", "yugoth", "yumin",
     "hiragino", "ipaex", "ipam",
 ];
 
+/// Lowercase BaseFont-name patterns indicating Korean fonts.
+const KO_NAME_HINTS: [&str; 7] = [
+    "batang",
+    "gulim",
+    "dotum",
+    "malgun",
+    "nanum",
+    "hygothic",
+    "hysmyeongjo",
+];
+
+/// Lowercase BaseFont-name patterns indicating Simplified Chinese fonts.
+const ZH_CN_NAME_HINTS: [&str; 8] = [
+    "simsun", "simhei", "fangsong", "kaiti", "yahei", "songti", "heiti", "cjk-sc",
+];
+
+/// Lowercase BaseFont-name patterns indicating Traditional Chinese fonts.
+const ZH_TW_NAME_HINTS: [&str; 6] = [
+    "mingliu", "pmingliu", "jhenghei", "dfkai", "cjk-tc", "cjk-hk",
+];
+
 /// Lowercase BaseFont-name patterns indicating a serif/mincho family.
-const SERIF_NAME_HINTS: [&str; 5] = ["mincho", "ryumin", "kozmin", "yumin", "serif"];
+const SERIF_NAME_HINTS: [&str; 12] = [
+    "mincho", "ryumin", "kozmin", "yumin", "serif", "batang", "myeongjo", "simsun", "song", "ming",
+    "kaiti", "kai",
+];
+
+fn hinted_cjk_language(name: &str) -> Option<CjkFontLanguage> {
+    if JP_NAME_HINTS.iter().any(|hint| name.contains(hint)) {
+        Some(CjkFontLanguage::Ja)
+    } else if KO_NAME_HINTS.iter().any(|hint| name.contains(hint)) {
+        Some(CjkFontLanguage::Ko)
+    } else if ZH_CN_NAME_HINTS.iter().any(|hint| name.contains(hint)) {
+        Some(CjkFontLanguage::ZhCn)
+    } else if ZH_TW_NAME_HINTS.iter().any(|hint| name.contains(hint)) {
+        Some(CjkFontLanguage::ZhTw)
+    } else {
+        None
+    }
+}
 
 /// Return a configured fallback when a non-embedded font request is CJK.
 ///
@@ -3847,30 +3966,20 @@ const SERIF_NAME_HINTS: [&str; 5] = ["mincho", "ryumin", "kozmin", "yumin", "ser
 /// Adobe-Identity lacks CID-to-Unicode clues in its CMap, so use the name;
 /// hayro resolves an embedded ToUnicode map when present.
 fn pick_cjk_fallback(fonts: &FallbackFonts, query: &FallbackFontQuery) -> Option<(FontData, u32)> {
-    let is_cjk_collection = matches!(
-        query.character_collection.as_ref().map(|cc| &cc.family),
-        Some(
-            CidFamily::AdobeJapan1
-                | CidFamily::AdobeGB1
-                | CidFamily::AdobeCNS1
-                | CidFamily::AdobeKorea1
-        )
-    );
     let name = query
         .post_script_name
         .as_deref()
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let is_cjk_name = CJK_NAME_HINTS.iter().any(|hint| name.contains(hint));
-    if !is_cjk_collection && !is_cjk_name {
-        return None;
-    }
+    let language = match query.character_collection.as_ref().map(|cc| &cc.family) {
+        Some(CidFamily::AdobeJapan1) => Some(CjkFontLanguage::Ja),
+        Some(CidFamily::AdobeGB1) => Some(CjkFontLanguage::ZhCn),
+        Some(CidFamily::AdobeCNS1) => Some(CjkFontLanguage::ZhTw),
+        Some(CidFamily::AdobeKorea1) => Some(CjkFontLanguage::Ko),
+        _ => hinted_cjk_language(&name),
+    }?;
     let prefers_serif = SERIF_NAME_HINTS.iter().any(|hint| name.contains(hint));
-    let slot = if prefers_serif {
-        fonts.serif.as_ref().or(fonts.sans.as_ref())
-    } else {
-        fonts.sans.as_ref().or(fonts.serif.as_ref())
-    };
+    let slot = fonts.pair(language).pick(prefers_serif);
     slot.map(|(data, index)| (Arc::clone(data) as FontData, *index))
 }
 
@@ -5963,7 +6072,7 @@ impl _Document {
     /// Build InterpreterSettings with fallbacks and the warning sink.
     fn interpreter_settings(&self) -> InterpreterSettings {
         let mut settings = InterpreterSettings::default();
-        if self.fallback_fonts.sans.is_some() || self.fallback_fonts.serif.is_some() {
+        if self.fallback_fonts.is_configured() {
             let fonts = self.fallback_fonts.clone();
             let default_resolver = settings.font_resolver.clone();
             settings.font_resolver = Arc::new(move |query| {
@@ -7044,7 +7153,8 @@ impl _Document {
         kind,
         data,
         index,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        language="ja"
     ))]
     fn set_fallback_font(
         &mut self,
@@ -7052,11 +7162,15 @@ impl _Document {
         data: Vec<u8>,
         index: u32,
         max_font_size: Option<usize>,
+        language: &str,
     ) -> PyResult<()> {
         validate_font_input(Some(&data), max_font_size)?;
+        let pair = self
+            .fallback_fonts
+            .pair_mut(CjkFontLanguage::parse(language)?);
         let slot = match kind {
-            "sans" => &mut self.fallback_fonts.sans,
-            "serif" => &mut self.fallback_fonts.serif,
+            "sans" => &mut pair.sans,
+            "serif" => &mut pair.serif,
             _ => {
                 return Err(PdfError::new_err(format!(
                     "kind must be 'sans' or 'serif': {kind:?}"
@@ -7073,7 +7187,8 @@ impl _Document {
         kind,
         path,
         index,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        language="ja"
     ))]
     fn set_fallback_font_file(
         &mut self,
@@ -7082,17 +7197,20 @@ impl _Document {
         path: &str,
         index: u32,
         max_font_size: Option<usize>,
+        language: &str,
     ) -> PyResult<()> {
         validate_font_input(None, max_font_size)?;
+        CjkFontLanguage::parse(language)?;
         let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.set_fallback_font(kind, data, index, max_font_size)
+        self.set_fallback_font(kind, data, index, max_font_size, language)
     }
 
     /// Atomically read and configure both bundled CJK fallback font paths.
     #[pyo3(signature = (
         sans_path,
         serif_path,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        language="ja"
     ))]
     fn set_fallback_font_files(
         &mut self,
@@ -7100,15 +7218,80 @@ impl _Document {
         sans_path: &str,
         serif_path: &str,
         max_font_size: Option<usize>,
+        language: &str,
     ) -> PyResult<()> {
         validate_font_input(None, max_font_size)?;
+        let language = CjkFontLanguage::parse(language)?;
         let (sans, serif) = py.detach(|| {
             let sans = read_font_input(sans_path, max_font_size)?;
             let serif = read_font_input(serif_path, max_font_size)?;
             Ok::<_, PyErr>((sans, serif))
         })?;
-        self.fallback_fonts.sans = Some((Arc::new(sans), 0));
-        self.fallback_fonts.serif = Some((Arc::new(serif), 0));
+        let pair = self.fallback_fonts.pair_mut(language);
+        pair.sans = Some((Arc::new(sans), 0));
+        pair.serif = Some((Arc::new(serif), 0));
+        self.invalidate_interpreted_pages();
+        Ok(())
+    }
+
+    /// Atomically read and configure every discovered locale font pair.
+    #[pyo3(signature = (
+        files,
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+    ))]
+    fn set_fallback_font_locale_files(
+        &mut self,
+        py: Python<'_>,
+        files: Vec<(String, String, String)>,
+        max_font_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_font_input(None, max_font_size)?;
+        if files.len() > 4 {
+            return Err(PdfError::new_err(
+                "cannot configure more than four CJK locale font pairs",
+            ));
+        }
+        let mut seen = [false; 4];
+        let mut requests = Vec::new();
+        requests.try_reserve_exact(files.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate CJK locale font requests: {error}"
+            ))
+        })?;
+        for (language, sans_path, serif_path) in files {
+            let language = CjkFontLanguage::parse(&language)?;
+            if seen[language.index()] {
+                return Err(PdfError::new_err(
+                    "each CJK font language can be configured only once",
+                ));
+            }
+            seen[language.index()] = true;
+            requests.push((language, sans_path, serif_path));
+        }
+        if requests.is_empty() {
+            return Ok(());
+        }
+        let loaded = py.detach(|| {
+            let mut loaded = Vec::new();
+            loaded.try_reserve_exact(requests.len()).map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate loaded CJK locale fonts: {error}"
+                ))
+            })?;
+            for (language, sans_path, serif_path) in requests {
+                let sans = read_font_input(&sans_path, max_font_size)?;
+                let serif = read_font_input(&serif_path, max_font_size)?;
+                loaded.push((language, sans, serif));
+            }
+            Ok::<_, PyErr>(loaded)
+        })?;
+        let mut fallback_fonts = self.fallback_fonts.clone();
+        for (language, sans, serif) in loaded {
+            let pair = fallback_fonts.pair_mut(language);
+            pair.sans = Some((Arc::new(sans), 0));
+            pair.serif = Some((Arc::new(serif), 0));
+        }
+        self.fallback_fonts = fallback_fonts;
         self.invalidate_interpreted_pages();
         Ok(())
     }

@@ -40,13 +40,13 @@ Converting or validating *existing* PDFs is a different problem —
 
 ## Typeset CJK watermarks & headers — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf can draw Japanese/Han directly with `insert_text()` after installing
-`pylopdf[cjk]`; pass `fontfile=` for Hangul or locale-specific Chinese
-typography. When a stamp needs richer, full-page typesetting, use typst (fonts
-get subset-embedded) and burn it onto every page as vectors:
+pylopdf can draw Japanese directly with `insert_text()` after installing
+`pylopdf[jp]`; corresponding `[ko]`, `[zh-cn]`, and `[zh-tw]` extras preserve
+regional CJK glyph forms. When a stamp needs richer, full-page typesetting, use
+typst (fonts get subset-embedded) and burn it onto every page as vectors:
 
 ```python
-from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]
+from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
 
 stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)

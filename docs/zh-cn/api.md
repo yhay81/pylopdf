@@ -29,11 +29,11 @@ password input上限为127个UTF-8 byte。
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 有上限的PNG、带4,096页及累计encoded output上限的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
-| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 未嵌入字体时的有界CJK后备font；可信font input可用`None`取消上限 |
+| `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete/insert batch上限为4,096个entry |
 | `get_toc()` / `set_toc(toc)` | 可处理cycle且有上限的书签（页码从1开始；4,096个entry/node、8,192条edge、64层、1 MiB文本） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
@@ -63,8 +63,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`pylopdf[cjk]`自动选择JP font；对应可信input可用`None`取消上限 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType或自动JP font宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
@@ -77,9 +77,11 @@ text、image或annotation，但仍会应用optional-content的可见性。结果
 或131,072 commands时会拒绝，而不是静默截断。
 
 使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。未传入source且安装
-`pylopdf[cjk]`时，日文／汉字会自动使用JP subset的Noto Sans，Times `fontname`则使用
-Noto Serif。这是整段只选一个font，并非逐glyph fallback。简体中文排版应显式传入
-Noto Sans SC等匹配本地字形的OpenType font；Hangul、其他script或其他书体同样如此。
+`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`和
+`[zh-tw]`提供Noto Sans／Serif生成font。Kana、Hangul、Bopomofo、Arabic、
+Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容旧行为仍优先JP；
+地区字形很重要时请指定`font_language="zh-CN"`、`"zh-TW"`、`"ko"`或`"ja"`。
+整段只选择一个font，并非逐glyph fallback。
 每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。不含拉丁文字或
 数字run的纯RTL行会按逻辑Unicode顺序提取；混合方向的paragraph仍保留producer的
 visual order。
@@ -91,8 +93,8 @@ visual order。
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
-安装`pylopdf[cjk]`后，非WinAnsi值会尝试JP subset sans；中文本地字形或Hangul应传入
-匹配font。已有且非空的按钮外观
+已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
+`font_language`指定。已有且非空的按钮外观
 会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
 所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的
 `MaxLen`与对齐方式，将每个Unicode grapheme置于相应位置中央，并在不修改文档的

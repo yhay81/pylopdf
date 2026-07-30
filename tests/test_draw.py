@@ -16,9 +16,11 @@ from conftest import build_pdf, build_raw_pdf
 import pylopdf
 
 ASSETS = Path(__file__).parent / "assets" / "real_world"
-NOTO_SANS_JP = (
-    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk" / "NotoSansJP-Regular.otf"
-)
+FONT_ROOT = Path(__file__).parents[1] / "fonts"
+NOTO_SANS_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
+NOTO_SANS_KO = FONT_ROOT / "pylopdf-fonts-ko" / "src" / "pylopdf_fonts_ko" / "NotoSansKR-Regular.otf"
+NOTO_SANS_ZH_CN = FONT_ROOT / "pylopdf-fonts-zh-cn" / "src" / "pylopdf_fonts_zh_cn" / "NotoSansSC-Regular.otf"
+NOTO_SANS_ZH_TW = FONT_ROOT / "pylopdf-fonts-zh-tw" / "src" / "pylopdf_fonts_zh_tw" / "NotoSansTC-Regular.otf"
 
 RED = (255, 0, 0)
 GREEN = (0, 128, 0)
@@ -930,8 +932,8 @@ def test_insert_text_subset_embeds_unicode_font() -> None:
     assert reopened[0].search_for("テキスト")
 
 
-def test_insert_text_auto_embeds_optional_cjk_font() -> None:
-    pytest.importorskip("pylopdf_fonts_cjk")
+def test_insert_text_auto_embeds_optional_jp_font() -> None:
+    pytest.importorskip("pylopdf_fonts_jp")
     doc = _new_page_doc(300, 150)
     page = doc[0]
 
@@ -943,6 +945,79 @@ def test_insert_text_auto_embeds_optional_cjk_font() -> None:
     assert spans[0]["font"].startswith("NotoSansJP")
     assert spans[1]["font"].startswith("NotoSerifJP")
     assert len(doc.tobytes()) < 100_000
+
+
+@pytest.mark.parametrize(
+    ("font_language", "text", "font_prefix"),
+    [
+        ("ar", "مرحبا بالعالم", "NotoSansArabic"),
+        ("he", "שלום עולם", "NotoSansHebrew"),
+        ("hi", "नमस्ते", "NotoSansDevanagari"),
+        ("ja", "日本語", "NotoSansJP"),
+        ("ko", "한국어", "NotoSansKR"),
+        ("th", "ภาษาไทย", "NotoSansThai"),
+        ("zh-CN", "简体中文", "NotoSansSC"),
+        ("zh-TW", "繁體中文", "NotoSansTC"),
+    ],
+)
+def test_insert_text_optional_font_conformance(
+    font_language: pylopdf.FontLanguage,
+    text: str,
+    font_prefix: str,
+) -> None:
+    """Generate, subset, save, reopen, extract, and search each bundled script."""
+    doc = _new_page_doc(300, 150)
+    doc[0].insert_text((20, 60), text, fontsize=24, font_language=font_language)
+
+    saved = doc.tobytes()
+    assert len(saved) < 100_000
+    reopened = pylopdf.open(stream=saved)
+    assert reopened[0].get_text().strip() == text
+    assert reopened[0].search_for(text)
+    span = reopened[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
+    assert span["font"].startswith(font_prefix)
+
+
+@pytest.mark.parametrize(
+    ("text", "font_prefix"),
+    [
+        ("مرحبا", "NotoSansArabic"),
+        ("שלום", "NotoSansHebrew"),
+        ("नमस्ते", "NotoSansDevanagari"),
+        ("日本語", "NotoSansJP"),
+        ("한국어", "NotoSansKR"),
+        ("ภาษาไทย", "NotoSansThai"),
+    ],
+)
+def test_insert_text_detects_unambiguous_script_provider(text: str, font_prefix: str) -> None:
+    doc = _new_page_doc(300, 150)
+    doc[0].insert_text((20, 60), text, fontsize=24)
+
+    span = doc[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
+    assert span["font"].startswith(font_prefix)
+
+
+def test_insert_text_disambiguates_han_provider() -> None:
+    pytest.importorskip("pylopdf_fonts_ko")
+    pytest.importorskip("pylopdf_fonts_zh_cn")
+    doc = _new_page_doc(300, 180)
+
+    doc[0].insert_text((20, 50), "한국어", fontsize=20)
+    doc[0].insert_text((20, 100), "简体中文", fontsize=20, font_language="zh-CN")
+
+    spans = [span for block in doc[0].get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    assert spans[0]["font"].startswith("NotoSansKR")
+    assert spans[1]["font"].startswith("NotoSansSC")
+
+
+def test_insert_text_validates_font_language_contract() -> None:
+    page = _new_page_doc()[0]
+    with pytest.raises(ValueError, match="font_language"):
+        page.insert_text((20, 40), "text", font_language="fr")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="cannot be combined"):
+        page.insert_text((20, 40), "日本語", fontfile=NOTO_SANS_JP, font_language="ja")
+    with pytest.raises(ValueError, match="multiple bundled font locales"):
+        page.insert_text((20, 40), "かな한국어")
 
 
 def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
@@ -1054,8 +1129,8 @@ def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None
     assert page.get_text() == ""
 
 
-def test_insert_textbox_auto_embeds_optional_cjk_font_and_survives_rotation() -> None:
-    pytest.importorskip("pylopdf_fonts_cjk")
+def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> None:
+    pytest.importorskip("pylopdf_fonts_jp")
     doc = pylopdf.Document()
     doc.new_page(width=120, height=200)
     page = doc[0]
@@ -1093,8 +1168,8 @@ def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytes
     with pytest.raises(ValueError, match="lineheight"):
         page.insert_textbox((10, 10, 100, 80), "x", lineheight=0)
     with monkeypatch.context() as context:
-        context.setattr("pylopdf._bundled_cjk_fonts", lambda: ())
-        with pytest.raises(ValueError, match=r"pylopdf\[cjk\].*fontfile or fontbuffer"):
+        context.setattr("pylopdf._bundled_font_providers", lambda: ())
+        with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
             page.insert_textbox((10, 10, 100, 80), "日本語")
     with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
         page.insert_textbox((10, 10, 100, 80), "🦀", fontfile=NOTO_SANS_JP)
@@ -1160,15 +1235,15 @@ def test_insert_text_page_numbering_recipe() -> None:
         assert f"Page {i + 1} / 3" in doc[i].get_text()
 
 
-def test_insert_text_rejects_cjk_without_optional_or_explicit_font(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insert_text_rejects_unicode_without_optional_or_explicit_font(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = pylopdf.Document()
     doc.new_page()
     with monkeypatch.context() as context:
-        context.setattr("pylopdf._bundled_cjk_fonts", lambda: ())
-        with pytest.raises(ValueError, match=r"pylopdf\[cjk\].*fontfile or fontbuffer"):
+        context.setattr("pylopdf._bundled_font_providers", lambda: ())
+        with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
             doc[0].insert_text((50, 50), "社外秘")
-    with pytest.raises(ValueError, match="fontfile or fontbuffer"):
-        doc[0].insert_text((50, 50), "기밀")
+        with pytest.raises(ValueError, match=r"font_language='ko'.*fontfile/fontbuffer"):
+            doc[0].insert_text((50, 50), "기밀")
 
 
 def test_insert_text_rejects_unknown_font_and_bad_args() -> None:
@@ -1229,7 +1304,7 @@ def test_insert_text_reads_fontfile_through_bounded_core_path() -> None:
 
 
 def test_insert_text_bounds_auto_selected_cjk_font() -> None:
-    pytest.importorskip("pylopdf_fonts_cjk")
+    pytest.importorskip("pylopdf_fonts_jp")
     doc = _new_page_doc()
     before = doc.complexity
 

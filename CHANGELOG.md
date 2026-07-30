@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Locale/script font providers replace the former Japanese-only CJK product
+  boundary. `[jp]`, `[ko]`, `[zh-cn]`, and `[zh-tw]` provide matching Noto
+  Sans/Serif fonts for non-embedded Adobe CJK fallback and subset-embedded text
+  generation; `[ar]`, `[he]`, `[hi]`, and `[th]` add generation providers for
+  Arabic, Hebrew, Devanagari, and Thai. `font_language=` selects an explicit
+  provider for `insert_text`, `insert_textbox`, and `set_form_field`, and
+  selects the CJK collection slot for `set_fallback_font`. `[cjk]` remains a
+  compatibility alias for `[jp]`, and the legacy `pylopdf-fonts-cjk`
+  distribution remains detectable.
 - `Document.get_text(pages=None)` extracts plain text from up to 4,096 pages
   in one batched call. `pages` follows the `render_pages` convention:
   zero-based numbers in the given order, `None` for every page, negative
@@ -20,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([LaurenzV/hayro#1331](https://github.com/LaurenzV/hayro/issues/1331)).
 
 ### Fixed
+- Non-embedded Adobe Korea1, GB1, and CNS1 fonts no longer render through the
+  Japanese fallback merely because it is installed. Each collection now uses
+  its matching locale slot, with conservative font-name hints when collection
+  metadata is absent.
+- Thai, Lao, Khmer, and Myanmar extraction no longer inserts geometry-derived
+  spaces inside no-space-script runs, and Markdown joins wrapped physical lines
+  for those scripts without adding Latin-style spaces.
 - The documentation footer now retains readable foreground contrast in both
   color schemes. Text selection uses a theme-aware blue highlight with an
   explicit contrasting foreground, including selected links. Inline code now

@@ -11,13 +11,19 @@ description: pylopdf를 설치하고 편집, 렌더링, 추출, 그리기의 핵
 pip install pylopdf
 ```
 
-선택형 font package에는 일본어 PDF 렌더링과 일본어／한자 `insert_text` 자동 subset용
-Noto Sans/Serif JP가 들어 있습니다. Hangul에는 Noto Sans KR 같은 font를 명시해야
-합니다.
+필요한 언어 또는 지역 font만 설치할 수 있습니다.
 
 ```bash
-pip install pylopdf[cjk]
+pip install "pylopdf[jp]"     # 일본어 fallback과 생성
+pip install "pylopdf[ko]"     # 한국어
+pip install "pylopdf[zh-cn]"  # 중국어 간체
+pip install "pylopdf[zh-tw]"  # 중국어 번체
+pip install "pylopdf[ar]"     # 아랍어 생성(he, hi, th도 제공)
 ```
+
+네 CJK 지역 extra는 임베드되지 않은 Adobe CJK font의 렌더링 fallback과 subset
+내장 생성을 모두 지원합니다. `ar`, `he`, `hi`, `th`는 생성 provider입니다.
+이전 일본어 전용 `pylopdf[cjk]`는 `pylopdf[jp]` 호환 alias로 남습니다.
 
 release CI는 architecture가 일치하는 runner에 모든 native platform wheel을 설치하고
 PDF 생성, 저장, 다시 열기, extraction, rendering 및 immutable Pixmap storage를

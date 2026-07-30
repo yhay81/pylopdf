@@ -37,17 +37,16 @@ pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 
 ## 排版复杂CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf可用`insert_text(fontfile=...)`直接绘制本地化中文；`pylopdf[cjk]`的自动
-选择使用JP字形，适合日文／汉字但不替代SC font。如水印需要更复杂的整页排版，可用
-typst排版（字体会以子集嵌入），再以矢量形式
-写入每一页：
+pylopdf安装`pylopdf[zh-cn]`后，可用`insert_text()`直接绘制本地化简体中文；
+`[zh-tw]`、`[jp]`、`[ko]`分别提供其他CJK地区字形。如水印需要更复杂的整页排版，
+可用typst排版（字体会以子集嵌入），再以矢量形式写入每一页：
 
 ```python
-from pylopdf_fonts_cjk import sans_path  # pip install pylopdf[cjk]
+from pylopdf_fonts_zh_cn import sans_path  # pip install pylopdf[zh-cn]
 
 stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
-#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#set text(font: "Noto Sans SC", size: 48pt, fill: rgb(255, 0, 0, 40%))
 #align(center + horizon)[机密]
 """
 stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))

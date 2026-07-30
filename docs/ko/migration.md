@@ -39,8 +39,8 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 동일 | JPEG 패스스루, PNG 알파, RGBA `Pixmap` 직접 재사용과 시계 방향 직각 회전; 그 밖의 인코딩 형식은 Pillow로 변환 |
 | `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요 |
-| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` | source가 없으면 Standard-14 / WinAnsi 또는 `pylopdf[cjk]`의 일본어／한자 JP subset 자동 선택. Hangul 등은 font 명시 |
-| `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` 지원 | 같은 선택형 JP font와 UAX #14 CJK 줄바꿈, 음수 반환 시 그리지 않음 |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | source가 없으면 Standard-14 / WinAnsi 또는 설치된script／locale provider. 다른 source는 shaping 후 subset 내장 |
+| `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 음수 반환 시 그리지 않음 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
@@ -84,8 +84,8 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   추가하거나 `None`으로 표 변환을 끌 수 있습니다.
 - **폼 입력**은 값과 네이티브 appearance를 기록해 pylopdf와 외부 뷰어 모두에서
   렌더링됩니다. WinAnsi는 Helvetica로 자동 축소하며 Unicode는 OpenType 글꼴을
-  지정하거나 `pylopdf[cjk]`의 JP subset을 시도합니다. Hangul에는 Noto Sans KR 같은
-  font를 명시합니다. comb 텍스트 필드는 상속된 `MaxLen`과
+  지정하거나 대응하는script／locale font extra를 설치합니다. 지역별 한자는
+  `font_language=`로 지정합니다. comb 텍스트 필드는 상속된 `MaxLen`과
   정렬을 따릅니다. rich text, pushbutton, 서명은 API 범위 밖입니다.
 - **CJK 세로쓰기**는 보수적으로 감지해 열 안에서는 위에서 아래로,
   열 사이는 오른쪽에서 왼쪽으로 읽습니다. 루비, 행간 주석, 혼합 방향 조판은

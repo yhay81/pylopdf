@@ -29,11 +29,11 @@ password inputはUTF-8 127 byteが上限です。
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。最大4,096 page・累積UTF-8出力上限（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 上限付きPNG、4,096 page・累積encoded output上限付き順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
-| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | 非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
+| `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1を区別する非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/delete/insert batchは4,096 entry上限 |
 | `get_toc()` / `set_toc(toc)` | cycle対応・上限付きのしおり（1始まり。4,096 entry/node、8,192 edge、深さ64、text 1 MiB） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
@@ -65,8 +65,8 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`pylopdf[cjk]`はJP fontを自動選択。信頼できる各inputは`None`で解除 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、または自動JP fontの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
@@ -79,13 +79,21 @@ text、image、annotationは返しませんが、optional-contentの表示状態
 8,192 pathsまたは131,072 commandsを超える結果は切り詰めず拒否します。
 
 埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。
-sourceを省略し`pylopdf[cjk]`が入っていれば、日本語・漢字にはJP subsetのNoto Sans、
-Times系`fontname`にはNoto Serifを自動選択します。これはrun全体で1 fontを選ぶ動作で、
-glyphごとのfallbackではありません。Hangul、中国語地域に合う字形、他script、別書体は
-OpenType fontを明示します。各行の字形処理は行いますが、双方向paragraph layoutと
-折り返しは行いません。RTLの字形処理結果は正しく描画されます。Latin文字や数字の
-runを含まない純RTL行は論理Unicode順で抽出されますが、混在方向のparagraphは
+`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`、
+`[zh-tw]`はNoto Sans／Serif生成fontを提供します。Kana、Hangul、Bopomofo、
+Arabic、Hebrew、Devanagari、Thaiは導入済みproviderを自動選択します。漢字だけの
+inputは互換性のためJP優先で、地域字形が重要なら`font_language="zh-CN"`、
+`"zh-TW"`、`"ko"`、`"ja"`を指定します。これはrun全体で1 fontを選ぶ動作で、
+glyphごとのfallbackではありません。各行の字形処理は行いますが、双方向paragraph
+layoutと折り返しは行いません。RTLの字形処理結果は正しく描画されます。Latin文字や
+数字のrunを含まない純RTL行は論理Unicode順で抽出されますが、混在方向のparagraphは
 producerの視覚順を維持します。
+
+複雑な字形処理では、論理textとglyphが1対1に対応しない箇所をPDFの
+`/ActualText`で保持することがあります。生成PDFは外部viewer向けにこれを保持しますが、
+現行pylopdf extractorはまだ`/ActualText`を読みません。そのため、特に長い
+Devanagari runなど、並べ替えやcontext依存のclusterは再open後の抽出が近似になる
+場合があります。
 
 `insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode
 改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には
@@ -96,8 +104,8 @@ resourceは追加されません。
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
 `fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。
-`pylopdf[cjk]`の導入時は、WinAnsi外の値にJP subsetのsans fontを試します。Hangulや
-中国語地域に合う字形には対応fontを明示します。既存の
+導入済みscript／locale providerは`insert_text`と同じ規則で選ばれ、曖昧な漢字は
+`font_language`で指定します。既存の
 空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
 フィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ
 `NeedAppearances`を解除します。combテキスト欄は継承された`MaxLen`と整列を尊重し、

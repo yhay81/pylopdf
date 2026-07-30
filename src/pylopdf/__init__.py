@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import enum
 import functools
+import importlib
 import math
 import os
 import secrets
@@ -42,6 +43,7 @@ __all__ = [
     "TEXT_ALIGN_RIGHT",
     "AnnotationInfo",
     "BlockEntry",
+    "CjkFontLanguage",
     "Document",
     "DocumentClosedError",
     "DocumentComplexity",
@@ -50,6 +52,7 @@ __all__ = [
     "DrawingInfo",
     "DrawingItem",
     "EncryptedDocumentError",
+    "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
     "ImageCompressionResult",
@@ -391,6 +394,10 @@ WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
 BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
+#: Script or locale used to select an optional bundled generation font.
+FontLanguage: TypeAlias = Literal["ar", "he", "hi", "ja", "ko", "th", "zh-CN", "zh-TW"]
+#: Locale slot used for non-embedded Adobe CJK font fallback.
+CjkFontLanguage: TypeAlias = Literal["ja", "ko", "zh-CN", "zh-TW"]
 #: One vector command: a line or a cubic Bézier in display coordinates.
 DrawingItem: TypeAlias = tuple[Literal["l"], Point, Point] | tuple[Literal["c"], Point, Point, Point, Point]
 
@@ -1032,17 +1039,51 @@ def _bounded_markdown_page_output(
 _DEFAULT_MEDIABOX = (0.0, 0.0, 210.0 * 72.0 / 25.4, 297.0 * 72.0 / 25.4)
 
 
-@functools.cache
-def _bundled_cjk_fonts() -> tuple[tuple[str, Path | bytes], ...]:
-    """Locate bundled JP-subset fonts when ``pylopdf[cjk]`` is installed."""
+@dataclass(frozen=True)
+class _BundledFontProvider:
+    """One installed locale-specific font package."""
+
+    language: FontLanguage
+    extra: str
+    sans: Path | bytes
+    serif: Path | bytes
+
+
+_FONT_PROVIDER_SPECS: tuple[tuple[FontLanguage, str, str], ...] = (
+    ("ar", "ar", "pylopdf_fonts_ar"),
+    ("he", "he", "pylopdf_fonts_he"),
+    ("hi", "hi", "pylopdf_fonts_hi"),
+    ("ja", "jp", "pylopdf_fonts_jp"),
+    ("ko", "ko", "pylopdf_fonts_ko"),
+    ("th", "th", "pylopdf_fonts_th"),
+    ("zh-CN", "zh-cn", "pylopdf_fonts_zh_cn"),
+    ("zh-TW", "zh-tw", "pylopdf_fonts_zh_tw"),
+)
+
+
+def _import_optional_font_module(module_name: str) -> object | None:
+    """Import one known data package without hiding its internal failures."""
     try:
-        import pylopdf_fonts_cjk  # noqa: PLC0415  # Lazy optional dependency.
-    except ImportError:
-        return ()
-    return (
-        ("sans", pylopdf_fonts_cjk.sans_path()),
-        ("serif", pylopdf_fonts_cjk.serif_path()),
-    )
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name == module_name:
+            return None
+        raise
+
+
+@functools.cache
+def _bundled_font_providers() -> tuple[_BundledFontProvider, ...]:
+    """Locate installed locale font packages, including the legacy JP wheel."""
+    providers: list[_BundledFontProvider] = []
+    for language, extra, module_name in _FONT_PROVIDER_SPECS:
+        module = _import_optional_font_module(module_name)
+        if module is None and language == "ja":
+            module = _import_optional_font_module("pylopdf_fonts_cjk")
+        if module is None:
+            continue
+        font_module = cast("Any", module)
+        providers.append(_BundledFontProvider(language, extra, font_module.sans_path(), font_module.serif_path()))
+    return tuple(providers)
 
 
 #: Maximum R/G/B/A component value.
@@ -1360,37 +1401,135 @@ _BASE14_FONTS: dict[str, str] = {
 #: Standard fonts that use built-in encoding rather than WinAnsi.
 _SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
 
-#: Times aliases select the optional serif CJK generation font.
+#: Times aliases select an optional locale-specific serif generation font.
 _SERIF_BASE14_FONTS = frozenset({"tiro", "tibo", "tiit", "tibi"})
 
-#: Japanese and Han ranges that trigger optional JP-subset font selection.
-_BUNDLED_CJK_TEXT_RANGES = (
-    (0x2E80, 0x312F),
-    (0x31A0, 0x31FF),
+#: Script ranges used only to select an installed CJK locale font package.
+_KANA_RANGES = ((0x3040, 0x30FF), (0x31F0, 0x31FF), (0xFF65, 0xFF9F))
+_HANGUL_RANGES = (
+    (0x1100, 0x11FF),
+    (0x3130, 0x318F),
+    (0xA960, 0xA97F),
+    (0xAC00, 0xD7AF),
+    (0xD7B0, 0xD7FF),
+)
+_BOPOMOFO_RANGES = ((0x3100, 0x312F), (0x31A0, 0x31BF))
+_ARABIC_RANGES = ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF), (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))
+_HEBREW_RANGES = ((0x0590, 0x05FF), (0xFB1D, 0xFB4F))
+_DEVANAGARI_RANGES = ((0x0900, 0x097F), (0xA8E0, 0xA8FF))
+_THAI_RANGES = ((0x0E00, 0x0E7F),)
+_HAN_RANGES = (
+    (0x2E80, 0x2FFF),
     (0x3400, 0x9FFF),
     (0xF900, 0xFAFF),
-    (0xFF65, 0xFF9F),
     (0x20000, 0x2FA1F),
+)
+_FONT_LANGUAGE_ALIASES: dict[str, FontLanguage] = {
+    "ar": "ar",
+    "he": "he",
+    "hi": "hi",
+    "ja": "ja",
+    "ko": "ko",
+    "th": "th",
+    "zh-cn": "zh-CN",
+    "zh-hans": "zh-CN",
+    "zh-tw": "zh-TW",
+    "zh-hant": "zh-TW",
+}
+_SCRIPT_PROVIDER_RANGES: tuple[tuple[FontLanguage, tuple[tuple[int, int], ...]], ...] = (
+    ("ar", _ARABIC_RANGES),
+    ("he", _HEBREW_RANGES),
+    ("hi", _DEVANAGARI_RANGES),
+    ("ja", _KANA_RANGES),
+    ("ko", _HANGUL_RANGES),
+    ("zh-TW", _BOPOMOFO_RANGES),
+    ("th", _THAI_RANGES),
 )
 
 
-def _bundled_generation_font(text: str, fontname: str) -> Path | bytes | None:
-    """Select one optional JP-subset font for Japanese or Han text."""
-    if not any(start <= ord(character) <= end for character in text for start, end in _BUNDLED_CJK_TEXT_RANGES):
+def _text_uses_ranges(text: str, ranges: tuple[tuple[int, int], ...]) -> bool:
+    """Return whether text contains a scalar in one of the supplied ranges."""
+    return any(start <= ord(character) <= end for character in text for start, end in ranges)
+
+
+def _normalize_font_language(language: str | None) -> FontLanguage | None:
+    """Normalize supported BCP 47 font locales."""
+    if language is None:
         return None
+    if not isinstance(language, str):
+        msg = f"font_language must be a string or None: {language!r}"
+        raise TypeError(msg)
+    normalized = _FONT_LANGUAGE_ALIASES.get(language.replace("_", "-").lower())
+    if normalized is None:
+        msg = "font_language must be 'ar', 'he', 'hi', 'ja', 'ko', 'th', 'zh-CN', 'zh-TW', or None"
+        raise ValueError(msg)
+    return normalized
+
+
+def _normalize_cjk_font_language(language: str) -> CjkFontLanguage:
+    """Normalize a locale accepted by the non-embedded CJK fallback API."""
+    normalized = _normalize_font_language(language)
+    if normalized not in {"ja", "ko", "zh-CN", "zh-TW"}:
+        msg = "font_language for fallback must be 'ja', 'ko', 'zh-CN', or 'zh-TW'"
+        raise ValueError(msg)
+    return cast("CjkFontLanguage", normalized)
+
+
+def _provider_for_language(language: FontLanguage) -> _BundledFontProvider | None:
+    """Return the installed provider for one normalized locale."""
+    return next((provider for provider in _bundled_font_providers() if provider.language == language), None)
+
+
+def _detected_font_language(text: str) -> FontLanguage | None:
+    """Infer an unambiguous script marker, then preserve the JP Han default."""
+    markers = [language for language, ranges in _SCRIPT_PROVIDER_RANGES if _text_uses_ranges(text, ranges)]
+    if len(markers) > 1:
+        msg = "text spans multiple bundled font locales; pass an explicit fontfile or fontbuffer"
+        raise ValueError(msg)
+    if markers:
+        return markers[0]
+    if not _text_uses_ranges(text, _HAN_RANGES):
+        return None
+    installed = {provider.language for provider in _bundled_font_providers()}
+    for candidate in ("ja", "zh-CN", "zh-TW", "ko"):
+        if candidate in installed:
+            return cast("FontLanguage", candidate)
+    return None
+
+
+def _bundled_generation_font(
+    text: str,
+    fontname: str,
+    font_language: str | None,
+) -> Path | bytes | None:
+    """Select one optional locale font for a complete generated run."""
+    language = _normalize_font_language(font_language)
+    if language is None:
+        language = _detected_font_language(text)
+    if language is None:
+        return None
+    provider = _provider_for_language(language)
+    if provider is None:
+        extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == language)
+        msg = f"font_language={language!r} requires pylopdf[{extra}] or an explicit fontfile/fontbuffer"
+        raise ValueError(msg)
     kind = "serif" if fontname in _SERIF_BASE14_FONTS else "sans"
-    return next((data for candidate, data in _bundled_cjk_fonts() if candidate == kind), None)
+    return provider.serif if kind == "serif" else provider.sans
 
 
 def _resolve_generation_font(
-    operation: str,
     text: str,
     fontname: str,
     font_data: Path | bytes | None,
     fontindex: int,
+    font_language: str | None,
 ) -> tuple[str | None, Path | bytes | None]:
-    """Resolve explicit, optional CJK, or Standard 14 generation input."""
+    """Resolve explicit, optional locale, or Standard 14 generation input."""
+    normalized_language = _normalize_font_language(font_language)
     if font_data is not None:
+        if normalized_language is not None:
+            msg = "font_language cannot be combined with fontfile or fontbuffer"
+            raise ValueError(msg)
         if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
             msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
             raise ValueError(msg)
@@ -1403,15 +1542,15 @@ def _resolve_generation_font(
     if base_font is None:
         msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
         raise ValueError(msg)
-    bundled_font = _bundled_generation_font(text, fontname)
+    bundled_font = _bundled_generation_font(text, fontname, normalized_language)
     if bundled_font is not None:
         return None, bundled_font
     try:
         text.encode("cp1252")
     except UnicodeEncodeError as exc:
         msg = (
-            f"{operation} can only print WinAnsi (Latin-1-equivalent) characters without an embedded font. "
-            "For Japanese or Han text, install pylopdf[cjk]; otherwise pass fontfile or fontbuffer"
+            "text generation can only print WinAnsi (Latin-1-equivalent) characters without an embedded font. "
+            "Install a matching optional font extra or pass fontfile or fontbuffer"
         )
         raise ValueError(msg) from exc
     return base_font, None
@@ -1985,6 +2124,7 @@ class Page:
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
+        font_language: FontLanguage | None = None,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -1999,16 +2139,24 @@ class Page:
 
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
-        including shaped CJK and RTL scripts. With ``pylopdf[cjk]`` installed,
-        Japanese and Han text without an explicit source automatically uses
-        its JP-subset sans font, or serif for a Times ``fontname``.
+        including shaped CJK and RTL scripts. Script extras ``pylopdf[ar]``,
+        ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
+        ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
+        Kana, Hangul, and Bopomofo select an installed locale automatically;
+        pure Han preserves the JP-first compatibility default.
+        ``font_language`` selects a specific installed locale for ambiguous
+        Han text. The legacy ``[cjk]`` extra remains an alias for ``[jp]``.
         ``fontindex`` selects a face in a TrueType/OpenType collection and
         ``fontname`` is otherwise ignored for embedded fonts. A single line
         should use one script and the selected font must contain all needed
         glyphs; no per-glyph fallback or paragraph layout is performed. RTL
         glyph shaping renders correctly. Pure RTL lines without Latin or
         numeric runs extract in logical Unicode order; mixed-direction
-        paragraph layout remains in producer visual order.
+        paragraph layout remains in producer visual order. Complex scripts can
+        require PDF ``/ActualText`` when logical text does not map one-to-one
+        to glyphs. Generated PDFs preserve it for compatible viewers, but the
+        current pylopdf extractor does not consume it, so some reordered or
+        context-dependent clusters can extract approximately after reopening.
 
         ``\n`` starts a new line at 1.2 times ``fontsize``. Text remains
         visually upright on rotated pages. ``overlay=False`` draws below
@@ -2041,7 +2189,13 @@ class Page:
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         _validate_generated_text_lines(normalized, max_text_size)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data = _resolve_generation_font("insert_text", normalized, fontname, font_data, fontindex)
+        base_font, font_data = _resolve_generation_font(
+            normalized,
+            fontname,
+            font_data,
+            fontindex,
+            font_language,
+        )
         if isinstance(font_data, Path):
             self._document._doc.insert_embedded_text_file(
                 self._page_number(),
@@ -2095,6 +2249,7 @@ class Page:
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
+        font_language: FontLanguage | None = None,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         align: int = TEXT_ALIGN_LEFT,
         expandtabs: int = 8,
@@ -2120,8 +2275,9 @@ class Page:
         Without a font source, Adobe Core 14 metrics provide exact WinAnsi
         wrapping. Pass exactly one of ``fontfile`` or ``fontbuffer`` for
         HarfRust-shaped Unicode and a krilla subset-embedded OpenType font.
-        With ``pylopdf[cjk]`` installed, Japanese and Han text automatically
-        uses its JP-subset sans font, or serif for a Times ``fontname``.
+        Installed script or CJK locale font extras provide matching fonts.
+        ``font_language`` selects a specific provider, including for ambiguous
+        Han text.
         Unicode line-break opportunities support CJK without requiring spaces,
         and an overlong word falls back to grapheme-safe wrapping. Explicit and
         automatically selected font input defaults to a 64 MiB boundary;
@@ -2146,7 +2302,13 @@ class Page:
             return y1 - y0
 
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data = _resolve_generation_font("insert_textbox", normalized, fontname, font_data, fontindex)
+        base_font, font_data = _resolve_generation_font(
+            normalized,
+            fontname,
+            font_data,
+            fontindex,
+            font_language,
+        )
         if isinstance(font_data, Path):
             return self._document._doc.insert_embedded_textbox_file(
                 page_number,
@@ -2850,6 +3012,7 @@ class Document:
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
+        font_language: FontLanguage | None = None,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
         """Set an AcroForm field value and regenerate its widget appearance.
@@ -2872,10 +3035,11 @@ class Document:
         resolving booleans or generating missing appearances.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
-        ``fontbuffer`` to subset-embed an arbitrary OpenType font. Unicode text
-        automatically uses the sans font from ``pylopdf[cjk]`` when installed;
-        otherwise the value is still stored with ``NeedAppearances`` for viewer
-        compatibility, but its appearance cannot be rendered by pylopdf.
+        ``fontbuffer`` to subset-embed an arbitrary OpenType font. Locale font
+        extras can supply Unicode appearances automatically; use
+        ``font_language`` for ambiguous Han text. Otherwise the value is still
+        stored with ``NeedAppearances`` for viewer compatibility, but its
+        appearance cannot be rendered by pylopdf.
         Explicit and automatically selected font input defaults to a 64 MiB
         boundary; ``max_font_size=None`` opts trusted workloads out. Refusal
         raises :class:`LimitError` with code ``font_input_size``.
@@ -2906,8 +3070,12 @@ class Document:
                 limit_code="form_field_input_size",
                 input_label="form field value",
             )
+        normalized_font_language = _normalize_font_language(font_language)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         if font_data is not None:
+            if normalized_font_language is not None:
+                msg = "font_language cannot be combined with fontfile or fontbuffer"
+                raise ValueError(msg)
             if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
                 msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
                 raise ValueError(msg)
@@ -2924,12 +3092,13 @@ class Document:
         else:
             resolved = value
             if font_data is None:
-                try:
-                    resolved.encode("cp1252")
-                except UnicodeEncodeError:
-                    bundled = _bundled_cjk_fonts()
-                    if bundled:
-                        font_data = bundled[0][1]
+                if normalized_font_language is not None:
+                    font_data = _bundled_generation_font(resolved, "helv", normalized_font_language)
+                else:
+                    try:
+                        resolved.encode("cp1252")
+                    except UnicodeEncodeError:
+                        font_data = _bundled_generation_font(resolved, "helv", None)
         if isinstance(font_data, Path):
             self._doc.set_form_field_file(name, resolved, str(font_data), fontindex, max_font_size)
         else:
@@ -3416,19 +3585,22 @@ class Document:
         kind: str = "sans",
         index: int = 0,
         *,
+        font_language: CjkFontLanguage = "ja",
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
         """Set a fallback font for rendering non-embedded CJK fonts.
 
         ``font`` is a TTF/OTF/TTC path or bytes. ``None`` clears the setting and
-        disables automatic discovery from ``pylopdf[cjk]``. ``kind`` is
-        ``"sans"`` (default) or ``"serif"``; ``index`` selects a TTC face.
+        disables automatic locale-font discovery. ``kind`` is ``"sans"``
+        (default) or ``"serif"``; ``index`` selects a TTC face.
+        ``font_language`` selects the Adobe-Japan1, Korea1, GB1, or CNS1 slot.
         Font input defaults to a 64 MiB boundary; ``max_font_size=None`` opts
         trusted workloads out. Refusal raises :class:`LimitError` with code
         ``font_input_size``.
         """
         self._ensure_open()
         _validate_optional_positive_int("max_font_size", max_font_size)
+        normalized_language = _normalize_cjk_font_language(font_language)
         if font is None:
             self._doc.clear_fallback_fonts()
             self._fallback_configured = True
@@ -3436,33 +3608,47 @@ class Document:
         if isinstance(font, bytes):
             if max_font_size is not None and len(font) > max_font_size:
                 raise _font_input_limit_error(len(font), max_font_size)
-            self._doc.set_fallback_font(kind, font, index, max_font_size)
+            self._doc.set_fallback_font(kind, font, index, max_font_size, normalized_language)
         else:
-            self._doc.set_fallback_font_file(kind, str(Path(font)), index, max_font_size)
+            self._doc.set_fallback_font_file(kind, str(Path(font)), index, max_font_size, normalized_language)
         self._fallback_configured = True
 
     def _ensure_fallback_fonts(self) -> None:
-        """Auto-configure ``pylopdf[cjk]`` fonts unless explicitly configured."""
+        """Auto-configure installed locale fonts unless explicitly configured."""
         if self._fallback_configured:
             return
-        fonts = _bundled_cjk_fonts()
-        paths = {kind: data for kind, data in fonts if isinstance(data, Path)}
-        if paths.keys() == {"sans", "serif"}:
-            self._doc.set_fallback_font_files(
-                str(paths["sans"]),
-                str(paths["serif"]),
+        providers = tuple(
+            provider for provider in _bundled_font_providers() if provider.language in {"ja", "ko", "zh-CN", "zh-TW"}
+        )
+        if all(isinstance(provider.sans, Path) and isinstance(provider.serif, Path) for provider in providers):
+            self._doc.set_fallback_font_locale_files(
+                [(provider.language, str(provider.sans), str(provider.serif)) for provider in providers],
                 _DEFAULT_MAX_FONT_INPUT_SIZE,
             )
             self._fallback_configured = True
             return
-        for _, data in fonts:
-            if isinstance(data, bytes) and len(data) > _DEFAULT_MAX_FONT_INPUT_SIZE:
-                raise _font_input_limit_error(len(data), _DEFAULT_MAX_FONT_INPUT_SIZE)
-        for kind, data in fonts:
-            if isinstance(data, Path):
-                self._doc.set_fallback_font_file(kind, str(data), 0, _DEFAULT_MAX_FONT_INPUT_SIZE)
-            else:
-                self._doc.set_fallback_font(kind, data, 0, _DEFAULT_MAX_FONT_INPUT_SIZE)
+        for provider in providers:
+            for data in (provider.sans, provider.serif):
+                if isinstance(data, bytes) and len(data) > _DEFAULT_MAX_FONT_INPUT_SIZE:
+                    raise _font_input_limit_error(len(data), _DEFAULT_MAX_FONT_INPUT_SIZE)
+        for provider in providers:
+            for kind, data in (("sans", provider.sans), ("serif", provider.serif)):
+                if isinstance(data, Path):
+                    self._doc.set_fallback_font_file(
+                        kind,
+                        str(data),
+                        0,
+                        _DEFAULT_MAX_FONT_INPUT_SIZE,
+                        provider.language,
+                    )
+                else:
+                    self._doc.set_fallback_font(
+                        kind,
+                        data,
+                        0,
+                        _DEFAULT_MAX_FONT_INPUT_SIZE,
+                        provider.language,
+                    )
         self._fallback_configured = True
 
     def render_page(

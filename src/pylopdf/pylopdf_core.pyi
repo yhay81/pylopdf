@@ -94,12 +94,33 @@ class _Document:
     def is_encrypted(self) -> bool: ...
     def is_repaired(self) -> bool: ...
     def was_encrypted(self) -> bool: ...
-    def set_fallback_font(self, kind: str, data: bytes, index: int, max_font_size: int | None = 67108864) -> None: ...
+    def set_fallback_font(
+        self,
+        kind: str,
+        data: bytes,
+        index: int,
+        max_font_size: int | None = 67108864,
+        language: str = "ja",
+    ) -> None: ...
     def set_fallback_font_file(
-        self, kind: str, path: str, index: int, max_font_size: int | None = 67108864
+        self,
+        kind: str,
+        path: str,
+        index: int,
+        max_font_size: int | None = 67108864,
+        language: str = "ja",
     ) -> None: ...
     def set_fallback_font_files(
-        self, sans_path: str, serif_path: str, max_font_size: int | None = 67108864
+        self,
+        sans_path: str,
+        serif_path: str,
+        max_font_size: int | None = 67108864,
+        language: str = "ja",
+    ) -> None: ...
+    def set_fallback_font_locale_files(
+        self,
+        files: list[tuple[str, str, str]],
+        max_font_size: int | None = 67108864,
     ) -> None: ...
     def clear_fallback_fonts(self) -> None: ...
     def authenticate_user_password(self, password: str) -> bool: ...

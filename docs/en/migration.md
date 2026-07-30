@@ -40,8 +40,8 @@ deliberately does not implement.
 | `page.rect / rotation / set_rotation` | same | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | same | JPEG passthrough, PNG alpha, direct rendered-RGBA `Pixmap` reuse, and clockwise right-angle rotation; convert other encoded formats with Pillow |
 | `page.show_pdf_page(rect, src, pno)` | same | same-document sources use a native pre-edit snapshot; no serialize/open workaround |
-| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` | no source: standard-14 / WinAnsi, or automatic JP subset for Japanese/Han with `pylopdf[cjk]`; other sources are shaped and subset-embedded |
-| `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` | UAX #14 CJK wrapping with the same optional JP selection; negative return means no drawing |
+| `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` / `font_language=` | no source: standard-14 / WinAnsi or an installed script/locale font provider; other sources are shaped and subset-embedded |
+| `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` / `font_language=` | UAX #14 wrapping with the same optional provider selection; negative return means no drawing |
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
 | `doc.embfile_add / names / get / del` | same | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
@@ -88,8 +88,8 @@ deliberately does not implement.
   `None` to disable table conversion.
 - **Form filling** writes values and native appearances that render in pylopdf
   and external viewers. WinAnsi auto-fits in Helvetica; pass an OpenType font
-  for Unicode, or install `pylopdf[cjk]` for its automatic JP-subset attempt.
-  Hangul and locale-specific Chinese typography need a matching font. Comb fields
+  for Unicode, or install one of the script/locale font extras. Use
+  `font_language=` for locale-specific Han typography. Comb fields
   honor inherited `MaxLen` and alignment. Rich text, pushbuttons, and signatures
   remain outside the API.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,

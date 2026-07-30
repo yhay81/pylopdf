@@ -2329,6 +2329,9 @@ fn needs_gap(previous: Option<&GlyphRecord>, glyph: &GlyphRecord) -> bool {
         return false;
     }
     previous.is_some_and(|previous| {
+        if glyph_uses_no_space_script(previous) && glyph_uses_no_space_script(glyph) {
+            return false;
+        }
         if glyph_is_nonspacing_mark(glyph) {
             return false;
         }
@@ -2343,6 +2346,23 @@ fn needs_gap(previous: Option<&GlyphRecord>, glyph: &GlyphRecord) -> bool {
         };
         gap > previous.size.max(glyph.size).max(1.0) * WORD_GAP
     })
+}
+
+fn glyph_uses_no_space_script(glyph: &GlyphRecord) -> bool {
+    !glyph.text.is_empty() && glyph.text.chars().all(char_uses_no_space_script)
+}
+
+fn char_uses_no_space_script(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x0E00..=0x0E7F
+            | 0x0E80..=0x0EFF
+            | 0x1000..=0x109F
+            | 0x1780..=0x17FF
+            | 0x19E0..=0x19FF
+            | 0xA9E0..=0xA9FF
+            | 0xAA60..=0xAA7F
+    )
 }
 
 /// End position of one glyph along its line's baseline.

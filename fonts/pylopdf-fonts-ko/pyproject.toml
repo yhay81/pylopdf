@@ -1,7 +1,7 @@
 [project]
-name = "pylopdf-fonts-cjk"
+name = "pylopdf-fonts-ko"
 version = "0.1.0"
-description = "Japanese fallback and generation fonts for pylopdf — Noto Sans JP / Noto Serif JP (SIL OFL 1.1)"
+description = "Korean fallback and generation fonts for pylopdf — Noto Sans KR / Noto Serif KR"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -17,10 +17,11 @@ dependencies = []
 
 [project.urls]
 Repository = "https://github.com/yhay81/pylopdf"
+Font-Source = "https://github.com/notofonts/noto-cjk"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pylopdf_fonts_cjk"]
+packages = ["src/pylopdf_fonts_ko"]

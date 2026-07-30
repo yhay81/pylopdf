@@ -101,6 +101,48 @@ def build_nonembedded_cjk_pdf(text: str = "こんにちは日本語") -> bytes:
     return bytes(out)
 
 
+def build_nonembedded_locale_cjk_pdf(text: str, language: str) -> bytes:
+    """Build a Unicode-CMap PDF for one non-embedded Adobe CJK collection."""
+    specs = {
+        "ko": ("HYSMyeongJo-Medium", "UniKS-UCS2-H", "Korea1", 2),
+        "zh-CN": ("STSong-Light", "UniGB-UCS2-H", "GB1", 5),
+        "zh-TW": ("MSung-Light", "UniCNS-UCS2-H", "CNS1", 7),
+    }
+    try:
+        base_font, encoding, ordering, supplement = specs[language]
+    except KeyError as exc:
+        msg = f"unsupported fixture language: {language!r}"
+        raise ValueError(msg) from exc
+    encoded = text.encode("utf-16-be").hex().upper()
+    stream = f"BT /F1 24 Tf 72 720 Td <{encoded}> Tj ET"
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: (
+                "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] "
+                "/Resources << /Font << /F1 3 0 R >> >> >>"
+            ),
+            3: (
+                f"<< /Type /Font /Subtype /Type0 /BaseFont /{base_font} "
+                f"/Encoding /{encoding} /DescendantFonts [6 0 R] >>"
+            ),
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+            6: (
+                f"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{base_font} "
+                f"/CIDSystemInfo << /Registry (Adobe) /Ordering ({ordering}) /Supplement {supplement} >> "
+                "/FontDescriptor 7 0 R /DW 1000 >>"
+            ),
+            7: (
+                f"<< /Type /FontDescriptor /FontName /{base_font} /Flags 6 "
+                "/FontBBox [0 -250 1000 1000] /ItalicAngle 0 /Ascent 880 "
+                "/Descent -120 /CapHeight 700 /StemV 80 >>"
+            ),
+        },
+        version="1.4",
+    )
+
+
 def build_visual_rtl_pdf(content_stream: str, *, width: int = 340, height: int = 300) -> bytes:
     """Build visual-order Hebrew/Arabic text with an Identity-H ToUnicode CMap."""
     cmap = """/CIDInit /ProcSet findresource begin

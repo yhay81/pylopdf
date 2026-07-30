@@ -14,9 +14,19 @@ pip install pylopdf
 フォント非埋め込みの日本語PDFを描画する場合、または日本語・漢字の`insert_text` /
 `insert_textbox`でJP fontを自動subsetする場合は、Noto Sans/Serif JP付きで:
 
+必要な言語・地域のfontだけを導入できます。
+
 ```bash
-pip install pylopdf[cjk]
+pip install "pylopdf[jp]"     # 日本語のfallbackと生成
+pip install "pylopdf[ko]"     # 韓国語
+pip install "pylopdf[zh-cn]"  # 簡体字中国語
+pip install "pylopdf[zh-tw]"  # 繁体字中国語
+pip install "pylopdf[ar]"     # アラビア語生成（he、hi、thも選択可）
 ```
+
+CJKの4 extraは、非埋め込みAdobe CJK fontの描画fallbackとsubset埋め込み生成の
+両方に使います。`ar`、`he`、`hi`、`th`は生成用providerです。旧
+`pylopdf[cjk]`は日本語専用だったため、互換aliasとして`pylopdf[jp]`を導入します。
 
 release CIは各native platform wheelをarchitectureが一致するrunnerへinstallし、PDFの
 生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。5つの
@@ -100,7 +110,8 @@ page.insert_image(page.search_for("承認印")[0], stream=hanko_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBAを直接、時計回りに回転
 page.show_pdf_page(page.rect, letterhead)                    # ベクタのまま重ねる。同じ文書も可
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[cjk]から自動subset
+page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[jp]から自動subset
+page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
@@ -109,7 +120,7 @@ page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 
 ```python
 page.insert_ocr_text_layer(ocr_words)        # 外部 OCR の結果で searchable PDF 化
-doc.set_form_field("customer", "山田 太郎")  # pylopdf[cjk]から自動subset
+doc.set_form_field("customer", "山田 太郎")  # pylopdf[jp]から自動subset
 md = doc.to_markdown()                       # RAG 向け Markdown
 ```
 

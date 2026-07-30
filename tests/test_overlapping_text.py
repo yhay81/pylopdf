@@ -10,7 +10,7 @@ import pytest
 import pylopdf
 
 NOTO_SANS_JP = (
-    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-cjk" / "src" / "pylopdf_fonts_cjk" / "NotoSansJP-Regular.otf"
+    Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
 )
 
 

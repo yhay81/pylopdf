@@ -30,11 +30,11 @@ Password input stops at 127 UTF-8 bytes.
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | bounded PNG bytes, ordered parallel batches capped at 4,096 pages and cumulative encoded output, or bounded UTF-8 SVG (`None` opts out) |
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
-| `set_fallback_font(font, kind=, index=, max_font_size=64 MiB)` | bounded CJK fallback for non-embedded fonts; `None` opts trusted font input out |
+| `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management; select/delete/insert batches are capped at 4,096 entries |
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines (1-based pages; 4,096 entries/nodes, 8,192 edges, 64 levels, 1 MiB text) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input |
+| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with symmetric input/decoded-output defaults plus 1 MiB caller text, bounded metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=` `deflate=` `object_streams=` and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
@@ -67,8 +67,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `pylopdf[cjk]` auto-selects its JP font; `None` opts the corresponding trusted input out |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, or auto-selected JP metrics; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
+| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; installed script/locale providers are selected automatically and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
+| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
@@ -81,15 +81,23 @@ soft-mask structure, optional-content layer names, text, images, and annotations
 are not returned; optional-content visibility is still applied. The result is
 rejected rather than truncated above 8,192 paths or 131,072 commands.
 
-Embedded-font `insert_text` requires one font containing every glyph. If no
-source is passed, `pylopdf[cjk]` auto-selects its JP-subset Noto Sans for
-Japanese/Han, or Noto Serif for a Times `fontname`. This is one whole-run font,
-not per-glyph fallback. Pass an explicit OpenType font for Hangul,
-locale-specific Chinese glyph forms, other scripts, or another typeface. Each
-line is shaped, but bidirectional paragraph layout and wrapping remain outside
-this primitive. RTL shaping renders correctly. Pure RTL lines without Latin or
-numeric runs extract in logical Unicode order; mixed-direction paragraphs
-remain in producer visual order.
+Embedded-font `insert_text` requires one font containing every glyph.
+`pylopdf[ar]`, `[he]`, `[hi]`, `[jp]`, `[ko]`, `[th]`, `[zh-cn]`, and
+`[zh-tw]` provide Noto Sans/Serif generation fonts. Kana, Hangul, Bopomofo,
+Arabic, Hebrew, Devanagari, and Thai select an installed provider automatically.
+Pure Han keeps the JP-first compatibility default; pass
+`font_language="zh-CN"`, `"zh-TW"`, `"ko"`, or `"ja"` when the locale matters.
+This is one whole-run font, not per-glyph fallback. Each line is shaped, but
+bidirectional paragraph layout and wrapping remain outside this primitive.
+RTL shaping renders correctly. Pure RTL lines without Latin or numeric runs
+extract in logical Unicode order; mixed-direction paragraphs remain in producer
+visual order.
+
+Complex shaping can require PDF `/ActualText` to preserve a logical string that
+does not map one-to-one to glyphs. Generated PDFs include that data for external
+viewers, but pylopdf's current extractor does not yet consume `/ActualText`;
+some reordered or context-dependent clusters, especially in longer
+Devanagari runs, can therefore extract approximately after reopening.
 
 `insert_textbox` adds wrapping without becoming a rich-text engine. It preserves
 explicit newlines, expands tabs, breaks CJK at Unicode opportunities, and uses
@@ -100,9 +108,9 @@ content or font resource is added in that case.
 
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
-`fontfile` or `fontbuffer` for subset-embedded Unicode. With `pylopdf[cjk]`
-installed, non-WinAnsi values try its JP-subset sans font; pass a matching font
-for Hangul or locale-specific Chinese typography. Existing
+`fontfile` or `fontbuffer` for subset-embedded Unicode. Installed locale/script
+providers are selected with the same rules as `insert_text`, and
+`font_language` resolves ambiguous Han. Existing
 non-empty checkbox/radio appearances are preserved and missing states receive
 vector marks. Missing appearances on other WinAnsi fields are completed at the
 same time; `NeedAppearances` is cleared only when every fillable widget is

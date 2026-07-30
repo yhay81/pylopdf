@@ -4,7 +4,8 @@ Initial rules:
 
 - Body size is the font size containing the most characters, rounded to 0.1 pt.
   Sufficiently larger sizes map in descending order to heading levels 1–4.
-- Wrapped lines join without a space between CJK characters.
+- Wrapped lines join without a space between characters in scripts that do not
+  normally delimit words with spaces.
 - Leading bullets such as ・, •, and ● plus ``1.``/``1)`` normalize to lists.
 - Span flags derived from embedded-font weight and italic metadata become
   emphasis markers in body text. Heading text remains plain to avoid combining
@@ -236,23 +237,38 @@ def heading_levels(counter: Counter[float]) -> dict[float, int]:
     return {size: min(rank + 1, _MAX_HEADING_LEVELS) for rank, size in enumerate(bigger)}
 
 
-#: Unicode ranges that join without spaces: CJK punctuation, kana, unified and
-#: compatibility ideographs, fullwidth forms, and halfwidth katakana.
-_CJK_RANGES = ((0x3000, 0x30FF), (0x3400, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
+#: Unicode ranges whose wrapped lines join without an inserted ASCII space.
+#:
+#: CJK retains its existing punctuation, kana, Han, and width-form behavior.
+#: Thai, Lao, Myanmar, and Khmer also commonly omit inter-word spaces; this is
+#: paragraph joining, not dictionary-based word segmentation.
+_NO_SPACE_SCRIPT_RANGES = (
+    (0x0E00, 0x0E7F),
+    (0x0E80, 0x0EFF),
+    (0x1000, 0x109F),
+    (0x1780, 0x17FF),
+    (0x19E0, 0x19FF),
+    (0x3000, 0x30FF),
+    (0x3400, 0x9FFF),
+    (0xA9E0, 0xA9FF),
+    (0xAA60, 0xAA7F),
+    (0xF900, 0xFAFF),
+    (0xFF00, 0xFFEF),
+)
 
 
-def _is_cjk(ch: str) -> bool:
-    """Return whether a character joins without a space in CJK text."""
+def _joins_without_space(ch: str) -> bool:
+    """Return whether a character joins a wrapped line without ASCII space."""
     code = ord(ch)
-    return any(low <= code <= high for low, high in _CJK_RANGES)
+    return any(low <= code <= high for low, high in _NO_SPACE_SCRIPT_RANGES)
 
 
 def _join_lines(lines: list[str]) -> str:
-    """Join paragraph lines with no CJK gap and one space otherwise."""
+    """Join paragraph lines according to the boundary characters' scripts."""
     parts = [lines[0]]
     previous = lines[0]
     for line in lines[1:]:
-        if not (previous and line and _is_cjk(previous[-1]) and _is_cjk(line[0])):
+        if not (previous and line and _joins_without_space(previous[-1]) and _joins_without_space(line[0])):
             parts.append(" ")
         parts.append(line)
         previous = line
@@ -395,7 +411,7 @@ def _geometric_event_position(
 
 
 def _join_words(words: list[str]) -> str:
-    """Join positioned words without adding spaces between CJK runs."""
+    """Join positioned words using the same script-aware paragraph rule."""
     if not words:
         return ""
     return _join_lines(words)
@@ -496,7 +512,7 @@ class _MarkdownBuilder:
         text_size = 0 if self.max_size is None else utf8_size(text)
         if self.paragraph:
             previous = self.paragraph[-1]
-            if not (previous and text and _is_cjk(previous[-1]) and _is_cjk(text[0])):
+            if not (previous and text and _joins_without_space(previous[-1]) and _joins_without_space(text[0])):
                 text_size += 1
         pending_separator = 2 if self.entries else 0
         self._check_size(self.output_size + pending_separator + self.paragraph_size + text_size)
