@@ -9,7 +9,7 @@ import re
 import tarfile
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
@@ -211,7 +211,7 @@ def generate_font_sbom(
     _require(condition=len(sdists) == 1, message=f"expected exactly one sdist in {dist_dir}, found {sdists!r}")
 
     metadata = _wheel_metadata(wheels[0])
-    created = datetime.fromtimestamp(source_date_epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.fromtimestamp(source_date_epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     packages: list[dict[str, object]] = []
     files: list[dict[str, object]] = []
