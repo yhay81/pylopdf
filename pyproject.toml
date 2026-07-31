@@ -42,8 +42,6 @@ ko = ["pylopdf-fonts-ko>=0.1.0,<0.2"]
 th = ["pylopdf-fonts-th>=0.1.0,<0.2"]
 zh-cn = ["pylopdf-fonts-zh-cn>=0.1.0,<0.2"]
 zh-tw = ["pylopdf-fonts-zh-tw>=0.1.0,<0.2"]
-# Compatibility alias for the former Japanese-only extra name.
-cjk = ["pylopdf-fonts-jp>=0.1.0,<0.2"]
 # PP-OCRv6 small detector, recognizer, and multilingual dictionary.
 ocr = ["pylopdf-ocr-models>=0.1.0,<0.2"]
 
@@ -130,7 +128,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # Allow type checking without locale-specific font extras installed.
 module = [
-    "pylopdf_fonts_cjk",
     "pylopdf_fonts_ar",
     "pylopdf_fonts_he",
     "pylopdf_fonts_hi",

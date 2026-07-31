@@ -460,13 +460,11 @@ overview.
   conservative BaseFont-name hints only when collection metadata is absent.
   Serif-like names use the serif slot; other names use sans. Font files come
   from locale workspace packages under `fonts/pylopdf-fonts-{jp,ko,zh-cn,zh-tw}/`
-  and are exposed through matching extras. The legacy `[cjk]` extra is a
-  compatibility alias for `[jp]`, and an already installed
-  `pylopdf_fonts_cjk` package remains detectable. Explicit and auto-selected
-  fallback font input shares the 64 MiB default OpenType boundary described
-  below. Auto-discovery keeps package assets as paths and must read every
-  selected sans/serif pair successfully before one cache update. Failed path
-  reads or size checks must preserve configured fonts and caches.
+  and are exposed only through matching locale extras. Explicit and
+  auto-selected fallback font input shares the 64 MiB default OpenType boundary
+  described below. Auto-discovery keeps package assets as paths and must read
+  every selected sans/serif pair successfully before one cache update. Failed
+  path reads or size checks must preserve configured fonts and caches.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later

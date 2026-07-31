@@ -25,8 +25,8 @@ pip install "pylopdf[ar]"     # アラビア語生成（he、hi、thも選択可
 ```
 
 CJKの4 extraは、非埋め込みAdobe CJK fontの描画fallbackとsubset埋め込み生成の
-両方に使います。`ar`、`he`、`hi`、`th`は生成用providerです。旧
-`pylopdf[cjk]`は日本語専用だったため、互換aliasとして`pylopdf[jp]`を導入します。
+両方に使います。`ar`、`he`、`hi`、`th`は生成用providerです。必要な地域字形に
+合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択します。汎用CJK extraはありません。
 
 release CIは各native platform wheelをarchitectureが一致するrunnerへinstallし、PDFの
 生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。5つの

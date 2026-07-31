@@ -22,8 +22,8 @@ pip install "pylopdf[ar]"     # 阿拉伯语生成（另有he、hi、th）
 ```
 
 四个CJK地区extra同时支持未嵌入Adobe CJK font的渲染fallback与subset嵌入生成。
-`ar`、`he`、`hi`、`th`提供生成font。旧的日语专用`pylopdf[cjk]`仍作为
-`pylopdf[jp]`的兼容别名。
+`ar`、`he`、`hi`、`th`提供生成font。请根据所需地区字形明确选择`jp`、`ko`、
+`zh-cn`或`zh-tw`；不提供通用CJK extra。
 
 release CI 会在architecture匹配的runner上安装每个native platform wheel，并验证PDF
 创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖全部五个

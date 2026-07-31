@@ -708,10 +708,12 @@ known-limit behavior are polished together.
       non-embedded Adobe CJK collections to matching Noto regional glyphs and
       also provide generation fonts; `[ar]`, `[he]`, `[hi]`, and `[th]` add
       shaped generation providers. `font_language` resolves ambiguous Han,
-      `[cjk]` remains a `[jp]` compatibility alias, and save/reopen conformance
-      covers every provider. Thai, Lao, Khmer, and Myanmar extraction no longer
-      invent spaces inside no-space-script runs, and Markdown joins their
-      wrapped physical lines without inserting Latin-style spaces.
+      and save/reopen conformance covers every provider. The misleading
+      Japanese-only generic extra and package discovery were removed before
+      release; locale names are the only public installation contract. Thai,
+      Lao, Khmer, and Myanmar extraction no longer invent spaces inside
+      no-space-script runs, and Markdown joins their wrapped physical lines
+      without inserting Latin-style spaces.
 - [x] Remove the Pillow/PNG round-trip from rendered-image reuse:
       `Page.insert_image(pixmap=)` now converts immutable straight-alpha RGBA8
       storage directly into a Flate-compressed PDF Image XObject, preserves

@@ -23,8 +23,8 @@ pip install "pylopdf[ar]"     # Arabic generation (also: he, hi, th)
 
 The four CJK locale extras support both rendering non-embedded Adobe CJK fonts
 and subset-embedded generation. Arabic, Hebrew, Devanagari, and Thai packages
-are generation providers. The former Japanese-only `pylopdf[cjk]` name remains
-as a compatibility alias for `pylopdf[jp]`.
+are generation providers. Choose `jp`, `ko`, `zh-cn`, or `zh-tw` explicitly
+for the required regional glyph conventions; there is no generic CJK extra.
 
 Release CI installs every native platform wheel on an architecture-matched
 runner and exercises PDF creation, saving, reopening, extraction, rendering,

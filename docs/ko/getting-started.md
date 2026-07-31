@@ -23,7 +23,8 @@ pip install "pylopdf[ar]"     # 아랍어 생성(he, hi, th도 제공)
 
 네 CJK 지역 extra는 임베드되지 않은 Adobe CJK font의 렌더링 fallback과 subset
 내장 생성을 모두 지원합니다. `ar`, `he`, `hi`, `th`는 생성 provider입니다.
-이전 일본어 전용 `pylopdf[cjk]`는 `pylopdf[jp]` 호환 alias로 남습니다.
+필요한 지역 글리프 규칙에 맞춰 `jp`, `ko`, `zh-cn`, `zh-tw`를 명시적으로
+선택합니다. 범용 CJK extra는 제공하지 않습니다.
 
 release CI는 architecture가 일치하는 runner에 모든 native platform wheel을 설치하고
 PDF 생성, 저장, 다시 열기, extraction, rendering 및 immutable Pixmap storage를
