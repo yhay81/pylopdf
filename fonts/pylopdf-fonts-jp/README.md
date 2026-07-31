@@ -32,6 +32,4 @@ The files come from
 `Sans/SubsetOTF/JP` and `Serif/SubsetOTF/JP`. Both are licensed under the
 SIL Open Font License 1.1. See `LICENSE`.
 
-The distribution replaces the legacy `pylopdf-fonts-cjk` name. pylopdf still
-detects that package when it is already installed, and the `pylopdf[cjk]`
-extra remains as a compatibility alias for `pylopdf[jp]`.
+Install this distribution through the canonical `pylopdf[jp]` extra.

@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation; `[ar]`, `[he]`, `[hi]`, and `[th]` add generation providers for
   Arabic, Hebrew, Devanagari, and Thai. `font_language=` selects an explicit
   provider for `insert_text`, `insert_textbox`, and `set_form_field`, and
-  selects the CJK collection slot for `set_fallback_font`. `[cjk]` remains a
-  compatibility alias for `[jp]`, and the legacy `pylopdf-fonts-cjk`
-  distribution remains detectable.
+  selects the CJK collection slot for `set_fallback_font`. The generic `[cjk]`
+  extra and legacy `pylopdf-fonts-cjk` discovery have been removed; install
+  `[jp]`, `[ko]`, `[zh-cn]`, or `[zh-tw]` explicitly.
 - `Document.get_text(pages=None)` extracts plain text from up to 4,096 pages
   in one batched call. `pages` follows the `render_pages` convention:
   zero-based numbers in the given order, `None` for every page, negative

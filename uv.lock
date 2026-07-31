@@ -1097,9 +1097,6 @@ source = { editable = "." }
 ar = [
     { name = "pylopdf-fonts-ar" },
 ]
-cjk = [
-    { name = "pylopdf-fonts-jp" },
-]
 he = [
     { name = "pylopdf-fonts-he" },
 ]
@@ -1154,7 +1151,6 @@ requires-dist = [
     { name = "pylopdf-fonts-ar", marker = "extra == 'ar'", editable = "fonts/pylopdf-fonts-ar" },
     { name = "pylopdf-fonts-he", marker = "extra == 'he'", editable = "fonts/pylopdf-fonts-he" },
     { name = "pylopdf-fonts-hi", marker = "extra == 'hi'", editable = "fonts/pylopdf-fonts-hi" },
-    { name = "pylopdf-fonts-jp", marker = "extra == 'cjk'", editable = "fonts/pylopdf-fonts-jp" },
     { name = "pylopdf-fonts-jp", marker = "extra == 'jp'", editable = "fonts/pylopdf-fonts-jp" },
     { name = "pylopdf-fonts-ko", marker = "extra == 'ko'", editable = "fonts/pylopdf-fonts-ko" },
     { name = "pylopdf-fonts-th", marker = "extra == 'th'", editable = "fonts/pylopdf-fonts-th" },
@@ -1162,7 +1158,7 @@ requires-dist = [
     { name = "pylopdf-fonts-zh-tw", marker = "extra == 'zh-tw'", editable = "fonts/pylopdf-fonts-zh-tw" },
     { name = "pylopdf-ocr-models", marker = "extra == 'ocr'", editable = "models/pylopdf-ocr-models" },
 ]
-provides-extras = ["ar", "he", "hi", "jp", "ko", "th", "zh-cn", "zh-tw", "cjk", "ocr"]
+provides-extras = ["ar", "he", "hi", "jp", "ko", "th", "zh-cn", "zh-tw", "ocr"]
 
 [package.metadata.requires-dev]
 bench = [

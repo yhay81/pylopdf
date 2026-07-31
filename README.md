@@ -68,9 +68,9 @@ pip install "pylopdf[ocr]"   # offline PP-OCRv6 recognition, pure Rust,
 
 The locale-specific CJK extras provide both non-embedded PDF fallback and
 generation fonts. The `ar`, `he`, `hi`, and `th` extras provide generation
-fonts for Arabic, Hebrew, Devanagari, and Thai. `pylopdf[cjk]` remains a
-compatibility alias for the former Japanese-only extra; new installations
-should use `pylopdf[jp]`.
+fonts for Arabic, Hebrew, Devanagari, and Thai. Choose `jp`, `ko`, `zh-cn`, or
+`zh-tw` explicitly for the required regional glyph conventions; there is no
+generic CJK font extra.
 
 Building from source requires a Rust toolchain: `uv sync`.
 

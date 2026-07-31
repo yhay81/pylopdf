@@ -110,6 +110,26 @@ def test_auto_discovery_via_extra() -> None:
     assert png != render_blank_baseline()
 
 
+def test_auto_discovery_uses_only_canonical_font_packages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Do not probe the removed Japanese compatibility package."""
+    requested: list[str] = []
+    bundled_font_providers = pylopdf._bundled_font_providers  # noqa: SLF001
+    provider_specs = pylopdf._FONT_PROVIDER_SPECS  # noqa: SLF001
+
+    def missing_module(module_name: str) -> None:
+        requested.append(module_name)
+
+    bundled_font_providers.cache_clear()
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(pylopdf, "_import_optional_font_module", missing_module)
+            assert bundled_font_providers() == ()
+    finally:
+        bundled_font_providers.cache_clear()
+
+    assert requested == [module_name for _, _, module_name in provider_specs]
+
+
 @pytest.mark.parametrize(
     ("font_language", "text"),
     [("ko", "한국어"), ("zh-CN", "简体中文"), ("zh-TW", "繁體中文")],

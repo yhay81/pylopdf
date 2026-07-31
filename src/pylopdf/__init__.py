@@ -1073,12 +1073,10 @@ def _import_optional_font_module(module_name: str) -> object | None:
 
 @functools.cache
 def _bundled_font_providers() -> tuple[_BundledFontProvider, ...]:
-    """Locate installed locale font packages, including the legacy JP wheel."""
+    """Locate installed locale font packages."""
     providers: list[_BundledFontProvider] = []
     for language, extra, module_name in _FONT_PROVIDER_SPECS:
         module = _import_optional_font_module(module_name)
-        if module is None and language == "ja":
-            module = _import_optional_font_module("pylopdf_fonts_cjk")
         if module is None:
             continue
         font_module = cast("Any", module)
@@ -2143,9 +2141,9 @@ class Page:
         ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
         ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
         Kana, Hangul, and Bopomofo select an installed locale automatically;
-        pure Han preserves the JP-first compatibility default.
+        pure Han uses the JP-first automatic default.
         ``font_language`` selects a specific installed locale for ambiguous
-        Han text. The legacy ``[cjk]`` extra remains an alias for ``[jp]``.
+        Han text.
         ``fontindex`` selects a face in a TrueType/OpenType collection and
         ``fontname`` is otherwise ignored for embedded fonts. A single line
         should use one script and the selected font must contain all needed
