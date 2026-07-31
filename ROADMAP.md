@@ -557,11 +557,11 @@ recovery. Work beyond the release continues on the same line.
       scores measure pymupdf reference conventions: pylopdf beats pymupdf's
       own sorted mode on the rotated Senate table and matches it at 0.991 on
       the 1040 form, which the benchmark caveat now records.
-- [x] Restore pure RTL lines from visual glyph order to logical Unicode order
-      across text, positioned layout, search, tables, and Markdown. Unicode
-      bidirectional classes conservatively exclude Latin and numeric runs;
-      mixed-direction paragraph layout remains explicit depth rather than a
-      producer-independent guess. In-place glyph reversal preserves
+- [x] Restore pure RTL lines and one Latin or numeric token bracketed by RTL
+      text from visual glyph order to logical Unicode order across text,
+      positioned layout, search, tables, and Markdown. Edge tokens, multiple
+      tokens, and general neutral punctuation remain explicit depth rather than
+      a producer-independent guess. In-place glyph reversal preserves
       multi-character CMaps and repairs separate nonspacing-mark clusters.
 - Continue the limitation review from measured field cases; prefer extraction,
   Markdown, OCR, and recovery improvements that increase end-to-end document

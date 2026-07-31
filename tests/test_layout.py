@@ -273,23 +273,46 @@ def test_horizontal_cjk_is_not_misclassified_as_vertical() -> None:
     assert line["wmode"] == 0
 
 
-def test_pure_rtl_lines_use_logical_order_across_text_apis() -> None:
-    """Restore visual-order Hebrew and Arabic without altering numeric mixtures."""
+def test_rtl_lines_use_logical_order_across_text_apis() -> None:
+    """Restore pure RTL and one embedded token without guessing ambiguous lines."""
     hebrew_visual = "0001000200030004000500010003000200060007"
     arabic_visual = "0010001100120013001100120014000500120014001500160010"
-    mixed_visual = "0001000200030004000500330032003100050001000300020006"
+    embedded_number_visual = "0001000200030004000500310032003300050001000300020006"
+    embedded_latin_visual = "0001000200030004000500500044004600050001000300020006"
+    embedded_separator_visual = "0001000200030004000500310032002D0033003100050001000300020006"
+    embedded_descending_visual = "0001000200030004000500330032003100050001000300020006"
+    ambiguous_visual = "00010002000300040005005000440046000500310032003300050001000300020006"
     stream = (
-        f"BT /F1 20 Tf 40 240 Td <{hebrew_visual}> Tj ET\n"
-        f"BT /F1 20 Tf 40 190 Td <{arabic_visual}> Tj ET\n"
-        f"BT /F1 20 Tf 40 140 Td <{mixed_visual}> Tj ET"
+        f"BT /F1 20 Tf 40 330 Td <{hebrew_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 285 Td <{arabic_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 240 Td <{embedded_number_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 195 Td <{embedded_latin_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 150 Td <{embedded_separator_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 105 Td <{embedded_descending_visual}> Tj ET\n"
+        f"BT /F1 20 Tf 40 60 Td <{ambiguous_visual}> Tj ET"
     )
-    page = pylopdf.open(stream=build_visual_rtl_pdf(stream))[0]
+    page = pylopdf.open(stream=build_visual_rtl_pdf(stream, height=360))[0]
     hebrew = "שְלום עולם"
     arabic = "مرحبا بالعالم"
-    untouched_mixed = "םלוע 321 םולש"
+    embedded_number = "שלום 123 עולם"
+    embedded_latin = "שלום PDF עולם"
+    embedded_separator = "שלום 12-31 עולם"
+    embedded_descending = "שלום 321 עולם"
+    untouched_ambiguous = "םלוע PDF 123 םולש"
 
-    assert page.get_text().splitlines() == [hebrew, arabic, untouched_mixed]
-    assert page.parent.get_text() == f"{hebrew}\n{arabic}\n{untouched_mixed}\n"
+    assert page.get_text().splitlines() == [
+        hebrew,
+        arabic,
+        embedded_number,
+        embedded_latin,
+        embedded_separator,
+        embedded_descending,
+        untouched_ambiguous,
+    ]
+    assert page.parent.get_text() == (
+        f"{hebrew}\n{arabic}\n{embedded_number}\n{embedded_latin}\n{embedded_separator}\n"
+        f"{embedded_descending}\n{untouched_ambiguous}\n"
+    )
 
     words = page.get_text("words")
     assert [word[4] for word in words] == [
@@ -297,8 +320,21 @@ def test_pure_rtl_lines_use_logical_order_across_text_apis() -> None:
         "עולם",
         "مرحبا",
         "بالعالم",
-        "םלוע",
+        "שלום",
+        "123",
+        "עולם",
+        "שלום",
+        "PDF",
+        "עולם",
+        "שלום",
+        "12-31",
+        "עולם",
+        "שלום",
         "321",
+        "עולם",
+        "םלוע",
+        "PDF",
+        "123",
         "םולש",
     ]
     assert words[0][0] > words[1][0]
@@ -308,16 +344,37 @@ def test_pure_rtl_lines_use_logical_order_across_text_apis() -> None:
     assert [span["text"] for line in lines for span in line["spans"]] == [
         hebrew,
         arabic,
-        untouched_mixed,
+        embedded_number,
+        embedded_latin,
+        embedded_separator,
+        embedded_descending,
+        untouched_ambiguous,
     ]
     assert len(page.search_for("שְלום")) == 1
     assert len(page.search_for("بالعالم")) == 1
-    assert page.search_for("שלום") == []
+    assert len(page.search_for("123")) == 2
+    assert len(page.search_for("PDF")) == 2
+    assert len(page.search_for("12-31")) == 1
+    assert len(page.search_for("שלום")) == 4
 
     markdown = page.to_markdown()
     assert hebrew in markdown
     assert arabic in markdown
-    assert untouched_mixed in markdown
+    assert embedded_number in markdown
+    assert embedded_latin in markdown
+    assert embedded_separator in markdown
+    assert embedded_descending in markdown
+    assert untouched_ambiguous in markdown
+
+
+def test_rtl_edge_token_and_ltr_base_line_remain_in_producer_order() -> None:
+    """Do not guess when a forward token is not bracketed by RTL text."""
+    ltr_base = "00500044004600050001000300020006"
+    rtl_edge = "00010002000300040005005000440046"
+    stream = f"BT /F1 20 Tf 40 200 Td <{ltr_base}> Tj ET\nBT /F1 20 Tf 40 140 Td <{rtl_edge}> Tj ET"
+    page = pylopdf.open(stream=build_visual_rtl_pdf(stream))[0]
+
+    assert page.get_text().splitlines() == ["PDF םולש", "םלוע PDF"]
 
 
 def test_vertical_cjk_inference_stops_at_candidate_boundary() -> None:

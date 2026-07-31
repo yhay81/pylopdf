@@ -125,14 +125,16 @@ overview.
   discarding or partially exposing the cached page interpretation. Structured
   word generation reuses borrowed glyph slices instead of building a temporary
   reference vector for every word. After geometry-driven line and column
-  discovery, lines containing strong RTL text but no Latin or numeric runs are
-  reversed in place into logical Unicode order. Multi-character CMap mappings
-  remain intact, separate nonspacing-mark glyphs stay with their base, and
-  symmetric inline-gap checks keep inferred spaces valid in either direction.
-  Cache the required bidi properties once per collected glyph rather than
-  repeating Unicode table lookups during each output materialization.
-  Search, spans, words, tables, and Markdown share that order. Mixed-direction
-  paragraph layout remains in producer visual order.
+  discovery, pure RTL lines are reversed in place into logical Unicode order.
+  A line with exactly one Latin or numeric token bracketed by strong RTL text
+  also restores that token's forward order. Edge tokens, multiple tokens,
+  standalone marks, general neutral punctuation, and other mixed-direction
+  paragraph layouts remain in producer visual order. Multi-character CMap
+  mappings remain intact, separate nonspacing-mark glyphs stay with their base,
+  and symmetric inline-gap checks keep inferred spaces valid in either
+  direction. Cache the required bidi properties once per collected glyph
+  rather than repeating Unicode table lookups during each output
+  materialization. Search, spans, words, tables, and Markdown share that order.
   Sustained whitespace gutters split same-baseline segments into recursive
   left-to-right columns; full-width headings and footers remain outside the
   column regions, and isolated wide gaps stay on one line. Baseline bands
@@ -578,9 +580,10 @@ overview.
   and form filling uses its document rollback. `max_text_size=None` explicitly
   opts trusted insertion input out, failures use `text_input_size` or
   `text_line_count`. Paragraph layout remains outside `insert_text`. Pure RTL
-  lines without Latin or numeric runs round-trip through extraction in logical
-  Unicode order; mixed-direction paragraph layout remains in producer visual
-  order. krilla emits `/ActualText` for complex glyph-to-Unicode mappings.
+  lines and lines with one Latin or numeric token bracketed by RTL text
+  round-trip through extraction in logical Unicode order; the broader
+  mixed-direction boundary remains in producer visual order. krilla emits
+  `/ActualText` for complex glyph-to-Unicode mappings.
   Generated PDFs retain it for compliant viewers, but hayro 0.7 does not expose
   that property to extraction devices, so some reordered or context-dependent
   complex-script clusters remain an explicit pylopdf extraction limitation.

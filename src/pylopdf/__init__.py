@@ -2148,11 +2148,12 @@ class Page:
         ``fontname`` is otherwise ignored for embedded fonts. A single line
         should use one script and the selected font must contain all needed
         glyphs; no per-glyph fallback or paragraph layout is performed. RTL
-        glyph shaping renders correctly. Pure RTL lines without Latin or
-        numeric runs extract in logical Unicode order; mixed-direction
-        paragraph layout remains in producer visual order. Complex scripts can
-        require PDF ``/ActualText`` when logical text does not map one-to-one
-        to glyphs. Generated PDFs preserve it for compatible viewers, but the
+        glyph shaping renders correctly. Pure RTL lines and lines with one
+        Latin or numeric token bracketed by RTL text extract in logical Unicode
+        order. Edge tokens, multiple tokens, and general mixed-direction
+        paragraph layout remain in producer visual order. Complex scripts can
+        require PDF ``/ActualText`` when logical text does not map one-to-one to
+        glyphs. Generated PDFs preserve it for compatible viewers, but the
         current pylopdf extractor does not consume it, so some reordered or
         context-dependent clusters can extract approximately after reopening.
 

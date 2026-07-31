@@ -154,7 +154,7 @@ begincmap
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
-17 beginbfchar
+21 beginbfchar
 <0001> <05DD>
 <0002> <05DC>
 <0003> <05D5>
@@ -169,9 +169,13 @@ endcodespacerange
 <0014> <0628>
 <0015> <062D>
 <0016> <0631>
+<002D> <002D>
 <0031> <0031>
 <0032> <0032>
 <0033> <0033>
+<0044> <0044>
+<0046> <0046>
+<0050> <0050>
 endbfchar
 endcmap
 CMapName currentdict /CMap defineresource pop

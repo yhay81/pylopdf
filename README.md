@@ -172,8 +172,9 @@ pylopdf documents its boundaries instead of guessing. Multicolumn reading
 order follows deterministic whitespace-gutter rules; borderless table
 detection is opt-in because aligned prose is geometrically ambiguous. CJK text
 generation selects one font per run (not per-glyph fallback). Pure RTL lines
-without Latin or numeric runs are restored to logical Unicode order; mixed
-bidirectional paragraph layout remains in producer visual order. Ruby, warichu,
+and lines with one Latin or numeric token bracketed by RTL text are restored to
+logical Unicode order. Edge tokens, multiple tokens, and general mixed
+bidirectional paragraph layout remain in producer visual order. Ruby, warichu,
 and mixed-orientation Japanese typography are not interpreted semantically.
 Typesetting, PDF/A output, and digital signatures are intentionally out of
 scope — see the ecosystem recipes below. The
