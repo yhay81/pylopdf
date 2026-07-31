@@ -82,9 +82,9 @@ text、image或annotation，但仍会应用optional-content的可见性。结果
 Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容旧行为仍优先JP；
 地区字形很重要时请指定`font_language="zh-CN"`、`"zh-TW"`、`"ko"`或`"ja"`。
 整段只选择一个font，并非逐glyph fallback。
-每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。不含拉丁文字或
-数字run的纯RTL行会按逻辑Unicode顺序提取；混合方向的paragraph仍保留producer的
-visual order。
+每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。纯RTL行，以及只有
+一个被RTL文字包围的拉丁或数字token的行，会按逻辑Unicode顺序提取。行首或行尾token、
+多个token以及一般混合方向paragraph仍保留producer的visual order。
 
 `insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，
 并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、

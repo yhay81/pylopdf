@@ -41,12 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicit contrasting foreground, including selected links. Inline code now
   uses a subtle paper background so linked code remains legible while fenced
   code blocks retain their dark treatment.
-- Pure right-to-left lines without Latin or numeric runs are now restored from
-  visual glyph order to logical Unicode order across plain text, positioned
-  words and spans, search geometry, table cells, and Markdown. The conservative
-  boundary leaves mixed-direction lines in producer visual order rather than
-  guessing their paragraph layout; separate nonspacing-mark glyphs remain
-  attached to their base characters.
+- Pure right-to-left lines and lines with one Latin or numeric token bracketed
+  by RTL text are now restored from visual glyph order to logical Unicode order
+  across plain text, positioned words and spans, search geometry, table cells,
+  and Markdown. The conservative boundary leaves edge tokens, multiple tokens,
+  and general mixed-direction paragraphs in producer visual order rather than
+  guessing their layout; separate nonspacing-mark glyphs remain attached to
+  their base characters.
 - Wide-gutter column detection no longer splits spreadsheet-like rows into
   label, grid, and total blocks. A candidate gutter is rejected when the
   baseline bands it bisects fragment into more than four same-baseline cell

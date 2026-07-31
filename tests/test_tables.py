@@ -191,9 +191,15 @@ def test_find_bordered_table() -> None:
     assert table.to_markdown() == "| Name | Value |\n| --- | --- |\n| Alpha | 42 |"
 
 
-def test_bordered_table_restores_pure_rtl_cell_text() -> None:
+@pytest.mark.parametrize(
+    ("hebrew_visual", "expected"),
+    [
+        ("0001000200030004000500010003000200060007", "שְלום עולם"),
+        ("0001000200030004000500310032003300050001000300020006", "שלום 123 עולם"),
+    ],
+)
+def test_bordered_table_restores_rtl_cell_text(hebrew_visual: str, expected: str) -> None:
     """Keep table materialization consistent with logical page extraction."""
-    hebrew_visual = "0001000200030004000500010003000200060007"
     stream = (
         "q 0 G 1 w\n"
         "40 260 m 300 260 l\n"
@@ -205,20 +211,26 @@ def test_bordered_table_restores_pure_rtl_cell_text() -> None:
         "S Q\n"
         "BT /F2 12 Tf 50 235 Td (Name) Tj ET\n"
         "BT /F2 12 Tf 180 235 Td (Value) Tj ET\n"
-        f"BT /F1 10 Tf 50 195 Td <{hebrew_visual}> Tj ET\n"
+        f"BT /F1 8 Tf 50 195 Td <{hebrew_visual}> Tj ET\n"
         "BT /F2 12 Tf 180 195 Td (42) Tj ET"
     )
     page = pylopdf.open(stream=build_visual_rtl_pdf(stream))[0]
     table = page.find_tables()[0]
 
-    assert table.extract() == [["Name", "Value"], ["שְלום עולם", "42"]]
-    assert "שְלום עולם" in table.to_markdown()
-    assert "שְלום עולם" in page.parent.to_markdown()
+    assert table.extract() == [["Name", "Value"], [expected, "42"]]
+    assert expected in table.to_markdown()
+    assert expected in page.parent.to_markdown()
 
 
-def test_borderless_table_restores_pure_rtl_cell_text() -> None:
+@pytest.mark.parametrize(
+    ("hebrew_visual", "expected"),
+    [
+        ("0001000200030004000500010003000200060007", "שְלום עולם"),
+        ("0001000200030004000500500044004600050001000300020006", "שלום PDF עולם"),
+    ],
+)
+def test_borderless_table_restores_rtl_cell_text(hebrew_visual: str, expected: str) -> None:
     """Apply the same logical ordering to accepted text-table segments."""
-    hebrew_visual = "0001000200030004000500010003000200060007"
     rows = "\n".join(
         (
             f"BT /F1 10 Tf 40 {240 - row * 30} Td <{hebrew_visual}> Tj ET\n"
@@ -230,9 +242,9 @@ def test_borderless_table_restores_pure_rtl_cell_text() -> None:
     table = page.find_tables(strategy="text")[0]
 
     assert table.extract() == [
-        ["שְלום עולם", "1"],
-        ["שְלום עולם", "2"],
-        ["שְלום עולם", "3"],
+        [expected, "1"],
+        [expected, "2"],
+        [expected, "3"],
     ]
 
 

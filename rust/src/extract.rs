@@ -96,6 +96,13 @@ impl GlyphText {
         }
     }
 
+    fn starts_with(&self, needle: char) -> bool {
+        match self {
+            Self::Char(c) => *c == needle,
+            Self::Heap(s) => s.starts_with(needle),
+        }
+    }
+
     /// Number of trailing ASCII space bytes.
     fn trailing_spaces(&self) -> usize {
         match self {
@@ -2172,7 +2179,7 @@ impl TextPage {
         let physical_lines = cluster_lines(marks.glyphs)?;
         let mut lines = order_page_lines(physical_lines)?;
         for line in &mut lines {
-            logicalize_pure_rtl_line(line);
+            logicalize_rtl_line(line);
         }
         Ok(Self {
             width: f64::from(width),
@@ -2329,6 +2336,9 @@ fn needs_gap(previous: Option<&GlyphRecord>, glyph: &GlyphRecord) -> bool {
         return false;
     }
     previous.is_some_and(|previous| {
+        if previous.text.ends_with(' ') || glyph.text.starts_with(' ') {
+            return false;
+        }
         if glyph_uses_no_space_script(previous) && glyph_uses_no_space_script(glyph) {
             return false;
         }
@@ -2370,33 +2380,123 @@ fn glyph_end(glyph: &GlyphRecord) -> f64 {
     glyph_progress(glyph) + glyph.advance
 }
 
-/// Return whether a line contains strong RTL text and no LTR or numeric run.
-///
-/// Geometry alone cannot recover arbitrary mixed-direction paragraph layout.
-/// Restrict in-place restoration to pure RTL lines so Latin and number runs
-/// that a producer already positioned deliberately are never corrupted.
-fn glyphs_are_pure_rtl<'a>(glyphs: impl IntoIterator<Item = &'a GlyphRecord>) -> bool {
-    let mut saw_rtl = false;
-    for glyph in glyphs {
-        if glyph.bidi_flags & BIDI_DISALLOWED != 0 {
-            return false;
-        }
-        saw_rtl |= glyph.bidi_flags & BIDI_RTL_STRONG != 0;
-    }
-    saw_rtl
-}
-
-fn is_pure_rtl_line(line: &[GlyphRecord]) -> bool {
-    glyphs_are_pure_rtl(line)
-}
-
 fn glyph_is_nonspacing_mark(glyph: &GlyphRecord) -> bool {
     glyph.bidi_flags & BIDI_NSM_ONLY != 0
 }
 
 const BIDI_RTL_STRONG: u8 = 1;
-const BIDI_DISALLOWED: u8 = 1 << 1;
+const BIDI_FORWARD: u8 = 1 << 1;
 const BIDI_NSM_ONLY: u8 = 1 << 2;
+const BIDI_WHITESPACE: u8 = 1 << 3;
+const BIDI_TOKEN_SEPARATOR: u8 = 1 << 4;
+const BIDI_OTHER_NEUTRAL: u8 = 1 << 5;
+const BIDI_UNSUPPORTED: u8 = 1 << 6;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RtlLineOrder {
+    None,
+    Pure,
+    EmbeddedForwardToken,
+}
+
+#[derive(Clone, Copy)]
+enum MixedRtlState {
+    BeforeToken,
+    Token,
+    AwaitingRtl,
+    AfterToken,
+}
+
+/// Classify RTL text that can be restored without guessing paragraph layout.
+///
+/// A single forward token bracketed by RTL text is unambiguous: reverse the
+/// RTL line, then restore that token's internal order. Whitespace-separated
+/// forward runs, edge tokens, standalone marks, and general neutral punctuation
+/// can map to multiple logical strings, so they remain in producer order.
+fn glyphs_rtl_order<'a>(glyphs: impl IntoIterator<Item = &'a GlyphRecord>) -> RtlLineOrder {
+    let mut state = MixedRtlState::BeforeToken;
+    let mut saw_rtl = false;
+    let mut saw_rtl_before = false;
+    let mut saw_rtl_after = false;
+    let mut saw_forward = false;
+    let mut token_ends_forward = false;
+    let mut mixed_invalid = false;
+
+    for glyph in glyphs {
+        let flags = glyph.bidi_flags;
+        if flags & BIDI_UNSUPPORTED != 0
+            || flags & BIDI_RTL_STRONG != 0 && flags & BIDI_FORWARD != 0
+        {
+            return RtlLineOrder::None;
+        }
+        if flags & (BIDI_NSM_ONLY | BIDI_OTHER_NEUTRAL) != 0 {
+            mixed_invalid = true;
+        }
+        if flags & BIDI_RTL_STRONG != 0 {
+            saw_rtl = true;
+            if saw_forward {
+                if !token_ends_forward {
+                    mixed_invalid = true;
+                }
+                saw_rtl_after = true;
+                state = MixedRtlState::AfterToken;
+            } else {
+                saw_rtl_before = true;
+            }
+            continue;
+        }
+        if flags & BIDI_FORWARD != 0 {
+            match state {
+                MixedRtlState::BeforeToken | MixedRtlState::Token => {
+                    saw_forward = true;
+                    token_ends_forward = true;
+                    state = MixedRtlState::Token;
+                }
+                MixedRtlState::AwaitingRtl | MixedRtlState::AfterToken => {
+                    mixed_invalid = true;
+                }
+            }
+            continue;
+        }
+        if flags & BIDI_TOKEN_SEPARATOR != 0 {
+            if matches!(state, MixedRtlState::Token) {
+                token_ends_forward = false;
+            } else {
+                mixed_invalid = true;
+            }
+            continue;
+        }
+        if flags & BIDI_WHITESPACE != 0 && matches!(state, MixedRtlState::Token) {
+            if !token_ends_forward {
+                mixed_invalid = true;
+            }
+            state = MixedRtlState::AwaitingRtl;
+        }
+    }
+
+    if !saw_rtl {
+        RtlLineOrder::None
+    } else if !saw_forward {
+        RtlLineOrder::Pure
+    } else if !mixed_invalid
+        && saw_rtl_before
+        && saw_rtl_after
+        && token_ends_forward
+        && matches!(state, MixedRtlState::AfterToken)
+    {
+        RtlLineOrder::EmbeddedForwardToken
+    } else {
+        RtlLineOrder::None
+    }
+}
+
+fn is_pure_rtl_line(line: &[GlyphRecord]) -> bool {
+    glyphs_rtl_order(line) == RtlLineOrder::Pure
+}
+
+fn glyph_is_forward_token_part(glyph: &GlyphRecord) -> bool {
+    glyph.bidi_flags & (BIDI_FORWARD | BIDI_TOKEN_SEPARATOR) != 0
+}
 
 /// Summarize the bidi properties needed by extraction once at collection time.
 fn glyph_bidi_flags(text: &GlyphText) -> u8 {
@@ -2407,7 +2507,7 @@ fn glyph_bidi_flags(text: &GlyphText) -> u8 {
             let mut nsm_only = true;
             for ch in text.chars() {
                 let char_flags = char_bidi_flags(ch);
-                flags |= char_flags & (BIDI_RTL_STRONG | BIDI_DISALLOWED);
+                flags |= char_flags & !BIDI_NSM_ONLY;
                 nsm_only &= char_flags & BIDI_NSM_ONLY != 0;
             }
             if nsm_only {
@@ -2420,37 +2520,30 @@ fn glyph_bidi_flags(text: &GlyphText) -> u8 {
 
 fn char_bidi_flags(ch: char) -> u8 {
     // ASCII dominates common PDF text and never contains a nonspacing mark.
-    // Letters and digits make a line ineligible for pure RTL restoration; the
-    // remaining ASCII classes are permitted neutrals.
-    if ch.is_ascii() {
-        return if ch.is_ascii_alphanumeric() {
-            BIDI_DISALLOWED
-        } else {
-            0
-        };
+    // Classify its letters and digits without a Unicode table lookup.
+    if ch.is_ascii_alphanumeric() {
+        return BIDI_FORWARD;
     }
     match bidi_class(ch) {
         BidiClass::R | BidiClass::AL => BIDI_RTL_STRONG,
+        BidiClass::L | BidiClass::EN | BidiClass::AN => BIDI_FORWARD,
         BidiClass::NSM => BIDI_NSM_ONLY,
-        BidiClass::ON
-        | BidiClass::WS
-        | BidiClass::B
-        | BidiClass::S
-        | BidiClass::BN
-        | BidiClass::CS
-        | BidiClass::ES
-        | BidiClass::ET => 0,
-        _ => BIDI_DISALLOWED,
+        BidiClass::WS | BidiClass::B | BidiClass::S | BidiClass::BN => BIDI_WHITESPACE,
+        BidiClass::CS | BidiClass::ES | BidiClass::ET => BIDI_TOKEN_SEPARATOR,
+        BidiClass::ON => BIDI_OTHER_NEUTRAL,
+        _ => BIDI_UNSUPPORTED,
     }
 }
 
-/// Restore one pure RTL line from display order to logical Unicode order.
+/// Restore one unambiguous RTL line from display order to logical Unicode order.
 ///
 /// Reverse glyph records rather than scalar values so multi-character CMap
 /// mappings stay intact. A shaped base followed by separate nonspacing-mark
-/// records is reversed as one cluster without allocating an index vector.
-fn logicalize_pure_rtl_line(line: &mut [GlyphRecord]) {
-    if !is_pure_rtl_line(line) {
+/// records is reversed as one cluster without allocating an index vector. One
+/// embedded forward token is then reversed back in place.
+fn logicalize_rtl_line(line: &mut [GlyphRecord]) {
+    let order = glyphs_rtl_order(line.iter());
+    if order == RtlLineOrder::None {
         return;
     }
     line.reverse();
@@ -2468,6 +2561,18 @@ fn logicalize_pure_rtl_line(line: &mut [GlyphRecord]) {
             line[start..=index].reverse();
             index += 1;
         }
+    }
+    if order == RtlLineOrder::EmbeddedForwardToken {
+        let start = line
+            .iter()
+            .position(glyph_is_forward_token_part)
+            .expect("embedded token classification requires a forward glyph");
+        let end = line
+            .iter()
+            .rposition(glyph_is_forward_token_part)
+            .expect("embedded token classification requires a forward glyph")
+            + 1;
+        line[start..end].reverse();
     }
 }
 
@@ -3166,11 +3271,11 @@ fn cell_text(
                 && center_y >= y0 - TABLE_SNAP_TOLERANCE
                 && center_y <= y1 + TABLE_SNAP_TOLERANCE
         };
-        let pure_rtl = glyphs_are_pure_rtl(
+        let logical_rtl = glyphs_rtl_order(
             line.iter()
                 .filter(inside_cell)
                 .flat_map(|(_, glyphs)| glyphs.iter()),
-        );
+        ) != RtlLineOrder::None;
         let mut append_word =
             |&((word_x0, word_y0, word_x1, word_y1), glyphs): &BorrowedWord<'_>| {
                 let center_x = (word_x0 + word_x1) * 0.5;
@@ -3192,7 +3297,7 @@ fn cell_text(
                 has_row = true;
                 Ok::<(), TextPageLimit>(())
             };
-        if pure_rtl {
+        if logical_rtl {
             for word in line.iter().rev() {
                 append_word(word)?;
             }
@@ -3209,14 +3314,14 @@ fn cell_text(
 fn text_segment_value(segment: &[GlyphRecord]) -> Result<String, TextPageLimit> {
     let words = split_word_slices(segment)?;
     let mut text = String::new();
-    let pure_rtl = is_pure_rtl_line(segment);
+    let logical_rtl = glyphs_rtl_order(segment) != RtlLineOrder::None;
     let mut append_word = |glyphs: &[GlyphRecord]| {
         if !text.is_empty() {
             try_push_str_text(&mut text, " ", "borderless table cell text")?;
         }
         try_push_logical_glyphs(&mut text, glyphs, "borderless table cell text")
     };
-    if pure_rtl {
+    if logical_rtl {
         for (_, glyphs) in words.iter().rev() {
             append_word(glyphs)?;
         }

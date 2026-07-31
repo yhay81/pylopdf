@@ -89,9 +89,10 @@ Pure Han keeps the JP-first compatibility default; pass
 `font_language="zh-CN"`, `"zh-TW"`, `"ko"`, or `"ja"` when the locale matters.
 This is one whole-run font, not per-glyph fallback. Each line is shaped, but
 bidirectional paragraph layout and wrapping remain outside this primitive.
-RTL shaping renders correctly. Pure RTL lines without Latin or numeric runs
-extract in logical Unicode order; mixed-direction paragraphs remain in producer
-visual order.
+RTL shaping renders correctly. Pure RTL lines and lines with one Latin or
+numeric token bracketed by RTL text extract in logical Unicode order. Edge
+tokens, multiple tokens, and general mixed-direction paragraphs remain in
+producer visual order.
 
 Complex shaping can require PDF `/ActualText` to preserve a logical string that
 does not map one-to-one to glyphs. Generated PDFs include that data for external

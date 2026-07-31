@@ -85,9 +85,10 @@ Arabic、Hebrew、Devanagari、Thaiは導入済みproviderを自動選択しま�
 inputは互換性のためJP優先で、地域字形が重要なら`font_language="zh-CN"`、
 `"zh-TW"`、`"ko"`、`"ja"`を指定します。これはrun全体で1 fontを選ぶ動作で、
 glyphごとのfallbackではありません。各行の字形処理は行いますが、双方向paragraph
-layoutと折り返しは行いません。RTLの字形処理結果は正しく描画されます。Latin文字や
-数字のrunを含まない純RTL行は論理Unicode順で抽出されますが、混在方向のparagraphは
-producerの視覚順を維持します。
+layoutと折り返しは行いません。RTLの字形処理結果は正しく描画されます。純RTL行と、
+RTL textに両側を挟まれたLatinまたは数字tokenが1つだけある行は、論理Unicode順で
+抽出されます。行端のtoken、複数token、一般的な混在方向paragraphはproducerの
+視覚順を維持します。
 
 複雑な字形処理では、論理textとglyphが1対1に対応しない箇所をPDFの
 `/ActualText`で保持することがあります。生成PDFは外部viewer向けにこれを保持しますが、

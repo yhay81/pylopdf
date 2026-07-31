@@ -86,8 +86,9 @@ Bopomofo, Arabic, Hebrew, Devanagari, Thai는 설치된 provider를 자동 선�
 `font_language="ko"`, `"zh-CN"`, `"zh-TW"` 또는 `"ja"`를 지정합니다. run
 전체에서 font 하나를 고르며 glyph별 fallback은 아닙니다. 각 줄은 shaping하지만
 양방향 문단 layout과 줄바꿈은 제공하지
-않습니다. RTL은 올바르게 렌더링됩니다. Latin 문자나 숫자 run이 없는 순수 RTL 줄은
-논리적 Unicode 순서로 추출하지만, 혼합 방향 paragraph는 producer의 visual order를
+않습니다. RTL은 올바르게 렌더링됩니다. 순수 RTL 줄과 RTL text 양쪽에 둘러싸인
+Latin 또는 숫자 token이 하나뿐인 줄은 논리적 Unicode 순서로 추출합니다. 줄 가장자리
+token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visual order를
 유지합니다.
 
 `insert_textbox`는 리치 텍스트 엔진이 아니라 명시적 줄바꿈, tab 확장, CJK의 Unicode
