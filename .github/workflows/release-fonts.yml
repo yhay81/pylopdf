@@ -39,7 +39,7 @@ jobs:
   prepare:
     name: Select locale font package
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 1
     outputs:
       locale: ${{ steps.package.outputs.locale }}
       package: ${{ steps.package.outputs.package }}
@@ -82,7 +82,7 @@ jobs:
     name: Build and attest ${{ needs.prepare.outputs.package }}
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     permissions:
       artifact-metadata: write
       attestations: write
@@ -141,7 +141,7 @@ jobs:
       - prepare
       - build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     environment: pypi
     permissions:
       id-token: write
@@ -159,7 +159,7 @@ jobs:
       - prepare
       - publish
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     permissions:
       contents: write
     steps:

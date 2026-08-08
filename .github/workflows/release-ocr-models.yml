@@ -16,7 +16,7 @@ jobs:
   build:
     name: Build and attest pylopdf-ocr-models
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     permissions:
       artifact-metadata: write
       attestations: write
@@ -101,7 +101,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/ocr-models-v')
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     environment: pypi
     permissions:
       id-token: write
@@ -116,7 +116,7 @@ jobs:
     name: Create immutable GitHub release
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 1
     permissions:
       contents: write
     steps:
