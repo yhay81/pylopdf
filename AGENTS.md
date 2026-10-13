@@ -694,9 +694,13 @@ overview.
   snapshot detects changes but does not decide compatibility.
 - GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
   Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
-  Release CI builds all five native targets on architecture-matched standard
-  hosted runners and install-smokes every abi3 and cp314t artifact; do not
-  return Linux aarch64 or macOS x86_64 to an unexecuted cross-build.
+  All CI, documentation, fuzz, and release jobs use standard GitHub-hosted
+  runners. Native wheels must install and execute on all five supported
+  architecture-matched targets before publication. Set deadlines for each
+  workload so compilation, tests, and artifact uploads can finish; there is
+  no global one-minute cap. Skipped checks do not constitute validation.
+  Do not add personal infrastructure details to this public repository.
+  Run actionlint after workflow changes.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;
@@ -815,8 +819,8 @@ overview.
   Do not add `validate-pyproject-schema-store`; it raises `UnboundLocalError`.
 - Synchronize the version manually in three places: `pyproject.toml`,
   `rust/Cargo.toml`, and `src/pylopdf/__init__.py`.
-- Release CI cross-compiles macOS x86_64 on an arm64 runner because Intel runner
-  queues are slow.
+- Release wheels need installation and execution checks on all five supported
+  GitHub-hosted target architectures, including free-threaded Python.
 
 ## Release procedure
 
@@ -853,8 +857,11 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.13.0 is release-prepared on 2026-07-28, two days after the
-  v0.12 line shipped. The 0.13 line completes the fallible-allocation and
+- Current phase: v0.13.0 shipped on 2026-07-28. The 2026-10-13 review prioritizes
+  page geometry/navigation correctness, predictable rejection before mutation,
+  supported-floor typing/rebuilds, and GitHub-hosted verification that finishes.
+  `ROADMAP.md` lists stabilization, real-document quality, maintainability, and
+  v1.0 readiness in execution order. The 0.13 line completes the fallible-allocation and
   bounded-traversal campaign across the public surface, so allocator refusal
   surfaces as `PdfError` without partial results, unifies public page indexing
   behind one bounded iterative walker, and recovers narrow-column reading

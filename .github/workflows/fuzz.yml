@@ -8,29 +8,36 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: 1.99.0
+
 jobs:
   api:
     name: public API
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: rust
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - name: Build fuzz environment
-        run: uv sync --group fuzz --python 3.13
+        run: uv sync --group fuzz --no-editable-package pylopdf --python 3.13
       - name: Fuzz public workflows
         id: fuzz
         continue-on-error: true
         run: |
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-corpus"
           mkdir -p "${RUNNER_TEMP}/pylopdf-fuzz-artifacts"
-          uv run python fuzz/generate_corpus.py \
+          uv run --no-sync python fuzz/generate_corpus.py \
             --output "${RUNNER_TEMP}/pylopdf-fuzz-corpus"
-          uv run python fuzz/fuzz_api.py \
+          uv run --no-sync python fuzz/fuzz_api.py \
             -max_total_time=600 \
             -timeout=60 \
             -rss_limit_mb=2048 \

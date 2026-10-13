@@ -39,7 +39,7 @@ jobs:
   prepare:
     name: Select locale font package
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 5
     outputs:
       locale: ${{ steps.package.outputs.locale }}
       package: ${{ steps.package.outputs.package }}
@@ -73,16 +73,18 @@ jobs:
             echo "tag $REF_NAME does not match fonts-${locale}-v${version}" >&2
             exit 1
           fi
-          echo "locale=$locale" >> "$GITHUB_OUTPUT"
-          echo "package=$package" >> "$GITHUB_OUTPUT"
-          echo "path=$path" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "locale=$locale"
+            echo "package=$package"
+            echo "path=$path"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build and attest ${{ needs.prepare.outputs.package }}
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 20
     permissions:
       artifact-metadata: write
       attestations: write
@@ -94,7 +96,10 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "0.13.0"
           enable-cache: false
+      - name: Set up relocatable build Python
+        run: bash tools/setup_ci_python.sh 3.14
       - name: Verify bundled font hashes
         run: |
           cd "$PACKAGE_PATH"
@@ -141,7 +146,7 @@ jobs:
       - prepare
       - build
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write
@@ -159,7 +164,7 @@ jobs:
       - prepare
       - publish
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

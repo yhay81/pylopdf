@@ -2,6 +2,7 @@
 # Build and smoke-test the wheel for Pyodide 0.28.3 / Cloudflare Workers.
 
 set -euo pipefail
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:${PATH}"
 
 readonly PYODIDE_VERSION="0.28.3"
 readonly PYTHON_VERSION="3.13.2"
@@ -16,8 +17,10 @@ readonly MATURIN_VERSION="1.14.1"
 readonly EMSDK_COMMIT="3bcf1dcd01f040f370e10fe673a092d9ed79ebb5"
 readonly XBUILDENV_SHA256="7c1229a3d634e07a440fc916d56738ac4db61410dc6f50eb59a11e4a30f1b56a"
 
-readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+readonly REPOSITORY_ROOT
 readonly BUILD_ROOT="${PYLOPDF_PYODIDE_BUILD_ROOT:-${REPOSITORY_ROOT}/.tmp/pyodide-${PYODIDE_VERSION}}"
 readonly OUTPUT_DIR="${PYLOPDF_PYODIDE_OUTPUT_DIR:-${REPOSITORY_ROOT}/dist/pyodide-${PYODIDE_VERSION}}"
 readonly PYTHON_BIN="${PYLOPDF_PYODIDE_PYTHON:-python3.13}"

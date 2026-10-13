@@ -27,7 +27,9 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import TracebackType
-    from typing import Any, NoReturn, Self
+    from typing import Any, NoReturn
+
+    from typing_extensions import Self
 
 __version__ = "0.13.0"
 __all__ = [
@@ -2724,7 +2726,7 @@ class Document:
             raise ValueError(msg)
         resolved_limits = limits or DocumentLimits(max_decompressed_size=max_decompressed_size)
         limit_args = _document_limit_args(resolved_limits)
-        path = None if filename is None else str(filename)
+        path = None if filename is None else os.fspath(filename)
         self._limits = resolved_limits
         if stream is not None:
             doc = _Document.load_bytes(stream, None, *limit_args)
@@ -3427,8 +3429,8 @@ class Document:
         """
         self._ensure_open()
         numbers = self._materialize_structural_pages(page_numbers, "page_numbers")
-        self._bump_generation()
         self._doc.select(numbers)
+        self._bump_generation()
 
     def _materialize_structural_pages(
         self,
@@ -3473,8 +3475,8 @@ class Document:
             raise ValueError(msg)
         numbers = list(range(start, stop + step, step))
         position = None if start_at == -1 else self._insert_position(start_at, "start_at")
-        self._bump_generation()
         self._doc.merge_pages(other._doc, [n + 1 for n in numbers], position)
+        self._bump_generation()
 
     def new_page(self, pno: int = -1, width: float = 595.0, height: float = 842.0) -> Page:
         """Insert a blank page and return its :class:`Page`.
@@ -3496,8 +3498,8 @@ class Document:
         else:
             position = self._insert_position(pno, "pno")
             index = position
-        self._bump_generation()
         self._doc.new_page(position, width, height)
+        self._bump_generation()
         return self[index]
 
     def copy_page(self, pno: int, to: int = -1) -> None:
@@ -3508,8 +3510,8 @@ class Document:
         self._ensure_open()
         page_number = self._lopdf_page_number(pno)
         position = None if to == -1 else self._insert_position(to, "to")
-        self._bump_generation()
         self._doc.copy_page(page_number, position)
+        self._bump_generation()
 
     def _insert_position(self, value: int, name: str) -> int:
         """Validate an insertion position from 0 through ``page_count``."""
@@ -4020,7 +4022,7 @@ def peek_metadata(
         )
     else:
         raw, page_count, version, encrypted, repaired = _Document.load_metadata(
-            str(filename),
+            os.fspath(cast("os.PathLike[str] | str", filename)),
             password,
             max_file_size,
         )

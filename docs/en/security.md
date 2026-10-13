@@ -121,6 +121,11 @@ The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
 probe's `repaired` key), and saving rewrites normalized xref data.
 
 - Rendering is capped at 64 megapixels per page.
+- Page deletion and selection clean navigation to excluded pages before
+  pruning. AcroForm widget `/P` references can still retain excluded page
+  objects. These operations are not secure redaction: form references,
+  arbitrary custom references, attachments, metadata, and other copies of the
+  content require their own inspection and removal.
 - `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()` default to
   a 64 MiB encoded-PNG output boundary. Their writers refuse the crossing
   write before returning Python `bytes`; `max_size=None` explicitly opts out.

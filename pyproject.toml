@@ -62,6 +62,7 @@ dev = [
     "pre-commit>=4.6.1",
     "pytest>=8.3",
     "ruff>=0.16.0",
+    "typing-extensions>=4.6",
 ]
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
@@ -80,7 +81,8 @@ docs = [
 ]
 # Coverage-guided public-API fuzzing; Linux/macOS only.
 fuzz = [
-    "atheris>=2.3.0",
+    # Atheris 3.1 has no source distribution for the Linux ARM64 runner.
+    "atheris==3.0.0",
 ]
 
 [tool.uv]
@@ -88,6 +90,7 @@ fuzz = [
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "rust/Cargo.toml" },
+    { file = "rust/Cargo.lock" },
     { file = "rust/build.rs" },
     { file = "rust/src/*.rs" },
 ]

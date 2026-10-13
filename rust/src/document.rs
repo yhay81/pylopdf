@@ -32,6 +32,7 @@ use crate::form;
 use crate::generate;
 use crate::image_compression;
 use crate::ocr;
+use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
 use crate::text_replace::{self, TextReplacementError};
 
@@ -430,6 +431,63 @@ fn lookup_legacy_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Ob
         .and_then(|dests| dests.as_dict().ok())
         .and_then(|dests| dests.get(name).ok())
         .map(|value| deref_object(doc, value))
+}
+
+/// Resolve a local destination without copying its source object graph.
+pub(crate) fn resolve_local_destination_array<'a>(
+    doc: &'a Document,
+    destination: &'a Object,
+    named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
+    source_bytes: &mut usize,
+) -> PyResult<Option<&'a [Object]>> {
+    let mut current = destination;
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_TOC_DEST_DEPTH)
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to inspect local destination references: {error}"
+            ))
+        })?;
+    for _ in 0..MAX_TOC_DEST_DEPTH {
+        match current {
+            Object::Reference(id) => {
+                if visited.contains(id) {
+                    return Ok(None);
+                }
+                visited.push(*id);
+                let Some(object) = doc.objects.get(id) else {
+                    return Ok(None);
+                };
+                current = object;
+            }
+            Object::Name(name) | Object::String(name, _) => {
+                add_annotation_budget(source_bytes, name.len(), "local destination text")?;
+                if named_destinations.is_none() {
+                    *named_destinations = Some(named_destination_index(doc)?);
+                }
+                let found = named_destinations
+                    .as_ref()
+                    .and_then(|index| index.get(name.as_slice()).copied())
+                    .or_else(|| lookup_legacy_named_dest(doc, name));
+                let Some(found) = found else {
+                    return Ok(None);
+                };
+                current = found;
+            }
+            Object::Dictionary(dictionary) => {
+                let Ok(inner) = dictionary.get(b"D") else {
+                    return Ok(None);
+                };
+                current = inner;
+            }
+            Object::Array(array) => return Ok(Some(array)),
+            _ => return Ok(None),
+        }
+    }
+    Err(PdfError::new_err(format!(
+        "local destination exceeds the {MAX_TOC_DEST_DEPTH}-level safety limit"
+    )))
 }
 
 /// Charge encoded or returned TOC text without overflow or partial output.
@@ -1136,8 +1194,8 @@ fn read_bounded_input(
     error_prefix: &str,
 ) -> PyResult<Vec<u8>> {
     let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
-    let file = std::fs::File::open(path).map_err(&io_error)?;
-    let metadata_size = file.metadata().map_err(&io_error)?.len();
+    let file = std::fs::File::open(path).map_err(io_error)?;
+    let metadata_size = file.metadata().map_err(io_error)?.len();
     if let Some(limit) = max_size
         && metadata_size > limit as u64
     {
@@ -1711,17 +1769,34 @@ fn serialize_pdf(
     )
 }
 
-/// Return a page dictionary with inherited parent-tree attributes materialized.
-///
-/// Merge discards the source page tree, so inherited attributes must move onto
-/// the page itself.
+/// Treat null page attributes as omitted without bypassing malformed-value checks.
+fn page_attribute_has_value(doc: &Document, dictionary: &Dictionary, key: &[u8]) -> bool {
+    let Ok(mut value) = dictionary.get(key) else {
+        return false;
+    };
+    // A null dictionary value is equivalent to an omitted key, including an
+    // indirect null. Leave malformed reference validation to the existing readers.
+    for _ in 0..MAX_PAGE_RESOURCE_REFERENCE_DEPTH {
+        match value {
+            Object::Null => return false,
+            Object::Reference(id) => match doc.objects.get(id) {
+                Some(object) => value = object,
+                None => return true,
+            },
+            _ => return true,
+        }
+    }
+    !matches!(value, Object::Null)
+}
+
+/// Materialize inherited page attributes before discarding the source page tree.
 fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Dictionary> {
     let page = doc
         .get_object(page_id)
         .and_then(Object::as_dict)
         .map_err(to_py_err)?;
     let mut dict = page.clone();
-    let mut missing = INHERITABLE_PAGE_KEYS.map(|key| !dict.has(key));
+    let mut missing = INHERITABLE_PAGE_KEYS.map(|key| !page_attribute_has_value(doc, &dict, key));
     if !missing.iter().any(|&value| value) {
         return Ok(dict);
     }
@@ -1753,6 +1828,7 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
             .map_err(to_py_err)?;
         for (index, key) in INHERITABLE_PAGE_KEYS.iter().enumerate() {
             if missing[index]
+                && page_attribute_has_value(doc, parent_dict, key)
                 && let Ok(value) = parent_dict.get(key)
             {
                 dict.set(*key, value.clone());
@@ -1767,7 +1843,231 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
             .and_then(Object::as_reference)
             .ok();
     }
+    // Reparenting must retain source defaults instead of inheriting values
+    // from a destination tree with a different crop, rotation, or resources.
+    if !page_attribute_has_value(doc, &dict, b"Resources") {
+        dict.set("Resources", Dictionary::new());
+    }
+    if !page_attribute_has_value(doc, &dict, b"Rotate") {
+        dict.set("Rotate", 0);
+    }
+    if !page_attribute_has_value(doc, &dict, b"CropBox")
+        && page_attribute_has_value(doc, &dict, b"MediaBox")
+        && let Ok(media_box) = dict.get(b"MediaBox")
+    {
+        dict.set("CropBox", media_box.clone());
+    }
     Ok(dict)
+}
+
+/// Borrow an imported annotation operand under a bounded reference walk.
+fn resolve_import_object<'a>(
+    doc: &'a Document,
+    object: &'a Object,
+) -> PyResult<Option<&'a Object>> {
+    let mut current = object;
+    let mut visited = Vec::new();
+    visited
+        .try_reserve_exact(MAX_TOC_DEST_DEPTH)
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to inspect imported link references: {error}"
+            ))
+        })?;
+    for _ in 0..MAX_TOC_DEST_DEPTH {
+        let Object::Reference(id) = current else {
+            return Ok(Some(current));
+        };
+        if visited.contains(id) {
+            return Ok(None);
+        }
+        visited.push(*id);
+        let Some(object) = doc.objects.get(id) else {
+            return Ok(None);
+        };
+        current = object;
+    }
+    Err(PdfError::new_err(format!(
+        "imported link references exceed the {MAX_TOC_DEST_DEPTH}-level safety limit"
+    )))
+}
+
+/// Copy only the scalar operands of a valid, imported local destination.
+fn imported_destination(
+    doc: &Document,
+    array: &[Object],
+    source_pages: &[ObjectId],
+    imported_pages: &HashSet<ObjectId>,
+) -> PyResult<Option<Object>> {
+    // The longest explicit PDF destination is /FitR: page, mode, and four reals.
+    if array.len() > 6 {
+        return Err(PdfError::new_err(
+            "imported link destination exceeds the 6-item safety limit",
+        ));
+    }
+    let page_id = match array.first() {
+        Some(Object::Reference(id)) => *id,
+        Some(Object::Integer(index)) => {
+            let Some(id) = usize::try_from(*index)
+                .ok()
+                .and_then(|index| source_pages.get(index))
+            else {
+                return Ok(None);
+            };
+            *id
+        }
+        _ => return Ok(None),
+    };
+    if !imported_pages.contains(&page_id) {
+        return Ok(None);
+    }
+    let Some(mode) = array.get(1) else {
+        return Ok(None);
+    };
+    let Some(mode @ Object::Name(name)) = resolve_import_object(doc, mode)? else {
+        return Ok(None);
+    };
+    if !matches!(
+        name.as_slice(),
+        b"XYZ" | b"Fit" | b"FitH" | b"FitV" | b"FitR" | b"FitB" | b"FitBH" | b"FitBV"
+    ) {
+        return Ok(None);
+    }
+    let mut copied = Vec::new();
+    copied.try_reserve_exact(array.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate imported link destination: {error}"
+        ))
+    })?;
+    copied.push(Object::Reference(page_id));
+    copied.push(mode.clone());
+    for operand in &array[2..] {
+        let Some(operand) = resolve_import_object(doc, operand)? else {
+            return Ok(None);
+        };
+        match operand {
+            Object::Null | Object::Integer(_) => copied.push(operand.clone()),
+            Object::Real(value) if value.is_finite() => copied.push(operand.clone()),
+            _ => return Ok(None),
+        }
+    }
+    Ok(Some(Object::Array(copied)))
+}
+
+/// Prepare source-local links before the source Catalog and page tree disappear.
+fn prepare_imported_page_links<'a>(
+    doc: &'a Document,
+    page_id: ObjectId,
+    source_pages: &[ObjectId],
+    imported_pages: &HashSet<ObjectId>,
+    named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
+    annotation_edits: &mut HashMap<ObjectId, Option<Dictionary>>,
+) -> PyResult<Option<Vec<Object>>> {
+    let page = doc
+        .get_object(page_id)
+        .and_then(Object::as_dict)
+        .map_err(to_py_err)?;
+    let Ok(annots) = page.get(b"Annots") else {
+        return Ok(None);
+    };
+    let Some(Object::Array(items)) = resolve_import_object(doc, annots)? else {
+        return Ok(None);
+    };
+    if items.len() > MAX_PAGE_ANNOTATIONS {
+        return Err(PdfError::new_err(format!(
+            "page annotations exceed the {MAX_PAGE_ANNOTATIONS}-entry safety limit"
+        )));
+    }
+    let mut retained = Vec::new();
+    retained.try_reserve_exact(items.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate imported page annotations: {error}"
+        ))
+    })?;
+    let mut source_bytes = 0usize;
+    for item in items {
+        if let Object::Reference(id) = item
+            && let Some(prepared) = annotation_edits.get(id)
+        {
+            if prepared.is_some() {
+                retained.push(item.clone());
+            }
+            continue;
+        }
+        let Some(Object::Dictionary(annotation)) = resolve_import_object(doc, item)? else {
+            retained.push(item.clone());
+            continue;
+        };
+        if matches!(
+            annotation.get_type().ok(),
+            Some(b"Page" | b"Pages" | b"Catalog")
+        ) {
+            return Err(PdfError::new_err(
+                "page annotation cannot alias a page or catalog dictionary",
+            ));
+        }
+        if !matches!(
+            annotation.get(b"Subtype").and_then(Object::as_name),
+            Ok(b"Link")
+        ) {
+            retained.push(item.clone());
+            continue;
+        }
+        let action = match annotation.get(b"A") {
+            Ok(action) => {
+                resolve_import_object(doc, action)?.and_then(|object| object.as_dict().ok())
+            }
+            Err(_) => None,
+        };
+        let destination = match action {
+            Some(action) if matches!(action.get(b"S").and_then(Object::as_name), Ok(b"GoTo")) => {
+                action.get(b"D").ok()
+            }
+            Some(_) => {
+                retained.push(item.clone());
+                continue;
+            }
+            None => annotation.get(b"Dest").ok(),
+        };
+        let Some(destination) = destination else {
+            retained.push(item.clone());
+            continue;
+        };
+        let destination = match resolve_local_destination_array(
+            doc,
+            destination,
+            named_destinations,
+            &mut source_bytes,
+        )? {
+            Some(array) => imported_destination(doc, array, source_pages, imported_pages)?,
+            None => None,
+        };
+        let prepared = destination.map(|destination| {
+            let mut prepared = annotation.clone();
+            if let Some(action) = action {
+                let mut action = action.clone();
+                action.set("D", destination);
+                prepared.set("A", action);
+                prepared.remove(b"Dest");
+            } else {
+                prepared.set("Dest", destination);
+                prepared.remove(b"A");
+            }
+            prepared
+        });
+        if let Object::Reference(id) = item {
+            if prepared.is_some() {
+                retained.push(item.clone());
+            }
+            annotation_edits.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate imported link edits: {error}"))
+            })?;
+            annotation_edits.insert(*id, prepared);
+        } else if let Some(prepared) = prepared {
+            retained.push(Object::Dictionary(prepared));
+        }
+    }
+    Ok(Some(retained))
 }
 
 fn resolve_page_resource_dictionary<'a>(
@@ -2502,17 +2802,25 @@ impl Write for BatchPngOutput<'_> {
     }
 
     fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
-        if self
-            .output_bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |total| {
-                total
-                    .checked_add(buffer.len())
-                    .filter(|&new_total| new_total <= self.max_size)
-            })
-            .is_err()
-        {
-            self.exceeded = true;
-            return Err(io::Error::other("PNG batch output size limit exceeded"));
+        // Keep the shared admission compatible with the pinned Wasm toolchain.
+        let mut total = self.output_bytes.load(Ordering::Relaxed);
+        loop {
+            let Some(new_total) = total
+                .checked_add(buffer.len())
+                .filter(|&value| value <= self.max_size)
+            else {
+                self.exceeded = true;
+                return Err(io::Error::other("PNG batch output size limit exceeded"));
+            };
+            match self.output_bytes.compare_exchange_weak(
+                total,
+                new_total,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(current) => total = current,
+            }
         }
         if let Err(error) = self.bytes.try_reserve(buffer.len()) {
             self.output_bytes.fetch_sub(buffer.len(), Ordering::Relaxed);
@@ -2841,7 +3149,7 @@ fn missing_text_markup_appearance_plans(
                 ))
             })?;
         let mut valid = true;
-        for chunk in quad_points.chunks_exact(8) {
+        for chunk in quad_points.as_chunks::<8>().0 {
             let mut values = [0.0f64; 8];
             for (slot, value) in values.iter_mut().zip(chunk) {
                 let Some(number) = finite_number(doc, value) else {
@@ -4651,7 +4959,9 @@ impl _Document {
                 .get_object(id)
                 .and_then(Object::as_dict)
                 .map_err(to_py_err)?;
-            if let Ok(value) = dict.get(key) {
+            if page_attribute_has_value(&self.doc, dict, key)
+                && let Ok(value) = dict.get(key)
+            {
                 let resolved = match value {
                     Object::Reference(rid) => self.doc.get_object(*rid).map_err(to_py_err)?.clone(),
                     other => other.clone(),
@@ -6149,6 +6459,14 @@ impl _Document {
         Ok(pages_id)
     }
 
+    /// Validate existing pages before importing or allocating additional objects.
+    fn preflight_page_tree_rebuild(&self, pages: &[ObjectId]) -> PyResult<()> {
+        for &page_id in pages {
+            resolve_inherited_page_dict(&self.doc, page_id)?;
+        }
+        Ok(())
+    }
+
     /// Import selected one-based pages from `other` in order into self's object
     /// space and return their ObjectIds; the caller connects root Kids.
     ///
@@ -6179,6 +6497,15 @@ impl _Document {
             let id = page_id_from_index(&other_pages, *number)?;
             ordered_ids.push(id);
         }
+        let mut imported_pages = HashSet::new();
+        imported_pages
+            .try_reserve(ordered_ids.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate imported page lookup: {error}"))
+            })?;
+        imported_pages.extend(ordered_ids.iter().copied());
+        let mut named_destinations = None;
+        let mut annotation_edits = HashMap::new();
 
         // The source page tree is discarded; materialize inheritance per page.
         let mut resolved_pages = Vec::new();
@@ -6191,8 +6518,28 @@ impl _Document {
             })?;
         for &page_id in &ordered_ids {
             let mut dict = resolve_inherited_page_dict(&other_doc, page_id)?;
+            if let Some(annots) = prepare_imported_page_links(
+                &other_doc,
+                page_id,
+                &other_pages,
+                &imported_pages,
+                &mut named_destinations,
+                &mut annotation_edits,
+            )? {
+                if annots.is_empty() {
+                    dict.remove(b"Annots");
+                } else {
+                    dict.set("Annots", annots);
+                }
+            }
             dict.set("Parent", pages_id);
             resolved_pages.push((page_id, dict));
+        }
+        drop(named_destinations);
+        for (id, annotation) in annotation_edits {
+            if let Some(annotation) = annotation {
+                other_doc.objects.insert(id, Object::Dictionary(annotation));
+            }
         }
 
         // Import objects outside the Catalog/Pages/Page tree.
@@ -6274,6 +6621,15 @@ impl _Document {
     /// Materialize inheritance on every page and point Parent to root.
     /// The caller prunes obsolete intermediate nodes.
     fn rebuild_page_tree(&mut self, pages_id: ObjectId, ordered: Vec<ObjectId>) -> PyResult<()> {
+        self.rebuild_page_tree_with_cleanup(pages_id, ordered, None)
+    }
+
+    fn rebuild_page_tree_with_cleanup(
+        &mut self,
+        pages_id: ObjectId,
+        ordered: Vec<ObjectId>,
+        cleanup: Option<&PageCleanupPlan>,
+    ) -> PyResult<()> {
         self.doc
             .get_object(pages_id)
             .and_then(Object::as_dict)
@@ -6295,6 +6651,9 @@ impl _Document {
             })?;
         for &page_id in &ordered {
             let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
+            if let Some(cleanup) = cleanup {
+                cleanup.clean_page(page_id, &mut dict);
+            }
             dict.set("Parent", pages_id);
             kids.push(Object::Reference(page_id));
             resolved_pages.push((page_id, dict));
@@ -7466,8 +7825,10 @@ impl _Document {
             .and_then(Object::as_reference)
             .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))?;
 
+        let cleanup = PageCleanupPlan::prepare(&self.doc, &retained, &deleted)?;
+        self.rebuild_page_tree_with_cleanup(pages_id, retained, Some(&cleanup))?;
+        cleanup.apply(&mut self.doc);
         self.invalidate_hayro_pdf();
-        self.rebuild_page_tree(pages_id, retained)?;
         self.doc.prune_objects();
         Ok(())
     }
@@ -7714,11 +8075,12 @@ impl _Document {
         for &page_number in &page_numbers {
             page_id_from_index(&source_pages, page_number)?;
         }
-        self.invalidate_hayro_pdf();
+        self.preflight_page_tree_rebuild(&existing_pages)?;
         py.detach(|| {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
             let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
+            self.invalidate_hayro_pdf();
             let order = Self::spliced_page_order(existing_pages, new_ids, position)?;
             self.rebuild_page_tree(pages_id, order)?;
             // transplant_pages initially moves all non-page objects. Prune
@@ -7737,17 +8099,22 @@ impl _Document {
             )));
         }
         let existing_pages = collect_page_ids(&self.doc, None)?;
+        self.preflight_page_tree_rebuild(&existing_pages)?;
         self.invalidate_hayro_pdf();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+        let media_box = Object::Array(vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(width),
+            Object::Real(height),
+        ]);
         let page_id = self.doc.add_object(dictionary! {
             "Type" => "Page",
             "Parent" => pages_id,
-            "MediaBox" => Object::Array(vec![
-                Object::Real(0.0),
-                Object::Real(0.0),
-                Object::Real(width),
-                Object::Real(height),
-            ]),
+            "MediaBox" => media_box.clone(),
+            "CropBox" => media_box,
+            "Rotate" => 0,
+            "Resources" => Dictionary::new(),
         });
         let order = Self::spliced_page_order(existing_pages, vec![page_id], position)?;
         self.rebuild_page_tree(pages_id, order)?;
@@ -7762,6 +8129,7 @@ impl _Document {
     fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
         let existing_pages = collect_page_ids(&self.doc, None)?;
         let source_id = page_id_from_index(&existing_pages, page_number)?;
+        self.preflight_page_tree_rebuild(&existing_pages)?;
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let mut dict = resolve_inherited_page_dict(&self.doc, source_id)?;
         dict.set("Parent", pages_id);
@@ -7810,6 +8178,18 @@ impl _Document {
                 .map_err(to_py_err)?;
         }
 
+        let mut removed = HashSet::new();
+        removed.try_reserve(pages.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate excluded page tracking: {error}"
+            ))
+        })?;
+        removed.extend(pages.iter().copied());
+        for page_id in &selected_ids {
+            removed.remove(page_id);
+        }
+        let cleanup = PageCleanupPlan::prepare(&self.doc, &selected_ids, &removed)?;
+
         // For repeated pages, create a copy with inheritance materialized because
         // PDF page-tree Parent references must be unique.
         let mut seen = HashSet::new();
@@ -7847,6 +8227,7 @@ impl _Document {
                 (planned_max_id, 0)
             };
             let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
+            cleanup.clean_page(page_id, &mut dict);
             if let Some(pages_id) = existing_pages_id {
                 dict.set("Parent", pages_id);
             }
@@ -7872,6 +8253,7 @@ impl _Document {
         pages_dict.set("Kids", kids);
         pages_dict.set("Count", count);
 
+        cleanup.apply(&mut self.doc);
         // Remove pages and intermediate nodes that became unreachable.
         self.doc.prune_objects();
         Ok(())

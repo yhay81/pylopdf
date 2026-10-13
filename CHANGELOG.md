@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([LaurenzV/hayro#1331](https://github.com/LaurenzV/hayro/issues/1331)).
 
 ### Fixed
+- Preserve imported and newly inserted page geometry when the destination page
+  tree carries inherited CropBox or Rotate values.
+- Resolve imported internal links against their source document and avoid
+  destination-name collisions or links outside an imported page range.
+- Clean navigation to excluded pages before pruning after deletion/selection,
+  while preserving retained destinations and outline hierarchy.
+- Rejected structural-edit preflights preserve existing Page views and the
+  original-byte interpretation cache. Opening and metadata probing now honor
+  general `os.PathLike` implementations.
+- Support `Self` typing for Python 3.10 without a mandatory runtime dependency,
+  and rebuild the native extension when `rust/Cargo.lock` changes.
+- Keep strict Clippy compatible with current native Rust and the pinned Wasm
+  toolchain.
 - Non-embedded Adobe Korea1, GB1, and CNS1 fonts no longer render through the
   Japanese fallback merely because it is installed. Each collection now uses
   its matching locale slot, with conservative font-name hints when collection
@@ -57,6 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.855 with the other corpus results unchanged.
 
 ### Changed
+- CI, fuzzing, documentation, and release work use standard GitHub-hosted
+  runners with workload-specific deadlines. Native artifacts execute on their
+  actual target platforms before publication; the global one-minute cap is
+  removed so verification can finish.
 - The documentation site moved to its own domain,
   <https://pylopdf.haya.works/>, served by GitHub Pages through a Cloudflare
   DNS zone. Locale paths are unchanged apart from the host and the removed

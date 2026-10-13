@@ -12,6 +12,7 @@ mod ocr_engine;
 #[cfg(target_os = "emscripten")]
 #[path = "ocr_engine_emscripten.rs"]
 mod ocr_engine;
+mod page_cleanup;
 mod pixmap;
 mod text_replace;
 use document::{_Document, LimitError, PasswordError, PdfError};

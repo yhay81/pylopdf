@@ -16,7 +16,7 @@ jobs:
   build:
     name: Build and attest pylopdf-ocr-models
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 30
     permissions:
       artifact-metadata: write
       attestations: write
@@ -28,7 +28,10 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "0.13.0"
           enable-cache: false
+      - name: Set up relocatable build Python
+        run: bash tools/setup_ci_python.sh 3.14
       - name: Verify package versions and release tag
         id: package
         run: |
@@ -101,7 +104,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/ocr-models-v')
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write
@@ -116,7 +119,7 @@ jobs:
     name: Create immutable GitHub release
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
