@@ -1185,42 +1185,42 @@ interop = [
 
 [[package]]
 name = "pylopdf-fonts-ar"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-ar" }
 
 [[package]]
 name = "pylopdf-fonts-he"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-he" }
 
 [[package]]
 name = "pylopdf-fonts-hi"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-hi" }
 
 [[package]]
 name = "pylopdf-fonts-jp"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-jp" }
 
 [[package]]
 name = "pylopdf-fonts-ko"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-ko" }
 
 [[package]]
 name = "pylopdf-fonts-th"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-th" }
 
 [[package]]
 name = "pylopdf-fonts-zh-cn"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-zh-cn" }
 
 [[package]]
 name = "pylopdf-fonts-zh-tw"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "fonts/pylopdf-fonts-zh-tw" }
 
 [[package]]

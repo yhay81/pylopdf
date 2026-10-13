@@ -1,6 +1,6 @@
 [project]
 name = "pylopdf-fonts-hi"
-version = "0.1.0"
+version = "0.1.1"
 description = "Devanagari generation fonts for pylopdf — Noto Sans / Serif Devanagari"
 readme = "README.md"
 requires-python = ">=3.10"
