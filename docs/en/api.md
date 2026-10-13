@@ -25,7 +25,7 @@ Password input stops at 127 UTF-8 bytes.
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock with a 127-byte password boundary (pymupdf semantics) |
 | `is_repaired` | whether opening repaired an incorrect final classic `startxref`; saving normalizes the xref data |
 | `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
-| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
+| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (Unreleased) |
 | `get_text(pages=None)` | batched plain text for up to 4,096 pages sharing one interpreter font cache (`None` means every page) |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | bounded PNG bytes, ordered parallel batches capped at 4,096 pages and cumulative encoded output, or bounded UTF-8 SVG (`None` opts out) |
@@ -55,7 +55,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | Member | Purpose |
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | extraction and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
+| `get_text(option)` / `search_for(needle, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (Unreleased), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
@@ -72,6 +72,66 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
+
+### Positioned text and glyphs { #positioned-text }
+
+`Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")` are
+**Unreleased**; the published 0.13.0 package does not include this option.
+The result keeps the `"dict"` hierarchy: page `width`/`height`, text blocks
+(`number`, `type=0`, `bbox`, `lines`), lines (`bbox`, `wmode`, `dir`, `spans`),
+and span metadata (`bbox`, `origin`, `size`, `font`, `flags`). Each span replaces
+`text` with a `chars` list:
+
+| `TextChar` key | Meaning |
+|---|---|
+| `c` | complete Unicode mapping of one interpreted PDF glyph; may contain multiple Unicode characters |
+| `bbox` | approximate axis-aligned `(x0, y0, x1, y1)` bounds, using the existing glyph geometry |
+| `origin` | glyph baseline start point `(x, y)` |
+
+```python
+import pylopdf
+
+with pylopdf.open("report.pdf") as doc:
+    layout = doc[0].get_text("rawdict")
+    for block in layout["blocks"]:
+        for line in block["lines"]:
+            for span in line["spans"]:
+                for char in span["chars"]:
+                    print(char["c"], char["bbox"], char["origin"])
+```
+
+Positions use the same display points as rendering: a top-left origin,
+rightward x and downward y, with page rotation and CropBox offsets applied.
+With the default `/UserUnit=1`, one point is 1/72 inch; the current engine does
+not apply physical scaling for non-default `/UserUnit` values.
+Bounds approximate baseline/font-size geometry;
+they are not exact ink outlines or quadrilaterals. The font name and style
+flags retain the existing `"dict"` interpretation.
+
+One entry represents one mapped glyph, not necessarily one Unicode code point
+or grapheme. Ligatures and other mappings remain intact in `c`; no extra
+entries are invented for geometry-inferred spaces or line breaks. Spaces
+explicitly present in mapped glyphs remain. Joining `c` values therefore need
+not reproduce the spacing of `get_text("text")`. Unmapped glyphs are skipped
+with the same deduplicated `PylopdfWarning` as other extraction modes.
+
+Reading order follows the existing line, column, and conservative RTL/CJK
+heuristics. Vertical CJK mode is inferred from glyph placement; ruby,
+warichu, general mixed-direction paragraphs, and mixed-orientation typography
+remain approximate. Arbitrary-angle baseline reading order may differ from
+source or semantic order; use glyph origins and line `dir` when an application
+needs its own ordering. `rawdict` reports extracted PDF text, including any
+existing invisible text layer; it does not run OCR.
+
+The hierarchy resembles
+[PyMuPDF rawdict](https://pymupdf.readthedocs.io/en/latest/textpage.html#structure-of-dictionary-outputs),
+but is not a complete compatibility contract. pylopdf returns text blocks
+only, preserves multi-character glyph mappings in one entry, and exposes its
+existing span metadata rather than the additional image/vector, color,
+opacity, font-metric, or synthetic-character fields of PyMuPDF. Use
+`get_images()` or `get_drawings()` for image or vector extraction.
+The [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
+builds a standalone HTML preview of glyph bounds and baseline origins.
 
 `get_drawings()` returns `DrawingInfo` dictionaries with `type="f"`, `"s"`,
 or `"fs"`, self-contained line/cubic `items`, `rect`, RGB/opacity, fill rule,
@@ -135,6 +195,7 @@ metrics. `TableFinder.strategy` and
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
+| `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (Unreleased) |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |

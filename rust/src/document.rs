@@ -7899,6 +7899,26 @@ impl _Document {
         })
     }
 
+    /// Return raw glyph layout for a one-based page.
+    ///
+    /// Return `(width, height, blocks)`, where block=`(bbox, lines)`,
+    /// line=`(bbox, spans, direction, writing mode)`,
+    /// span=`(bbox, chars, size, origin, font, flags)`, and
+    /// char=`(whole Unicode mapping, bbox, baseline origin)`.
+    #[allow(clippy::type_complexity)]
+    fn extract_raw_layout(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
+        let settings = self.interpreter_settings();
+        py.detach(|| {
+            self.text_page(page_number, settings)?
+                .raw_layout()
+                .map_err(text_page_limit_err)
+        })
+    }
+
     /// Detect high-confidence tables on a one-based page.
     #[pyo3(signature = (page_number, strategy, clip=None))]
     fn find_tables(

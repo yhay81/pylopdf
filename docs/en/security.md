@@ -108,10 +108,21 @@ most 4,096 page entries, so repeated page numbers cannot bypass the policy.
 Refusals retain `text_size`; the compatible default remains `None`.
 
 `max_text_glyphs` bounds the records retained before line assembly and therefore
-also bounds the number of blocks, lines, spans, and words that structured text
-can materialize. Text and table interpretations of one page share one
-cumulative admission, and a rejected page consumes no budget. Its compatible
-default is `None`; `DocumentLimits.web()` sets 65,536.
+also bounds the number of blocks, lines, spans, words, and `rawdict` glyph
+entries that structured text can materialize. Text and table interpretations
+of one page share one cumulative admission, and a rejected page consumes no
+budget. Its compatible default is `None`; `DocumentLimits.web()` sets 65,536.
+
+The Unreleased `get_text("rawdict")` option uses the same interpreted glyph
+cache and cumulative `max_text_size`/`max_text_glyphs` admissions as other
+extraction modes; requesting several representations does not charge the
+same cached page again. One entry may contain a multi-character Unicode
+mapping, so the glyph count and UTF-8 payload remain separate budgets.
+Rust raw-layout buffers and glyph-text copies grow fallibly; native allocation
+refusal raises `PdfError` without returning a partial layout. The policy bounds
+retained glyph data, not the exact byte size of Python dictionaries or a
+caller's later JSON/HTML serialization. Bound that output separately when
+exporting raw layout from a worker.
 
 Lenient opening performs one bounded repair: it may replace an incorrect final
 `startxref` only when an intact classic xref table exists in the same final

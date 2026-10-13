@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import math
 import subprocess
 import sys
 import sysconfig
@@ -57,6 +58,24 @@ def _run_smoke() -> None:
         _require(
             condition=_SMOKE_TEXT in reopened[0].get_text(),
             message="text extraction lost inserted text",
+        )
+        raw = reopened[0].get_text("rawdict")
+        chars = [
+            char
+            for block in raw["blocks"]
+            for line in block["lines"]
+            for span in line["spans"]
+            for char in span["chars"]
+        ]
+        _require(
+            condition="".join(char["c"] for char in chars) == _SMOKE_TEXT,
+            message="raw glyph extraction lost inserted text",
+        )
+        _require(
+            condition=bool(chars)
+            and math.isclose(chars[0]["origin"][0], 20, abs_tol=1e-3)
+            and math.isclose(chars[0]["origin"][1], 40, abs_tol=1e-3),
+            message="raw glyph extraction changed the baseline origin",
         )
         pixmap = reopened[0].get_pixmap()
         samples = pixmap.samples

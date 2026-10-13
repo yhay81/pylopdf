@@ -42,6 +42,7 @@ def test_one_input(data: bytes) -> None:
                 for page_number in range(page_count):
                     page = doc[page_number]
                     page.get_text("dict")
+                    page.get_text("rawdict")
                     page.search_for("pdf")
                     page.get_pixmap(dpi=18)
 

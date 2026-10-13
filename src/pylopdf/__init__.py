@@ -74,12 +74,17 @@ __all__ = [
     "PdfError",
     "Permissions",
     "Point",
+    "RawTextBlock",
+    "RawTextLine",
+    "RawTextPage",
+    "RawTextSpan",
     "Rect",
     "StalePageError",
     "Table",
     "TableDiagnostics",
     "TableFinder",
     "TextBlock",
+    "TextChar",
     "TextLine",
     "TextPage",
     "TextSpan",
@@ -439,6 +444,61 @@ class TextPage(TypedDict):
     width: float
     height: float
     blocks: list[TextBlock]
+
+
+class TextChar(TypedDict):
+    """One positioned Unicode glyph returned by ``get_text("rawdict")``.
+
+    ``c`` preserves the glyph's complete Unicode mapping, which can contain
+    several characters. ``origin`` is its baseline point. ``bbox`` uses the
+    existing advance and font-size approximation, not the glyph's outline.
+    Both geometries use rotation-resolved, top-left-origin display coordinates.
+    """
+
+    c: str
+    bbox: tuple[float, float, float, float]
+    origin: tuple[float, float]
+
+
+class RawTextSpan(TypedDict):
+    """One styled glyph run, with ``chars`` replacing :class:`TextSpan` text."""
+
+    bbox: tuple[float, float, float, float]
+    origin: tuple[float, float]
+    size: float
+    font: str
+    flags: int
+    chars: list[TextChar]
+
+
+class RawTextLine(TypedDict):
+    """One positioned line with the same direction heuristics as :class:`TextLine`."""
+
+    bbox: tuple[float, float, float, float]
+    wmode: int
+    dir: tuple[float, float]
+    spans: list[RawTextSpan]
+
+
+class RawTextBlock(TypedDict):
+    """One text-only block returned by ``get_text("rawdict")``."""
+
+    number: int
+    type: int
+    bbox: tuple[float, float, float, float]
+    lines: list[RawTextLine]
+
+
+class RawTextPage(TypedDict):
+    """Nested glyph layout returned by ``get_text("rawdict")``.
+
+    Geometry is in display points, with page rotation and CropBox offsets
+    resolved. Reading order follows the existing extraction heuristics.
+    """
+
+    width: float
+    height: float
+    blocks: list[RawTextBlock]
 
 
 class ImageInfo(TypedDict):
@@ -1709,11 +1769,15 @@ class Page:
     def get_text(self, option: Literal["blocks"]) -> list[BlockEntry]: ...
     @overload
     def get_text(self, option: Literal["dict"]) -> TextPage: ...
-    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage:
+    @overload
+    def get_text(self, option: Literal["rawdict"]) -> RawTextPage: ...
+    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage:
         """Extract page text or positioned layout data.
 
         ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
-        ``"words"``, ``"blocks"``, or ``"dict"``.
+        ``"words"``, ``"blocks"``, ``"dict"``, or ``"rawdict"``. The last
+        exposes glyph Unicode, approximate bboxes, and baseline origins in
+        the same display coordinates; see :class:`TextChar` for its limits.
         """
         self._page_number()
         return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
@@ -3330,23 +3394,41 @@ class Document:
     def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[BlockEntry]: ...
     @overload
     def get_page_text(self, pno: int, option: Literal["dict"]) -> TextPage: ...
-    def get_page_text(self, pno: int, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage:
+    @overload
+    def get_page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPage: ...
+    def get_page_text(
+        self, pno: int, option: str = "text"
+    ) -> str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage:
         """Extract text or positioned layout from zero-based page ``pno``.
 
-        ``option`` follows pymupdf:
+        ``option`` uses pymupdf-style names without promising full compatibility:
 
         - ``"text"``: plain text, the default.
         - ``"words"``: ``(x0, y0, x1, y1, word, block, line, word index)``.
         - ``"blocks"``: ``(x0, y0, x1, y1, text, block, 0)``.
         - ``"dict"``: nested width, height, and blocks with lines and spans.
+        - ``"rawdict"``: the same text hierarchy with ``chars`` replacing span
+          ``text``; each item has ``c``, ``bbox``, and baseline ``origin``.
 
-        Coordinates have a top-left origin and downward y. Vertical bbox extents
-        approximate baseline ± a font-size ratio rather than real metrics.
+        Coordinates are display points (1/72 inch at the default PDF UserUnit),
+        with a top-left origin,
+        downward y, and page rotation/CropBox offsets resolved. Bboxes use
+        glyph advances and approximate baseline extents from font-size ratios,
+        not exact outlines. Reading order follows the existing geometry and
+        script heuristics rather than semantic document order.
+
+        Raw entries preserve one glyph's complete Unicode mapping, including
+        ligatures with several characters; no positions are invented by
+        dividing span text. Inferred spaces have no raw entry. Unmapped glyphs
+        retain the existing skip/warning behavior. Output is text-only and
+        shares the existing text/glyph budgets and interpretation cache.
         """
         if option == "text":
             text = self._doc.extract_text([self._lopdf_page_number(pno)])
             self._emit_warnings()
             return text
+        if option == "rawdict":
+            return self._get_page_rawdict(pno)
         width, height, blocks = self._doc.extract_layout(self._lopdf_page_number(pno))
         self._emit_warnings()
         if option == "words":
@@ -3402,8 +3484,47 @@ class Document:
                     for bno, (bbox, lines) in enumerate(blocks)
                 ],
             }
-        msg = f"option must be one of 'text' / 'words' / 'blocks' / 'dict': {option!r}"
+        msg = f"option must be one of 'text' / 'words' / 'blocks' / 'dict' / 'rawdict': {option!r}"
         raise ValueError(msg)
+
+    def _get_page_rawdict(self, pno: int) -> RawTextPage:
+        """Materialize glyph mappings only for an explicitly requested raw layout."""
+        width, height, blocks = self._doc.extract_raw_layout(self._lopdf_page_number(pno))
+        self._emit_warnings()
+        return {
+            "width": width,
+            "height": height,
+            "blocks": [
+                {
+                    "number": bno,
+                    "type": 0,
+                    "bbox": bbox,
+                    "lines": [
+                        {
+                            "bbox": line_bbox,
+                            "wmode": writing_mode,
+                            "dir": direction,
+                            "spans": [
+                                {
+                                    "bbox": span_bbox,
+                                    "origin": origin,
+                                    "size": size,
+                                    "font": font,
+                                    "flags": flags,
+                                    "chars": [
+                                        {"c": text, "bbox": char_bbox, "origin": char_origin}
+                                        for text, char_bbox, char_origin in chars
+                                    ],
+                                }
+                                for span_bbox, chars, size, origin, font, flags in spans
+                            ],
+                        }
+                        for line_bbox, spans, direction, writing_mode in lines
+                    ],
+                }
+                for bno, (bbox, lines) in enumerate(blocks)
+            ],
+        }
 
     def delete_page(self, pno: int) -> None:
         """Delete zero-based page ``pno``; negative values count from the end."""

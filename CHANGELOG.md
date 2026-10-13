@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")`
+  expose glyph-level Unicode mappings, approximate display-coordinate bounds,
+  and baseline origins in a typed page/block/line/span hierarchy. A mapped PDF
+  glyph stays one entry even when its Unicode mapping contains several
+  characters; geometry-inferred spaces are not added. The existing bounded
+  text cache, reading order, font metadata, and unmapped-glyph warnings are
+  shared with other extraction modes. A standalone HTML overlay example
+  compares these positions with page rendering without extra dependencies.
 - Locale/script font providers replace the former Japanese-only CJK product
   boundary. `[jp]`, `[ko]`, `[zh-cn]`, and `[zh-tw]` provide matching Noto
   Sans/Serif fonts for non-embedded Adobe CJK fallback and subset-embedded text

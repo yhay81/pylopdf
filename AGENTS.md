@@ -71,8 +71,14 @@ overview.
 - Text extraction is implemented as a hayro `Device` in `rust/src/extract.rs`.
   It collects glyph Unicode and positions, then assembles lines
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
-  `get_text("words"/"blocks"/"dict")` and `search_for` share the same glyph
+  `get_text("words"/"blocks"/"dict"/"rawdict")` and `search_for` share the same glyph
   collection through a bounded, generation-invalidated `TextPage` cache.
+  The Unreleased `rawdict` option exposes one `chars` entry per retained glyph,
+  with its complete Unicode `c`, the shared approximate bbox, and actual baseline
+  origin. Do not split multi-character mappings or invent positioned spaces.
+  Raw materialization must reuse dict grouping and existing text/glyph admission,
+  without retaining additional data in the cache or allocating raw output for
+  other extraction options. The public 0.13.0 release does not include this option.
   `search_for` caps the UTF-8 needle at 4,096 bytes before PyO3 copying and
   defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
   checks, `max_hits=None` explicitly opts trusted result sets out, and

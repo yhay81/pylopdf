@@ -40,6 +40,10 @@
     "Pixmap",
     "Point",
     "PylopdfWarning",
+    "RawTextBlock",
+    "RawTextLine",
+    "RawTextPage",
+    "RawTextSpan",
     "Rect",
     "StalePageError",
     "TEXT_ALIGN_CENTER",
@@ -50,6 +54,7 @@
     "TableDiagnostics",
     "TableFinder",
     "TextBlock",
+    "TextChar",
     "TextLine",
     "TextPage",
     "TextSpan",
@@ -416,7 +421,7 @@
                 "name": "option"
               }
             ],
-            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage"
+            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage"
           }
         },
         "get_pdfa_claim": {
@@ -1813,7 +1818,7 @@
                 "name": "option"
               }
             ],
-            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage"
+            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage"
           }
         },
         "get_text_ocr": {
@@ -2566,6 +2571,72 @@
       "kind": "exception",
       "members": {}
     },
+    "RawTextBlock": {
+      "fields": {
+        "bbox": "tuple[float, float, float, float]",
+        "lines": "list[RawTextLine]",
+        "number": "int",
+        "type": "int"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "bbox",
+        "lines",
+        "number",
+        "type"
+      ]
+    },
+    "RawTextLine": {
+      "fields": {
+        "bbox": "tuple[float, float, float, float]",
+        "dir": "tuple[float, float]",
+        "spans": "list[RawTextSpan]",
+        "wmode": "int"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "bbox",
+        "dir",
+        "spans",
+        "wmode"
+      ]
+    },
+    "RawTextPage": {
+      "fields": {
+        "blocks": "list[RawTextBlock]",
+        "height": "float",
+        "width": "float"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "blocks",
+        "height",
+        "width"
+      ]
+    },
+    "RawTextSpan": {
+      "fields": {
+        "bbox": "tuple[float, float, float, float]",
+        "chars": "list[TextChar]",
+        "flags": "int",
+        "font": "str",
+        "origin": "tuple[float, float]",
+        "size": "float"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "bbox",
+        "chars",
+        "flags",
+        "font",
+        "origin",
+        "size"
+      ]
+    },
     "Rect": {
       "annotations": {
         "x0": "float",
@@ -2896,6 +2967,20 @@
         "lines",
         "number",
         "type"
+      ]
+    },
+    "TextChar": {
+      "fields": {
+        "bbox": "tuple[float, float, float, float]",
+        "c": "str",
+        "origin": "tuple[float, float]"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "bbox",
+        "c",
+        "origin"
       ]
     },
     "TextLine": {

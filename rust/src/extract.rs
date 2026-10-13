@@ -2221,6 +2221,10 @@ impl TextPage {
         Ok((self.width, self.height, assemble_layout(&self.lines)?))
     }
 
+    pub(crate) fn raw_layout(&self) -> Result<(f64, f64, Vec<RawBlockTuple>), TextPageLimit> {
+        Ok((self.width, self.height, assemble_raw_layout(&self.lines)?))
+    }
+
     pub(crate) fn search(
         &self,
         needle: &str,
@@ -2672,8 +2676,14 @@ fn assemble_text(
 
 /// Bbox `(x0, y0, x1, y1)` with top-left origin and downward y.
 type BBox = (f64, f64, f64, f64);
-/// Span: `(bbox, text, size, origin, font name, flags)`.
-type SpanTuple = (BBox, String, f64, (f64, f64), String, i64);
+/// Span: `(bbox, content, size, origin, font name, flags)`.
+type LayoutSpanTuple<T> = (BBox, T, f64, (f64, f64), String, i64);
+/// Span with assembled text, including inferred spaces.
+type SpanTuple = LayoutSpanTuple<String>;
+/// One retained glyph: `(whole Unicode mapping, bbox, baseline origin)`.
+type RawCharTuple = (String, BBox, (f64, f64));
+/// Span retaining glyph records without inferred spaces.
+type RawSpanTuple = LayoutSpanTuple<Vec<RawCharTuple>>;
 /// Word: `(bbox, text)`.
 type WordTuple = (BBox, String);
 /// Borrowed word geometry retained only during one table interpretation.
@@ -2686,6 +2696,10 @@ type MaterializedGrid = (Vec<TableCell>, Vec<u32>);
 type LineTuple = (BBox, Vec<SpanTuple>, Vec<WordTuple>, (f64, f64), u8);
 /// Block: `(bbox, lines)`.
 pub(crate) type BlockTuple = (BBox, Vec<LineTuple>);
+/// Raw line: `(bbox, spans, baseline direction, writing mode)`.
+type RawLineTuple = (BBox, Vec<RawSpanTuple>, (f64, f64), u8);
+/// Raw block: `(bbox, lines)`.
+pub(crate) type RawBlockTuple = (BBox, Vec<RawLineTuple>);
 /// Table: `(bbox, row count, column count, row-major cells)`.
 ///
 /// Continuation slots covered by a merged cell are `None`; the merged cell's
@@ -2765,48 +2779,87 @@ fn glyphs_bbox(glyphs: &[GlyphRecord]) -> BBox {
     (x0, y0, x1, y1)
 }
 
+/// Borrow contiguous spans sharing size and font without allocating a partition.
+fn span_glyph_slices(line: &[GlyphRecord]) -> impl Iterator<Item = &[GlyphRecord]> {
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start == line.len() {
+            return None;
+        }
+        let mut end = start + 1;
+        while end < line.len() {
+            let (a, b) = (&line[end - 1], &line[end]);
+            if b.font_key != a.font_key || (b.size - a.size).abs() > 0.1 {
+                break;
+            }
+            end += 1;
+        }
+        let glyphs = &line[start..end];
+        start = end;
+        Some(glyphs)
+    })
+}
+
+/// Attach identical span geometry and font metadata to text or raw glyphs.
+fn span_with_content<T>(
+    glyphs: &[GlyphRecord],
+    content: T,
+) -> Result<LayoutSpanTuple<T>, TextPageLimit> {
+    let mut font_name = String::new();
+    try_push_str_text(
+        &mut font_name,
+        &glyphs[0].font.name,
+        "layout span font name",
+    )?;
+    Ok((
+        glyphs_bbox(glyphs),
+        content,
+        glyphs.iter().map(|g| g.size).fold(0.0, f64::max),
+        (glyphs[0].x, glyphs[0].y),
+        font_name,
+        glyphs[0].font.flags,
+    ))
+}
+
 /// Split a line into contiguous spans sharing size and font.
 fn split_spans(line: &[GlyphRecord]) -> Result<Vec<SpanTuple>, TextPageLimit> {
     let mut spans = Vec::new();
-    let mut start = 0;
-    for i in 1..=line.len() {
-        let boundary = i == line.len() || {
-            let (a, b) = (&line[i - 1], &line[i]);
-            b.font_key != a.font_key || (b.size - a.size).abs() > 0.1
-        };
-        if boundary {
-            let glyphs = &line[start..i];
-            let mut text = String::new();
-            let mut previous: Option<&GlyphRecord> = None;
-            for glyph in glyphs {
-                if needs_gap(previous, glyph) && !text.ends_with(' ') {
-                    try_push_str_text(&mut text, " ", "layout span text")?;
-                }
-                try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
-                if !glyph_is_nonspacing_mark(glyph) {
-                    previous = Some(glyph);
-                }
+    for glyphs in span_glyph_slices(line) {
+        let mut text = String::new();
+        let mut previous: Option<&GlyphRecord> = None;
+        for glyph in glyphs {
+            if needs_gap(previous, glyph) && !text.ends_with(' ') {
+                try_push_str_text(&mut text, " ", "layout span text")?;
             }
-            let mut font_name = String::new();
-            try_push_str_text(
-                &mut font_name,
-                &glyphs[0].font.name,
-                "layout span font name",
-            )?;
-            try_push_text(
-                &mut spans,
-                (
-                    glyphs_bbox(glyphs),
-                    text,
-                    glyphs.iter().map(|g| g.size).fold(0.0, f64::max),
-                    (glyphs[0].x, glyphs[0].y),
-                    font_name,
-                    glyphs[0].font.flags,
-                ),
-                "layout spans",
-            )?;
-            start = i;
+            try_push_glyph_text(&mut text, &glyph.text, "layout span text")?;
+            if !glyph_is_nonspacing_mark(glyph) {
+                previous = Some(glyph);
+            }
         }
+        try_push_text(&mut spans, span_with_content(glyphs, text)?, "layout spans")?;
+    }
+    Ok(spans)
+}
+
+/// Materialize one record per mapped glyph, keeping multi-character mappings intact.
+fn split_raw_spans(line: &[GlyphRecord]) -> Result<Vec<RawSpanTuple>, TextPageLimit> {
+    let mut spans = Vec::new();
+    for glyphs in span_glyph_slices(line) {
+        let mut chars = Vec::new();
+        for glyph in glyphs {
+            let mut text = String::new();
+            try_push_glyph_text(&mut text, &glyph.text, "raw layout glyph text")?;
+            try_push_text(
+                &mut chars,
+                (text, glyph_bbox(glyph), (glyph.x, glyph.y)),
+                "raw layout glyphs",
+            )?;
+        }
+        try_push_text(
+            &mut spans,
+            span_with_content(glyphs, chars)?,
+            "raw layout spans",
+        )?;
     }
     Ok(spans)
 }
@@ -3764,6 +3817,31 @@ fn line_direction(line: &[GlyphRecord]) -> ((f64, f64), u8) {
 
 /// Assemble collected glyphs into blocks, lines, spans, and words.
 fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPageLimit> {
+    assemble_layout_with(lines, |line, bbox| {
+        let (direction, writing_mode) = line_direction(line);
+        Ok((
+            bbox,
+            split_spans(line)?,
+            split_words(line)?,
+            direction,
+            writing_mode,
+        ))
+    })
+}
+
+/// Assemble raw glyph output with the same block and line boundaries as layout.
+fn assemble_raw_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<RawBlockTuple>, TextPageLimit> {
+    assemble_layout_with(lines, |line, bbox| {
+        let (direction, writing_mode) = line_direction(line);
+        Ok((bbox, split_raw_spans(line)?, direction, writing_mode))
+    })
+}
+
+/// Share block grouping and geometry while materializing only the requested output.
+fn assemble_layout_with<T>(
+    lines: &[Vec<GlyphRecord>],
+    materialize_line: impl Fn(&[GlyphRecord], BBox) -> Result<T, TextPageLimit>,
+) -> Result<Vec<(BBox, Vec<T>)>, TextPageLimit> {
     let mut blocks = Vec::new();
     let mut prev_baseline: Option<f64> = None;
     let mut prev_size = 0.0_f64;
@@ -3800,26 +3878,18 @@ fn assemble_layout(lines: &[Vec<GlyphRecord>]) -> Result<Vec<BlockTuple>, TextPa
     let mut output = Vec::new();
     for block_lines in blocks {
         let mut line_tuples = Vec::new();
-        for line in block_lines {
-            let (direction, writing_mode) = line_direction(line);
-            let tuple = (
-                glyphs_bbox(line),
-                split_spans(line)?,
-                split_words(line)?,
-                direction,
-                writing_mode,
-            );
-            try_push_text(&mut line_tuples, tuple, "layout lines")?;
-        }
         let mut x0 = f64::INFINITY;
         let mut y0 = f64::INFINITY;
         let mut x1 = f64::NEG_INFINITY;
         let mut y1 = f64::NEG_INFINITY;
-        for ((lx0, ly0, lx1, ly1), _, _, _, _) in &line_tuples {
-            x0 = x0.min(*lx0);
-            y0 = y0.min(*ly0);
-            x1 = x1.max(*lx1);
-            y1 = y1.max(*ly1);
+        for line in block_lines {
+            let bbox = glyphs_bbox(line);
+            let tuple = materialize_line(line, bbox)?;
+            try_push_text(&mut line_tuples, tuple, "layout lines")?;
+            x0 = x0.min(bbox.0);
+            y0 = y0.min(bbox.1);
+            x1 = x1.max(bbox.2);
+            y1 = y1.max(bbox.3);
         }
         try_push_text(
             &mut output,
