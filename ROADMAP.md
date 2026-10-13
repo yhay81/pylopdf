@@ -10,6 +10,100 @@ Survey sections at the end are dated snapshots, not rolling current claims.
 See [AGENTS.md](AGENTS.md) for day-to-day development context and
 [CHANGELOG.md](CHANGELOG.md) for completed changes.
 
+## Current priorities: 2026-10-13 review
+
+The review baseline is main commit `4b16cdd`, version 0.13.0. The project
+already has locale fonts, OCR, encryption, a redistributable real-world corpus,
+and installed-artifact checks. The next work strengthens correctness,
+verification, and maintainability. The release sections below retain the
+historical record; this section defines the current execution order.
+
+| Order | Focus | Completion condition |
+| --- | --- | --- |
+| 1 | Stabilization | The review regressions pass, supported Python typing and rebuilds are reliable, and CI finishes on standard GitHub-hosted runners. |
+| 2 | Real-document quality | Human-verified text, reading order, table cells, and OCR ground truth supplement similarity proxies on representative business documents. |
+| 3 | Maintainability | Internally split the large Rust document and Python API modules while preserving the reviewed public surface and corpus behavior. |
+| 4 | v1.0 readiness | Independent use, documented limits, error recovery, compatibility, and executed distribution checks support a durable API promise. |
+
+### 1. Stabilization
+
+The review reproduced these issues through public Python APIs:
+
+- **P1: page geometry changes after insertion.** An imported 612-by-792 page
+  with no CropBox or Rotate inherited a destination parent's crop and rotation,
+  becoming 200-by-100 at 90 degrees. Blank-page insertion had the same issue.
+  Materialize source defaults before reparenting and give new pages independent
+  defaults. Cover parent-only geometry and saved/reopened output.
+- **P1: verification cannot finish under the existing timeout.** One-minute
+  jobs include native compilation, Pyodide builds, and a 600-second fuzz run.
+  Use standard GitHub-hosted runners for every job and set deadlines per
+  workload, including native compilation, full tests, and WebAssembly builds.
+  Remove the global one-minute cap and allow release asset uploads enough
+  time to finish. Keep personal infrastructure details out of this public
+  repository.
+  A queued or cancelled gate is not a successful validation.
+- **P2: imported internal links lose or collide with named destinations.**
+  Resolve source destinations to imported page references before discarding
+  the source Catalog. Remove links to pages outside the selected import range;
+  test collisions with destination names already in the receiving document.
+- **P2: excluded-page navigation retains unwanted page data.** Clean links,
+  outlines, and named destinations after deletion/selection before pruning.
+  Preserve retained destinations and outline children. This is navigation and
+  object-graph cleanup, not a secure-redaction guarantee. AcroForm widget `/P`
+  references are a separate retained-page path; form-tree reconciliation,
+  arbitrary custom references, attachments, and metadata are not removed by
+  this navigation cleanup.
+- **P2: API failure and path contracts are incomplete.** Bump Page generations
+  only after successful structural edits, and use the filesystem-path protocol
+  consistently in opening and metadata probing. Verify that rejected operations
+  preserve both document bytes and existing Page views, including malformed
+  parent trees rejected before importing or creating objects.
+- **P2: Python 3.10 typing is not validated.** Keep `Self` typing compatible with
+  the supported floor without introducing a mandatory Python dependency or
+  changing public signatures. Run mypy explicitly for Python 3.10.
+- **P2: dependency updates can leave a stale native extension.** Include
+  `rust/Cargo.lock` in uv rebuild keys. Restore strict Clippy on current native
+  Rust while retaining the pinned Rust 1.95.0 Wasm build compatibility.
+
+Track implementation evidence in the Unreleased changelog and the stabilization
+pull request. Completion requires the full extras/interop pytest suite,
+Ruff/format, Python 3.10 typing, rustfmt/Clippy, public API checks, and finished
+CI runs. Release artifacts still require installation and execution on their
+actual target architectures before publication.
+
+### 2. Real-document quality
+
+Prioritize measured editing/extraction failures in Japanese business forms,
+multicolumn prose, mixed scripts, tables, and scans. Extend the licensed corpus
+with independently checked expected results and end-to-end combinations of
+editing, saving, reopening, extraction, and rendering. Keep OCR accuracy and
+throughput evidence separate. PyMuPDF similarity remains a comparison signal,
+not the definition of correct reading order or cell structure.
+Reconcile AcroForm fields/widgets with page deletion and selection using real
+form fixtures: remove only widgets on excluded pages, preserve surviving field
+children and appearances, and verify that widget `/P` references cannot retain
+unwanted page objects. Treat this separately from secure redaction.
+
+### 3. Maintainability
+
+Split validation, navigation/object-graph editing, rendering policy, public
+types, Page, and Document behind the existing import surface. Move detailed
+implementation notes out of the agent entry point into focused references,
+and keep current work separate from completed release history. Each extraction
+must preserve API snapshots, failure atomicity, resource boundaries, and corpus
+results before the next one begins.
+Complete structural-edit planning so all final page-tree allocations precede
+object transplantation. The stabilization preflights predictable malformed-input
+failures; a complete transaction boundary for allocator refusal remains work
+before the v1.0 promise and needs corpus/time/memory measurements.
+
+### 4. v1.0 readiness
+
+Use the existing stability policy and independent field reports to assess
+readiness after stabilization and quality work. Require explicit support and
+limitation evidence plus completed artifact verification. Adoption signals
+inform the decision; they do not replace correctness or compatibility gates.
+
 ## Strategy
 
 Build **a verifiably accurate, permissively licensed library that combines

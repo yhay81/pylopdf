@@ -3,44 +3,71 @@ name: CI
 
 on:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
+  RUSTUP_TOOLCHAIN: 1.99.0
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
 
 jobs:
   # Audit the Rust dependency tree against the RustSec advisory database.
   audit:
     name: audit (RustSec)
-    timeout-minutes: 1
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: taiki-e/install-action@724a716c48615d544d33401a24b782e907dc5881 # cargo-audit
-      - name: Rust dependency audit
-        run: cargo audit --file rust/Cargo.lock
-
-  # Validate the abi3-py310 floor with the oldest supported Python version.
-  test-py310:
-    name: test (Python 3.10 lower bound)
-    timeout-minutes: 1
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
+      - uses: taiki-e/install-action@724a716c48615d544d33401a24b782e907dc5881 # cargo-audit
+        with:
+          tool: cargo-audit
+      - name: Install pinned workflow validator
+        run: bash tools/install_actionlint.sh
+      - name: Rust dependency audit
+        run: cargo audit --file rust/Cargo.lock
+      - name: Workflow validation
+        run: actionlint -shellcheck=''
+
+  # Validate the abi3-py310 floor with the oldest supported Python version.
+  test-py310:
+    name: test (Python 3.10 lower bound)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: rust
+          # Preserve rustup and tools installed outside cargo install.
+          cache-bin: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - name: Build and install (Python 3.10)
-        run: uv sync --all-extras --group interop --python 3.10
+        run: uv sync --all-extras --group interop --no-editable-package pylopdf --python 3.10
       - name: Test
-        run: uv run pytest
+        run: uv run --no-sync pytest
+      - name: Type check at the supported floor
+        run: uv run --no-sync mypy --python-version 3.10 src tests
       - name: Record native Pyodide compatibility baseline
         run: |
-          uv run python tools/pyodide_compat.py \
+          uv run --no-sync python tools/pyodide_compat.py \
             --root . \
             --output native-compat/results.json
-          uv run python tools/pyodide_compat.py \
+          uv run --no-sync python tools/pyodide_compat.py \
             --root . \
             --benchmark-only \
             --benchmark-output native-compat/limits-benchmark.json
@@ -53,47 +80,59 @@ jobs:
   # Test the version-specific ABI without silently falling back to the GIL.
   test-free-threaded:
     name: test (Python 3.14t free-threaded)
-    timeout-minutes: 1
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: rust
+          # Preserve rustup and tools installed outside cargo install.
+          cache-bin: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14t"
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Build and install (Python 3.14t)
         # Keep this lane focused on pylopdf: optional interop extensions may not
         # publish cp314t wheels on the same schedule.
-        run: uv sync --all-extras --python 3.14t
+        run: uv sync --all-extras --no-editable-package pylopdf --python 3.14t
       - name: Verify free-threaded import
         run: >-
-          uv run python -c
+          uv run --no-sync python -c
           "import sys, sysconfig, pylopdf;
           assert sysconfig.get_config_var('Py_GIL_DISABLED') == 1;
           assert not sys._is_gil_enabled()"
       - name: Test
-        run: uv run pytest
+        run: uv run --no-sync pytest
 
   test-pyemscripten:
     name: test (Pyodide 0.28.3)
     needs: test-py310
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 60
     env:
+      RUSTUP_TOOLCHAIN: 1.95.0
       UV_PYTHON_DOWNLOADS: automatic
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
-          python-version: "3.13.2"
+          toolchain: 1.95.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.2"
       - name: Download native compatibility baseline
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -104,12 +143,12 @@ jobs:
         with:
           path: .tmp/pyodide-0.28.3
           key: >-
-            pyodide-0.28.3-${{ runner.os }}-${{
+            pyodide-0.28.3-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('tools/build_pyodide.sh',
             'tools/pyodide-build-requirements.txt',
             'rust/Cargo.lock') }}
           restore-keys: |
-            pyodide-0.28.3-${{ runner.os }}-
+            pyodide-0.28.3-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and smoke-test PyEmscripten wheel
         run: bash tools/build_pyodide.sh
         env:
@@ -147,7 +186,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
-    timeout-minutes: 1
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -157,27 +196,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: 1.99.0
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: rust
+          # Preserve rustup and tools installed outside cargo install.
+          cache-bin: false
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - name: Rust format check
         run: cargo fmt --manifest-path rust/Cargo.toml --check
       - name: Rust lint
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Build and install
         # The interop group tests the ecosystem recipes documented in the README.
-        run: uv sync --all-extras --group interop
+        run: uv sync --all-extras --group interop --no-editable-package pylopdf --python 3.14
       - name: Validate project metadata
-        run: uv run pre-commit run validate-pyproject --all-files
+        run: uv run --no-sync pre-commit run validate-pyproject --all-files
       - name: Python lint
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
       - name: Repository language
-        run: uv run python tools/check_repository_language.py
+        run: uv run --no-sync python tools/check_repository_language.py
       - name: Python format check
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
       - name: Type check
-        run: uv run mypy src tests
+        run: uv run --no-sync mypy --python-version 3.10 src tests
       - name: Test
-        run: uv run pytest
+        run: uv run --no-sync pytest

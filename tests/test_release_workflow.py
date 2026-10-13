@@ -39,7 +39,17 @@ def test_every_native_release_wheel_runs_on_its_own_architecture() -> None:
         job = _job(workflow, job_name)
         assert _MATRIX_ENTRY.findall(job) == _NATIVE_PLATFORMS
         assert "matrix.platform.smoke" not in job
+        assert "runs-on: ${{ matrix.platform.runner }}" in job
+        assert "target: ${{ matrix.platform.target }}" in job
+        assert 'rust-toolchain: "1.99.0"' in job
         assert "python tools/smoke_artifact.py dist" in job
+        assert job.index("Smoke-test installed") < job.index("Attest")
+
+    assert 'python-version: "3.14"' in _job(workflow, "build-wheels")
+    assert 'python-version: "3.14t"' in _job(workflow, "build-free-threaded-wheels")
+    assert '--pattern "*cp314t*.whl"' in _job(workflow, "build-free-threaded-wheels")
+    assert "needs: [build-wheels, build-free-threaded-wheels," in _job(workflow, "publish")
+    assert "if: startsWith(github.ref, 'refs/tags/')" in _job(workflow, "publish")
 
 
 def test_documentation_announcement_tracks_package_version() -> None:

@@ -155,3 +155,183 @@ def test_structure_ops_invalidate_pages(three_page_pdf: bytes) -> None:
     doc.new_page()
     with pytest.raises(pylopdf.StalePageError):
         _ = page.mediabox
+
+
+@pytest.mark.parametrize(
+    ("operation", "arguments"),
+    [
+        ("delete_page", (0.5,)),
+        ("delete_pages", ([0.5],)),
+        ("select", ([0.5],)),
+        ("new_page", (0.5,)),
+        ("copy_page", (0, 0.5)),
+    ],
+)
+def test_native_argument_refusal_keeps_existing_pages(
+    three_page_pdf: bytes,
+    operation: str,
+    arguments: tuple[object, ...],
+) -> None:
+    doc = pylopdf.open(stream=three_page_pdf)
+    page = doc[0]
+    before = doc.tobytes()
+
+    with pytest.raises(TypeError):
+        getattr(doc, operation)(*arguments)
+
+    assert doc.tobytes() == before
+    assert "Page one" in page.get_text()
+
+
+def test_insert_pdf_native_argument_refusal_keeps_existing_pages(
+    three_page_pdf: bytes,
+    one_page_pdf: bytes,
+) -> None:
+    doc = pylopdf.open(stream=three_page_pdf)
+    source = pylopdf.open(stream=one_page_pdf)
+    page = doc[0]
+    before = doc.tobytes()
+
+    with pytest.raises(TypeError):
+        doc.insert_pdf(source, start_at=0.5)  # type: ignore[arg-type]
+
+    assert doc.tobytes() == before
+    assert "Page one" in page.get_text()
+
+
+def test_new_page_native_size_refusal_keeps_existing_pages(one_page_pdf: bytes) -> None:
+    doc = pylopdf.open(stream=one_page_pdf)
+    page = doc[0]
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="positive finite"):
+        doc.new_page(width=1e-50)
+
+    assert doc.tobytes() == before
+    assert "Hello PDF" in page.get_text()
+
+
+def _build_cropped_parent_pdf() -> bytes:
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: ("<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] /CropBox [0 0 80 100] /Rotate 90 >>"),
+            3: "<< /Type /Page /Parent 2 0 R >>",
+        }
+    )
+
+
+@pytest.mark.parametrize("source_attributes", ["", "/CropBox [5 7 305 407] /Rotate 180"])
+def test_insert_pdf_preserves_geometry_under_cropped_rotated_parent(source_attributes: str) -> None:
+    source = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+                3: f"<< /Type /Page /Parent 2 0 R {source_attributes} >>",
+            }
+        )
+    )
+    expected_crop = source[0].cropbox
+    expected_rotation = source[0].rotation
+    expected_png = source.render_page(0)
+    source_bytes = source.tobytes()
+    target = pylopdf.open(stream=_build_cropped_parent_pdf())
+    original_png = target.render_page(0)
+
+    target.insert_pdf(source)
+
+    assert target[1].cropbox == expected_crop
+    assert target[1].rotation == expected_rotation
+    assert target.render_page(1) == expected_png
+    assert target.render_page(0) == original_png
+    assert source.tobytes() == source_bytes
+    reopened = pylopdf.open(stream=target.tobytes())
+    assert reopened[1].cropbox == expected_crop
+    assert reopened[1].rotation == expected_rotation
+    assert reopened.render_page(1) == expected_png
+
+
+def test_new_page_uses_requested_geometry_under_cropped_rotated_parent() -> None:
+    target = pylopdf.open(stream=_build_cropped_parent_pdf())
+    original_png = target.render_page(0)
+
+    page = target.new_page(width=612, height=792)
+
+    assert page.rotation == 0
+    assert page.mediabox == page.cropbox == pylopdf.Rect(0, 0, 612, 792)
+    assert png_size(page.render()) == (612, 792)
+    assert target.render_page(0) == original_png
+    reopened = pylopdf.open(stream=target.tobytes())
+    assert reopened[1].rotation == 0
+    assert png_size(reopened.render_page(1)) == (612, 792)
+
+
+@pytest.mark.parametrize("null_value", ["null", "5 0 R"])
+@pytest.mark.parametrize("inherited_values", [False, True])
+def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
+    *, null_value: str, inherited_values: bool
+) -> None:
+    attributes = " ".join(f"/{key} {null_value}" for key in ("MediaBox", "CropBox", "Rotate", "Resources"))
+    inherited = "/CropBox [0 0 300 400] /Rotate 180 /Resources << /Font << /F1 6 0 R >> >>" if inherited_values else ""
+    content = "BT /F1 20 Tf 40 80 Td (NULL-INHERITANCE) Tj ET" if inherited_values else ""
+    source = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: f"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] {inherited} >>",
+                3: f"<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 {attributes} >>",
+                4: f"<< /Type /Page /Parent 3 0 R /Contents 7 0 R {attributes} >>",
+                5: "null",
+                6: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                7: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+            }
+        )
+    )
+    expected_crop = pylopdf.Rect(0, 0, 300, 400) if inherited_values else pylopdf.Rect(0, 0, 612, 792)
+    expected_rotation = 180 if inherited_values else 0
+    assert source[0].mediabox == pylopdf.Rect(0, 0, 612, 792)
+    assert source[0].cropbox == expected_crop
+    assert source[0].rotation == expected_rotation
+    expected_png = source.render_page(0)
+    source_bytes = source.tobytes()
+    target = pylopdf.open(stream=_build_cropped_parent_pdf())
+
+    target.insert_pdf(source)
+
+    for current in (target, pylopdf.open(stream=target.tobytes())):
+        assert current[1].mediabox == pylopdf.Rect(0, 0, 612, 792)
+        assert current[1].cropbox == expected_crop
+        assert current[1].rotation == expected_rotation
+        assert current.render_page(1) == expected_png
+    assert source.tobytes() == source_bytes
+
+
+@pytest.mark.parametrize("operation", ["new_page", "insert_pdf", "copy_page"])
+def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) -> None:
+    target = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+                4: "<< /Type /Page /Parent 5 0 R /MediaBox [0 0 100 100] >>",
+                5: "<< /Type /Pages /Parent 5 0 R >>",
+            }
+        )
+    )
+    existing = target[0]
+    before = target.tobytes()
+    source = pylopdf.Document()
+    source.new_page()
+    source[0].insert_text((10, 30), "IMPORTED-DATA-MUST-NOT-REMAIN")
+    arguments = (source,) if operation == "insert_pdf" else (0,) if operation == "copy_page" else ()
+
+    with pytest.raises(pylopdf.PdfError, match="inheritance tree contains a reference cycle"):
+        getattr(target, operation)(*arguments)
+
+    assert target.tobytes() == before
+    assert b"IMPORTED-DATA-MUST-NOT-REMAIN" not in target.tobytes()
+    assert existing.number == 0
+    assert existing.mediabox == pylopdf.Rect(0, 0, 100, 100)
+    assert target.page_count == 2

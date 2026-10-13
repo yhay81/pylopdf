@@ -176,8 +176,8 @@ impl Engine {
                 path.display()
             ))
         };
-        let file = std::fs::File::open(path).map_err(&io_error)?;
-        let metadata_size = file.metadata().map_err(&io_error)?.len();
+        let file = std::fs::File::open(path).map_err(io_error)?;
+        let metadata_size = file.metadata().map_err(io_error)?.len();
         let remaining = max_model_size.map(|limit| limit.saturating_sub(*consumed));
         if let (Some(limit), Some(remaining)) = (max_model_size, remaining)
             && metadata_size > remaining as u64

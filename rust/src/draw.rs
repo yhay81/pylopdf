@@ -83,14 +83,18 @@ pub fn rgba_parts(width: u32, height: u32, data: &[u8]) -> Result<ImageParts, St
     let rgb_len = pixel_count
         .checked_mul(3)
         .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
-    let opaque = data.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX);
+    let opaque = data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| pixel[3] == u8::MAX);
     let mut rgb = reserve_bytes(rgb_len, "Pixmap RGB plane")?;
     let mut alpha = if opaque {
         None
     } else {
         Some(reserve_bytes(pixel_count, "Pixmap alpha plane")?)
     };
-    for pixel in data.chunks_exact(4) {
+    for pixel in data.as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[..3]);
         if let Some(alpha) = &mut alpha {
             alpha.push(pixel[3]);

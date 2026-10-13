@@ -12,11 +12,15 @@ on:
 
 permissions: {}
 
+env:
+  RUSTUP_TOOLCHAIN: 1.99.0
+  CARGO_BUILD_JOBS: 2
+
 jobs:
   verify:
     name: Verify release tag
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -33,7 +37,7 @@ jobs:
     name: wheel (${{ matrix.platform.target }})
     needs: verify
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 1
+    timeout-minutes: 45
     permissions:
       artifact-metadata: write
       attestations: write
@@ -55,7 +59,9 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
+          rust-toolchain: "1.99.0"
+          maturin-version: "1.14.1"
+          args: --release --locked --out dist
           manylinux: auto
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -75,7 +81,7 @@ jobs:
     name: free-threaded wheel (${{ matrix.platform.target }})
     needs: verify
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 1
+    timeout-minutes: 45
     permissions:
       artifact-metadata: write
       attestations: write
@@ -100,7 +106,9 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist -i python3.14t
+          rust-toolchain: "1.99.0"
+          maturin-version: "1.14.1"
+          args: --release --locked --out dist -i python3.14t
           manylinux: auto
       - name: Smoke-test installed free-threaded wheel
         run: python tools/smoke_artifact.py dist --pattern "*cp314t*.whl"
@@ -117,8 +125,9 @@ jobs:
     name: PyEmscripten wheel (Pyodide 0.28.3)
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 60
     env:
+      RUSTUP_TOOLCHAIN: 1.95.0
       UV_PYTHON_DOWNLOADS: automatic
     permissions:
       artifact-metadata: write
@@ -136,17 +145,19 @@ jobs:
         with:
           node-version: "24"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - name: Restore pinned Pyodide build environment
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tmp/pyodide-0.28.3
           key: >-
-            pyodide-0.28.3-${{ runner.os }}-${{
+            pyodide-0.28.3-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('tools/build_pyodide.sh',
             'tools/pyodide-build-requirements.txt',
             'rust/Cargo.lock') }}
           restore-keys: |
-            pyodide-0.28.3-${{ runner.os }}-
+            pyodide-0.28.3-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and smoke-test PyEmscripten wheel
         run: bash tools/build_pyodide.sh
       - name: Bundle and launch Cloudflare Workers smoke
@@ -164,7 +175,7 @@ jobs:
     name: sdist
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 45
     permissions:
       artifact-metadata: write
       attestations: write
@@ -177,6 +188,8 @@ jobs:
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
+          rust-toolchain: "1.99.0"
+          maturin-version: "1.14.1"
           args: --out dist
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -197,7 +210,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build-wheels, build-free-threaded-wheels, build-pyemscripten-wheel, build-sdist]
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 15
     environment: pypi
     permissions:
       artifact-metadata: write
@@ -235,7 +248,7 @@ jobs:
     name: Verify PyEmscripten wheel from PyPI
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 15
     env:
       UV_PYTHON_DOWNLOADS: automatic
     permissions:
@@ -251,6 +264,8 @@ jobs:
         with:
           node-version: "24"
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
       - name: Resolve and launch the published Cloudflare Workers wheel
         run: >-
           python tools/smoke_cloudflare.py
@@ -262,7 +277,7 @@ jobs:
     name: Create immutable GitHub release
     needs: verify-pyemscripten-pypi
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

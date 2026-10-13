@@ -4297,7 +4297,7 @@ fn write_luma_alpha(output: &mut dyn Write, luma: &[u8], alpha: &[u8]) -> io::Re
 fn write_rgb_alpha(output: &mut dyn Write, rgb: &[u8], alpha: &[u8]) -> io::Result<()> {
     let mut buffer = [0u8; PNG_ALPHA_SCRATCH_BYTES];
     let mut used = 0;
-    for (rgb, alpha) in rgb.chunks_exact(3).zip(alpha) {
+    for (rgb, alpha) in rgb.as_chunks::<3>().0.iter().zip(alpha) {
         buffer[used..used + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], *alpha]);
         used += 4;
         if used == PNG_ALPHA_SCRATCH_BYTES {

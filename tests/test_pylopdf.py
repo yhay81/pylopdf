@@ -4,13 +4,25 @@ from __future__ import annotations
 
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from conftest import build_pdf, build_raw_pdf
 
 import pylopdf
+
+
+class _FspathOnlyPath(os.PathLike[str]):
+    """A path provider whose string representation is not its filesystem path."""
+
+    def __init__(self, path: Path) -> None:
+        """Retain the path returned through the filesystem protocol."""
+        self._path = path
+
+    def __fspath__(self) -> str:
+        """Return the actual filesystem path."""
+        return os.fspath(self._path)
 
 
 def _build_info_fixture(info: str | bytes) -> bytes:
@@ -37,6 +49,23 @@ def test_open_from_file(tmp_path: Path, one_page_pdf: bytes) -> None:
     path.write_bytes(one_page_pdf)
     doc = pylopdf.Document(path)
     assert doc.page_count == 1
+
+
+@pytest.mark.parametrize("opener", [pylopdf.Document, pylopdf.open])
+def test_open_uses_pathlike_protocol(
+    opener: Callable[[os.PathLike[str]], pylopdf.Document],
+    tmp_path: Path,
+    one_page_pdf: bytes,
+) -> None:
+    path = tmp_path / "sample.pdf"
+    path.write_bytes(one_page_pdf)
+    assert opener(_FspathOnlyPath(path)).page_count == 1
+
+
+def test_peek_metadata_uses_pathlike_protocol(tmp_path: Path, one_page_pdf: bytes) -> None:
+    path = tmp_path / "sample.pdf"
+    path.write_bytes(one_page_pdf)
+    assert pylopdf.peek_metadata(_FspathOnlyPath(path))["page_count"] == 1
 
 
 def test_open_alias(one_page_pdf: bytes) -> None:
