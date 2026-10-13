@@ -7,6 +7,7 @@ import difflib
 import gc
 import hashlib
 import json
+import math
 import platform
 import statistics
 import struct
@@ -19,6 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from pylopdf import DocumentComplexity
 
 _ASSETS = (
     "tests/assets/real_world/pdf20-simple.pdf",
@@ -171,8 +174,8 @@ def _build_reference_cycle_pdf() -> bytes:
 def _limit_results(
     pdf20_bytes: bytes,
     form_bytes: bytes,
-    pdf20_complexity: dict[str, int],
-    bounded_scan_complexity: dict[str, int],
+    pdf20_complexity: DocumentComplexity,
+    bounded_scan_complexity: DocumentComplexity,
 ) -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
@@ -377,6 +380,33 @@ def _layout_results() -> dict[str, Any]:
         "A footer spanning both columns",
     ]
     _require(column_lines == expected_columns, "multicolumn reading order changed")
+    raw_columns = columns.get_text("rawdict")
+    raw_lines = [
+        "".join(char["c"] for span in line["spans"] for char in span["chars"])
+        for block in raw_columns["blocks"]
+        for line in block["lines"]
+    ]
+    _require(raw_lines == expected_columns, "rawdict mapped-glyph reading order changed")
+    raw_origins = [
+        [round(value, 3) for value in line["spans"][0]["chars"][0]["origin"]]
+        for block in raw_columns["blocks"]
+        for line in block["lines"]
+    ]
+    _require(
+        raw_origins == [[20, 30], [40, 70], [40, 90], [200, 70], [200, 90], [20, 270]],
+        "rawdict baseline origins changed",
+    )
+    raw_spans = [span for block in raw_columns["blocks"] for line in block["lines"] for span in line["spans"]]
+    raw_chars = [char for span in raw_spans for char in span["chars"]]
+    _require(all("text" not in span for span in raw_spans), "rawdict spans contain synthesized text")
+    _require(
+        all(len(char["bbox"]) == 4 and len(char["origin"]) == 2 for char in raw_chars),  # noqa: PLR2004 - tuple arities.
+        "rawdict glyph geometry shape changed",
+    )
+    _require(
+        all(math.isfinite(value) for char in raw_chars for value in (*char["bbox"], *char["origin"])),
+        "rawdict glyph geometry is not finite",
+    )
     limited_columns = pylopdf.Document(
         stream=_build_multicolumn_pdf(),
         limits=pylopdf.DocumentLimits(max_text_size=8),
@@ -398,6 +428,11 @@ def _layout_results() -> dict[str, Any]:
         "columns": {
             "lines": column_lines,
             "word_count": len(columns.get_text("words")),
+        },
+        "rawdict": {
+            "lines": raw_lines,
+            "glyph_count": len(raw_chars),
+            "line_origins": raw_origins,
         },
         "text_limit_code": text_limit_code,
     }

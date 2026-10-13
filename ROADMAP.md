@@ -79,6 +79,13 @@ with independently checked expected results and end-to-end combinations of
 editing, saving, reopening, extraction, and rendering. Keep OCR accuracy and
 throughput evidence separate. PyMuPDF similarity remains a comparison signal,
 not the definition of correct reading order or cell structure.
+The Unreleased `get_text("rawdict")` work adds a narrow inspection tool for this
+phase: typed glyph mappings, approximate display-space bounds, and baseline
+origins from the existing bounded text cache, plus a rendered HTML overlay.
+Keep whole multi-character glyph mappings and existing reading-order behavior;
+verify rotations, CropBox offsets, cache/limit behavior, and native/Wasm logical
+results. This adds glyph-position evidence without expanding into coordinate
+conversion APIs, quadrilaterals, OCR recognition, or CAD geometry.
 Reconcile AcroForm fields/widgets with page deletion and selection using real
 form fixtures: remove only widgets on excluded pages, preserve surviving field
 children and appearances, and verify that widget `/P` references cannot retain

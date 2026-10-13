@@ -1,5 +1,13 @@
 # Type stubs for the Rust extension module pylopdf_core.
 import os
+from typing import TypeAlias
+
+_RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
+_RawSpanTuple: TypeAlias = tuple[
+    tuple[float, float, float, float], list[_RawCharTuple], float, tuple[float, float], str, int
+]
+_RawLineTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawSpanTuple], tuple[float, float], int]
+_RawBlockTuple: TypeAlias = tuple[tuple[float, float, float, float], list[_RawLineTuple]]
 
 class PdfError(ValueError): ...
 class PasswordError(PdfError): ...
@@ -207,6 +215,7 @@ class _Document:
             ]
         ],
     ]: ...
+    def extract_raw_layout(self, page_number: int) -> tuple[float, float, list[_RawBlockTuple]]: ...
     def find_tables(
         self,
         page_number: int,
