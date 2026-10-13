@@ -90,8 +90,8 @@ plugins:
 
 extra:
   current_language: ko
-  announcement: "pylopdf 0.13.0 · 좁은 다단 읽기 순서 복원과 메모리 할당 강화"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.13.0"
+  announcement: "pylopdf 0.14.0 · 글리프 좌표, 언어별 글꼴과 페이지 편집 수정"
+  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.14.0"
   social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English

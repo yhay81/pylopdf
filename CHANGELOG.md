@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-13
+
 ### Added
 - `Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")`
   expose glyph-level Unicode mappings, approximate display-coordinate bounds,

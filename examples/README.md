@@ -2,8 +2,8 @@
 
 ## Glyph positions over a rendered page
 
-`rawdict-overlay.py` uses the Unreleased `get_text("rawdict")` option; it is
-not available in the published 0.13.0 package. From a source checkout, run:
+`rawdict-overlay.py` uses `get_text("rawdict")`, available since 0.14.0.
+From a source checkout, run:
 
 ```sh
 uv run python examples/rawdict-overlay.py --output /tmp/rawdict-overlay.html
