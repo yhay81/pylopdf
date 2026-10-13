@@ -90,8 +90,8 @@ plugins:
 
 extra:
   current_language: en
-  announcement: "pylopdf 0.13.0 · narrow-column reading order and allocation-hardened extraction"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.13.0"
+  announcement: "pylopdf 0.14.0 · glyph positions, locale fonts, and page editing fixes"
+  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.14.0"
   social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English

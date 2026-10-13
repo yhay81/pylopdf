@@ -1,6 +1,6 @@
 [project]
 name = "pylopdf-fonts-ar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Arabic generation fonts for pylopdf — Noto Sans Arabic / Noto Naskh Arabic"
 readme = "README.md"
 requires-python = ">=3.10"

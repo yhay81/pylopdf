@@ -25,7 +25,7 @@ Password input stops at 127 UTF-8 bytes.
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock with a 127-byte password boundary (pymupdf semantics) |
 | `is_repaired` | whether opening repaired an incorrect final classic `startxref`; saving normalizes the xref data |
 | `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
-| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (Unreleased) |
+| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
 | `get_text(pages=None)` | batched plain text for up to 4,096 pages sharing one interpreter font cache (`None` means every page) |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; max 4,096 pages and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | bounded PNG bytes, ordered parallel batches capped at 4,096 pages and cumulative encoded output, or bounded UTF-8 SVG (`None` opts out) |
@@ -55,7 +55,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | Member | Purpose |
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (Unreleased), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
+| `get_text(option)` / `search_for(needle, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (since 0.14.0), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
@@ -76,7 +76,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 ### Positioned text and glyphs { #positioned-text }
 
 `Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")` are
-**Unreleased**; the published 0.13.0 package does not include this option.
+available since **0.14.0**.
 The result keeps the `"dict"` hierarchy: page `width`/`height`, text blocks
 (`number`, `type=0`, `bbox`, `lines`), lines (`bbox`, `wmode`, `dir`, `spans`),
 and span metadata (`bbox`, `origin`, `size`, `font`, `flags`). Each span replaces
@@ -195,7 +195,7 @@ metrics. `TableFinder.strategy` and
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
-| `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (Unreleased) |
+| `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |

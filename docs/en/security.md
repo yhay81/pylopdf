@@ -113,7 +113,7 @@ entries that structured text can materialize. Text and table interpretations
 of one page share one cumulative admission, and a rejected page consumes no
 budget. Its compatible default is `None`; `DocumentLimits.web()` sets 65,536.
 
-The Unreleased `get_text("rawdict")` option uses the same interpreted glyph
+The `get_text("rawdict")` option (since 0.14.0) uses the same interpreted glyph
 cache and cumulative `max_text_size`/`max_text_glyphs` admissions as other
 extraction modes; requesting several representations does not charge the
 same cached page again. One entry may contain a multi-character Unicode

@@ -1,6 +1,6 @@
 [project]
 name = "pylopdf"
-version = "0.13.0"
+version = "0.14.0"
 description = "PDF editing, rendering, extraction, and generation for Python, powered by Rust. MIT, no mandatory Python dependencies, lightweight wheels."
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
@@ -34,14 +34,14 @@ Source = "https://github.com/yhay81/pylopdf"
 
 [project.optional-dependencies]
 # Script and locale-specific fonts for automatic generation.
-ar = ["pylopdf-fonts-ar>=0.1.0,<0.2"]
-he = ["pylopdf-fonts-he>=0.1.0,<0.2"]
-hi = ["pylopdf-fonts-hi>=0.1.0,<0.2"]
-jp = ["pylopdf-fonts-jp>=0.1.0,<0.2"]
-ko = ["pylopdf-fonts-ko>=0.1.0,<0.2"]
-th = ["pylopdf-fonts-th>=0.1.0,<0.2"]
-zh-cn = ["pylopdf-fonts-zh-cn>=0.1.0,<0.2"]
-zh-tw = ["pylopdf-fonts-zh-tw>=0.1.0,<0.2"]
+ar = ["pylopdf-fonts-ar>=0.1.1,<0.2"]
+he = ["pylopdf-fonts-he>=0.1.1,<0.2"]
+hi = ["pylopdf-fonts-hi>=0.1.1,<0.2"]
+jp = ["pylopdf-fonts-jp>=0.1.1,<0.2"]
+ko = ["pylopdf-fonts-ko>=0.1.1,<0.2"]
+th = ["pylopdf-fonts-th>=0.1.1,<0.2"]
+zh-cn = ["pylopdf-fonts-zh-cn>=0.1.1,<0.2"]
+zh-tw = ["pylopdf-fonts-zh-tw>=0.1.1,<0.2"]
 # PP-OCRv6 small detector, recognizer, and multilingual dictionary.
 ocr = ["pylopdf-ocr-models>=0.1.0,<0.2"]
 

@@ -79,7 +79,7 @@ with independently checked expected results and end-to-end combinations of
 editing, saving, reopening, extraction, and rendering. Keep OCR accuracy and
 throughput evidence separate. PyMuPDF similarity remains a comparison signal,
 not the definition of correct reading order or cell structure.
-The Unreleased `get_text("rawdict")` work adds a narrow inspection tool for this
+The v0.14.0 `get_text("rawdict")` work adds a narrow inspection tool for this
 phase: typed glyph mappings, approximate display-space bounds, and baseline
 origins from the existing bounded text cache, plus a rendered HTML overlay.
 Keep whole multi-character glyph mappings and existing reading-order behavior;
@@ -476,7 +476,7 @@ deadline, only accurate, measurable, coherent boundaries.
   partial results. Document mutation/other same-document calls from external
   threads remain outside the contract. Latest scaling on 12 usrguide pages at 2x:
   1/2/4/8 workers = 317.4/179.6/99.1/81.5 ms.
-  Unreleased per-call cache reuse now keeps one hayro `RenderCache` for serial
+  Per-call cache reuse now keeps one hayro `RenderCache` for serial
   execution and one per native worker while an atomic page queue retains dynamic
   load balancing. Interleaved before/after medians on the same workload improved
   by 10.6%/9.2%/6.3%/4.2% at 1/2/4/8 workers.

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
     from typing_extensions import Self
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 __all__ = [
     "LINK_GOTO",
     "LINK_GOTOR",

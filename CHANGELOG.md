@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-13
+
 ### Added
 - `Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")`
   expose glyph-level Unicode mappings, approximate display-coordinate bounds,
@@ -78,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.855 with the other corpus results unchanged.
 
 ### Changed
+- Release publishing now uses a metadata-2.5-compatible PyPI action. The new
+  locale/script font packages start at 0.1.1 after the initial 0.1.0 publication
+  attempts were rejected before upload.
 - CI, fuzzing, documentation, and release work use standard GitHub-hosted
   runners with workload-specific deadlines. Native artifacts execute on their
   actual target platforms before publication; the global one-minute cap is

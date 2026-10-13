@@ -73,12 +73,12 @@ overview.
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
   `get_text("words"/"blocks"/"dict"/"rawdict")` and `search_for` share the same glyph
   collection through a bounded, generation-invalidated `TextPage` cache.
-  The Unreleased `rawdict` option exposes one `chars` entry per retained glyph,
+  The v0.14.0 `rawdict` option exposes one `chars` entry per retained glyph,
   with its complete Unicode `c`, the shared approximate bbox, and actual baseline
   origin. Do not split multi-character mappings or invent positioned spaces.
   Raw materialization must reuse dict grouping and existing text/glyph admission,
   without retaining additional data in the cache or allocating raw output for
-  other extraction options. The public 0.13.0 release does not include this option.
+  other extraction options.
   `search_for` caps the UTF-8 needle at 4,096 bytes before PyO3 copying and
   defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
   checks, `max_hits=None` explicitly opts trusted result sets out, and
@@ -863,7 +863,7 @@ it.
 out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
 integrations, a watchlist, and explicit non-goals.
 
-- Current phase: v0.13.0 shipped on 2026-07-28. The 2026-10-13 review prioritizes
+- Current phase: v0.14.0 release preparation on 2026-10-13. The review prioritizes
   page geometry/navigation correctness, predictable rejection before mutation,
   supported-floor typing/rebuilds, and GitHub-hosted verification that finishes.
   `ROADMAP.md` lists stabilization, real-document quality, maintainability, and
