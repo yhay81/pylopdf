@@ -8851,6 +8851,14 @@ impl _Document {
         })
     }
 
+    /// Release the render cache retained for this document on the calling thread.
+    ///
+    /// `Document.close` calls this so a closed document does not keep parsed
+    /// fonts and glyph outlines alive until it is garbage collected.
+    fn release_render_cache(&mut self) {
+        self.render_cache.reset();
+    }
+
     /// Drain hayro warning messages accumulated by the latest operation.
     fn take_warnings(&mut self) -> Vec<String> {
         self.pending_warnings
