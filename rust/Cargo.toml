@@ -89,3 +89,7 @@ lto = "thin"
 codegen-units = 1
 # PyO3 converts Rust panics into Python exceptions only when they unwind.
 panic = "unwind"
+# Leave `strip` unset so Cargo removes only debug info. Symbol tables name
+# pylopdf frames in panic backtraces, debuggers, profilers, and crash reports;
+# stripping them saved only 0.34–0.49 MiB per Linux or macOS wheel. See
+# AGENTS.md before changing this.
