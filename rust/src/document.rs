@@ -8031,18 +8031,7 @@ impl _Document {
             return Ok(0);
         }
         let loaded = py.detach(|| {
-            let mut pairs = Vec::new();
-            pairs.try_reserve_exact(requests.len()).map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate CJK locale font requests: {error}"
-                ))
-            })?;
-            pairs.extend(
-                requests
-                    .iter()
-                    .map(|(language, sans, serif)| (*language, sans.as_str(), serif.as_str())),
-            );
-            crate::fallback_font_cache::load_locale_font_pairs(&pairs, max_font_size)
+            crate::fallback_font_cache::load_locale_font_pairs(&requests, max_font_size)
         })?;
         let mut fallback_fonts = self.fallback_fonts.clone();
         for ((language, _, _), (sans, serif)) in requests.iter().zip(loaded.pairs) {

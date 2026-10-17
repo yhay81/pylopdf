@@ -98,7 +98,7 @@ pub(crate) struct LoadedLocaleFonts {
 /// only after every file succeeds. Concurrent first calls may each read a
 /// file before either publishes it; later calls share one copy.
 pub(crate) fn load_locale_font_pairs(
-    pairs: &[(CjkFontLanguage, &str, &str)],
+    pairs: &[(CjkFontLanguage, String, String)],
     max_font_size: Option<usize>,
 ) -> PyResult<LoadedLocaleFonts> {
     let allocation_error = |error| {
@@ -115,9 +115,9 @@ pub(crate) fn load_locale_font_pairs(
         .and_then(|()| updates.try_reserve_exact(file_count))
         .and_then(|()| loaded.try_reserve_exact(pairs.len()))
         .map_err(allocation_error)?;
-    for &(language, sans, serif) in pairs {
+    for (language, sans, serif) in pairs {
         let slot = language.index() * 2;
-        for (slot, path) in [(slot, sans), (slot + 1, serif)] {
+        for (slot, path) in [(slot, sans.as_str()), (slot + 1, serif.as_str())] {
             let metadata = font_file_metadata(path, max_font_size)?;
             files.push(RequestedFile {
                 slot,
