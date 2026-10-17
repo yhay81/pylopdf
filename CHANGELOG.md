@@ -164,6 +164,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   x86_64, so it was not adopted for native wheels. Release compile steps took
   3m29s–10m18s versus 2m33s–10m25s before. The PyEmscripten wheel keeps its
   separately pinned fat-LTO profile.
+- Repeated raster rendering of one document reuses the fonts, color spaces,
+  and glyph outlines hayro parsed in earlier `Document.render_page`,
+  `Page.get_pixmap`, `Page.render`, and serial `render_pages` calls on the
+  thread that opened it. Output stays pixel-identical. Interleaved A/B runs on
+  GitHub-hosted Linux runners measured 27-page `get_pixmap` loops over the
+  Type 1 `usrguide.pdf` 22–26% faster at 1x and 11–13% faster at 2x, a
+  110-page `bill-hr815.pdf` loop at 0.5x 4% faster, and re-rendering each
+  corpus first page 3.7% faster in total; freshly opened documents rendered
+  within ±0.7%. Each thread retains at most one cache, covering at most 64
+  distinct pages between calls. Edits, fallback-font changes, `close()`, and
+  dropping the document release it on that thread. Calls from other threads,
+  parallel `render_pages` workers, SVG output, and text extraction keep
+  call-scoped caches.
 
 ## [0.14.0] - 2026-10-13
 

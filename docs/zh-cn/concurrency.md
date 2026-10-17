@@ -51,6 +51,16 @@ png_pages = document.render_pages(scale=2, workers=4)
 `render_pages()`使用同一个不可变渲染器快照，保留请求的页面顺序和重复项，并将估算的
 并发工作内存限制在约512 MB。
 
+## 重复渲染 { #repeated-rendering }
+
+在打开Document的线程上重复调用`render_page()`、`Page.get_pixmap()`、
+`Page.render()`和串行`render_pages()`时，会复用先前调用已解析的font、颜色空间和
+glyph轮廓，输出与新打开的Document完全相同。每个线程最多保留一个这样的cache，调用
+之间最多保留64个不同页面的内容。编辑Document、更改后备font或关闭Document都会使
+cache失效；若在打开它的线程上执行这些操作，或在该线程上释放Document，cache会立即
+释放。从其他线程失效的cache会在其所属线程下次渲染或退出时释放。来自其他线程的调用
+和并行`render_pages()`的worker使用调用级cache。
+
 ## Pixmap缓冲区 { #pixmap-buffers }
 
 free-threaded wheel通过只读、一维、零复制的buffer公开不可变RGBA8数据：

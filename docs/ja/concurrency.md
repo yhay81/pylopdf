@@ -53,6 +53,18 @@ png_pages = document.render_pages(scale=2, workers=4)
 `render_pages()`は1つの不変なレンダラsnapshotを使い、指定したページ順と重複を保ち、
 並行処理の推定作業メモリを約512 MBまでに抑えます。
 
+## 繰り返しレンダリング { #repeated-rendering }
+
+Documentを開いたスレッドで`render_page()`、`Page.get_pixmap()`、`Page.render()`、
+直列の`render_pages()`を繰り返し呼び出すと、以前の呼び出しで解析したfont、色空間、
+glyph outlineを再利用します。出力は新しく開いたDocumentと同一です。各スレッドが
+保持するこのcacheは最大1つで、呼び出し間に保持するのは最大64の異なるページ分です。
+Documentの編集、代替fontの変更、closeによってcacheは無効になり、開いたスレッドで
+行った場合やそこでDocumentを破棄した場合は即座に解放されます。他のスレッドから
+無効にしたcacheは、そのスレッドが次にレンダリングするか終了したときに解放されます。
+他のスレッドからの呼び出しと並列`render_pages()`のworkerは、呼び出し単位のcacheを
+使います。
+
 ## Pixmapバッファ { #pixmap-buffers }
 
 free-threaded wheelでは、不変のRGBA8ストレージをread-only・1次元・ゼロコピーの

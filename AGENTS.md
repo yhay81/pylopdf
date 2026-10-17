@@ -378,15 +378,39 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- Raster rendering reuses one hayro `RenderCache` across calls through
+  `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
+  shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
+  and never crosses a thread: each thread keeps at most one slot that owns an
+  `Arc` of the snapshot together with the cache through `self_cell`.
+  `render_page`, `Page.get_pixmap`/`render`, and serial `render_pages` use the
+  slot only on the thread that created the document, and only while the
+  document's generation token and the snapshot identity both match.
+  `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
+  fallback-font change, because cached fonts depend on the resolver), `close`,
+  and dropping the document end the generation and free a matching slot on
+  that thread. One call grows the cache as a call-scoped cache would; a slot
+  that has served more than 64 distinct pages, or whose render panicked, is
+  dropped before the call returns. Other threads, parallel workers, SVG
+  conversion, and text extraction keep call-scoped caches. An edit or drop on
+  another thread cannot free the creating thread's slot, so that thread keeps
+  at most one stale snapshot until it renders, invalidates or drops a document,
+  or exits; keep this one-slot-per-thread bound. Interleaved 8-round A/B on
+  GitHub-hosted Linux runners measured fresh-document renders within ±0.7%,
+  first-page re-renders -3.7% in corpus total, and 27-page `usrguide.pdf`
+  `get_pixmap` loops -22% to -26% at 1x, with pixel-identical output on all
+  five targets.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
-  Serial and PyEmscripten execution reuse one local hayro `RenderCache` per
-  chunk of at most 4,096 page entries. Native parallel execution gives each
-  bounded worker its own cache, replaced after 4,096 rendered pages, and uses an
-  atomic page queue to retain dynamic load balancing; a cache never crosses a
-  thread. Pixel preflight does not materialize an intermediate
+  Serial and PyEmscripten execution use one hayro `RenderCache` per chunk of
+  at most 4,096 page entries: the first chunk on the creating thread starts
+  from the retained cache, other chunks and threads use call-scoped caches.
+  Native parallel execution gives each bounded worker its own cache, replaced
+  after 4,096 rendered pages, and uses an atomic page queue to retain dynamic
+  load balancing; a cache never crosses a thread. Pixel preflight does not
+  materialize an intermediate
   collection. Serial results, worker-local indexed results, parallel reduction,
   input-order slots, and the final returned vector all grow fallibly.
   It renders every page by default and shares the explicit page-entry bound

@@ -972,10 +972,25 @@ rather than waiting automatically for v1.x.
       seven corpus renders, including `wdl6812` from 278 to 43 ms. Per-call
       `RenderCache` reuse now improves serial and bounded parallel batches
       without unsafe self-references or cross-thread cache sharing.
-      Document-lifetime cross-call reuse would still require a self-reference
-      design and should proceed only if it shows additional measured value.
-      Other candidates are zlib-rs for high compression and upstream hayro
-      stencil-mask and `num_threads` improvements.
+      Cross-call reuse followed on 2026-10-18 after interleaved 8-round A/B
+      runs on all five hosted targets. hayro 0.7 and 0.8 caches borrow the
+      snapshot and use `Rc`, so a per-thread slot owns the snapshot `Arc` and
+      its cache through `self_cell`; only the document's creating thread uses
+      it, with one cache per thread and at most 64 retained pages. Linux
+      runners measured fresh-document renders within ±0.7%, first-page
+      re-renders -3.7% in corpus total (`usrguide` -19%, `mhlw-doc` -17%),
+      27-page `usrguide` `get_pixmap` loops -22% to -26% at 1x and -11% to
+      -13% at 2x, and about 2 MiB more retained memory, with pixel-identical
+      output. Type 1 font parsing was about 36% of a cold 1x `usrguide`
+      render. The cache does not close MuPDF's 2-3x warm-raster lead, which
+      comes from rasterization plus MuPDF's glyph and image caches rather than
+      font parsing. A dedicated render thread per document was rejected: it
+      frees the cache promptly but costs one OS thread per document, adds fork
+      hazards, and cannot run on PyEmscripten. Thread-safe hayro caches would
+      allow a document-owned cache, and faster Type 1 parsing upstream would
+      also speed cold renders. Other candidates are zlib-rs for high
+      compression and upstream hayro stencil-mask and `num_threads`
+      improvements.
 - [x] Add font names and pymupdf-compatible flags to extraction spans from
       embedded font weight/italic metadata. `to_markdown` now emits emphasis.
       Standard 14 Type 1 fonts still produce flags 0 because hayro exposes no
