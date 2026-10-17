@@ -277,8 +277,11 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
   looked-up destination name costs the budget of the structure being walked:
   TOC text for an outline, key text for a name tree, or one page's 1 MiB of
-  link metadata. `Page.get_links()` builds one borrowed index per call rather
-  than traversing the tree again for every named link.
+  link metadata. `Page.get_links()` indexes the tree on its first named
+  lookup and reuses that index and the page index until the next edit, so
+  reading every page stays linear. The retained index holds each distinct key
+  once within the same entry and key-text limits, and a refused tree is never
+  cached.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
   the GIL, and reject partial output above 65,536 nodes/entries or 131,072
   edges with `toc_entry_count`, above 16 MiB of source/returned text with

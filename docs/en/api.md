@@ -71,7 +71,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
 
 ### Positioned text and glyphs { #positioned-text }
 

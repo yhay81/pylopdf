@@ -9,6 +9,7 @@ and imported.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Literal
 
 import pytest
@@ -42,18 +43,18 @@ def _name(index: int) -> str:
     return f"lstnumber.-{index // 64:04d}.{index % 64 + 1:02d}"
 
 
-def _deepest(count: int, page: int) -> int:
+def _deepest(count: int, page: int, pages: int = MANUAL_PAGES) -> int:
     """Return the last destination index that targets ``page``."""
-    return count - 1 - (count - 1 - page) % MANUAL_PAGES
+    return count - 1 - (count - 1 - page) % pages
 
 
-def _name_tree(count: int, first_id: int) -> tuple[dict[int, str | bytes], str]:
-    """Build a pdfTeX-shaped name tree whose destination ``i`` targets page ``i % 3``."""
+def _name_tree(count: int, first_id: int, pages: int = MANUAL_PAGES) -> tuple[dict[int, str | bytes], str]:
+    """Build a pdfTeX-shaped name tree whose destination ``i`` targets page ``i % pages``."""
     objects: dict[int, str | bytes] = {}
     level: list[tuple[int, str, str]] = []
     for start in range(0, count, PDFTEX_FANOUT):
         indices = range(start, min(start + PDFTEX_FANOUT, count))
-        pairs = " ".join(f"({_name(i)}) [{3 + i % MANUAL_PAGES} 0 R /XYZ 0 200 null]" for i in indices)
+        pairs = " ".join(f"({_name(i)}) [{3 + i % pages} 0 R /XYZ 0 200 null]" for i in indices)
         limits = (_name(indices[0]), _name(indices[-1]))
         objects[first_id + len(objects)] = f"<< /Names [{pairs}] /Limits [({limits[0]}) ({limits[1]})] >>"
         level.append((first_id + len(objects) - 1, *limits))
@@ -69,32 +70,39 @@ def _name_tree(count: int, first_id: int) -> tuple[dict[int, str | bytes], str]:
     return objects, " ".join(f"{node} 0 R" for node, _, _ in level)
 
 
-def _manual(count: int) -> bytes:
-    """Build a three-page manual whose links and outline name the deepest destinations.
+def _manual(count: int, pages: int = MANUAL_PAGES) -> bytes:
+    """Build a manual whose links and outline name the deepest destinations.
 
-    At the entry limit, the pdfTeX-shaped tree also exceeds the former 4,096-node,
-    8,192-edge, 1 MiB key-text, and 65,536-object copy budgets.
+    Every page links to the deepest destination of each of the first three
+    pages, and every outline item names its own page's deepest destination.
+    At the entry limit, the pdfTeX-shaped tree also exceeds the former
+    4,096-node, 8,192-edge, 1 MiB key-text, and 65,536-object copy budgets.
     """
-    deepest = [_name(_deepest(count, page)) for page in range(MANUAL_PAGES)]
+    deepest = [_name(_deepest(count, page, pages)) for page in range(pages)]
+    outline = 3 + pages
+    kids = " ".join(f"{3 + page} 0 R" for page in range(pages))
     objects: dict[int, str | bytes] = {
-        2: "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 200 200] >>",
-        6: "<< /Type /Outlines /First 7 0 R /Last 9 0 R /Count 3 >>",
+        2: f"<< /Type /Pages /Kids [{kids}] /Count {pages} /MediaBox [0 0 200 200] >>",
+        outline: f"<< /Type /Outlines /First {outline + 1} 0 R /Last {outline + pages} 0 R /Count {pages} >>",
     }
-    for page in range(MANUAL_PAGES):
+    for page in range(pages):
         links = " ".join(
             f"<< /Type /Annot /Subtype /Link /Rect [{20 * other + 1} 1 {20 * other + 10} 10] "
             f"/A << /S /GoTo /D ({deepest[other]}) >> >>"
-            for other in range(MANUAL_PAGES)
+            for other in range(min(pages, MANUAL_PAGES))
         )
         objects[3 + page] = f"<< /Type /Page /Parent 2 0 R /Annots [{links}] >>"
-        previous = f" /Prev {6 + page} 0 R" if page > 0 else ""
-        following = f" /Next {8 + page} 0 R" if page + 1 < MANUAL_PAGES else ""
-        objects[7 + page] = (
-            f"<< /Title (Page {page}) /Parent 6 0 R /A << /S /GoTo /D ({deepest[page]}) >>{previous}{following} >>"
+        previous = f" /Prev {outline + page} 0 R" if page > 0 else ""
+        following = f" /Next {outline + page + 2} 0 R" if page + 1 < pages else ""
+        objects[outline + 1 + page] = (
+            f"<< /Title (Page {page}) /Parent {outline} 0 R /A << /S /GoTo /D ({deepest[page]}) >>"
+            f"{previous}{following} >>"
         )
-    tree, root_kids = _name_tree(count, 10)
+    tree, root_kids = _name_tree(count, outline + pages + 1, pages)
     objects.update(tree)
-    objects[1] = f"<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Kids [{root_kids}] >> >> /Outlines 6 0 R >>"
+    objects[1] = (
+        f"<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Kids [{root_kids}] >> >> /Outlines {outline} 0 R >>"
+    )
     return build_raw_pdf(objects)
 
 
@@ -105,6 +113,10 @@ def manual() -> bytes:
 
 def _link_targets(doc: pylopdf.Document) -> list[list[tuple[int, str | None]]]:
     return [[(link["page"], link.get("nameddest")) for link in page.get_links()] for page in doc]
+
+
+def _links(doc: pylopdf.Document) -> list[list[pylopdf.LinkInfo]]:
+    return [page.get_links() for page in doc]
 
 
 def test_manual_resolves_toc_and_links_at_the_entry_limit(manual: bytes) -> None:
@@ -120,6 +132,8 @@ def test_manual_cleanup_rewrites_the_complete_tree(manual: bytes, operation: Lit
     doc = pylopdf.Document(stream=manual)
     retained = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page)) for page in (0, 2)]
     removed = _name(_deepest(MAX_NAMED_DEST_ENTRIES, 1))
+    # Warm the cached link indexes; the edit must drop them.
+    assert [len(links) for links in _link_targets(doc)] == [MANUAL_PAGES] * MANUAL_PAGES
 
     if operation == "delete":
         doc.delete_pages([1])
@@ -147,6 +161,115 @@ def test_manual_links_import_through_insert_pdf(manual: bytes) -> None:
     expected += [[(page + 1, None) for page in range(MANUAL_PAGES)]] * MANUAL_PAGES
     for merged in (target, pylopdf.Document(stream=target.tobytes())):
         assert _link_targets(merged) == expected
+
+
+def test_reading_every_page_of_a_large_manual_indexes_it_once() -> None:
+    """Link reads reuse one name-tree index and one page index until an edit.
+
+    Rebuilding both for every call made this loop take about 13 s locally,
+    against about 0.03 s now; the generous bound only catches that regression.
+    """
+    pages = 1_000
+    doc = pylopdf.Document(stream=_manual(MAX_NAMED_DEST_ENTRIES, pages))
+    views = list(doc)
+    deepest = [_name(_deepest(MAX_NAMED_DEST_ENTRIES, page, pages)) for page in range(MANUAL_PAGES)]
+
+    start = time.perf_counter()
+    targets = [[(link["page"], link.get("nameddest")) for link in page.get_links()] for page in views]
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 2.0, f"reading the links of {pages} pages took {elapsed:.2f}s"
+    assert targets == [[(page, deepest[page]) for page in range(MANUAL_PAGES)]] * pages
+
+
+EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
+    "delete_pages": lambda doc: doc.delete_pages([0]),
+    "select": lambda doc: doc.select([2, 0, 1]),
+    "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=_manual(256)), start_at=0),
+    "new_page": lambda doc: doc.new_page(0, width=200, height=200),
+    "copy_page": lambda doc: doc.copy_page(2, 0),
+    "set_toc": lambda doc: doc.set_toc([[1, "Last page", 3]]),
+    "add_link_annot": lambda doc: doc[1].add_link_annot((1, 20, 10, 30), "https://example.com/"),
+    "embfile_add": lambda doc: doc.embfile_add("notes.txt", b"notes"),
+    "set_rotation": lambda doc: doc[2].set_rotation(90),
+}
+
+
+@pytest.mark.parametrize("edit", EDITS)
+def test_cached_link_reads_follow_every_edit(edit: str) -> None:
+    """Warm link reads after an edit match a document that never cached them."""
+    doc = pylopdf.Document(stream=_manual(256))
+    assert all(link["page"] >= 0 for links in _links(doc) for link in links)
+
+    EDITS[edit](doc)
+
+    assert _links(doc) == _links(pylopdf.Document(stream=doc.tobytes()))
+
+
+def test_cached_link_reads_keep_stale_page_views_stale() -> None:
+    doc = pylopdf.Document(stream=_manual(256))
+    page = doc[2]
+    before = [link["page"] for link in page.get_links()]
+
+    doc.delete_pages([0])
+
+    with pytest.raises(pylopdf.StalePageError):
+        page.get_links()
+    # Links to the deleted page are removed, and the rest shift down by one.
+    assert [link["page"] for link in doc[1].get_links()] == [target - 1 for target in before if target > 0]
+
+
+@pytest.mark.parametrize("shape", SHAPE_CODES)
+def test_refused_name_tree_index_is_never_cached(shape: Shape) -> None:
+    """Every named lookup re-raises instead of trusting a partial index."""
+    doc = _limited_document(shape, over=True)
+    named = doc[0]
+
+    # A page without named links never walks the tree.
+    assert doc[1].get_links() == []
+    for _ in range(2):
+        with pytest.raises(pylopdf.LimitError) as caught:
+            named.get_links()
+        assert caught.value.code == SHAPE_CODES[shape]
+
+
+def test_name_tree_index_keeps_first_occurrences_of_unsorted_keys() -> None:
+    """Unsorted and repeated keys resolve like a first-occurrence lookup.
+
+    A key whose tree value is not a destination still shadows the legacy
+    catalog ``/Dests`` entry of the same name.
+    """
+    names = ["zeta", "alpha", "", "twice", "legacy", "shadowed", "missing"]
+    links = " ".join(
+        f"<< /Type /Annot /Subtype /Link /Rect [{index} 1 {index + 1} 2] /Dest ({name}) >>"
+        for index, name in enumerate(names)
+    )
+    doc = pylopdf.Document(
+        stream=build_raw_pdf(
+            {
+                1: (
+                    "<< /Type /Catalog /Pages 2 0 R /Names << /Dests << /Kids [5 0 R 6 0 R] >> >> "
+                    "/Dests << /legacy [4 0 R /Fit] /shadowed [4 0 R /Fit] >> >>"
+                ),
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
+                3: f"<< /Type /Page /Parent 2 0 R /Annots [{links}] >>",
+                4: "<< /Type /Page /Parent 2 0 R >>",
+                5: "<< /Names [(zeta) [4 0 R /Fit] (alpha) [3 0 R /Fit] () [4 0 R /Fit] (twice) [4 0 R /Fit]] >>",
+                6: "<< /Names [(twice) [3 0 R /Fit] () [3 0 R /Fit] (shadowed) << /S /GoTo >>] >>",
+            }
+        )
+    )
+
+    for _ in range(2):
+        assert [(link["page"], link["nameddest"]) for link in doc[0].get_links()] == [
+            (1, "zeta"),
+            (0, "alpha"),
+            (1, ""),
+            (1, "twice"),
+            (1, "legacy"),
+            (-1, "shadowed"),
+            (-1, "missing"),
+        ]
 
 
 def _limited_tree(shape: Shape, *, over: bool) -> tuple[str, dict[int, str]]:

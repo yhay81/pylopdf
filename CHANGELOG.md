@@ -44,6 +44,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link budget, so every well-formed tree and outline that resolves can also be
   cleaned and imported.
 
+### Performance
+- Reading the links of every page of a large manual is now linear in its
+  pages and links. `Page.get_links()` used to index the complete
+  `/Names/Dests` tree and walk the page tree five times for every call, plus
+  three more walks for every resolved link. It now indexes the tree once, on
+  the first named lookup, and reuses that index and the page index until the
+  next edit, which drops both. On a generated 1,000-page manual with 65,536
+  named destinations and three named links per page, reading every page's
+  links fell from 12.7 s to 0.03 s; with 20 links per page and a balanced page
+  tree, from 29.5 s to 0.13 s. The retained index holds each distinct key once
+  under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
+  that manual. Refusals still raise `LimitError` with the same codes on every
+  named lookup, and results are unchanged.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added
