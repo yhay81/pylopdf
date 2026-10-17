@@ -552,7 +552,13 @@ overview.
   therefore each read once. New reads are published, and the document
   updated, only after every selected pair succeeds. Failed path reads or size
   checks must preserve configured fonts and caches, including those slots.
-  Explicit `set_fallback_font` paths are still read on every call.
+  The private `set_fallback_font_locale_files` returns how many files it read,
+  which the tests use to pin reuse. Explicit `set_fallback_font` paths are
+  still read on every call. With all four CJK extras (54 MiB), interleaved A/B
+  on the five GitHub-hosted release targets measured fresh first-page renders
+  of the 1 KB `pdfium-type3.pdf` 90–95% faster and 14 open rendered documents
+  at 100–157 instead of 803–860 MiB; the retained slots add up to 54 MiB after
+  the last document is released where the allocator would have returned it.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later

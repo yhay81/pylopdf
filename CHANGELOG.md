@@ -111,6 +111,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DocumentLimits` continue to apply to recovered documents.
 
 ### Performance
+- Freshly opened documents no longer reread every installed locale fallback
+  font before their first render. With the four CJK font extras installed, as
+  `uv sync --all-extras` and the README's benchmark reproduction do, each new
+  `Document` read and kept its own copy of eight Noto Sans/Serif files
+  (54 MiB). Auto-discovered fonts are now read once into one process-wide slot
+  per locale and style and shared by every document. Each new document still
+  checks every file before its first render (path, size, and modification
+  time, plus device, inode, and change time on Unix) and applies the 64 MiB
+  `font_input_size` boundary, so missing, over-limit, and replaced files fail
+  or are reread as before. In interleaved A/B runs on the five GitHub-hosted
+  release targets, opening the 1 KB `pdfium-type3.pdf` and rendering its first
+  page at 2x became 90–95% faster (22.7 ms to 1.2 ms on Windows, 7.6 ms to
+  0.7 ms on Linux x86_64), the 14-file corpus first-page total 26–42% faster,
+  and 14 rendered documents kept open used 100–157 MiB instead of
+  803–860 MiB. On an Apple M2 Pro the same fresh render fell from about 5.7 ms
+  to 0.4 ms, and free-threaded CPython 3.14t rendered fresh documents about
+  twice as fast on four and eight threads. Output is unchanged, and extraction
+  alone, which never configures fallback fonts, is unaffected. In exchange, the
+  process keeps those 54 MiB after its last document is released. That left
+  54 MiB more resident after a single render on Linux and Windows and after 54
+  renders on Windows; on macOS, and with glibc after 54 renders, the allocator
+  already retained the freed copies, so the difference was 0–16 MiB. A
+  54-render loop on macOS x86_64 also peaked 18–22 MiB higher. Concurrent first
+  renders in a cold process may each read the files once. Explicit
+  `set_fallback_font()` paths are still read on every call.
 - Reading the links of every page of a large manual is now linear in its
   pages and links. `Page.get_links()` used to index the complete
   `/Names/Dests` tree and walk the page tree five times for every call, plus
