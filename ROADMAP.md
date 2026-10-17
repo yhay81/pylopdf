@@ -978,9 +978,9 @@ rather than waiting automatically for v1.x.
       only the document's creating thread uses it, with one cache per thread and
       at most 64 retained pages. Linux runners measured fresh-document renders
       within 1.5%, first-page re-renders 3-5% faster in corpus total (`usrguide`
-      20%, `mhlw-doc` 17-18%), and 27-page `usrguide` `get_pixmap` loops 23-27%
-      faster at 1x and 12-15% at 2x. Peak and retained memory grew by at most
-      2.5 MiB on every target, and output was pixel-identical. Type 1 font
+      20%, `mhlw-doc` 17-18%), and 27-page `usrguide` `get_pixmap` loops 22-28%
+      faster at 1x and 11-15% at 2x. Peak and retained memory grew by at most
+      3 MiB on every target, and output was pixel-identical. Type 1 font
       parsing was about 36% of a cold 1x `usrguide` render. The cache does not
       close MuPDF's 2-3x warm-raster lead, which comes from rasterization plus
       MuPDF's glyph and image caches rather than font parsing. A dedicated
