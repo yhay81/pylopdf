@@ -7,9 +7,13 @@ The adjacent README records sources and licenses.
 
 from __future__ import annotations
 
+import random
+import re
 import time
 import warnings
 import zlib
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,8 +67,14 @@ ALL = pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
 WITH_TEXT = pytest.mark.parametrize("case", [c for c in CASES if c.snippet is not None], ids=lambda c: c.name)
 
 
-def _with_incorrect_startxref(data: bytes) -> bytes:
-    """Replace the final classic startxref value without changing its table."""
+CASE_BY_NAME = {case.name: case for case in CASES}
+
+OFFSET_WARNING = "recovered a PDF with an incorrect cross-reference offset"
+REBUILT_WARNING = "rebuilt a damaged PDF cross-reference table"
+
+
+def _startxref_value_span(data: bytes) -> tuple[int, int]:
+    """Return the byte span of the final startxref value."""
     eof = data.rfind(b"%%EOF")
     startxref = data.rfind(b"startxref", 0, eof)
     assert startxref >= 0
@@ -75,7 +85,144 @@ def _with_incorrect_startxref(data: bytes) -> bytes:
     while data[number_end : number_end + 1].isdigit():
         number_end += 1
     assert number_end > number_start
-    return data[:number_start] + b"0" + data[number_end:]
+    return number_start, number_end
+
+
+def _with_startxref(data: bytes, value: int) -> bytes:
+    """Replace the final startxref value without changing any xref section."""
+    start, end = _startxref_value_span(data)
+    return data[:start] + str(value).encode() + data[end:]
+
+
+def _uses_classic_xref(data: bytes) -> bool:
+    """Return whether the final startxref points at a classic xref table."""
+    start, end = _startxref_value_span(data)
+    return data[data.index(b"%PDF-") + int(data[start:end]) :].startswith(b"xref")
+
+
+def _truncated(fraction: float) -> Callable[[str, bytes], bytes]:
+    def damage(_name: str, data: bytes) -> bytes:
+        return data[: int(len(data) * fraction)]
+
+    return damage
+
+
+def _junk_prefixed(name: str, data: bytes) -> bytes:
+    """Prepend 512 seeded bytes that cannot form a PDF header."""
+    rng = random.Random(f"junk:{name}")  # noqa: S311 - deterministic fixture damage
+    return bytes(rng.randrange(256) for _ in range(512)).replace(b"%", b"#") + data
+
+
+def _startxref_keyword_corrupted(_name: str, data: bytes) -> bytes:
+    position = data.rfind(b"startxref")
+    return data[:position] + b"startxrex" + data[position + len(b"startxref") :]
+
+
+def _final_xref_section_removed(_name: str, data: bytes) -> bytes:
+    """Delete the final classic table up to its trailer, or the final xref stream."""
+    start, end = _startxref_value_span(data)
+    offset = data.index(b"%PDF-") + int(data[start:end])
+    if data.startswith(b"xref", offset):
+        return data[:offset] + data[data.index(b"trailer", offset) :]
+    return data[:offset] + data[data.index(b"endobj", offset) + len(b"endobj") :]
+
+
+def _lengths_off_by_37(_name: str, data: bytes) -> bytes:
+    """Change the first three direct stream lengths by 37 without moving bytes."""
+    damaged = bytearray(data)
+    changed = 0
+    for match in re.finditer(rb"/Length\s+(\d+)(\s+\d+\s+R)?", data):
+        if match.group(2):
+            continue
+        digits = match.group(1)
+        for candidate in (int(digits) + 37, int(digits) - 37):
+            if candidate >= 0 and len(str(candidate)) == len(digits):
+                damaged[match.start(1) : match.end(1)] = str(candidate).encode()
+                changed += 1
+                break
+        if changed == 3:
+            break
+    return bytes(damaged)
+
+
+def _bits_flipped(name: str, data: bytes) -> bytes:
+    """Flip 12 seeded bits after the first KiB."""
+    rng = random.Random(f"bitflip:{name}")  # noqa: S311 - deterministic fixture damage
+    damaged = bytearray(data)
+    for _ in range(12):
+        damaged[rng.randrange(1024, len(damaged))] ^= 1 << rng.randrange(8)
+    return bytes(damaged)
+
+
+def _endobj_removed(_name: str, data: bytes) -> bytes:
+    """Delete the first two endobj keywords, shifting every later offset."""
+    for _ in range(2):
+        position = data.index(b"endobj")
+        data = data[:position] + data[position + len(b"endobj") :]
+    return data
+
+
+DAMAGE: dict[str, Callable[[str, bytes], bytes]] = {
+    "truncate-95": _truncated(0.95),
+    "truncate-60": _truncated(0.60),
+    "junk-prefix-512": _junk_prefixed,
+    "startxref-keyword": _startxref_keyword_corrupted,
+    "xref-section-removed": _final_xref_section_removed,
+    "length-off-37": _lengths_off_by_37,
+    "bit-flips-12": _bits_flipped,
+    "endobj-removed-2": _endobj_removed,
+}
+
+#: Pinned outcome for each damaged variant. ``intact`` opens without
+#: cross-reference recovery, ``rebuilt`` reconstructs the table by scanning
+#: object headers (``-without-snippet`` when the damage also hit that text),
+#: ``offset-broken`` corrects a nearby offset while shifted objects stay
+#: unreachable, ``unusable`` opens without a readable page tree, and
+#: ``rejected`` raises PdfError. pylopdf 0.14 with lopdf 0.44 rejected every
+#: ``rebuilt`` case here. lopdf rebuilds only from a classic trailer, so damaged
+#: xref-stream files such as Form 1040 remain rejected.
+DAMAGE_OUTCOMES = {
+    "pdf20-simple.pdf": {
+        "truncate-95": "rejected",
+        "truncate-60": "rejected",
+        "junk-prefix-512": "intact",
+        "startxref-keyword": "rebuilt",
+        "xref-section-removed": "rebuilt",
+        "length-off-37": "intact",
+        "bit-flips-12": "unusable",
+        "endobj-removed-2": "offset-broken",
+    },
+    "nics-background-checks-2015-11.pdf": {
+        "truncate-95": "rejected",
+        "truncate-60": "rejected",
+        "junk-prefix-512": "intact",
+        "startxref-keyword": "rebuilt",
+        "xref-section-removed": "rebuilt",
+        "length-off-37": "intact",
+        "bit-flips-12": "rebuilt-without-snippet",
+        "endobj-removed-2": "offset-broken",
+    },
+    "patent-us223898.pdf": {
+        "truncate-95": "rebuilt",
+        "truncate-60": "rejected",
+        "junk-prefix-512": "intact",
+        "startxref-keyword": "rebuilt",
+        "xref-section-removed": "rebuilt",
+        "length-off-37": "intact",
+        "bit-flips-12": "intact",
+        "endobj-removed-2": "offset-broken",
+    },
+    "f1040.pdf": {
+        "truncate-95": "rejected",
+        "truncate-60": "rejected",
+        "junk-prefix-512": "intact",
+        "startxref-keyword": "rejected",
+        "xref-section-removed": "rejected",
+        "length-off-37": "rejected",
+        "bit-flips-12": "intact",
+        "endobj-removed-2": "rejected",
+    },
+}
 
 
 def _rgba_pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int, int]:
@@ -121,61 +268,233 @@ def test_peek_metadata_matches_full_load(case: Case) -> None:
     assert meta["repaired"] is False
 
 
-def test_incorrect_classic_startxref_is_repaired_atomically() -> None:
-    """Recover a real PDF 2.0 file only when its intact classic xref retries."""
-    damaged = _with_incorrect_startxref((ASSETS / "pdf20-simple.pdf").read_bytes())
+def _has_ink(page: pylopdf.Page) -> bool:
+    """Return whether a low-resolution render of the page is not blank."""
+    samples = page.get_pixmap(0.5, background=(255, 255, 255)).samples
+    return any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
-    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
-        doc = pylopdf.open(stream=damaged)
 
-    assert doc.is_repaired is True
-    assert doc.page_count == 1
-    assert "Hello World" in doc.get_page_text(0)
+@pytest.mark.parametrize(
+    ("name", "damage", "outcome"),
+    [
+        pytest.param(name, damage, outcome, id=f"{name}-{damage}")
+        for name, outcomes in DAMAGE_OUTCOMES.items()
+        for damage, outcome in outcomes.items()
+    ],
+)
+def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
+    """Pin open, extract, render, probe, and save outcomes for damaged inputs."""
+    case = CASE_BY_NAME[name]
+    damaged = DAMAGE[damage](name, (ASSETS / name).read_bytes())
 
-    saved = doc.tobytes()
+    if outcome == "rejected":
+        with pytest.raises(pylopdf.PdfError):
+            pylopdf.open(stream=damaged)
+        with pytest.raises(pylopdf.PdfError):
+            pylopdf.peek_metadata(stream=damaged)
+        return
+
+    expected_warning = {
+        "rebuilt": REBUILT_WARNING,
+        "rebuilt-without-snippet": REBUILT_WARNING,
+        "offset-broken": OFFSET_WARNING,
+    }.get(outcome)
     with warnings.catch_warnings(record=True) as caught:
-        reopened = pylopdf.open(stream=saved)
-    assert not caught
-    assert reopened.is_repaired is False
-    assert "Hello World" in reopened.get_page_text(0)
+        warnings.simplefilter("always")
+        doc = pylopdf.open(stream=damaged)
+        probe = pylopdf.peek_metadata(stream=damaged)
+    messages = [str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)]
+    assert doc.is_repaired is (expected_warning is not None)
+    assert probe["repaired"] is doc.is_repaired
+    if expected_warning is None:
+        assert not [message for message in messages if "cross-reference" in message]
+    else:
+        assert [message for message in messages if expected_warning in message] == messages
+        # One warning comes from opening and one from the metadata probe.
+        assert len(messages) == 2
+
+    if outcome in {"unusable", "offset-broken"}:
+        with pytest.raises(pylopdf.PdfError):
+            _ = doc.page_count
+        return
+
+    assert doc.page_count == probe["page_count"] == case.pages
+    if case.snippet is not None and outcome != "rebuilt-without-snippet":
+        assert case.snippet in doc.get_page_text(0)
+    assert _has_ink(doc[0])
+    if expected_warning == REBUILT_WARNING:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            reopened = pylopdf.open(stream=doc.tobytes())
+        assert not caught
+        assert reopened.is_repaired is False
+        assert reopened.page_count == case.pages
+        assert reopened.get_page_text(0) == doc.get_page_text(0)
+
+
+@ALL
+@pytest.mark.filterwarnings("ignore:text extraction skipped glyphs")
+def test_incorrect_startxref_value_recovers_classic_xref_exactly(case: Case) -> None:
+    """Recover nearby and distant startxref damage without changing text."""
+    original = (ASSETS / case.name).read_bytes()
+    start, end = _startxref_value_span(original)
+    expected_text = pylopdf.open(stream=original).get_text()
+
+    for value, warning in ((int(original[start:end]) + 12, OFFSET_WARNING), (0, REBUILT_WARNING)):
+        damaged = _with_startxref(original, value)
+        if not _uses_classic_xref(original):
+            with pytest.raises(pylopdf.PdfError):
+                pylopdf.open(stream=damaged)
+            continue
+        with pytest.warns(pylopdf.PylopdfWarning, match=warning):
+            doc = pylopdf.open(stream=damaged)
+        assert doc.is_repaired is True
+        assert doc.get_text() == expected_text
+        with pytest.warns(pylopdf.PylopdfWarning, match=warning):
+            assert pylopdf.peek_metadata(stream=damaged)["repaired"] is True
 
 
 def test_incorrect_startxref_path_probe_and_prefixed_stream(tmp_path: Path) -> None:
-    """Expose repair in probes and keep startxref relative to the PDF header."""
-    damaged = _with_incorrect_startxref((ASSETS / "pdf20-simple.pdf").read_bytes())
+    """Expose recovery in path probes and keep offsets relative to the header."""
+    damaged = _with_startxref((ASSETS / "pdf20-simple.pdf").read_bytes(), 0)
     path = tmp_path / "incorrect-startxref.pdf"
     path.write_bytes(damaged)
 
-    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
         metadata = pylopdf.peek_metadata(path)
     assert metadata["page_count"] == 1
     assert metadata["repaired"] is True
 
-    with pytest.warns(pylopdf.PylopdfWarning, match="incorrect startxref"):
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        from_path = pylopdf.open(path)
+    assert from_path.is_repaired is True
+
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
         prefixed = pylopdf.open(stream=b"transport prefix\n" + damaged)
     assert prefixed.is_repaired is True
     assert "Hello World" in prefixed.get_page_text(0)
 
-
-def test_xref_stream_is_not_guessed_during_startxref_recovery() -> None:
-    """Keep the fallback bounded to intact classic xref tables."""
-    damaged = _with_incorrect_startxref((ASSETS / "f1040.pdf").read_bytes())
-    with pytest.raises(pylopdf.PdfError):
-        pylopdf.open(stream=damaged)
+    clean = pylopdf.open(stream=b"transport prefix\n" + (ASSETS / "pdf20-simple.pdf").read_bytes())
+    assert clean.is_repaired is False
 
 
-def test_previous_classic_xref_is_not_used_for_later_revision() -> None:
-    """Never discard a later xref-stream revision by opening its predecessor."""
-    base = (ASSETS / "pdf20-simple.pdf").read_bytes()
-    later_revision = (
-        base
-        + b"\n999 0 obj\n"
-        + b"<< /Type /XRef /Length 0 >>\nstream\n\nendstream\nendobj\n"
-        + b"startxref\n0\n%%EOF\n"
+def test_rebuilt_trailer_drops_stale_chain_offsets_before_save() -> None:
+    """Never write a damaged input's /Prev offset into a normalized save."""
+    original = (ASSETS / "patent-us223898.pdf").read_bytes()
+    damaged = _startxref_keyword_corrupted("patent-us223898.pdf", original)
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        doc = pylopdf.open(stream=damaged)
+
+    saved = doc.tobytes()
+    assert b"/Prev" not in saved[saved.rindex(b"trailer") :]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        reopened = pylopdf.open(stream=saved)
+    assert not caught
+    assert reopened.is_repaired is False
+    assert reopened.get_text() == pylopdf.open(stream=original).get_text()
+
+
+def test_rebuilt_xref_prefers_later_revision_objects() -> None:
+    """Keep the newest copy of an object instead of rolling back a revision."""
+
+    def content(text: str) -> str:
+        operators = f"BT /F1 12 Tf 10 50 Td ({text}) Tj ET"
+        return f"<< /Length {len(operators)} >>\nstream\n{operators}\nendstream"
+
+    base = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] "
+                "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>"
+            ),
+            4: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            5: content("Earlier revision"),
+        }
     )
+    update = (
+        f"\n5 0 obj\n{content('Later revision')}\nendobj\n"
+        "6 0 obj\n<< /Type /XRef /Size 7 /Root 1 0 R /Length 0 >>\nstream\n\nendstream\nendobj\n"
+        "startxref\n0\n%%EOF\n"
+    ).encode()
 
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        doc = pylopdf.open(stream=base + update)
+    text = doc.get_page_text(0)
+    assert "Later revision" in text
+    assert "Earlier revision" not in text
+
+
+def test_recovered_documents_keep_document_limits() -> None:
+    """Rebuilt cross-reference data still passes every configured load budget."""
+    damaged = _startxref_keyword_corrupted("patent-us223898.pdf", (ASSETS / "patent-us223898.pdf").read_bytes())
+    for limits, code in (
+        (pylopdf.DocumentLimits(max_pages=1), "page_count"),
+        (pylopdf.DocumentLimits(max_objects=10), "object_count"),
+        (pylopdf.DocumentLimits(max_decompressed_size=1024), "decompressed_size"),
+        (pylopdf.DocumentLimits(max_page_content_size=64), "page_content_size"),
+        (pylopdf.DocumentLimits(max_total_decompressed_size=4096), "total_decompressed_size"),
+    ):
+        with pytest.raises(pylopdf.LimitError) as caught:
+            pylopdf.open(stream=damaged, limits=limits)
+        assert caught.value.code == code
+
+    bomb = build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+            4: (
+                f"<< /Length {len(zlib.compress(b' ' * 200_000))} /Filter /FlateDecode >>\nstream\n".encode()
+                + zlib.compress(b" " * 200_000)
+                + b"\nendstream"
+            ),
+        }
+    )
+    with pytest.raises(pylopdf.LimitError) as caught:
+        pylopdf.open(stream=_with_startxref(bomb, 0), max_decompressed_size=100)
+    assert caught.value.code == "decompressed_size"
+
+
+def test_unterminated_stream_keywords_cannot_make_recovery_quadratic() -> None:
+    """Refuse input whose lopdf reconstruction scan would exceed a linear budget.
+
+    lopdf rescans the rest of the input after every ``stream`` keyword that has
+    no later ``endstream``; this 1 MiB input used to take over a minute.
+    """
+    hostile = b"%PDF-1.4\n" + b"stream\n" * 150_000
+    start = time.perf_counter()
+    for load in (lambda: pylopdf.open(stream=hostile), lambda: pylopdf.peek_metadata(stream=hostile)):
+        with pytest.raises(pylopdf.LimitError) as caught:
+            load()
+        assert caught.value.code == "recovery_scan_size"
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2.0, f"recovery-scan refusal took {elapsed:.2f}s"
+
+
+def test_repeated_xref_keywords_fail_without_quadratic_scanning() -> None:
+    """Fail fast where the removed classic-startxref repair rescanned per keyword."""
+    hostile = b"%PDF-1.4\n" + b"xref" * 262_144 + b"\ntrailer\n<< >>\nstartxref\n0\n%%EOF\n"
+    start = time.perf_counter()
     with pytest.raises(pylopdf.PdfError):
-        pylopdf.open(stream=later_revision)
+        pylopdf.open(stream=hostile)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2.0, f"malformed xref refusal took {elapsed:.2f}s"
+
+
+def test_recovery_reports_stay_with_their_own_load() -> None:
+    """Attribute lopdf's per-thread recovery records to the matching document."""
+    clean = (ASSETS / "pdf20-simple.pdf").read_bytes()
+    damaged = _startxref_keyword_corrupted("pdf20-simple.pdf", clean)
+    inputs = [damaged if index % 2 else clean for index in range(64)]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", pylopdf.PylopdfWarning)
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            repaired = list(executor.map(lambda data: pylopdf.open(stream=data).is_repaired, inputs))
+    assert repaired == [index % 2 == 1 for index in range(64)]
 
 
 def test_truncated_classic_xref_is_rejected() -> None:

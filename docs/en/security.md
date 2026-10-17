@@ -90,8 +90,8 @@ repeated source pages before mutation.
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
-`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`, or
-`decompression_unverifiable`.
+`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
+`decompression_unverifiable`, or `recovery_scan_size`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
@@ -138,12 +138,26 @@ retained glyph data, not the exact byte size of Python dictionaries or a
 caller's later JSON/HTML serialization. Bound that output separately when
 exporting raw layout from a worker.
 
-Lenient opening performs one bounded repair: it may replace an incorrect final
-`startxref` only when an intact classic xref table exists in the same final
-revision and a complete parse succeeds under the original limits. It does not
-scan object headers, repair xref streams, or roll back to an earlier revision.
-The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
-probe's `repaired` key), and saving rewrites normalized xref data.
+Lenient opening uses lopdf's cross-reference recovery. A `startxref`,
+`/Prev`, or `/XRefStm` offset that misses by at most 64 bytes moves to the
+nearby `xref` keyword. When standard resolution still fails, lopdf rebuilds the
+table from line-start object headers and the newest classic `trailer` whose
+`/Root` exists; objects from later revisions win, but objects from damaged
+regions may be missing. Damaged xref-stream files without a classic trailer
+are rejected. Either recovery emits `PylopdfWarning`, sets `doc.is_repaired`
+(and the metadata probe's `repaired` key), and rendering and extraction use the
+recovered object graph that saving writes with normalized xref data. Callers
+that must not accept recovered input can reject `is_repaired` documents.
+Lenient tolerances that keep the declared structure, such as 19-byte xref
+entries or a stream `/Length` corrected at an unambiguous object boundary, are
+not reported. `DocumentLimits` apply to recovered documents unchanged.
+
+lopdf's reconstruction rescans the rest of the input after every `stream`
+keyword without a later `endstream`. Before each lenient open or metadata
+probe, pylopdf estimates that work in linear time and refuses input above 64
+bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
+cannot make recovery quadratic. Real damaged files carry at most one truncated
+stream in that position.
 
 - Rendering is capped at 64 megapixels per page.
 - Page deletion and selection clean navigation to excluded pages before

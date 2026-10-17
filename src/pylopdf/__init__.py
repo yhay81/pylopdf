@@ -2563,6 +2563,8 @@ class Page:
         - ``LINK_URI``: ``uri``.
         - ``LINK_GOTO``: zero-based ``page`` or -1 when unresolved, plus
           optional ``to`` (:class:`Point`), ``zoom``, and ``nameddest``.
+          Integer page indexes, which some producers write instead of page
+          references, resolve only when they name an existing page.
         - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file`` and optional ``nameddest``.
         - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
 
@@ -2848,7 +2850,7 @@ class Document:
 
     @property
     def is_repaired(self) -> bool:
-        """Return whether opening repaired an incorrect classic startxref."""
+        """Return whether opening recovered damaged cross-reference data."""
         self._ensure_not_closed()
         return self._doc.is_repaired()
 
@@ -4173,23 +4175,19 @@ def peek_metadata(
     _validate_optional_positive_int("max_file_size", max_file_size)
     _validate_password_input(password)
     if stream is not None:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(
+        raw, page_count, version, encrypted, recovery = _Document.load_metadata_bytes(
             stream,
             password,
             max_file_size,
         )
     else:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata(
+        raw, page_count, version, encrypted, recovery = _Document.load_metadata(
             os.fspath(cast("os.PathLike[str] | str", filename)),
             password,
             max_file_size,
         )
-    if repaired:
-        _warnings.warn(
-            "recovered a PDF with an incorrect startxref offset",
-            PylopdfWarning,
-            stacklevel=2,
-        )
+    if recovery is not None:
+        _warnings.warn(recovery, PylopdfWarning, stacklevel=2)
     return {
         "title": raw.get("Title", ""),
         "author": raw.get("Author", ""),
@@ -4202,5 +4200,5 @@ def peek_metadata(
         "format": f"PDF {version}",
         "page_count": page_count,
         "encrypted": encrypted,
-        "repaired": repaired,
+        "repaired": recovery is not None,
     }

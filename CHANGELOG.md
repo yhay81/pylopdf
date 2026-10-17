@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers
+  cross-reference damage that previously made files unopenable: lopdf moves a
+  `startxref`, `/Prev`, or `/XRefStm` offset that misses by up to 64 bytes to
+  the nearby `xref` keyword, and rebuilds a damaged table from object headers
+  and the newest classic trailer. Over 14 corpus files with 8 deterministic
+  damage types, damaged inputs that open with a usable page tree rose from 33
+  to 57 of 112. Damaged xref-stream files and truncated files without a
+  classic trailer are still rejected.
+- `Document.is_repaired`, `peek_metadata()["repaired"]`, and `PylopdfWarning`
+  report every lopdf cross-reference recovery, with distinct messages for a
+  corrected offset and a rebuilt table. lopdf's other lenient tolerances
+  (19-byte xref entries, stream `/Length` values corrected at an unambiguous
+  object boundary, and skipped unparseable objects) are not reported.
+- Recovered documents render and extract from lopdf's recovered object graph,
+  the graph that editing and saving use, instead of letting hayro recover the
+  damaged bytes independently. hayro alone rolled a damaged two-revision corpus
+  file back to its first revision and lost its OCR text layer. Objects that
+  lopdf cannot parse are now absent from such renders, as they already were
+  from saved output.
+- Remove pylopdf's own classic-`startxref` repair, which lopdf 0.45
+  supersedes. Its scan was quadratic: a 160 KB input of repeated `xref`
+  keywords took about 6 seconds to reject.
+- lopdf 0.45 decodes `ASCIIHexDecode`, `RunLengthDecode`, and `BrotliDecode`
+  layers plus TIFF predictor 2 and sub-byte PNG predictors, so Form imports,
+  text replacement, attachment reads, and XMP reads accept them instead of
+  raising.
+- Neither native nor Emscripten builds enable a lopdf date backend; pylopdf
+  never used lopdf's date conversions. This removes chrono and its time-zone
+  dependencies from native builds.
+- `bench/run.py` now splits first-page rendering into end-to-end time, cold
+  and warm Pixmap rasterization, and PNG encoding time and size for both
+  pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
+  time for the 12-page batch. The regenerated report and the benchmark pages in
+  all four languages show that pylopdf's end-to-end PNG lead comes from fast
+  fdeflate encoding, which also writes about 40% more bytes, while MuPDF
+  rasterizes most corpus pages faster. Its warm rasterization, which reuses an
+  open document's fonts and glyphs, was about 2–3 times faster on the published
+  run and on Linux and Windows CI runners.
+- uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
+  for faster Rust iteration cannot silently remain in later measurements.
+
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
   of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
@@ -43,20 +86,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
   link budget, so every well-formed tree and outline that resolves can also be
   cleaned and imported.
+- `insert_pdf` and `show_pdf_page` read the source page tree before
+  renumbering the source. A missing Kids entry keeps its object number, so when
+  a renumbered source object took that number, the import rejected the source
+  as reusing a page object or took a page outside the source page tree.
+- `Page.get_links()` now validates integer destination page indexes, which some
+  producers write instead of page references. A checked conversion replaces
+  the truncating cast, and an index outside the document is unresolved
+  (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
+  to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
+  builds), and an index past the last page was returned unchanged.
+- lopdf error messages again include their cause, such as the exceeded
+  decompression limit; lopdf 0.45 moved wrapped causes out of `Display`.
+- Saving a document whose cross-reference table was rebuilt no longer writes
+  the damaged input's `/Prev` offset into the new trailer.
 
-### Changed
-- `bench/run.py` now splits first-page rendering into end-to-end time, cold
-  and warm Pixmap rasterization, and PNG encoding time and size for both
-  pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
-  time for the 12-page batch. The regenerated report and the benchmark pages in
-  all four languages show that pylopdf's end-to-end PNG lead comes from fast
-  fdeflate encoding, which also writes about 40% more bytes, while MuPDF
-  rasterizes most corpus pages faster. Its warm rasterization, which reuses an
-  open document's fonts and glyphs, was about 2–3 times faster on the published
-  run and on Linux and Windows CI runners.
-- uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
-  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
-  for faster Rust iteration cannot silently remain in later measurements.
+### Security
+- Opening and metadata probing refuse input whose lopdf cross-reference
+  reconstruction could scan more than 64 bytes per input byte plus 64 MiB,
+  with `LimitError.code == "recovery_scan_size"`. lopdf rescans the rest of
+  the input after every `stream` keyword without a later `endstream`; without
+  this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
+  damaged files carry at most one truncated stream in that position.
+  `DocumentLimits` continue to apply to recovered documents.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its
@@ -71,6 +123,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
   that manual. Refusals still raise `LimitError` with the same codes on every
   named lookup, and results are unchanged.
+- Structural edits and `garbage=True` saves now remove unreachable objects
+  with a pylopdf-owned reachability sweep instead of lopdf's `prune_objects`,
+  which scanned a list of visited IDs for every reference and every object.
+  That made `delete_pages`, `select`, `insert_pdf`, `new_page`, `copy_page`,
+  `set_toc`, and `show_pdf_page` quadratic in the edited document's object
+  count. The same objects survive: across the bundled corpus and generated
+  fixtures, every edit saved byte-identical output. On a generated
+  50,000-page document (about 100,000 objects), the `garbage=True` prune fell
+  from 4.15 s to 0.016 s, `delete_pages([0])` from 5.26 s to 0.16 s,
+  `new_page()` from 5.33 s to 0.24 s, and a 4,096-entry `set_toc()` from
+  5.04 s to 0.047 s. Allocation refusal in the sweep raises `PdfError`.
+- `insert_pdf`, `show_pdf_page`, and generated text and form appearances now
+  renumber the copied source with a pylopdf-owned pass instead of lopdf's
+  `renumber_objects_with`, which scanned a list of visited IDs for every
+  reference, walked the graph twice when page numbers descended in page order,
+  and rescanned the bookmark table that `set_toc` fills once per renumbered
+  object. That made every import quadratic in the source's object count, even
+  for a single page. The numbering is unchanged: across the bundled corpus and
+  generated fixtures, every import saved byte-identical output except for the
+  page-tree fix below and one rarer case: when the source's page objects use
+  different generation numbers, lopdf's two-pass reordering could point a
+  reference to a missing object at a page, and that reference now keeps its
+  number like every other missing reference.
+  Importing one page from a generated 50,000-page source fell from 2.23 s to
+  0.10 s (4.29 s to 0.11 s when page numbers descend in page order), and
+  importing and stamping one page each from a 30,000-page source after a
+  2,048-entry `set_toc()` fell from 7.7 s to 0.18 s. Allocation refusal
+  raises `PdfError` before the target changes.
 - Native wheels and sdist builds now use thin LTO with one codegen unit and
   keep `panic = "unwind"` for PyO3 panic conversion. Against Cargo's default
   release profile on the five GitHub-hosted release targets, abi3 wheels

@@ -361,9 +361,12 @@ overview.
   before the first PDF mutation because later malformed-resource errors can
   leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
-  unencrypted load first consumes its original input bytes and falls back to a
-  lopdf serialization only when hayro rejects them or reports a different page
-  count. Editing methods must call `invalidate_hayro_pdf`, which also discards
+  unencrypted load without cross-reference recovery first consumes its original
+  input bytes and falls back to a lopdf serialization only when hayro rejects
+  them or reports a different page count. A recovered load retains no original
+  bytes: hayro would recover the damaged input independently and can disagree,
+  for example by rolling an incremental file back to its first revision.
+  Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
   always be reflected in rendering and link reads.
   `DocumentLimits.max_interpretation_size` bounds both retained original input
@@ -434,10 +437,41 @@ overview.
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
+- Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
+  `copy_page`, `set_toc`, and `show_pdf_page`) and `garbage=True` saves remove
+  unreachable objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+  Never call lopdf's `Document::prune_objects`: it records visited IDs in a
+  `Vec` and scans it for every reference and every object, which is quadratic
+  in object count. The replacement keeps lopdf's semantics, following
+  references from the trailer through arrays, dictionaries, stream
+  dictionaries, and reference-valued indirect objects but never through stream
+  content, and visits each existing object once with a hash set and an explicit
+  stack. The set is reserved for the current object count and the stack grows
+  fallibly; refusal raises `PdfError` before any object is removed. Pruning
+  still runs after the edit it follows has committed, so a refusal there leaves
+  that edit and its unreachable objects in place.
+- `insert_pdf`, `show_pdf_page`, and generated text and form appearances
+  renumber their disposable source copy with `renumber_objects` in
+  `rust/src/renumber.rs` before any target mutation. Never call lopdf's
+  `Document::renumber_objects_with`: it walks the graph with a `Vec` of visited
+  IDs, twice when page numbers descend in page order, and rescans the bookmark
+  table that `set_toc` fills once per renumbered object, so it is quadratic in
+  source object count. The replacement keeps lopdf's numbering: objects keep
+  their generation and take consecutive numbers in ascending ID order, page
+  objects trade slots so that page-tree order ascends, and references to
+  missing objects keep their numbers. Read the page order with the bounded
+  walker before renumbering, never after it, because a missing Kids entry can
+  share a renumbered object's number. A hash map reserved for the object count
+  assigns IDs, a fallibly grown stack rewrites references in the trailer and
+  in every object, and lopdf's bookmark table is left alone because only
+  `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
+  leave the copy partly rewritten.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
-  introducing plain `ValueError` exceptions.
+  introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
+  appear only through `Error::source`; format lopdf errors through
+  `LopdfErrorChain` so limit and decoder details stay in messages.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`. Open,
   authenticate, fast metadata probe, and AES-256 save passwords stop at the PDF
@@ -470,17 +504,32 @@ overview.
   PDFs require the `password` argument or `authenticate()`, which reopens the
   document with a password. `_ensure_open` must check `is_encrypted` because an
   undecrypted document otherwise appears to have zero pages.
-- Lenient opening repairs only an incorrect final `startxref` that points away
-  from an intact classic xref table in the final revision. The bounded linear
-  scan requires the final `%%EOF`, `startxref`, classic header/entry, and
-  `trailer`; it never guesses objects, repairs xref streams, or falls back
-  across an earlier `%%EOF`. A full lopdf retry under the original password and
-  decompression limits remains authoritative. The full repaired-input copy is
-  reserved fallibly only after confirming that narrow shape; allocation
-  refusal surfaces as `PdfError` rather than the original parse failure.
-  Repaired bytes feed hayro,
-  `PylopdfWarning` makes the event visible, `Document.is_repaired` and
-  `MetadataProbe.repaired` retain it, and saving normalizes the xref data.
+- Lenient opening relies on lopdf 0.45 cross-reference recovery
+  (`rust/src/recovery.rs`). lopdf moves a `startxref`, `/Prev`, or `/XRefStm`
+  offset that misses by at most 64 bytes to the nearest `xref` keyword, and
+  rebuilds the table from line-start object headers plus the newest classic
+  `trailer` whose `/Root` exists when standard resolution fails; later
+  revisions win. It reports both only as `log` warnings from `lopdf::reader`,
+  emitted on the loading thread before object parsing moves to the rayon pool.
+  `recovery::load_document` and `load_metadata` install one process-wide
+  logger and capture those records in a thread-local scope, so concurrent
+  loads keep their own result. Rust unit tests are not used: the damaged-corpus
+  regressions in `tests/test_real_world.py` and the Pyodide contract must
+  catch any lopdf message change. The two kinds emit distinct
+  `PylopdfWarning` text, set `Document.is_repaired` and
+  `MetadataProbe.repaired`, and saving normalizes the xref data. A rebuilt
+  trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
+  input. lopdf's other lenient tolerances (19-byte xref entries, stream
+  `/Length` recovered at an unambiguous object boundary, and skipped
+  unparseable objects) are not reported. Reconstruction never runs for
+  damaged xref-stream files without a classic trailer; they remain rejected.
+  Before every lenient load, a linear pre-scan estimates lopdf's
+  reconstruction work: each `stream` keyword after the last `endstream`
+  repeats a scan to the end of the input and a backward `obj`/`/Length`
+  search. Input above 64 bytes per input byte plus 64 MiB fails with
+  `LimitError.code == "recovery_scan_size"` before lopdf runs; real damaged
+  files carry at most a truncated final stream there. `DocumentLimits` apply
+  to recovered documents unchanged.
 - CJK fallback replaces hayro's `font_resolver`
   (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
@@ -697,7 +746,10 @@ overview.
   build and a refusal raises again. Do not rescan the name tree or walk the
   page tree per link or per page: destination geometry resolves from cached
   page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
-  link index grow fallibly.
+  link index grow fallibly. Integer page indexes in link destinations use
+  checked conversion and must name an existing page; anything else is
+  unresolved like an unknown page reference. Convert PDF-supplied integers with
+  `try_from` rather than truncating `as` casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
@@ -793,13 +845,14 @@ overview.
   module-scope `import pylopdf` in the example to serve `/health`. Emscripten
   enables PyO3's foldhash-backed `hashbrown` maps because its normal class
   builder uses Rust `RandomState`, while Cloudflare denies entropy during
-  module startup. Native targets retain PyO3's standard backend. Emscripten
-  excludes lopdf's `chrono` and `rayon` features: browser
-  clocks pull in js-sys imports, and the global rayon pool cannot create
-  workers there. `render_pages` keeps its public contract but runs serially;
-  native targets retain bounded rayon execution. Emscripten also omits RTen
-  inference while exposing an API-compatible `_OcrEngine` stub that raises
-  `OcrError` and directs callers to external OCR plus
+  module startup. Native targets retain PyO3's standard backend. Neither target
+  enables a lopdf date backend because pylopdf keeps PDF dates opaque; the
+  default `chrono-clock` feature would pull js-sys imports into Emscripten.
+  Emscripten also excludes lopdf's `rayon` feature because the global rayon
+  pool cannot create workers there. `render_pages` keeps its public contract
+  but runs serially; native targets retain bounded rayon execution. Emscripten
+  also omits RTen inference while exposing an API-compatible `_OcrEngine` stub
+  that raises `OcrError` and directs callers to external OCR plus
   `Page.insert_ocr_text_layer()`. Keep artifact sections, staged Pyodide
   startup/workload timing, linear-memory checkpoints, and Wrangler bundle
   measurements in CI. The 2026-07-26 LTO artifact is a 3.772 MiB wheel and
@@ -815,10 +868,11 @@ overview.
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, textbox layout, pixmaps,
-  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, and typed
-  error recovery. Add only small redistributable PDFs listed in
-  `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
-  font may be supplied from already licensed repository assets. Do not claim
+  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
+  error recovery, and lopdf cross-reference recovery reporting. Add only small
+  redistributable PDFs listed in `tests/assets/real_world/README.md`; non-PDF
+  inputs such as the existing CJK font may be supplied from already licensed
+  repository assets. Do not claim
   direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
   783 even though the binary itself passes that runtime's suite.
 - `DocumentLimits` is the public untrusted-input policy. Python validates the
@@ -876,12 +930,21 @@ overview.
   bounded same-document parallel read boundary.
 ## Known pitfalls
 
-- lopdf's `time` feature contains an uncompilable `From<time::Time>`
-  implementation introduced in 0.43.0. Upstream #527 is fixed but unreleased,
-  so this project uses `chrono`.
-- lopdf's content parser drops all operations after a comment line followed by
-  an indented line, reported as lopdf#535. pylopdf is unaffected since v0.7
-  because extraction moved to hayro (`rust/src/extract.rs`).
+- lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
+  `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
+  `/Prev` and `/XRefStm` after reconstruction; an upstream fix is a
+  contribution candidate.
+- lopdf's cross-reference reconstruction rescans the remaining input for every
+  unterminated `stream` keyword. Keep the `recovery_scan_size` pre-scan until
+  upstream makes that scan linear.
+- lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
+  helper built on it is quadratic in object count. pylopdf replaces
+  `prune_objects` and `renumber_objects_with`; do not call them or the other
+  helpers built on it (`delete_object`, `delete_zero_length_streams`, and
+  lopdf's own `delete_pages`).
+- References to missing objects keep their numbers through import
+  renumbering, as in lopdf, so after `insert_pdf` or `show_pdf_page` they can
+  resolve to unrelated target objects that use those numbers.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
@@ -944,6 +1007,7 @@ integrations, a watchlist, and explicit non-goals.
   field feedback, meaningful external adoption with roughly 1,000 GitHub stars
   as an indicative signal, and further product refinement justify the API
   freeze. Stars are not a mechanical release trigger.
-- lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
-  An upstream fix remains a parallel contribution candidate.
+- lopdf 0.45 includes the upstream lopdf#535 fix (lopdf#537). pylopdf has
+  extracted through hayro since v0.7, so the fix matters only to lopdf's own
+  content parser.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

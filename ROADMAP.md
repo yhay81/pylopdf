@@ -90,6 +90,17 @@ Reconcile AcroForm fields/widgets with page deletion and selection using real
 form fixtures: remove only widgets on excluded pages, preserve surviving field
 children and appearances, and verify that widget `/P` references cannot retain
 unwanted page objects. Treat this separately from secure redaction.
+Damaged-input recovery was the weakest area in an evaluation of v0.14.0 over
+14 corpus files with 8 deterministic damage types: pylopdf opened 35 of 112
+damaged inputs, while hayro alone rendered 103. In this repository's
+reproduction of those damage types, lopdf 0.45 cross-reference recovery raises
+inputs that open with a usable page tree from 33 to 57 and reports every xref
+recovery through `is_repaired`; `tests/test_real_world.py` pins the
+per-damage outcomes. Damaged xref-stream files and truncated files without a
+classic trailer remain rejected because lopdf rebuilds only from a classic
+trailer. Hayro-assisted recovery for those inputs is a separate design
+decision: the lopdf graph must remain the editing source of truth, and a second
+recovered view must not silently disagree with what saving writes.
 
 ### 3. Maintainability
 
@@ -971,8 +982,13 @@ rather than waiting automatically for v1.x.
       font data; upstream Type 1 metadata remains a contribution candidate.
 - Upstream contributions, started 2026-07-23; three of four merged by 2026-07-24:
   - [lopdf#537](https://github.com/J-F-Liu/lopdf/pull/537), a one-line fix plus
-    regression test for lopdf#535, is **merged** but newer than lopdf 0.44.0 and
-    awaits a release.
+    regression test for lopdf#535, is **merged** and released in lopdf 0.45.0,
+    which pylopdf now uses.
+  - lopdf 0.45 recovery follow-ups are contribution candidates: report
+    cross-reference recovery through the API instead of `log` records, drop
+    `/Prev`/`/XRefStm` from a rebuilt trailer, make the unterminated-`stream`
+    reconstruction scan linear, and rebuild xref-stream files from their
+    catalog.
   - [hayro#1315](https://github.com/LaurenzV/hayro/issues/1315) reports stencil
     masks about 5× slower.
   - [hayro#1316](https://github.com/LaurenzV/hayro/issues/1316) proposes exposing

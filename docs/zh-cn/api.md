@@ -22,7 +22,7 @@ password input上限为127个UTF-8 byte。
 | `page_count` / `len(doc)` | 页数 |
 | `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 带127-byte password上限的加密状态与解锁（兼容pymupdf语义） |
-| `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
+| `is_repaired` | 打开时是否恢复了损坏的cross-reference数据（修正offset或重建table）；保存会规范化xref数据 |
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
@@ -110,7 +110,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 
 | 名称 | 用途 |
 |---|---|
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 可选输入大小限制及127-byte password上限的快速元数据与页数读取；`repaired`报告受限的classic `startxref`修复 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 可选输入大小限制及127-byte password上限的快速元数据与页数读取；`repaired`报告cross-reference恢复 |
 | `Permissions` | 加密权限标志（IntFlag） |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
