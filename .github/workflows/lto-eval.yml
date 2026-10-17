@@ -1,6 +1,5 @@
-# Temporary evaluation branch only: compare native release profiles on every
-# release target. Build jobs mirror release.yml; bench jobs interleave the
-# resulting wheels on one runner so profile differences share runner noise.
+# Temporary evaluation branch only: repeat interleaved profile benchmarks with
+# the wheels built by run 39039799109, adding a merge-phase breakdown.
 name: LTO evaluation
 
 on:
@@ -10,122 +9,14 @@ on:
 permissions:
   contents: read
 
-env:
-  RUSTUP_TOOLCHAIN: 1.99.0
-  CARGO_BUILD_JOBS: 2
-
 jobs:
-  build:
-    name: build (${{ matrix.platform.target }}, ${{ matrix.variant.name }})
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
-          - { runner: macos-latest, target: aarch64-apple-darwin }
-          - { runner: macos-15-intel, target: x86_64-apple-darwin }
-          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
-        variant:
-          - { name: baseline, lto: "false", codegen-units: "16" }
-          - { name: thin, lto: thin, codegen-units: "1" }
-          - { name: fat, lto: fat, codegen-units: "1" }
-    env:
-      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.variant.lto }}
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.variant.codegen-units }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Record build start
-        shell: bash
-        run: echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
-      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        with:
-          target: ${{ matrix.platform.target }}
-          rust-toolchain: "1.99.0"
-          maturin-version: "1.14.1"
-          args: --release --locked --out dist
-          manylinux: auto
-      - name: Record build end
-        shell: bash
-        run: echo "BUILD_END=$(date +%s)" >> "$GITHUB_ENV"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14"
-      - name: Smoke-test installed wheel
-        run: python tools/smoke_artifact.py dist --pattern "*.whl"
-      - name: Record wheel metrics
-        shell: bash
-        env:
-          TARGET: ${{ matrix.platform.target }}
-          VARIANT: ${{ matrix.variant.name }}
-        run: |
-          mkdir -p metrics
-          python - <<'EOF'
-          import json
-          import os
-          from pathlib import Path
-
-          wheel = next(Path("dist").glob("*.whl"))
-          record = {
-              "target": os.environ["TARGET"],
-              "variant": os.environ["VARIANT"],
-              "build_step_seconds": int(os.environ["BUILD_END"]) - int(os.environ["BUILD_START"]),
-              "wheel": wheel.name,
-              "wheel_bytes": wheel.stat().st_size,
-          }
-          Path("metrics/build.json").write_text(json.dumps(record), encoding="utf-8")
-          print(record)
-          EOF
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: lto-wheel-${{ matrix.platform.target }}-${{ matrix.variant.name }}
-          path: |
-            dist
-            metrics
-          retention-days: 30
-
-  sdist:
-    name: sdist (${{ matrix.variant.name }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        variant:
-          - { name: baseline, lto: "false", codegen-units: "16" }
-          - { name: fat, lto: fat, codegen-units: "1" }
-    env:
-      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.variant.lto }}
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.variant.codegen-units }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        with:
-          command: sdist
-          rust-toolchain: "1.99.0"
-          maturin-version: "1.14.1"
-          args: --out dist
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14"
-      - name: Smoke-test installed sdist
-        shell: bash
-        run: |
-          start="$(date +%s)"
-          python tools/smoke_artifact.py dist --pattern "*.tar.gz"
-          echo "sdist install and smoke: $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
-
   bench:
     name: bench (${{ matrix.platform.target }})
-    needs: build
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -152,6 +43,8 @@ jobs:
         with:
           pattern: lto-wheel-${{ matrix.platform.target }}-*
           path: artifacts
+          run-id: 39039799109
+          github-token: ${{ github.token }}
       - name: Create one environment per profile
         shell: bash
         env:
@@ -168,24 +61,12 @@ jobs:
           done
       - name: Run interleaved pylopdf rounds
         shell: bash
-        run: BENCH_REPEATS=5 bash .github/lto-eval/ab_rounds.sh ab 6 . venv- baseline thin fat
-      - name: Run bench/run.py once per profile
-        shell: bash
-        run: |
-          mkdir -p reports
-          for variant in baseline fat thin; do
-            python_bin="venv-${variant}/bin/python"
-            [[ -x "${python_bin}" ]] || python_bin="venv-${variant}/Scripts/python.exe"
-            BENCH_REPEATS=5 "${python_bin}" bench/run.py
-            cp bench/results/latest.md "reports/latest-${variant}.md"
-          done
+        run: BENCH_REPEATS=7 bash .github/lto-eval/ab_rounds.sh ab 8 . venv- baseline thin fat
       - name: Summarize interleaved rounds
         shell: bash
         run: python .github/lto-eval/ab_summary.py ab baseline thin fat | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lto-bench-${{ matrix.platform.target }}
-          path: |
-            ab
-            reports
+          name: lto-bench2-${{ matrix.platform.target }}
+          path: ab
           retention-days: 30

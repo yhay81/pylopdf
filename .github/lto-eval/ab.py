@@ -48,6 +48,24 @@ def main() -> None:
     docs = list(corpus.values())
     result["merge"] = median(lambda: bench._pylopdf_merge(docs))
 
+    # Merge phases: parse every input, import all pages, and serialize the result.
+    def open_all() -> None:
+        for data in docs:
+            pylopdf.open(stream=data).close()
+
+    def import_all() -> pylopdf.Document:
+        merged = pylopdf.Document()
+        for data in docs:
+            with pylopdf.open(stream=data) as src:
+                merged.insert_pdf(src)
+        return merged
+
+    result["merge_open_all"] = median(open_all)
+    result["merge_import_all"] = median(lambda: import_all().close())
+    merged_doc = import_all()
+    result["merge_tobytes"] = median(merged_doc.tobytes)
+    merged_doc.close()
+
     renders = {name: bench._measure_render(bench._PYLOPDF_RENDERER, bench._pylopdf_render, data) for name, data in corpus.items()}
     for field in ("end_to_end", "cold", "warm", "encode"):
         per_file = {name: getattr(times, field) for name, times in renders.items()}
