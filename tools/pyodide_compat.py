@@ -14,6 +14,7 @@ import struct
 import sys
 import tempfile
 import time
+import warnings
 import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -241,6 +242,60 @@ def _limit_results(
     }
 
 
+def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
+    import pylopdf  # noqa: PLC0415
+
+    def corrupt_startxref_keyword(data: bytes) -> bytes:
+        position = data.rfind(b"startxref")
+        return data[:position] + b"startxrex" + data[position + len(b"startxref") :]
+
+    def shift_startxref(data: bytes, delta: int) -> bytes:
+        position = data.rfind(b"startxref") + len(b"startxref")
+        start = position + len(data[position:]) - len(data[position:].lstrip())
+        end = start
+        while data[end : end + 1].isdigit():
+            end += 1
+        return data[:start] + str(int(data[start:end]) + delta).encode() + data[end:]
+
+    def recovered(data: bytes) -> dict[str, Any]:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            document = pylopdf.Document(stream=data)
+            probe = pylopdf.peek_metadata(stream=data)
+        _require(document.is_repaired == probe["repaired"], "metadata probe disagreed about recovery")
+        resaved = pylopdf.Document(stream=document.tobytes())
+        _require(not resaved.is_repaired, "saving did not normalize recovered cross-reference data")
+        return {
+            "repaired": document.is_repaired,
+            "pages": document.page_count,
+            "text_sha256": _digest(document.get_page_text(0)),
+            "warnings": sorted(
+                {str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)}
+            ),
+        }
+
+    def limit_code(callback: Callable[[], object]) -> str:
+        try:
+            callback()
+        except pylopdf.LimitError as error:
+            return error.code
+        msg = "hostile recovery input unexpectedly opened"
+        raise RuntimeError(msg)
+
+    hostile = b"%PDF-1.4\n" + b"stream\n" * 16_384
+    return {
+        "offset_corrected": recovered(shift_startxref(pdf20_bytes, 12)),
+        "rebuilt": recovered(corrupt_startxref_keyword(pdf20_bytes)),
+        "xref_stream_damage": _exception_name(
+            lambda: pylopdf.Document(stream=corrupt_startxref_keyword(form_bytes)),
+        ),
+        "recovery_scan": [
+            limit_code(lambda: pylopdf.Document(stream=hostile)),
+            limit_code(lambda: pylopdf.peek_metadata(stream=hostile)),
+        ],
+    }
+
+
 def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415 - list-assets must work without an installed extension.
 
@@ -352,6 +407,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             pdf20.complexity,
             bounded_scan.complexity,
         ),
+        "recovery": _recovery_results(pdf20_bytes, form_bytes),
     }
 
 
@@ -449,6 +505,10 @@ def _generation_results(root: Path) -> dict[str, Any]:
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     first_pixmap = first.get_pixmap(0.5)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
+    _require(
+        first.get_pixmap(0.5).samples == first_pixmap.samples,
+        "a repeated render on the retained cache changed the raster",
+    )
 
     second = document.new_page(width=180, height=240)
     stale_error = _exception_name(lambda: first.rect)

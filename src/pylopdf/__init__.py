@@ -110,7 +110,7 @@ _MAX_GENERATED_TEXT_LINES = 4096
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
-_MAX_TOC_INPUT_TEXT_SIZE = 1024 * 1024
+_MAX_TOC_INPUT_TEXT_SIZE = 16 * 1024 * 1024
 _MAX_PAGE_LABEL_INPUT_TEXT_SIZE = 1024 * 1024
 _DEFAULT_MAX_OCR_MODEL_SIZE = 64 * 1024 * 1024
 _UTF8_TWO_BYTE_MIN = 1 << 7
@@ -124,13 +124,12 @@ _RECT_COORDINATE_COUNT = 4
 _MAX_SEARCH_INPUT_BYTES = 4096
 _DEFAULT_MAX_SEARCH_HITS = 4096
 _MAX_PASSWORD_INPUT_BYTES = 127
-_MAX_TOC_ENTRIES = 4096
+_MAX_TOC_ENTRIES = 65_536
 _MAX_OCR_LAYER_WORDS = 4096
 _MAX_OCR_LAYER_TEXT_BYTES = 1024 * 1024
-_MAX_RENDER_BATCH_PAGES = 4096
-_MAX_MARKDOWN_PAGES = 4096
-_MAX_STRUCTURAL_PAGE_BATCH = 4096
-_MAX_TEXT_EXTRACTION_PAGES = 4096
+# Explicit page iterables may repeat pages up to the larger of the page count
+# and this floor, so repetition never costs more than one full document pass.
+_MIN_PAGE_ENTRY_LIMIT = 4096
 _MAX_TEXT_REPLACEMENT_INPUT_BYTES = 4096
 _TEMPORARY_FILE_ATTEMPTS = 100
 
@@ -238,6 +237,15 @@ def _markdown_output_limit_error(max_size: int) -> LimitError:
         "markdown_output_size",
         f"Markdown output exceeds the {max_size}-byte UTF-8 limit",
     )
+
+
+def _resolve_page_index(pno: int, count: int) -> int:
+    """Resolve negative indexing against one page-count snapshot."""
+    normalized = pno + count if pno < 0 else pno
+    if not 0 <= normalized < count:
+        msg = f"page number {pno} is out of range (0..{count - 1})"
+        raise IndexError(msg)
+    return normalized
 
 
 def _temporary_sibling_path(target: Path) -> Path:
@@ -2555,15 +2563,22 @@ class Page:
         - ``LINK_URI``: ``uri``.
         - ``LINK_GOTO``: zero-based ``page`` or -1 when unresolved, plus
           optional ``to`` (:class:`Point`), ``zoom``, and ``nameddest``.
+          Integer page indexes, which some producers write instead of page
+          references, resolve only when they name an existing page.
         - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file`` and optional ``nameddest``.
         - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
 
         GoTo named destinations resolve from both the ``/Names`` name tree and
         the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
-        1 MiB aggregate metadata-text boundaries with :meth:`annots`. Name-tree
-        resolution builds one borrowed index per call, is cycle-aware, and
-        rejects excessive entries, nodes, edges, depth, or key bytes instead of
-        returning a silent unresolved result.
+        1 MiB aggregate metadata-text boundaries with :meth:`annots`. The first
+        named lookup indexes the name tree once, cycle-aware, and later reads
+        reuse that index and the page index until the next edit, so reading
+        every page stays linear. Trees above 65,536 entries or nodes or 131,072
+        edges raise :class:`LimitError` with code ``named_destination_count``,
+        above 16 MiB of key text with ``named_destination_text_size``, and above
+        32 levels with :class:`PdfError`, instead of returning a silent
+        unresolved result. A refused tree is never cached, so every later named
+        lookup raises again.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {
@@ -2835,7 +2850,7 @@ class Document:
 
     @property
     def is_repaired(self) -> bool:
-        """Return whether opening repaired an incorrect classic startxref."""
+        """Return whether opening recovered damaged cross-reference data."""
         self._ensure_not_closed()
         return self._doc.is_repaired()
 
@@ -2991,37 +3006,39 @@ class Document:
         default. Pass ``table_strategy="text"`` to extend this with conservative
         borderless detection, or ``None`` to disable table conversion.
         ``pages`` is a sequence of zero-based page numbers emitted in the given
-        order; ``None`` means every page. One call accepts at most 4,096 page
-        entries. ``max_size`` caps aggregate UTF-8 Markdown output and defaults
-        to 64 MiB; ``None`` explicitly opts out.
+        order; ``None`` means every page. An explicit sequence may contain up to
+        the larger of the page count and 4,096 entries; further entries raise
+        :class:`LimitError` with code ``page_entry_count``. ``max_size`` caps
+        aggregate UTF-8 Markdown output and defaults to 64 MiB; ``None``
+        explicitly opts out.
         """
         self._ensure_open()
         if table_strategy not in ("lines", "text", None):
             msg = f"table_strategy must be 'lines', 'text', or None: {table_strategy!r}"
             raise ValueError(msg)
         _validate_optional_positive_int("max_size", max_size)
-        page_numbers: list[int] = []
-        page_iter = range(self.page_count) if pages is None else pages
-        for pno in page_iter:
-            if len(page_numbers) >= _MAX_MARKDOWN_PAGES:
-                msg = f"pages cannot contain more than {_MAX_MARKDOWN_PAGES} entries"
-                raise ValueError(msg)
-            self._lopdf_page_number(pno)
-            page_numbers.append(pno)
+        count = self.page_count
+        page_numbers: Sequence[int] = (
+            range(1, count + 1) if pages is None else self._page_entries(pages, "pages", count)
+        )
 
+        # Both passes reuse the validated snapshot instead of re-walking the
+        # page tree for every entry, keeping whole-document conversion linear.
         size_counts: Counter[float] = Counter()
-        for pno in page_numbers:
-            layout = self.get_page_text(pno, "dict")
-            tables = [] if table_strategy is None else _markdown_page_tables(self[pno], table_strategy)
+        for page_number in page_numbers:
+            layout = self._page_layout(page_number, "dict")
+            page = Page(self, page_number - 1)
+            tables = [] if table_strategy is None else _markdown_page_tables(page, table_strategy)
             bboxes = [(table.bbox.x0, table.bbox.y0, table.bbox.x1, table.bbox.y1) for table in tables]
             size_counts.update(_markdown.collect_sizes([layout], [bboxes]))
         levels = _markdown.heading_levels(size_counts)
 
         rendered: list[str] = []
         output_bytes = 0
-        for pno in page_numbers:
-            layout = self.get_page_text(pno, "dict")
-            tables = [] if table_strategy is None else _markdown_page_tables(self[pno], table_strategy)
+        for page_number in page_numbers:
+            layout = self._page_layout(page_number, "dict")
+            page = Page(self, page_number - 1)
+            tables = [] if table_strategy is None else _markdown_page_tables(page, table_strategy)
             separator_bytes = 2 if rendered else 0
             page_budget = None if max_size is None else max_size - output_bytes - separator_bytes
             bboxes, markdown_tables = _markdown_table_output(
@@ -3030,7 +3047,7 @@ class Document:
                 max_size=max_size,
                 remaining_size=page_budget,
             )
-            words = self.get_page_text(pno, "words") if tables else None
+            words = self._page_layout(page_number, "words") if tables else None
             page_markdown = _bounded_markdown_page_output(
                 layout,
                 levels,
@@ -3368,20 +3385,16 @@ class Document:
 
         ``pages`` is a sequence of zero-based page numbers extracted in the
         given order; ``None`` means every page, negative values count from the
-        end, and duplicates are allowed. One call accepts at most 4,096 page
-        entries. The batch shares one interpreter font cache, so a font reused
-        across pages is parsed once per call rather than once per page; the
-        returned text equals joining single-page :meth:`get_page_text` output
-        in the same order.
+        end, and duplicates are allowed. An explicit sequence may contain up to
+        the larger of the page count and 4,096 entries; further entries raise
+        :class:`LimitError` with code ``page_entry_count``. Pages are processed
+        in chunks of 4,096 entries, each sharing one interpreter font cache, so
+        a font reused across pages is parsed once per chunk rather than once
+        per page; the returned text equals joining single-page
+        :meth:`get_page_text` output in the same order.
         """
-        self._ensure_open()
-        page_numbers: list[int] = []
-        page_iter = range(self.page_count) if pages is None else pages
-        for pno in page_iter:
-            if len(page_numbers) >= _MAX_TEXT_EXTRACTION_PAGES:
-                msg = f"pages cannot contain more than {_MAX_TEXT_EXTRACTION_PAGES} entries"
-                raise ValueError(msg)
-            page_numbers.append(self._lopdf_page_number(pno))
+        count = self.page_count
+        page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
         text = self._doc.extract_text(page_numbers)
         self._emit_warnings()
         return text
@@ -3429,8 +3442,19 @@ class Document:
             return text
         if option == "rawdict":
             return self._get_page_rawdict(pno)
-        width, height, blocks = self._doc.extract_layout(self._lopdf_page_number(pno))
-        self._emit_warnings()
+        return self._page_layout(self._lopdf_page_number(pno), option)
+
+    @overload
+    def _page_layout(self, page_number: int, option: Literal["words"]) -> list[WordEntry]: ...
+    @overload
+    def _page_layout(self, page_number: int, option: Literal["dict"]) -> TextPage: ...
+    @overload
+    def _page_layout(self, page_number: int, option: str) -> list[WordEntry] | list[BlockEntry] | TextPage: ...
+    def _page_layout(self, page_number: int, option: str) -> list[WordEntry] | list[BlockEntry] | TextPage:
+        """Build words, blocks, or dict layout for a validated one-based page."""
+        width, height, blocks = self._doc.extract_layout(page_number)
+        # Attribute warnings to the public caller rather than this helper.
+        self._emit_warnings(stacklevel=4)
         if option == "words":
             words: list[WordEntry] = []
             for bno, (_, lines) in enumerate(blocks):
@@ -3533,9 +3557,16 @@ class Document:
         self._bump_generation()
 
     def delete_pages(self, page_numbers: Iterable[int]) -> None:
-        """Delete up to 4,096 zero-based pages; negative values count from the end."""
-        self._ensure_open()
-        numbers = self._materialize_structural_pages(page_numbers, "page_numbers")
+        """Delete zero-based pages; negative values count from the end.
+
+        The iterable may contain up to the larger of the page count and 4,096
+        entries; further entries raise :class:`LimitError` with code
+        ``page_entry_count`` before the document changes. Links, outline
+        destinations, the open action, and named destinations that target
+        deleted pages are removed under the same limits as :meth:`get_toc` and
+        :meth:`Page.get_links`; a refusal leaves the document unchanged.
+        """
+        numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         if not numbers:
             return
         self._doc.delete_pages(numbers)
@@ -3545,27 +3576,15 @@ class Document:
         """Keep only the given zero-based pages in the given order.
 
         This also reorders pages. Repeating an index duplicates that page; the
-        duplicate shares Contents and Resources objects with the original. One
-        call accepts at most 4,096 entries.
+        duplicate shares Contents and Resources objects with the original. The
+        iterable may contain up to the larger of the page count and 4,096
+        entries, so a selection never grows a large document; further entries
+        raise :class:`LimitError` with code ``page_entry_count``. Navigation to
+        excluded pages is cleaned as in :meth:`delete_pages`.
         """
-        self._ensure_open()
-        numbers = self._materialize_structural_pages(page_numbers, "page_numbers")
+        numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         self._doc.select(numbers)
         self._bump_generation()
-
-    def _materialize_structural_pages(
-        self,
-        page_numbers: Iterable[int],
-        name: str,
-    ) -> list[int]:
-        """Validate one bounded iterable of zero-based structural page inputs."""
-        numbers: list[int] = []
-        for pno in page_numbers:
-            if len(numbers) >= _MAX_STRUCTURAL_PAGE_BATCH:
-                msg = f"{name} cannot contain more than {_MAX_STRUCTURAL_PAGE_BATCH} entries"
-                raise ValueError(msg)
-            numbers.append(self._lopdf_page_number(pno))
-        return numbers
 
     def insert_pdf(
         self,
@@ -3579,24 +3598,25 @@ class Document:
         Insert the inclusive, zero-based ``from_page..to_page`` range at
         zero-based ``start_at``; negative source indices count from the end and
         ``start_at=-1`` appends. A descending range imports in reverse order.
+        The range is bounded by the source document itself, so a complete
+        document of any page count can be inserted. Source-local links,
+        including named destinations, become explicit destinations or are
+        omitted when their target page is not imported; source name trees share
+        the :meth:`Page.get_links` limits.
         """
         self._ensure_open()
         if other is self:
             msg = "cannot insert a document into itself"
             raise ValueError(msg)
         other._ensure_open()
-        if other.page_count == 0:
+        source_count = other.page_count
+        if source_count == 0:
             return
-        start = other._normalize_pno(from_page)
-        stop = other._normalize_pno(to_page)
+        start = _resolve_page_index(from_page, source_count)
+        stop = _resolve_page_index(to_page, source_count)
         step = 1 if start <= stop else -1
-        count = abs(stop - start) + 1
-        if count > _MAX_STRUCTURAL_PAGE_BATCH:
-            msg = f"page range cannot contain more than {_MAX_STRUCTURAL_PAGE_BATCH} entries"
-            raise ValueError(msg)
-        numbers = list(range(start, stop + step, step))
         position = None if start_at == -1 else self._insert_position(start_at, "start_at")
-        self._doc.merge_pages(other._doc, [n + 1 for n in numbers], position)
+        self._doc.merge_pages(other._doc, list(range(start + 1, stop + 1 + step, step)), position)
         self._bump_generation()
 
     def new_page(self, pno: int = -1, width: float = 595.0, height: float = 842.0) -> Page:
@@ -3647,8 +3667,11 @@ class Document:
 
         Levels and page numbers are one-based for pymupdf compatibility, unlike
         other page APIs. Return an empty list when no TOC exists. Traversal is
-        cycle-aware and rejects more than 4,096 nodes or entries, 8,192 edges,
-        64 levels, 32 destination indirections, or 1 MiB of source/returned text.
+        cycle-aware and rejects more than 65,536 nodes or entries or 131,072
+        edges with ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
+        source/returned text with ``"toc_text_size"``, and more than 64 levels
+        or 32 destination indirections. Named destinations resolve under the
+        same name-tree limits as :meth:`Page.get_links`.
         """
         self._ensure_open()
         return [[level, title, page] for level, title, page in self._doc.get_toc()]
@@ -3656,17 +3679,19 @@ class Document:
     def set_toc(self, toc: Sequence[Sequence[int | str]]) -> None:
         """Replace bookmarks from ``[[level, title, page number], ...]``.
 
-        An empty sequence removes them. At most 4,096 entries, 64 levels, and
-        1 MiB each of input and encoded title text are accepted. Levels start at
-        1 and can increase by at most one from the previous entry. Page numbers
-        are one-based, matching :meth:`get_toc`. Validation is atomic.
-        Caller text refusals occur before PyO3 copying with
-        ``LimitError.code == "toc_input_size"``.
+        An empty sequence removes them. At most 65,536 entries, 64 levels, and
+        16 MiB each of input and encoded title text are accepted, enough for
+        large manuals while matching :meth:`get_toc`. Levels start at 1 and can
+        increase by at most one from the previous entry. Page numbers are
+        one-based, matching :meth:`get_toc`. Validation is atomic. Refusals occur
+        before PyO3 copying with ``LimitError.code == "toc_entry_count"`` for
+        entries or ``"toc_input_size"`` for title text.
         """
         self._ensure_open()
         if len(toc) > _MAX_TOC_ENTRIES:
+            limit_code = "toc_entry_count"
             msg = f"toc cannot contain more than {_MAX_TOC_ENTRIES} entries"
-            raise ValueError(msg)
+            raise LimitError(limit_code, msg)
         count = self.page_count
         entries: list[tuple[int, str, int]] = []
         previous_level = 0
@@ -3821,9 +3846,12 @@ class Document:
         values must be between 1 and 64. Actual concurrency is also capped to
         roughly 512 MB of estimated live raster and conversion buffers. A
         dedicated bounded worker pool renders one immutable snapshot of the
-        document while the GIL is released. One call accepts up to 4,096 page
-        entries. ``max_size`` caps their cumulative encoded PNG bytes and
-        defaults to 512 MiB; pass ``None`` only to accept unbounded output.
+        document while the GIL is released, replacing each worker's render
+        cache after 4,096 pages. An explicit sequence may contain up to the
+        larger of the page count and 4,096 entries; further entries raise
+        :class:`LimitError` with code ``page_entry_count``. ``max_size`` caps
+        their cumulative encoded PNG bytes and defaults to 512 MiB; pass
+        ``None`` only to accept unbounded output.
 
         Do not edit or call other methods on this same :class:`Document` from
         another thread during the operation. Such calls are not part of the
@@ -3845,13 +3873,8 @@ class Document:
             msg = f"workers must be between 1 and {_MAX_RENDER_WORKERS}"
             raise ValueError(msg)
         _validate_optional_positive_int("max_size", max_size)
-        page_numbers: list[int] = []
-        page_iter = range(self.page_count) if pages is None else pages
-        for pno in page_iter:
-            if len(page_numbers) >= _MAX_RENDER_BATCH_PAGES:
-                msg = f"pages cannot contain more than {_MAX_RENDER_BATCH_PAGES} entries"
-                raise ValueError(msg)
-            page_numbers.append(self._lopdf_page_number(pno))
+        count = self.page_count
+        page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
         rgba = _normalize_background(background)
         if not page_numbers:
             return []
@@ -3880,10 +3903,10 @@ class Document:
         self._emit_warnings()
         return result
 
-    def _emit_warnings(self) -> None:
+    def _emit_warnings(self, stacklevel: int = 3) -> None:
         """Emit recoverable interpretation warnings as ``PylopdfWarning``."""
         for message in self._doc.take_warnings():
-            _warnings.warn(message, PylopdfWarning, stacklevel=3)
+            _warnings.warn(message, PylopdfWarning, stacklevel=stacklevel)
 
     def compress_images(
         self,
@@ -4046,6 +4069,7 @@ class Document:
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
         self._closed = True
+        self._doc.release_render_cache()
 
     def _ensure_not_closed(self) -> None:
         """Reject operations on a closed document."""
@@ -4067,16 +4091,32 @@ class Document:
     def _normalize_pno(self, pno: int) -> int:
         """Resolve negative indexing and return a valid zero-based page number."""
         self._ensure_open()
-        count = self._doc.page_count()
-        normalized = pno + count if pno < 0 else pno
-        if not 0 <= normalized < count:
-            msg = f"page number {pno} is out of range (0..{count - 1})"
-            raise IndexError(msg)
-        return normalized
+        return _resolve_page_index(pno, self._doc.page_count())
 
     def _lopdf_page_number(self, pno: int) -> int:
         """Validate a Python page index and convert it to one-based lopdf form."""
         return self._normalize_pno(pno) + 1
+
+    def _page_entries(self, pages: Iterable[int], name: str, count: int) -> list[int]:
+        """Validate explicit page entries against one page-count snapshot.
+
+        Return one-based lopdf page numbers. Entries may repeat pages, but
+        materialization stops at the first entry beyond the larger of
+        ``count`` and 4,096, so repetition never costs more than one complete
+        pass over a large document.
+        """
+        limit = max(count, _MIN_PAGE_ENTRY_LIMIT)
+        numbers: list[int] = []
+        for pno in pages:
+            if len(numbers) >= limit:
+                limit_code = "page_entry_count"
+                msg = (
+                    f"{name} cannot contain more than {limit} entries "
+                    f"(the larger of the page count and {_MIN_PAGE_ENTRY_LIMIT})"
+                )
+                raise LimitError(limit_code, msg)
+            numbers.append(_resolve_page_index(pno, count) + 1)
+        return numbers
 
     def __enter__(self) -> Self:
         """Enter a context manager and return this document."""
@@ -4136,23 +4176,19 @@ def peek_metadata(
     _validate_optional_positive_int("max_file_size", max_file_size)
     _validate_password_input(password)
     if stream is not None:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata_bytes(
+        raw, page_count, version, encrypted, recovery = _Document.load_metadata_bytes(
             stream,
             password,
             max_file_size,
         )
     else:
-        raw, page_count, version, encrypted, repaired = _Document.load_metadata(
+        raw, page_count, version, encrypted, recovery = _Document.load_metadata(
             os.fspath(cast("os.PathLike[str] | str", filename)),
             password,
             max_file_size,
         )
-    if repaired:
-        _warnings.warn(
-            "recovered a PDF with an incorrect startxref offset",
-            PylopdfWarning,
-            stacklevel=2,
-        )
+    if recovery is not None:
+        _warnings.warn(recovery, PylopdfWarning, stacklevel=2)
     return {
         "title": raw.get("Title", ""),
         "author": raw.get("Author", ""),
@@ -4165,5 +4201,5 @@ def peek_metadata(
         "format": f"PDF {version}",
         "page_count": page_count,
         "encrypted": encrypted,
-        "repaired": repaired,
+        "repaired": recovery is not None,
     }

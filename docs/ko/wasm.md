@@ -165,8 +165,8 @@ rendering, 생성 또는 외부 OCR text 삽입은 제거되지 않습니다.
 검증한 Worker bundle은 압축 시 3.817 MiB, 압축 해제 시 10.383 MiB입니다. 따라서
 Cloudflare Workers Free의 3 MB 압축 제한은 넘지만 paid plan의 10 MB 압축 제한과 공통
 64 MB 비압축 제한에는 맞습니다. pylopdf는 paid-plan deployment 경로를 지원하며 기능을
-줄인 별도 distribution은 배포하지 않습니다. fat LTO와 단일 codegen unit은
-PyEmscripten artifact에만 적용하며 native release profile은 변경하지 않습니다.
+줄인 별도 distribution은 배포하지 않습니다. PyEmscripten artifact는 fat LTO와 단일
+codegen unit으로 고정하며 native wheel은 thin LTO release profile을 사용합니다.
 
 Node/Pyodide harness에서 Form 1040 첫 open/extraction은 117.634 ms, 5회 반복 median은
 28.506 ms였습니다. Wasm linear memory는 설치 후 39.688 MiB, 전체 호환성 및 resource

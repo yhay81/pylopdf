@@ -6,7 +6,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers
+  cross-reference damage that previously made files unopenable: lopdf moves a
+  `startxref`, `/Prev`, or `/XRefStm` offset that misses by up to 64 bytes to
+  the nearby `xref` keyword, and rebuilds a damaged table from object headers
+  and the newest classic trailer. Over 14 corpus files with 8 deterministic
+  damage types, damaged inputs that open with a usable page tree rose from 33
+  to 57 of 112. Damaged xref-stream files and truncated files without a
+  classic trailer are still rejected.
+- `Document.is_repaired`, `peek_metadata()["repaired"]`, and `PylopdfWarning`
+  report every lopdf cross-reference recovery, with distinct messages for a
+  corrected offset and a rebuilt table. lopdf's other lenient tolerances
+  (19-byte xref entries, stream `/Length` values corrected at an unambiguous
+  object boundary, and skipped unparseable objects) are not reported.
+- Recovered documents render and extract from lopdf's recovered object graph,
+  the graph that editing and saving use, instead of letting hayro recover the
+  damaged bytes independently. hayro alone rolled a damaged two-revision corpus
+  file back to its first revision and lost its OCR text layer. Objects that
+  lopdf cannot parse are now absent from such renders, as they already were
+  from saved output.
+- Remove pylopdf's own classic-`startxref` repair, which lopdf 0.45
+  supersedes. Its scan was quadratic: a 160 KB input of repeated `xref`
+  keywords took about 6 seconds to reject.
+- lopdf 0.45 decodes `ASCIIHexDecode`, `RunLengthDecode`, and `BrotliDecode`
+  layers plus TIFF predictor 2 and sub-byte PNG predictors, so Form imports,
+  text replacement, attachment reads, and XMP reads accept them instead of
+  raising.
+- Neither native nor Emscripten builds enable a lopdf date backend; pylopdf
+  never used lopdf's date conversions. This removes chrono and its time-zone
+  dependencies from native builds.
+- `bench/run.py` now splits first-page rendering into end-to-end time, cold
+  and warm Pixmap rasterization, and PNG encoding time and size for both
+  pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
+  time for the 12-page batch. The regenerated report and the benchmark pages in
+  all four languages show that pylopdf's end-to-end PNG lead comes from fast
+  fdeflate encoding, which also writes about 40% more bytes, while MuPDF
+  rasterizes most corpus pages faster. Its warm rasterization, which reuses an
+  open document's fonts and glyphs, was about 2–3 times faster on the published
+  run and on Linux and Windows CI runners.
+- uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
+  for faster Rust iteration cannot silently remain in later measurements.
+
+### Fixed
+- Whole-document operations now work for documents of any page count instead
+  of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
+  `render_pages()` with `pages=None`, and `insert_pdf()` of a complete source.
+  Text extraction and rendering process internally in 4,096-entry chunks that
+  each own their hayro cache, while `max_size`, `max_text_size`, and the other
+  output budgets still bound the complete call. Page entries are validated
+  against one page-count snapshot, removing a page-tree walk per entry that
+  made large batches quadratic, and budgeted extraction keeps running
+  admission totals instead of rescanning every interpreted page.
+- Explicit page sequences for `get_text`, `to_markdown`, `render_pages`,
+  `select`, and `delete_pages` are bounded by the larger of the page count and
+  4,096 instead of a fixed 4,096, so repetition never costs more than one
+  complete document pass. Materialization still stops early, and refusals
+  raise `LimitError` with the new stable code `page_entry_count`; it remains a
+  `ValueError` subclass. Direct core calls repeat the check, and the core page
+  import rejects repeated source pages before mutation instead of producing a
+  page tree that reuses one page object.
+- `set_toc()` and `get_toc()` accept large manuals: outlines may contain
+  65,536 entries/nodes, 131,072 edges, and 16 MiB of title text (formerly
+  4,096, 8,192, and 1 MiB). Entry-count refusals raise `LimitError` with
+  `toc_entry_count`, read-side text refusals use `toc_text_size`, and page
+  deletion and selection share the outline limits so every written outline
+  stays editable.
+- `get_toc()`, `Page.get_links()`, `insert_pdf()`, `delete_pages()`, and
+  `select()` accept the named-destination trees of large LaTeX/hyperref
+  manuals, which name every page, section, equation, figure, citation, and
+  listing line: `/Names/Dests` trees may hold 65,536 entries/nodes, 131,072
+  edges, and 16 MiB of key text (formerly 4,096, 8,192, and 1 MiB), keeping the
+  32-level depth limit. Refusals raise `LimitError` with the new stable codes
+  `named_destination_count` and `named_destination_text_size` instead of a
+  plain `PdfError`. Page cleanup applies the same limits to the name tree and
+  legacy `/Dests`, copies retained destination values within 1,048,576 direct
+  objects and 16 MiB of text, and charges destination names looked up during
+  outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
+  link budget, so every well-formed tree and outline that resolves can also be
+  cleaned and imported.
+- `insert_pdf` and `show_pdf_page` read the source page tree before
+  renumbering the source. lopdf's renumbering kept the number of a missing
+  Kids entry, so when a renumbered source object took that number, the import
+  rejected the source as reusing a page object or took a page outside the
+  source page tree.
+- References to objects missing from an `insert_pdf` or `show_pdf_page`
+  source, including the generated documents behind embedded-font text and
+  form appearances, now import as null, which is how ISO 32000-2 reads them.
+  They kept their object numbers, so after the import they resolved to
+  whichever target object used the same number: another page's content
+  stream, a target XObject, or an object added later, such as the stamped Form
+  XObject. A page attribute that names a missing object now counts as omitted
+  wherever pylopdf resolves page attributes. Imported pages, `select`,
+  `delete_pages`, `copy_page`, and drawing materialize the value that the page
+  inherits from its original ancestors, or the source default, and
+  `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
+  raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
+  rebuilt page inherited from its new parent instead. A reference in the
+  target document itself that names an object number above every entry in its
+  cross-reference table is not rewritten and can still resolve to an object
+  that a later import or edit adds.
+- `Page.get_links()` now validates integer destination page indexes, which some
+  producers write instead of page references. A checked conversion replaces
+  the truncating cast, and an index outside the document is unresolved
+  (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
+  to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
+  builds), and an index past the last page was returned unchanged.
+- lopdf error messages again include their cause, such as the exceeded
+  decompression limit; lopdf 0.45 moved wrapped causes out of `Display`.
+- Saving a document whose cross-reference table was rebuilt no longer writes
+  the damaged input's `/Prev` offset into the new trailer.
+
+### Security
+- Opening and metadata probing refuse input whose lopdf cross-reference
+  reconstruction could scan more than 64 bytes per input byte plus 64 MiB,
+  with `LimitError.code == "recovery_scan_size"`. lopdf rescans the rest of
+  the input after every `stream` keyword without a later `endstream`; without
+  this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
+  damaged files carry at most one truncated stream in that position.
+  `DocumentLimits` continue to apply to recovered documents.
+
 ### Performance
+- Reading the links of every page of a large manual is now linear in its
+  pages and links. `Page.get_links()` used to index the complete
+  `/Names/Dests` tree and walk the page tree five times for every call, plus
+  three more walks for every resolved link. It now indexes the tree once, on
+  the first named lookup, and reuses that index until the next edit, while
+  page lookups use the shared page index. On a generated 1,000-page manual
+  with 65,536 named destinations and three named links per page, reading
+  every page's links fell from 12.7 s to 0.03 s; with 20 links per page and a
+  balanced page tree, from 29.5 s to 0.13 s. The retained index holds each
+  distinct key once under the existing 65,536-entry and 16 MiB key-text
+  limits, about 6 MiB for that manual. Refusals still raise `LimitError` with
+  the same codes on every named lookup, and results are unchanged.
 - Structural edits and `garbage=True` saves now remove unreachable objects
   with a pylopdf-owned reachability sweep instead of lopdf's `prune_objects`,
   which scanned a list of visited IDs for every reference and every object.
@@ -35,29 +168,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importing and stamping one page each from a 30,000-page source after a
   2,048-entry `set_toc()` fell from 7.7 s to 0.18 s. Allocation refusal
   raises `PdfError` before the target changes.
-
-### Fixed
-- `insert_pdf` and `show_pdf_page` read the source page tree before
-  renumbering the source. lopdf's renumbering kept the number of a missing
-  Kids entry, so when a renumbered source object took that number, the import
-  rejected the source as reusing a page object or took a page outside the
-  source page tree.
-- References to objects missing from an `insert_pdf` or `show_pdf_page`
-  source, including the generated documents behind embedded-font text and
-  form appearances, now import as null, which is how ISO 32000-2 reads them.
-  They kept their object numbers, so after the import they resolved to
-  whichever target object used the same number: another page's content
-  stream, a target XObject, or an object added later, such as the stamped Form
-  XObject. A page attribute that names a missing object now counts as omitted
-  wherever pylopdf resolves page attributes. Imported pages, `select`,
-  `delete_pages`, `copy_page`, and drawing materialize the value that the page
-  inherits from its original ancestors, or the source default, and
-  `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
-  raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
-  rebuilt page inherited from its new parent instead. A reference in the
-  target document itself that names an object number above every entry in its
-  cross-reference table is not rewritten and can still resolve to an object
-  that a later import or edit adds.
+- Native wheels and sdist builds now use thin LTO with one codegen unit and
+  keep `panic = "unwind"` for PyO3 panic conversion. Against Cargo's default
+  release profile on the five GitHub-hosted release targets, abi3 wheels
+  shrank by 0.2–11.3% to 6.42–7.44 MiB and installed extensions by 3.7–18.3%.
+  Interleaved `bench/run.py` workloads on the Linux and Windows runners and a
+  quiet local macOS arm64 machine sped up text extraction by 6–14%, Markdown
+  conversion by 4–9%, merging by 3–7%, and rasterization by 2–4%; PNG encoding
+  and `render_pages` stayed within 5%. Fat LTO was a further 0.5–2.3
+  percentage points smaller and 1.5–4 points faster for extraction, but slowed
+  merging by 7–12% on both Linux targets and PNG encoding by 7–8% on Linux
+  x86_64, so it was not adopted for native wheels. Release compile steps took
+  3m29s–10m18s versus 2m33s–10m25s before. The PyEmscripten wheel keeps its
+  separately pinned fat-LTO profile.
+- Per-page access is now linear in the page count. `len(doc)`, `doc[i]`, and
+  iteration walked the complete page tree on every call, and so did nearly
+  every per-page read and edit, such as `Page.rotation`, `Page.rect`,
+  `Page.get_text()`, `Page.annots()`, and `Page.set_rotation()`. Page counts
+  and lookups now reuse one page index. On a generated 10,000-page document,
+  `list(doc)` fell from 17.3 s to 0.005 s of CPU time, reading every page's
+  rotation from 17.4 s to 0.007 s, its `rect` from 76.1 s to 0.026 s, and its
+  text from 20.4 s to 0.10 s. Rotation and page-box edits cannot change the
+  page tree and keep the index, so rotating every page fell from 45.9 s to
+  0.013 s. Other edits drop it and the next access rebuilds it, a malformed
+  page tree still raises on every access, and results are unchanged.
+- Repeated raster rendering of one document reuses the fonts, color spaces,
+  and glyph outlines hayro parsed in earlier `Document.render_page`,
+  `Page.get_pixmap`, `Page.render`, and serial `render_pages` calls on the
+  thread that opened it. Output stays pixel-identical. Interleaved A/B runs on
+  GitHub-hosted Linux runners measured 27-page `get_pixmap` loops over the
+  Type 1 `usrguide.pdf` 22–28% faster at 1x and 11–15% faster at 2x, a
+  110-page `bill-hr815.pdf` loop at 0.5x 4–7% faster, and re-rendering each
+  corpus first page 3–5% faster in total; freshly opened documents rendered
+  within 1.5%. The retained cache added at most 3 MiB of peak or retained
+  memory across all five targets. Each thread retains at most one cache,
+  covering at most 64 distinct pages between calls. Edits, fallback-font
+  changes, `close()`, and dropping the document release it on that thread.
+  Calls from other threads, parallel `render_pages` workers, SVG output, and
+  text extraction keep call-scoped caches.
 
 ## [0.14.0] - 2026-10-13
 

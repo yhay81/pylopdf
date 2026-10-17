@@ -18,6 +18,9 @@ crate-type = ["cdylib"]
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
+# Own one immutable hayro snapshot together with the render cache that borrows
+# it, so a thread can reuse the cache across calls without unsafe code.
+self_cell = "1.3.0"
 # Generate compact, subset-embedded OpenType text as importable PDF forms.
 # Keep raster and PDF-import features disabled: lopdf owns both responsibilities.
 krilla = { version = "=0.8.2", default-features = false }
@@ -51,13 +54,16 @@ getrandom = "0.4.3"
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.
 flate2 = { version = "1", features = ["zlib-rs"] }
+# lopdf reports cross-reference recovery only through log records; capture them
+# per load so repaired documents stay visible. lopdf already links this crate.
+log = "0.4.33"
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 # Expose the already-linked rayon runtime for supported batch rendering.
 rayon = "1"
-# Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is
-# sufficient. Emscripten keeps PDF date strings opaque and must not link
-# chrono's browser-only js-sys clock.
-lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+# pylopdf keeps PDF date strings opaque and calls no lopdf date conversion, so
+# neither target enables a date backend. lopdf's default chrono-clock feature
+# would also link the system time-zone stack (and a js-sys clock on Emscripten).
+lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
 # Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
 # ships independently through pylopdf[ocr], keeping the ONNX parser out of the
 # core wheel. Emscripten exposes an explicit unsupported stub instead of
@@ -66,7 +72,8 @@ rten = { version = "0.24.0", default-features = false, features = ["rten_format"
 rten-tensor = "0.24.0"
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
-lopdf = { version = "0.44.0", default-features = false }
+# The global rayon pool cannot create workers in the browser runtime.
+lopdf = { version = "0.45.0", default-features = false }
 # PyO3 builds class descriptors with a HashMap while the extension is imported.
 # Rust's Emscripten RandomState requests entropy, which Cloudflare workerd denies
 # during module startup. hashbrown uses foldhash and keeps import side-effect-safe.
@@ -74,3 +81,18 @@ pyo3 = { version = "0.29.0", features = ["hashbrown"] }
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"
+
+[profile.release]
+# Optimize across lopdf, hayro, krilla, and pylopdf for native wheels and sdist
+# builds. Thin LTO kept most of fat LTO's size and extraction gains without its
+# measured Linux merge and Linux x86_64 PNG-encoding regressions; see
+# CHANGELOG.md.
+# tools/build_pyodide.sh pins fat LTO separately for the PyEmscripten wheel.
+lto = "thin"
+codegen-units = 1
+# PyO3 converts Rust panics into Python exceptions only when they unwind.
+panic = "unwind"
+# Leave `strip` unset so Cargo removes only debug info. Symbol tables name
+# pylopdf frames in panic backtraces, debuggers, profilers, and crash reports;
+# stripping them saved only 0.34–0.49 MiB per Linux or macOS wheel. See
+# AGENTS.md before changing this.

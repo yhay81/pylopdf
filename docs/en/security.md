@@ -65,7 +65,21 @@ and cycles, indirect `/Kids` chains over 32 references, internal trees over 256
 levels, and edge counts above the indirect-object count. `max_pages` traversal
 stops at the first over-limit page. Opening without a page policy remains
 compatible and defers these page-tree checks until the first operation that
-indexes pages.
+indexes pages. Page counts and lookups reuse one walk's page index, so
+touching every page stays linear. Rotation and page-box edits keep the index
+because they cannot change the page tree; every other edit drops it, and the
+next access rebuilds it. A failed walk is never cached, so a malformed tree
+raises on every access.
+
+Page batches validate entries against one page-count snapshot. `pages=None`
+and complete `insert_pdf()` ranges cover every page whatever the page count.
+Explicit sequences may repeat pages, but materialization stops at the first
+entry beyond the larger of the page count and 4,096 with `page_entry_count`, so
+repetition never costs more than one complete document pass. Text extraction
+and rendering replace call-scoped hayro caches every 4,096 entries, while
+`max_size`, `max_text_size`, and the other output budgets bound the complete
+call. Direct core calls repeat the entry check, and core page imports reject
+repeated source pages before mutation.
 
 `LimitError` is a `PdfError` subclass. Its stable `code` is one of
 `file_size`, `page_count`, `object_count`, `object_depth`,
@@ -73,13 +87,15 @@ indexes pages.
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
 `embedded_file_input_size`, `form_field_input_size`, `form_content_size`,
 `annotation_input_size`, `metadata_input_size`, `toc_input_size`,
+`toc_entry_count`, `toc_text_size`, `named_destination_count`,
+`named_destination_text_size`, `page_entry_count`,
 `page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
-`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`, or
-`decompression_unverifiable`.
+`ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
+`decompression_unverifiable`, or `recovery_scan_size`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
@@ -101,11 +117,13 @@ does not install a partial renderer/extractor cache. Its default is `None` for
 compatibility; `DocumentLimits.web()` sets 64 MiB.
 
 When `max_text_size` is configured, plain-text extraction preflights exact
-assembled UTF-8 size and caps one private batch at twice that glyph-payload
+assembled UTF-8 size and caps one extraction call at twice that glyph-payload
 budget. Each non-empty glyph contributes at least one payload byte, while
-inferred gaps plus line endings cannot outnumber glyphs. The batch accepts at
-most 4,096 page entries, so repeated page numbers cannot bypass the policy.
-Refusals retain `text_size`; the compatible default remains `None`.
+inferred gaps plus line endings cannot outnumber glyphs. That output bound
+covers the complete call rather than one internal 4,096-entry chunk, and
+explicit sequences accept at most the larger of the page count and 4,096
+entries, so repeated page numbers cannot bypass the policy. Refusals retain
+`text_size`; the compatible default remains `None`.
 
 `max_text_glyphs` bounds the records retained before line assembly and therefore
 also bounds the number of blocks, lines, spans, words, and `rawdict` glyph
@@ -124,12 +142,26 @@ retained glyph data, not the exact byte size of Python dictionaries or a
 caller's later JSON/HTML serialization. Bound that output separately when
 exporting raw layout from a worker.
 
-Lenient opening performs one bounded repair: it may replace an incorrect final
-`startxref` only when an intact classic xref table exists in the same final
-revision and a complete parse succeeds under the original limits. It does not
-scan object headers, repair xref streams, or roll back to an earlier revision.
-The event emits `PylopdfWarning`, sets `doc.is_repaired` (and the metadata
-probe's `repaired` key), and saving rewrites normalized xref data.
+Lenient opening uses lopdf's cross-reference recovery. A `startxref`,
+`/Prev`, or `/XRefStm` offset that misses by at most 64 bytes moves to the
+nearby `xref` keyword. When standard resolution still fails, lopdf rebuilds the
+table from line-start object headers and the newest classic `trailer` whose
+`/Root` exists; objects from later revisions win, but objects from damaged
+regions may be missing. Damaged xref-stream files without a classic trailer
+are rejected. Either recovery emits `PylopdfWarning`, sets `doc.is_repaired`
+(and the metadata probe's `repaired` key), and rendering and extraction use the
+recovered object graph that saving writes with normalized xref data. Callers
+that must not accept recovered input can reject `is_repaired` documents.
+Lenient tolerances that keep the declared structure, such as 19-byte xref
+entries or a stream `/Length` corrected at an unambiguous object boundary, are
+not reported. `DocumentLimits` apply to recovered documents unchanged.
+
+lopdf's reconstruction rescans the rest of the input after every `stream`
+keyword without a later `endstream`. Before each lenient open or metadata
+probe, pylopdf estimates that work in linear time and refuses input above 64
+bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
+cannot make recovery quadratic. Real damaged files carry at most one truncated
+stream in that position.
 
 - Rendering is capped at 64 megapixels per page.
 - Page deletion and selection clean navigation to excluded pages before
@@ -206,10 +238,12 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   text is counted incrementally before PyO3 copying rather than encoded in
   full for preflight.
   `max_size=None` explicitly opts out for trusted input.
-- `delete_pages()`, `select()`, and `insert_pdf()` accept at most 4,096 page
-  entries per call in both Python and Rust. Iterable reads stop at item 4,097
-  before graph mutation. Empty deletion preserves caches, generation, and
-  existing `Page` views.
+- `delete_pages()` and `select()` accept at most the larger of the page count
+  and 4,096 entries per call in both Python and Rust, so repeated pages cannot
+  grow a selection beyond the document. Iterable reads stop at the first entry
+  beyond that bound before graph mutation, raising `page_entry_count`.
+  `insert_pdf()` imports any complete source range. Empty deletion preserves
+  caches, generation, and existing `Page` views.
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
   Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
@@ -251,15 +285,28 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   caches. Caller text is rejected before PyO3 copying or rectangle iteration
   with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
-  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
-  instead of silently reporting a truncated tree as unresolved.
-  `Page.get_links()` builds one borrowed index per call rather than traversing
-  the tree again for every named link.
+  above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
+  above 16 MiB of key bytes with `named_destination_text_size`, or above 32
+  levels, instead of silently reporting a truncated tree as unresolved.
+  `get_toc()`, `Page.get_links()`, link import in `insert_pdf()`, and the
+  rewrite of the name tree and legacy `/Dests` during page deletion and
+  selection share these limits, so every well-formed tree that resolves can
+  also be cleaned and imported. The rewrite copies retained destination values
+  within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
+  looked-up destination name costs the budget of the structure being walked:
+  TOC text for an outline, key text for a name tree, or one page's 1 MiB of
+  link metadata. `Page.get_links()` indexes the tree on its first named
+  lookup and reuses that index and the page index until the next edit, so
+  reading every page stays linear. The retained index holds each distinct key
+  once within the same entry and key-text limits, and a refused tree is never
+  cached.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
-  the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
-  64 levels, 32 destination indirections, or 1 MiB of source/returned text.
-  Writes enforce compatible entry, depth, and title-text limits before PyO3
-  copying and mutation with `toc_input_size`.
+  the GIL, and reject partial output above 65,536 nodes/entries or 131,072
+  edges with `toc_entry_count`, above 16 MiB of source/returned text with
+  `toc_text_size`, or above 64 levels or 32 destination indirections. Writes
+  enforce the same entry, depth, and title-text limits before PyO3 copying and
+  mutation with `toc_entry_count` and `toc_input_size`. Page deletion and
+  selection share the outline limits, so every written outline stays editable.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom entries do not become
   Python output. `peek_metadata(max_file_size=)` can reject path or byte input
@@ -267,12 +314,15 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   unbounded input default. Writes preflight 1 MiB aggregate source/encoded text
   before PyO3 copying with `metadata_input_size` and apply atomically.
 - Embedded JavaScript is never executed; it is unsupported by design.
-- `render_pages()` accepts at most 4,096 page entries and defaults to a 512 MiB
+- `render_pages()` renders every page by default, accepts at most the larger
+  of the page count and 4,096 explicit entries, and defaults to a 512 MiB
   cumulative encoded-PNG limit. Completed parallel results share one atomic
   budget and failures return no partial list; `max_size=None` explicitly opts
   out. Worker admission separately caps estimated live raster/conversion
-  buffers, so do not add unbounded application-level parallelism around it.
-- `Document.to_markdown()` accepts at most 4,096 page entries and defaults to a
+  buffers, and each worker replaces its hayro cache after 4,096 pages, so do
+  not add unbounded application-level parallelism around it.
+- `Document.to_markdown()` converts every page by default, accepts at most the
+  larger of the page count and 4,096 explicit entries, and defaults to a
   64 MiB cumulative UTF-8 output limit. It keeps only one page's interpreted
   layout, tables, and words at a time across a heading-count pass and a render
   pass. Each table receives the remaining aggregate budget before page output

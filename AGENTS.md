@@ -26,11 +26,17 @@ overview.
 ## Development commands
 
 - `uv sync` — build the extension and install dependencies. Rust changes are
-  included in uv's rebuild cache keys.
+  included in uv's rebuild cache keys. maturin builds the release profile, so
+  local builds use the published thin-LTO profile. For faster Rust iteration
+  only, set `CARGO_PROFILE_RELEASE_LTO=false` and
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`; both are uv cache keys, so
+  unsetting them rebuilds the published profile before measurement.
 - `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests`
 - `uv sync --group bench && uv run python bench/run.py` — run reproducible
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
-  losses together.
+  losses together. Rendering reports end-to-end PNG time plus cold and warm
+  Pixmap rasterization and PNG encoding time and size for both pylopdf and
+  pymupdf, so encoder settings cannot hide rasterization losses.
 - `py -3.14t bench/free_threaded.py` — measure independent-document extraction
   without the GIL. Results are written separately to
   `bench/results/free-threaded-latest.md` so regular benchmark runs cannot
@@ -119,14 +125,17 @@ overview.
   refusals use `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
   When `max_text_size` is configured, plain-text assembly preflights its exact
-  UTF-8 size and caps one extraction batch at twice that payload budget
+  UTF-8 size and caps one extraction call at twice that payload budget
   because inferred gaps plus line endings cannot outnumber non-empty glyph
-  records. The batch accepts at most 4,096 page entries, so repeated page
-  numbers cannot amplify a bounded interpretation without bound.
-  `Document.get_text(pages=None)` is the public batched entry. One batch
-  shares one call-scoped hayro `InterpreterCache` across its pages, so a font
-  reused by several pages parses once per call; single-page interpretation
-  keeps one per-call cache. No interpreter cache crosses threads or survives
+  records. The output bound spans every internal chunk of the call, so
+  repeated page numbers cannot amplify a bounded interpretation without bound.
+  Admission keeps running text and glyph totals beside the per-page maps, so
+  whole-document batches do not rescan every interpreted page.
+  `Document.get_text(pages=None)` is the public batched entry. Each chunk of
+  at most 4,096 page entries shares one hayro `InterpreterCache`, so a font
+  reused by several pages parses once per chunk while whole-document calls
+  never retain every parsed font; single-page interpretation keeps one
+  per-call cache. No interpreter cache crosses threads or survives
   `invalidate_hayro_pdf`. Batched and single-page interpretation temporarily
   detach the hayro snapshot so budget admission and LRU insertion can run
   beside the cache borrow; helpers on that path must not touch `hayro_pdf` or
@@ -199,9 +208,10 @@ overview.
   em-normalized alignment error, minimum gutter, and row-gap variation.
   `Document.to_markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
-  candidates or `None` to disable table conversion. Document conversion stops
-  page iterable materialization at 4,096 entries and defaults to a 64 MiB
-  cumulative UTF-8 output cap. It uses a page-at-a-time heading-count pass and
+  candidates or `None` to disable table conversion. Document conversion
+  covers every page by default, shares the explicit page-entry bound below,
+  validates entries once rather than re-walking the page tree per page, and
+  defaults to a 64 MiB cumulative UTF-8 output cap. It uses a page-at-a-time heading-count pass and
   a page-at-a-time rendering pass rather than retaining every page layout,
   table, and word list together. It removes contained text
   from prose and heading inference while retaining words outside a table on the
@@ -356,12 +366,17 @@ overview.
   before the first PDF mutation because later malformed-resource errors can
   leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
-  unencrypted load first consumes its original input bytes and falls back to a
-  lopdf serialization only when hayro rejects them or reports a different page
-  count. Editing methods must call `invalidate_hayro_pdf`, which also discards
-  the original-byte fast path; edited state must always be reflected in
-  rendering. `DocumentLimits.max_interpretation_size` bounds both retained
-  original input and the complete reserialization after edits, decryption, or
+  unencrypted load without cross-reference recovery first consumes its original
+  input bytes and falls back to a lopdf serialization only when hayro rejects
+  them or reports a different page count. A recovered load retains no original
+  bytes: hayro would recover the damaged input independently and can disagree,
+  for example by rolling an incremental file back to its first revision.
+  Editing methods must call `invalidate_hayro_pdf`, which also discards
+  the original-byte fast path and the link-resolution cache; edited state must
+  always be reflected in rendering and link reads. The page index needs no
+  call: mutable document access drops it, as described with the walker below.
+  `DocumentLimits.max_interpretation_size` bounds both retained original input
+  and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
   constructing the state-normalized render copy. The bounded writer must not
   install a partial hayro cache. Original input above a finite limit retains
@@ -369,17 +384,43 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- Raster rendering reuses one hayro `RenderCache` across calls through
+  `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
+  shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
+  and never crosses a thread: each thread keeps at most one slot that owns an
+  `Arc` of the snapshot together with the cache through `self_cell`.
+  `render_page`, `Page.get_pixmap`/`render`, and serial `render_pages` use the
+  slot only on the thread that created the document, and only while the
+  document's generation token and the snapshot identity both match.
+  `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
+  fallback-font change, because cached fonts depend on the resolver), `close`,
+  and dropping the document end the generation and free a matching slot on
+  that thread. One call grows the cache as a call-scoped cache would; a slot
+  that has served more than 64 distinct pages, or whose render panicked, is
+  dropped before the call returns. Other threads, parallel workers, SVG
+  conversion, and text extraction keep call-scoped caches. An edit or drop on
+  another thread cannot free the creating thread's slot, so that thread keeps
+  at most one stale snapshot until it renders, invalidates or drops a document,
+  or exits; keep this one-slot-per-thread bound. Interleaved 8-round A/B on
+  GitHub-hosted Linux runners measured fresh-document renders within 1.5%,
+  first-page re-renders 3–5% faster in corpus total, and 27-page
+  `usrguide.pdf` `get_pixmap` loops 22–28% faster at 1x, with pixel-identical
+  output and at most 3 MiB more memory on all five targets.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
-  Serial and PyEmscripten execution reuse one local hayro `RenderCache` for the
-  complete call. Native parallel execution gives each bounded worker its own
-  cache and uses an atomic page queue to retain dynamic load balancing; a cache
-  never crosses a thread. Pixel preflight does not materialize an intermediate
+  Serial and PyEmscripten execution use one hayro `RenderCache` per chunk of
+  at most 4,096 page entries: the first chunk on the creating thread starts
+  from the retained cache, other chunks and threads use call-scoped caches.
+  Native parallel execution gives each bounded worker its own cache, replaced
+  after 4,096 rendered pages, and uses an atomic page queue to retain dynamic
+  load balancing; a cache never crosses a thread. Pixel preflight does not
+  materialize an intermediate
   collection. Serial results, worker-local indexed results, parallel reduction,
   input-order slots, and the final returned vector all grow fallibly.
-  One call accepts at most 4,096 page entries. PNG writer chunks atomically
+  It renders every page by default and shares the explicit page-entry bound
+  below. PNG writer chunks atomically
   share the default 512 MiB cumulative encoded-output budget across serial,
   rayon, and PyEmscripten execution, refusing the first crossing write before
   retaining it; `max_size=None` is the explicit unbounded opt-out and limit
@@ -410,11 +451,18 @@ overview.
   Python methods that change page structure must call `_bump_generation()`.
   Otherwise an old `Page` could silently refer to a different page. Old pages
   must raise `StalePageError` after structural changes.
-- `delete_pages`, `select`, and `insert_pdf` accept at most 4,096 page entries
-  per call in both Python and Rust. Iterable materialization stops at the
-  4,097th item, and range insertion checks its size before allocation or graph
-  import. `delete_pages([])` is a true no-op: do not invalidate caches or bump
-  the Python generation. Imported and selected page orders, duplicate tracking,
+- Page batches validate entries against one page-count snapshot instead of
+  re-walking the page tree per entry. `pages=None` and complete `insert_pdf`
+  ranges cover every page whatever the page count. Explicit `get_text`,
+  `to_markdown`, `render_pages`, `select`, and `delete_pages` entries may repeat
+  pages up to the larger of the page count and 4,096; materialization stops at
+  the first entry beyond that bound with `LimitError.code ==
+  "page_entry_count"`, so repetition never costs more than one complete pass
+  and `select` cannot grow a large document. Rust repeats the relative check,
+  walking the page tree only above the floor, and core `merge_pages` rejects
+  repeated source pages before mutation because one page object cannot appear
+  twice in the tree. `delete_pages([])` is a true no-op: do not invalidate
+  caches or bump the Python generation. Imported and selected page orders, duplicate tracking,
   inherited page dictionaries, spliced orders, and root/rebuilt Kids arrays
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
@@ -454,7 +502,9 @@ overview.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
-  introducing plain `ValueError` exceptions.
+  introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
+  appear only through `Error::source`; format lopdf errors through
+  `LopdfErrorChain` so limit and decoder details stay in messages.
 - Encryption during `save` operates on a clone, so the in-memory document always
   remains plaintext. Python generates the key with `os.urandom(32)`. Open,
   authenticate, fast metadata probe, and AES-256 save passwords stop at the PDF
@@ -487,17 +537,32 @@ overview.
   PDFs require the `password` argument or `authenticate()`, which reopens the
   document with a password. `_ensure_open` must check `is_encrypted` because an
   undecrypted document otherwise appears to have zero pages.
-- Lenient opening repairs only an incorrect final `startxref` that points away
-  from an intact classic xref table in the final revision. The bounded linear
-  scan requires the final `%%EOF`, `startxref`, classic header/entry, and
-  `trailer`; it never guesses objects, repairs xref streams, or falls back
-  across an earlier `%%EOF`. A full lopdf retry under the original password and
-  decompression limits remains authoritative. The full repaired-input copy is
-  reserved fallibly only after confirming that narrow shape; allocation
-  refusal surfaces as `PdfError` rather than the original parse failure.
-  Repaired bytes feed hayro,
-  `PylopdfWarning` makes the event visible, `Document.is_repaired` and
-  `MetadataProbe.repaired` retain it, and saving normalizes the xref data.
+- Lenient opening relies on lopdf 0.45 cross-reference recovery
+  (`rust/src/recovery.rs`). lopdf moves a `startxref`, `/Prev`, or `/XRefStm`
+  offset that misses by at most 64 bytes to the nearest `xref` keyword, and
+  rebuilds the table from line-start object headers plus the newest classic
+  `trailer` whose `/Root` exists when standard resolution fails; later
+  revisions win. It reports both only as `log` warnings from `lopdf::reader`,
+  emitted on the loading thread before object parsing moves to the rayon pool.
+  `recovery::load_document` and `load_metadata` install one process-wide
+  logger and capture those records in a thread-local scope, so concurrent
+  loads keep their own result. Rust unit tests are not used: the damaged-corpus
+  regressions in `tests/test_real_world.py` and the Pyodide contract must
+  catch any lopdf message change. The two kinds emit distinct
+  `PylopdfWarning` text, set `Document.is_repaired` and
+  `MetadataProbe.repaired`, and saving normalizes the xref data. A rebuilt
+  trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
+  input. lopdf's other lenient tolerances (19-byte xref entries, stream
+  `/Length` recovered at an unambiguous object boundary, and skipped
+  unparseable objects) are not reported. Reconstruction never runs for
+  damaged xref-stream files without a classic trailer; they remain rejected.
+  Before every lenient load, a linear pre-scan estimates lopdf's
+  reconstruction work: each `stream` keyword after the last `endstream`
+  repeats a scan to the end of the input and a backward `obj`/`/Length`
+  search. Input above 64 bytes per input byte plus 64 MiB fails with
+  `LimitError.code == "recovery_scan_size"` before lopdf runs; real damaged
+  files carry at most a truncated final stream there. `DocumentLimits` apply
+  to recovered documents unchanged.
 - CJK fallback replaces hayro's `font_resolver`
   (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
@@ -687,21 +752,51 @@ overview.
   highlight iterables stop at item 4,097 without complete materialization.
   Successful output must remain readable under the same budget.
 - Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
-  once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
-  levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
-  ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
-  dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
-  borrowed index lazily per call; do not rescan the tree for each link.
-  Traversal stacks, cycle sets, and the borrowed index grow fallibly.
+  once, and rejects traversal above 65,536 entries/nodes or 131,072 edges with
+  `named_destination_count`, above 16 MiB of scanned key bytes with
+  `named_destination_text_size`, or above 32 levels. Do not turn a truncated
+  lookup into an ordinary unresolved destination. TOC reads, `Page.get_links`,
+  `insert_pdf` link import, and page cleanup share these large-manual limits:
+  the cleanup rewrite in `rust/src/page_cleanup.rs` matches the read-side
+  walker's dictionary-node, edge, entry, and key-byte accounting, and legacy
+  catalog `/Dests` uses the same entry and key-text limits, so every
+  well-formed tree that resolves can also be cleaned and imported. Admitted
+  keys are copied without a second charge; retained destination values copy
+  within 16 direct objects per admitted entry (1,048,576) and 16 MiB of value
+  text. Names looked up by `resolve_local_destination_array` charge the
+  `DestinationNameBudget` of the structure being walked: outline cleanup uses
+  the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
+  and page links and the OpenAction keep the 1 MiB per-page annotation budget.
+  Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
+  name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
+  `_Document` until `invalidate_hayro_pdf` drops it on the next edit. It holds
+  an owned name-tree index built on the first named lookup; page order and
+  reverse page numbers come from the shared page index. The name-tree index
+  sorts and deduplicates borrowed keys in place with a traversal-order
+  tie-break, so the first occurrence wins, then allocates one exact buffer of
+  distinct keys plus entries that keep only each destination's page operand,
+  fit type, and numeric operands for binary search. A refused or failed build
+  caches nothing, so every later named lookup repeats the bounded build and a
+  refusal raises again. Do not rescan the name tree or walk the page tree per
+  link or per page: destination geometry resolves from cached page IDs.
+  Traversal stacks, cycle sets, the borrowed TOC index, and the owned link
+  index grow fallibly. Integer page indexes in link destinations use checked
+  conversion and must name an existing page; anything else is unresolved like
+  an unknown page reference. Convert PDF-supplied integers with `try_from`
+  rather than truncating `as` casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
-  destinations once, and reject partial results above 4,096 nodes/entries,
-  8,192 edges, 64 levels, 32 destination indirections, or 1 MiB of
-  source/returned text. Page indexes, destination and outline cycle sets,
-  outline stacks, and returned entries grow fallibly. `set_toc` preflights the
-  entry, depth, and source/encoded-title boundaries before PyO3 copying, using
-  `toc_input_size`; direct Rust calls repeat the text boundary, then prepare
-  entries and the parent stack fallibly before PDF mutation.
+  destinations once, and reject partial results above 65,536 nodes/entries or
+  131,072 edges with `toc_entry_count`, above 16 MiB of source/returned text
+  with `toc_text_size`, or above 64 levels or 32 destination indirections.
+  These large-manual limits are shared by page-cleanup outline traversal,
+  which also charges looked-up destination names to the TOC text budget, so
+  every written outline remains readable and editable. Page indexes,
+  destination and outline cycle sets, outline stacks, and returned entries grow
+  fallibly. `set_toc` preflights the entry, depth, and source/encoded-title
+  boundaries before PyO3 copying, using `toc_entry_count` and
+  `toc_input_size`; direct Rust calls repeat the entry and text boundaries, then
+  prepare entries and the parent stack fallibly before PDF mutation.
 - Info metadata reads decode only the eight public standard fields, release the
   GIL, and reject aggregate source or returned text above 1 MiB. The fast
   metadata probe applies the returned-text boundary and accepts an optional
@@ -747,7 +842,46 @@ overview.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;
-  published v0.10.0 wheels are about 5.0–5.8 MiB depending on platform and ABI.
+  thin-LTO abi3 wheels built from v0.14.0 sources are 6.4–7.4 MiB depending on
+  platform, versus 6.8–7.9 MiB for the published v0.14.0 wheels.
+- Native wheels and sdist builds share `rust/Cargo.toml`'s release profile:
+  thin LTO, one codegen unit, and `panic = "unwind"`, which PyO3 needs to turn
+  Rust panics into Python exceptions. The 2026-10-17 comparison against Cargo's
+  default release profile built all five GitHub-hosted release targets with
+  release.yml's two Cargo jobs: abi3 wheels shrank 0.2–11.3% and installed
+  extensions 3.7–18.3%. Interleaved pylopdf workloads from `bench/run.py` on
+  the Linux and Windows runners, plus a quiet local macOS arm64 machine, were
+  faster for extraction (6–14%), Markdown (4–9%), merge (3–7%), and
+  rasterization (2–4%); PNG encoding and `render_pages` stayed within 5%.
+  macOS runners were too noisy for single-digit comparisons. Fat LTO saved
+  another 0.5–2.3 percentage points of wheel size and 1.5–4 points of
+  extraction time, but slowed the merge benchmark by 7–12% on both Linux
+  targets and PNG encoding by 7–8% on Linux x86_64. Repeat that comparison
+  before switching profiles. Clean compile steps took 3m29s–10m18s per target,
+  versus 2m33s–10m25s with the default profile. On a 12-core development
+  machine, an incremental extension rebuild took about 35 seconds instead of 10.
+- Native release wheels keep their symbol tables. `rust/Cargo.toml` leaves
+  `strip` unset, which Cargo resolves to `debuginfo` because release builds have
+  no debug info, and release.yml passes no maturin `--strip`. The 2026-10-18
+  comparison built the v0.14.0 sources with the thin-LTO profile for all five
+  GitHub-hosted release targets, with maturin `--strip` and with
+  `strip = "symbols"`: abi3 and cp314t wheels shrank 4.8–7.1% (0.34–0.49 MiB)
+  and installed extensions 12.4–17.7% on Linux and macOS. Windows did not change
+  because the MSVC linker ignores `strip` and keeps symbols in an unshipped PDB.
+  maturin `--strip` left every code section byte-identical, and interleaved
+  benchmarks and import time stayed within runner noise. Cargo hashes profile
+  settings into crate metadata, so `strip = "symbols"` also changed code layout
+  on all five targets, including Windows. Stripping removed the names that
+  native diagnostics read. `RUST_BACKTRACE=1` printed no frames;
+  `RUST_BACKTRACE=full` showed pylopdf frames as `<unknown>` on Linux and as
+  `PyInit_pylopdf_core` on macOS; gdb, perf, and py-spy `--native` lost every
+  pylopdf name on Linux; and `sample`, crash reports, and Python 3.14
+  faulthandler C stacks lost them on macOS. Panic messages and source locations
+  survived; Windows wheels already offer only those. Stripping keeps the Mach-O
+  UUID and macOS caches symbolication by UUID, so compare stripped and
+  unstripped macOS builds on separate runners; Linux linker stripping also
+  changes the GNU build ID. Revisit stripping only together with a way to
+  symbolize reports from published wheels.
 - Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
   exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
   pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
@@ -757,9 +891,9 @@ overview.
   `cp310-abi3-pyemscripten_2025_0_wasm32` publication tag. Only the latter may
   remain in the release artifact directory because PyPI no longer accepts the
   legacy tag. Rust v0 symbol mangling avoids invalid legacy Emscripten exports.
-  The PyEmscripten-only release profile uses fat LTO and one codegen unit for
-  the single extension module; native maturin builds retain Cargo's default
-  release profile.
+  The PyEmscripten build pins fat LTO and one codegen unit for the single
+  extension module through `tools/build_pyodide.sh` environment overrides,
+  independent of the native thin-LTO release profile.
   The wheel must import `env.__cpp_exception` and must not require a
   wasm-bindgen shim. CI and release builds must also pass
   `tools/smoke_cloudflare.py`, which pins workers-py 1.15.0 and Wrangler
@@ -767,13 +901,14 @@ overview.
   module-scope `import pylopdf` in the example to serve `/health`. Emscripten
   enables PyO3's foldhash-backed `hashbrown` maps because its normal class
   builder uses Rust `RandomState`, while Cloudflare denies entropy during
-  module startup. Native targets retain PyO3's standard backend. Emscripten
-  excludes lopdf's `chrono` and `rayon` features: browser
-  clocks pull in js-sys imports, and the global rayon pool cannot create
-  workers there. `render_pages` keeps its public contract but runs serially;
-  native targets retain bounded rayon execution. Emscripten also omits RTen
-  inference while exposing an API-compatible `_OcrEngine` stub that raises
-  `OcrError` and directs callers to external OCR plus
+  module startup. Native targets retain PyO3's standard backend. Neither target
+  enables a lopdf date backend because pylopdf keeps PDF dates opaque; the
+  default `chrono-clock` feature would pull js-sys imports into Emscripten.
+  Emscripten also excludes lopdf's `rayon` feature because the global rayon
+  pool cannot create workers there. `render_pages` keeps its public contract
+  but runs serially; native targets retain bounded rayon execution. Emscripten
+  also omits RTen inference while exposing an API-compatible `_OcrEngine` stub
+  that raises `OcrError` and directs callers to external OCR plus
   `Page.insert_ocr_text_layer()`. Keep artifact sections, staged Pyodide
   startup/workload timing, linear-memory checkpoints, and Wrangler bundle
   measurements in CI. The 2026-07-26 LTO artifact is a 3.772 MiB wheel and
@@ -789,10 +924,11 @@ overview.
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, textbox layout, pixmaps,
-  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, and typed
-  error recovery. Add only small redistributable PDFs listed in
-  `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
-  font may be supplied from already licensed repository assets. Do not claim
+  `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
+  error recovery, and lopdf cross-reference recovery reporting. Add only small
+  redistributable PDFs listed in `tests/assets/real_world/README.md`; non-PDF
+  inputs such as the existing CJK font may be supplied from already licensed
+  repository assets. Do not claim
   direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
   783 even though the binary itself passes that runtime's suite.
 - `DocumentLimits` is the public untrusted-input policy. Python validates the
@@ -827,6 +963,18 @@ overview.
   first over-limit page. `delete_pages` plans the complete retained order
   before mutation; append, copy, and import rebuild from a prevalidated order
   so indirect root Kids are preserved rather than silently replaced.
+  `_Document.doc` is an `IndexedDocument`: page count, page lookup, and the
+  TOC/link reverse page numbers reuse one walk's page index, built lazily by
+  the first read, so per-page access is amortized O(1) instead of a complete
+  walk per call. Its `DerefMut` drops the index before any mutable document
+  access, and the wrapper lives in a private module, so no edit can read or
+  retain an index built from a partially edited tree; never bypass it.
+  `set_page_entry` is the only mutation that keeps the index, and only for
+  `/Rotate` and the five page boxes, which the walk never reads, so rotate- and
+  crop-every-page loops stay linear; any other key drops it. Failed walks are
+  never cached, so a malformed tree raises on every access. Other edits still
+  rebuild the index on the next access, so drawing and annotation loops pay one
+  walk per edited page.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
@@ -850,12 +998,13 @@ overview.
   bounded same-document parallel read boundary.
 ## Known pitfalls
 
-- lopdf's `time` feature contains an uncompilable `From<time::Time>`
-  implementation introduced in 0.43.0. Upstream #527 is fixed but unreleased,
-  so this project uses `chrono`.
-- lopdf's content parser drops all operations after a comment line followed by
-  an indented line, reported as lopdf#535. pylopdf is unaffected since v0.7
-  because extraction moved to hayro (`rust/src/extract.rs`).
+- lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
+  `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
+  `/Prev` and `/XRefStm` after reconstruction; an upstream fix is a
+  contribution candidate.
+- lopdf's cross-reference reconstruction rescans the remaining input for every
+  unterminated `stream` keyword. Keep the `recovery_scan_size` pre-scan until
+  upstream makes that scan linear.
 - lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
   helper built on it is quadratic in object count. pylopdf replaces
   `prune_objects` and `renumber_objects_with`; do not call them or the other
@@ -933,6 +1082,7 @@ integrations, a watchlist, and explicit non-goals.
   field feedback, meaningful external adoption with roughly 1,000 GitHub stars
   as an indicative signal, and further product refinement justify the API
   freeze. Stars are not a mechanical release trigger.
-- lopdf#535 no longer affects pylopdf since the v0.7 hayro extraction engine.
-  An upstream fix remains a parallel contribution candidate.
+- lopdf 0.45 includes the upstream lopdf#535 fix (lopdf#537). pylopdf has
+  extracted through hayro since v0.7, so the fix matters only to lopdf's own
+  content parser.
 - See [CHANGELOG.md](CHANGELOG.md) for completed history.

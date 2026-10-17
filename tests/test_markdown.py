@@ -317,8 +317,9 @@ def test_markdown_bounds_page_iterable_before_interpretation() -> None:
             consumed += 1
             yield 0
 
-    with pytest.raises(ValueError, match="4096 entries"):
+    with pytest.raises(pylopdf.LimitError, match="4096 entries") as caught:
         doc.to_markdown(pages=pages())
+    assert caught.value.code == "page_entry_count"
     assert consumed == 4097
 
 

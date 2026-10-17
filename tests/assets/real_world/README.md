@@ -26,12 +26,20 @@ Every bundled document has a redistributable license.
 
 ## Previously known limitations, now fixed
 
-- **An incorrect final classic `startxref` offset prevented opening otherwise
-  intact files.** `test_incorrect_classic_startxref_is_repaired_atomically`
-  derives a damaged case at runtime from the CC BY 4.0 `pdf20-simple.pdf`.
-  Related regressions cover path probing, prefixed transport bytes,
-  save/reopen normalization, xref-stream refusal, and refusal to roll back to a
-  previous classic-xref revision. No additional binary fixture is stored.
+- **Damaged cross-reference data prevented opening otherwise readable files.**
+  lopdf 0.45 corrects nearby `startxref`/`/Prev` offsets and rebuilds classic
+  tables from object headers. `test_damaged_corpus_outcome` derives eight
+  deterministic damage types at runtime (95% and 60% truncation, a 512-byte
+  junk prefix, a corrupted `startxref` keyword, a removed final xref section,
+  three stream `/Length` values off by 37, 12 seeded bit flips, and two deleted
+  `endobj` keywords) from `pdf20-simple.pdf`,
+  `nics-background-checks-2015-11.pdf`, `patent-us223898.pdf`, and
+  `f1040.pdf`, and pins each open, recovery-report, extraction, rendering, and
+  save outcome. `test_incorrect_startxref_value_recovers_classic_xref_exactly`
+  checks every corpus file. Related regressions cover path probing, prefixed
+  transport bytes, stale `/Prev` removal, later-revision precedence, document
+  limits, quadratic-scan refusal, and per-thread recovery reports. No
+  additional binary fixture is stored.
 - **Text extraction from `pdf20-simple.pdf` returned nothing.** lopdf's content
   parser dropped every operation after a `%` comment followed by an indented
   line, reported upstream as
@@ -57,6 +65,13 @@ Every bundled document has a redistributable license.
   transparency groups, soft masks, blend modes, and existing annotations and
   links. A runtime-derived truncation of the PDF 2.0 classic xref table covers
   controlled refusal without storing another damaged binary.
+- Known recovery limits: lopdf rebuilds only from a classic `trailer`, so
+  damaged xref-stream files (`f1040.pdf`, `mhlw-doc.pdf`, `usrguide.pdf`,
+  `bunka-kokugo-series-019-p4.pdf`) and truncations that lose every trailer
+  are rejected. Deleting bytes before the final xref shifts later object
+  offsets; lopdf corrects the nearby `startxref` but the shifted objects stay
+  unreachable, so those documents open with `is_repaired` and no readable page
+  tree.
 
 Choose additions using three criteria: a redistributable license, a size below
 1 MB, and coverage not already represented in the corpus.

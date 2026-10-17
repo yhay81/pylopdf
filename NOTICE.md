@@ -40,6 +40,14 @@ Huffman tables. jpeg-encoder is available under (MIT OR Apache-2.0) AND IJG:
 
 This software is based in part on the work of the Independent JPEG Group.
 
+pylopdf uses self_cell 1.3.0 to own one immutable hayro rendering snapshot
+together with the render cache that borrows it. self_cell is available under
+Apache-2.0 OR GPL-2.0-only; pylopdf uses it under Apache-2.0, whose license is
+distributed in `LICENSES/Apache-2.0.txt`.
+
+- Source: <https://github.com/Voultapher/self_cell>
+- Package: <https://crates.io/crates/self_cell/1.3.0>
+
 pylopdf uses RTen 0.24 and its companion `rten-*` crates for local PP-OCR
 inference. RTen is available under MIT OR Apache-2.0. Its RTen model reader
 uses FlatBuffers 24.12.23, available under Apache-2.0. The Apache license is

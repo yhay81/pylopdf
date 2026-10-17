@@ -53,9 +53,9 @@ Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
 parsing the document — useful when scanning large collections. Its
 optional `max_file_size=` rejects oversized path or byte input before parsing;
 the backward-compatible default is unbounded. Its
-`repaired` result and `doc.is_repaired` expose the bounded recovery of an
-incorrect final classic `startxref`; pylopdf also emits `PylopdfWarning`, and
-saving rewrites normalized cross-reference data. Pass
+`repaired` result and `doc.is_repaired` report recovered cross-reference
+damage, such as an incorrect `startxref` or a rebuilt xref table; pylopdf also
+emits `PylopdfWarning`, and saving rewrites normalized cross-reference data. Pass
 `limits=pylopdf.DocumentLimits.web()` when processing untrusted files. It
 bounds file, structure, decompression, the rendering/extraction PDF snapshot,
 and interpreted text; inspect

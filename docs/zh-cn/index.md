@@ -34,7 +34,7 @@ hide:
 
       <ul class="living-proofs" aria-label="项目信息">
         <li>MIT许可</li>
-        <li>5–6 MB wheel</li>
+        <li>6.7–7.8 MB wheel</li>
         <li>无必需Python依赖</li>
         <li>Python 3.10–3.14</li>
       </ul>
@@ -104,8 +104,8 @@ hide:
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">5–6 MB</span>
-        <span class="living-evidence__label">已发布v0.10 wheel的大小范围，适合AWS Lambda等容量受限的环境。</span>
+        <span class="living-evidence__value">6.7–7.8 MB</span>
+        <span class="living-evidence__label">使用thin LTO release profile构建的native wheel大小范围，适合AWS Lambda等容量受限的环境。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">无</span>

@@ -28,7 +28,7 @@ text and form appearances.
 | | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
 |---|---|---|---|---|---|---|
 | License | **MIT** | AGPL / commercial | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
-| Wheel size (MiB) | **~5.0–5.8** | ~17.5–24.7 | small (pure Python) | ~2.7–5.0 | ~9.7–10.9 | ~1.9–4.6 |
+| Wheel size (MiB) | **~6.4–7.4** | ~17.5–24.7 | small (pure Python) | ~2.7–5.0 | ~9.7–10.9 | ~1.9–4.6 |
 | Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited | ✅ | ✅ (structure-focused) |
 | Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
 | Text extraction | ✅ (positioned text, tables, Markdown) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
@@ -36,8 +36,11 @@ text and form appearances.
 | Locale-aware multilingual fonts | ✅ (optional extras) | ✅ | — | manual | — | — |
 | Implementation | **pure Rust** | C/C++ | Python | C++ (PDFium) | Rust | C++ (qpdf) |
 
-Wheel sizes are the ranges of published files for pylopdf 0.10.0, pymupdf
-1.28.0, pypdfium2 5.12.1, pdf-oxide 0.3.75, and pikepdf 10.10.0 on 2026-07-25.
+pylopdf's range covers the five native abi3 wheels built from the 0.14.0
+sources with the thin-LTO release profile on GitHub-hosted runners on
+2026-10-17; the published 0.14.0 wheels are 6.8–7.9 MiB. The other ranges are
+published files for pymupdf 1.28.0, pypdfium2 5.12.1, pdf-oxide 0.3.75, and
+pikepdf 10.10.0 on 2026-07-25.
 
 - **AGPL-free**: covers the common pymupdf use cases under the MIT license
 - **Small and self-contained**: fits size-constrained environments such as AWS
@@ -223,7 +226,9 @@ Validating existing PDFs against PDF/A remains
 ## Benchmarks
 
 A reproducible benchmark suite ships with the repository — same corpus, same
-tasks, medians, and wins and losses published as-is:
+tasks, medians, and wins and losses published as-is. Rendering is reported end
+to end and split into cold and warm rasterization plus PNG encoding time and
+size, so a fast PNG encoder cannot hide slower rasterization:
 [latest results](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md),
 [free-threaded extraction](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md),
 and the [native OCR report](https://github.com/yhay81/pylopdf/blob/main/bench/results/ocr-latest.md)
@@ -238,7 +243,7 @@ uv sync --all-extras --group bench && uv run python bench/run.py
 ```
 pylopdf.Document (Python, pymupdf-style API)
    └─ _Document (PyO3)
-        ├─ lopdf 0.44   … editing: open → modify → save
+        ├─ lopdf 0.45   … editing: open → modify → save
         ├─ hayro 0.7    … rendering and positioned extraction
         └─ krilla 0.8 + HarfRust 0.12
                          … shaped, subset-embedded text and form appearances

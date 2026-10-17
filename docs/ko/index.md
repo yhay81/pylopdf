@@ -35,7 +35,7 @@ hide:
 
       <ul class="living-proofs" aria-label="프로젝트 정보">
         <li>MIT 라이선스</li>
-        <li>5–6 MB wheel</li>
+        <li>6.7–7.8 MB wheel</li>
         <li>필수 Python 의존성 없음</li>
         <li>Python 3.10–3.14</li>
       </ul>
@@ -105,8 +105,8 @@ hide:
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">5–6 MB</span>
-        <span class="living-evidence__label">배포된 v0.10 wheel 범위로, AWS Lambda처럼 용량 제약이 있는 환경에도 적합합니다.</span>
+        <span class="living-evidence__value">6.7–7.8 MB</span>
+        <span class="living-evidence__label">thin LTO release profile로 빌드한 native wheel 범위로, AWS Lambda처럼 용량 제약이 있는 환경에도 적합합니다.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">없음</span>
