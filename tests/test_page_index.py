@@ -513,17 +513,14 @@ def _flat_text_pdf(pages: int) -> bytes:
     return build_raw_pdf(objects)
 
 
-# Placement still sweeps every target object, so it stays quadratic.
-TIMED_EDITS = [edit for edit in PAGE_EDITS if edit != "show_pdf_page"]
-
-
-@pytest.mark.parametrize("edit", TIMED_EDITS)
+@pytest.mark.parametrize("edit", PAGE_EDITS)
 def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
     """Drawing and annotation edits keep the index, so editing every page is linear.
 
     Each edit used to drop the index, so every ``doc[i]`` after it walked the
-    page tree again: about 4 s locally for each loop here. Each loop now takes
-    0.1 to 0.25 s; the generous bound only catches that regression.
+    page tree again: about 4 s locally for each loop here, and 22 s for
+    ``show_pdf_page``, which also swept every object of the target. Each loop
+    now takes 0.1 to 0.25 s; the generous bound only catches that regression.
     """
     doc = pylopdf.Document(stream=_flat_text_pdf(TIMED_PAGES))
 

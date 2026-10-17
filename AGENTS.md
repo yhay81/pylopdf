@@ -468,8 +468,8 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `copy_page`, `set_toc`, and `show_pdf_page`) and `garbage=True` saves remove
-  unreachable objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+  `copy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
   in object count. The replacement keeps lopdf's semantics, following
@@ -479,7 +479,14 @@ overview.
   stack. The set is reserved for the current object count and the stack grows
   fallibly; refusal raises `PdfError` before any object is removed. Pruning
   still runs after the edit it follows has committed, so a refusal there leaves
-  that edit and its unreachable objects in place.
+  that edit and its unreachable objects in place. Form-XObject imports
+  (`show_pdf_page`, embedded-font text, and widget appearances) never sweep
+  the target: before mutation, `prepare_page_form_import` keeps only the
+  source objects that `reachable_object_ids` reaches from the Form dictionary,
+  with source Catalog, Pages, and Page objects treated as absent. A placement
+  therefore costs time in its source rather than in every target object, and
+  objects the target already could not reach stay until a garbage save, as
+  after every other drawing edit.
 - `insert_pdf`, `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
@@ -595,8 +602,8 @@ overview.
   page attributes in one parent-tree pass with a 64-level/cycle boundary.
   Form-XObject imports admit at most 65,536 source objects and 64 MiB of wrapped
   decoded page content. They prepare bounded content, inherited geometry, and
-  the complete movable object collection before cache invalidation or target
-  mutation; commit then has no recoverable source-side work.
+  the collection of Form-reachable source objects before cache invalidation or
+  target mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
@@ -983,12 +990,9 @@ overview.
   and indirect `/Annots` reference stay the same. `set_page_entry` and
   `set_page_object_entry` keep it only for `/Rotate`, the five page boxes, and
   `/Contents`. An in-place annotation-array edit keeps it unless the walk read
-  that array as `/Kids`. `IndexedDocument::prune_unreachable_objects` removes
-  only objects the walk cannot reach, so it keeps the index while the walked
-  edges still fit the smaller object count. `show_pdf_page` and embedded-font
-  text still sweep the complete target after each placement, which keeps
-  placing a page on every page quadratic in the object count. Because Form
-  imports null references to missing source objects,
+  that array as `/Kids`. No neutral edit removes objects, so the object count
+  that bounds walked edges only grows; anything that prunes goes through
+  `DerefMut`. Because Form imports null references to missing source objects,
   current edits cannot turn a missing entry or a `/Kids` alias into a page, so
   those checks are defensive; keep them so each obligation stays locally
   checkable. The first append to an indirect `/Annots` array counts the pages

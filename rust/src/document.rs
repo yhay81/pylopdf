@@ -34,7 +34,7 @@ use crate::image_compression;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
-use crate::prune::prune_unreachable_objects;
+use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
@@ -2533,17 +2533,27 @@ fn prepare_page_form_import(
         form_dict.set("Group", group.clone());
     }
 
+    // Move only the source objects that the Form can reach. The page tree
+    // stays behind, so a reference into it dangles, and outlines,
+    // annotations, attachments, metadata, and the page's original content
+    // streams would be unreachable in the target. Pruning the complete
+    // target after the import found the same objects, but walked every
+    // target object for each placement.
+    let reachable = reachable_object_ids(
+        &source,
+        form_dict.iter().map(|(_, value)| value),
+        |object| !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page")),
+    )?;
     let new_max_id = source.max_id;
     let mut objects = Vec::new();
     objects
-        .try_reserve_exact(source.objects.len())
+        .try_reserve_exact(reachable.len())
         .map_err(|error| {
             PdfError::new_err(format!("failed to allocate Form import objects: {error}"))
         })?;
     for (id, object) in source.objects {
-        match object.type_name().unwrap_or(b"") {
-            b"Catalog" | b"Pages" | b"Page" => {}
-            _ => objects.push((id, object)),
+        if reachable.contains(&id) {
+            objects.push((id, object));
         }
     }
     Ok(FormImportPlan {
@@ -3767,12 +3777,10 @@ struct PageTreeFrame<'a> {
 ///
 /// The walk reads `/Root`, the catalog's `/Pages`, each node's `/Type` and
 /// `/Kids`, every object on a `/Kids` reference chain, and the object count,
-/// which bounds the traversed edges. Edits that keep the page index check
-/// their changes against these facts.
+/// which bounds the traversed edges and only grows during edits that keep the
+/// page index. Those edits check their changes against these facts.
 #[derive(Default)]
 struct PageTreeFacts {
-    /// `/Kids` edges traversed; a walk fails once they exceed the object count.
-    edges: usize,
     /// Objects on `/Kids` reference chains, including the arrays they reach.
     kids_objects: HashSet<ObjectId>,
     /// Absent objects named by a skipped `/Kids` entry or its reference chain.
@@ -3990,9 +3998,6 @@ fn walk_page_tree(
             depth: child_depth,
         });
     }
-    if let Some(facts) = facts {
-        facts.edges = edges;
-    }
     Ok(page_count)
 }
 
@@ -4117,8 +4122,9 @@ mod indexed {
     /// - Rotation, page-box, and `/Contents` entries are never walked.
     /// - An in-place annotation-array edit keeps it unless the walk read that
     ///   array as `/Kids`.
-    /// - Pruning removes only objects the walk cannot reach, so it keeps the
-    ///   index while the walked edges still fit the smaller object count.
+    ///
+    /// None of these edits removes objects, so the object count that bounds
+    /// the walked edges only grows.
     pub(super) struct IndexedDocument {
         doc: Document,
         page_index: OnceLock<PageIndex>,
@@ -4368,18 +4374,6 @@ mod indexed {
                         && page_annotations_reference(&self.doc, other_page_id) == Some(array_id)
                 }),
             })
-        }
-
-        /// Remove objects unreachable from the trailer.
-        ///
-        /// Everything the walk reads is reachable from the trailer, so the
-        /// sweep removes none of it and the index survives while the walked
-        /// edges still fit the smaller object count that bounds them.
-        pub(super) fn prune_unreachable_objects(&mut self) -> PyResult<()> {
-            crate::prune::prune_unreachable_objects(&mut self.doc)?;
-            let objects = self.doc.objects.len();
-            self.keep_index_if(|index, _| index.tree.edges <= objects);
-            Ok(())
         }
     }
 
@@ -5752,10 +5746,7 @@ impl _Document {
         );
         let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
         self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
-        self.push_page_content(page_id, ops, drawing_plan.content)?;
-        // All source non-page objects were moved initially; prune assets and
-        // attachments unreachable from the Form XObject.
-        self.doc.prune_unreachable_objects()
+        self.push_page_content(page_id, ops, drawing_plan.content)
     }
 
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
