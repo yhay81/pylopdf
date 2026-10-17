@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Whole-document operations now work for documents of any page count instead
+  of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
+  `render_pages()` with `pages=None`, and `insert_pdf()` of a complete source.
+  Text extraction and rendering process internally in 4,096-entry chunks that
+  each own their hayro cache, while `max_size`, `max_text_size`, and the other
+  output budgets still bound the complete call. Page entries are validated
+  against one page-count snapshot, removing a page-tree walk per entry that
+  made large batches quadratic, and budgeted extraction keeps running
+  admission totals instead of rescanning every interpreted page.
+- Explicit page sequences for `get_text`, `to_markdown`, `render_pages`,
+  `select`, and `delete_pages` are bounded by the larger of the page count and
+  4,096 instead of a fixed 4,096, so repetition never costs more than one
+  complete document pass. Materialization still stops early, and refusals
+  raise `LimitError` with the new stable code `page_entry_count`; it remains a
+  `ValueError` subclass. Direct core calls repeat the check, and the core page
+  import rejects repeated source pages before mutation instead of producing a
+  page tree that reuses one page object.
+- `set_toc()` and `get_toc()` accept large manuals: outlines may contain
+  65,536 entries/nodes, 131,072 edges, and 16 MiB of title text (formerly
+  4,096, 8,192, and 1 MiB). Entry-count refusals raise `LimitError` with
+  `toc_entry_count`, read-side text refusals use `toc_text_size`, and page
+  deletion and selection share the outline limits so every written outline
+  stays editable.
+- `get_toc()`, `Page.get_links()`, `insert_pdf()`, `delete_pages()`, and
+  `select()` accept the named-destination trees of large LaTeX/hyperref
+  manuals, which name every page, section, equation, figure, citation, and
+  listing line: `/Names/Dests` trees may hold 65,536 entries/nodes, 131,072
+  edges, and 16 MiB of key text (formerly 4,096, 8,192, and 1 MiB), keeping the
+  32-level depth limit. Refusals raise `LimitError` with the new stable codes
+  `named_destination_count` and `named_destination_text_size` instead of a
+  plain `PdfError`. Page cleanup applies the same limits to the name tree and
+  legacy `/Dests`, copies retained destination values within 1,048,576 direct
+  objects and 16 MiB of text, and charges destination names looked up during
+  outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
+  link budget, so every well-formed tree and outline that resolves can also be
+  cleaned and imported.
+
 ### Changed
 - `bench/run.py` now splits first-page rendering into end-to-end time, cold
   and warm Pixmap rasterization, and PNG encoding time and size for both
@@ -21,6 +59,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for faster Rust iteration cannot silently remain in later measurements.
 
 ### Performance
+- Reading the links of every page of a large manual is now linear in its
+  pages and links. `Page.get_links()` used to index the complete
+  `/Names/Dests` tree and walk the page tree five times for every call, plus
+  three more walks for every resolved link. It now indexes the tree once, on
+  the first named lookup, and reuses that index and the page index until the
+  next edit, which drops both. On a generated 1,000-page manual with 65,536
+  named destinations and three named links per page, reading every page's
+  links fell from 12.7 s to 0.03 s; with 20 links per page and a balanced page
+  tree, from 29.5 s to 0.13 s. The retained index holds each distinct key once
+  under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
+  that manual. Refusals still raise `LimitError` with the same codes on every
+  named lookup, and results are unchanged.
 - Native wheels and sdist builds now use thin LTO with one codegen unit and
   keep `panic = "unwind"` for PyO3 panic conversion. Against Cargo's default
   release profile on the five GitHub-hosted release targets, abi3 wheels

@@ -5,13 +5,18 @@ use std::collections::{HashMap, HashSet};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pyo3::prelude::*;
 
-use crate::document::{PdfError, resolve_local_destination_array};
+use crate::document::{
+    DestinationNameBudget, MAX_NAMED_DEST_ENTRIES, MAX_NAMED_DEST_NAME_BYTES,
+    MAX_NAMED_DEST_TREE_DEPTH, MAX_NAMED_DEST_TREE_EDGES, MAX_NAMED_DEST_TREE_NODES,
+    MAX_TOC_TREE_EDGES, MAX_TOC_TREE_NODES, PdfError, add_named_destination_text_budget, limit_err,
+    named_destination_count_err, resolve_local_destination_array, toc_entry_count_err,
+};
 
-const MAX_ENTRIES: usize = 4_096;
-const MAX_EDGES: usize = 8_192;
-const MAX_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_PAGE_ANNOTATIONS: usize = 4_096;
 const MAX_DEST_DEPTH: usize = 32;
 const MAX_OUTLINE_DEPTH: usize = 64;
+/// Copied destination values may average 16 direct objects per admitted entry.
+const MAX_COPIED_DESTINATION_OBJECTS: usize = MAX_NAMED_DEST_ENTRIES * 16;
 
 #[derive(Clone, Copy)]
 enum Step {
@@ -111,9 +116,10 @@ fn removed_destination<'a>(
     removed: &HashSet<ObjectId>,
     named: &mut Option<HashMap<&'a [u8], &'a Object>>,
     source_bytes: &mut usize,
+    budget: DestinationNameBudget,
 ) -> PyResult<bool> {
     Ok(
-        resolve_local_destination_array(doc, destination, named, source_bytes)?
+        resolve_local_destination_array(doc, destination, named, source_bytes, budget)?
             .and_then(|array| array.first())
             .and_then(|first| first.as_reference().ok())
             .is_some_and(|id| removed.contains(&id)),
@@ -126,11 +132,14 @@ fn navigation_to_removed<'a>(
     removed: &HashSet<ObjectId>,
     named: &mut Option<HashMap<&'a [u8], &'a Object>>,
     source_bytes: &mut usize,
+    budget: DestinationNameBudget,
 ) -> PyResult<(bool, bool)> {
     let direct = dictionary
         .get(b"Dest")
         .ok()
-        .map(|destination| removed_destination(doc, destination, removed, named, source_bytes))
+        .map(|destination| {
+            removed_destination(doc, destination, removed, named, source_bytes, budget)
+        })
         .transpose()?
         .unwrap_or(false);
     let action = dictionary.get(b"A").ok().and_then(|object| match object {
@@ -141,7 +150,9 @@ fn navigation_to_removed<'a>(
         Some(action) if action.get(b"S").and_then(Object::as_name).ok() == Some(b"GoTo") => action
             .get(b"D")
             .ok()
-            .map(|destination| removed_destination(doc, destination, removed, named, source_bytes))
+            .map(|destination| {
+                removed_destination(doc, destination, removed, named, source_bytes, budget)
+            })
             .transpose()?
             .unwrap_or(false),
         _ => false,
@@ -199,8 +210,14 @@ impl PageCleanupPlan {
                 action.get(b"S").and_then(Object::as_name).ok() == Some(b"GoTo")
             });
             if local {
-                plan.remove_open_action =
-                    removed_destination(doc, open_action, removed, &mut named, &mut 0)?;
+                plan.remove_open_action = removed_destination(
+                    doc,
+                    open_action,
+                    removed,
+                    &mut named,
+                    &mut 0,
+                    DestinationNameBudget::Annotation,
+                )?;
             }
         }
         let mut seen_pages = HashSet::new();
@@ -224,7 +241,7 @@ impl PageCleanupPlan {
             let Some(items) = annots.and_then(|object| object.as_array().ok()) else {
                 continue;
             };
-            if items.len() > MAX_ENTRIES {
+            if items.len() > MAX_PAGE_ANNOTATIONS {
                 return Err(PdfError::new_err(
                     "page annotations exceed the 4096-entry safety limit",
                 ));
@@ -243,8 +260,14 @@ impl PageCleanupPlan {
                 if annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Link") {
                     continue;
                 }
-                let (direct, action) =
-                    navigation_to_removed(doc, annotation, removed, &mut named, &mut bytes)?;
+                let (direct, action) = navigation_to_removed(
+                    doc,
+                    annotation,
+                    removed,
+                    &mut named,
+                    &mut bytes,
+                    DestinationNameBudget::Annotation,
+                )?;
                 if direct || action {
                     push(&mut excluded, index)?;
                 }
@@ -311,10 +334,10 @@ impl PageCleanupPlan {
             };
             validate_navigation_dictionary(dictionary)?;
             nodes += 1;
-            if nodes > MAX_ENTRIES {
-                return Err(PdfError::new_err(
-                    "TOC outline tree exceeds the 4096-node safety limit",
-                ));
+            if nodes > MAX_TOC_TREE_NODES {
+                return Err(toc_entry_count_err(format!(
+                    "TOC outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
+                )));
             }
             for (key, child_depth) in [
                 (b"Next".as_slice(), depth),
@@ -327,16 +350,22 @@ impl PageCleanupPlan {
                         ));
                     }
                     edges += 1;
-                    if edges > MAX_EDGES {
-                        return Err(PdfError::new_err(
-                            "TOC outline tree exceeds the 8192-edge safety limit",
-                        ));
+                    if edges > MAX_TOC_TREE_EDGES {
+                        return Err(toc_entry_count_err(format!(
+                            "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
+                        )));
                     }
                     push(&mut pending, (target.child(Step::Key(key))?, child_depth))?;
                 }
             }
-            let (direct, action) =
-                navigation_to_removed(doc, dictionary, removed, named, &mut bytes)?;
+            let (direct, action) = navigation_to_removed(
+                doc,
+                dictionary,
+                removed,
+                named,
+                &mut bytes,
+                DestinationNameBudget::Toc,
+            )?;
             if direct || action {
                 push(
                     &mut self.dictionaries,
@@ -391,28 +420,29 @@ impl PageCleanupPlan {
                 visited.try_reserve(1).map_err(allocation_error)?;
                 visited.insert(root.id);
             }
-            let mut nodes = 0;
-            let mut edges = 0;
-            let mut total = 0;
+            let mut nodes = 0usize;
+            let mut edges = 0usize;
+            let mut total = 0usize;
             let mut bytes = 0usize;
             let mut clone_budget = CloneBudget::default();
+            // Every pending node is a dictionary, matching the read-side node count.
             while let Some((names_target, kids_target, depth)) = pending.pop() {
                 nodes += 1;
-                if nodes > MAX_ENTRIES {
-                    return Err(PdfError::new_err(
-                        "named-destination tree exceeds the 4096-node safety limit",
-                    ));
+                if nodes > MAX_NAMED_DEST_TREE_NODES {
+                    return Err(named_destination_count_err(format!(
+                        "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_NODES}-node safety limit"
+                    )));
                 }
                 if let Some(names_target) = names_target.resolve(doc)?
                     && let Some(items) = names_target
                         .object(doc)
                         .and_then(|object| object.as_array().ok())
                 {
-                    total += items.len().div_ceil(2);
-                    if total > MAX_ENTRIES {
-                        return Err(PdfError::new_err(
-                            "named-destination tree exceeds the 4096-entry safety limit",
-                        ));
+                    total = total.saturating_add(items.len().div_ceil(2));
+                    if total > MAX_NAMED_DEST_ENTRIES {
+                        return Err(named_destination_count_err(format!(
+                            "named-destination tree exceeds the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
+                        )));
                     }
                     for (pair_index, pair) in items.chunks(2).enumerate() {
                         let [_, destination] = pair else { continue };
@@ -422,25 +452,22 @@ impl PageCleanupPlan {
                         else {
                             continue;
                         };
-                        let Some(key) = key_target.object(doc) else {
+                        let Some(Object::String(key_bytes, format)) = key_target.object(doc) else {
                             continue;
                         };
-                        let Ok(key_bytes) = key.as_str() else {
-                            continue;
-                        };
-                        bytes = bytes.checked_add(key_bytes.len()).ok_or_else(|| {
-                            PdfError::new_err("named-destination keys exceed platform size")
-                        })?;
-                        if bytes > MAX_TEXT_BYTES {
-                            return Err(PdfError::new_err(
-                                "named-destination keys exceed the 1048576-byte safety limit",
-                            ));
-                        }
-                        if !removed_destination(doc, destination, removed, named, &mut bytes)? {
+                        add_named_destination_text_budget(&mut bytes, key_bytes.len())?;
+                        if !removed_destination(
+                            doc,
+                            destination,
+                            removed,
+                            named,
+                            &mut bytes,
+                            DestinationNameBudget::NamedDestination,
+                        )? {
                             push(
                                 &mut entries,
                                 (
-                                    clone_budget.copy(key, 1)?,
+                                    Object::String(copy_admitted_bytes(key_bytes)?, *format),
                                     clone_budget.copy(destination, 1)?,
                                 ),
                             )?;
@@ -452,27 +479,28 @@ impl PageCleanupPlan {
                         .object(doc)
                         .and_then(|object| object.as_array().ok())
                 {
-                    if !kids.is_empty() && depth >= MAX_DEST_DEPTH {
-                        return Err(PdfError::new_err(
-                            "named-destination tree exceeds the 32-level safety limit",
-                        ));
+                    if !kids.is_empty() && depth >= MAX_NAMED_DEST_TREE_DEPTH {
+                        return Err(PdfError::new_err(format!(
+                            "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_DEPTH}-level safety limit"
+                        )));
                     }
-                    edges += kids.len();
-                    if edges > MAX_EDGES {
-                        return Err(PdfError::new_err(
-                            "named-destination tree exceeds the 8192-edge safety limit",
-                        ));
+                    edges = edges.saturating_add(kids.len());
+                    if edges > MAX_NAMED_DEST_TREE_EDGES {
+                        return Err(named_destination_count_err(format!(
+                            "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_EDGES}-edge safety limit"
+                        )));
                     }
                     for index in (0..kids.len()).rev() {
                         let Some(child) = kids_target.child(Step::Index(index))?.resolve(doc)?
                         else {
                             continue;
                         };
-                        if let Some(dictionary) =
+                        let Some(dictionary) =
                             child.object(doc).and_then(|object| object.as_dict().ok())
-                        {
-                            validate_navigation_dictionary(dictionary)?;
-                        }
+                        else {
+                            continue;
+                        };
+                        validate_navigation_dictionary(dictionary)?;
                         if child.path.is_empty() {
                             if visited.contains(&child.id) {
                                 continue;
@@ -519,10 +547,10 @@ impl PageCleanupPlan {
             && let Some(dictionary) = legacy.object(doc).and_then(|object| object.as_dict().ok())
         {
             validate_navigation_dictionary(dictionary)?;
-            if dictionary.len() > MAX_ENTRIES {
-                return Err(PdfError::new_err(
-                    "legacy named destinations exceed the 4096-entry safety limit",
-                ));
+            if dictionary.len() > MAX_NAMED_DEST_ENTRIES {
+                return Err(named_destination_count_err(format!(
+                    "legacy named destinations exceed the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
+                )));
             }
             let mut replacement = Dictionary::new();
             replacement
@@ -532,14 +560,16 @@ impl PageCleanupPlan {
             let mut bytes = 0usize;
             let mut clone_budget = CloneBudget::default();
             for (key, value) in dictionary.iter() {
-                bytes += key.len();
-                if bytes > MAX_TEXT_BYTES {
-                    return Err(PdfError::new_err(
-                        "legacy named destinations exceed the 1048576-byte safety limit",
-                    ));
-                }
-                if !removed_destination(doc, value, removed, named, &mut bytes)? {
-                    let copied_key = clone_budget.bytes(key)?;
+                add_named_destination_text_budget(&mut bytes, key.len())?;
+                if !removed_destination(
+                    doc,
+                    value,
+                    removed,
+                    named,
+                    &mut bytes,
+                    DestinationNameBudget::NamedDestination,
+                )? {
+                    let copied_key = copy_admitted_bytes(key)?;
                     let copied_value = clone_budget.copy(value, 1)?;
                     replacement.set(copied_key, copied_value);
                 }
@@ -605,6 +635,23 @@ fn filter(items: &mut Vec<Object>, excluded: &[usize]) {
     });
 }
 
+/// Copy bytes that a text budget has already admitted.
+fn copy_admitted_bytes(value: &[u8]) -> PyResult<Vec<u8>> {
+    let mut copied = Vec::new();
+    copied
+        .try_reserve_exact(value.len())
+        .map_err(allocation_error)?;
+    copied.extend_from_slice(value);
+    Ok(copied)
+}
+
+fn copied_objects_err() -> PyErr {
+    named_destination_count_err(format!(
+        "named-destination values exceed the {MAX_COPIED_DESTINATION_OBJECTS}-object safety limit"
+    ))
+}
+
+/// Bound copied destination values; their keys are admitted by the text budget.
 #[derive(Default)]
 struct CloneBudget {
     objects: usize,
@@ -613,38 +660,34 @@ struct CloneBudget {
 
 impl CloneBudget {
     fn bytes(&mut self, value: &[u8]) -> PyResult<Vec<u8>> {
-        self.bytes = self
-            .bytes
-            .checked_add(value.len())
-            .ok_or_else(|| PdfError::new_err("destination direct data exceeds platform size"))?;
-        if self.bytes > MAX_TEXT_BYTES {
-            return Err(PdfError::new_err(
-                "destination direct data exceeds the 1048576-byte safety limit",
+        self.bytes = self.bytes.saturating_add(value.len());
+        if self.bytes > MAX_NAMED_DEST_NAME_BYTES {
+            return Err(limit_err(
+                "named_destination_text_size",
+                format!(
+                    "named-destination values exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
+                ),
             ));
         }
-        let mut copied = Vec::new();
-        copied
-            .try_reserve_exact(value.len())
-            .map_err(allocation_error)?;
-        copied.extend_from_slice(value);
-        Ok(copied)
+        copy_admitted_bytes(value)
     }
 
     fn copy(&mut self, object: &Object, depth: usize) -> PyResult<Object> {
+        if depth > MAX_DEST_DEPTH {
+            return Err(PdfError::new_err(format!(
+                "named-destination values exceed the {MAX_DEST_DEPTH}-level safety limit"
+            )));
+        }
         self.objects += 1;
-        if self.objects > MAX_ENTRIES * 16 || depth > MAX_DEST_DEPTH {
-            return Err(PdfError::new_err(
-                "destination direct shape exceeds its safety limit",
-            ));
+        if self.objects > MAX_COPIED_DESTINATION_OBJECTS {
+            return Err(copied_objects_err());
         }
         Ok(match object {
             Object::Name(bytes) => Object::Name(self.bytes(bytes)?),
             Object::String(bytes, format) => Object::String(self.bytes(bytes)?, *format),
             Object::Array(items) => {
-                if items.len() > MAX_ENTRIES * 16 - self.objects {
-                    return Err(PdfError::new_err(
-                        "destination direct shape exceeds its safety limit",
-                    ));
+                if items.len() > MAX_COPIED_DESTINATION_OBJECTS - self.objects {
+                    return Err(copied_objects_err());
                 }
                 let mut copied = Vec::new();
                 copied
@@ -656,10 +699,8 @@ impl CloneBudget {
                 Object::Array(copied)
             }
             Object::Dictionary(dictionary) => {
-                if dictionary.len() > MAX_ENTRIES * 16 - self.objects {
-                    return Err(PdfError::new_err(
-                        "destination direct shape exceeds its safety limit",
-                    ));
+                if dictionary.len() > MAX_COPIED_DESTINATION_OBJECTS - self.objects {
+                    return Err(copied_objects_err());
                 }
                 let mut copied = Dictionary::new();
                 copied
