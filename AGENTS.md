@@ -427,6 +427,22 @@ overview.
   fallibly; refusal raises `PdfError` before any object is removed. Pruning
   still runs after the edit it follows has committed, so a refusal there leaves
   that edit and its unreachable objects in place.
+- `insert_pdf`, `show_pdf_page`, and generated text and form appearances
+  renumber their disposable source copy with `renumber_objects` in
+  `rust/src/renumber.rs` before any target mutation. Never call lopdf's
+  `Document::renumber_objects_with`: it walks the graph with a `Vec` of visited
+  IDs, twice when page numbers descend in page order, and rescans the bookmark
+  table that `set_toc` fills once per renumbered object, so it is quadratic in
+  source object count. The replacement keeps lopdf's numbering: objects keep
+  their generation and take consecutive numbers in ascending ID order, page
+  objects trade slots so that page-tree order ascends, and references to
+  missing objects keep their numbers. Read the page order with the bounded
+  walker before renumbering, never after it, because a missing Kids entry can
+  share a renumbered object's number. A hash map reserved for the object count
+  assigns IDs, a fallibly grown stack rewrites references in the trailer and
+  in every object, and lopdf's bookmark table is left alone because only
+  `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
+  leave the copy partly rewritten.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
@@ -834,8 +850,12 @@ overview.
   because extraction moved to hayro (`rust/src/extract.rs`).
 - lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
   helper built on it is quadratic in object count. pylopdf replaces
-  `prune_objects`; `renumber_objects_with`, used on the source snapshot by
-  `insert_pdf` and `show_pdf_page`, remains quadratic in source object count.
+  `prune_objects` and `renumber_objects_with`; do not call them or the other
+  helpers built on it (`delete_object`, `delete_zero_length_streams`, and
+  lopdf's own `delete_pages`).
+- References to missing objects keep their numbers through import
+  renumbering, as in lopdf, so after `insert_pdf` or `show_pdf_page` they can
+  resolve to unrelated target objects that use those numbers.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
