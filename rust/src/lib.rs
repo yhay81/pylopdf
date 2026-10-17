@@ -19,6 +19,7 @@ mod recovery;
 mod render_cache;
 mod renumber;
 mod text_replace;
+mod unallocated;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;

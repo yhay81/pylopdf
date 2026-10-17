@@ -103,10 +103,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inherits from its original ancestors, or the source default, and
   `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
   raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
-  rebuilt page inherited from its new parent instead. A reference in the
-  target document itself that names an object number above every entry in its
-  cross-reference table is not rewritten and can still resolve to an object
-  that a later import or edit adds.
+  rebuilt page inherited from its new parent instead.
+- A document's own references to object numbers above every object it
+  contains now load as null. New objects take the next numbers, so such a
+  reference used to resolve to whatever a later edit added: after
+  `insert_pdf`, a target page also drew the imported page's content; after
+  three `insert_text` calls, one stamp appeared twice; and an XObject
+  resource, attachment, or other entry could name an unrelated new object.
+  Every edit that adds objects was affected, including `show_pdf_page`,
+  `insert_image`, annotations, `new_page`, `set_toc`, `set_metadata`,
+  `embfile_add`, and the OCR text layer. Loading, including the reload by
+  `authenticate()`, now replaces each such reference with null, which is how
+  ISO 32000-2 reads it, and saving writes `null` in its place; documents
+  without such references load and save unchanged. The pass added about 4–6
+  ms to loading a 10 MB document with 100,000 objects or with one million
+  such references. Drawing on a page whose content names such a number now
+  stays visible: drawing kept the reference, where renderers stop reading
+  page content, so the drawing and everything after it disappeared. Adding
+  annotations to a page whose `/Annots` named such a number, setting metadata
+  when the trailer's `/Info` did, and reading or editing a page whose
+  `/Parent` did no longer raise `PdfError`, and `embfile_names()` no longer
+  lists an attachment whose file specification was such a number. lopdf 0.45
+  also numbers new objects above an object whose header disagrees with the
+  cross-reference table, which a later edit replaced under lopdf 0.44.
+- `delete_pages`, `delete_page`, and `select` read a null or indirect-null
+  `/Outlines`, `/Names`, or `/Names /Dests` entry as absent instead of raising
+  `PdfError`, as they already did for a reference to a missing object.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved
