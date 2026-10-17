@@ -34,6 +34,7 @@ use crate::image_compression;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
+use crate::recovery::{self, XrefRecovery};
 use crate::text_replace::{self, TextReplacementError};
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -150,8 +151,6 @@ const INFO_METADATA_KEYS: [&[u8]; 8] = [
 ];
 const MAX_INFO_METADATA_TEXT_BYTES: usize = 1024 * 1024;
 
-const XREF_REPAIR_WARNING: &str = "recovered a PDF with an incorrect startxref offset; saving will rewrite its cross-reference data";
-
 const TEXT_FIELD_MULTILINE: i64 = 1 << 12;
 const TEXT_FIELD_PASSWORD: i64 = 1 << 13;
 const TEXT_FIELD_FILE_SELECT: i64 = 1 << 20;
@@ -191,8 +190,15 @@ type LinkTuple = (
 /// Resolved link destination: page number, display point, zoom, named destination.
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
 
-/// Info strings, page count, version, encryption, and startxref-repair status.
-type MetadataTuple = (HashMap<String, String>, u32, String, bool, bool);
+/// Info strings, page count, version, encryption, and any cross-reference
+/// recovery warning.
+type MetadataTuple = (
+    HashMap<String, String>,
+    u32,
+    String,
+    bool,
+    Option<&'static str>,
+);
 
 /// Target geometry for one placed PDF page.
 #[derive(Clone, Copy)]
@@ -832,13 +838,32 @@ const MAX_PARALLEL_RENDER_BYTES: u64 = 512_000_000;
 #[cfg(not(target_os = "emscripten"))]
 const ESTIMATED_RENDER_BYTES_PER_PIXEL: u64 = 8;
 
+/// Display a lopdf error followed by its wrapped causes.
+///
+/// lopdf 0.45 keeps causes out of `Display` and exposes them through
+/// `Error::source`, so join the chain to retain limit and decoder details.
+pub(crate) struct LopdfErrorChain<'a>(pub(crate) &'a lopdf::Error);
+
+impl std::fmt::Display for LopdfErrorChain<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)?;
+        let mut source = std::error::Error::source(self.0);
+        while let Some(cause) = source {
+            write!(formatter, ": {cause}")?;
+            source = cause.source();
+        }
+        Ok(())
+    }
+}
+
 /// Convert a lopdf error to a Python exception with a context prefix.
 ///
 /// Password/decryption failures become PasswordError; others become PdfError.
 fn lopdf_err(prefix: Option<&str>, e: &lopdf::Error) -> PyErr {
+    let chain = LopdfErrorChain(e);
     let message = match prefix {
-        Some(p) => format!("{p}: {e}"),
-        None => e.to_string(),
+        Some(p) => format!("{p}: {chain}"),
+        None => chain.to_string(),
     };
     if matches!(
         e,
@@ -867,9 +892,10 @@ fn load_err(prefix: Option<&str>, error: &lopdf::Error, limit_code: &'static str
         error,
         lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
     ) {
+        let chain = LopdfErrorChain(error);
         let message = match prefix {
-            Some(prefix) => format!("{prefix}: {error}"),
-            None => error.to_string(),
+            Some(prefix) => format!("{prefix}: {chain}"),
+            None => chain.to_string(),
         };
         limit_err(limit_code, message)
     } else {
@@ -877,216 +903,27 @@ fn load_err(prefix: Option<&str>, error: &lopdf::Error, limit_code: &'static str
     }
 }
 
-fn is_pdf_whitespace(byte: u8) -> bool {
-    matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
-}
-
-fn line_end(data: &[u8], start: usize) -> usize {
-    data[start..]
-        .iter()
-        .position(|byte| matches!(byte, b'\r' | b'\n'))
-        .map_or(data.len(), |offset| start + offset)
-}
-
-fn decimal_field(field: &[u8]) -> Option<usize> {
-    (!field.is_empty() && field.iter().all(u8::is_ascii_digit))
-        .then(|| {
-            field.iter().try_fold(0usize, |value, digit| {
-                value
-                    .checked_mul(10)?
-                    .checked_add(usize::from(*digit - b'0'))
-            })
-        })
-        .flatten()
-}
-
-/// Recognize only a classic xref table header plus its first entry.
-///
-/// This deliberately does not scan object headers or repair xref streams. The
-/// retrying lopdf parse remains the authority for the complete table/trailer.
-fn looks_like_classic_xref(data: &[u8], offset: usize) -> bool {
-    if data.get(offset..offset.saturating_add(4)) != Some(b"xref")
-        || (offset > 0 && !matches!(data[offset - 1], b'\r' | b'\n'))
-    {
-        return false;
-    }
-    let mut cursor = offset + 4;
-    while matches!(data.get(cursor), Some(b' ' | b'\t')) {
-        cursor += 1;
-    }
-    if !matches!(data.get(cursor), Some(b'\r' | b'\n')) {
-        return false;
-    }
-    while matches!(data.get(cursor), Some(byte) if is_pdf_whitespace(*byte)) {
-        cursor += 1;
-    }
-    let header_end = line_end(data, cursor);
-    let mut header = data[cursor..header_end]
-        .split(|byte| matches!(byte, b' ' | b'\t'))
-        .filter(|field| !field.is_empty());
-    let Some(start_object) = header.next().and_then(decimal_field) else {
-        return false;
-    };
-    let Some(entry_count) = header.next().and_then(decimal_field) else {
-        return false;
-    };
-    if header.next().is_some() || start_object > u32::MAX as usize || entry_count == 0 {
-        return false;
-    }
-    cursor = header_end;
-    while matches!(data.get(cursor), Some(byte) if is_pdf_whitespace(*byte)) {
-        cursor += 1;
-    }
-    let entry_end = line_end(data, cursor);
-    let mut entry = data[cursor..entry_end]
-        .split(|byte| matches!(byte, b' ' | b'\t'))
-        .filter(|field| !field.is_empty());
-    let valid_offset = entry
-        .next()
-        .is_some_and(|field| field.len() == 10 && field.iter().all(u8::is_ascii_digit));
-    let valid_generation = entry
-        .next()
-        .is_some_and(|field| field.len() == 5 && field.iter().all(u8::is_ascii_digit));
-    let valid_kind = entry
-        .next()
-        .is_some_and(|field| matches!(field, b"n" | b"f"));
-    valid_offset && valid_generation && valid_kind && entry.next().is_none()
-}
-
-fn last_subslice(data: &[u8], needle: &[u8], end: usize) -> Option<usize> {
-    data.get(..end)?
-        .windows(needle.len())
-        .rposition(|window| window == needle)
-}
-
-/// Patch one incorrect final `startxref` value when a classic table is intact.
-///
-/// The scan is linear, considers only the last structurally plausible classic
-/// table before the final startxref, and never guesses object offsets. Callers
-/// accept the patch only when a complete bounded lopdf retry succeeds.
-fn repair_classic_startxref(data: &[u8]) -> lopdf::Result<Option<Vec<u8>>> {
-    let Some(pdf_start) = data.windows(5).position(|window| window == b"%PDF-") else {
-        return Ok(None);
-    };
-    let Some(eof) = last_subslice(data, b"%%EOF", data.len()) else {
-        return Ok(None);
-    };
-    let Some(startxref) = last_subslice(data, b"startxref", eof) else {
-        return Ok(None);
-    };
-    if startxref <= pdf_start {
-        return Ok(None);
-    }
-    let mut number_start = startxref + b"startxref".len();
-    while matches!(data.get(number_start), Some(byte) if is_pdf_whitespace(*byte)) {
-        number_start += 1;
-    }
-    let mut number_end = number_start;
-    while matches!(data.get(number_end), Some(byte) if byte.is_ascii_digit()) {
-        number_end += 1;
-    }
-    let Some(number) = data.get(number_start..number_end) else {
-        return Ok(None);
-    };
-    let Some(current) = decimal_field(number) else {
-        return Ok(None);
-    };
-
-    let mut xref = None;
-    for (relative, window) in data[pdf_start..startxref].windows(4).enumerate() {
-        if window == b"xref" {
-            let candidate = pdf_start + relative;
-            let final_revision = !data[candidate..startxref]
-                .windows(b"%%EOF".len())
-                .any(|window| window == b"%%EOF")
-                && !data[candidate..startxref]
-                    .windows(b"endobj".len())
-                    .any(|window| window == b"endobj")
-                && data[candidate..startxref]
-                    .windows(b"trailer".len())
-                    .any(|window| window == b"trailer");
-            if final_revision && looks_like_classic_xref(data, candidate) {
-                xref = Some(candidate);
-            }
+/// Convert a lenient-load failure, including a refused recovery scan.
+fn recovery_load_err(
+    prefix: Option<&str>,
+    error: &recovery::LoadError,
+    limit_code: &'static str,
+) -> PyErr {
+    match error {
+        recovery::LoadError::Pdf(error) => load_err(prefix, error, limit_code),
+        recovery::LoadError::RecoveryScan { work, budget } => {
+            let message = format!(
+                "cross-reference recovery could scan about {work} bytes, exceeding the \
+                 {budget}-byte linear safety limit for this input"
+            );
+            limit_err(
+                "recovery_scan_size",
+                match prefix {
+                    Some(prefix) => format!("{prefix}: {message}"),
+                    None => message,
+                },
+            )
         }
-    }
-    let Some(xref) = xref else {
-        return Ok(None);
-    };
-    let Some(relative_xref) = xref.checked_sub(pdf_start) else {
-        return Ok(None);
-    };
-    if current == relative_xref {
-        return Ok(None);
-    }
-    let replacement = relative_xref.to_string();
-    let repaired_len = data
-        .len()
-        .checked_sub(number_end - number_start)
-        .and_then(|length| length.checked_add(replacement.len()))
-        .ok_or_else(|| {
-            lopdf::Error::IO(std::io::Error::other("repaired PDF input size overflowed"))
-        })?;
-    let mut repaired = Vec::new();
-    repaired.try_reserve_exact(repaired_len).map_err(|error| {
-        lopdf::Error::IO(std::io::Error::other(format!(
-            "failed to allocate repaired PDF input: {error}"
-        )))
-    })?;
-    repaired.extend_from_slice(&data[..number_start]);
-    repaired.extend_from_slice(replacement.as_bytes());
-    repaired.extend_from_slice(&data[number_end..]);
-    Ok(Some(repaired))
-}
-
-fn xref_recovery_candidate(error: &lopdf::Error) -> bool {
-    matches!(
-        error,
-        lopdf::Error::Parse(_) | lopdf::Error::Xref(_) | lopdf::Error::InvalidOffset(_)
-    )
-}
-
-fn load_document_with_recovery(
-    data: &[u8],
-    options: LoadOptions,
-) -> lopdf::Result<(Document, Option<Vec<u8>>)> {
-    let original_error = match Document::load_mem_with_options(data, options.clone()) {
-        Ok(document) => return Ok((document, None)),
-        Err(error) => error,
-    };
-    if options.strict || !xref_recovery_candidate(&original_error) {
-        return Err(original_error);
-    }
-    let Some(repaired) = repair_classic_startxref(data)? else {
-        return Err(original_error);
-    };
-    match Document::load_mem_with_options(&repaired, options) {
-        Ok(document) => Ok((document, Some(repaired))),
-        Err(_) => Err(original_error),
-    }
-}
-
-fn load_metadata_with_recovery(
-    data: &[u8],
-    password: Option<&str>,
-) -> lopdf::Result<(PdfMetadata, bool)> {
-    let load = |input: &[u8]| match password {
-        Some(password) => Document::load_metadata_mem_with_password(input, password),
-        None => Document::load_metadata_mem(input),
-    };
-    let original_error = match load(data) {
-        Ok(metadata) => return Ok((metadata, false)),
-        Err(error) => error,
-    };
-    if !xref_recovery_candidate(&original_error) {
-        return Err(original_error);
-    }
-    let Some(repaired) = repair_classic_startxref(data)? else {
-        return Err(original_error);
-    };
-    match load(&repaired) {
-        Ok(metadata) => Ok((metadata, true)),
-        Err(_) => Err(original_error),
     }
 }
 
@@ -3460,9 +3297,12 @@ fn decoded_stream_content_cow<'a>(
     }
     validate_stream_filter_count(stream, context)?;
 
-    let raw_filters = stream
-        .filters()
-        .map_err(|error| PdfError::new_err(format!("{context} has an invalid Filter: {error}")))?;
+    let raw_filters = stream.filters().map_err(|error| {
+        PdfError::new_err(format!(
+            "{context} has an invalid Filter: {}",
+            LopdfErrorChain(&error)
+        ))
+    })?;
     if raw_filters.is_empty() {
         if let Some(limit) = max_size
             && stream.content.len() > limit
@@ -3486,7 +3326,10 @@ fn decoded_stream_content_cow<'a>(
                 format!("{context} exceeds the {limit}-byte decoded-size limit"),
             )
         } else {
-            PdfError::new_err(format!("failed to decode {context}: {error}"))
+            PdfError::new_err(format!(
+                "failed to decode {context}: {}",
+                LopdfErrorChain(&error)
+            ))
         }
     };
     let decode = |candidate: &Stream| match max_size {
@@ -3893,7 +3736,7 @@ fn decompression_err(error: lopdf::Error, code: &'static str) -> PyErr {
         error,
         lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })
     ) {
-        limit_err(code, error.to_string())
+        limit_err(code, LopdfErrorChain(&error).to_string())
     } else {
         to_py_err(error)
     }
@@ -4587,7 +4430,9 @@ pub struct _Document {
     ///
     /// This avoids a potentially expensive lopdf serialization before the
     /// first render or extraction. Any edit discards it together with the
-    /// parsed hayro view.
+    /// parsed hayro view. Input whose cross-reference data lopdf recovered is
+    /// not retained: hayro would recover the damaged bytes independently and
+    /// could keep different objects than the graph that edits and saves use.
     hayro_source: HayroSource,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
@@ -4609,7 +4454,7 @@ pub struct _Document {
     interpreted_glyph_counts: HashMap<u32, usize>,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
-    /// Whether loading repaired an incorrect final classic startxref offset.
+    /// Whether lenient loading recovered damaged cross-reference data.
     is_repaired: bool,
     /// Hayro warnings from the latest render/extraction, written by the
     /// interpreter-settings sink and drained by `take_warnings`.
@@ -4631,7 +4476,7 @@ impl _Document {
             max_text_size,
             max_interpretation_size,
             max_text_glyphs,
-            false,
+            None,
         )
     }
 
@@ -4642,13 +4487,11 @@ impl _Document {
         max_text_size: Option<usize>,
         max_interpretation_size: Option<usize>,
         max_text_glyphs: Option<usize>,
-        is_repaired: bool,
+        recovery: Option<XrefRecovery>,
     ) -> Self {
-        let pending = if is_repaired {
-            vec![XREF_REPAIR_WARNING.to_owned()]
-        } else {
-            Vec::new()
-        };
+        let pending = recovery
+            .map(|recovery| vec![recovery.warning().to_owned()])
+            .unwrap_or_default();
         Self {
             doc,
             fallback_fonts: FallbackFonts::default(),
@@ -4664,7 +4507,7 @@ impl _Document {
             interpreted_text_sizes: HashMap::new(),
             interpreted_glyph_counts: HashMap::new(),
             isolated_content_pages: HashSet::new(),
-            is_repaired,
+            is_repaired: recovery.is_some(),
             pending_warnings: Arc::new(Mutex::new(pending)),
         }
     }
@@ -6130,7 +5973,8 @@ impl _Document {
                             let data = self.current_bytes()?;
                             Document::load_mem(&data).map_err(|error| {
                                 PdfError::new_err(format!(
-                                    "failed to prepare bounded PDF for rendering: {error}"
+                                    "failed to prepare bounded PDF for rendering: {}",
+                                    LopdfErrorChain(&error)
                                 ))
                             })?
                         } else {
@@ -7318,8 +7162,8 @@ impl _Document {
         };
         py.detach(|| {
             let data = read_input(path, limits.max_file_size)?;
-            let (doc, repaired) = load_document_with_recovery(&data, options).map_err(|error| {
-                load_err(
+            let (doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
+                recovery_load_err(
                     Some(&format!("failed to load {path}")),
                     &error,
                     decoder_limit_code,
@@ -7336,12 +7180,10 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let is_repaired = repaired.is_some();
-            let source = repaired.unwrap_or(data);
-            let hayro_source = if doc.was_encrypted() {
+            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
                 HayroSource::Unavailable
             } else {
-                HayroSource::from_owned(source, limits.max_interpretation_size)
+                HayroSource::from_owned(data, limits.max_interpretation_size)
             };
             Ok(Self::from_loaded_doc(
                 doc,
@@ -7349,7 +7191,7 @@ impl _Document {
                 limits.max_text_size,
                 limits.max_interpretation_size,
                 limits.max_text_glyphs,
-                is_repaired,
+                recovery,
             ))
         })
     }
@@ -7419,8 +7261,8 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            let (doc, repaired) = load_document_with_recovery(data, options)
-                .map_err(|error| load_err(None, &error, decoder_limit_code))?;
+            let (doc, recovery) = recovery::load_document(data, options)
+                .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7432,16 +7274,10 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let is_repaired = repaired.is_some();
-            let hayro_source = if doc.was_encrypted() {
+            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
                 HayroSource::Unavailable
             } else {
-                match repaired {
-                    Some(repaired) => {
-                        HayroSource::from_owned(repaired, limits.max_interpretation_size)
-                    }
-                    None => HayroSource::from_borrowed(data, limits.max_interpretation_size)?,
-                }
+                HayroSource::from_borrowed(data, limits.max_interpretation_size)?
             };
             Ok(Self::from_loaded_doc(
                 doc,
@@ -7449,7 +7285,7 @@ impl _Document {
                 limits.max_text_size,
                 limits.max_interpretation_size,
                 limits.max_text_glyphs,
-                is_repaired,
+                recovery,
             ))
         })
     }
@@ -7461,7 +7297,7 @@ impl _Document {
 
     /// Read metadata quickly without loading the complete document.
     ///
-    /// Return `(Info string dict, page count, version, encrypted, repaired)`.
+    /// Return `(Info string dict, page count, version, encrypted, recovery warning)`.
     #[staticmethod]
     #[pyo3(signature = (path, password=None, max_file_size=None))]
     fn load_metadata(
@@ -7473,10 +7309,22 @@ impl _Document {
         validate_password_input(password.as_deref(), "password")?;
         py.detach(|| {
             let data = read_input(path, max_file_size)?;
-            let (meta, repaired) = load_metadata_with_recovery(&data, password.as_deref())
-                .map_err(|error| lopdf_err(Some(&format!("failed to load {path}")), &error))?;
+            let (meta, recovery) =
+                recovery::load_metadata(&data, password.as_deref()).map_err(|error| {
+                    recovery_load_err(
+                        Some(&format!("failed to load {path}")),
+                        &error,
+                        "decompressed_size",
+                    )
+                })?;
             let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
-            Ok((metadata, page_count, version, encrypted, repaired))
+            Ok((
+                metadata,
+                page_count,
+                version,
+                encrypted,
+                recovery.map(XrefRecovery::warning),
+            ))
         })
     }
 
@@ -7492,14 +7340,20 @@ impl _Document {
         validate_password_input(password.as_deref(), "password")?;
         validate_input_size(data, max_file_size)?;
         py.detach(|| {
-            let (meta, repaired) =
-                load_metadata_with_recovery(data, password.as_deref()).map_err(to_py_err)?;
+            let (meta, recovery) = recovery::load_metadata(data, password.as_deref())
+                .map_err(|error| recovery_load_err(None, &error, "decompressed_size"))?;
             let (metadata, page_count, version, encrypted) = pdf_metadata_to_tuple(meta)?;
-            Ok((metadata, page_count, version, encrypted, repaired))
+            Ok((
+                metadata,
+                page_count,
+                version,
+                encrypted,
+                recovery.map(XrefRecovery::warning),
+            ))
         })
     }
 
-    /// Return whether opening repaired an incorrect final classic startxref.
+    /// Return whether opening recovered damaged cross-reference data.
     fn is_repaired(&self) -> bool {
         self.is_repaired
     }

@@ -74,7 +74,7 @@ open은 호환성을 유지하고 이page-tree 검사를 첫page-indexing 작업
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable` 중
+`decompression_unverifiable`, `recovery_scan_size` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을materialize하기 전에
@@ -103,12 +103,24 @@ materialize할 수 있는block, line, span, word 수도 제한합니다. 같은p
 table 해석은 하나의 누적admission을 공유하며 거부된page는budget을 소비하지 않습니다.
 호환성을 위한 기본값은`None`이고`DocumentLimits.web()`은65,536입니다.
 
-관대한 열기는 한 가지 제한된 복구만 수행합니다. 같은 마지막 revision에 온전한
-classic xref table이 있고 원래 제한 아래에서 전체 parse가 성공할 때만 잘못된 마지막
-`startxref`를 바꿉니다. object header 검색, xref stream 복구, 이전 revision으로의
-rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
-`doc.is_repaired`（metadata probe의`repaired`）가`True`가 되며, 저장하면 xref data를
-정규화합니다.
+관대한 열기는 lopdf의 cross-reference 복구를 사용합니다. `startxref`, `/Prev`,
+`/XRefStm` offset이 64 byte 이내로 어긋나면 근처의`xref` keyword로 옮깁니다. 표준
+해석이 여전히 실패하면 lopdf는 줄 시작의 object header와`/Root`가 존재하는 가장
+최근의 classic `trailer`로 table을 재구성합니다. 이후 revision의 object가 우선하지만
+손상된 영역의 object는 누락될 수 있습니다. classic trailer가 없는 손상된 xref stream
+파일은 거부됩니다. 어느 복구든`PylopdfWarning`이 발생하고
+`doc.is_repaired`（metadata probe의`repaired`）가`True`가 되며, 렌더링과 추출은 저장
+시 기록되는 복구된 object graph를 사용하고 저장하면 xref data를 정규화합니다. 복구된
+입력을 받아들일 수 없는 호출자는`is_repaired`인 문서를 거부할 수 있습니다. 19 byte
+xref entry나 모호하지 않은 object 경계에서 보정한 stream `/Length`처럼 선언된 구조를
+유지하는 관대한 처리는 보고하지 않습니다. 복구된 문서에도`DocumentLimits`가 그대로
+적용됩니다.
+
+lopdf의 재구성은 뒤에`endstream`이 없는`stream` keyword마다 입력의 나머지를 다시
+검색합니다. pylopdf는 관대한 열기와 metadata probe 전에 이 작업량을 선형 시간으로
+추정하고, 입력 1 byte당 64 byte에 64 MiB를 더한 값을 넘는 입력을
+`recovery_scan_size`로 거부하여 악의적인 입력이 복구를 이차 시간으로 만들지 못하게
+합니다. 실제 손상 파일에는 그 위치에 잘린 stream이 많아야 하나 있습니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
 - `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG

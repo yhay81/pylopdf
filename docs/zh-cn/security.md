@@ -70,7 +70,7 @@ page-indexing操作。
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
 `font_input_size`、`text_input_size`、`text_line_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
-`stream_filter_count`、`decompression_unverifiable`之一；
+`stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。pylopdf自有的有界lopdf解码路径还会在materialize filter列表前拒绝
 超过16层的`/Filter` chain。
@@ -95,10 +95,20 @@ gap与换行的总数不会超过glyph数。batch最多接受4,096个page entry�
 block、line、span和word数量。同一页的文本与表格解释共享一次累计admission，被拒绝
 的页面不消耗预算。为保持兼容，默认值为`None`；`DocumentLimits.web()`使用65,536。
 
-宽松打开只执行一种受限修复：仅当同一最终revision中存在完整classic xref table，
-并且在原有上限下完整解析成功时，才替换错误的最终`startxref`。它不会扫描object
-header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarning`，令
-`doc.is_repaired`（metadata probe中的`repaired`）为`True`；保存会规范化xref数据。
+宽松打开使用lopdf的cross-reference恢复。`startxref`、`/Prev`或`/XRefStm`的offset
+偏差在64 byte以内时，会移到附近的`xref`关键字。标准解析仍失败时，lopdf根据行首的
+object header和`/Root`存在的最新classic `trailer`重建table；后续revision的object
+优先，但损坏区域中的object可能缺失。没有classic trailer的损坏xref stream文件会被
+拒绝。任一恢复都会发出`PylopdfWarning`，令`doc.is_repaired`（metadata probe中的
+`repaired`）为`True`；渲染与提取使用保存时写出的恢复后object graph，保存会规范化
+xref数据。不能接受恢复输入的调用方可以拒绝`is_repaired`的文档。19 byte的xref
+entry、在无歧义object边界修正的stream `/Length`等保留声明结构的宽松处理不会报告。
+`DocumentLimits`同样适用于恢复后的文档。
+
+lopdf的重建会在每个后面没有`endstream`的`stream`关键字之后重新扫描剩余输入。
+pylopdf在每次宽松打开和metadata probe之前以线性时间估算该工作量，超过每个输入
+byte 64 byte再加64 MiB时以`recovery_scan_size`拒绝，防止恶意输入使恢复变为二次
+复杂度。真实损坏文件在该位置最多只有一个被截断的stream。
 
 - 每页渲染上限为6400万像素。
 - `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG
