@@ -38,6 +38,7 @@ use crate::prune::prune_unreachable_objects;
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
+use crate::unallocated::null_unallocated_references;
 use indexed::IndexedDocument;
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -7828,13 +7829,14 @@ impl _Document {
         };
         py.detach(|| {
             let data = read_input(path, limits.max_file_size)?;
-            let (doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
+            let (mut doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
                 recovery_load_err(
                     Some(&format!("failed to load {path}")),
                     &error,
                     decoder_limit_code,
                 )
             })?;
+            null_unallocated_references(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7927,8 +7929,9 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            let (doc, recovery) = recovery::load_document(data, options)
+            let (mut doc, recovery) = recovery::load_document(data, options)
                 .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
+            null_unallocated_references(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {

@@ -253,3 +253,56 @@ def test_cleanup_refuses_names_container_aliasing_a_page(operation: Literal["del
     assert doc.tobytes() == before
     assert doc.page_count == 2
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)
+
+
+@pytest.mark.parametrize("operation", ["delete", "select"])
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        "/Outlines null",
+        "/Outlines 7 0 R",
+        "/Outlines 90 0 R",
+        "/Names null",
+        "/Names << /Dests null >>",
+        "/Names << /Dests 90 0 R >>",
+    ],
+    ids=[
+        "null-outlines",
+        "indirect-null-outlines",
+        "unallocated-outlines",
+        "null-names",
+        "null-dests",
+        "unallocated-dests",
+    ],
+)
+def test_cleanup_reads_null_navigation_roots_as_absent(operation: Literal["delete", "select"], catalog: str) -> None:
+    """A null value, an indirect null, and an unallocated reference omit the entry.
+
+    ISO 32000-2 §7.3.7 and §7.3.10 read all three as an absent key. Cleanup
+    skipped a reference to a missing object but refused a null value, which
+    loading now also produces for references above every object.
+    """
+    doc = pylopdf.Document(
+        stream=build_raw_pdf(
+            {
+                1: f"<< /Type /Catalog /Pages 2 0 R {catalog} >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] "
+                "/Resources << /Font << /F1 5 0 R >> >> >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R /Contents 8 0 R >>",
+                5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                6: _stream("Retained page"),
+                7: "null",
+                8: _stream(_EXCLUDED_TEXT),
+            }
+        )
+    )
+    if operation == "delete":
+        doc.delete_page(1)
+    else:
+        doc.select([0])
+    saved = doc.tobytes(garbage=True)
+    assert _EXCLUDED_TEXT.encode() not in saved
+    for current in (doc, pylopdf.Document(stream=saved)):
+        assert current.page_count == 1
+        assert current.get_page_text(0).split() == ["Retained", "page"]
