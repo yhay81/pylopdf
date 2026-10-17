@@ -175,6 +175,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page tree and keep the index, so rotating every page fell from 45.9 s to
   0.013 s. Other edits drop it and the next access rebuilds it, a malformed
   page tree still raises on every access, and results are unchanged.
+- Repeated raster rendering of one document reuses the fonts, color spaces,
+  and glyph outlines hayro parsed in earlier `Document.render_page`,
+  `Page.get_pixmap`, `Page.render`, and serial `render_pages` calls on the
+  thread that opened it. Output stays pixel-identical. Interleaved A/B runs on
+  GitHub-hosted Linux runners measured 27-page `get_pixmap` loops over the
+  Type 1 `usrguide.pdf` 22–28% faster at 1x and 11–15% faster at 2x, a
+  110-page `bill-hr815.pdf` loop at 0.5x 4–7% faster, and re-rendering each
+  corpus first page 3–5% faster in total; freshly opened documents rendered
+  within 1.5%. The retained cache added at most 3 MiB of peak or retained
+  memory across all five targets. Each thread retains at most one cache,
+  covering at most 64 distinct pages between calls. Edits, fallback-font
+  changes, `close()`, and dropping the document release it on that thread.
+  Calls from other threads, parallel `render_pages` workers, SVG output, and
+  text extraction keep call-scoped caches.
 
 ## [0.14.0] - 2026-10-13
 

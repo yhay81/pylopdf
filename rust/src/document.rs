@@ -2960,8 +2960,7 @@ fn rendered_batch_png(
     Ok(output.finish())
 }
 
-struct BatchRenderer<'pdf, 'shared> {
-    pdf: &'pdf Pdf,
+struct BatchRenderer<'shared> {
     interpreter_settings: &'shared InterpreterSettings,
     scale: f32,
     background: Option<(u8, u8, u8, u8)>,
@@ -2969,11 +2968,16 @@ struct BatchRenderer<'pdf, 'shared> {
     output_bytes: &'shared AtomicUsize,
 }
 
-impl<'pdf> BatchRenderer<'pdf, '_> {
+impl BatchRenderer<'_> {
     /// Render and encode one page through the shared output budget.
-    fn render(&self, cache: &RenderCache<'pdf>, page_number: u32) -> PyResult<Vec<u8>> {
+    fn render<'a>(
+        &self,
+        pdf: &'a Pdf,
+        cache: &RenderCache<'a>,
+        page_number: u32,
+    ) -> PyResult<Vec<u8>> {
         let pixmap = render_pdf_page(
-            self.pdf,
+            pdf,
             cache,
             self.interpreter_settings,
             page_number,
@@ -2987,9 +2991,18 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
         }
     }
 
-    /// Render one ordered page batch with one caller-local hayro cache per
-    /// bounded chunk, so whole-document batches never retain every resource.
-    fn render_serial(&self, page_numbers: &[u32]) -> PyResult<Vec<Vec<u8>>> {
+    /// Render one ordered page batch with one hayro cache per bounded chunk,
+    /// so whole-document batches never retain every resource.
+    ///
+    /// Each chunk asks the document for its cache: on the creating thread the
+    /// first chunk reuses the retained cache, and a chunk beyond the retained
+    /// page bound leaves the next chunk a fresh one.
+    fn render_serial(
+        &self,
+        pdf: &Arc<Pdf>,
+        caches: &crate::render_cache::DocumentRenderCache,
+        page_numbers: &[u32],
+    ) -> PyResult<Vec<Vec<u8>>> {
         let mut rendered = Vec::new();
         rendered
             .try_reserve_exact(page_numbers.len())
@@ -2997,10 +3010,12 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
                 PdfError::new_err(format!("failed to allocate serial render results: {error}"))
             })?;
         for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
-            let cache = RenderCache::new();
-            for &page_number in chunk {
-                rendered.push(self.render(&cache, page_number)?);
-            }
+            caches.with_cache(pdf, chunk, |pdf, cache| {
+                for &page_number in chunk {
+                    rendered.push(self.render(pdf, cache, page_number)?);
+                }
+                Ok::<_, PyErr>(())
+            })?;
         }
         Ok(rendered)
     }
@@ -4837,7 +4852,10 @@ pub struct _Document {
     /// CJK fallback configuration for rendering.
     fallback_fonts: FallbackFonts,
     /// Parsed hayro snapshot of current edit state, rebuilt after invalidation.
-    hayro_pdf: Option<Pdf>,
+    ///
+    /// Shared so the creating thread's retained render cache can own the
+    /// snapshot it borrows without a self-reference in this object.
+    hayro_pdf: Option<Arc<Pdf>>,
     /// Original unencrypted input, consumed by the first hayro parse.
     ///
     /// This avoids a potentially expensive lopdf serialization before the
@@ -4873,6 +4891,8 @@ pub struct _Document {
     interpreted_glyph_total: usize,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
+    /// Render cache generation retained across calls on the creating thread.
+    render_cache: crate::render_cache::DocumentRenderCache,
     /// Whether lenient loading recovered damaged cross-reference data.
     is_repaired: bool,
     /// Hayro warnings from the latest render/extraction, written by the
@@ -4929,6 +4949,7 @@ impl _Document {
             interpreted_text_total: 0,
             interpreted_glyph_total: 0,
             isolated_content_pages: HashSet::new(),
+            render_cache: crate::render_cache::DocumentRenderCache::new(),
             is_repaired: recovery.is_some(),
             pending_warnings: Arc::new(Mutex::new(pending)),
         }
@@ -5080,8 +5101,13 @@ impl _Document {
         self.invalidate_interpreted_pages();
     }
 
-    /// Drop derived text/table pages while retaining the hayro snapshot.
+    /// Drop derived text/table pages and render caches while retaining the
+    /// hayro snapshot.
+    ///
+    /// Fallback-font changes call this directly because cached hayro fonts
+    /// depend on the font resolver as well as the snapshot.
     fn invalidate_interpreted_pages(&mut self) {
+        self.render_cache.reset();
         self.text_pages.clear();
         self.text_page_order.clear();
         self.table_pages.clear();
@@ -6382,7 +6408,7 @@ impl _Document {
     ///
     /// Editing methods invalidate the cache, preserving the invariant that
     /// rendered state always reflects edits. Consecutive renders rebuild once.
-    fn hayro_view(&mut self) -> PyResult<&Pdf> {
+    fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
             let expected_pages = self.doc.page_count()?;
             let state_appearances = state_appearance_ids(&self.doc)?;
@@ -6450,7 +6476,7 @@ impl _Document {
                     })?
                 }
             };
-            self.hayro_pdf = Some(pdf);
+            self.hayro_pdf = Some(Arc::new(pdf));
         }
         Ok(self
             .hayro_pdf
@@ -6715,17 +6741,23 @@ impl _Document {
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let pdf = self.hayro_view()?;
-            let cache = RenderCache::new();
-            render_pdf_page(
-                pdf,
-                &cache,
-                &interpreter_settings,
-                page_number,
-                scale,
-                background,
-            )
-            .map_err(PdfError::new_err)
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .as_ref()
+                .expect("hayro view was built immediately before");
+            self.render_cache
+                .with_cache(pdf, &[page_number], |pdf, cache| {
+                    render_pdf_page(
+                        pdf,
+                        cache,
+                        &interpreter_settings,
+                        page_number,
+                        scale,
+                        background,
+                    )
+                })
+                .map_err(PdfError::new_err)
         })
     }
 
@@ -8812,7 +8844,11 @@ impl _Document {
         self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let pdf = self.hayro_view()?;
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .as_ref()
+                .expect("hayro view was built immediately before");
             let max_pixels = page_numbers
                 .iter()
                 .try_fold(0u64, |maximum, &page_number| {
@@ -8821,17 +8857,19 @@ impl _Document {
                 .map_err(PdfError::new_err)?;
             let output_bytes = AtomicUsize::new(0);
             let renderer = BatchRenderer {
-                pdf,
                 interpreter_settings: &interpreter_settings,
                 scale,
                 background,
                 max_output_size,
                 output_bytes: &output_bytes,
             };
+            // A serial batch starts from the document's retained cache, so
+            // fonts parsed by earlier single-page or batch calls are reused.
+            let render_serial = || renderer.render_serial(pdf, &self.render_cache, &page_numbers);
             #[cfg(target_os = "emscripten")]
             let rendered = {
                 let _ = max_pixels;
-                renderer.render_serial(&page_numbers)
+                render_serial()
             };
             #[cfg(not(target_os = "emscripten"))]
             let rendered: PyResult<Vec<Vec<u8>>> = {
@@ -8842,7 +8880,7 @@ impl _Document {
                         .unwrap_or(usize::MAX);
                 let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
                 if worker_count == 1 {
-                    renderer.render_serial(&page_numbers)
+                    render_serial()
                 } else {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(worker_count)
@@ -8877,7 +8915,8 @@ impl _Document {
                                             "failed to grow worker render results: {error}"
                                         ))
                                     })?;
-                                    rendered.push((index, renderer.render(&cache, page_number)?));
+                                    rendered
+                                        .push((index, renderer.render(pdf, &cache, page_number)?));
                                 }
                                 Ok::<_, PyErr>(rendered)
                             })
@@ -8945,6 +8984,14 @@ impl _Document {
             height,
             data: Arc::new(data),
         })
+    }
+
+    /// Release the render cache retained for this document on the calling thread.
+    ///
+    /// `Document.close` calls this so a closed document does not keep parsed
+    /// fonts and glyph outlines alive until it is garbage collected.
+    fn release_render_cache(&mut self) {
+        self.render_cache.reset();
     }
 
     /// Drain hayro warning messages accumulated by the latest operation.

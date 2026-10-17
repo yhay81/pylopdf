@@ -54,6 +54,18 @@ png_pages = document.render_pages(scale=2, workers=4)
 order and duplicates, and caps estimated concurrent working memory at roughly
 512 MB.
 
+## Repeated rendering { #repeated-rendering }
+
+Repeated `render_page()`, `Page.get_pixmap()`, `Page.render()`, and serial
+`render_pages()` calls on the thread that opened a document reuse fonts, color
+spaces, and glyph outlines parsed by earlier calls, with output identical to a
+freshly opened document. Each thread retains at most one such cache, covering
+at most 64 distinct pages between calls. Editing the document, changing its
+fallback fonts, or closing it invalidates the cache; on the opening thread this
+frees it immediately, as does dropping the document. A cache invalidated from
+another thread is freed when its thread renders again or exits. Calls from
+other threads and parallel `render_pages()` workers use call-scoped caches.
+
 ## Pixmap buffers { #pixmap-buffers }
 
 The free-threaded wheel exposes the immutable RGBA8 storage through a read-only,

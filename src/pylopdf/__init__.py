@@ -4069,6 +4069,7 @@ class Document:
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
         self._closed = True
+        self._doc.release_render_cache()
 
     def _ensure_not_closed(self) -> None:
         """Reject operations on a closed document."""
