@@ -966,31 +966,30 @@ rather than waiting automatically for v1.x.
       order, search, words, image bboxes, and OCR layers now use display
       coordinates on rotated pages and correctly handle nonzero CropBox origins.
 - [x] Improve rendering speed (2026-07-23). Profiling found PNG encoding, not
-      rasterization, responsible for up to 85%; png's default
-      Balanced+Adaptive managed about 11 MB/s on photos. Switching to
-      Fast/fdeflate and releasing the GIL made pylopdf faster than pymupdf on all
-      seven corpus renders, including `wdl6812` from 278 to 43 ms. Per-call
-      `RenderCache` reuse now improves serial and bounded parallel batches
-      without unsafe self-references or cross-thread cache sharing.
-      Cross-call reuse followed on 2026-10-18 after interleaved 8-round A/B
-      runs on all five hosted targets. hayro 0.7 and 0.8 caches borrow the
-      snapshot and use `Rc`, so a per-thread slot owns the snapshot `Arc` and
-      its cache through `self_cell`; only the document's creating thread uses
-      it, with one cache per thread and at most 64 retained pages. Linux
-      runners measured fresh-document renders within 1.5%, first-page
-      re-renders 3-5% faster in corpus total (`usrguide` 20%, `mhlw-doc`
-      17-18%), and 27-page `usrguide` `get_pixmap` loops 23-27% faster at 1x
-      and 12-15% at 2x. Peak and retained memory grew by at most 2.5 MiB on
-      every target, and output was pixel-identical. Type 1 font parsing was
-      about 36% of a cold 1x `usrguide` render. The cache does not close MuPDF's 2-3x warm-raster lead, which
-      comes from rasterization plus MuPDF's glyph and image caches rather than
-      font parsing. A dedicated render thread per document was rejected: it
-      frees the cache promptly but costs one OS thread per document, adds fork
-      hazards, and cannot run on PyEmscripten. Thread-safe hayro caches would
-      allow a document-owned cache, and faster Type 1 parsing upstream would
-      also speed cold renders. Other candidates are zlib-rs for high
-      compression and upstream hayro stencil-mask and `num_threads`
-      improvements.
+      rasterization, responsible for up to 85%; png's default Balanced+Adaptive
+      managed about 11 MB/s on photos. Switching to Fast/fdeflate and releasing
+      the GIL made pylopdf faster than pymupdf on all seven corpus renders,
+      including `wdl6812` from 278 to 43 ms. Per-call `RenderCache` reuse now
+      improves serial and bounded parallel batches without unsafe
+      self-references or cross-thread cache sharing. Cross-call reuse followed
+      on 2026-10-18 after interleaved 8-round A/B runs on all five hosted
+      targets. hayro 0.7 and 0.8 caches borrow the snapshot and use `Rc`, so a
+      per-thread slot owns the snapshot `Arc` and its cache through `self_cell`;
+      only the document's creating thread uses it, with one cache per thread and
+      at most 64 retained pages. Linux runners measured fresh-document renders
+      within 1.5%, first-page re-renders 3-5% faster in corpus total (`usrguide`
+      20%, `mhlw-doc` 17-18%), and 27-page `usrguide` `get_pixmap` loops 23-27%
+      faster at 1x and 12-15% at 2x. Peak and retained memory grew by at most
+      2.5 MiB on every target, and output was pixel-identical. Type 1 font
+      parsing was about 36% of a cold 1x `usrguide` render. The cache does not
+      close MuPDF's 2-3x warm-raster lead, which comes from rasterization plus
+      MuPDF's glyph and image caches rather than font parsing. A dedicated
+      render thread per document was rejected: it frees the cache promptly but
+      costs one OS thread per document, adds fork hazards, and cannot run on
+      PyEmscripten. Thread-safe hayro caches would allow a document-owned cache,
+      and faster Type 1 parsing upstream would also speed cold renders. Other
+      candidates are zlib-rs for high compression and upstream hayro
+      stencil-mask and `num_threads` improvements.
 - [x] Add font names and pymupdf-compatible flags to extraction spans from
       embedded font weight/italic metadata. `to_markdown` now emits emphasis.
       Standard 14 Type 1 fonts still produce flags 0 because hayro exposes no
