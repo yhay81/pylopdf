@@ -15,6 +15,7 @@ mod ocr_engine;
 mod page_cleanup;
 mod pixmap;
 mod prune;
+mod renumber;
 mod text_replace;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use ocr_engine::{_OcrEngine, OcrError};

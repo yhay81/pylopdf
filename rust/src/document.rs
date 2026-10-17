@@ -35,6 +35,7 @@ use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
 use crate::prune::prune_unreachable_objects;
+use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -2669,10 +2670,11 @@ fn prepare_page_form_import(
     let starting_id = target_max_id
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-    source.renumber_objects_with(starting_id);
-    let source_pages = collect_page_ids(&source, None)?;
-    let source_id = page_id_from_index(&source_pages, page_number)
-        .map_err(|_| PdfError::new_err(format!("source page {page_number} does not exist")))?;
+    let missing_page = |_| PdfError::new_err(format!("source page {page_number} does not exist"));
+    let mut source_pages = collect_page_ids(&source, None)?;
+    page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
+    renumber_objects(&mut source, starting_id, &mut source_pages)?;
+    let source_id = page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
     let source_dict = resolve_inherited_page_dict(&source, source_id)?;
     let source_crop = resolve_box(&source, &source_dict, b"CropBox")
         .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
@@ -6786,10 +6788,12 @@ impl _Document {
     /// Import selected one-based pages from `other` in order into self's object
     /// space and return their ObjectIds; the caller connects root Kids.
     ///
-    /// Materialize inherited page attributes and repoint Parent to root Pages.
+    /// `other_pages` is `other`'s page-tree order. Materialize inherited page
+    /// attributes and repoint Parent to root Pages.
     fn transplant_pages(
         &mut self,
         other: &Self,
+        mut other_pages: Vec<ObjectId>,
         page_numbers: &[u32],
         pages_id: ObjectId,
     ) -> PyResult<Vec<ObjectId>> {
@@ -6799,10 +6803,9 @@ impl _Document {
             .checked_add(1)
             .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
         let mut other_doc = other.doc.clone();
-        other_doc.renumber_objects_with(starting_id);
+        renumber_objects(&mut other_doc, starting_id, &mut other_pages)?;
         let new_max_id = other_doc.max_id;
 
-        let other_pages = collect_page_ids(&other_doc, None)?;
         let mut ordered_ids = Vec::new();
         ordered_ids
             .try_reserve_exact(page_numbers.len())
@@ -8595,7 +8598,7 @@ impl _Document {
         py.detach(|| {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
-            let new_ids = self.transplant_pages(other, &page_numbers, pages_id)?;
+            let new_ids = self.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
             self.invalidate_hayro_pdf();
             let order = Self::spliced_page_order(existing_pages, new_ids, position)?;
             self.rebuild_page_tree(pages_id, order)?;
