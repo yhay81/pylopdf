@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers
+  cross-reference damage that previously made files unopenable: lopdf moves a
+  `startxref`, `/Prev`, or `/XRefStm` offset that misses by up to 64 bytes to
+  the nearby `xref` keyword, and rebuilds a damaged table from object headers
+  and the newest classic trailer. Over 14 corpus files with 8 deterministic
+  damage types, damaged inputs that open with a usable page tree rose from 33
+  to 57 of 112. Damaged xref-stream files and truncated files without a
+  classic trailer are still rejected.
+- `Document.is_repaired`, `peek_metadata()["repaired"]`, and `PylopdfWarning`
+  report every lopdf cross-reference recovery, with distinct messages for a
+  corrected offset and a rebuilt table. lopdf's other lenient tolerances
+  (19-byte xref entries, stream `/Length` values corrected at an unambiguous
+  object boundary, and skipped unparseable objects) are not reported.
+- Recovered documents render and extract from lopdf's recovered object graph,
+  the graph that editing and saving use, instead of letting hayro recover the
+  damaged bytes independently. hayro alone rolled a damaged two-revision corpus
+  file back to its first revision and lost its OCR text layer. Objects that
+  lopdf cannot parse are now absent from such renders, as they already were
+  from saved output.
+- Remove pylopdf's own classic-`startxref` repair, which lopdf 0.45
+  supersedes. Its scan was quadratic: a 160 KB input of repeated `xref`
+  keywords took about 6 seconds to reject.
+- lopdf 0.45 decodes `ASCIIHexDecode`, `RunLengthDecode`, and `BrotliDecode`
+  layers plus TIFF predictor 2 and sub-byte PNG predictors, so Form imports,
+  text replacement, attachment reads, and XMP reads accept them instead of
+  raising.
+- Neither native nor Emscripten builds enable a lopdf date backend; pylopdf
+  never used lopdf's date conversions. This removes chrono and its time-zone
+  dependencies from native builds.
+
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
   of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
@@ -53,6 +84,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
   to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
   builds), and an index past the last page was returned unchanged.
+- lopdf error messages again include their cause, such as the exceeded
+  decompression limit; lopdf 0.45 moved wrapped causes out of `Display`.
+- Saving a document whose cross-reference table was rebuilt no longer writes
+  the damaged input's `/Prev` offset into the new trailer.
+
+### Security
+- Opening and metadata probing refuse input whose lopdf cross-reference
+  reconstruction could scan more than 64 bytes per input byte plus 64 MiB,
+  with `LimitError.code == "recovery_scan_size"`. lopdf rescans the rest of
+  the input after every `stream` keyword without a later `endstream`; without
+  this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
+  damaged files carry at most one truncated stream in that position.
+  `DocumentLimits` continue to apply to recovered documents.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its

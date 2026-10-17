@@ -51,9 +51,9 @@ doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 일반적으로`pylopdf.peek_metadata(path)`는 PDF 문서 전체를 파싱하지 않고 메타데이터와
 페이지 수를 읽으므로 대규모 파일 모음을 조사할 때 유용합니다. `max_file_size=`를
 지정하면 parsing 전에 path 또는 byte input을 크기로 거부할 수 있고, 호환성을 위해
-기본값은 무제한입니다. 마지막 classic `startxref`를 제한적으로 복구하면`repaired`와
-`doc.is_repaired`가`True`이고 `PylopdfWarning`이 발생하며, 저장 시 xref data가
-정규화됩니다. 신뢰할 수 없는 파일에는
+기본값은 무제한입니다. 잘못된`startxref`나 재구성한 xref table 같은 cross-reference
+손상을 복구하면`repaired`와`doc.is_repaired`가`True`이고 `PylopdfWarning`이 발생하며,
+저장 시 xref data가 정규화됩니다. 신뢰할 수 없는 파일에는
 `limits=pylopdf.DocumentLimits.web()`을 지정해 파일, 구조, 압축 해제,
 rendering／extraction용 PDF snapshot과 해석된 텍스트를 제한하세요. 무거운 작업 전에
 `doc.complexity`를 확인할 수 있으며 제어된

@@ -16,6 +16,7 @@ use zune_jpeg::zune_core::bytestream::ZCursor;
 use zune_jpeg::zune_core::colorspace::ColorSpace;
 use zune_jpeg::zune_core::options::DecoderOptions;
 
+use crate::document::LopdfErrorChain;
 use crate::extract::ImageUsage;
 
 const MAX_IMAGE_PIXELS: u64 = 64_000_000;
@@ -287,7 +288,7 @@ fn decode_flate(candidate: &Candidate<'_>) -> Result<Vec<u8>, String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         stream
             .decompressed_content_with_limit(max_decoded_bytes)
-            .map_err(|error| format!("failed to decode Flate image: {error}"))
+            .map_err(|error| format!("failed to decode Flate image: {}", LopdfErrorChain(&error)))
     }));
     let pixels = result.map_err(|_| "Flate decoder panicked on malformed input".to_owned())??;
     let expected = sample_buffer_len(

@@ -22,7 +22,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `page_count` / `len(doc)` | 페이지 수 |
 | `limits` / `complexity` | 열 때의 불변 리소스 정책 / stream 디코딩 없는 저비용 구조 지표 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제（pymupdf 의미론） |
-| `is_repaired` | 열 때 마지막 classic `startxref` 오류를 복구했는지 여부. 저장하면 xref data를 정규화 |
+| `is_repaired` | 열 때 손상된 cross-reference data를 복구했는지 여부(offset 보정 또는 table 재구성). 저장하면 xref data를 정규화 |
 | `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
@@ -119,7 +119,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 
 | 이름 | 용도 |
 |---|---|
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 입력 크기를 선택적으로 제한하고password를127 byte로 제한하는 빠른 메타데이터·페이지 수 조회. `repaired`는 제한된 classic `startxref` 복구를 표시 |
+| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 입력 크기를 선택적으로 제한하고password를127 byte로 제한하는 빠른 메타데이터·페이지 수 조회. `repaired`는 cross-reference 복구를 표시 |
 | `Permissions` | 암호화 권한 플래그（IntFlag） |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |

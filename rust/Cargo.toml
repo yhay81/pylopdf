@@ -51,13 +51,16 @@ getrandom = "0.4.3"
 # Use the zlib-rs backend. Enabling any_zlib disables miniz_oxide's rust_backend,
 # so the whole tree uses zlib-rs even alongside lopdf's default features.
 flate2 = { version = "1", features = ["zlib-rs"] }
+# lopdf reports cross-reference recovery only through log records; capture them
+# per load so repaired documents stay visible. lopdf already links this crate.
+log = "0.4.33"
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 # Expose the already-linked rayon runtime for supported batch rendering.
 rayon = "1"
-# Exclude time/jiff: current time is incompatible with lopdf 0.44; chrono is
-# sufficient. Emscripten keeps PDF date strings opaque and must not link
-# chrono's browser-only js-sys clock.
-lopdf = { version = "0.44.0", default-features = false, features = ["chrono", "rayon"] }
+# pylopdf keeps PDF date strings opaque and calls no lopdf date conversion, so
+# neither target enables a date backend. lopdf's default chrono-clock feature
+# would also link the system time-zone stack (and a js-sys clock on Emscripten).
+lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
 # Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
 # ships independently through pylopdf[ocr], keeping the ONNX parser out of the
 # core wheel. Emscripten exposes an explicit unsupported stub instead of
@@ -66,7 +69,8 @@ rten = { version = "0.24.0", default-features = false, features = ["rten_format"
 rten-tensor = "0.24.0"
 
 [target.'cfg(target_os = "emscripten")'.dependencies]
-lopdf = { version = "0.44.0", default-features = false }
+# The global rayon pool cannot create workers in the browser runtime.
+lopdf = { version = "0.45.0", default-features = false }
 # PyO3 builds class descriptors with a HashMap while the extension is imported.
 # Rust's Emscripten RandomState requests entropy, which Cloudflare workerd denies
 # during module startup. hashbrown uses foldhash and keeps import side-effect-safe.

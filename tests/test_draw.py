@@ -406,7 +406,7 @@ def test_show_pdf_page_bounds_decompressed_source_content_before_target_mutation
 @pytest.mark.parametrize(
     ("filter_name", "payload", "decode_params"),
     [
-        pytest.param("RunLengthDecode", b"unsupported", "", id="unsupported"),
+        pytest.param("CCITTFaxDecode", b"unsupported", "", id="unsupported"),
         pytest.param(
             "FlateDecode",
             zlib.compress(b"invalid predicted row"),
@@ -433,6 +433,21 @@ def test_show_pdf_page_decodes_abbreviated_source_content_filter() -> None:
     target = _resource_shape_doc("<< >>")
     operators = b"q 1 0 0 rg 0 0 200 100 re f Q"
     source = _filtered_content_doc("Fl", zlib.compress(operators))
+
+    target[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
+    assert _pixel(target[0], 100, 50) == RED
+
+
+@pytest.mark.parametrize("filter_name", ["ASCIIHexDecode", "AHx", "RunLengthDecode", "RL"])
+def test_show_pdf_page_decodes_ascii_hex_and_run_length_source_content(filter_name: str) -> None:
+    """Form imports decode ASCIIHex and RunLength layers since lopdf 0.45."""
+    target = _resource_shape_doc("<< >>")
+    operators = b"q 1 0 0 rg 0 0 200 100 re f Q"
+    if filter_name in {"ASCIIHexDecode", "AHx"}:
+        payload = operators.hex().encode() + b">"
+    else:
+        payload = bytes([len(operators) - 1]) + operators + b"\x80"
+    source = _filtered_content_doc(filter_name, payload)
 
     target[0].show_pdf_page((0, 0, 200, 100), source, keep_proportion=False)
     assert _pixel(target[0], 100, 50) == RED

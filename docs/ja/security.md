@@ -86,7 +86,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
-`decompression_unverifiable`の
+`decompression_unverifiable`、`recovery_scan_size`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 pylopdfが所有する上限付きlopdf decode経路では、filter listをmaterializeする
@@ -116,12 +116,25 @@ materializeできるblock、line、span、wordの数も制限します。同じp
 table解釈は1回分の累積admissionを共有し、拒否されたpageはbudgetを消費しません。
 互換性のため既定値は`None`で、`DocumentLimits.web()`は65,536です。
 
-寛容な読み込みが修復するのは1つの限定ケースだけです。同じ最終revisionに完全な
-classic xref tableがあり、元の上限で全体parseが成功した場合に限り、誤った最終
-`startxref`を置き換えます。object headerの走査、xref streamの修復、以前のrevision
-への巻き戻しは行いません。修復時は`PylopdfWarning`が発生し、
-`doc.is_repaired`（metadata probeでは`repaired`）が`True`になります。保存すると
-xref dataを正規化します。
+寛容な読み込みはlopdfのcross-reference復旧を使います。`startxref`、`/Prev`、
+`/XRefStm`のoffsetが64 byte以内でずれている場合は、近くの`xref` keywordへ移動
+します。通常の解決にそれでも失敗すると、lopdfは行頭のobject headerと、`/Root`が
+存在する最新のclassic `trailer`からtableを再構築します。後のrevisionのobjectが
+優先されますが、破損範囲のobjectは失われることがあります。classic trailerのない
+破損したxref streamファイルは拒否されます。いずれの復旧でも`PylopdfWarning`が
+発生し、`doc.is_repaired`（metadata probeでは`repaired`）が`True`になります。
+描画と抽出は保存時に書き出す復旧後のobject graphを使い、保存するとxref dataを
+正規化します。復旧した入力を受け付けられない呼び出し側は、`is_repaired`の文書を
+拒否できます。19 byteのxref entryや、曖昧さのないobject境界で補正したstream
+`/Length`など、宣言された構造を保つ寛容な処理は報告しません。復旧した文書にも
+`DocumentLimits`はそのまま適用されます。
+
+lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入力の残りを
+再走査します。pylopdfは寛容な読み込みとmetadata probeの前にその作業量を線形時間で
+見積もり、入力1 byteあたり64 byteに64 MiBを加えた量を超える入力を
+`recovery_scan_size`で拒否します。これにより、敵対的な入力で復旧が二乗時間に
+なることを防ぎます。実際の破損ファイルでは、その位置にある途切れたstreamは
+多くても1つです。
 
 - レンダリングは1ページ64メガピクセルまでです。
 - `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded
