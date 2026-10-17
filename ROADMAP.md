@@ -909,6 +909,13 @@ rather than waiting automatically for v1.x.
       save time from 74 to 66 ms, or 13%, with only a 0.01% output-size increase.
       The earlier 3.3× result measured compression alone; GC and serialization
       dominate complete saves.
+- [x] Evaluate native link-time optimization (2026-10-17). On the five
+      GitHub-hosted release targets, thin LTO with one codegen unit shrank abi3
+      wheels by 0.2–11.3% and sped up extraction by 6–14% without a stable
+      regression above 5%. Fat LTO was slightly smaller and faster for
+      extraction but slowed Linux merges by 7–12% and Linux x86_64 PNG
+      encoding by 7–8%, so native wheels use thin LTO while PyEmscripten keeps
+      fat LTO.
 - [x] Do not expose `SaveOptions.compression_level` or `linearize` yet.
       In lopdf 0.44, linearize is a dead writer flag; `is_linearized` only
       detects existing files. `compression_level` affects only object streams

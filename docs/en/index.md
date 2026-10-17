@@ -35,7 +35,7 @@ hide:
 
       <ul class="living-proofs" aria-label="Project facts">
         <li>MIT licensed</li>
-        <li>5–6 MB wheels</li>
+        <li>6.7–7.8 MB wheels</li>
         <li>No mandatory Python dependencies</li>
         <li>Python 3.10–3.14</li>
       </ul>
@@ -105,8 +105,8 @@ hide:
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">5–6 MB</span>
-        <span class="living-evidence__label">Published v0.10 wheel range, suited to size-constrained environments such as AWS Lambda.</span>
+        <span class="living-evidence__value">6.7–7.8 MB</span>
+        <span class="living-evidence__label">Native wheel range with the thin-LTO release profile, suited to size-constrained environments such as AWS Lambda.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">None</span>

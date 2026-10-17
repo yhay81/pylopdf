@@ -78,3 +78,14 @@ pyo3 = { version = "0.29.0", features = ["hashbrown"] }
 
 [build-dependencies]
 pyo3-build-config = "0.29.0"
+
+[profile.release]
+# Optimize across lopdf, hayro, krilla, and pylopdf for native wheels and sdist
+# builds. Thin LTO kept most of fat LTO's size and extraction gains without its
+# measured Linux merge and Linux x86_64 PNG-encoding regressions; see
+# CHANGELOG.md.
+# tools/build_pyodide.sh pins fat LTO separately for the PyEmscripten wheel.
+lto = "thin"
+codegen-units = 1
+# PyO3 converts Rust panics into Python exceptions only when they unwind.
+panic = "unwind"

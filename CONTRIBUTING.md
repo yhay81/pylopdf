@@ -38,6 +38,15 @@ cargo fmt --manifest-path rust/Cargo.toml --check
 cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```
 
+`uv sync` builds the extension with the same release profile as published
+wheels: thin link-time optimization with one codegen unit. On a 12-core
+development machine, rebuilding after a Rust source edit took about 35 seconds
+instead of 10 seconds with Cargo's default release profile. For faster local
+Rust iteration, set `CARGO_PROFILE_RELEASE_LTO=false` and
+`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` before `uv sync`. uv treats both
+variables as rebuild keys, so unsetting them rebuilds the published profile; do
+that before measuring performance or wheel size.
+
 Rust behavior is tested through the public Python API in `tests/`; do not add
 Rust unit tests. Add focused synthetic fixtures to regular test modules.
 Real-world PDF regressions belong in `tests/test_real_world.py`. Record the

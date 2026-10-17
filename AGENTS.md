@@ -26,11 +26,17 @@ overview.
 ## Development commands
 
 - `uv sync` — build the extension and install dependencies. Rust changes are
-  included in uv's rebuild cache keys.
+  included in uv's rebuild cache keys. maturin builds the release profile, so
+  local builds use the published thin-LTO profile. For faster Rust iteration
+  only, set `CARGO_PROFILE_RELEASE_LTO=false` and
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`; both are uv cache keys, so
+  unsetting them rebuilds the published profile before measurement.
 - `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests`
 - `uv sync --group bench && uv run python bench/run.py` — run reproducible
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
-  losses together.
+  losses together. Rendering reports end-to-end PNG time plus cold and warm
+  Pixmap rasterization and PNG encoding time and size for both pylopdf and
+  pymupdf, so encoder settings cannot hide rasterization losses.
 - `py -3.14t bench/free_threaded.py` — measure independent-document extraction
   without the GIL. Results are written separately to
   `bench/results/free-threaded-latest.md` so regular benchmark runs cannot
@@ -802,7 +808,24 @@ overview.
   Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
   3.14t breaks maturin's cross-compilation config by raising the implied
   minimum interpreter version. Add size-increasing dependencies cautiously;
-  published v0.10.0 wheels are about 5.0–5.8 MiB depending on platform and ABI.
+  thin-LTO abi3 wheels built from v0.14.0 sources are 6.4–7.4 MiB depending on
+  platform, versus 6.8–7.9 MiB for the published v0.14.0 wheels.
+- Native wheels and sdist builds share `rust/Cargo.toml`'s release profile:
+  thin LTO, one codegen unit, and `panic = "unwind"`, which PyO3 needs to turn
+  Rust panics into Python exceptions. The 2026-10-17 comparison against Cargo's
+  default release profile built all five GitHub-hosted release targets with
+  release.yml's two Cargo jobs: abi3 wheels shrank 0.2–11.3% and installed
+  extensions 3.7–18.3%. Interleaved pylopdf workloads from `bench/run.py` on
+  the Linux and Windows runners, plus a quiet local macOS arm64 machine, were
+  faster for extraction (6–14%), Markdown (4–9%), merge (3–7%), and
+  rasterization (2–4%); PNG encoding and `render_pages` stayed within 5%.
+  macOS runners were too noisy for single-digit comparisons. Fat LTO saved
+  another 0.5–2.3 percentage points of wheel size and 1.5–4 points of
+  extraction time, but slowed the merge benchmark by 7–12% on both Linux
+  targets and PNG encoding by 7–8% on Linux x86_64. Repeat that comparison
+  before switching profiles. Clean compile steps took 3m29s–10m18s per target,
+  versus 2m33s–10m25s with the default profile. On a 12-core development
+  machine, an incremental extension rebuild took about 35 seconds instead of 10.
 - Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
   exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
   pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
@@ -812,9 +835,9 @@ overview.
   `cp310-abi3-pyemscripten_2025_0_wasm32` publication tag. Only the latter may
   remain in the release artifact directory because PyPI no longer accepts the
   legacy tag. Rust v0 symbol mangling avoids invalid legacy Emscripten exports.
-  The PyEmscripten-only release profile uses fat LTO and one codegen unit for
-  the single extension module; native maturin builds retain Cargo's default
-  release profile.
+  The PyEmscripten build pins fat LTO and one codegen unit for the single
+  extension module through `tools/build_pyodide.sh` environment overrides,
+  independent of the native thin-LTO release profile.
   The wheel must import `env.__cpp_exception` and must not require a
   wasm-bindgen shim. CI and release builds must also pass
   `tools/smoke_cloudflare.py`, which pins workers-py 1.15.0 and Wrangler

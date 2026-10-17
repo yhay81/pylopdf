@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Neither native nor Emscripten builds enable a lopdf date backend; pylopdf
   never used lopdf's date conversions. This removes chrono and its time-zone
   dependencies from native builds.
+- `bench/run.py` now splits first-page rendering into end-to-end time, cold
+  and warm Pixmap rasterization, and PNG encoding time and size for both
+  pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
+  time for the 12-page batch. The regenerated report and the benchmark pages in
+  all four languages show that pylopdf's end-to-end PNG lead comes from fast
+  fdeflate encoding, which also writes about 40% more bytes, while MuPDF
+  rasterizes most corpus pages faster. Its warm rasterization, which reuses an
+  open document's fonts and glyphs, was about 2–3 times faster on the published
+  run and on Linux and Windows CI runners.
+- uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
+  for faster Rust iteration cannot silently remain in later measurements.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
@@ -139,6 +151,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importing and stamping one page each from a 30,000-page source after a
   2,048-entry `set_toc()` fell from 7.7 s to 0.18 s. Allocation refusal
   raises `PdfError` before the target changes.
+- Native wheels and sdist builds now use thin LTO with one codegen unit and
+  keep `panic = "unwind"` for PyO3 panic conversion. Against Cargo's default
+  release profile on the five GitHub-hosted release targets, abi3 wheels
+  shrank by 0.2–11.3% to 6.42–7.44 MiB and installed extensions by 3.7–18.3%.
+  Interleaved `bench/run.py` workloads on the Linux and Windows runners and a
+  quiet local macOS arm64 machine sped up text extraction by 6–14%, Markdown
+  conversion by 4–9%, merging by 3–7%, and rasterization by 2–4%; PNG encoding
+  and `render_pages` stayed within 5%. Fat LTO was a further 0.5–2.3
+  percentage points smaller and 1.5–4 points faster for extraction, but slowed
+  merging by 7–12% on both Linux targets and PNG encoding by 7–8% on Linux
+  x86_64, so it was not adopted for native wheels. Release compile steps took
+  3m29s–10m18s versus 2m33s–10m25s before. The PyEmscripten wheel keeps its
+  separately pinned fat-LTO profile.
 
 ## [0.14.0] - 2026-10-13
 

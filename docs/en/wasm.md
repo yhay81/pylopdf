@@ -178,8 +178,8 @@ extension. The tested Worker bundle is 3.817 MiB compressed and 10.383 MiB
 uncompressed. It therefore exceeds Cloudflare Workers Free's 3 MB compressed
 limit but fits the paid-plan 10 MB compressed and shared 64 MB uncompressed
 limits. pylopdf supports the paid-plan deployment path and does not publish a
-separate reduced-feature distribution. The artifact uses fat LTO with one
-codegen unit only for PyEmscripten; native release profiles are unchanged.
+separate reduced-feature distribution. The artifact pins fat LTO with one
+codegen unit; native wheels use the thin-LTO release profile.
 
 In the Node/Pyodide harness, the first Form 1040 open and extraction took
 117.634 ms; five repeated runs had a 28.506 ms median. Wasm linear memory
