@@ -27,14 +27,14 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
-use crate::draw;
+use crate::draw::{self, ObjectSink};
 use crate::form;
 use crate::generate;
 use crate::image_compression;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
-use crate::prune::prune_unreachable_objects;
+use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
@@ -2499,7 +2499,7 @@ fn prepare_page_form_import(
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
     let missing_page = |_| PdfError::new_err(format!("source page {page_number} does not exist"));
-    let mut source_pages = collect_page_ids(&source, None)?;
+    let mut source_pages = collect_page_ids(&source, None, None)?;
     page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
     renumber_objects(&mut source, starting_id, &mut source_pages)?;
     let source_id = page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
@@ -2533,17 +2533,27 @@ fn prepare_page_form_import(
         form_dict.set("Group", group.clone());
     }
 
+    // Move only the source objects that the Form can reach. The page tree
+    // stays behind, so a reference into it dangles, and outlines,
+    // annotations, attachments, metadata, and the page's original content
+    // streams would be unreachable in the target. Pruning the complete
+    // target after the import found the same objects, but walked every
+    // target object for each placement.
+    let reachable = reachable_object_ids(
+        &source,
+        form_dict.iter().map(|(_, value)| value),
+        |object| !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page")),
+    )?;
     let new_max_id = source.max_id;
     let mut objects = Vec::new();
     objects
-        .try_reserve_exact(source.objects.len())
+        .try_reserve_exact(reachable.len())
         .map_err(|error| {
             PdfError::new_err(format!("failed to allocate Form import objects: {error}"))
         })?;
     for (id, object) in source.objects {
-        match object.type_name().unwrap_or(b"") {
-            b"Catalog" | b"Pages" | b"Page" => {}
-            _ => objects.push((id, object)),
+        if reachable.contains(&id) {
+            objects.push((id, object));
         }
     }
     Ok(FormImportPlan {
@@ -2555,15 +2565,30 @@ fn prepare_page_form_import(
     })
 }
 
+/// Destination of a prepared Form import.
+///
+/// The indexed document keeps its page index while the renumbered IDs are
+/// unused; a plain lopdf document inserts them directly.
+trait FormImportTarget: ObjectSink {
+    /// Insert renumbered objects at their IDs and set the highest object number.
+    fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32);
+}
+
+impl FormImportTarget for Document {
+    fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
+        for (id, object) in objects {
+            self.objects.insert(id, object);
+        }
+        self.max_id = max_id;
+    }
+}
+
 /// Commit a fully prepared Form import without further recoverable work.
 fn commit_page_form_import(
-    target: &mut Document,
+    target: &mut impl FormImportTarget,
     plan: FormImportPlan,
 ) -> (ObjectId, [f64; 4], i64) {
-    for (id, object) in plan.objects {
-        target.objects.insert(id, object);
-    }
-    target.max_id = plan.new_max_id;
+    target.insert_new_objects(plan.objects, plan.new_max_id);
     let form_id = target.add_object(plan.form);
     (form_id, plan.crop, plan.rotation)
 }
@@ -3748,7 +3773,66 @@ struct PageTreeFrame<'a> {
     depth: usize,
 }
 
-fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResult<&'a [Object]> {
+/// What a successful page-tree walk read besides page `/Type` entries.
+///
+/// The walk reads `/Root`, the catalog's `/Pages`, each node's `/Type` and
+/// `/Kids`, every object on a `/Kids` reference chain, and the object count,
+/// which bounds the traversed edges and only grows during edits that keep the
+/// page index. Those edits check their changes against these facts.
+#[derive(Default)]
+struct PageTreeFacts {
+    /// Objects on `/Kids` reference chains, including the arrays they reach.
+    kids_objects: HashSet<ObjectId>,
+    /// Absent objects named by a skipped `/Kids` entry or its reference chain.
+    ///
+    /// A new object at one of these IDs could turn the entry into a page.
+    missing_kids: HashSet<ObjectId>,
+}
+
+impl PageTreeFacts {
+    fn record_kids_object(&mut self, id: ObjectId) -> PyResult<()> {
+        self.kids_objects.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to grow page tree Kids index: {error}"))
+        })?;
+        self.kids_objects.insert(id);
+        Ok(())
+    }
+
+    /// Record the absent object that left a `/Kids` entry unresolved, if any.
+    ///
+    /// This fetches the entry and the references it leads through, as far as
+    /// lopdf's dereference fetches before its 128-reference limit fails. A
+    /// cycle or a final object that is not a dictionary names no absent
+    /// object, and no edit that keeps the index changes such a chain.
+    fn record_missing_kid(&mut self, doc: &Document, kid_id: ObjectId) -> PyResult<()> {
+        const LOPDF_DEREFERENCE_LIMIT: usize = 128;
+        let mut id = kid_id;
+        // The entry itself, then one fetch per reference including the one
+        // that exceeds the limit.
+        for _ in 0..=LOPDF_DEREFERENCE_LIMIT + 1 {
+            match doc.objects.get(&id) {
+                None => {
+                    self.missing_kids.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow page tree missing-object index: {error}"
+                        ))
+                    })?;
+                    self.missing_kids.insert(id);
+                    return Ok(());
+                }
+                Some(Object::Reference(next)) => id = *next,
+                Some(_) => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn resolve_page_tree_kids<'a>(
+    doc: &'a Document,
+    node: &'a Dictionary,
+    mut facts: Option<&mut PageTreeFacts>,
+) -> PyResult<&'a [Object]> {
     let mut current = node
         .get(b"Kids")
         .map_err(|_| PdfError::new_err("page tree node is missing Kids"))?;
@@ -3778,6 +3862,9 @@ fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResu
             )));
         }
         visited.push(*id);
+        if let Some(facts) = facts.as_deref_mut() {
+            facts.record_kids_object(*id)?;
+        }
         current = doc.objects.get(id).ok_or_else(|| {
             PdfError::new_err(format!(
                 "page tree Kids references missing object {} {}",
@@ -3787,9 +3874,11 @@ fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResu
     }
 }
 
+/// Visit pages in order, recording what the walk read into `facts` if given.
 fn walk_page_tree(
     doc: &Document,
     max_pages: Option<usize>,
+    mut facts: Option<&mut PageTreeFacts>,
     mut visitor: impl FnMut(u32, ObjectId) -> PyResult<()>,
 ) -> PyResult<usize> {
     let root_id = doc
@@ -3807,7 +3896,7 @@ fn walk_page_tree(
         ));
     }
 
-    let root_kids = resolve_page_tree_kids(doc, root)?;
+    let root_kids = resolve_page_tree_kids(doc, root, facts.as_deref_mut())?;
     let mut frames = Vec::new();
     frames.try_reserve_exact(1).map_err(|error| {
         PdfError::new_err(format!(
@@ -3853,6 +3942,9 @@ fn walk_page_tree(
             continue;
         };
         let Ok(dictionary) = doc.get_dictionary(kid_id) else {
+            if let Some(facts) = facts.as_deref_mut() {
+                facts.record_missing_kid(doc, kid_id)?;
+            }
             continue;
         };
         let Ok(type_name) = dictionary.get_type() else {
@@ -3896,7 +3988,7 @@ fn walk_page_tree(
                 "page tree exceeds the {MAX_PAGE_TREE_DEPTH}-level safety limit"
             )));
         }
-        let kids = resolve_page_tree_kids(doc, dictionary)?;
+        let kids = resolve_page_tree_kids(doc, dictionary, facts.as_deref_mut())?;
         frames.try_reserve(1).map_err(|error| {
             PdfError::new_err(format!("failed to grow page tree traversal stack: {error}"))
         })?;
@@ -3909,7 +4001,12 @@ fn walk_page_tree(
     Ok(page_count)
 }
 
-fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<ObjectId>> {
+/// Collect page IDs in order, recording what the walk read into `facts` if given.
+fn collect_page_ids(
+    doc: &Document,
+    max_pages: Option<usize>,
+    facts: Option<&mut PageTreeFacts>,
+) -> PyResult<Vec<ObjectId>> {
     let mut pages = Vec::new();
     if let Some(limit) = max_pages {
         pages
@@ -3918,7 +4015,7 @@ fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<Ob
                 PdfError::new_err(format!("failed to allocate bounded page index: {error}"))
             })?;
     }
-    walk_page_tree(doc, max_pages, |_, id| {
+    walk_page_tree(doc, max_pages, facts, |_, id| {
         if pages.len() == pages.capacity() {
             pages.try_reserve(1).map_err(|error| {
                 PdfError::new_err(format!("failed to grow page index: {error}"))
@@ -3953,24 +4050,29 @@ fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<Objec
 }
 
 /// The page index lives in its own module so that only `DerefMut`,
-/// `replace`, and `set_page_entry` can reach the wrapped document mutably.
+/// `replace`, and the page-tree-neutral edits below can reach the wrapped
+/// document mutably.
 mod indexed {
     use std::collections::HashMap;
     use std::ops::{Deref, DerefMut};
     use std::sync::OnceLock;
 
-    use lopdf::{Document, Object, ObjectId};
+    use lopdf::{Dictionary, Document, Object, ObjectId};
     use pyo3::PyResult;
 
-    use super::{PdfError, collect_page_ids, page_id_from_index, to_py_err};
+    use super::{
+        FormImportTarget, PageTreeFacts, PdfError, collect_page_ids, page_id_from_index, to_py_err,
+    };
+    use crate::draw::ObjectSink;
 
     /// Page entries that a page-tree walk never reads.
     ///
     /// The walk reads only `/Type` of a page object (and `/Pages` when a
     /// malformed file also uses the page as its catalog) besides the object
-    /// count, so replacing one of these entries keeps the indexed tree.
-    const UNWALKED_PAGE_ENTRIES: [&str; 6] = [
-        "Rotate", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox",
+    /// count, so replacing one of these entries keeps the indexed tree. None
+    /// is `/Annots`, so the annotation-array counts stay current as well.
+    const UNWALKED_PAGE_ENTRIES: [&str; 7] = [
+        "Rotate", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox", "Contents",
     ];
 
     /// Page object IDs in document order, derived from one page-tree walk.
@@ -3980,6 +4082,20 @@ mod indexed {
         /// One-based page number of each page object, built on the first
         /// reverse lookup.
         numbers: OnceLock<HashMap<ObjectId, u32>>,
+        /// What the walk read besides page `/Type` entries.
+        tree: PageTreeFacts,
+        /// Pages per indirect `/Annots` array, built on the first append to an
+        /// indirect array and kept current by annotation edits.
+        annotation_arrays: Option<AnnotationArrays>,
+    }
+
+    enum AnnotationArrays {
+        /// How many pages reference each indirect `/Annots` array object.
+        Counted(HashMap<ObjectId, usize>),
+        /// A page object is a reference to a dictionary that another page can
+        /// also reach, so an edit through one page can change what another
+        /// reads; annotation appends scan every page instead.
+        Aliased,
     }
 
     /// The editable lopdf document and the page index derived from it.
@@ -3992,9 +4108,23 @@ mod indexed {
     /// or leave behind, an index of a different page tree, even one built
     /// between two steps of a multi-step edit. A failed walk is never cached,
     /// so it raises again. This wrapper exists for that invariant, which is
-    /// why it implements `Deref` without being a smart pointer. Rotation and
-    /// page-box edits are the one exception, through `set_page_entry`, so
-    /// loops that rotate or crop every page stay linear.
+    /// why it implements `Deref` without being a smart pointer.
+    ///
+    /// Page-tree-neutral edits are the exception, so loops that rotate, crop,
+    /// draw on, or annotate every page stay linear. Each checks against the
+    /// facts the walk recorded that it cannot change the walk's result, and
+    /// drops the index when it cannot show that:
+    ///
+    /// - New objects keep it only at IDs that neither exist nor complete a
+    ///   skipped `/Kids` entry.
+    /// - A page replacement keeps it only for an indexed page whose `/Type`,
+    ///   `/Pages`, and indirect `/Annots` reference stay the same.
+    /// - Rotation, page-box, and `/Contents` entries are never walked.
+    /// - An in-place annotation-array edit keeps it unless the walk read that
+    ///   array as `/Kids`.
+    ///
+    /// None of these edits removes objects, so the object count that bounds
+    /// the walked edges only grows.
     pub(super) struct IndexedDocument {
         doc: Document,
         page_index: OnceLock<PageIndex>,
@@ -4018,12 +4148,15 @@ mod indexed {
             if let Some(index) = self.page_index.get() {
                 return Ok(index);
             }
-            let pages = collect_page_ids(&self.doc, None)?;
+            let mut tree = PageTreeFacts::default();
+            let pages = collect_page_ids(&self.doc, None, Some(&mut tree))?;
             // A concurrent reader of the same unchanged document may store an
             // equal index first; either one describes this page tree.
             Ok(self.page_index.get_or_init(|| PageIndex {
                 pages,
                 numbers: OnceLock::new(),
+                tree,
+                annotation_arrays: None,
             }))
         }
 
@@ -4062,10 +4195,26 @@ mod indexed {
             Ok(index.numbers.get_or_init(|| numbers))
         }
 
+        /// Whether `page_id` is an indexed page, or `None` when no index exists
+        /// or its reverse map cannot be allocated.
+        fn indexed_page(&self, page_id: ObjectId) -> Option<bool> {
+            self.page_index.get()?;
+            self.page_numbers()
+                .ok()
+                .map(|numbers| numbers.contains_key(&page_id))
+        }
+
+        /// Drop the index unless the edit about to happen keeps the walk's
+        /// result, as `keeps_walk` decides from the recorded facts.
+        fn keep_index_if(&mut self, keeps_walk: impl FnOnce(&PageIndex, &Document) -> bool) {
+            if let Some(index) = self.page_index.get()
+                && !keeps_walk(index, &self.doc)
+            {
+                self.page_index.take();
+            }
+        }
+
         /// Set one entry of a one-based page dictionary.
-        ///
-        /// Rotation and page-box entries keep the page index; any other key
-        /// could retype the page, so it drops the index like `DerefMut`.
         pub(super) fn set_page_entry(
             &mut self,
             page_number: u32,
@@ -4073,6 +4222,20 @@ mod indexed {
             value: Object,
         ) -> PyResult<()> {
             let page_id = self.page_id(page_number)?;
+            self.set_page_object_entry(page_id, key, value)
+        }
+
+        /// Set one entry of a page object.
+        ///
+        /// Rotation, page-box, and `/Contents` entries keep the page index;
+        /// any other key could retype the page, so it drops the index like
+        /// `DerefMut`.
+        pub(super) fn set_page_object_entry(
+            &mut self,
+            page_id: ObjectId,
+            key: &str,
+            value: Object,
+        ) -> PyResult<()> {
             if !UNWALKED_PAGE_ENTRIES.contains(&key) {
                 self.page_index.take();
             }
@@ -4082,6 +4245,159 @@ mod indexed {
                 .map_err(to_py_err)?
                 .set(key, value);
             Ok(())
+        }
+
+        /// Replace a page object with a prepared page dictionary.
+        ///
+        /// The index survives when `page_id` is an indexed page and the new
+        /// dictionary keeps the `/Type`, `/Pages`, and indirect `/Annots`
+        /// reference of the dictionary it replaces. A page object that was a
+        /// reference becomes a dictionary with those entries, so every walk
+        /// through it still ends at a page.
+        pub(super) fn replace_page(&mut self, page_id: ObjectId, page: Dictionary) {
+            let keeps_walk = self.indexed_page(page_id) == Some(true)
+                && self
+                    .doc
+                    .get_object(page_id)
+                    .and_then(Object::as_dict)
+                    .is_ok_and(|current| {
+                        current.get(b"Type").ok() == page.get(b"Type").ok()
+                            && current.get(b"Pages").ok() == page.get(b"Pages").ok()
+                            && annotations_reference(current) == annotations_reference(&page)
+                    });
+            if !keeps_walk {
+                self.page_index.take();
+            }
+            self.doc.objects.insert(page_id, Object::Dictionary(page));
+        }
+
+        /// Borrow a page's direct `/Annots` array.
+        ///
+        /// The walk never reads `/Annots`, and the entry stays a direct array,
+        /// so the index and its annotation-array counts survive any change.
+        pub(super) fn page_annotations_mut(
+            &mut self,
+            page_id: ObjectId,
+        ) -> PyResult<&mut Vec<Object>> {
+            self.doc
+                .get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)
+                .and_then(|page| page.get_mut(b"Annots"))
+                .and_then(Object::as_array_mut)
+                .map_err(to_py_err)
+        }
+
+        /// Borrow the indirect annotation array that `array_id` resolves to.
+        ///
+        /// A malformed file can use one array as both `/Annots` and `/Kids`,
+        /// so the index survives only when the walk did not read the array.
+        /// The walk reads no other array content.
+        pub(super) fn annotation_array_mut(
+            &mut self,
+            array_id: ObjectId,
+        ) -> PyResult<&mut Vec<Object>> {
+            // Resolve the array object exactly as `get_object_mut` does below.
+            let stored = self
+                .doc
+                .objects
+                .get(&array_id)
+                .ok_or(lopdf::Error::ObjectNotFound(array_id))
+                .map_err(to_py_err)?;
+            let (resolved, _) = self.doc.dereference(stored).map_err(to_py_err)?;
+            let target = resolved.unwrap_or(array_id);
+            self.keep_index_if(|index, _| !index.tree.kids_objects.contains(&target));
+            self.doc
+                .get_object_mut(array_id)
+                .and_then(Object::as_array_mut)
+                .map_err(to_py_err)
+        }
+
+        /// Replace a page's `/Annots` with a direct array.
+        ///
+        /// Counts of pages per indirect array follow the change; they are
+        /// dropped, to be counted again, unless `page_id` is an indexed page.
+        pub(super) fn set_page_annotations(
+            &mut self,
+            page_id: ObjectId,
+            items: Vec<Object>,
+        ) -> PyResult<()> {
+            let indexed = self.indexed_page(page_id);
+            let page = self
+                .doc
+                .get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            let previous = annotations_reference(page);
+            page.set("Annots", items);
+            if let Some(array_id) = previous
+                && let Some(index) = self.page_index.get_mut()
+            {
+                match (&mut index.annotation_arrays, indexed) {
+                    (Some(AnnotationArrays::Counted(counts)), Some(true)) => {
+                        if let Some(count) = counts.get_mut(&array_id) {
+                            *count = count.saturating_sub(1);
+                        }
+                    }
+                    (Some(AnnotationArrays::Counted(_)), _) => index.annotation_arrays = None,
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+
+        /// Whether another page references the indirect `/Annots` array
+        /// `array_id` that `page_id` references.
+        ///
+        /// The first call counts the pages of every indirect array, so later
+        /// appends cost O(1) instead of a scan of every page.
+        pub(super) fn annotation_array_shared(
+            &mut self,
+            page_id: ObjectId,
+            array_id: ObjectId,
+        ) -> PyResult<bool> {
+            let own = self.page_numbers()?.contains_key(&page_id)
+                && page_annotations_reference(&self.doc, page_id) == Some(array_id);
+            let index = self
+                .page_index
+                .get_mut()
+                .ok_or_else(|| PdfError::new_err("page index was not built"))?;
+            if index.annotation_arrays.is_none() {
+                let arrays = AnnotationArrays::count(&self.doc, &index.pages)?;
+                index.annotation_arrays = Some(arrays);
+            }
+            Ok(match &index.annotation_arrays {
+                Some(AnnotationArrays::Counted(counts)) => {
+                    counts.get(&array_id).copied().unwrap_or(0) > usize::from(own)
+                }
+                _ => index.pages.iter().any(|&other_page_id| {
+                    other_page_id != page_id
+                        && page_annotations_reference(&self.doc, other_page_id) == Some(array_id)
+                }),
+            })
+        }
+    }
+
+    impl ObjectSink for IndexedDocument {
+        /// Add an object at lopdf's next ID, keeping the index while that ID is
+        /// unused by the walk.
+        fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId {
+            let id = (self.doc.max_id.wrapping_add(1), 0);
+            self.keep_index_if(|index, doc| is_unused_id(index, doc, id));
+            self.doc.add_object(object)
+        }
+    }
+
+    impl FormImportTarget for IndexedDocument {
+        /// Insert renumbered objects, keeping the index while every ID is
+        /// unused by the walk.
+        fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
+            self.keep_index_if(|index, doc| {
+                objects.iter().all(|&(id, _)| is_unused_id(index, doc, id))
+            });
+            for (id, object) in objects {
+                self.doc.objects.insert(id, object);
+            }
+            self.doc.max_id = max_id;
         }
     }
 
@@ -4099,6 +4415,47 @@ mod indexed {
             self.page_index.take();
             &mut self.doc
         }
+    }
+
+    impl AnnotationArrays {
+        /// Count the pages that reference each indirect `/Annots` array.
+        fn count(doc: &Document, pages: &[ObjectId]) -> PyResult<Self> {
+            let mut counts: HashMap<ObjectId, usize> = HashMap::new();
+            for page_id in pages {
+                let Some(Object::Dictionary(page)) = doc.objects.get(page_id) else {
+                    return Ok(Self::Aliased);
+                };
+                if let Some(array_id) = annotations_reference(page) {
+                    counts.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow page annotation-array counts: {error}"
+                        ))
+                    })?;
+                    *counts.entry(array_id).or_insert(0) += 1;
+                }
+            }
+            Ok(Self::Counted(counts))
+        }
+    }
+
+    /// Whether a new object at `id` leaves the indexed walk unchanged.
+    ///
+    /// An existing object could be anything the walk read, and an absent
+    /// object named by a skipped `/Kids` entry could become a page.
+    fn is_unused_id(index: &PageIndex, doc: &Document, id: ObjectId) -> bool {
+        !doc.objects.contains_key(&id) && !index.tree.missing_kids.contains(&id)
+    }
+
+    fn annotations_reference(page: &Dictionary) -> Option<ObjectId> {
+        page.get(b"Annots").and_then(Object::as_reference).ok()
+    }
+
+    /// The indirect `/Annots` array a page object resolves to, if any.
+    fn page_annotations_reference(doc: &Document, page_id: ObjectId) -> Option<ObjectId> {
+        doc.get_object(page_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(annotations_reference)
     }
 
     fn reverse_page_index(page_ids: &[ObjectId]) -> PyResult<HashMap<ObjectId, u32>> {
@@ -4155,7 +4512,7 @@ fn validate_structural_limits(
     }
 
     if validate_pages && (limits.max_pages.is_some() || limits.max_page_content_size.is_some()) {
-        return collect_page_ids(doc, limits.max_pages).map(Some);
+        return collect_page_ids(doc, limits.max_pages, None).map(Some);
     }
     Ok(None)
 }
@@ -5335,14 +5692,17 @@ impl _Document {
     }
 
     /// Append one prepared stream and retain verified in-memory isolation state.
+    ///
+    /// New streams and the page's `/Contents` keep the page index.
     fn push_page_content(
         &mut self,
         page_id: ObjectId,
         ops: Vec<u8>,
         plan: draw::ContentAppendPlan,
     ) -> PyResult<()> {
-        let is_isolated =
-            draw::push_content(&mut self.doc, page_id, ops, plan).map_err(to_py_err)?;
+        let (contents, is_isolated) = draw::add_content_streams(&mut self.doc, ops, plan);
+        self.doc
+            .set_page_object_entry(page_id, "Contents", Object::Array(contents))?;
         if is_isolated {
             self.isolated_content_pages.insert(page_id);
         }
@@ -5350,6 +5710,8 @@ impl _Document {
     }
 
     /// Bind a prepared resource slot and replace the page without allocation.
+    ///
+    /// The replacement keeps the page's walked entries, so the page index survives.
     fn commit_drawing_resource(
         &mut self,
         page_id: ObjectId,
@@ -5357,7 +5719,7 @@ impl _Document {
         resource_id: ObjectId,
     ) -> PyResult<()> {
         let page = plan.bind(resource_id)?;
-        self.doc.objects.insert(page_id, Object::Dictionary(page));
+        self.doc.replace_page(page_id, page);
         Ok(())
     }
 
@@ -5384,11 +5746,7 @@ impl _Document {
         );
         let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
         self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
-        self.push_page_content(page_id, ops, drawing_plan.content)?;
-        // All source non-page objects were moved initially; prune assets and
-        // attachments unreachable from the Form XObject.
-        prune_unreachable_objects(&mut self.doc)?;
-        Ok(())
+        self.push_page_content(page_id, ops, drawing_plan.content)
     }
 
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
@@ -6300,17 +6658,7 @@ impl _Document {
             Target::IndirectArray(arr_id) => {
                 // copy_page/select duplicates may share indirect Annots arrays.
                 // Clone on write while shared so additions do not leak.
-                let shared = self.doc.page_ids()?.iter().copied().any(|other_page_id| {
-                    other_page_id != page_id
-                        && self
-                            .doc
-                            .get_object(other_page_id)
-                            .and_then(Object::as_dict)
-                            .ok()
-                            .and_then(|page| page.get(b"Annots").ok())
-                            .and_then(|annots| annots.as_reference().ok())
-                            == Some(arr_id)
-                });
+                let shared = self.doc.annotation_array_shared(page_id, arr_id)?;
                 if shared {
                     let source = self
                         .doc
@@ -6328,11 +6676,7 @@ impl _Document {
                     }
                     Ok(PageAnnotationAppendPlan::Replacement(detached))
                 } else {
-                    let items = self
-                        .doc
-                        .get_object_mut(arr_id)
-                        .and_then(Object::as_array_mut)
-                        .map_err(to_py_err)?;
+                    let items = self.doc.annotation_array_mut(arr_id)?;
                     items.try_reserve_exact(1).map_err(|error| {
                         PdfError::new_err(format!(
                             "failed to grow indirect page annotations: {error}"
@@ -6342,15 +6686,7 @@ impl _Document {
                 }
             }
             Target::PageArray => {
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                let items = page
-                    .get_mut(b"Annots")
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
+                let items = self.doc.page_annotations_mut(page_id)?;
                 items.try_reserve_exact(1).map_err(|error| {
                     PdfError::new_err(format!("failed to grow page annotations: {error}"))
                 })?;
@@ -6375,33 +6711,18 @@ impl _Document {
     ) -> PyResult<()> {
         match plan {
             PageAnnotationAppendPlan::Direct => {
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                let items = page
-                    .get_mut(b"Annots")
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
-                items.push(Object::Reference(annot_id));
+                self.doc
+                    .page_annotations_mut(page_id)?
+                    .push(Object::Reference(annot_id));
             }
             PageAnnotationAppendPlan::Indirect(array_id) => {
-                let items = self
-                    .doc
-                    .get_object_mut(array_id)
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
-                items.push(Object::Reference(annot_id));
+                self.doc
+                    .annotation_array_mut(array_id)?
+                    .push(Object::Reference(annot_id));
             }
             PageAnnotationAppendPlan::Replacement(mut items) => {
                 items.push(Object::Reference(annot_id));
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                page.set("Annots", items);
+                self.doc.set_page_annotations(page_id, items)?;
             }
         }
         Ok(())
@@ -10817,11 +11138,9 @@ impl _Document {
 
             // Everything above is fallible. Commit the page-owned stream and
             // resolved page dictionary only after preparation succeeds.
-            self.doc
-                .objects
-                .insert(new_content_id, Object::Stream(stream));
-            self.doc.max_id = new_object_number;
-            self.doc.objects.insert(page_id, Object::Dictionary(page));
+            let content_id = self.doc.add_object(stream);
+            debug_assert_eq!(content_id, new_content_id);
+            self.doc.replace_page(page_id, page);
             Ok(count)
         })?;
         if replacement_count > 0 {

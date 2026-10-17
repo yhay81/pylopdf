@@ -17,15 +17,23 @@ use crate::document::PdfError;
 /// each reached object once and an explicit stack replaces recursion.
 /// Allocation refusal raises `PdfError` before any object is removed.
 pub(crate) fn prune_unreachable_objects(doc: &mut Document) -> PyResult<()> {
-    let reachable = reachable_object_ids(doc)?;
+    let roots = doc.trailer.iter().map(|(_, value)| value);
+    let reachable = reachable_object_ids(doc, roots, |_| true)?;
     if reachable.len() < doc.objects.len() {
         doc.objects.retain(|id, _| reachable.contains(id));
     }
     Ok(())
 }
 
-/// Collect the IDs of existing objects reachable from the trailer.
-fn reachable_object_ids(doc: &Document) -> PyResult<HashSet<ObjectId>> {
+/// Collect the IDs of existing objects reachable from `roots`.
+///
+/// References are followed as in [`prune_unreachable_objects`]. An object
+/// that `admits` rejects is neither recorded nor traversed, as if absent.
+pub(crate) fn reachable_object_ids<'a>(
+    doc: &'a Document,
+    roots: impl IntoIterator<Item = &'a Object>,
+    admits: impl Fn(&Object) -> bool,
+) -> PyResult<HashSet<ObjectId>> {
     // Only existing objects are recorded, so this reservation covers every
     // insertion during the walk.
     let mut reachable = HashSet::new();
@@ -33,24 +41,24 @@ fn reachable_object_ids(doc: &Document) -> PyResult<HashSet<ObjectId>> {
         .try_reserve(doc.objects.len())
         .map_err(|error| allocation_error("reachable object set", error))?;
     let mut pending = Vec::new();
-    for (_, value) in doc.trailer.iter() {
-        queue_reachable(doc, value, &mut reachable, &mut pending)?;
+    for value in roots {
+        queue_reachable(doc, value, &admits, &mut reachable, &mut pending)?;
     }
     while let Some(container) = pending.pop() {
         match container {
             Object::Array(items) => {
                 for item in items {
-                    queue_reachable(doc, item, &mut reachable, &mut pending)?;
+                    queue_reachable(doc, item, &admits, &mut reachable, &mut pending)?;
                 }
             }
             Object::Dictionary(dict) => {
                 for (_, value) in dict.iter() {
-                    queue_reachable(doc, value, &mut reachable, &mut pending)?;
+                    queue_reachable(doc, value, &admits, &mut reachable, &mut pending)?;
                 }
             }
             Object::Stream(stream) => {
                 for (_, value) in stream.dict.iter() {
-                    queue_reachable(doc, value, &mut reachable, &mut pending)?;
+                    queue_reachable(doc, value, &admits, &mut reachable, &mut pending)?;
                 }
             }
             _ => {}
@@ -64,6 +72,7 @@ fn reachable_object_ids(doc: &Document) -> PyResult<HashSet<ObjectId>> {
 fn queue_reachable<'a>(
     doc: &'a Document,
     mut object: &'a Object,
+    admits: &impl Fn(&Object) -> bool,
     reachable: &mut HashSet<ObjectId>,
     pending: &mut Vec<&'a Object>,
 ) -> PyResult<()> {
@@ -76,6 +85,9 @@ fn queue_reachable<'a>(
                 let Some(target) = doc.objects.get(id) else {
                     return Ok(());
                 };
+                if !admits(target) {
+                    return Ok(());
+                }
                 reachable.insert(*id);
                 object = target;
             }

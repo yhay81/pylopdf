@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
   `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
   for faster Rust iteration cannot silently remain in later measurements.
+- `Page.show_pdf_page()`, embedded-font `Page.insert_text()` and
+  `Page.insert_textbox()`, and embedded-font form-field appearances now import
+  only the source objects that the placed Form XObject reaches. They used to
+  import every other source object and then remove every unreachable object
+  of the target, which made placing a page on every page of a document
+  quadratic. The source page's content streams, annotations, outline,
+  attachments, metadata, and orphaned objects still stay out of the target,
+  but objects that the target itself could already not reach now remain until
+  a `garbage=True` save or a structural edit, as after the other drawing
+  edits. Form-field appearances no longer keep the generated page's two
+  unreachable objects, about 1 KB per filled field.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
@@ -206,6 +217,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes, `close()`, and dropping the document release it on that thread.
   Calls from other threads, parallel `render_pages` workers, SVG output, and
   text extraction keep call-scoped caches.
+- Drawing on or annotating every page is now linear in the page count.
+  `insert_text()`, `insert_textbox()`, `insert_image()`, `show_pdf_page()`,
+  `replace_text()`, `insert_ocr_text_layer()`, `add_link_annot()`, and
+  `add_highlight_annot()` dropped the page index, so the next page access
+  walked the page tree again. They now keep it: each adds objects only at
+  object numbers that the page-tree walk did not read and leaves every entry
+  it read unchanged, and drops the index when it cannot show that, for
+  example when a malformed page uses a `/Kids` array as its `/Annots`.
+  Appending to an indirect `/Annots` array also no longer scans every page
+  for duplicates made by `copy_page()` or `select()` that share it. On a
+  generated 10,000-page document, one of these edits on every page fell from
+  16.0–20.0 s to 0.05–0.25 s of CPU time, and `show_pdf_page()`, which also
+  swept the complete target after each placement, from 106 s to 0.16 s.
+  Results are unchanged apart from the unreachable objects that placement no
+  longer removes.
 
 ## [0.14.0] - 2026-10-13
 

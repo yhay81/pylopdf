@@ -468,8 +468,8 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `copy_page`, `set_toc`, and `show_pdf_page`) and `garbage=True` saves remove
-  unreachable objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+  `copy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
   in object count. The replacement keeps lopdf's semantics, following
@@ -479,7 +479,14 @@ overview.
   stack. The set is reserved for the current object count and the stack grows
   fallibly; refusal raises `PdfError` before any object is removed. Pruning
   still runs after the edit it follows has committed, so a refusal there leaves
-  that edit and its unreachable objects in place.
+  that edit and its unreachable objects in place. Form-XObject imports
+  (`show_pdf_page`, embedded-font text, and widget appearances) never sweep
+  the target: before mutation, `prepare_page_form_import` keeps only the
+  source objects that `reachable_object_ids` reaches from the Form dictionary,
+  with source Catalog, Pages, and Page objects treated as absent. A placement
+  therefore costs time in its source rather than in every target object, and
+  objects the target already could not reach stay until a garbage save, as
+  after every other drawing edit.
 - `insert_pdf`, `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
@@ -595,8 +602,8 @@ overview.
   page attributes in one parent-tree pass with a 64-level/cycle boundary.
   Form-XObject imports admit at most 65,536 source objects and 64 MiB of wrapped
   decoded page content. They prepare bounded content, inherited geometry, and
-  the complete movable object collection before cache invalidation or target
-  mutation; commit then has no recoverable source-side work.
+  the collection of Form-reachable source objects before cache invalidation or
+  target mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
@@ -637,6 +644,8 @@ overview.
   `/Annots` target before dependent-object creation. Direct arrays and unshared
   indirect arrays reserve one slot in place; page-shared indirect arrays
   prepare one fallibly detached direct array so copied pages do not leak edits.
+  Sharing comes from the page index's per-array page counts, described with
+  the walker below, rather than a scan of every page.
   The final reference push must not grow a collection. Link annotations also
   build their complete input-derived dictionary before cache invalidation.
   `render_annotations` defaults to true.
@@ -969,12 +978,30 @@ overview.
   walk per call. Its `DerefMut` drops the index before any mutable document
   access, and the wrapper lives in a private module, so no edit can read or
   retain an index built from a partially edited tree; never bypass it.
-  `set_page_entry` is the only mutation that keeps the index, and only for
-  `/Rotate` and the five page boxes, which the walk never reads, so rotate- and
-  crop-every-page loops stay linear; any other key drops it. Failed walks are
-  never cached, so a malformed tree raises on every access. Other edits still
-  rebuild the index on the next access, so drawing and annotation loops pay one
-  walk per edited page.
+  Page-tree-neutral edits keep the index, so loops that rotate, crop, draw on,
+  or annotate every page stay linear. Besides the page IDs, the walk records
+  the objects on `/Kids` reference chains and the absent objects that skipped
+  `/Kids` entries name, and each neutral edit checks those facts or drops the
+  index. New objects, including `self.doc.add_object` through
+  `draw::ObjectSink` and renumbered Form imports, keep it only at IDs that
+  neither exist nor are recorded as missing entries; lopdf's `add_object`
+  wraps past `u32::MAX` into existing IDs. `replace_page` keeps it only for an
+  indexed page whose `/Type`, `/Pages` (a malformed page can be the catalog),
+  and indirect `/Annots` reference stay the same. `set_page_entry` and
+  `set_page_object_entry` keep it only for `/Rotate`, the five page boxes, and
+  `/Contents`. An in-place annotation-array edit keeps it unless the walk read
+  that array as `/Kids`. No neutral edit removes objects, so the object count
+  that bounds walked edges only grows; anything that prunes goes through
+  `DerefMut`. Because Form imports null references to missing source objects,
+  current edits cannot turn a missing entry or a `/Kids` alias into a page, so
+  those checks are defensive; keep them so each obligation stays locally
+  checkable. The first append to an indirect `/Annots` array counts the pages
+  that reference each such array; detaching a shared array decrements its
+  count, and a page object that is a reference to another dictionary disables
+  the counts in favor of the scan. Failed walks are never cached, so a
+  malformed tree raises on every access. Serialization, including the
+  renderer snapshot, still takes `&mut Document` and drops the index, which
+  the next access rebuilds.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
