@@ -206,6 +206,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes, `close()`, and dropping the document release it on that thread.
   Calls from other threads, parallel `render_pages` workers, SVG output, and
   text extraction keep call-scoped caches.
+- Drawing on or annotating every page is now linear in the page count.
+  `insert_text()`, `insert_textbox()`, `insert_image()`, `replace_text()`,
+  `insert_ocr_text_layer()`, `add_link_annot()`, and `add_highlight_annot()`
+  dropped the page index, so the next page access walked the page tree
+  again. They now keep it: each adds objects only at object numbers that the
+  page-tree walk did not read and leaves every entry it read unchanged, and
+  drops the index when it cannot show that, for example when a malformed page
+  uses a `/Kids` array as its `/Annots`.
+  Appending to an indirect `/Annots` array also no longer scans every page
+  for duplicates made by `copy_page()` or `select()` that share it. On a
+  generated 10,000-page document, one of these edits on every page fell from
+  16.0–20.0 s to 0.05–0.25 s of CPU time, and results are unchanged.
+  `show_pdf_page()` keeps the index too, but it still sweeps the complete
+  target after each placement.
 
 ## [0.14.0] - 2026-10-13
 
