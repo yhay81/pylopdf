@@ -114,14 +114,17 @@ overview.
   refusals use `text_glyph_count`. The compatible default is `None`;
   `DocumentLimits.web()` sets 65,536.
   When `max_text_size` is configured, plain-text assembly preflights its exact
-  UTF-8 size and caps one extraction batch at twice that payload budget
+  UTF-8 size and caps one extraction call at twice that payload budget
   because inferred gaps plus line endings cannot outnumber non-empty glyph
-  records. The batch accepts at most 4,096 page entries, so repeated page
-  numbers cannot amplify a bounded interpretation without bound.
-  `Document.get_text(pages=None)` is the public batched entry. One batch
-  shares one call-scoped hayro `InterpreterCache` across its pages, so a font
-  reused by several pages parses once per call; single-page interpretation
-  keeps one per-call cache. No interpreter cache crosses threads or survives
+  records. The output bound spans every internal chunk of the call, so
+  repeated page numbers cannot amplify a bounded interpretation without bound.
+  Admission keeps running text and glyph totals beside the per-page maps, so
+  whole-document batches do not rescan every interpreted page.
+  `Document.get_text(pages=None)` is the public batched entry. Each chunk of
+  at most 4,096 page entries shares one hayro `InterpreterCache`, so a font
+  reused by several pages parses once per chunk while whole-document calls
+  never retain every parsed font; single-page interpretation keeps one
+  per-call cache. No interpreter cache crosses threads or survives
   `invalidate_hayro_pdf`. Batched and single-page interpretation temporarily
   detach the hayro snapshot so budget admission and LRU insertion can run
   beside the cache borrow; helpers on that path must not touch `hayro_pdf` or
@@ -194,9 +197,10 @@ overview.
   em-normalized alignment error, minimum gutter, and row-gap variation.
   `Document.to_markdown()` inserts complete bordered tables by default and
   accepts `table_strategy="text"` for conservative non-overlapping borderless
-  candidates or `None` to disable table conversion. Document conversion stops
-  page iterable materialization at 4,096 entries and defaults to a 64 MiB
-  cumulative UTF-8 output cap. It uses a page-at-a-time heading-count pass and
+  candidates or `None` to disable table conversion. Document conversion
+  covers every page by default, shares the explicit page-entry bound below,
+  validates entries once rather than re-walking the page tree per page, and
+  defaults to a 64 MiB cumulative UTF-8 output cap. It uses a page-at-a-time heading-count pass and
   a page-at-a-time rendering pass rather than retaining every page layout,
   table, and word list together. It removes contained text
   from prose and heading inference while retaining words outside a table on the
@@ -354,9 +358,10 @@ overview.
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page
   count. Editing methods must call `invalidate_hayro_pdf`, which also discards
-  the original-byte fast path; edited state must always be reflected in
-  rendering. `DocumentLimits.max_interpretation_size` bounds both retained
-  original input and the complete reserialization after edits, decryption, or
+  the original-byte fast path and the link-resolution cache; edited state must
+  always be reflected in rendering and link reads.
+  `DocumentLimits.max_interpretation_size` bounds both retained original input
+  and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
   constructing the state-normalized render copy. The bounded writer must not
   install a partial hayro cache. Original input above a finite limit retains
@@ -368,13 +373,15 @@ overview.
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
-  Serial and PyEmscripten execution reuse one local hayro `RenderCache` for the
-  complete call. Native parallel execution gives each bounded worker its own
-  cache and uses an atomic page queue to retain dynamic load balancing; a cache
-  never crosses a thread. Pixel preflight does not materialize an intermediate
+  Serial and PyEmscripten execution reuse one local hayro `RenderCache` per
+  chunk of at most 4,096 page entries. Native parallel execution gives each
+  bounded worker its own cache, replaced after 4,096 rendered pages, and uses an
+  atomic page queue to retain dynamic load balancing; a cache never crosses a
+  thread. Pixel preflight does not materialize an intermediate
   collection. Serial results, worker-local indexed results, parallel reduction,
   input-order slots, and the final returned vector all grow fallibly.
-  One call accepts at most 4,096 page entries. PNG writer chunks atomically
+  It renders every page by default and shares the explicit page-entry bound
+  below. PNG writer chunks atomically
   share the default 512 MiB cumulative encoded-output budget across serial,
   rayon, and PyEmscripten execution, refusing the first crossing write before
   retaining it; `max_size=None` is the explicit unbounded opt-out and limit
@@ -405,11 +412,18 @@ overview.
   Python methods that change page structure must call `_bump_generation()`.
   Otherwise an old `Page` could silently refer to a different page. Old pages
   must raise `StalePageError` after structural changes.
-- `delete_pages`, `select`, and `insert_pdf` accept at most 4,096 page entries
-  per call in both Python and Rust. Iterable materialization stops at the
-  4,097th item, and range insertion checks its size before allocation or graph
-  import. `delete_pages([])` is a true no-op: do not invalidate caches or bump
-  the Python generation. Imported and selected page orders, duplicate tracking,
+- Page batches validate entries against one page-count snapshot instead of
+  re-walking the page tree per entry. `pages=None` and complete `insert_pdf`
+  ranges cover every page whatever the page count. Explicit `get_text`,
+  `to_markdown`, `render_pages`, `select`, and `delete_pages` entries may repeat
+  pages up to the larger of the page count and 4,096; materialization stops at
+  the first entry beyond that bound with `LimitError.code ==
+  "page_entry_count"`, so repetition never costs more than one complete pass
+  and `select` cannot grow a large document. Rust repeats the relative check,
+  walking the page tree only above the floor, and core `merge_pages` rejects
+  repeated source pages before mutation because one page object cannot appear
+  twice in the tree. `delete_pages([])` is a true no-op: do not invalidate
+  caches or bump the Python generation. Imported and selected page orders, duplicate tracking,
   inherited page dictionaries, spliced orders, and root/rebuilt Kids arrays
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
@@ -663,21 +677,47 @@ overview.
   highlight iterables stop at item 4,097 without complete materialization.
   Successful output must remain readable under the same budget.
 - Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
-  once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
-  levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
-  ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
-  dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
-  borrowed index lazily per call; do not rescan the tree for each link.
-  Traversal stacks, cycle sets, and the borrowed index grow fallibly.
+  once, and rejects traversal above 65,536 entries/nodes or 131,072 edges with
+  `named_destination_count`, above 16 MiB of scanned key bytes with
+  `named_destination_text_size`, or above 32 levels. Do not turn a truncated
+  lookup into an ordinary unresolved destination. TOC reads, `Page.get_links`,
+  `insert_pdf` link import, and page cleanup share these large-manual limits:
+  the cleanup rewrite in `rust/src/page_cleanup.rs` matches the read-side
+  walker's dictionary-node, edge, entry, and key-byte accounting, and legacy
+  catalog `/Dests` uses the same entry and key-text limits, so every
+  well-formed tree that resolves can also be cleaned and imported. Admitted
+  keys are copied without a second charge; retained destination values copy
+  within 16 direct objects per admitted entry (1,048,576) and 16 MiB of value
+  text. Names looked up by `resolve_local_destination_array` charge the
+  `DestinationNameBudget` of the structure being walked: outline cleanup uses
+  the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
+  and page links and the OpenAction keep the 1 MiB per-page annotation budget.
+  Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
+  name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
+  `_Document` until `invalidate_hayro_pdf` drops it on the next edit: the page
+  order, its reverse index, and an owned name-tree index built on the first
+  named lookup. That index sorts and deduplicates borrowed keys in place with a
+  traversal-order tie-break, so the first occurrence wins, then allocates one
+  exact buffer of distinct keys plus entries that keep only each destination's
+  page operand, fit type, and numeric operands for binary search. A refused or
+  failed build caches nothing, so every later named lookup repeats the bounded
+  build and a refusal raises again. Do not rescan the name tree or walk the
+  page tree per link or per page: destination geometry resolves from cached
+  page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
+  link index grow fallibly.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
-  destinations once, and reject partial results above 4,096 nodes/entries,
-  8,192 edges, 64 levels, 32 destination indirections, or 1 MiB of
-  source/returned text. Page indexes, destination and outline cycle sets,
-  outline stacks, and returned entries grow fallibly. `set_toc` preflights the
-  entry, depth, and source/encoded-title boundaries before PyO3 copying, using
-  `toc_input_size`; direct Rust calls repeat the text boundary, then prepare
-  entries and the parent stack fallibly before PDF mutation.
+  destinations once, and reject partial results above 65,536 nodes/entries or
+  131,072 edges with `toc_entry_count`, above 16 MiB of source/returned text
+  with `toc_text_size`, or above 64 levels or 32 destination indirections.
+  These large-manual limits are shared by page-cleanup outline traversal,
+  which also charges looked-up destination names to the TOC text budget, so
+  every written outline remains readable and editable. Page indexes,
+  destination and outline cycle sets, outline stacks, and returned entries grow
+  fallibly. `set_toc` preflights the entry, depth, and source/encoded-title
+  boundaries before PyO3 copying, using `toc_entry_count` and
+  `toc_input_size`; direct Rust calls repeat the entry and text boundaries, then
+  prepare entries and the parent stack fallibly before PDF mutation.
 - Info metadata reads decode only the eight public standard fields, release the
   GIL, and reject aggregate source or returned text above 1 MiB. The fast
   metadata probe applies the returned-text boundary and accepts an optional

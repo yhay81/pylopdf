@@ -41,10 +41,14 @@ risky. When processing untrusted files:
   The stable code is `text_glyph_count`; normal and table interpretation of one
   page share a single cumulative admission.
 - With `DocumentLimits.max_text_size` configured, plain-text extraction
-  preflights exact output and caps one private batch at twice the glyph-payload
-  budget. Inferred spaces plus line endings cannot outnumber non-empty glyphs.
-  The batch accepts at most 4,096 page entries and rejects repeated-page
-  amplification with `text_size`.
+  preflights exact output and caps one call at twice the glyph-payload budget,
+  across every internal 4,096-entry chunk. Inferred spaces plus line endings
+  cannot outnumber non-empty glyphs, so repeated-page amplification is rejected
+  with `text_size`.
+- Page batches cover every page by default. Explicit page sequences stop at the
+  first entry beyond the larger of the page count and 4,096 with
+  `page_entry_count`, so repetition never costs more than one complete document
+  pass; direct core calls repeat the check before mutation.
 - `Page.insert_text()` and `Page.insert_textbox()` default to 1 MiB of UTF-8
   and 4,096 physical or final wrapped lines. Python rejects physical-line
   amplification before splitting or font resolution, and Rust stops wrapped
@@ -93,15 +97,28 @@ risky. When processing untrusted files:
   caches. Caller text is rejected before PyO3 copying or rectangle iteration
   with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
-  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
-  instead of silently reporting a truncated tree as unresolved.
-  `Page.get_links()` builds one borrowed index per call rather than repeating
-  the bounded traversal for every named link.
+  above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
+  above 16 MiB of key bytes with `named_destination_text_size`, or above 32
+  levels, instead of silently reporting a truncated tree as unresolved.
+  `get_toc()`, `Page.get_links()`, link import in `insert_pdf()`, and the
+  rewrite of the name tree and legacy `/Dests` during page deletion and
+  selection share these limits, so every well-formed tree that resolves can
+  also be cleaned and imported. The rewrite copies retained destination values
+  within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
+  looked-up destination name costs the budget of the structure being walked:
+  TOC text for an outline, key text for a name tree, or one page's 1 MiB of
+  link metadata. `Page.get_links()` indexes the tree on its first named
+  lookup and reuses that index and the page index until the next edit, so
+  reading every page stays linear. The retained index holds each distinct key
+  once within the same entry and key-text limits, and a refused tree is never
+  cached.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
-  the GIL, and reject partial output above 4,096 nodes/entries, 8,192 edges,
-  64 levels, 32 destination indirections, or 1 MiB of source/returned text.
-  Writes enforce the entry, depth, and source/encoded-title boundaries before
-  PyO3 copying and mutation with `toc_input_size`.
+  the GIL, and reject partial output above 65,536 nodes/entries or 131,072
+  edges with `toc_entry_count`, above 16 MiB of source/returned text with
+  `toc_text_size`, or above 64 levels or 32 destination indirections. Writes
+  enforce the entry, depth, and source/encoded-title boundaries before PyO3
+  copying and mutation with `toc_entry_count` and `toc_input_size`, and page
+  deletion/selection shares the outline limits.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom dictionary entries are
   not materialized into Python output. `peek_metadata()` caps returned standard

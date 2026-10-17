@@ -80,20 +80,26 @@ const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 
-/// Bound named-destination name-tree lookup used by link resolution.
-const MAX_NAMED_DEST_ENTRIES: usize = 4_096;
-const MAX_NAMED_DEST_TREE_NODES: usize = 4_096;
-const MAX_NAMED_DEST_TREE_EDGES: usize = 8_192;
-const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
-const MAX_NAMED_DEST_NAME_BYTES: usize = 1024 * 1024;
+/// Bound named-destination name trees at the scale of large hyperref manuals.
+///
+/// TOC, link, import, and page-cleanup traversal share these limits so every
+/// well-formed tree that resolves can also be cleaned and imported.
+pub(crate) const MAX_NAMED_DEST_ENTRIES: usize = 65_536;
+pub(crate) const MAX_NAMED_DEST_TREE_NODES: usize = 65_536;
+pub(crate) const MAX_NAMED_DEST_TREE_EDGES: usize = 131_072;
+pub(crate) const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
+pub(crate) const MAX_NAMED_DEST_NAME_BYTES: usize = 16 * 1024 * 1024;
 
-/// Bound outline traversal and returned TOC metadata.
-const MAX_TOC_ENTRIES: usize = 4_096;
-const MAX_TOC_TREE_NODES: usize = 4_096;
-const MAX_TOC_TREE_EDGES: usize = 8_192;
+/// Bound outline traversal and returned TOC metadata for large manuals.
+///
+/// Page cleanup shares the node and edge limits so every outline that
+/// `set_toc` can write remains readable and editable.
+const MAX_TOC_ENTRIES: usize = 65_536;
+pub(crate) const MAX_TOC_TREE_NODES: usize = 65_536;
+pub(crate) const MAX_TOC_TREE_EDGES: usize = 131_072;
 const MAX_TOC_TREE_DEPTH: usize = 64;
 const MAX_TOC_DEST_DEPTH: usize = 32;
-const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_TOC_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Bound generated invisible OCR-layer content per call.
 const MAX_OCR_LAYER_WORDS: usize = 4_096;
@@ -102,13 +108,14 @@ const MAX_OCR_LAYER_TEXT_BYTES: usize = 1024 * 1024;
 /// Bound lopdf's simple-font replacement inputs before encoding work.
 const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 
-/// Bound one page-structure mutation batch before cloning or importing graphs.
-const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
+/// Explicit page batches may repeat pages up to the larger of the page count
+/// and this floor, so repetition never costs more than one full document pass.
+const MIN_PAGE_ENTRY_LIMIT: usize = 4_096;
+/// Replace call-scoped hayro caches after this many page entries so fonts and
+/// objects parsed during whole-document batches cannot accumulate unbounded.
+const PAGE_BATCH_CHUNK: usize = 4_096;
 const MAX_PAGE_TREE_DEPTH: usize = 256;
 const MAX_PAGE_TREE_REFERENCE_DEPTH: usize = 32;
-
-/// Bound the private multi-page plain-text extraction input.
-const MAX_TEXT_EXTRACTION_PAGES: usize = 4_096;
 
 /// Bound search input and returned geometry independently from page text.
 const MAX_SEARCH_INPUT_BYTES: usize = 4_096;
@@ -191,6 +198,217 @@ type LinkTuple = (
 
 /// Resolved link destination: page number, display point, zoom, named destination.
 type ResolvedDestination = (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
+
+/// Page operand of one destination array before it is resolved to a page.
+#[derive(Clone, Copy)]
+enum DestinationPage {
+    Reference(ObjectId),
+    /// Some producers write a zero-based page index instead of a reference.
+    Index(i64),
+    Missing,
+}
+
+/// Destination fit types that carry a target point.
+#[derive(Clone, Copy)]
+enum DestinationFit {
+    Xyz,
+    /// `/FitH` or `/FitBH`, carrying a top coordinate.
+    Horizontal,
+    /// `/FitV` or `/FitBV`, carrying a left coordinate.
+    Vertical,
+    Other,
+}
+
+/// A destination array reduced to the operands `read_links` reports.
+///
+/// Owning these few values lets one name-tree index serve every link read
+/// until the next edit, without borrowing the document between calls.
+#[derive(Clone, Copy)]
+struct LinkDestination {
+    page: DestinationPage,
+    fit: DestinationFit,
+    /// Numeric array elements 2 through 4: the fit's coordinates and zoom.
+    numbers: [Option<f64>; 3],
+}
+
+impl LinkDestination {
+    const UNRESOLVED: Self = Self {
+        page: DestinationPage::Missing,
+        fit: DestinationFit::Other,
+        numbers: [None; 3],
+    };
+
+    /// Reduce a dereferenced destination array or `/D` dictionary.
+    fn from_object(doc: &Document, object: &Object) -> Self {
+        let mut resolved = object;
+        // A named destination value may be a dictionary containing `/D`.
+        if let Object::Dictionary(dictionary) = resolved {
+            match dictionary.get(b"D") {
+                Ok(inner) => resolved = deref_object(doc, inner),
+                Err(_) => return Self::UNRESOLVED,
+            }
+        }
+        let Object::Array(array) = resolved else {
+            return Self::UNRESOLVED;
+        };
+        // Element 0 should be a page reference, but some producers write a
+        // zero-based integer. Keep references for the reverse page lookup.
+        let page = match array.first() {
+            Some(Object::Reference(id)) => DestinationPage::Reference(*id),
+            Some(Object::Integer(index)) => DestinationPage::Index(*index),
+            _ => DestinationPage::Missing,
+        };
+        let fit = match array
+            .get(1)
+            .and_then(|object| deref_object(doc, object).as_name().ok())
+        {
+            Some(b"XYZ") => DestinationFit::Xyz,
+            Some(b"FitH" | b"FitBH") => DestinationFit::Horizontal,
+            Some(b"FitV" | b"FitBV") => DestinationFit::Vertical,
+            _ => DestinationFit::Other,
+        };
+        let number = |index: usize| {
+            array
+                .get(index)
+                .and_then(|object| match deref_object(doc, object) {
+                    Object::Integer(value) => Some(*value as f64),
+                    Object::Real(value) => Some(f64::from(*value)),
+                    _ => None,
+                })
+        };
+        Self {
+            page,
+            fit,
+            numbers: [number(2), number(3), number(4)],
+        }
+    }
+}
+
+/// One distinct name-tree key and its reduced destination.
+struct NamedDestinationEntry {
+    key_start: u32,
+    key_len: u32,
+    destination: LinkDestination,
+}
+
+impl NamedDestinationEntry {
+    fn key<'a>(&self, keys: &'a [u8]) -> &'a [u8] {
+        let start = self.key_start as usize;
+        &keys[start..start + self.key_len as usize]
+    }
+}
+
+/// Owned `/Names/Dests` index that link reads reuse until the next edit.
+///
+/// Distinct keys share one exactly sized buffer that the 16 MiB key budget
+/// bounds, and entries are stored in key order for binary search instead of
+/// hashing one owned key per name.
+#[derive(Default)]
+struct NamedDestinationIndex {
+    keys: Vec<u8>,
+    entries: Vec<NamedDestinationEntry>,
+}
+
+impl NamedDestinationIndex {
+    /// Index the complete tree under the shared limits, or fail without a
+    /// partial index.
+    fn build(doc: &Document) -> PyResult<Self> {
+        let mut index = Self::default();
+        let Some(root) = named_destination_root(doc) else {
+            return Ok(index);
+        };
+        // Borrow every entry first, so the owned index is allocated exactly.
+        let mut found = Vec::new();
+        visit_named_destinations(doc, root, |key, value| {
+            if found.len() == found.capacity() {
+                found.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow named-destination index: {error}"))
+                })?;
+            }
+            found.push((key, found.len(), value));
+            Ok(())
+        })?;
+        // An in-place sort tie-broken by traversal order keeps each key's
+        // first occurrence, like the borrowed index.
+        found.sort_unstable_by(|left, right| left.0.cmp(right.0).then(left.1.cmp(&right.1)));
+        found.dedup_by(|later, earlier| later.0 == earlier.0);
+        // The walker admits all key text to the 16 MiB budget, so the
+        // total and every offset fit in u32.
+        let key_bytes = found.iter().map(|(key, _, _)| key.len()).sum();
+        index.keys.try_reserve_exact(key_bytes).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate named-destination index keys: {error}"
+            ))
+        })?;
+        index
+            .entries
+            .try_reserve_exact(found.len())
+            .map_err(|error| {
+                PdfError::new_err(format!(
+                    "failed to allocate named-destination index: {error}"
+                ))
+            })?;
+        let too_large =
+            || PdfError::new_err("named-destination index exceeds the platform size limit");
+        for (key, _, value) in found {
+            let key_start = u32::try_from(index.keys.len()).map_err(|_| too_large())?;
+            let key_len = u32::try_from(key.len()).map_err(|_| too_large())?;
+            index.keys.extend_from_slice(key);
+            index.entries.push(NamedDestinationEntry {
+                key_start,
+                key_len,
+                destination: LinkDestination::from_object(doc, value),
+            });
+        }
+        Ok(index)
+    }
+
+    fn get(&self, name: &[u8]) -> Option<LinkDestination> {
+        let position = self
+            .entries
+            .binary_search_by(|entry| entry.key(&self.keys).cmp(name))
+            .ok()?;
+        Some(self.entries[position].destination)
+    }
+}
+
+/// Page and named-destination lookups shared by link reads.
+///
+/// `invalidate_hayro_pdf` drops it on every edit, so cached object IDs and
+/// destinations always describe the current document.
+struct LinkResolutionCache {
+    /// Page object IDs in one-based page order.
+    pages: Vec<ObjectId>,
+    /// One-based page number of each page object ID.
+    page_numbers: HashMap<ObjectId, u32>,
+    /// Built on the first named lookup, so pages without named links never
+    /// walk the tree. A refused build leaves it unset.
+    named: Option<NamedDestinationIndex>,
+}
+
+impl LinkResolutionCache {
+    fn new(doc: &Document) -> PyResult<Self> {
+        let pages = collect_page_ids(doc, None)?;
+        let page_numbers = reverse_page_index(&pages, "link destination")?;
+        Ok(Self {
+            pages,
+            page_numbers,
+            named: None,
+        })
+    }
+
+    /// Look up one name-tree destination, indexing the tree on first use.
+    fn named_destination(
+        &mut self,
+        doc: &Document,
+        name: &[u8],
+    ) -> PyResult<Option<LinkDestination>> {
+        if self.named.is_none() {
+            self.named = Some(NamedDestinationIndex::build(doc)?);
+        }
+        Ok(self.named.as_ref().and_then(|index| index.get(name)))
+    }
+}
 
 /// Info strings, page count, version, encryption, and startxref-repair status.
 type MetadataTuple = (HashMap<String, String>, u32, String, bool, bool);
@@ -336,20 +554,16 @@ fn visit_named_destinations<'a>(
         };
         nodes = nodes.saturating_add(1);
         if nodes > MAX_NAMED_DEST_TREE_NODES {
-            return Err(PdfError::new_err(format!(
+            return Err(named_destination_count_err(format!(
                 "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_NODES}-node safety limit"
             )));
         }
         if let Ok(names_object) = node.get(b"Names")
             && let Ok(names) = deref_object(doc, names_object).as_array()
         {
-            entries = entries
-                .checked_add(names.len().div_ceil(2))
-                .ok_or_else(|| {
-                    PdfError::new_err("named-destination tree exceeds the platform size limit")
-                })?;
+            entries = entries.saturating_add(names.len().div_ceil(2));
             if entries > MAX_NAMED_DEST_ENTRIES {
-                return Err(PdfError::new_err(format!(
+                return Err(named_destination_count_err(format!(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
                 )));
             }
@@ -358,14 +572,7 @@ fn visit_named_destinations<'a>(
                 let Ok(key) = deref_object(doc, key).as_str() else {
                     continue;
                 };
-                name_bytes = name_bytes.checked_add(key.len()).ok_or_else(|| {
-                    PdfError::new_err("named-destination keys exceed the platform size limit")
-                })?;
-                if name_bytes > MAX_NAMED_DEST_NAME_BYTES {
-                    return Err(PdfError::new_err(format!(
-                        "named-destination keys exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
-                    )));
-                }
+                add_named_destination_text_budget(&mut name_bytes, key.len())?;
                 visitor(key, deref_object(doc, value))?;
             }
         }
@@ -377,11 +584,9 @@ fn visit_named_destinations<'a>(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_DEPTH}-level safety limit"
                 )));
             }
-            edges = edges.checked_add(kids.len()).ok_or_else(|| {
-                PdfError::new_err("named-destination tree exceeds the platform size limit")
-            })?;
+            edges = edges.saturating_add(kids.len());
             if edges > MAX_NAMED_DEST_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(named_destination_count_err(format!(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -398,17 +603,20 @@ fn visit_named_destinations<'a>(
     Ok(())
 }
 
-/// Build one borrowed index so TOC resolution scans a name tree at most once.
-fn named_destination_index(doc: &Document) -> PyResult<HashMap<&[u8], &Object>> {
-    let mut index = HashMap::new();
-    let Some(root) = doc
-        .catalog()
+/// Return the root of the catalog `/Names/Dests` tree, if any.
+fn named_destination_root(doc: &Document) -> Option<&Object> {
+    doc.catalog()
         .ok()
         .and_then(|catalog| catalog.get(b"Names").ok())
         .map(|names| deref_object(doc, names))
         .and_then(|names| names.as_dict().ok())
         .and_then(|names| names.get(b"Dests").ok())
-    else {
+}
+
+/// Build one borrowed index so TOC resolution scans a name tree at most once.
+fn named_destination_index(doc: &Document) -> PyResult<HashMap<&[u8], &Object>> {
+    let mut index = HashMap::new();
+    let Some(root) = named_destination_root(doc) else {
         return Ok(index);
     };
     visit_named_destinations(doc, root, |key, value| {
@@ -434,12 +642,56 @@ fn lookup_legacy_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Ob
         .map(|value| deref_object(doc, value))
 }
 
+/// Report one named-destination count beyond the shared large-manual boundary.
+pub(crate) fn named_destination_count_err(message: String) -> PyErr {
+    limit_err("named_destination_count", message)
+}
+
+/// Charge named-destination key or lookup text without overflow or partial output.
+pub(crate) fn add_named_destination_text_budget(total: &mut usize, amount: usize) -> PyResult<()> {
+    *total = total.saturating_add(amount);
+    if *total > MAX_NAMED_DEST_NAME_BYTES {
+        return Err(limit_err(
+            "named_destination_text_size",
+            format!(
+                "named-destination text exceeds the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The budget charged for destination names looked up during one traversal.
+///
+/// A name costs the budget of the structure that contains it, so a large
+/// outline or name tree is never limited by one page's 1 MiB link budget.
+#[derive(Clone, Copy)]
+pub(crate) enum DestinationNameBudget {
+    /// One page's links share its 1 MiB annotation metadata budget.
+    Annotation,
+    /// Outline walks share the 16 MiB TOC source-text budget.
+    Toc,
+    /// Name-tree rewrites share the 16 MiB named-destination key budget.
+    NamedDestination,
+}
+
+impl DestinationNameBudget {
+    fn charge(self, total: &mut usize, amount: usize) -> PyResult<()> {
+        match self {
+            Self::Annotation => add_annotation_budget(total, amount, "local destination text"),
+            Self::Toc => add_toc_text_budget(total, amount, "destination text"),
+            Self::NamedDestination => add_named_destination_text_budget(total, amount),
+        }
+    }
+}
+
 /// Resolve a local destination without copying its source object graph.
 pub(crate) fn resolve_local_destination_array<'a>(
     doc: &'a Document,
     destination: &'a Object,
     named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
     source_bytes: &mut usize,
+    budget: DestinationNameBudget,
 ) -> PyResult<Option<&'a [Object]>> {
     let mut current = destination;
     let mut visited = Vec::new();
@@ -463,7 +715,7 @@ pub(crate) fn resolve_local_destination_array<'a>(
                 current = object;
             }
             Object::Name(name) | Object::String(name, _) => {
-                add_annotation_budget(source_bytes, name.len(), "local destination text")?;
+                budget.charge(source_bytes, name.len())?;
                 if named_destinations.is_none() {
                     *named_destinations = Some(named_destination_index(doc)?);
                 }
@@ -495,13 +747,19 @@ pub(crate) fn resolve_local_destination_array<'a>(
 fn add_toc_text_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
     *total = total
         .checked_add(amount)
-        .ok_or_else(|| PdfError::new_err("TOC text exceeds the platform size limit"))?;
+        .ok_or_else(|| limit_err("toc_text_size", "TOC text exceeds the platform size limit"))?;
     if *total > MAX_TOC_TEXT_BYTES {
-        return Err(PdfError::new_err(format!(
-            "TOC {label} exceeds the {MAX_TOC_TEXT_BYTES}-byte safety limit"
-        )));
+        return Err(limit_err(
+            "toc_text_size",
+            format!("TOC {label} exceeds the {MAX_TOC_TEXT_BYTES}-byte safety limit"),
+        ));
     }
     Ok(())
+}
+
+/// Report one TOC outline count beyond the shared large-manual boundary.
+pub(crate) fn toc_entry_count_err(message: String) -> PyErr {
+    limit_err("toc_entry_count", message)
 }
 
 /// Decode one outline title while bounding both source and returned text.
@@ -648,7 +906,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
             .checked_add(1)
             .ok_or_else(|| PdfError::new_err("TOC outline tree exceeds the platform size limit"))?;
         if nodes > MAX_TOC_TREE_NODES {
-            return Err(PdfError::new_err(format!(
+            return Err(toc_entry_count_err(format!(
                 "TOC outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
             )));
         }
@@ -666,7 +924,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
             )?
         {
             if out.len() >= MAX_TOC_ENTRIES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC exceeds the {MAX_TOC_ENTRIES}-entry safety limit"
                 )));
             }
@@ -687,7 +945,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 PdfError::new_err("TOC outline tree exceeds the platform size limit")
             })?;
             if edges > MAX_TOC_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -708,7 +966,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 PdfError::new_err("TOC outline tree exceeds the platform size limit")
             })?;
             if edges > MAX_TOC_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -825,7 +1083,6 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 
 /// Maximum PNG render pixels, approximately a 256 MB RGBA bitmap.
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
-const MAX_RENDER_BATCH_PAGES: usize = 4_096;
 
 /// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
 #[cfg(not(target_os = "emscripten"))]
@@ -1095,7 +1352,7 @@ fn load_metadata_with_recovery(
 ///
 /// The first exception argument is a stable code; Python supplies a friendly
 /// `str(error)` and `error.code` view over the two arguments.
-fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
+pub(crate) fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
     LimitError::new_err((code, message.into()))
 }
 
@@ -2039,6 +2296,7 @@ fn prepare_imported_page_links<'a>(
             destination,
             named_destinations,
             &mut source_bytes,
+            DestinationNameBudget::Annotation,
         )? {
             Some(array) => imported_destination(doc, array, source_pages, imported_pages)?,
             None => None,
@@ -2902,17 +3160,20 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
         }
     }
 
-    /// Render one ordered page batch with one caller-local hayro cache.
+    /// Render one ordered page batch with one caller-local hayro cache per
+    /// bounded chunk, so whole-document batches never retain every resource.
     fn render_serial(&self, page_numbers: &[u32]) -> PyResult<Vec<Vec<u8>>> {
-        let cache = RenderCache::new();
         let mut rendered = Vec::new();
         rendered
             .try_reserve_exact(page_numbers.len())
             .map_err(|error| {
                 PdfError::new_err(format!("failed to allocate serial render results: {error}"))
             })?;
-        for &page_number in page_numbers {
-            rendered.push(self.render(&cache, page_number)?);
+        for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
+            let cache = RenderCache::new();
+            for &page_number in chunk {
+                rendered.push(self.render(&cache, page_number)?);
+            }
         }
         Ok(rendered)
     }
@@ -3822,6 +4083,20 @@ fn page_tree_count(doc: &Document) -> PyResult<usize> {
     walk_page_tree(doc, None, |_, _| Ok(()))
 }
 
+/// Reject explicit page entries beyond the document-relative batch bound.
+fn check_page_entry_count(entries: usize, page_count: usize, verb: &str) -> PyResult<()> {
+    let limit = page_count.max(MIN_PAGE_ENTRY_LIMIT);
+    if entries > limit {
+        return Err(limit_err(
+            "page_entry_count",
+            format!(
+                "cannot {verb} more than {limit} page entries per call (the larger of the page count and {MIN_PAGE_ENTRY_LIMIT})"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<ObjectId> {
     page_number
         .checked_sub(1)
@@ -4598,6 +4873,9 @@ pub struct _Document {
     table_pages: HashMap<u32, crate::extract::TablePage>,
     /// Least-recently-used to most-recently-used table-page keys.
     table_page_order: VecDeque<u32>,
+    /// Page and named-destination lookups that link reads reuse until the
+    /// next edit.
+    link_resolution: Option<LinkResolutionCache>,
     /// Configured cumulative Unicode glyph payload across interpreted pages.
     max_text_size: Option<usize>,
     /// Serialized PDF bytes admitted to the renderer/extractor snapshot.
@@ -4608,6 +4886,10 @@ pub struct _Document {
     interpreted_text_sizes: HashMap<u32, usize>,
     /// Positioned glyph records already admitted for each interpreted page.
     interpreted_glyph_counts: HashMap<u32, usize>,
+    /// Running sums of the two admission maps, so whole-document batches do
+    /// not rescan every interpreted page for each newly admitted one.
+    interpreted_text_total: usize,
+    interpreted_glyph_total: usize,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
     /// Whether loading repaired an incorrect final classic startxref offset.
@@ -4659,11 +4941,14 @@ impl _Document {
             text_page_order: VecDeque::new(),
             table_pages: HashMap::new(),
             table_page_order: VecDeque::new(),
+            link_resolution: None,
             max_text_size,
             max_interpretation_size,
             max_text_glyphs,
             interpreted_text_sizes: HashMap::new(),
             interpreted_glyph_counts: HashMap::new(),
+            interpreted_text_total: 0,
+            interpreted_glyph_total: 0,
             isolated_content_pages: HashSet::new(),
             is_repaired,
             pending_warnings: Arc::new(Mutex::new(pending)),
@@ -4812,6 +5097,7 @@ impl _Document {
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
         self.hayro_source = HayroSource::Unavailable;
+        self.link_resolution = None;
         self.invalidate_interpreted_pages();
     }
 
@@ -4823,6 +5109,8 @@ impl _Document {
         self.table_page_order.clear();
         self.interpreted_text_sizes.clear();
         self.interpreted_glyph_counts.clear();
+        self.interpreted_text_total = 0;
+        self.interpreted_glyph_total = 0;
     }
 
     /// Return the glyph payload still available to one page interpretation.
@@ -4833,18 +5121,7 @@ impl _Document {
         if let Some(admitted) = self.interpreted_text_sizes.get(&page_number) {
             return Ok(Some(*admitted));
         }
-        let used = self
-            .interpreted_text_sizes
-            .values()
-            .try_fold(0usize, |total, value| total.checked_add(*value))
-            .ok_or_else(|| {
-                limit_err(
-                    "text_size",
-                    "interpreted text size exceeds the platform limit",
-                )
-            })?;
-        let remaining = limit.saturating_sub(used);
-        Ok(Some(remaining))
+        Ok(Some(limit.saturating_sub(self.interpreted_text_total)))
     }
 
     /// Return the positioned glyph records still available to one page.
@@ -4855,17 +5132,7 @@ impl _Document {
         if let Some(admitted) = self.interpreted_glyph_counts.get(&page_number) {
             return Ok(Some(*admitted));
         }
-        let used = self
-            .interpreted_glyph_counts
-            .values()
-            .try_fold(0usize, |total, value| total.checked_add(*value))
-            .ok_or_else(|| {
-                limit_err(
-                    "text_glyph_count",
-                    "interpreted text glyph count exceeds the platform limit",
-                )
-            })?;
-        Ok(Some(limit.saturating_sub(used)))
+        Ok(Some(limit.saturating_sub(self.interpreted_glyph_total)))
     }
 
     /// Record one page's text resources without charging cache re-interpretation.
@@ -4880,17 +5147,15 @@ impl _Document {
             return Ok(());
         }
         debug_assert!(!self.interpreted_glyph_counts.contains_key(&page_number));
+        let text_total = self.interpreted_text_total.checked_add(text_size);
+        let glyph_total = self.interpreted_glyph_total.checked_add(glyph_count);
         if let Some(limit) = self.max_text_size {
-            let used = self
-                .interpreted_text_sizes
-                .values()
-                .try_fold(text_size, |total, value| total.checked_add(*value))
-                .ok_or_else(|| {
-                    limit_err(
-                        "text_size",
-                        "interpreted text size exceeds the platform limit",
-                    )
-                })?;
+            let used = text_total.ok_or_else(|| {
+                limit_err(
+                    "text_size",
+                    "interpreted text size exceeds the platform limit",
+                )
+            })?;
             if used > limit {
                 return Err(limit_err(
                     "text_size",
@@ -4901,16 +5166,12 @@ impl _Document {
             }
         }
         if let Some(limit) = self.max_text_glyphs {
-            let used = self
-                .interpreted_glyph_counts
-                .values()
-                .try_fold(glyph_count, |total, value| total.checked_add(*value))
-                .ok_or_else(|| {
-                    limit_err(
-                        "text_glyph_count",
-                        "interpreted text glyph count exceeds the platform limit",
-                    )
-                })?;
+            let used = glyph_total.ok_or_else(|| {
+                limit_err(
+                    "text_glyph_count",
+                    "interpreted text glyph count exceeds the platform limit",
+                )
+            })?;
             if used > limit {
                 return Err(limit_err(
                     "text_glyph_count",
@@ -4923,7 +5184,19 @@ impl _Document {
         self.interpreted_text_sizes.insert(page_number, text_size);
         self.interpreted_glyph_counts
             .insert(page_number, glyph_count);
+        // Overflow is reachable only without a configured limit, where the
+        // totals are never compared.
+        self.interpreted_text_total = text_total.unwrap_or(usize::MAX);
+        self.interpreted_glyph_total = glyph_total.unwrap_or(usize::MAX);
         Ok(())
+    }
+
+    /// Bound an explicit page batch, walking the page tree only above the floor.
+    fn check_page_entries(&self, entries: usize, verb: &str) -> PyResult<()> {
+        if entries <= MIN_PAGE_ENTRY_LIMIT {
+            return Ok(());
+        }
+        check_page_entry_count(entries, page_tree_count(&self.doc)?, verb)
     }
 
     /// Return the ObjectId of a one-based page.
@@ -4976,13 +5249,53 @@ impl _Document {
 
     /// Page display geometry: CropBox, then MediaBox, then A4, plus rotation.
     fn page_display_geometry(&self, page_number: u32) -> PyResult<([f64; 4], i64)> {
-        let rotation = self.get_page_rotation(page_number)?;
+        self.resolve_display_geometry(self.page_id(page_number)?)
+    }
+
+    /// Display geometry of one page object, without walking the page tree.
+    fn resolve_display_geometry(&self, page_id: ObjectId) -> PyResult<([f64; 4], i64)> {
+        let rotation = self.resolve_page_rotation(page_id)?;
         let boxed = self
-            .get_page_box(page_number, "CropBox")?
-            .or(self.get_page_box(page_number, "MediaBox")?)
+            .resolve_page_box(page_id, "CropBox")?
+            .or(self.resolve_page_box(page_id, "MediaBox")?)
             .unwrap_or((0.0, 0.0, 595.0, 842.0));
         let (x0, y0, x1, y1) = boxed;
         Ok(([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)], rotation))
+    }
+
+    /// Return inherited, normalized 0..360 rotation for one page object.
+    fn resolve_page_rotation(&self, page_id: ObjectId) -> PyResult<i64> {
+        match self.resolve_page_attr(page_id, b"Rotate")? {
+            Some(obj) => Ok(obj.as_i64().map_err(to_py_err)?.rem_euclid(360)),
+            None => Ok(0),
+        }
+    }
+
+    /// Return a resolved page box of one page object, or None when absent.
+    fn resolve_page_box(
+        &self,
+        page_id: ObjectId,
+        key: &str,
+    ) -> PyResult<Option<(f64, f64, f64, f64)>> {
+        let Some(obj) = self.resolve_page_attr(page_id, key.as_bytes())? else {
+            return Ok(None);
+        };
+        let arr = obj.as_array().map_err(to_py_err)?;
+        if arr.len() != 4 {
+            return Err(PdfError::new_err(format!(
+                "{key} must be a 4-element array ({} elements given)",
+                arr.len()
+            )));
+        }
+        let mut values = [0f64; 4];
+        for (slot, item) in values.iter_mut().zip(arr) {
+            let resolved = match item {
+                Object::Reference(id) => self.doc.get_object(*id).map_err(to_py_err)?,
+                other => other,
+            };
+            *slot = f64::from(resolved.as_float().map_err(to_py_err)?);
+        }
+        Ok(Some((values[0], values[1], values[2], values[3])))
     }
 
     /// Validate one drawing insertion before caches or PDF objects are changed.
@@ -6240,9 +6553,11 @@ impl _Document {
             .expect("text page was interpreted immediately before"))
     }
 
-    /// Assemble plain text for one page batch from the detached hayro view.
+    /// Append plain text for one page chunk from the detached hayro view.
     ///
-    /// The same detached-snapshot contract as `interpret_text_page` applies.
+    /// `max_output_size` bounds the complete `out` buffer, so the budget is
+    /// shared by every chunk of one call. The same detached-snapshot contract
+    /// as `interpret_text_page` applies.
     fn extract_text_batch<'a>(
         &mut self,
         pdf: &'a Pdf,
@@ -6250,8 +6565,8 @@ impl _Document {
         page_numbers: &[u32],
         max_output_size: Option<usize>,
         settings: &InterpreterSettings,
-    ) -> PyResult<String> {
-        let mut out = String::new();
+        out: &mut String,
+    ) -> PyResult<()> {
         for number in page_numbers {
             let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
             if !self.touch_text_page(*number) {
@@ -6285,7 +6600,7 @@ impl _Document {
             })?;
             out.push_str(&page_text);
         }
-        Ok(out)
+        Ok(())
     }
 
     /// Refresh a cached table page's LRU position; return false when uncached.
@@ -6678,85 +6993,255 @@ impl _Document {
     /// Convert `/XYZ` left/top, `/FitH` top, or `/FitV` left into the destination
     /// page's rotated top-left-origin display space. Point-less `/Fit` or `/FitR`
     /// destinations return None.
-    fn resolve_dest<'a>(
-        &'a self,
-        dest: &'a Object,
-        page_map: &HashMap<ObjectId, u32>,
-        named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
+    fn resolve_dest(
+        &self,
+        dest: &Object,
+        cache: &mut LinkResolutionCache,
         encoded_bytes: &mut usize,
         returned_bytes: &mut usize,
     ) -> PyResult<ResolvedDestination> {
         let doc = &self.doc;
         let mut nameddest = None;
-        let mut resolved = deref_object(doc, dest);
-        if let Object::Name(name) | Object::String(name, _) = resolved {
+        let resolved = deref_object(doc, dest);
+        let destination = if let Object::Name(name) | Object::String(name, _) = resolved {
             nameddest = Some(bounded_annotation_bytes(
                 name,
                 encoded_bytes,
                 returned_bytes,
                 "named destination",
             )?);
-            if named_destinations.is_none() {
-                *named_destinations = Some(named_destination_index(doc)?);
+            match cache.named_destination(doc, name)? {
+                Some(destination) => destination,
+                None => lookup_legacy_named_dest(doc, name)
+                    .map_or(LinkDestination::UNRESOLVED, |found| {
+                        LinkDestination::from_object(doc, found)
+                    }),
             }
-            let found = named_destinations
-                .as_ref()
-                .and_then(|index| index.get(name.as_slice()).copied())
-                .or_else(|| lookup_legacy_named_dest(doc, name));
-            let Some(found) = found else {
-                return Ok((None, None, None, nameddest));
-            };
-            resolved = found;
-        }
-        // A named destination value may be a dictionary containing `/D`.
-        if let Object::Dictionary(d) = resolved {
-            match d.get(b"D") {
-                Ok(inner) => resolved = deref_object(doc, inner),
-                Err(_) => return Ok((None, None, None, nameddest)),
-            }
-        }
-        let Object::Array(arr) = resolved else {
-            return Ok((None, None, None, nameddest));
+        } else {
+            LinkDestination::from_object(doc, resolved)
         };
-        // Element 0 should be a page reference, but some producers write a
-        // zero-based integer. Keep references unresolved for reverse lookup.
-        let page = match arr.first() {
-            Some(Object::Reference(id)) => page_map.get(id).copied(),
-            Some(Object::Integer(i)) if *i >= 0 => Some(*i as u32 + 1),
+        let page = match destination.page {
+            DestinationPage::Reference(id) => cache.page_numbers.get(&id).copied(),
+            DestinationPage::Index(i) if i >= 0 => Some(i as u32 + 1),
             _ => None,
         };
         let mut to = None;
         let mut zoom = None;
         if let Some(page_number) = page
-            && let Ok((crop, rotation)) = self.page_display_geometry(page_number)
+            && let Ok(page_id) = page_id_from_index(&cache.pages, page_number)
+            && let Ok((crop, rotation)) = self.resolve_display_geometry(page_id)
         {
-            let num = |index: usize| {
-                arr.get(index).and_then(|o| match deref_object(doc, o) {
-                    Object::Integer(v) => Some(*v as f64),
-                    Object::Real(v) => Some(f64::from(*v)),
-                    _ => None,
-                })
-            };
-            match arr.get(1).and_then(|o| deref_object(doc, o).as_name().ok()) {
-                Some(b"XYZ") => {
+            let [first, second, third] = destination.numbers;
+            match destination.fit {
+                DestinationFit::Xyz => {
                     // left/top may be Null; default to the crop's left/top edge.
-                    let left = num(2).unwrap_or(crop[0]);
-                    let top = num(3).unwrap_or(crop[3]);
-                    zoom = num(4).filter(|z| *z != 0.0);
+                    let left = first.unwrap_or(crop[0]);
+                    let top = second.unwrap_or(crop[3]);
+                    zoom = third.filter(|z| *z != 0.0);
                     to = Some(draw::pdf_to_display(crop, rotation, left, top));
                 }
-                Some(b"FitH") | Some(b"FitBH") => {
-                    let top = num(2).unwrap_or(crop[3]);
+                DestinationFit::Horizontal => {
+                    let top = first.unwrap_or(crop[3]);
                     to = Some(draw::pdf_to_display(crop, rotation, crop[0], top));
                 }
-                Some(b"FitV") | Some(b"FitBV") => {
-                    let left = num(2).unwrap_or(crop[0]);
+                DestinationFit::Vertical => {
+                    let left = first.unwrap_or(crop[0]);
                     to = Some(draw::pdf_to_display(crop, rotation, left, crop[3]));
                 }
-                _ => {}
+                DestinationFit::Other => {}
             }
         }
         Ok((page, to, zoom, nameddest))
+    }
+
+    /// Read one page's link annotations, resolving destinations through
+    /// `cache` so repeated reads do not walk the page or name trees again.
+    fn page_links(
+        &self,
+        page_number: u32,
+        cache: &mut LinkResolutionCache,
+    ) -> PyResult<Vec<LinkTuple>> {
+        let page_id = page_id_from_index(&cache.pages, page_number)?;
+        let (crop, rotation) = self.resolve_display_geometry(page_id)?;
+        let Some(annots) = self.page_annotation_items(page_id)? else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        let mut encoded_bytes = 0usize;
+        let mut returned_bytes = 0usize;
+        for item in annots {
+            let dict = match item {
+                Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
+                    Ok(dict) => dict,
+                    Err(_) => continue,
+                },
+                Object::Dictionary(dict) => dict,
+                _ => continue,
+            };
+            if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
+                continue;
+            }
+            let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
+                continue;
+            };
+            let display = draw::pdf_rect_to_display(crop, rotation, rect);
+            let rect_tuple = (display[0], display[1], display[2], display[3]);
+
+            let action = dict
+                .get(b"A")
+                .ok()
+                .and_then(|action| deref_object(&self.doc, action).as_dict().ok());
+            if let Some(action) = action {
+                match action.get(b"S").and_then(Object::as_name) {
+                    Ok(b"URI") => {
+                        let uri = match action
+                            .get(b"URI")
+                            .ok()
+                            .map(|object| deref_object(&self.doc, object))
+                            .and_then(|object| object.as_str().ok())
+                        {
+                            Some(bytes) => Some(bounded_annotation_bytes(
+                                bytes,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                                "URI text",
+                            )?),
+                            None => None,
+                        };
+                        out.push((
+                            "uri".to_string(),
+                            rect_tuple,
+                            uri,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ));
+                    }
+                    Ok(b"GoTo") => {
+                        if let Ok(dest) = action.get(b"D") {
+                            let (page, to, zoom, name) = self.resolve_dest(
+                                dest,
+                                cache,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                            )?;
+                            out.push((
+                                "goto".to_string(),
+                                rect_tuple,
+                                None,
+                                page,
+                                to,
+                                zoom,
+                                None,
+                                name,
+                            ));
+                        }
+                    }
+                    Ok(b"GoToR") => {
+                        let file = match action.get(b"F") {
+                            Ok(object) => bounded_annotation_filespec_name(
+                                &self.doc,
+                                object,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                            )?,
+                            Err(_) => None,
+                        };
+                        // External-document destinations retain names without page resolution.
+                        let name_bytes = action.get(b"D").ok().and_then(|destination| {
+                            match deref_object(&self.doc, destination) {
+                                Object::Name(name) | Object::String(name, _) => {
+                                    Some(name.as_slice())
+                                }
+                                _ => None,
+                            }
+                        });
+                        let name = match name_bytes {
+                            Some(bytes) => Some(bounded_annotation_bytes(
+                                bytes,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                                "named destination",
+                            )?),
+                            None => None,
+                        };
+                        out.push((
+                            "gotor".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            file,
+                            name,
+                        ));
+                    }
+                    Ok(b"Launch") => {
+                        let file = match action.get(b"F") {
+                            Ok(object) => bounded_annotation_filespec_name(
+                                &self.doc,
+                                object,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                            )?,
+                            Err(_) => None,
+                        };
+                        out.push((
+                            "launch".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            file,
+                            None,
+                        ));
+                    }
+                    Ok(b"Named") => {
+                        let name_bytes = action
+                            .get(b"N")
+                            .ok()
+                            .and_then(|object| deref_object(&self.doc, object).as_name().ok());
+                        let name = match name_bytes {
+                            Some(bytes) => Some(bounded_annotation_bytes(
+                                bytes,
+                                &mut encoded_bytes,
+                                &mut returned_bytes,
+                                "named action",
+                            )?),
+                            None => None,
+                        };
+                        out.push((
+                            "named".to_string(),
+                            rect_tuple,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            name,
+                        ));
+                    }
+                    _ => {}
+                }
+            } else if let Ok(dest) = dict.get(b"Dest") {
+                let (page, to, zoom, name) =
+                    self.resolve_dest(dest, cache, &mut encoded_bytes, &mut returned_bytes)?;
+                out.push((
+                    "goto".to_string(),
+                    rect_tuple,
+                    None,
+                    page,
+                    to,
+                    zoom,
+                    None,
+                    name,
+                ));
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -7784,18 +8269,14 @@ impl _Document {
         self.set_metadata_entries(entries)
     }
 
-    /// Delete a one-based page.
+    /// Delete one-based pages; duplicates name the same page.
     fn delete_pages(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot delete more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         if page_numbers.is_empty() {
             return Ok(());
         }
 
         let pages = collect_page_ids(&self.doc, None)?;
+        check_page_entry_count(page_numbers.len(), pages.len(), "delete")?;
         let mut deleted = HashSet::new();
         deleted.try_reserve(page_numbers.len()).map_err(|error| {
             PdfError::new_err(format!("failed to allocate deleted-page tracking: {error}"))
@@ -7839,11 +8320,7 @@ impl _Document {
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        if page_numbers.len() > MAX_TEXT_EXTRACTION_PAGES {
-            return Err(PdfError::new_err(format!(
-                "cannot extract text from more than {MAX_TEXT_EXTRACTION_PAGES} page entries per call"
-            )));
-        }
+        self.check_page_entries(page_numbers.len(), "extract text from")?;
         // Every collected glyph contributes at least one UTF-8 byte. Plain
         // assembly adds at most one inferred gap or line ending per glyph, so
         // twice the configured payload budget is a complete output bound.
@@ -7870,14 +8347,29 @@ impl _Document {
                 .hayro_pdf
                 .take()
                 .expect("hayro view was built immediately before");
-            // Share one interpreter cache across the batch so fonts reused by
-            // several pages parse once per call instead of once per page.
-            let cache = InterpreterCache::new();
-            let extracted =
-                self.extract_text_batch(&pdf, &cache, &page_numbers, max_output_size, &settings);
-            drop(cache);
+            // Share one interpreter cache per bounded chunk so fonts reused by
+            // several pages parse once per chunk instead of once per page,
+            // while whole-document batches never retain every parsed font.
+            // The output budget spans the complete call, not one chunk.
+            let mut out = String::new();
+            let mut extracted = Ok(());
+            for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
+                let cache = InterpreterCache::new();
+                extracted = self.extract_text_batch(
+                    &pdf,
+                    &cache,
+                    chunk,
+                    max_output_size,
+                    &settings,
+                    &mut out,
+                );
+                drop(cache);
+                if extracted.is_err() {
+                    break;
+                }
+            }
             self.hayro_pdf = Some(pdf);
-            extracted
+            extracted.map(|()| out)
         })
     }
 
@@ -8053,14 +8545,9 @@ impl _Document {
         })
     }
 
-    /// Append every page from another document.
+    /// Append every page from another document, whatever its page count.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
         let page_count = page_tree_count(&other.doc)?;
-        if page_count > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         let count = u32::try_from(page_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let mut all = Vec::new();
         all.try_reserve_exact(page_count).map_err(|error| {
@@ -8075,7 +8562,8 @@ impl _Document {
     /// Import specified one-based pages from another document in order.
     ///
     /// `position` is a zero-based insertion point; None appends. Flatten the
-    /// page tree under root while inserting.
+    /// page tree under root while inserting. Each source page is imported at
+    /// most once because a repeated entry would reuse one page object twice.
     fn merge_pages(
         &mut self,
         py: Python<'_>,
@@ -8083,18 +8571,25 @@ impl _Document {
         page_numbers: Vec<u32>,
         position: Option<usize>,
     ) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         if page_numbers.is_empty() {
             return Ok(());
         }
         let existing_pages = collect_page_ids(&self.doc, None)?;
         let source_pages = collect_page_ids(&other.doc, None)?;
+        check_page_entry_count(page_numbers.len(), source_pages.len(), "merge")?;
+        let mut imported = HashSet::new();
+        imported.try_reserve(page_numbers.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate imported page tracking: {error}"
+            ))
+        })?;
         for &page_number in &page_numbers {
             page_id_from_index(&source_pages, page_number)?;
+            if !imported.insert(page_number) {
+                return Err(PdfError::new_err(format!(
+                    "page {page_number} is repeated; imported page entries must be unique"
+                )));
+            }
         }
         self.preflight_page_tree_rebuild(&existing_pages)?;
         py.detach(|| {
@@ -8166,12 +8661,8 @@ impl _Document {
     ///
     /// PDF page-tree Parent must be unique, so duplicate selections require copies.
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot select more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         let pages = collect_page_ids(&self.doc, None)?;
+        check_page_entry_count(page_numbers.len(), pages.len(), "select")?;
         let mut selected_ids = Vec::new();
         selected_ids
             .try_reserve_exact(page_numbers.len())
@@ -8319,11 +8810,7 @@ impl _Document {
         if page_numbers.is_empty() {
             return Ok(Vec::new());
         }
-        if page_numbers.len() > MAX_RENDER_BATCH_PAGES {
-            return Err(PdfError::new_err(format!(
-                "cannot render more than {MAX_RENDER_BATCH_PAGES} pages per batch"
-            )));
-        }
+        self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
@@ -8372,13 +8859,20 @@ impl _Document {
                         (0..worker_count)
                             .into_par_iter()
                             .map(|_| {
-                                let cache = RenderCache::new();
+                                let mut cache = RenderCache::new();
+                                let mut cached_pages = 0usize;
                                 let mut rendered = Vec::new();
                                 loop {
                                     let index = next_page.fetch_add(1, Ordering::Relaxed);
                                     let Some(&page_number) = page_numbers.get(index) else {
                                         break;
                                     };
+                                    // Bound each worker cache like a serial chunk.
+                                    if cached_pages == PAGE_BATCH_CHUNK {
+                                        cache = RenderCache::new();
+                                        cached_pages = 0;
+                                    }
+                                    cached_pages += 1;
                                     rendered.try_reserve(1).map_err(|error| {
                                         PdfError::new_err(format!(
                                             "failed to grow worker render results: {error}"
@@ -8509,9 +9003,10 @@ impl _Document {
     /// UTF-16BE with a BOM.
     fn set_toc(&mut self, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
         if entries.len() > MAX_TOC_ENTRIES {
-            return Err(PdfError::new_err(format!(
-                "cannot set more than {MAX_TOC_ENTRIES} TOC entries"
-            )));
+            return Err(limit_err(
+                "toc_entry_count",
+                format!("cannot set more than {MAX_TOC_ENTRIES} TOC entries"),
+            ));
         }
         let pages = collect_page_ids(&self.doc, None)?;
         let mut prepared = Vec::new();
@@ -8667,11 +9162,7 @@ impl _Document {
 
     /// Return inherited, normalized 0..360 rotation for a one-based page.
     fn get_page_rotation(&self, page_number: u32) -> PyResult<i64> {
-        let page_id = self.page_id(page_number)?;
-        match self.resolve_page_attr(page_id, b"Rotate")? {
-            Some(obj) => Ok(obj.as_i64().map_err(to_py_err)?.rem_euclid(360)),
-            None => Ok(0),
-        }
+        self.resolve_page_rotation(self.page_id(page_number)?)
     }
 
     /// Set rotation for a one-based page; Python validates the value.
@@ -8689,26 +9180,7 @@ impl _Document {
 
     /// Return a resolved page box such as MediaBox/CropBox, or None when absent.
     fn get_page_box(&self, page_number: u32, key: &str) -> PyResult<Option<(f64, f64, f64, f64)>> {
-        let page_id = self.page_id(page_number)?;
-        let Some(obj) = self.resolve_page_attr(page_id, key.as_bytes())? else {
-            return Ok(None);
-        };
-        let arr = obj.as_array().map_err(to_py_err)?;
-        if arr.len() != 4 {
-            return Err(PdfError::new_err(format!(
-                "{key} must be a 4-element array ({} elements given)",
-                arr.len()
-            )));
-        }
-        let mut values = [0f64; 4];
-        for (slot, item) in values.iter_mut().zip(arr) {
-            let resolved = match item {
-                Object::Reference(id) => self.doc.get_object(*id).map_err(to_py_err)?,
-                other => other,
-            };
-            *slot = f64::from(resolved.as_float().map_err(to_py_err)?);
-        }
-        Ok(Some((values[0], values[1], values[2], values[3])))
+        self.resolve_page_box(self.page_id(page_number)?, key)
     }
 
     /// Set a box on a one-based page; Python validates the rectangle.
@@ -9064,202 +9536,19 @@ impl _Document {
     /// Read link annotations from a one-based page and resolve destinations.
     ///
     /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
-    /// Resolve GoTo names from `/Names` trees and legacy `/Dests`.
-    fn read_links(&self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkTuple>> {
+    /// Resolve GoTo names from `/Names` trees and legacy `/Dests`. The page
+    /// index and name-tree index persist until the next edit.
+    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkTuple>> {
         py.detach(|| {
-            let (crop, rotation) = self.page_display_geometry(page_number)?;
-            let page_id = self.page_id(page_number)?;
-            let Some(annots) = self.page_annotation_items(page_id)? else {
-                return Ok(Vec::new());
+            // Detach the cache so link collection can borrow the document, and
+            // restore it on success and failure because reads never edit.
+            let mut cache = match self.link_resolution.take() {
+                Some(cache) => cache,
+                None => LinkResolutionCache::new(&self.doc)?,
             };
-            // Build ObjectId → lopdf page-number lookup for destination resolution.
-            let pages = collect_page_ids(&self.doc, None)?;
-            let page_map = reverse_page_index(&pages, "link destination")?;
-            let mut out = Vec::new();
-            let mut encoded_bytes = 0usize;
-            let mut returned_bytes = 0usize;
-            let mut named_destinations = None;
-            for item in annots {
-                let dict = match item {
-                    Object::Reference(id) => {
-                        match self.doc.get_object(*id).and_then(Object::as_dict) {
-                            Ok(dict) => dict,
-                            Err(_) => continue,
-                        }
-                    }
-                    Object::Dictionary(dict) => dict,
-                    _ => continue,
-                };
-                if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
-                    continue;
-                }
-                let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
-                    continue;
-                };
-                let display = draw::pdf_rect_to_display(crop, rotation, rect);
-                let rect_tuple = (display[0], display[1], display[2], display[3]);
-
-                let action = dict
-                    .get(b"A")
-                    .ok()
-                    .and_then(|action| deref_object(&self.doc, action).as_dict().ok());
-                if let Some(action) = action {
-                    match action.get(b"S").and_then(Object::as_name) {
-                        Ok(b"URI") => {
-                            let uri = match action
-                                .get(b"URI")
-                                .ok()
-                                .map(|object| deref_object(&self.doc, object))
-                                .and_then(|object| object.as_str().ok())
-                            {
-                                Some(bytes) => Some(bounded_annotation_bytes(
-                                    bytes,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                    "URI text",
-                                )?),
-                                None => None,
-                            };
-                            out.push((
-                                "uri".to_string(),
-                                rect_tuple,
-                                uri,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                            ));
-                        }
-                        Ok(b"GoTo") => {
-                            if let Ok(dest) = action.get(b"D") {
-                                let (page, to, zoom, name) = self.resolve_dest(
-                                    dest,
-                                    &page_map,
-                                    &mut named_destinations,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                )?;
-                                out.push((
-                                    "goto".to_string(),
-                                    rect_tuple,
-                                    None,
-                                    page,
-                                    to,
-                                    zoom,
-                                    None,
-                                    name,
-                                ));
-                            }
-                        }
-                        Ok(b"GoToR") => {
-                            let file = match action.get(b"F") {
-                                Ok(object) => bounded_annotation_filespec_name(
-                                    &self.doc,
-                                    object,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                )?,
-                                Err(_) => None,
-                            };
-                            // External-document destinations retain names without page resolution.
-                            let name_bytes = action.get(b"D").ok().and_then(|destination| {
-                                match deref_object(&self.doc, destination) {
-                                    Object::Name(name) | Object::String(name, _) => {
-                                        Some(name.as_slice())
-                                    }
-                                    _ => None,
-                                }
-                            });
-                            let name = match name_bytes {
-                                Some(bytes) => Some(bounded_annotation_bytes(
-                                    bytes,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                    "named destination",
-                                )?),
-                                None => None,
-                            };
-                            out.push((
-                                "gotor".to_string(),
-                                rect_tuple,
-                                None,
-                                None,
-                                None,
-                                None,
-                                file,
-                                name,
-                            ));
-                        }
-                        Ok(b"Launch") => {
-                            let file = match action.get(b"F") {
-                                Ok(object) => bounded_annotation_filespec_name(
-                                    &self.doc,
-                                    object,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                )?,
-                                Err(_) => None,
-                            };
-                            out.push((
-                                "launch".to_string(),
-                                rect_tuple,
-                                None,
-                                None,
-                                None,
-                                None,
-                                file,
-                                None,
-                            ));
-                        }
-                        Ok(b"Named") => {
-                            let name_bytes = action
-                                .get(b"N")
-                                .ok()
-                                .and_then(|object| deref_object(&self.doc, object).as_name().ok());
-                            let name = match name_bytes {
-                                Some(bytes) => Some(bounded_annotation_bytes(
-                                    bytes,
-                                    &mut encoded_bytes,
-                                    &mut returned_bytes,
-                                    "named action",
-                                )?),
-                                None => None,
-                            };
-                            out.push((
-                                "named".to_string(),
-                                rect_tuple,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                                name,
-                            ));
-                        }
-                        _ => {}
-                    }
-                } else if let Ok(dest) = dict.get(b"Dest") {
-                    let (page, to, zoom, name) = self.resolve_dest(
-                        dest,
-                        &page_map,
-                        &mut named_destinations,
-                        &mut encoded_bytes,
-                        &mut returned_bytes,
-                    )?;
-                    out.push((
-                        "goto".to_string(),
-                        rect_tuple,
-                        None,
-                        page,
-                        to,
-                        zoom,
-                        None,
-                        name,
-                    ));
-                }
-            }
-            Ok(out)
+            let links = self.page_links(page_number, &mut cache);
+            self.link_resolution = Some(cache);
+            links
         })
     }
 

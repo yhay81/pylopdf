@@ -175,8 +175,9 @@ def test_extract_text_batch_is_bounded_in_core(one_page_pdf: bytes) -> None:
         bounded.extract_text([1, 1, 1, 1])
     assert output.value.args[0] == "text_size"
 
-    with pytest.raises(ValueError, match="4096 page entries"):
+    with pytest.raises(LimitError, match="4096 page entries") as entries:
         _Document.load_bytes(one_page_pdf).extract_text([1] * 4097)
+    assert entries.value.args[0] == "page_entry_count"
 
 
 def test_delete_pages(three_page_pdf: bytes) -> None:
@@ -222,10 +223,12 @@ def test_document_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) ->
     doc = _Document.load_bytes(one_page_pdf)
     before = doc.save_bytes()
     encoded_oversized = "é" * (512 * 1024)
+    # TOC titles share a larger 16 MiB budget sized for large manuals.
+    encoded_toc_oversized = "é" * (8 * 1024 * 1024)
 
     calls = [
         ("metadata_input_size", lambda: doc.set_metadata("Title", encoded_oversized)),
-        ("toc_input_size", lambda: doc.set_toc([(1, encoded_oversized, 1)])),
+        ("toc_input_size", lambda: doc.set_toc([(1, encoded_toc_oversized, 1)])),
         ("page_label_input_size", lambda: doc.set_page_labels([(0, None, encoded_oversized, 1)])),
     ]
     for code, call in calls:
@@ -263,20 +266,40 @@ def test_structural_batches_are_bounded_in_core(one_page_pdf: bytes) -> None:
     too_many = [1] * 4097
 
     deleting = _Document.load_bytes(one_page_pdf)
-    with pytest.raises(ValueError, match="4096 page entries"):
+    with pytest.raises(LimitError, match="4096 page entries") as caught:
         deleting.delete_pages(too_many)
+    assert caught.value.args[0] == "page_entry_count"
     assert deleting.page_count() == 1
 
     selecting = _Document.load_bytes(one_page_pdf)
-    with pytest.raises(ValueError, match="4096 page entries"):
+    with pytest.raises(LimitError, match="4096 page entries") as caught:
         selecting.select(too_many)
+    assert caught.value.args[0] == "page_entry_count"
     assert selecting.page_count() == 1
 
     merging = _Document.load_bytes(one_page_pdf)
     source = _Document.load_bytes(one_page_pdf)
-    with pytest.raises(ValueError, match="4096 page entries"):
+    with pytest.raises(LimitError, match="4096 page entries") as caught:
         merging.merge_pages(source, too_many, None)
+    assert caught.value.args[0] == "page_entry_count"
     assert merging.page_count() == 1
+
+
+def test_merge_pages_rejects_repeated_source_pages_before_mutation(
+    one_page_pdf: bytes,
+    three_page_pdf: bytes,
+) -> None:
+    target = _Document.load_bytes(one_page_pdf)
+    source = _Document.load_bytes(three_page_pdf)
+    before = target.save_bytes()
+
+    with pytest.raises(PdfError, match="page 2 is repeated"):
+        target.merge_pages(source, [1, 2, 2], None)
+
+    assert target.save_bytes() == before
+    assert target.page_count() == 1
+    target.merge_pages(source, [3, 1], None)
+    assert target.page_count() == 3
 
 
 def test_select_rejects_invalid_page_before_mutation(one_page_pdf: bytes) -> None:
