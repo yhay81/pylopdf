@@ -6718,10 +6718,15 @@ impl _Document {
             return Ok((None, None, None, nameddest));
         };
         // Element 0 should be a page reference, but some producers write a
-        // zero-based integer. Keep references unresolved for reverse lookup.
+        // zero-based integer. Convert it without truncation and require an
+        // existing page; anything else stays unresolved like an unknown
+        // page reference.
         let page = match arr.first() {
             Some(Object::Reference(id)) => page_map.get(id).copied(),
-            Some(Object::Integer(i)) if *i >= 0 => Some(*i as u32 + 1),
+            Some(Object::Integer(index)) => usize::try_from(*index)
+                .ok()
+                .filter(|index| *index < page_map.len())
+                .and_then(|index| u32::try_from(index + 1).ok()),
             _ => None,
         };
         let mut to = None;

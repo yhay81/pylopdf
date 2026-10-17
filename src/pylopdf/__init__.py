@@ -2555,6 +2555,8 @@ class Page:
         - ``LINK_URI``: ``uri``.
         - ``LINK_GOTO``: zero-based ``page`` or -1 when unresolved, plus
           optional ``to`` (:class:`Point`), ``zoom``, and ``nameddest``.
+          Integer page indexes, which some producers write instead of page
+          references, resolve only when they name an existing page.
         - ``LINK_GOTOR`` / ``LINK_LAUNCH``: ``file`` and optional ``nameddest``.
         - ``LINK_NAMED``: action ``name``, such as ``NextPage``.
 

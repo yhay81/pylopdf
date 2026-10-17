@@ -69,6 +69,62 @@ def test_direct_dest_array() -> None:
     doc.close()
 
 
+def _build_integer_dest_fixture(link: str, catalog_extra: str = "") -> bytes:
+    """Build two pages whose first page holds one link using ``link`` entries."""
+    return build_raw_pdf(
+        {
+            1: f"<< /Type /Catalog /Pages 2 0 R{catalog_extra} >>",
+            2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] >>",
+            4: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            5: f"<< /Type /Annot /Subtype /Link /Rect [10 10 100 30] {link} >>",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        (0, 0),
+        (1, 1),
+        (2, -1),
+        (7, -1),
+        (-1, -1),
+        # Former truncating casts wrapped these to page -1, 0, and 1.
+        (2**32 - 1, -1),
+        (2**32, -1),
+        (2**32 + 1, -1),
+        (2**63 - 1, -1),
+    ],
+)
+@pytest.mark.parametrize("entry", ["/Dest [{index} /XYZ 5 195 null]", "/A << /S /GoTo /D [{index} /XYZ 5 195 null] >>"])
+def test_integer_destination_page_is_checked_against_the_page_count(index: int, expected: int, entry: str) -> None:
+    doc = pylopdf.open(stream=_build_integer_dest_fixture(entry.format(index=index)))
+    (link,) = doc[0].get_links()
+
+    assert link["kind"] == pylopdf.LINK_GOTO
+    assert link["page"] == expected
+    if expected >= 0:
+        assert link["to"] == pylopdf.Point(5.0, 5.0)
+    else:
+        assert "to" not in link
+    assert "nameddest" not in link
+
+
+def test_named_destination_with_out_of_range_integer_page_is_unresolved() -> None:
+    doc = pylopdf.open(
+        stream=_build_integer_dest_fixture(
+            "/Dest (far)",
+            " /Names << /Dests << /Names [(far) [4294967297 /Fit] (near) [1 /Fit]] >> >>",
+        )
+    )
+    (link,) = doc[0].get_links()
+
+    assert link["page"] == -1
+    assert link["nameddest"] == "far"
+    assert "to" not in link
+
+
 def test_uri_link_roundtrip() -> None:
     """Read back a URI link created with add_link_annot."""
     doc = pylopdf.open(stream=build_pdf(["Hello link"]))

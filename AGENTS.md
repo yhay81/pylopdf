@@ -655,7 +655,11 @@ overview.
   ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
   dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
   borrowed index lazily per call; do not rescan the tree for each link.
-  Traversal stacks, cycle sets, and the borrowed index grow fallibly.
+  Traversal stacks, cycle sets, and the borrowed index grow fallibly. Integer
+  page indexes in link destinations use checked conversion and must name an
+  existing page; anything else is unresolved like an unknown page reference.
+  Convert PDF-supplied integers with `try_from` rather than truncating `as`
+  casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 4,096 nodes/entries,

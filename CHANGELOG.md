@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `Page.get_links()` now validates integer destination page indexes, which some
+  producers write instead of page references. A checked conversion replaces
+  the truncating cast, and an index outside the document is unresolved
+  (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
+  to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
+  builds), and an index past the last page was returned unchanged.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added
