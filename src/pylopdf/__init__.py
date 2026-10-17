@@ -2569,9 +2569,11 @@ class Page:
         GoTo named destinations resolve from both the ``/Names`` name tree and
         the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
         1 MiB aggregate metadata-text boundaries with :meth:`annots`. Name-tree
-        resolution builds one borrowed index per call, is cycle-aware, and
-        rejects excessive entries, nodes, edges, depth, or key bytes instead of
-        returning a silent unresolved result.
+        resolution builds one borrowed index per call and is cycle-aware. Trees
+        above 65,536 entries or nodes or 131,072 edges raise
+        :class:`LimitError` with code ``named_destination_count``, above 16 MiB
+        of key text with ``named_destination_text_size``, and above 32 levels
+        with :class:`PdfError`, instead of returning a silent unresolved result.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {
@@ -3554,7 +3556,10 @@ class Document:
 
         The iterable may contain up to the larger of the page count and 4,096
         entries; further entries raise :class:`LimitError` with code
-        ``page_entry_count`` before the document changes.
+        ``page_entry_count`` before the document changes. Links, outline
+        destinations, the open action, and named destinations that target
+        deleted pages are removed under the same limits as :meth:`get_toc` and
+        :meth:`Page.get_links`; a refusal leaves the document unchanged.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         if not numbers:
@@ -3569,7 +3574,8 @@ class Document:
         duplicate shares Contents and Resources objects with the original. The
         iterable may contain up to the larger of the page count and 4,096
         entries, so a selection never grows a large document; further entries
-        raise :class:`LimitError` with code ``page_entry_count``.
+        raise :class:`LimitError` with code ``page_entry_count``. Navigation to
+        excluded pages is cleaned as in :meth:`delete_pages`.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         self._doc.select(numbers)
@@ -3588,7 +3594,10 @@ class Document:
         zero-based ``start_at``; negative source indices count from the end and
         ``start_at=-1`` appends. A descending range imports in reverse order.
         The range is bounded by the source document itself, so a complete
-        document of any page count can be inserted.
+        document of any page count can be inserted. Source-local links,
+        including named destinations, become explicit destinations or are
+        omitted when their target page is not imported; source name trees share
+        the :meth:`Page.get_links` limits.
         """
         self._ensure_open()
         if other is self:
@@ -3656,7 +3665,8 @@ class Document:
         cycle-aware and rejects more than 65,536 nodes or entries or 131,072
         edges with ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
         source/returned text with ``"toc_text_size"``, and more than 64 levels
-        or 32 destination indirections.
+        or 32 destination indirections. Named destinations resolve through the
+        same bounded name-tree index as :meth:`Page.get_links`.
         """
         self._ensure_open()
         return [[level, title, page] for level, title, page in self._doc.get_toc()]

@@ -30,6 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `toc_entry_count`, read-side text refusals use `toc_text_size`, and page
   deletion and selection share the outline limits so every written outline
   stays editable.
+- `get_toc()`, `Page.get_links()`, `insert_pdf()`, `delete_pages()`, and
+  `select()` accept the named-destination trees of large LaTeX/hyperref
+  manuals, which name every page, section, equation, figure, citation, and
+  listing line: `/Names/Dests` trees may hold 65,536 entries/nodes, 131,072
+  edges, and 16 MiB of key text (formerly 4,096, 8,192, and 1 MiB), keeping the
+  32-level depth limit. Refusals raise `LimitError` with the new stable codes
+  `named_destination_count` and `named_destination_text_size` instead of a
+  plain `PdfError`. Page cleanup applies the same limits to the name tree and
+  legacy `/Dests`, copies retained destination values within 1,048,576 direct
+  objects and 16 MiB of text, and charges destination names looked up during
+  outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
+  link budget, so every well-formed tree and outline that resolves can also be
+  cleaned and imported.
 
 ## [0.14.0] - 2026-10-13
 

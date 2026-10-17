@@ -83,7 +83,8 @@ repeated source pages before mutation.
 `text_size`, `text_glyph_count`, `interpretation_size`, `embedded_file_size`,
 `embedded_file_input_size`, `form_field_input_size`, `form_content_size`,
 `annotation_input_size`, `metadata_input_size`, `toc_input_size`,
-`toc_entry_count`, `toc_text_size`, `page_entry_count`,
+`toc_entry_count`, `toc_text_size`, `named_destination_count`,
+`named_destination_text_size`, `page_entry_count`,
 `page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
@@ -266,10 +267,18 @@ probe's `repaired` key), and saving rewrites normalized xref data.
   caches. Caller text is rejected before PyO3 copying or rectangle iteration
   with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
-  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
-  instead of silently reporting a truncated tree as unresolved.
-  `Page.get_links()` builds one borrowed index per call rather than traversing
-  the tree again for every named link.
+  above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
+  above 16 MiB of key bytes with `named_destination_text_size`, or above 32
+  levels, instead of silently reporting a truncated tree as unresolved.
+  `get_toc()`, `Page.get_links()`, link import in `insert_pdf()`, and the
+  rewrite of the name tree and legacy `/Dests` during page deletion and
+  selection share these limits, so every well-formed tree that resolves can
+  also be cleaned and imported. The rewrite copies retained destination values
+  within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
+  looked-up destination name costs the budget of the structure being walked:
+  TOC text for an outline, key text for a name tree, or one page's 1 MiB of
+  link metadata. `Page.get_links()` builds one borrowed index per call rather
+  than traversing the tree again for every named link.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
   the GIL, and reject partial output above 65,536 nodes/entries or 131,072
   edges with `toc_entry_count`, above 16 MiB of source/returned text with

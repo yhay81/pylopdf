@@ -663,18 +663,32 @@ overview.
   highlight iterables stop at item 4,097 without complete materialization.
   Successful output must remain readable under the same budget.
 - Named-destination `/Names/Dests` lookup is iterative, visits indirect cycles
-  once, and rejects traversal above 4,096 entries/nodes, 8,192 edges, 32
-  levels, or 1 MiB of scanned key bytes. Do not turn a truncated lookup into an
-  ordinary unresolved destination. Legacy catalog `/Dests` remains a direct
-  dictionary lookup after a bounded name-tree miss. `Page.get_links` builds one
-  borrowed index lazily per call; do not rescan the tree for each link.
-  Traversal stacks, cycle sets, and the borrowed index grow fallibly.
+  once, and rejects traversal above 65,536 entries/nodes or 131,072 edges with
+  `named_destination_count`, above 16 MiB of scanned key bytes with
+  `named_destination_text_size`, or above 32 levels. Do not turn a truncated
+  lookup into an ordinary unresolved destination. TOC reads, `Page.get_links`,
+  `insert_pdf` link import, and page cleanup share these large-manual limits:
+  the cleanup rewrite in `rust/src/page_cleanup.rs` matches the read-side
+  walker's dictionary-node, edge, entry, and key-byte accounting, and legacy
+  catalog `/Dests` uses the same entry and key-text limits, so every
+  well-formed tree that resolves can also be cleaned and imported. Admitted
+  keys are copied without a second charge; retained destination values copy
+  within 16 direct objects per admitted entry (1,048,576) and 16 MiB of value
+  text. Names looked up by `resolve_local_destination_array` charge the
+  `DestinationNameBudget` of the structure being walked: outline cleanup uses
+  the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
+  and page links and the OpenAction keep the 1 MiB per-page annotation budget.
+  Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
+  name-tree miss. `Page.get_links` builds one borrowed index lazily per call;
+  do not rescan the tree for each link. Traversal stacks, cycle sets, and the
+  borrowed index grow fallibly.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
   131,072 edges with `toc_entry_count`, above 16 MiB of source/returned text
   with `toc_text_size`, or above 64 levels or 32 destination indirections.
-  These large-manual limits are shared by page-cleanup outline traversal so
+  These large-manual limits are shared by page-cleanup outline traversal,
+  which also charges looked-up destination names to the TOC text budget, so
   every written outline remains readable and editable. Page indexes,
   destination and outline cycle sets, outline stacks, and returned entries grow
   fallibly. `set_toc` preflights the entry, depth, and source/encoded-title

@@ -79,12 +79,15 @@ const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 
-/// Bound named-destination name-tree lookup used by link resolution.
-const MAX_NAMED_DEST_ENTRIES: usize = 4_096;
-const MAX_NAMED_DEST_TREE_NODES: usize = 4_096;
-const MAX_NAMED_DEST_TREE_EDGES: usize = 8_192;
-const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
-const MAX_NAMED_DEST_NAME_BYTES: usize = 1024 * 1024;
+/// Bound named-destination name trees at the scale of large hyperref manuals.
+///
+/// TOC, link, import, and page-cleanup traversal share these limits so every
+/// well-formed tree that resolves can also be cleaned and imported.
+pub(crate) const MAX_NAMED_DEST_ENTRIES: usize = 65_536;
+pub(crate) const MAX_NAMED_DEST_TREE_NODES: usize = 65_536;
+pub(crate) const MAX_NAMED_DEST_TREE_EDGES: usize = 131_072;
+pub(crate) const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
+pub(crate) const MAX_NAMED_DEST_NAME_BYTES: usize = 16 * 1024 * 1024;
 
 /// Bound outline traversal and returned TOC metadata for large manuals.
 ///
@@ -339,20 +342,16 @@ fn visit_named_destinations<'a>(
         };
         nodes = nodes.saturating_add(1);
         if nodes > MAX_NAMED_DEST_TREE_NODES {
-            return Err(PdfError::new_err(format!(
+            return Err(named_destination_count_err(format!(
                 "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_NODES}-node safety limit"
             )));
         }
         if let Ok(names_object) = node.get(b"Names")
             && let Ok(names) = deref_object(doc, names_object).as_array()
         {
-            entries = entries
-                .checked_add(names.len().div_ceil(2))
-                .ok_or_else(|| {
-                    PdfError::new_err("named-destination tree exceeds the platform size limit")
-                })?;
+            entries = entries.saturating_add(names.len().div_ceil(2));
             if entries > MAX_NAMED_DEST_ENTRIES {
-                return Err(PdfError::new_err(format!(
+                return Err(named_destination_count_err(format!(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_ENTRIES}-entry safety limit"
                 )));
             }
@@ -361,14 +360,7 @@ fn visit_named_destinations<'a>(
                 let Ok(key) = deref_object(doc, key).as_str() else {
                     continue;
                 };
-                name_bytes = name_bytes.checked_add(key.len()).ok_or_else(|| {
-                    PdfError::new_err("named-destination keys exceed the platform size limit")
-                })?;
-                if name_bytes > MAX_NAMED_DEST_NAME_BYTES {
-                    return Err(PdfError::new_err(format!(
-                        "named-destination keys exceed the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
-                    )));
-                }
+                add_named_destination_text_budget(&mut name_bytes, key.len())?;
                 visitor(key, deref_object(doc, value))?;
             }
         }
@@ -380,11 +372,9 @@ fn visit_named_destinations<'a>(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_DEPTH}-level safety limit"
                 )));
             }
-            edges = edges.checked_add(kids.len()).ok_or_else(|| {
-                PdfError::new_err("named-destination tree exceeds the platform size limit")
-            })?;
+            edges = edges.saturating_add(kids.len());
             if edges > MAX_NAMED_DEST_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(named_destination_count_err(format!(
                     "named-destination tree exceeds the {MAX_NAMED_DEST_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -437,12 +427,56 @@ fn lookup_legacy_named_dest<'a>(doc: &'a Document, name: &[u8]) -> Option<&'a Ob
         .map(|value| deref_object(doc, value))
 }
 
+/// Report one named-destination count beyond the shared large-manual boundary.
+pub(crate) fn named_destination_count_err(message: String) -> PyErr {
+    limit_err("named_destination_count", message)
+}
+
+/// Charge named-destination key or lookup text without overflow or partial output.
+pub(crate) fn add_named_destination_text_budget(total: &mut usize, amount: usize) -> PyResult<()> {
+    *total = total.saturating_add(amount);
+    if *total > MAX_NAMED_DEST_NAME_BYTES {
+        return Err(limit_err(
+            "named_destination_text_size",
+            format!(
+                "named-destination text exceeds the {MAX_NAMED_DEST_NAME_BYTES}-byte safety limit"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The budget charged for destination names looked up during one traversal.
+///
+/// A name costs the budget of the structure that contains it, so a large
+/// outline or name tree is never limited by one page's 1 MiB link budget.
+#[derive(Clone, Copy)]
+pub(crate) enum DestinationNameBudget {
+    /// One page's links share its 1 MiB annotation metadata budget.
+    Annotation,
+    /// Outline walks share the 16 MiB TOC source-text budget.
+    Toc,
+    /// Name-tree rewrites share the 16 MiB named-destination key budget.
+    NamedDestination,
+}
+
+impl DestinationNameBudget {
+    fn charge(self, total: &mut usize, amount: usize) -> PyResult<()> {
+        match self {
+            Self::Annotation => add_annotation_budget(total, amount, "local destination text"),
+            Self::Toc => add_toc_text_budget(total, amount, "destination text"),
+            Self::NamedDestination => add_named_destination_text_budget(total, amount),
+        }
+    }
+}
+
 /// Resolve a local destination without copying its source object graph.
 pub(crate) fn resolve_local_destination_array<'a>(
     doc: &'a Document,
     destination: &'a Object,
     named_destinations: &mut Option<HashMap<&'a [u8], &'a Object>>,
     source_bytes: &mut usize,
+    budget: DestinationNameBudget,
 ) -> PyResult<Option<&'a [Object]>> {
     let mut current = destination;
     let mut visited = Vec::new();
@@ -466,7 +500,7 @@ pub(crate) fn resolve_local_destination_array<'a>(
                 current = object;
             }
             Object::Name(name) | Object::String(name, _) => {
-                add_annotation_budget(source_bytes, name.len(), "local destination text")?;
+                budget.charge(source_bytes, name.len())?;
                 if named_destinations.is_none() {
                     *named_destinations = Some(named_destination_index(doc)?);
                 }
@@ -2047,6 +2081,7 @@ fn prepare_imported_page_links<'a>(
             destination,
             named_destinations,
             &mut source_bytes,
+            DestinationNameBudget::Annotation,
         )? {
             Some(array) => imported_destination(doc, array, source_pages, imported_pages)?,
             None => None,
