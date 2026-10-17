@@ -1859,13 +1859,16 @@ fn page_attribute_has_value(doc: &Document, dictionary: &Dictionary, key: &[u8])
         return false;
     };
     // A null dictionary value is equivalent to an omitted key, including an
-    // indirect null. Leave malformed reference validation to the existing readers.
+    // indirect null and a reference to a missing object, which ISO 32000-2
+    // §7.3.10 reads as null. Import renumbering turns such references into
+    // null, so imported, flattened, and read pages inherit the same value.
+    // Leave over-deep reference chains to the existing readers.
     for _ in 0..MAX_PAGE_RESOURCE_REFERENCE_DEPTH {
         match value {
             Object::Null => return false,
             Object::Reference(id) => match doc.objects.get(id) {
                 Some(object) => value = object,
-                None => return true,
+                None => return false,
             },
             _ => return true,
         }

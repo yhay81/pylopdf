@@ -73,7 +73,12 @@ overview.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
   `MediaBox`, `CropBox`, `Rotate`) into page dictionaries because lopdf does not
-  resolve page attribute inheritance.
+  resolve page attribute inheritance. `page_attribute_has_value` treats a null
+  value, an indirect null, and a reference to a missing object as an omitted
+  attribute, following ISO 32000-2 §7.3.7 and §7.3.10. Imports, page-tree
+  rebuilds, and drawing therefore materialize the value inherited from the
+  original ancestors, or the source default, and the page geometry readers
+  inherit past such a value in the same way.
 - Text extraction is implemented as a hayro `Device` in `rust/src/extract.rs`.
   It collects glyph Unicode and positions, then assembles lines
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
@@ -482,11 +487,14 @@ overview.
   IDs, twice when page numbers descend in page order, and rescans the bookmark
   table that `set_toc` fills once per renumbered object, so it is quadratic in
   source object count. The replacement keeps lopdf's numbering: objects keep
-  their generation and take consecutive numbers in ascending ID order, page
-  objects trade slots so that page-tree order ascends, and references to
-  missing objects keep their numbers. Read the page order with the bounded
-  walker before renumbering, never after it, because a missing Kids entry can
-  share a renumbered object's number. A hash map reserved for the object count
+  their generation and take consecutive numbers in ascending ID order, and page
+  objects trade slots so that page-tree order ascends. Unlike lopdf, it
+  replaces every reference to a missing object, matched by number and
+  generation, with null, as ISO 32000-2 §7.3.10 reads it. A kept number would
+  resolve to whatever target object uses it after import, including objects
+  that the import or a later edit adds. Read the page order with the bounded
+  walker before renumbering; `renumber_objects` needs it to order page slots
+  and rewrites it to the new IDs. A hash map reserved for the object count
   assigns IDs, a fallibly grown stack rewrites references in the trailer and
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
@@ -1002,9 +1010,16 @@ overview.
   `prune_objects` and `renumber_objects_with`; do not call them or the other
   helpers built on it (`delete_object`, `delete_zero_length_streams`, and
   lopdf's own `delete_pages`).
-- References to missing objects keep their numbers through import
-  renumbering, as in lopdf, so after `insert_pdf` or `show_pdf_page` they can
-  resolve to unrelated target objects that use those numbers.
+- lopdf's `renumber_objects_with` keeps the number of a reference to a missing
+  object, so after an import it resolves to whichever object takes that
+  number. pylopdf's import renumbering writes null instead. The target's own
+  references are not rewritten: one that names a number above the target's
+  `max_id` still resolves to the object that a later import or allocation
+  receives. lopdf also derives `max_id` from the highest cross-reference
+  entry, while it stores each loaded object under the number in its own header
+  and adds object-stream members missing from the cross-reference table. In a
+  malformed file such an object can sit above `max_id`, and a later
+  allocation replaces it.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
