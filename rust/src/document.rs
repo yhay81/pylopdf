@@ -34,6 +34,7 @@ use crate::image_compression;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
+use crate::prune::prune_unreachable_objects;
 use crate::text_replace::{self, TextReplacementError};
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -5379,7 +5380,7 @@ impl _Document {
         self.push_page_content(page_id, ops, drawing_plan.content)?;
         // All source non-page objects were moved initially; prune assets and
         // attachments unreachable from the Form XObject.
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -8310,7 +8311,7 @@ impl _Document {
         self.rebuild_page_tree_with_cleanup(pages_id, retained, Some(&cleanup))?;
         cleanup.apply(&mut self.doc);
         self.invalidate_hayro_pdf();
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -8601,7 +8602,7 @@ impl _Document {
             // transplant_pages initially moves all non-page objects. Prune
             // attachments/metadata unreachable from selected pages or hidden
             // source data remains even for a full-range append.
-            self.doc.prune_objects();
+            prune_unreachable_objects(&mut self.doc)?;
             Ok(())
         })
     }
@@ -8633,7 +8634,7 @@ impl _Document {
         });
         let order = Self::spliced_page_order(existing_pages, vec![page_id], position)?;
         self.rebuild_page_tree(pages_id, order)?;
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -8652,7 +8653,7 @@ impl _Document {
         let new_id = self.doc.add_object(Object::Dictionary(dict));
         let order = Self::spliced_page_order(existing_pages, vec![new_id], position)?;
         self.rebuild_page_tree(pages_id, order)?;
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -8766,7 +8767,7 @@ impl _Document {
 
         cleanup.apply(&mut self.doc);
         // Remove pages and intermediate nodes that became unreachable.
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -9079,7 +9080,7 @@ impl _Document {
             catalog.remove(b"Outlines");
         }
         if is_empty {
-            self.doc.prune_objects();
+            prune_unreachable_objects(&mut self.doc)?;
             return Ok(());
         }
         // parents[level - 1] = latest bookmark ID at that level.
@@ -9103,7 +9104,7 @@ impl _Document {
                 .set("Outlines", Object::Reference(outline_id));
         }
         // Prune old outline objects.
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
 
@@ -9228,9 +9229,9 @@ impl _Document {
     }
 
     /// Remove unreferenced objects.
-    fn prune_objects(&mut self) {
+    fn prune_objects(&mut self) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        self.doc.prune_objects();
+        prune_unreachable_objects(&mut self.doc)
     }
 
     /// Draw JPEG/PNG bytes into display `rect` on a one-based page.

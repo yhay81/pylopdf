@@ -428,6 +428,19 @@ overview.
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
+- Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
+  `copy_page`, `set_toc`, and `show_pdf_page`) and `garbage=True` saves remove
+  unreachable objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+  Never call lopdf's `Document::prune_objects`: it records visited IDs in a
+  `Vec` and scans it for every reference and every object, which is quadratic
+  in object count. The replacement keeps lopdf's semantics, following
+  references from the trailer through arrays, dictionaries, stream
+  dictionaries, and reference-valued indirect objects but never through stream
+  content, and visits each existing object once with a hash set and an explicit
+  stack. The set is reserved for the current object count and the stack grows
+  fallibly; refusal raises `PdfError` before any object is removed. Pruning
+  still runs after the edit it follows has committed, so a refusal there leaves
+  that edit and its unreachable objects in place.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
@@ -859,6 +872,10 @@ overview.
 - lopdf's content parser drops all operations after a comment line followed by
   an indented line, reported as lopdf#535. pylopdf is unaffected since v0.7
   because extraction moved to hayro (`rust/src/extract.rs`).
+- lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
+  helper built on it is quadratic in object count. pylopdf replaces
+  `prune_objects`; `renumber_objects_with`, used on the source snapshot by
+  `insert_pdf` and `show_pdf_page`, remains quadratic in source object count.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.

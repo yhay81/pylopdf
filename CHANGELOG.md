@@ -57,6 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
   that manual. Refusals still raise `LimitError` with the same codes on every
   named lookup, and results are unchanged.
+- Structural edits and `garbage=True` saves now remove unreachable objects
+  with a pylopdf-owned reachability sweep instead of lopdf's `prune_objects`,
+  which scanned a list of visited IDs for every reference and every object.
+  That made `delete_pages`, `select`, `insert_pdf`, `new_page`, `copy_page`,
+  `set_toc`, and `show_pdf_page` quadratic in the edited document's object
+  count. The same objects survive: across the bundled corpus and generated
+  fixtures, every edit saved byte-identical output. On a generated
+  50,000-page document (about 100,000 objects), the `garbage=True` prune fell
+  from 4.15 s to 0.016 s, `delete_pages([0])` from 5.26 s to 0.16 s,
+  `new_page()` from 5.33 s to 0.24 s, and a 4,096-entry `set_toc()` from
+  5.04 s to 0.047 s. Allocation refusal in the sweep raises `PdfError`.
 
 ## [0.14.0] - 2026-10-13
 
