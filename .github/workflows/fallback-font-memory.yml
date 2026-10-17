@@ -1,0 +1,81 @@
+# Temporary evaluation branch only: rerun the memory scenarios with every
+# document released before the final measurement, reusing the wheels built by
+# the fallback font cache evaluation run instead of rebuilding them.
+name: Fallback font cache memory evaluation
+
+on:
+  push:
+    branches: ["claude/fallback-font-cache-eval-memory"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  memory:
+    name: memory (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+    env:
+      UV_PYTHON_PREFERENCE: only-system
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.13.0"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: eval-wheel-${{ matrix.platform.target }}-*
+          path: artifacts
+          run-id: 39077594916
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: eval-font-wheels
+          path: font-wheels
+          run-id: 39077594916
+          github-token: ${{ github.token }}
+      - name: Create one environment per build
+        shell: bash
+        env:
+          TARGET: ${{ matrix.platform.target }}
+        run: |
+          interpreter="$(python -c 'import sys; print(sys.executable)')"
+          for variant in main shared; do
+            uv venv --python "${interpreter}" "venv-${variant}"
+            python_bin="venv-${variant}/bin/python"
+            [[ -x "${python_bin}" ]] || python_bin="venv-${variant}/Scripts/python.exe"
+            uv pip install --python "${python_bin}" psutil==7.2.2 \
+              artifacts/eval-wheel-"${TARGET}-${variant}"/*.whl font-wheels/*.whl
+          done
+          python .github/fallback-font-eval/make_fixtures.py fixtures
+      - name: Run interleaved memory rounds
+        shell: bash
+        run: |
+          main_python="venv-main/bin/python"
+          [[ -x "${main_python}" ]] || main_python="venv-main/Scripts/python.exe"
+          shared_python="venv-shared/bin/python"
+          [[ -x "${shared_python}" ]] || shared_python="venv-shared/Scripts/python.exe"
+          python .github/fallback-font-eval/mem_ab.py 8 tests/assets/real_world fixtures \
+            "${main_python}" "${shared_python}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: eval-memory-${{ matrix.platform.target }}
+          path: memory-results.json
+          retention-days: 30

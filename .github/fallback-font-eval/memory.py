@@ -3,8 +3,8 @@
 Usage: python memory.py CORPUS_DIR FIXTURE_DIR SCENARIO
 
 Prints JSON with resident set size (MiB) before the scenario, the process
-peak, and after it (documents closed, except ``open_documents``, which keeps
-every document open).
+peak, and after it. Every document is released before the final measurement,
+except in ``open_documents``, which keeps every rendered document open.
 """
 
 from __future__ import annotations
@@ -39,6 +39,17 @@ def peak_bytes(process: psutil.Process) -> int:
     return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
 
+def render_first_page(data: bytes, scale: float) -> None:
+    """Render one fresh document that is released when this returns."""
+    with pylopdf.open(stream=data) as doc:
+        doc[0].get_pixmap(scale=scale)
+
+
+def extract_text(data: bytes) -> None:
+    with pylopdf.open(stream=data) as doc:
+        doc.get_text()
+
+
 def main() -> None:
     paths = sorted(Path(sys.argv[1]).glob("*.pdf"))
     corpus = [path.read_bytes() for path in paths]
@@ -51,13 +62,11 @@ def main() -> None:
     before = process.memory_info().rss
     documents: list[pylopdf.Document] = []
     if scenario == "single_render":
-        with pylopdf.open(stream=smallest) as doc:
-            doc[0].get_pixmap(scale=2)
+        render_first_page(smallest, 2)
     elif scenario == "fresh_renders":
         for _ in range(3):
             for data in corpus + fixtures:
-                with pylopdf.open(stream=data) as doc:
-                    doc[0].get_pixmap(scale=2)
+                render_first_page(data, 2)
     elif scenario == "open_documents":
         for data in corpus:
             doc = pylopdf.open(stream=data)
@@ -65,8 +74,7 @@ def main() -> None:
             documents.append(doc)
     elif scenario == "extract_only":
         for data in corpus + fixtures:
-            with pylopdf.open(stream=data) as doc:
-                doc.get_text()
+            extract_text(data)
     else:
         raise SystemExit(f"unknown scenario: {scenario}")
     gc.collect()
