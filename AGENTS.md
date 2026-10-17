@@ -826,6 +826,28 @@ overview.
   before switching profiles. Clean compile steps took 3m29s–10m18s per target,
   versus 2m33s–10m25s with the default profile. On a 12-core development
   machine, an incremental extension rebuild took about 35 seconds instead of 10.
+- Native release wheels keep their symbol tables. `rust/Cargo.toml` leaves
+  `strip` unset, which Cargo resolves to `debuginfo` because release builds have
+  no debug info, and release.yml passes no maturin `--strip`. The 2026-10-18
+  comparison built the v0.14.0 sources with the thin-LTO profile for all five
+  GitHub-hosted release targets, with maturin `--strip` and with
+  `strip = "symbols"`: abi3 and cp314t wheels shrank 4.8–7.1% (0.34–0.49 MiB)
+  and installed extensions 12.4–17.7% on Linux and macOS. Windows did not change
+  because the MSVC linker ignores `strip` and keeps symbols in an unshipped PDB.
+  maturin `--strip` left every code section byte-identical, and interleaved
+  benchmarks and import time stayed within runner noise. Cargo hashes profile
+  settings into crate metadata, so `strip = "symbols"` also changed code layout
+  on all five targets, including Windows. Stripping removed the names that
+  native diagnostics read. `RUST_BACKTRACE=1` printed no frames;
+  `RUST_BACKTRACE=full` showed pylopdf frames as `<unknown>` on Linux and as
+  `PyInit_pylopdf_core` on macOS; gdb, perf, and py-spy `--native` lost every
+  pylopdf name on Linux; and `sample`, crash reports, and Python 3.14
+  faulthandler C stacks lost them on macOS. Panic messages and source locations
+  survived; Windows wheels already offer only those. Stripping keeps the Mach-O
+  UUID and macOS caches symbolication by UUID, so compare stripped and
+  unstripped macOS builds on separate runners; Linux linker stripping also
+  changes the GNU build ID. Revisit stripping only together with a way to
+  symbolize reports from published wheels.
 - Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
   exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
   pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
