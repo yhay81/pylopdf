@@ -63,13 +63,23 @@ page-tree walkerを使います。Page／Pages objectの再利用とcycle、32�
 `max_pages`は上限を超えた最初のpageで停止します。pageポリシーなしのopenは互換性を
 維持し、これらのpage-tree検査を最初のpage-indexing操作まで遅延します。
 
+page batchは1回取得したpage数でentryを検証します。`pages=None`と`insert_pdf()`の
+全範囲指定は、page数にかかわらずすべてのpageを対象にします。明示sequenceは同じpageを
+繰り返せますが、page数と4,096の大きい方を超えた最初のentryでmaterializationを止め、
+`page_entry_count`を返すため、反復しても文書全体を1回処理する以上のcostになりません。
+text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り直し、`max_size`、
+`max_text_size`などの出力予算はcall全体に適用されます。core APIを直接呼んでもentry
+検査は繰り返され、core page importは変更前に重複した取り込み元pageを拒否します。
+
 `LimitError`は`PdfError`のsubclassです。安定した`code`は`file_size`、
 `page_count`、`object_count`、`object_depth`、`decompressed_size`、
 `page_content_size`、`total_decompressed_size`、`text_size`、
 `text_glyph_count`、`interpretation_size`、`embedded_file_size`、
 `embedded_file_input_size`、`form_field_input_size`、`form_content_size`、
 `annotation_input_size`、
-`metadata_input_size`、`toc_input_size`、`page_label_input_size`、
+`metadata_input_size`、`toc_input_size`、`toc_entry_count`、`toc_text_size`、
+`named_destination_count`、`named_destination_text_size`、
+`page_entry_count`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
@@ -95,10 +105,11 @@ writerは境界を越えるwriteを拒否し、不完全なrenderer／extractor 
 互換性のため既定値は`None`で、`DocumentLimits.web()`は64 MiBです。
 
 `max_text_size`を設定すると、plain-text抽出は組立後の正確なUTF-8 sizeを事前検査し、
-private batchをglyph payload budgetの2倍に制限します。空でないglyphはpayloadを
-最低1 byte持ち、推定gapと改行の合計はglyph数を超えません。batchは最大4,096 page
-entryのため、同じpageの反復でもポリシーを回避できません。拒否codeは`text_size`の
-ままで、互換性のため既定値は`None`です。
+1回の抽出callをglyph payload budgetの2倍に制限します。空でないglyphはpayloadを
+最低1 byte持ち、推定gapと改行の合計はglyph数を超えません。この出力上限は内部の
+4,096 entry chunk単位ではなくcall全体に適用され、明示sequenceはpage数と4,096の
+大きい方までのentryに制限されるため、同じpageの反復でもポリシーを回避できません。
+拒否codeは`text_size`のままで、互換性のため既定値は`None`です。
 
 `max_text_glyphs`はline組立前に保持するrecord数を制限するため、構造化textが
 materializeできるblock、line、span、wordの数も制限します。同じpageのtext解釈と
@@ -182,8 +193,10 @@ lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入
   共有contentを変更せず、no-match/errorではdocumentとcacheを保持します。
   caller textはPyO3 copy前に完全なencoded copyを作らず逐次計数します。
   信頼できる入力では`max_size=None`で明示的に解除できます。
-- `delete_pages()`・`select()`・`insert_pdf()`はPythonとRustの双方で1 call
-  4,096 page entryが上限です。iterableは4,097 item目でgraph変更前に停止します。
+- `delete_pages()`と`select()`はPythonとRustの双方で、1 callあたりpage数と
+  4,096の大きい方までのentryを受け付けます。そのため同じpageを繰り返しても選択結果は
+  文書より大きくなりません。iterableは上限を超えた最初のentryでgraph変更前に停止し、
+  `page_entry_count`を返します。`insert_pdf()`は取り込み元の全範囲を受け付けます。
   空deleteはcache・generation・既存`Page` viewを保持します。
 - `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
   64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
@@ -222,14 +235,26 @@ lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入
   dependent object作成とcache無効化の前に検査します。caller textはPyO3 copyや
   rectangle iteration前に`annotation_input_size`で拒否し、highlight iterationは
   4,097 item目で停止します。
-- named destination lookupは参照cycleを一度だけ訪問し、4,096 entry/node、
-  8,192 edge、深さ32、key byte 1 MiBを超えるtreeを、通常の未解決として黙って
-  扱わず拒否します。`Page.get_links()`はnamed linkごとにtreeを再走査せず、
-  1 callにつき1つのborrowed indexを構築します。
+- named destination lookupは参照cycleを一度だけ訪問し、65,536 entry/nodeまたは
+  131,072 edgeを超えるtreeを`named_destination_count`、key byte 16 MiBを超える
+  treeを`named_destination_text_size`で拒否し、深さ32も超えさせません。途中で
+  打ち切ったtreeを通常の未解決として黙って扱うことはありません。`get_toc()`、
+  `Page.get_links()`、`insert_pdf()`のlink取り込み、page削除・選択時のname tree
+  と旧形式`/Dests`の書き換えはこの上限を共有するため、解決できる正しい形式の
+  treeはcleanupと取り込みもできます。書き換えでは、保持するdestination値を
+  direct object 1,048,576個（entryあたり16個）とtext 16 MiBの範囲でcopyします。
+  参照したdestination名は走査中の構造の予算に計上され、outlineはTOC text、
+  name treeはkey text、linkはpageごとの1 MiB link metadataを使います。
+  `Page.get_links()`は最初のnamed lookupでtreeを一度だけindex化し、次の編集
+  まではそのindexとpage indexを再利用するため、全pageのlinkを読んでも処理時間
+  は線形に収まります。保持するindexは同じentry・key text上限の範囲で重複しない
+  keyを一度ずつ持ち、拒否したtreeはcacheしません。
 - TOC読み取りは反復outline walkで参照cycleを一度だけ訪問し、GILを解放します。
-  4,096 node/entry、8,192 edge、深さ64、destination間接参照32段、source/returned
-  text 1 MiBを超える部分結果を拒否します。書き込みもentry・深さ・title textを
-  PyO3 copy・変更前に`toc_input_size`で検査します。
+  65,536 node/entryまたは131,072 edgeを超える部分結果は`toc_entry_count`、
+  source/returned text 16 MiBを超えるものは`toc_text_size`で拒否し、深さ64と
+  destination間接参照32段も超えさせません。書き込みも同じentry・深さ・title text
+  上限をPyO3 copy・変更前に`toc_entry_count`と`toc_input_size`で検査します。page
+  削除・選択はoutline上限を共有するため、書き込んだoutlineは編集可能なままです。
 - `Document.metadata`は標準Info 8項目だけをdecodeし、aggregate source/returned
   text 1 MiBを超えると拒否します。custom entryはPython出力にmaterializeしません。
   `peek_metadata(max_file_size=)`はpathまたはbyte inputをparse前に拒否でき、
@@ -237,13 +262,14 @@ lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入
   source/encoded text 1 MiBをPyO3 copy前に`metadata_input_size`で検査して
   原子的に適用します。
 - 埋め込みJavaScriptは設計上非対応で、実行されません。
-- `render_pages()`は最大4,096 page entryで、累積encoded PNG上限は既定512 MiB
-  です。並列結果は1つのatomic budgetを共有し、失敗時に部分listを返しません。
-  `max_size=None`で明示的に解除できます。worker admissionはlive raster/
-  conversion bufferを別に制御するため、application側で無制限の並列呼び出しを
+- `render_pages()`は既定で全pageを描画し、明示entryはpage数と4,096の大きい方
+  までです。累積encoded PNG上限は既定512 MiBです。並列結果は1つのatomic budgetを
+  共有し、失敗時に部分listを返しません。`max_size=None`で明示的に解除できます。
+  worker admissionはlive raster/conversion bufferを別に制御し、各workerは4,096
+  pageごとにhayro cacheを作り直すため、application側で無制限の並列呼び出しを
   重ねないでください。
-- `Document.to_markdown()`は最大4,096 page entryで、累積UTF-8出力上限は既定
-  64 MiBです。heading size集計passとrender passの双方で、同時に保持する
+- `Document.to_markdown()`は既定で全pageを変換し、明示entryはpage数と4,096の
+  大きい方までです。累積UTF-8出力上限は既定64 MiBです。heading size集計passとrender passの双方で、同時に保持する
   interpreted layout・table・wordは1 page分だけです。page出力を組み立てる前に
   各tableへ累積残予算を渡します。`Table.to_markdown()`も既定で同じ上限を持ち、
   merged-cell展開を含むescape後の正確なUTF-8 sizeを事前検査します。見出し、

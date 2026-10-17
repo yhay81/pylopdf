@@ -51,7 +51,7 @@ def _linked_pdf(*, indirect_annots: bool = False, excessive_names: bool = False)
     if indirect_annots:
         objects[25] = annots
     if excessive_names:
-        pairs = " ".join(f"(name{index}) [5 0 R /Fit]" for index in range(4097))
+        pairs = " ".join(f"(name{index}) [5 0 R /Fit]" for index in range(65_537))
         objects[17] = f"<< /Names [{pairs}] >>"
     return build_raw_pdf(objects)
 
@@ -120,11 +120,12 @@ def test_cleanup_limit_failure_preserves_document(operation: Literal["delete", "
     before = doc.tobytes()
     page = doc[0]
     if operation == "delete":
-        with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
             doc.delete_page(1)
     else:
-        with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+        with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
             doc.select([0, 2])
+    assert caught.value.code == "named_destination_count"
     assert doc.page_count == 3
     assert doc.tobytes() == before
     assert page.rect == pylopdf.Rect(0, 0, 200, 200)

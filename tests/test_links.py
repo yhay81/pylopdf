@@ -14,6 +14,10 @@ from conftest import build_pdf, build_raw_pdf
 import pylopdf
 
 ASSETS = Path(__file__).parent / "assets" / "real_world"
+MAX_NAMED_DEST_ENTRIES = 65_536
+MAX_NAMED_DEST_NODES = 65_536
+MAX_NAMED_DEST_EDGES = 131_072
+MAX_NAMED_DEST_TEXT_BYTES = 16 * 1024 * 1024
 
 
 def _build_direct_dest_fixture() -> bytes:
@@ -67,6 +71,62 @@ def test_direct_dest_array() -> None:
     assert "nameddest" not in link
     assert doc[1].get_links() == []
     doc.close()
+
+
+def _build_integer_dest_fixture(link: str, catalog_extra: str = "") -> bytes:
+    """Build two pages whose first page holds one link using ``link`` entries."""
+    return build_raw_pdf(
+        {
+            1: f"<< /Type /Catalog /Pages 2 0 R{catalog_extra} >>",
+            2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [5 0 R] >>",
+            4: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            5: f"<< /Type /Annot /Subtype /Link /Rect [10 10 100 30] {link} >>",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        (0, 0),
+        (1, 1),
+        (2, -1),
+        (7, -1),
+        (-1, -1),
+        # Former truncating casts wrapped these to page -1, 0, and 1.
+        (2**32 - 1, -1),
+        (2**32, -1),
+        (2**32 + 1, -1),
+        (2**63 - 1, -1),
+    ],
+)
+@pytest.mark.parametrize("entry", ["/Dest [{index} /XYZ 5 195 null]", "/A << /S /GoTo /D [{index} /XYZ 5 195 null] >>"])
+def test_integer_destination_page_is_checked_against_the_page_count(index: int, expected: int, entry: str) -> None:
+    doc = pylopdf.open(stream=_build_integer_dest_fixture(entry.format(index=index)))
+    (link,) = doc[0].get_links()
+
+    assert link["kind"] == pylopdf.LINK_GOTO
+    assert link["page"] == expected
+    if expected >= 0:
+        assert link["to"] == pylopdf.Point(5.0, 5.0)
+    else:
+        assert "to" not in link
+    assert "nameddest" not in link
+
+
+def test_named_destination_with_out_of_range_integer_page_is_unresolved() -> None:
+    doc = pylopdf.open(
+        stream=_build_integer_dest_fixture(
+            "/Dest (far)",
+            " /Names << /Dests << /Names [(far) [4294967297 /Fit] (near) [1 /Fit]] >> >>",
+        )
+    )
+    (link,) = doc[0].get_links()
+
+    assert link["page"] == -1
+    assert link["nameddest"] == "far"
+    assert "to" not in link
 
 
 def test_uri_link_roundtrip() -> None:
@@ -148,26 +208,23 @@ def test_named_destination_tree_rejects_excessive_depth() -> None:
 
 
 def test_named_destination_tree_rejects_excessive_entries() -> None:
-    pairs = " ".join(f"(key{index}) [3 0 R /Fit]" for index in range(4097))
+    pairs = " ".join(f"(key{index}) [3 0 R /Fit]" for index in range(MAX_NAMED_DEST_ENTRIES + 1))
     doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
-    with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
         doc[0].get_links()
+    assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_nodes() -> None:
-    child_ids = range(7, 4103)
-    kids = " ".join(f"{object_id} 0 R" for object_id in child_ids)
-    objects: dict[int, str | bytes] = {6: f"<< /Kids [{kids}] >>"}
-    for object_id in child_ids:
-        objects[object_id] = "<< >>"
-
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
-    with pytest.raises(pylopdf.PdfError, match="4096-node safety limit"):
+    kids = "<< >> " * MAX_NAMED_DEST_NODES
+    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Kids [{kids}] >>"}))
+    with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
         doc[0].get_links()
+    assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_edges() -> None:
-    kids = "7 0 R " * 8193
+    kids = "7 0 R " * (MAX_NAMED_DEST_EDGES + 1)
     doc = pylopdf.open(
         stream=_build_named_dest_tree_fixture(
             {
@@ -176,16 +233,18 @@ def test_named_destination_tree_rejects_excessive_edges() -> None:
             }
         )
     )
-    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="131072-edge safety limit") as caught:
         doc[0].get_links()
+    assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_key_bytes() -> None:
     key = "x" * 1024
-    pairs = f"({key}) [3 0 R /Fit] " * 1025
+    pairs = f"({key}) [3 0 R /Fit] " * (MAX_NAMED_DEST_TEXT_BYTES // len(key) + 1)
     doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
-    with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="16777216-byte safety limit") as caught:
         doc[0].get_links()
+    assert caught.value.code == "named_destination_text_size"
 
 
 def _build_import_link_fixture(*, legacy: bool = False, action: bool = True) -> bytes:
