@@ -977,12 +977,12 @@ rather than waiting automatically for v1.x.
       snapshot and use `Rc`, so a per-thread slot owns the snapshot `Arc` and
       its cache through `self_cell`; only the document's creating thread uses
       it, with one cache per thread and at most 64 retained pages. Linux
-      runners measured fresh-document renders within ±0.7%, first-page
-      re-renders -3.7% in corpus total (`usrguide` -19%, `mhlw-doc` -17%),
-      27-page `usrguide` `get_pixmap` loops -22% to -26% at 1x and -11% to
-      -13% at 2x, and about 2 MiB more retained memory, with pixel-identical
-      output. Type 1 font parsing was about 36% of a cold 1x `usrguide`
-      render. The cache does not close MuPDF's 2-3x warm-raster lead, which
+      runners measured fresh-document renders within 1.5%, first-page
+      re-renders 3-5% faster in corpus total (`usrguide` 20%, `mhlw-doc`
+      17-18%), and 27-page `usrguide` `get_pixmap` loops 23-27% faster at 1x
+      and 12-15% at 2x. Peak and retained memory grew by at most 2.5 MiB on
+      every target, and output was pixel-identical. Type 1 font parsing was
+      about 36% of a cold 1x `usrguide` render. The cache does not close MuPDF's 2-3x warm-raster lead, which
       comes from rasterization plus MuPDF's glyph and image caches rather than
       font parsing. A dedicated render thread per document was rejected: it
       frees the cache promptly but costs one OS thread per document, adds fork

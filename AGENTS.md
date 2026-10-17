@@ -396,10 +396,10 @@ overview.
   another thread cannot free the creating thread's slot, so that thread keeps
   at most one stale snapshot until it renders, invalidates or drops a document,
   or exits; keep this one-slot-per-thread bound. Interleaved 8-round A/B on
-  GitHub-hosted Linux runners measured fresh-document renders within ±0.7%,
-  first-page re-renders -3.7% in corpus total, and 27-page `usrguide.pdf`
-  `get_pixmap` loops -22% to -26% at 1x, with pixel-identical output on all
-  five targets.
+  GitHub-hosted Linux runners measured fresh-document renders within 1.5%,
+  first-page re-renders 3–5% faster in corpus total, and 27-page
+  `usrguide.pdf` `get_pixmap` loops 23–27% faster at 1x, with pixel-identical
+  output and at most 2.5 MiB more memory on all five targets.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual

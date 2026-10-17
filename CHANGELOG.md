@@ -169,14 +169,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Page.get_pixmap`, `Page.render`, and serial `render_pages` calls on the
   thread that opened it. Output stays pixel-identical. Interleaved A/B runs on
   GitHub-hosted Linux runners measured 27-page `get_pixmap` loops over the
-  Type 1 `usrguide.pdf` 22–26% faster at 1x and 11–13% faster at 2x, a
-  110-page `bill-hr815.pdf` loop at 0.5x 4% faster, and re-rendering each
-  corpus first page 3.7% faster in total; freshly opened documents rendered
-  within ±0.7%. Each thread retains at most one cache, covering at most 64
-  distinct pages between calls. Edits, fallback-font changes, `close()`, and
-  dropping the document release it on that thread. Calls from other threads,
-  parallel `render_pages` workers, SVG output, and text extraction keep
-  call-scoped caches.
+  Type 1 `usrguide.pdf` 23–27% faster at 1x and 12–15% faster at 2x, a
+  110-page `bill-hr815.pdf` loop at 0.5x 4–5% faster, and re-rendering each
+  corpus first page 3–5% faster in total; freshly opened documents rendered
+  within 1.5%. The retained cache added at most 2.5 MiB of peak or retained
+  memory across all five targets. Each thread retains at most one cache,
+  covering at most 64 distinct pages between calls. Edits, fallback-font
+  changes, `close()`, and dropping the document release it on that thread.
+  Calls from other threads, parallel `render_pages` workers, SVG output, and
+  text extraction keep call-scoped caches.
 
 ## [0.14.0] - 2026-10-13
 
