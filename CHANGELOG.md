@@ -7,12 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Whole-document operations now work for documents of any page count instead
+  of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
+  `render_pages()` with `pages=None`, and `insert_pdf()` of a complete source.
+  Text extraction and rendering process internally in 4,096-entry chunks that
+  each own their hayro cache, while `max_size`, `max_text_size`, and the other
+  output budgets still bound the complete call. Page entries are validated
+  against one page-count snapshot, removing a page-tree walk per entry that
+  made large batches quadratic, and budgeted extraction keeps running
+  admission totals instead of rescanning every interpreted page.
+- Explicit page sequences for `get_text`, `to_markdown`, `render_pages`,
+  `select`, and `delete_pages` are bounded by the larger of the page count and
+  4,096 instead of a fixed 4,096, so repetition never costs more than one
+  complete document pass. Materialization still stops early, and refusals
+  raise `LimitError` with the new stable code `page_entry_count`; it remains a
+  `ValueError` subclass. Direct core calls repeat the check, and the core page
+  import rejects repeated source pages before mutation instead of producing a
+  page tree that reuses one page object.
+- `set_toc()` and `get_toc()` accept large manuals: outlines may contain
+  65,536 entries/nodes, 131,072 edges, and 16 MiB of title text (formerly
+  4,096, 8,192, and 1 MiB). Entry-count refusals raise `LimitError` with
+  `toc_entry_count`, read-side text refusals use `toc_text_size`, and page
+  deletion and selection share the outline limits so every written outline
+  stays editable.
+- `get_toc()`, `Page.get_links()`, `insert_pdf()`, `delete_pages()`, and
+  `select()` accept the named-destination trees of large LaTeX/hyperref
+  manuals, which name every page, section, equation, figure, citation, and
+  listing line: `/Names/Dests` trees may hold 65,536 entries/nodes, 131,072
+  edges, and 16 MiB of key text (formerly 4,096, 8,192, and 1 MiB), keeping the
+  32-level depth limit. Refusals raise `LimitError` with the new stable codes
+  `named_destination_count` and `named_destination_text_size` instead of a
+  plain `PdfError`. Page cleanup applies the same limits to the name tree and
+  legacy `/Dests`, copies retained destination values within 1,048,576 direct
+  objects and 16 MiB of text, and charges destination names looked up during
+  outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
+  link budget, so every well-formed tree and outline that resolves can also be
+  cleaned and imported.
+- `insert_pdf` and `show_pdf_page` read the source page tree before
+  renumbering the source. A missing Kids entry keeps its object number, so when
+  a renumbered source object took that number, the import rejected the source
+  as reusing a page object or took a page outside the source page tree.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved
   (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
   to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
   builds), and an index past the last page was returned unchanged.
+
+### Performance
+- Reading the links of every page of a large manual is now linear in its
+  pages and links. `Page.get_links()` used to index the complete
+  `/Names/Dests` tree and walk the page tree five times for every call, plus
+  three more walks for every resolved link. It now indexes the tree once, on
+  the first named lookup, and reuses that index and the page index until the
+  next edit, which drops both. On a generated 1,000-page manual with 65,536
+  named destinations and three named links per page, reading every page's
+  links fell from 12.7 s to 0.03 s; with 20 links per page and a balanced page
+  tree, from 29.5 s to 0.13 s. The retained index holds each distinct key once
+  under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
+  that manual. Refusals still raise `LimitError` with the same codes on every
+  named lookup, and results are unchanged.
+- Structural edits and `garbage=True` saves now remove unreachable objects
+  with a pylopdf-owned reachability sweep instead of lopdf's `prune_objects`,
+  which scanned a list of visited IDs for every reference and every object.
+  That made `delete_pages`, `select`, `insert_pdf`, `new_page`, `copy_page`,
+  `set_toc`, and `show_pdf_page` quadratic in the edited document's object
+  count. The same objects survive: across the bundled corpus and generated
+  fixtures, every edit saved byte-identical output. On a generated
+  50,000-page document (about 100,000 objects), the `garbage=True` prune fell
+  from 4.15 s to 0.016 s, `delete_pages([0])` from 5.26 s to 0.16 s,
+  `new_page()` from 5.33 s to 0.24 s, and a 4,096-entry `set_toc()` from
+  5.04 s to 0.047 s. Allocation refusal in the sweep raises `PdfError`.
+- `insert_pdf`, `show_pdf_page`, and generated text and form appearances now
+  renumber the copied source with a pylopdf-owned pass instead of lopdf's
+  `renumber_objects_with`, which scanned a list of visited IDs for every
+  reference, walked the graph twice when page numbers descended in page order,
+  and rescanned the bookmark table that `set_toc` fills once per renumbered
+  object. That made every import quadratic in the source's object count, even
+  for a single page. The numbering is unchanged: across the bundled corpus and
+  generated fixtures, every import saved byte-identical output except for the
+  page-tree fix below and one rarer case: when the source's page objects use
+  different generation numbers, lopdf's two-pass reordering could point a
+  reference to a missing object at a page, and that reference now keeps its
+  number like every other missing reference.
+  Importing one page from a generated 50,000-page source fell from 2.23 s to
+  0.10 s (4.29 s to 0.11 s when page numbers descend in page order), and
+  importing and stamping one page each from a 30,000-page source after a
+  2,048-entry `set_toc()` fell from 7.7 s to 0.18 s. Allocation refusal
+  raises `PdfError` before the target changes.
 
 ## [0.14.0] - 2026-10-13
 
