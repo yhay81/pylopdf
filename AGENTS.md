@@ -720,7 +720,10 @@ overview.
   build and a refusal raises again. Do not rescan the name tree or walk the
   page tree per link or per page: destination geometry resolves from cached
   page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
-  link index grow fallibly.
+  link index grow fallibly. Integer page indexes in link destinations use
+  checked conversion and must name an existing page; anything else is
+  unresolved like an unknown page reference. Convert PDF-supplied integers with
+  `try_from` rather than truncating `as` casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or

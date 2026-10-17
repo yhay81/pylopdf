@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renumbering the source. A missing Kids entry keeps its object number, so when
   a renumbered source object took that number, the import rejected the source
   as reusing a page object or took a page outside the source page tree.
+- `Page.get_links()` now validates integer destination page indexes, which some
+  producers write instead of page references. A checked conversion replaces
+  the truncating cast, and an index outside the document is unresolved
+  (`page == -1`) like an unknown page reference. Formerly 4294967297 resolved
+  to page 1, 4294967295 overflowed the one-based conversion (a panic in debug
+  builds), and an index past the last page was returned unchanged.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its

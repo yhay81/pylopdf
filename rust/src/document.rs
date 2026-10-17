@@ -7023,9 +7023,16 @@ impl _Document {
         } else {
             LinkDestination::from_object(doc, resolved)
         };
+        // Element 0 should be a page reference, but some producers write a
+        // zero-based integer. Convert it without truncation and require an
+        // existing page; anything else stays unresolved like an unknown
+        // page reference.
         let page = match destination.page {
             DestinationPage::Reference(id) => cache.page_numbers.get(&id).copied(),
-            DestinationPage::Index(i) if i >= 0 => Some(i as u32 + 1),
+            DestinationPage::Index(index) => usize::try_from(index)
+                .ok()
+                .filter(|index| *index < cache.pages.len())
+                .and_then(|index| u32::try_from(index + 1).ok()),
             _ => None,
         };
         let mut to = None;
