@@ -73,7 +73,12 @@ overview.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
   `MediaBox`, `CropBox`, `Rotate`) into page dictionaries because lopdf does not
-  resolve page attribute inheritance.
+  resolve page attribute inheritance. `page_attribute_has_value` treats a null
+  value, an indirect null, and a reference to a missing object as an omitted
+  attribute, following ISO 32000-2 §7.3.7 and §7.3.10. Imports, page-tree
+  rebuilds, and drawing therefore materialize the value inherited from the
+  original ancestors, or the source default, and the page geometry readers
+  inherit past such a value in the same way.
 - Text extraction is implemented as a hayro `Device` in `rust/src/extract.rs`.
   It collects glyph Unicode and positions, then assembles lines
   (`LINE_TOLERANCE`), words (`WORD_GAP`), and blocks (`BLOCK_GAP`).
@@ -368,7 +373,8 @@ overview.
   for example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
-  always be reflected in rendering and link reads.
+  always be reflected in rendering and link reads. The page index needs no
+  call: mutable document access drops it, as described with the walker below.
   `DocumentLimits.max_interpretation_size` bounds both retained original input
   and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
@@ -378,15 +384,39 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- Raster rendering reuses one hayro `RenderCache` across calls through
+  `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
+  shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
+  and never crosses a thread: each thread keeps at most one slot that owns an
+  `Arc` of the snapshot together with the cache through `self_cell`.
+  `render_page`, `Page.get_pixmap`/`render`, and serial `render_pages` use the
+  slot only on the thread that created the document, and only while the
+  document's generation token and the snapshot identity both match.
+  `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
+  fallback-font change, because cached fonts depend on the resolver), `close`,
+  and dropping the document end the generation and free a matching slot on
+  that thread. One call grows the cache as a call-scoped cache would; a slot
+  that has served more than 64 distinct pages, or whose render panicked, is
+  dropped before the call returns. Other threads, parallel workers, SVG
+  conversion, and text extraction keep call-scoped caches. An edit or drop on
+  another thread cannot free the creating thread's slot, so that thread keeps
+  at most one stale snapshot until it renders, invalidates or drops a document,
+  or exits; keep this one-slot-per-thread bound. Interleaved 8-round A/B on
+  GitHub-hosted Linux runners measured fresh-document renders within 1.5%,
+  first-page re-renders 3–5% faster in corpus total, and 27-page
+  `usrguide.pdf` `get_pixmap` loops 22–28% faster at 1x, with pixel-identical
+  output and at most 3 MiB more memory on all five targets.
 - `Document.render_pages` is the supported same-document concurrency boundary:
   it renders an immutable hayro snapshot on a dedicated rayon pool, preserves
   input order, releases the GIL, accepts 1–64 requested workers, and caps actual
   concurrency to roughly 512 MB of estimated raster and conversion buffers.
-  Serial and PyEmscripten execution reuse one local hayro `RenderCache` per
-  chunk of at most 4,096 page entries. Native parallel execution gives each
-  bounded worker its own cache, replaced after 4,096 rendered pages, and uses an
-  atomic page queue to retain dynamic load balancing; a cache never crosses a
-  thread. Pixel preflight does not materialize an intermediate
+  Serial and PyEmscripten execution use one hayro `RenderCache` per chunk of
+  at most 4,096 page entries: the first chunk on the creating thread starts
+  from the retained cache, other chunks and threads use call-scoped caches.
+  Native parallel execution gives each bounded worker its own cache, replaced
+  after 4,096 rendered pages, and uses an atomic page queue to retain dynamic
+  load balancing; a cache never crosses a thread. Pixel preflight does not
+  materialize an intermediate
   collection. Serial results, worker-local indexed results, parallel reduction,
   input-order slots, and the final returned vector all grow fallibly.
   It renders every page by default and shares the explicit page-entry bound
@@ -457,11 +487,14 @@ overview.
   IDs, twice when page numbers descend in page order, and rescans the bookmark
   table that `set_toc` fills once per renumbered object, so it is quadratic in
   source object count. The replacement keeps lopdf's numbering: objects keep
-  their generation and take consecutive numbers in ascending ID order, page
-  objects trade slots so that page-tree order ascends, and references to
-  missing objects keep their numbers. Read the page order with the bounded
-  walker before renumbering, never after it, because a missing Kids entry can
-  share a renumbered object's number. A hash map reserved for the object count
+  their generation and take consecutive numbers in ascending ID order, and page
+  objects trade slots so that page-tree order ascends. Unlike lopdf, it
+  replaces every reference to a missing object, matched by number and
+  generation, with null, as ISO 32000-2 §7.3.10 reads it. A kept number would
+  resolve to whatever target object uses it after import, including objects
+  that the import or a later edit adds. Read the page order with the bounded
+  walker before renumbering; `renumber_objects` needs it to order page slots
+  and rewrites it to the new IDs. A hash map reserved for the object count
   assigns IDs, a fallibly grown stack rewrites references in the trailer and
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
@@ -736,20 +769,21 @@ overview.
   and page links and the OpenAction keep the 1 MiB per-page annotation budget.
   Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
   name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
-  `_Document` until `invalidate_hayro_pdf` drops it on the next edit: the page
-  order, its reverse index, and an owned name-tree index built on the first
-  named lookup. That index sorts and deduplicates borrowed keys in place with a
-  traversal-order tie-break, so the first occurrence wins, then allocates one
-  exact buffer of distinct keys plus entries that keep only each destination's
-  page operand, fit type, and numeric operands for binary search. A refused or
-  failed build caches nothing, so every later named lookup repeats the bounded
-  build and a refusal raises again. Do not rescan the name tree or walk the
-  page tree per link or per page: destination geometry resolves from cached
-  page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
-  link index grow fallibly. Integer page indexes in link destinations use
-  checked conversion and must name an existing page; anything else is
-  unresolved like an unknown page reference. Convert PDF-supplied integers with
-  `try_from` rather than truncating `as` casts.
+  `_Document` until `invalidate_hayro_pdf` drops it on the next edit. It holds
+  an owned name-tree index built on the first named lookup; page order and
+  reverse page numbers come from the shared page index. The name-tree index
+  sorts and deduplicates borrowed keys in place with a traversal-order
+  tie-break, so the first occurrence wins, then allocates one exact buffer of
+  distinct keys plus entries that keep only each destination's page operand,
+  fit type, and numeric operands for binary search. A refused or failed build
+  caches nothing, so every later named lookup repeats the bounded build and a
+  refusal raises again. Do not rescan the name tree or walk the page tree per
+  link or per page: destination geometry resolves from cached page IDs.
+  Traversal stacks, cycle sets, the borrowed TOC index, and the owned link
+  index grow fallibly. Integer page indexes in link destinations use checked
+  conversion and must name an existing page; anything else is unresolved like
+  an unknown page reference. Convert PDF-supplied integers with `try_from`
+  rather than truncating `as` casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
@@ -826,6 +860,28 @@ overview.
   before switching profiles. Clean compile steps took 3m29s–10m18s per target,
   versus 2m33s–10m25s with the default profile. On a 12-core development
   machine, an incremental extension rebuild took about 35 seconds instead of 10.
+- Native release wheels keep their symbol tables. `rust/Cargo.toml` leaves
+  `strip` unset, which Cargo resolves to `debuginfo` because release builds have
+  no debug info, and release.yml passes no maturin `--strip`. The 2026-10-18
+  comparison built the v0.14.0 sources with the thin-LTO profile for all five
+  GitHub-hosted release targets, with maturin `--strip` and with
+  `strip = "symbols"`: abi3 and cp314t wheels shrank 4.8–7.1% (0.34–0.49 MiB)
+  and installed extensions 12.4–17.7% on Linux and macOS. Windows did not change
+  because the MSVC linker ignores `strip` and keeps symbols in an unshipped PDB.
+  maturin `--strip` left every code section byte-identical, and interleaved
+  benchmarks and import time stayed within runner noise. Cargo hashes profile
+  settings into crate metadata, so `strip = "symbols"` also changed code layout
+  on all five targets, including Windows. Stripping removed the names that
+  native diagnostics read. `RUST_BACKTRACE=1` printed no frames;
+  `RUST_BACKTRACE=full` showed pylopdf frames as `<unknown>` on Linux and as
+  `PyInit_pylopdf_core` on macOS; gdb, perf, and py-spy `--native` lost every
+  pylopdf name on Linux; and `sample`, crash reports, and Python 3.14
+  faulthandler C stacks lost them on macOS. Panic messages and source locations
+  survived; Windows wheels already offer only those. Stripping keeps the Mach-O
+  UUID and macOS caches symbolication by UUID, so compare stripped and
+  unstripped macOS builds on separate runners; Linux linker stripping also
+  changes the GNU build ID. Revisit stripping only together with a way to
+  symbolize reports from published wheels.
 - Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
   exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
   pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
@@ -907,6 +963,18 @@ overview.
   first over-limit page. `delete_pages` plans the complete retained order
   before mutation; append, copy, and import rebuild from a prevalidated order
   so indirect root Kids are preserved rather than silently replaced.
+  `_Document.doc` is an `IndexedDocument`: page count, page lookup, and the
+  TOC/link reverse page numbers reuse one walk's page index, built lazily by
+  the first read, so per-page access is amortized O(1) instead of a complete
+  walk per call. Its `DerefMut` drops the index before any mutable document
+  access, and the wrapper lives in a private module, so no edit can read or
+  retain an index built from a partially edited tree; never bypass it.
+  `set_page_entry` is the only mutation that keeps the index, and only for
+  `/Rotate` and the five page boxes, which the walk never reads, so rotate- and
+  crop-every-page loops stay linear; any other key drops it. Failed walks are
+  never cached, so a malformed tree raises on every access. Other edits still
+  rebuild the index on the next access, so drawing and annotation loops pay one
+  walk per edited page.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
@@ -942,9 +1010,16 @@ overview.
   `prune_objects` and `renumber_objects_with`; do not call them or the other
   helpers built on it (`delete_object`, `delete_zero_length_streams`, and
   lopdf's own `delete_pages`).
-- References to missing objects keep their numbers through import
-  renumbering, as in lopdf, so after `insert_pdf` or `show_pdf_page` they can
-  resolve to unrelated target objects that use those numbers.
+- lopdf's `renumber_objects_with` keeps the number of a reference to a missing
+  object, so after an import it resolves to whichever object takes that
+  number. pylopdf's import renumbering writes null instead. The target's own
+  references are not rewritten: one that names a number above the target's
+  `max_id` still resolves to the object that a later import or allocation
+  receives. lopdf also derives `max_id` from the highest cross-reference
+  entry, while it stores each loaded object under the number in its own header
+  and adds object-stream members missing from the cross-reference table. In a
+  malformed file such an object can sit above `max_id`, and a later
+  allocation replaces it.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.

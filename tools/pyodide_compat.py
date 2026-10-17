@@ -505,6 +505,10 @@ def _generation_results(root: Path) -> dict[str, Any]:
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     first_pixmap = first.get_pixmap(0.5)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
+    _require(
+        first.get_pixmap(0.5).samples == first_pixmap.samples,
+        "a repeated render on the retained cache changed the raster",
+    )
 
     second = document.new_page(width=180, height=240)
     stale_error = _exception_name(lambda: first.rect)

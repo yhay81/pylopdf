@@ -38,6 +38,7 @@ use crate::prune::prune_unreachable_objects;
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
+use indexed::IndexedDocument;
 
 /// Bound interpreted text-page memory on long documents while retaining the
 /// common search/extract/annotate working set.
@@ -372,31 +373,19 @@ impl NamedDestinationIndex {
     }
 }
 
-/// Page and named-destination lookups shared by link reads.
+/// Named-destination lookups shared by link reads.
 ///
-/// `invalidate_hayro_pdf` drops it on every edit, so cached object IDs and
-/// destinations always describe the current document.
+/// `invalidate_hayro_pdf` drops it on every edit, so cached destinations
+/// always describe the current document. Page lookups use the document's own
+/// page index.
+#[derive(Default)]
 struct LinkResolutionCache {
-    /// Page object IDs in one-based page order.
-    pages: Vec<ObjectId>,
-    /// One-based page number of each page object ID.
-    page_numbers: HashMap<ObjectId, u32>,
     /// Built on the first named lookup, so pages without named links never
     /// walk the tree. A refused build leaves it unset.
     named: Option<NamedDestinationIndex>,
 }
 
 impl LinkResolutionCache {
-    fn new(doc: &Document) -> PyResult<Self> {
-        let pages = collect_page_ids(doc, None)?;
-        let page_numbers = reverse_page_index(&pages, "link destination")?;
-        Ok(Self {
-            pages,
-            page_numbers,
-            named: None,
-        })
-    }
-
     /// Look up one name-tree destination, indexing the tree on first use.
     fn named_destination(
         &mut self,
@@ -866,7 +855,7 @@ fn resolve_toc_page<'a>(
 }
 
 /// Flatten an outline tree with explicit cycle, size, depth, and text budgets.
-fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
+fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
     let Some(outlines_object) = doc
         .catalog()
         .ok()
@@ -881,8 +870,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
         Ok(first) => (first, 1usize),
         Err(_) => (outlines_object, 0usize),
     };
-    let pages = collect_page_ids(doc, None)?;
-    let page_map = reverse_page_index(&pages, "TOC")?;
+    let page_map = doc.page_numbers()?;
     let mut named_destinations = None;
     let mut stack = Vec::new();
     stack.try_reserve_exact(1).map_err(|error| {
@@ -925,7 +913,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
             && let Some(page) = resolve_toc_page(
                 doc,
                 destination,
-                &page_map,
+                page_map,
                 &mut named_destinations,
                 &mut source_bytes,
             )?
@@ -1871,13 +1859,16 @@ fn page_attribute_has_value(doc: &Document, dictionary: &Dictionary, key: &[u8])
         return false;
     };
     // A null dictionary value is equivalent to an omitted key, including an
-    // indirect null. Leave malformed reference validation to the existing readers.
+    // indirect null and a reference to a missing object, which ISO 32000-2
+    // §7.3.10 reads as null. Import renumbering turns such references into
+    // null, so imported, flattened, and read pages inherit the same value.
+    // Leave over-deep reference chains to the existing readers.
     for _ in 0..MAX_PAGE_RESOURCE_REFERENCE_DEPTH {
         match value {
             Object::Null => return false,
             Object::Reference(id) => match doc.objects.get(id) {
                 Some(object) => value = object,
-                None => return true,
+                None => return false,
             },
             _ => return true,
         }
@@ -2972,8 +2963,7 @@ fn rendered_batch_png(
     Ok(output.finish())
 }
 
-struct BatchRenderer<'pdf, 'shared> {
-    pdf: &'pdf Pdf,
+struct BatchRenderer<'shared> {
     interpreter_settings: &'shared InterpreterSettings,
     scale: f32,
     background: Option<(u8, u8, u8, u8)>,
@@ -2981,11 +2971,16 @@ struct BatchRenderer<'pdf, 'shared> {
     output_bytes: &'shared AtomicUsize,
 }
 
-impl<'pdf> BatchRenderer<'pdf, '_> {
+impl BatchRenderer<'_> {
     /// Render and encode one page through the shared output budget.
-    fn render(&self, cache: &RenderCache<'pdf>, page_number: u32) -> PyResult<Vec<u8>> {
+    fn render<'a>(
+        &self,
+        pdf: &'a Pdf,
+        cache: &RenderCache<'a>,
+        page_number: u32,
+    ) -> PyResult<Vec<u8>> {
         let pixmap = render_pdf_page(
-            self.pdf,
+            pdf,
             cache,
             self.interpreter_settings,
             page_number,
@@ -2999,9 +2994,18 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
         }
     }
 
-    /// Render one ordered page batch with one caller-local hayro cache per
-    /// bounded chunk, so whole-document batches never retain every resource.
-    fn render_serial(&self, page_numbers: &[u32]) -> PyResult<Vec<Vec<u8>>> {
+    /// Render one ordered page batch with one hayro cache per bounded chunk,
+    /// so whole-document batches never retain every resource.
+    ///
+    /// Each chunk asks the document for its cache: on the creating thread the
+    /// first chunk reuses the retained cache, and a chunk beyond the retained
+    /// page bound leaves the next chunk a fresh one.
+    fn render_serial(
+        &self,
+        pdf: &Arc<Pdf>,
+        caches: &crate::render_cache::DocumentRenderCache,
+        page_numbers: &[u32],
+    ) -> PyResult<Vec<Vec<u8>>> {
         let mut rendered = Vec::new();
         rendered
             .try_reserve_exact(page_numbers.len())
@@ -3009,10 +3013,12 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
                 PdfError::new_err(format!("failed to allocate serial render results: {error}"))
             })?;
         for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
-            let cache = RenderCache::new();
-            for &page_number in chunk {
-                rendered.push(self.render(&cache, page_number)?);
-            }
+            caches.with_cache(pdf, chunk, |pdf, cache| {
+                for &page_number in chunk {
+                    rendered.push(self.render(pdf, cache, page_number)?);
+                }
+                Ok::<_, PyErr>(())
+            })?;
         }
         Ok(rendered)
     }
@@ -3711,8 +3717,8 @@ fn direct_object_depth(object: &Object, stop_above: Option<usize>) -> PyResult<u
 }
 
 /// Collect cheap structural complexity without decoding streams.
-fn document_complexity(doc: &Document) -> PyResult<ComplexityTuple> {
-    let page_count = page_tree_count(doc)?;
+fn document_complexity(doc: &IndexedDocument) -> PyResult<ComplexityTuple> {
+    let page_count = doc.page_count()?;
     let object_count = doc.objects.len();
     let mut stream_count = 0usize;
     let mut encoded_stream_bytes = 0u64;
@@ -3924,10 +3930,6 @@ fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<Ob
     Ok(pages)
 }
 
-fn page_tree_count(doc: &Document) -> PyResult<usize> {
-    walk_page_tree(doc, None, |_, _| Ok(()))
-}
-
 /// Reject explicit page entries beyond the document-relative batch bound.
 fn check_page_entry_count(entries: usize, page_count: usize, verb: &str) -> PyResult<()> {
     let limit = page_count.max(MIN_PAGE_ENTRY_LIMIT);
@@ -3950,19 +3952,169 @@ fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<Objec
         .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))
 }
 
-fn reverse_page_index(page_ids: &[ObjectId], context: &str) -> PyResult<HashMap<ObjectId, u32>> {
-    let mut index = HashMap::new();
-    index.try_reserve(page_ids.len()).map_err(|error| {
-        PdfError::new_err(format!("failed to allocate {context} page index: {error}"))
-    })?;
-    for (offset, &id) in page_ids.iter().enumerate() {
-        let page_number = offset
-            .checked_add(1)
-            .and_then(|number| u32::try_from(number).ok())
-            .ok_or_else(|| PdfError::new_err("page count exceeds the PDF object-ID range"))?;
-        index.insert(id, page_number);
+/// The page index lives in its own module so that only `DerefMut`,
+/// `replace`, and `set_page_entry` can reach the wrapped document mutably.
+mod indexed {
+    use std::collections::HashMap;
+    use std::ops::{Deref, DerefMut};
+    use std::sync::OnceLock;
+
+    use lopdf::{Document, Object, ObjectId};
+    use pyo3::PyResult;
+
+    use super::{PdfError, collect_page_ids, page_id_from_index, to_py_err};
+
+    /// Page entries that a page-tree walk never reads.
+    ///
+    /// The walk reads only `/Type` of a page object (and `/Pages` when a
+    /// malformed file also uses the page as its catalog) besides the object
+    /// count, so replacing one of these entries keeps the indexed tree.
+    const UNWALKED_PAGE_ENTRIES: [&str; 6] = [
+        "Rotate", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox",
+    ];
+
+    /// Page object IDs in document order, derived from one page-tree walk.
+    struct PageIndex {
+        /// Page object IDs in one-based page order.
+        pages: Vec<ObjectId>,
+        /// One-based page number of each page object, built on the first
+        /// reverse lookup.
+        numbers: OnceLock<HashMap<ObjectId, u32>>,
     }
-    Ok(index)
+
+    /// The editable lopdf document and the page index derived from it.
+    ///
+    /// Reads build the index with one bounded page-tree walk and reuse it
+    /// until the document changes, so per-page access is amortized O(1)
+    /// instead of a complete walk per call. `DerefMut` drops the index before
+    /// handing out any mutable access, and the borrow checker forbids reading
+    /// the index while that access is alive. An edit can therefore never read,
+    /// or leave behind, an index of a different page tree, even one built
+    /// between two steps of a multi-step edit. A failed walk is never cached,
+    /// so it raises again. This wrapper exists for that invariant, which is
+    /// why it implements `Deref` without being a smart pointer. Rotation and
+    /// page-box edits are the one exception, through `set_page_entry`, so
+    /// loops that rotate or crop every page stay linear.
+    pub(super) struct IndexedDocument {
+        doc: Document,
+        page_index: OnceLock<PageIndex>,
+    }
+
+    impl IndexedDocument {
+        pub(super) fn new(doc: Document) -> Self {
+            Self {
+                doc,
+                page_index: OnceLock::new(),
+            }
+        }
+
+        /// Replace the complete document and drop the old page index.
+        pub(super) fn replace(&mut self, doc: Document) {
+            self.page_index.take();
+            self.doc = doc;
+        }
+
+        fn page_index(&self) -> PyResult<&PageIndex> {
+            if let Some(index) = self.page_index.get() {
+                return Ok(index);
+            }
+            let pages = collect_page_ids(&self.doc, None)?;
+            // A concurrent reader of the same unchanged document may store an
+            // equal index first; either one describes this page tree.
+            Ok(self.page_index.get_or_init(|| PageIndex {
+                pages,
+                numbers: OnceLock::new(),
+            }))
+        }
+
+        /// Return page object IDs in one-based page order.
+        pub(super) fn page_ids(&self) -> PyResult<&[ObjectId]> {
+            Ok(&self.page_index()?.pages)
+        }
+
+        /// Copy the page order for an edit that consumes it.
+        pub(super) fn owned_page_ids(&self) -> PyResult<Vec<ObjectId>> {
+            let pages = self.page_ids()?;
+            let mut owned = Vec::new();
+            owned.try_reserve_exact(pages.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to copy page index: {error}"))
+            })?;
+            owned.extend_from_slice(pages);
+            Ok(owned)
+        }
+
+        pub(super) fn page_count(&self) -> PyResult<usize> {
+            Ok(self.page_ids()?.len())
+        }
+
+        /// Return the ObjectId of a one-based page.
+        pub(super) fn page_id(&self, page_number: u32) -> PyResult<ObjectId> {
+            page_id_from_index(self.page_ids()?, page_number)
+        }
+
+        /// Return the one-based page number of each page object.
+        pub(super) fn page_numbers(&self) -> PyResult<&HashMap<ObjectId, u32>> {
+            let index = self.page_index()?;
+            if let Some(numbers) = index.numbers.get() {
+                return Ok(numbers);
+            }
+            let numbers = reverse_page_index(&index.pages)?;
+            Ok(index.numbers.get_or_init(|| numbers))
+        }
+
+        /// Set one entry of a one-based page dictionary.
+        ///
+        /// Rotation and page-box entries keep the page index; any other key
+        /// could retype the page, so it drops the index like `DerefMut`.
+        pub(super) fn set_page_entry(
+            &mut self,
+            page_number: u32,
+            key: &str,
+            value: Object,
+        ) -> PyResult<()> {
+            let page_id = self.page_id(page_number)?;
+            if !UNWALKED_PAGE_ENTRIES.contains(&key) {
+                self.page_index.take();
+            }
+            self.doc
+                .get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?
+                .set(key, value);
+            Ok(())
+        }
+    }
+
+    impl Deref for IndexedDocument {
+        type Target = Document;
+
+        fn deref(&self) -> &Document {
+            &self.doc
+        }
+    }
+
+    impl DerefMut for IndexedDocument {
+        /// Mutable access may change the page tree, so drop its index first.
+        fn deref_mut(&mut self) -> &mut Document {
+            self.page_index.take();
+            &mut self.doc
+        }
+    }
+
+    fn reverse_page_index(page_ids: &[ObjectId]) -> PyResult<HashMap<ObjectId, u32>> {
+        let mut index = HashMap::new();
+        index.try_reserve(page_ids.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate reverse page index: {error}"))
+        })?;
+        for (offset, &id) in page_ids.iter().enumerate() {
+            let page_number = offset
+                .checked_add(1)
+                .and_then(|number| u32::try_from(number).ok())
+                .ok_or_else(|| PdfError::new_err("page count exceeds the PDF object-ID range"))?;
+            index.insert(id, page_number);
+        }
+        Ok(index)
+    }
 }
 
 /// Reject structural work above configured limits before rendering/extraction.
@@ -4698,12 +4850,15 @@ fn validate_annotation_input<'a>(
 /// Python class holding a `lopdf::Document`.
 #[pyclass(module = "pylopdf.pylopdf_core")]
 pub struct _Document {
-    /// Editable lopdf document.
-    doc: Document,
+    /// Editable lopdf document with the page index that reads reuse.
+    doc: IndexedDocument,
     /// CJK fallback configuration for rendering.
     fallback_fonts: FallbackFonts,
     /// Parsed hayro snapshot of current edit state, rebuilt after invalidation.
-    hayro_pdf: Option<Pdf>,
+    ///
+    /// Shared so the creating thread's retained render cache can own the
+    /// snapshot it borrows without a self-reference in this object.
+    hayro_pdf: Option<Arc<Pdf>>,
     /// Original unencrypted input, consumed by the first hayro parse.
     ///
     /// This avoids a potentially expensive lopdf serialization before the
@@ -4739,6 +4894,8 @@ pub struct _Document {
     interpreted_glyph_total: usize,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
+    /// Render cache generation retained across calls on the creating thread.
+    render_cache: crate::render_cache::DocumentRenderCache,
     /// Whether lenient loading recovered damaged cross-reference data.
     is_repaired: bool,
     /// Hayro warnings from the latest render/extraction, written by the
@@ -4778,7 +4935,7 @@ impl _Document {
             .map(|recovery| vec![recovery.warning().to_owned()])
             .unwrap_or_default();
         Self {
-            doc,
+            doc: IndexedDocument::new(doc),
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
             hayro_source,
@@ -4795,6 +4952,7 @@ impl _Document {
             interpreted_text_total: 0,
             interpreted_glyph_total: 0,
             isolated_content_pages: HashSet::new(),
+            render_cache: crate::render_cache::DocumentRenderCache::new(),
             is_repaired: recovery.is_some(),
             pending_warnings: Arc::new(Mutex::new(pending)),
         }
@@ -4946,8 +5104,13 @@ impl _Document {
         self.invalidate_interpreted_pages();
     }
 
-    /// Drop derived text/table pages while retaining the hayro snapshot.
+    /// Drop derived text/table pages and render caches while retaining the
+    /// hayro snapshot.
+    ///
+    /// Fallback-font changes call this directly because cached hayro fonts
+    /// depend on the font resolver as well as the snapshot.
     fn invalidate_interpreted_pages(&mut self) {
+        self.render_cache.reset();
         self.text_pages.clear();
         self.text_page_order.clear();
         self.table_pages.clear();
@@ -5036,18 +5199,17 @@ impl _Document {
         Ok(())
     }
 
-    /// Bound an explicit page batch, walking the page tree only above the floor.
+    /// Bound an explicit page batch, counting pages only above the floor.
     fn check_page_entries(&self, entries: usize, verb: &str) -> PyResult<()> {
         if entries <= MIN_PAGE_ENTRY_LIMIT {
             return Ok(());
         }
-        check_page_entry_count(entries, page_tree_count(&self.doc)?, verb)
+        check_page_entry_count(entries, self.doc.page_count()?, verb)
     }
 
     /// Return the ObjectId of a one-based page.
     fn page_id(&self, page_number: u32) -> PyResult<ObjectId> {
-        let pages = collect_page_ids(&self.doc, None)?;
-        page_id_from_index(&pages, page_number)
+        self.doc.page_id(page_number)
     }
 
     /// Read a page attribute while resolving inheritance and indirect references.
@@ -6138,19 +6300,17 @@ impl _Document {
             Target::IndirectArray(arr_id) => {
                 // copy_page/select duplicates may share indirect Annots arrays.
                 // Clone on write while shared so additions do not leak.
-                let shared = collect_page_ids(&self.doc, None)?
-                    .into_iter()
-                    .any(|other_page_id| {
-                        other_page_id != page_id
-                            && self
-                                .doc
-                                .get_object(other_page_id)
-                                .and_then(Object::as_dict)
-                                .ok()
-                                .and_then(|page| page.get(b"Annots").ok())
-                                .and_then(|annots| annots.as_reference().ok())
-                                == Some(arr_id)
-                    });
+                let shared = self.doc.page_ids()?.iter().copied().any(|other_page_id| {
+                    other_page_id != page_id
+                        && self
+                            .doc
+                            .get_object(other_page_id)
+                            .and_then(Object::as_dict)
+                            .ok()
+                            .and_then(|page| page.get(b"Annots").ok())
+                            .and_then(|annots| annots.as_reference().ok())
+                            == Some(arr_id)
+                });
                 if shared {
                     let source = self
                         .doc
@@ -6251,9 +6411,9 @@ impl _Document {
     ///
     /// Editing methods invalidate the cache, preserving the invariant that
     /// rendered state always reflects edits. Consecutive renders rebuild once.
-    fn hayro_view(&mut self) -> PyResult<&Pdf> {
+    fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
-            let expected_pages = page_tree_count(&self.doc)?;
+            let expected_pages = self.doc.page_count()?;
             let state_appearances = state_appearance_ids(&self.doc)?;
             let mut text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
             let prepare_appearances = !state_appearances.is_empty()
@@ -6319,7 +6479,7 @@ impl _Document {
                     })?
                 }
             };
-            self.hayro_pdf = Some(pdf);
+            self.hayro_pdf = Some(Arc::new(pdf));
         }
         Ok(self
             .hayro_pdf
@@ -6584,17 +6744,23 @@ impl _Document {
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let pdf = self.hayro_view()?;
-            let cache = RenderCache::new();
-            render_pdf_page(
-                pdf,
-                &cache,
-                &interpreter_settings,
-                page_number,
-                scale,
-                background,
-            )
-            .map_err(PdfError::new_err)
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .as_ref()
+                .expect("hayro view was built immediately before");
+            self.render_cache
+                .with_cache(pdf, &[page_number], |pdf, cache| {
+                    render_pdf_page(
+                        pdf,
+                        cache,
+                        &interpreter_settings,
+                        page_number,
+                        scale,
+                        background,
+                    )
+                })
+                .map_err(PdfError::new_err)
         })
     }
 
@@ -6872,17 +7038,20 @@ impl _Document {
         // existing page; anything else stays unresolved like an unknown
         // page reference.
         let page = match destination.page {
-            DestinationPage::Reference(id) => cache.page_numbers.get(&id).copied(),
-            DestinationPage::Index(index) => usize::try_from(index)
-                .ok()
-                .filter(|index| *index < cache.pages.len())
-                .and_then(|index| u32::try_from(index + 1).ok()),
+            DestinationPage::Reference(id) => doc.page_numbers()?.get(&id).copied(),
+            DestinationPage::Index(index) => {
+                let page_count = doc.page_count()?;
+                usize::try_from(index)
+                    .ok()
+                    .filter(|index| *index < page_count)
+                    .and_then(|index| u32::try_from(index + 1).ok())
+            }
             _ => None,
         };
         let mut to = None;
         let mut zoom = None;
         if let Some(page_number) = page
-            && let Ok(page_id) = page_id_from_index(&cache.pages, page_number)
+            && let Ok(page_id) = doc.page_id(page_number)
             && let Ok((crop, rotation)) = self.resolve_display_geometry(page_id)
         {
             let [first, second, third] = destination.numbers;
@@ -6908,14 +7077,15 @@ impl _Document {
         Ok((page, to, zoom, nameddest))
     }
 
-    /// Read one page's link annotations, resolving destinations through
-    /// `cache` so repeated reads do not walk the page or name trees again.
+    /// Read one page's link annotations, resolving destinations through the
+    /// page index and `cache` so repeated reads do not walk the page or name
+    /// trees again.
     fn page_links(
         &self,
         page_number: u32,
         cache: &mut LinkResolutionCache,
     ) -> PyResult<Vec<LinkTuple>> {
-        let page_id = page_id_from_index(&cache.pages, page_number)?;
+        let page_id = self.doc.page_id(page_number)?;
         let (crop, rotation) = self.resolve_display_geometry(page_id)?;
         let Some(annots) = self.page_annotation_items(page_id)? else {
             return Ok(Vec::new());
@@ -8070,9 +8240,9 @@ impl _Document {
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
     }
 
-    /// Return the page count.
+    /// Return the page count, walking the page tree once per edit.
     fn page_count(&self) -> PyResult<usize> {
-        page_tree_count(&self.doc)
+        self.doc.page_count()
     }
 
     /// Return the PDF version string, such as `"1.7"`.
@@ -8139,14 +8309,14 @@ impl _Document {
             return Ok(());
         }
 
-        let pages = collect_page_ids(&self.doc, None)?;
+        let pages = self.doc.page_ids()?;
         check_page_entry_count(page_numbers.len(), pages.len(), "delete")?;
         let mut deleted = HashSet::new();
         deleted.try_reserve(page_numbers.len()).map_err(|error| {
             PdfError::new_err(format!("failed to allocate deleted-page tracking: {error}"))
         })?;
         for page_number in page_numbers {
-            deleted.insert(page_id_from_index(&pages, page_number)?);
+            deleted.insert(page_id_from_index(pages, page_number)?);
         }
         let retained_count = pages
             .len()
@@ -8158,7 +8328,7 @@ impl _Document {
             .map_err(|error| {
                 PdfError::new_err(format!("failed to allocate retained page order: {error}"))
             })?;
-        for page_id in pages {
+        for &page_id in pages {
             if !deleted.contains(&page_id) {
                 retained.push(page_id);
             }
@@ -8357,7 +8527,7 @@ impl _Document {
             })
             .map_err(PdfError::new_err)?;
         if result.1 > 0 {
-            self.doc = edited;
+            self.doc.replace(edited);
             self.invalidate_hayro_pdf();
         }
         Ok(result)
@@ -8411,7 +8581,7 @@ impl _Document {
 
     /// Append every page from another document, whatever its page count.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
-        let page_count = page_tree_count(&other.doc)?;
+        let page_count = other.doc.page_count()?;
         let count = u32::try_from(page_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let mut all = Vec::new();
         all.try_reserve_exact(page_count).map_err(|error| {
@@ -8438,8 +8608,8 @@ impl _Document {
         if page_numbers.is_empty() {
             return Ok(());
         }
-        let existing_pages = collect_page_ids(&self.doc, None)?;
-        let source_pages = collect_page_ids(&other.doc, None)?;
+        let existing_pages = self.doc.owned_page_ids()?;
+        let source_pages = other.doc.owned_page_ids()?;
         check_page_entry_count(page_numbers.len(), source_pages.len(), "merge")?;
         let mut imported = HashSet::new();
         imported.try_reserve(page_numbers.len()).map_err(|error| {
@@ -8478,7 +8648,7 @@ impl _Document {
                 "width / height must be positive finite values within PDF real-number range: ({width:?}, {height:?})"
             )));
         }
-        let existing_pages = collect_page_ids(&self.doc, None)?;
+        let existing_pages = self.doc.owned_page_ids()?;
         self.preflight_page_tree_rebuild(&existing_pages)?;
         self.invalidate_hayro_pdf();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
@@ -8507,7 +8677,7 @@ impl _Document {
     /// The page dictionary is an independent copy with inheritance materialized;
     /// Contents and Resources remain shared with the source page.
     fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
-        let existing_pages = collect_page_ids(&self.doc, None)?;
+        let existing_pages = self.doc.owned_page_ids()?;
         let source_id = page_id_from_index(&existing_pages, page_number)?;
         self.preflight_page_tree_rebuild(&existing_pages)?;
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
@@ -8525,7 +8695,7 @@ impl _Document {
     ///
     /// PDF page-tree Parent must be unique, so duplicate selections require copies.
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
-        let pages = collect_page_ids(&self.doc, None)?;
+        let pages = self.doc.page_ids()?;
         check_page_entry_count(page_numbers.len(), pages.len(), "select")?;
         let mut selected_ids = Vec::new();
         selected_ids
@@ -8534,7 +8704,7 @@ impl _Document {
                 PdfError::new_err(format!("failed to allocate selected page IDs: {error}"))
             })?;
         for number in &page_numbers {
-            let page_id = page_id_from_index(&pages, *number)?;
+            let page_id = page_id_from_index(pages, *number)?;
             selected_ids.push(page_id);
         }
         let existing_pages_id = self
@@ -8677,7 +8847,11 @@ impl _Document {
         self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let pdf = self.hayro_view()?;
+            self.hayro_view()?;
+            let pdf = self
+                .hayro_pdf
+                .as_ref()
+                .expect("hayro view was built immediately before");
             let max_pixels = page_numbers
                 .iter()
                 .try_fold(0u64, |maximum, &page_number| {
@@ -8686,17 +8860,19 @@ impl _Document {
                 .map_err(PdfError::new_err)?;
             let output_bytes = AtomicUsize::new(0);
             let renderer = BatchRenderer {
-                pdf,
                 interpreter_settings: &interpreter_settings,
                 scale,
                 background,
                 max_output_size,
                 output_bytes: &output_bytes,
             };
+            // A serial batch starts from the document's retained cache, so
+            // fonts parsed by earlier single-page or batch calls are reused.
+            let render_serial = || renderer.render_serial(pdf, &self.render_cache, &page_numbers);
             #[cfg(target_os = "emscripten")]
             let rendered = {
                 let _ = max_pixels;
-                renderer.render_serial(&page_numbers)
+                render_serial()
             };
             #[cfg(not(target_os = "emscripten"))]
             let rendered: PyResult<Vec<Vec<u8>>> = {
@@ -8707,7 +8883,7 @@ impl _Document {
                         .unwrap_or(usize::MAX);
                 let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
                 if worker_count == 1 {
-                    renderer.render_serial(&page_numbers)
+                    render_serial()
                 } else {
                     let pool = rayon::ThreadPoolBuilder::new()
                         .num_threads(worker_count)
@@ -8742,7 +8918,8 @@ impl _Document {
                                             "failed to grow worker render results: {error}"
                                         ))
                                     })?;
-                                    rendered.push((index, renderer.render(&cache, page_number)?));
+                                    rendered
+                                        .push((index, renderer.render(pdf, &cache, page_number)?));
                                 }
                                 Ok::<_, PyErr>(rendered)
                             })
@@ -8812,6 +8989,14 @@ impl _Document {
         })
     }
 
+    /// Release the render cache retained for this document on the calling thread.
+    ///
+    /// `Document.close` calls this so a closed document does not keep parsed
+    /// fonts and glyph outlines alive until it is garbage collected.
+    fn release_render_cache(&mut self) {
+        self.render_cache.reset();
+    }
+
     /// Drain hayro warning messages accumulated by the latest operation.
     fn take_warnings(&mut self) -> Vec<String> {
         self.pending_warnings
@@ -8872,7 +9057,7 @@ impl _Document {
                 format!("cannot set more than {MAX_TOC_ENTRIES} TOC entries"),
             ));
         }
-        let pages = collect_page_ids(&self.doc, None)?;
+        let pages = self.doc.page_ids()?;
         let mut prepared = Vec::new();
         prepared.try_reserve_exact(entries.len()).map_err(|error| {
             PdfError::new_err(format!("failed to allocate prepared TOC entries: {error}"))
@@ -8912,7 +9097,7 @@ impl _Document {
                 "toc_input_size",
                 "TOC encoded text",
             )?;
-            let page_id = page_id_from_index(&pages, page)?;
+            let page_id = page_id_from_index(pages, page)?;
             prepared.push((level, title, page_id));
             previous_level = level;
             max_level = max_level.max(level as usize);
@@ -9032,14 +9217,8 @@ impl _Document {
     /// Set rotation for a one-based page; Python validates the value.
     fn set_page_rotation(&mut self, page_number: u32, rotation: i64) -> PyResult<()> {
         self.invalidate_hayro_pdf();
-        let page_id = self.page_id(page_number)?;
-        let dict = self
-            .doc
-            .get_object_mut(page_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        dict.set("Rotate", rotation);
-        Ok(())
+        self.doc
+            .set_page_entry(page_number, "Rotate", Object::Integer(rotation))
     }
 
     /// Return a resolved page box such as MediaBox/CropBox, or None when absent.
@@ -9062,13 +9241,8 @@ impl _Document {
         let y0 = checked_pdf_real(y0, "y0")?;
         let x1 = checked_pdf_real(x1, "x1")?;
         let y1 = checked_pdf_real(y1, "y1")?;
-        let page_id = self.page_id(page_number)?;
-        let dict = self
-            .doc
-            .get_object_mut(page_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        dict.set(
+        self.doc.set_page_entry(
+            page_number,
             key,
             Object::Array(vec![
                 Object::Real(x0),
@@ -9076,8 +9250,7 @@ impl _Document {
                 Object::Real(x1),
                 Object::Real(y1),
             ]),
-        );
-        Ok(())
+        )
     }
 
     /// Compress streams.
@@ -9406,10 +9579,7 @@ impl _Document {
         py.detach(|| {
             // Detach the cache so link collection can borrow the document, and
             // restore it on success and failure because reads never edit.
-            let mut cache = match self.link_resolution.take() {
-                Some(cache) => cache,
-                None => LinkResolutionCache::new(&self.doc)?,
-            };
+            let mut cache = self.link_resolution.take().unwrap_or_default();
             let links = self.page_links(page_number, &mut cache);
             self.link_resolution = Some(cache);
             links
@@ -9800,7 +9970,7 @@ impl _Document {
             match self.set_form_field_inner(name, value, font_data, font_index) {
                 Ok(()) => Ok(()),
                 Err(error) => {
-                    self.doc = original;
+                    self.doc.replace(original);
                     Err(error)
                 }
             }

@@ -53,6 +53,18 @@ png_pages = document.render_pages(scale=2, workers=4)
 `render_pages()`는 하나의 불변 렌더러 snapshot을 사용하고 요청한 페이지 순서와 중복을
 유지하며, 추정 동시 작업 메모리를 약 512 MB로 제한합니다.
 
+## 반복 렌더링 { #repeated-rendering }
+
+Document를 연 스레드에서 `render_page()`, `Page.get_pixmap()`, `Page.render()`,
+직렬 `render_pages()`를 반복 호출하면 이전 호출에서 파싱한 font, 색 공간, glyph
+윤곽선을 재사용하며, 출력은 새로 연 Document와 동일합니다. 각 스레드는 이러한
+cache를 최대 하나 유지하고, 호출 사이에는 서로 다른 페이지 최대 64개 분량만
+유지합니다. Document를 편집하거나 fallback font를 변경하거나 닫으면 cache가
+무효화되며, 연 스레드에서 이 작업을 하거나 그 스레드에서 Document를 해제하면 즉시
+해제됩니다. 다른 스레드에서 무효화된 cache는 해당 스레드가 다음에 렌더링하거나
+종료할 때 해제됩니다. 다른 스레드의 호출과 병렬 `render_pages()` worker는 호출 단위
+cache를 사용합니다.
+
 ## Pixmap 버퍼 { #pixmap-buffers }
 
 free-threaded wheel은 불변 RGBA8 저장소를 읽기 전용, 1차원, zero-copy buffer로

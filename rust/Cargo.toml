@@ -18,6 +18,9 @@ crate-type = ["cdylib"]
 # embed-fonts bundles Standard 14 substitutes so unresolved fonts still render.
 hayro = { version = "0.7", features = ["embed-fonts"] }
 hayro-svg = "0.7"
+# Own one immutable hayro snapshot together with the render cache that borrows
+# it, so a thread can reuse the cache across calls without unsafe code.
+self_cell = "1.3.0"
 # Generate compact, subset-embedded OpenType text as importable PDF forms.
 # Keep raster and PDF-import features disabled: lopdf owns both responsibilities.
 krilla = { version = "=0.8.2", default-features = false }
@@ -89,3 +92,7 @@ lto = "thin"
 codegen-units = 1
 # PyO3 converts Rust panics into Python exceptions only when they unwind.
 panic = "unwind"
+# Leave `strip` unset so Cargo removes only debug info. Symbol tables name
+# pylopdf frames in panic backtraces, debuggers, profilers, and crash reports;
+# stripping them saved only 0.34–0.49 MiB per Linux or macOS wheel. See
+# AGENTS.md before changing this.

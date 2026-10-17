@@ -14,12 +14,14 @@ use crate::document::PdfError;
 /// This keeps the numbering of lopdf's `Document::renumber_objects_with`:
 /// objects keep their generation and take numbers in ascending ID order,
 /// except that page objects trade slots so that `pages`, the page-tree order,
-/// receives ascending numbers. References to missing objects keep their
-/// numbers. lopdf walks the graph with a `Vec` of visited IDs, twice when
-/// pages need reordering, and rescans its bookmark table once per object,
-/// which is quadratic. Here a hash map assigns each ID once and an explicit
-/// stack rewrites references in the trailer and in every object, including
-/// unreachable objects that lopdf left stale.
+/// receives ascending numbers. Unlike lopdf, a reference to a missing object
+/// becomes null, which is how ISO 32000-2 §7.3.10 reads it. A kept number
+/// would resolve to whichever target object uses it after import, including
+/// objects that the import or a later edit adds. lopdf walks the graph with a
+/// `Vec` of visited IDs, twice when pages need reordering, and rescans its
+/// bookmark table once per object, which is quadratic. Here a hash map assigns
+/// each ID once and an explicit stack rewrites references in the trailer and
+/// in every object, including unreachable objects that lopdf left stale.
 ///
 /// `pages` must hold distinct existing objects, as the page-tree walker
 /// guarantees, and is rewritten to the new IDs. The bookmark table, which
@@ -129,7 +131,8 @@ fn rewrite_references<'a>(
 }
 
 /// Rewrite a reference in place or queue a container, so scalars cost no
-/// stack space. Stream content is never parsed.
+/// stack space. `renumbered` maps every existing ID, so a reference it lacks
+/// names a missing object and becomes null. Stream content is never parsed.
 fn rewrite_or_queue<'a>(
     object: &'a mut Object,
     renumbered: &HashMap<ObjectId, ObjectId>,
@@ -137,9 +140,9 @@ fn rewrite_or_queue<'a>(
 ) -> PyResult<()> {
     match object {
         Object::Reference(id) => {
-            if let Some(&new_id) = renumbered.get(id) {
-                *id = new_id;
-            }
+            *object = renumbered
+                .get(id)
+                .map_or(Object::Null, |&new_id| Object::Reference(new_id));
         }
         Object::Array(_) | Object::Dictionary(_) | Object::Stream(_) => {
             pending

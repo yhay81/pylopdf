@@ -57,7 +57,10 @@ complexity、render snapshot、TOC／link、annotation、Form import与页面结
 它会拒绝重复使用的Page／Pages对象与cycle、超过32次引用的间接`/Kids` chain、
 超过256层的内部tree，以及超过间接对象数的edge。`max_pages`遇到第一个超限页面时
 停止。未配置页面策略的open保持兼容，并将这些page-tree检查延迟到第一次
-page-indexing操作。
+page-indexing操作。page count／lookup会复用一次walk得到的page index，因此访问
+所有页面仍是线性的。旋转与page box编辑不会改变page tree，因此保留该index；其他
+编辑会丢弃它，并在下一次访问时重建。失败的walk不会被缓存，因此损坏的tree在每次
+访问时都会抛出异常。
 
 page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`的完整范围
 无论页数多少都覆盖所有页。显式sequence可以重复页面，但在超过页数与4,096中较大者

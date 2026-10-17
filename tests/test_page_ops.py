@@ -267,11 +267,15 @@ def test_new_page_uses_requested_geometry_under_cropped_rotated_parent() -> None
     assert png_size(reopened.render_page(1)) == (612, 792)
 
 
-@pytest.mark.parametrize("null_value", ["null", "5 0 R"])
+@pytest.mark.parametrize("null_value", ["null", "5 0 R", "99 0 R"], ids=["null", "indirect-null", "missing-object"])
 @pytest.mark.parametrize("inherited_values", [False, True])
 def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
     *, null_value: str, inherited_values: bool
 ) -> None:
+    """A null attribute is omitted, so the page inherits from its source ancestors.
+
+    ISO 32000-2 §7.3.10 reads a reference to a missing object as null.
+    """
     attributes = " ".join(f"/{key} {null_value}" for key in ("MediaBox", "CropBox", "Rotate", "Resources"))
     inherited = "/CropBox [0 0 300 400] /Rotate 180 /Resources << /Font << /F1 6 0 R >> >>" if inherited_values else ""
     content = "BT /F1 20 Tf 40 80 Td (NULL-INHERITANCE) Tj ET" if inherited_values else ""
@@ -305,6 +309,54 @@ def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
         assert current[1].rotation == expected_rotation
         assert current.render_page(1) == expected_png
     assert source.tobytes() == source_bytes
+
+
+@pytest.mark.parametrize("operation", ["select", "delete_pages", "copy_page", "insert_text"])
+def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation: str) -> None:
+    """Same-document edits read a missing-object attribute as omitted, like imports.
+
+    Flattening the page tree materializes the value that the page inherits from
+    its original ancestors. Keeping the reference would make the page inherit
+    from its new parent instead, and page readers and drawing used to raise.
+    """
+    attributes = " ".join(f"/{key} 99 0 R" for key in ("MediaBox", "CropBox", "Rotate", "Resources"))
+    content = "BT /F1 20 Tf 40 80 Td (MISSING-REFERENCES) Tj ET"
+    doc = pylopdf.open(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 /MediaBox [0 0 612 792] >>",
+                3: "<< /Type /Pages /Parent 2 0 R /Kids [4 0 R] /Count 1 /CropBox [0 0 300 400] /Rotate 90 "
+                "/Resources << /Font << /F1 5 0 R >> >> >>",
+                4: f"<< /Type /Page /Parent 3 0 R /Contents 7 0 R {attributes} >>",
+                5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                6: "<< /Type /Page /Parent 2 0 R >>",
+                7: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+            }
+        )
+    )
+    geometry = (pylopdf.Rect(0, 0, 612, 792), pylopdf.Rect(0, 0, 300, 400), 90)
+    assert (doc[0].mediabox, doc[0].cropbox, doc[0].rotation) == geometry
+    expected_png = doc.render_page(0)
+
+    index = 0
+    if operation == "select":
+        doc.select([0])
+    elif operation == "delete_pages":
+        doc.delete_pages([1])
+    elif operation == "copy_page":
+        doc.copy_page(0)
+        index = 2
+    else:
+        doc[0].insert_text((20, 30), "Drawn")
+
+    for current in (doc, pylopdf.open(stream=doc.tobytes())):
+        page = current[index]
+        assert (page.mediabox, page.cropbox, page.rotation) == geometry
+        if operation == "insert_text":
+            assert current.get_page_text(index).split() == ["Drawn", "MISSING-REFERENCES"]
+        else:
+            assert current.render_page(index) == expected_png
 
 
 @pytest.mark.parametrize("operation", ["new_page", "insert_pdf", "copy_page"])
