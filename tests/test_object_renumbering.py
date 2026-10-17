@@ -40,6 +40,56 @@ def _kids_numbers(saved: bytes) -> list[int]:
     return [int(number) for number in re.findall(rb"(\d+) 0 R", kids.group(1))]
 
 
+def _sparse_pdf(objects: dict[int, str]) -> bytes:
+    """Build an xref-table PDF whose unused object numbers are free entries."""
+    out = bytearray(b"%PDF-1.7\n")
+    offsets: dict[int, int] = {}
+    for number in sorted(objects):
+        offsets[number] = len(out)
+        out += f"{number} 0 obj\n{objects[number]}\nendobj\n".encode("latin-1")
+    size = max(objects) + 1
+    xref_pos = len(out)
+    out += f"xref\n0 {size}\n".encode()
+    for number in range(size):
+        out += f"{offsets[number]:010d} 00000 n \n".encode() if number in offsets else b"0000000000 65535 f \n"
+    out += f"trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode()
+    return bytes(out)
+
+
+def _missing_content_source(missing: int, *, free_entry: bool = False) -> pylopdf.Document:
+    """Build a source page that draws object 4 and the missing object `missing`."""
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> >>",
+        3: f"<< /Type /Page /Parent 2 0 R /Contents [4 0 R {missing} 0 R] >>",
+        4: _stream("Source text"),
+        5: FONT,
+    }
+    if free_entry:
+        # Leave the missing number as a free entry below the highest object.
+        objects[missing + 1] = "<< /Unused true >>"
+    return pylopdf.Document(stream=_sparse_pdf(objects))
+
+
+def _target_with_form() -> pylopdf.Document:
+    """Build a one-page target whose object 6 is a Form XObject that it draws."""
+    form = "BT /F1 20 Tf 20 700 Td (TARGET FORM) Tj ET"
+    return pylopdf.Document(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R "
+                "/Resources << /Font << /F1 5 0 R >> /XObject << /T 6 0 R >> >> >>",
+                4: "<< /Length 5 >>\nstream\n/T Do\nendstream",
+                5: FONT,
+                6: f"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+                f"/Resources << /Font << /F1 5 0 R >> >> /Length {len(form)} >>\nstream\n{form}\nendstream",
+            }
+        )
+    )
+
+
 def test_imported_pages_take_ascending_object_numbers_in_page_order() -> None:
     source = pylopdf.Document(stream=_descending_pages_pdf(["First", "Second", "Third"]))
     doc = pylopdf.Document(stream=build_pdf(["Target"]))
@@ -68,10 +118,10 @@ def test_imported_pages_take_ascending_object_numbers_in_page_order() -> None:
 def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_number(kids: str) -> None:
     """The source page tree is read before its objects are renumbered.
 
-    A reference to a missing object keeps its number. Reading the tree after
-    renumbering resolved the missing Kids entry to whichever source object took
-    that number, so the import rejected a reused page or took a page outside
-    the source page tree.
+    lopdf's renumbering kept the number of a reference to a missing object.
+    Reading the tree after it resolved the missing Kids entry to whichever
+    source object took that number, so the import rejected a reused page or
+    took a page outside the source page tree.
     """
     source = pylopdf.Document(
         stream=build_raw_pdf(
@@ -100,6 +150,72 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
     stamp_text = pylopdf.Document(stream=stamped.tobytes()).get_page_text(0)
     assert "Reported page" in stamp_text
     assert "Orphan page" not in stamp_text
+
+
+@pytest.mark.parametrize("free_entry", [False, True], ids=["above-highest-object", "free-entry"])
+def test_missing_source_reference_cannot_draw_a_target_page(*, free_entry: bool) -> None:
+    """Import renumbering turns a reference to a missing object into null.
+
+    ISO 32000-2 §7.3.10 reads such a reference as null. A kept number made the
+    imported page also draw object 7 of the target, its second page's content.
+    """
+    source = _missing_content_source(7, free_entry=free_entry)
+    assert source.get_page_text(0).split() == ["Source", "text"]
+    target = pylopdf.Document(stream=build_pdf(["Target one", "TARGET PAGE TWO"]))
+
+    target.insert_pdf(source)
+
+    for doc in (target, pylopdf.Document(stream=target.tobytes())):
+        assert doc.get_page_text(2).split() == ["Source", "text"]
+        assert "TARGET PAGE TWO" in doc.get_page_text(1)
+
+
+@pytest.mark.parametrize("operation", ["insert_pdf", "show_pdf_page"])
+def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) -> None:
+    """A missing XObject resource stays missing instead of naming target object 6."""
+    content = "BT /F1 20 Tf 20 100 Td (Source text) Tj ET /X Do"
+    source = pylopdf.Document(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] "
+                "/Resources << /Font << /F1 5 0 R >> /XObject << /X 6 0 R >> >> >>",
+                3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+                4: f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
+                5: FONT,
+            }
+        )
+    )
+    assert source.get_page_text(0).split() == ["Source", "text"]
+    target = _target_with_form()
+
+    if operation == "insert_pdf":
+        target.insert_pdf(source)
+        texts = {0: ["TARGET", "FORM"], 1: ["Source", "text"]}
+    else:
+        target[0].show_pdf_page(target[0].rect, source, 0)
+        texts = {0: ["TARGET", "FORM", "Source", "text"]}
+
+    for doc in (target, pylopdf.Document(stream=target.tobytes())):
+        assert {index: doc.get_page_text(index).split() for index in texts} == texts
+
+
+def test_missing_source_reference_cannot_name_an_object_added_later() -> None:
+    """A missing reference cannot resolve to an object that a later edit adds.
+
+    The five-object target numbers the first source's objects 6-10 and the
+    stamp source's objects 11-15, so the stamped Form XObject becomes object
+    16, the number of the first source's missing content entry.
+    """
+    target = pylopdf.Document(stream=build_pdf(["Target"]))
+    target.insert_pdf(_missing_content_source(16))
+
+    stamp = pylopdf.Document(stream=build_pdf(["Stamp"]))
+    target[0].show_pdf_page(pylopdf.Rect(0, 396, 612, 792), stamp, 0)
+
+    for doc in (target, pylopdf.Document(stream=target.tobytes())):
+        assert doc.get_page_text(0).split() == ["Target", "Stamp"]
+        assert doc.get_page_text(1).split() == ["Source", "text"]
 
 
 def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> None:

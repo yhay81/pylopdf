@@ -25,11 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and rescanned the bookmark table that `set_toc` fills once per renumbered
   object. That made every import quadratic in the source's object count, even
   for a single page. The numbering is unchanged: across the bundled corpus and
-  generated fixtures, every import saved byte-identical output except for the
-  page-tree fix below and one rarer case: when the source's page objects use
-  different generation numbers, lopdf's two-pass reordering could point a
-  reference to a missing object at a page, and that reference now keeps its
-  number like every other missing reference.
+  generated fixtures, every import from a source without references to
+  missing objects saved byte-identical output. When the source's page objects
+  used different generation numbers, lopdf's two-pass reordering could also
+  point a reference to a missing object at a page; such references now import
+  as null, as described under Fixed.
   Importing one page from a generated 50,000-page source fell from 2.23 s to
   0.10 s (4.29 s to 0.11 s when page numbers descend in page order), and
   importing and stamping one page each from a 30,000-page source after a
@@ -38,9 +38,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `insert_pdf` and `show_pdf_page` read the source page tree before
-  renumbering the source. A missing Kids entry keeps its object number, so when
-  a renumbered source object took that number, the import rejected the source
-  as reusing a page object or took a page outside the source page tree.
+  renumbering the source. lopdf's renumbering kept the number of a missing
+  Kids entry, so when a renumbered source object took that number, the import
+  rejected the source as reusing a page object or took a page outside the
+  source page tree.
+- References to objects missing from an `insert_pdf` or `show_pdf_page`
+  source, including the generated documents behind embedded-font text and
+  form appearances, now import as null, which is how ISO 32000-2 reads them.
+  They kept their object numbers, so after the import they resolved to
+  whichever target object used the same number: another page's content
+  stream, a target XObject, or an object added later, such as the stamped Form
+  XObject. A page attribute that names a missing object now counts as omitted
+  wherever pylopdf resolves page attributes. Imported pages, `select`,
+  `delete_pages`, `copy_page`, and drawing materialize the value that the page
+  inherits from its original ancestors, or the source default, and
+  `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
+  raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
+  rebuilt page inherited from its new parent instead. A reference in the
+  target document itself that names an object number above every entry in its
+  cross-reference table is not rewritten and can still resolve to an object
+  that a later import or edit adds.
 
 ## [0.14.0] - 2026-10-13
 
