@@ -65,7 +65,11 @@ and cycles, indirect `/Kids` chains over 32 references, internal trees over 256
 levels, and edge counts above the indirect-object count. `max_pages` traversal
 stops at the first over-limit page. Opening without a page policy remains
 compatible and defers these page-tree checks until the first operation that
-indexes pages.
+indexes pages. Page counts and lookups reuse one walk's page index, so
+touching every page stays linear. Rotation and page-box edits keep the index
+because they cannot change the page tree; every other edit drops it, and the
+next access rebuilds it. A failed walk is never cached, so a malformed tree
+raises on every access.
 
 Page batches validate entries against one page-count snapshot. `pages=None`
 and complete `insert_pdf()` ranges cover every page whatever the page count.
