@@ -97,10 +97,18 @@ risky. When processing untrusted files:
   caches. Caller text is rejected before PyO3 copying or rectangle iteration
   with `annotation_input_size`; highlight iteration stops at item 4,097.
 - Named-destination lookup visits reference cycles once and rejects traversal
-  above 4,096 entries/nodes, 8,192 edges, 32 levels, or 1 MiB of key bytes
-  instead of silently reporting a truncated tree as unresolved.
-  `Page.get_links()` builds one borrowed index per call rather than repeating
-  the bounded traversal for every named link.
+  above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
+  above 16 MiB of key bytes with `named_destination_text_size`, or above 32
+  levels, instead of silently reporting a truncated tree as unresolved.
+  `get_toc()`, `Page.get_links()`, link import in `insert_pdf()`, and the
+  rewrite of the name tree and legacy `/Dests` during page deletion and
+  selection share these limits, so every well-formed tree that resolves can
+  also be cleaned and imported. The rewrite copies retained destination values
+  within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
+  looked-up destination name costs the budget of the structure being walked:
+  TOC text for an outline, key text for a name tree, or one page's 1 MiB of
+  link metadata. `Page.get_links()` builds one borrowed index per call rather
+  than repeating the bounded traversal for every named link.
 - TOC reads use an iterative outline walk, visit reference cycles once, release
   the GIL, and reject partial output above 65,536 nodes/entries or 131,072
   edges with `toc_entry_count`, above 16 MiB of source/returned text with

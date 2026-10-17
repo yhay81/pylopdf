@@ -77,6 +77,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
 `form_field_input_size`, `form_content_size`, `annotation_input_size`, `xmp_metadata_size`,
 `metadata_input_size`, `toc_input_size`, `toc_entry_count`, `toc_text_size`,
+`named_destination_count`, `named_destination_text_size`,
 `page_entry_count`, `page_label_input_size`,
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
@@ -226,10 +227,18 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   highlight 4,096 rect를 검사합니다. caller text는PyO3 copy 또는rectangle
   iteration 전에`annotation_input_size`로 거부하며 highlight iteration은4,097번째
   item에서 중단됩니다.
-- named destination lookup은 참조cycle을 한 번만 방문하고4,096 entry/node,
-  8,192 edge, 깊이32 또는key byte 1 MiB를 넘는tree를 단순 미해결로 조용히
-  처리하지 않고 거부합니다. `Page.get_links()`는named link마다tree를 다시
-  순회하지 않고call당 하나의borrowed index를 만듭니다.
+- named destination lookup은 참조cycle을 한 번만 방문하고65,536 entry/node 또는
+  131,072 edge를 넘는tree는`named_destination_count`로, key byte 16 MiB를 넘는
+  tree는`named_destination_text_size`로 거부하며 깊이32도 넘지 않게 합니다.
+  중간에 잘린tree를 단순 미해결로 조용히 처리하지 않습니다. `get_toc()`,
+  `Page.get_links()`, `insert_pdf()`의link 가져오기, page 삭제와 선택 시name
+  tree와 구형식`/Dests`의 재작성은 이 상한을 공유하므로 해석되는 올바른 형식의
+  tree는 정리와 가져오기도 가능합니다. 재작성은 유지하는destination 값을direct
+  object 1,048,576개(entry당16개)와text 16 MiB 범위에서copy합니다.
+  조회한destination 이름은 순회 중인 구조의 예산에 계상되며 outline은TOC text,
+  name tree는key text, link는page당1 MiB link metadata를 사용합니다.
+  `Page.get_links()`는named link마다tree를 다시 순회하지 않고call당 하나의
+  borrowed index를 만듭니다.
 - TOC 읽기는 반복outline walk로 참조cycle을 한 번만 방문하고GIL을 해제합니다.
   65,536 node/entry 또는131,072 edge를 넘는 부분 결과는`toc_entry_count`로,
   source/returned text 16 MiB를 넘는 결과는`toc_text_size`로 거부하며 깊이64와

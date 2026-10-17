@@ -72,6 +72,7 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `embedded_file_input_size`、`form_field_input_size`、`form_content_size`、
 `annotation_input_size`、
 `metadata_input_size`、`toc_input_size`、`toc_entry_count`、`toc_text_size`、
+`named_destination_count`、`named_destination_text_size`、
 `page_entry_count`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
@@ -197,9 +198,16 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   失效cache之前检查相同的页面数量、生成subtype加Contents/URI输入合计1 MiB与
   4,096个highlight矩形。caller text会在PyO3 copy或rectangle iteration前以
   `annotation_input_size`拒绝，highlight iteration在第4,097个item停止。
-- named destination lookup只访问引用cycle一次，并拒绝超过4,096个entry/node、
-  8,192条edge、32层或1 MiB key byte的tree，而不会静默地将截断结果报告为未解析。
-  `Page.get_links()`每次call只构建一个borrowed index，不会为每个named link重复遍历。
+- named destination lookup只访问引用cycle一次；超过65,536个entry/node或131,072条
+  edge时以`named_destination_count`拒绝，超过16 MiB key byte时以
+  `named_destination_text_size`拒绝，并限制为32层，而不会静默地将截断结果报告为
+  未解析。`get_toc()`、`Page.get_links()`、`insert_pdf()`的link导入，以及页面删除与
+  选择时对name tree和旧式`/Dests`的改写共享这些上限，因此格式正确且可以解析的
+  tree也能被清理和导入。改写会在1,048,576个direct object（每个entry 16个）和
+  16 MiB文本的范围内copy保留的destination值。查找的destination名计入正在遍历的
+  结构的预算：outline计入TOC文本，name tree计入key文本，link计入每页1 MiB的
+  link metadata。`Page.get_links()`每次call只构建一个borrowed index，不会为每个
+  named link重复遍历。
 - TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过65,536个
   node/entry或131,072条edge时以`toc_entry_count`拒绝部分结果，超过16 MiB
   source/returned文本时以`toc_text_size`拒绝，并限制64层与32层destination间接
