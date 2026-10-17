@@ -539,9 +539,20 @@ overview.
   from locale workspace packages under `fonts/pylopdf-fonts-{jp,ko,zh-cn,zh-tw}/`
   and are exposed only through matching locale extras. Explicit and
   auto-selected fallback font input shares the 64 MiB default OpenType boundary
-  described below. Auto-discovery keeps package assets as paths and must read
-  every selected sans/serif pair successfully before one cache update. Failed
-  path reads or size checks must preserve configured fonts and caches.
+  described below. Auto-discovery keeps package assets as paths. Before its
+  first render, every new `Document` stats each selected sans/serif path and
+  applies that boundary, then reuses the process-wide bytes in
+  `rust/src/fallback_font_cache.rs` while the path's size and modification
+  time (plus device, inode, and change time on Unix) match the last read for
+  its locale/style slot; only other files are read. The cache holds at most
+  one file per slot, shared by every document rather than copied into each,
+  and keeps it after those documents close. It locks only to look up or swap
+  slots, never across file I/O, so a hung filesystem cannot stall other
+  threads and a fork cannot inherit it held; concurrent first renders may
+  therefore each read once. New reads are published, and the document
+  updated, only after every selected pair succeeds. Failed path reads or size
+  checks must preserve configured fonts and caches, including those slots.
+  Explicit `set_fallback_font` paths are still read on every call.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later

@@ -6,12 +6,16 @@ does under ``uv sync --all-extras`` and in CI.
 
 from __future__ import annotations
 
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import build_nonembedded_cjk_pdf, build_nonembedded_locale_cjk_pdf
 
 import pylopdf
+from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
 FONTS_DIR = Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp"
 SANS = FONTS_DIR / "NotoSansJP-Regular.otf"
@@ -23,6 +27,29 @@ LOCALE_SANS = {
     "zh-CN": (FONT_ROOT / "pylopdf-fonts-zh-cn" / "src" / "pylopdf_fonts_zh_cn" / "NotoSansSC-Regular.otf"),
     "zh-TW": (FONT_ROOT / "pylopdf-fonts-zh-tw" / "src" / "pylopdf_fonts_zh_tw" / "NotoSansTC-Regular.otf"),
 }
+
+
+def locale_font_files(directory: Path) -> list[tuple[str, str, str]]:
+    """Copy the JP pair and write distinct placeholders for the other locale slots.
+
+    Configuration does not parse font data, and the Adobe-Japan1 fixture only
+    ever selects the JP pair, so the placeholders are never interpreted.
+    """
+    files = [("ja", str(shutil.copy(SANS, directory)), str(shutil.copy(SERIF, directory)))]
+    for index, language in enumerate(("ko", "zh-CN", "zh-TW"), start=1):
+        sans = directory / f"{language}-sans.otf"
+        serif = directory / f"{language}-serif.otf"
+        sans.write_bytes(bytes([index]) * (1024 + index))
+        serif.write_bytes(bytes([index + 4]) * (2048 + index))
+        files.append((language, str(sans), str(serif)))
+    return files
+
+
+def render_with_explicit_serif(font: Path) -> bytes:
+    """Render the MS-Mincho fixture with one explicitly configured serif slot."""
+    doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
+    doc.set_fallback_font(font, kind="serif")
+    return doc.render_page(0, 1.0)
 
 
 def render_blank_baseline() -> bytes:
@@ -128,6 +155,89 @@ def test_auto_discovery_uses_only_canonical_font_packages(monkeypatch: pytest.Mo
         bundled_font_providers.cache_clear()
 
     assert requested == [module_name for _, _, module_name in provider_specs]
+
+
+def test_auto_discovered_fonts_render_like_explicit_fonts() -> None:
+    """Fresh documents sharing installed locale fonts render identically."""
+    pytest.importorskip("pylopdf_fonts_jp")
+    expected = render_with_explicit_serif(SERIF)
+    pdf = build_nonembedded_cjk_pdf()
+    assert [pylopdf.open(stream=pdf).render_page(0, 1.0) for _ in range(3)] == [expected] * 3
+
+
+def test_locale_fallback_files_are_read_once_across_documents(one_page_pdf: bytes, tmp_path: Path) -> None:
+    """Later documents reuse unchanged files and reread only a changed one."""
+    files = locale_font_files(tmp_path)
+    first = _Document.load_bytes(one_page_pdf)
+    assert first.set_fallback_font_locale_files(files) == 8
+    second = _Document.load_bytes(one_page_pdf)
+    assert second.set_fallback_font_locale_files(files) == 0
+
+    changed = Path(files[2][2])
+    changed.write_bytes(changed.read_bytes() + b"\0")
+    third = _Document.load_bytes(one_page_pdf)
+    assert third.set_fallback_font_locale_files(files) == 1
+    assert _Document.load_bytes(one_page_pdf).set_fallback_font_locale_files(files) == 0
+    assert first.render_page_png(1, 1.0, None, None) == third.render_page_png(1, 1.0, None, None)
+
+
+def test_cached_locale_fallback_files_are_validated_atomically(tmp_path: Path) -> None:
+    """Cached files still fail size and path checks without partial updates."""
+    files = locale_font_files(tmp_path)
+    pdf = build_nonembedded_cjk_pdf()
+    doc = _Document.load_bytes(pdf)
+    doc.set_fallback_font_locale_files(files)
+    baseline = doc.render_page_png(1, 1.0, None, None)
+    assert baseline == render_with_explicit_serif(SERIF)
+
+    largest = max(Path(path).stat().st_size for _, sans, serif in files for path in (sans, serif))
+    with pytest.raises(LimitError) as caught:
+        doc.set_fallback_font_locale_files(files, largest - 1)
+    assert caught.value.args[0] == "font_input_size"
+
+    missing = Path(files[3][1])
+    data = missing.read_bytes()
+    missing.unlink()
+    with pytest.raises(PdfError, match="failed to load font"):
+        doc.set_fallback_font_locale_files(files)
+    assert doc.render_page_png(1, 1.0, None, None) == baseline
+
+    # The failed calls left every other cached read in place.
+    missing.write_bytes(data + b"\0")
+    assert doc.set_fallback_font_locale_files(files) == 1
+
+
+def test_auto_discovery_rereads_a_replaced_font_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh document sees a package font replaced after an earlier read."""
+    serif = tmp_path / "serif.otf"
+    shutil.copy(SERIF, serif)
+    provider = SimpleNamespace(language="ja", extra="jp", sans=SANS, serif=serif)
+    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    pdf = build_nonembedded_cjk_pdf()
+    mincho = pylopdf.open(stream=pdf).render_page(0, 1.0)
+    assert mincho == render_with_explicit_serif(SERIF)
+
+    shutil.copy(SANS, serif)
+    gothic = pylopdf.open(stream=pdf).render_page(0, 1.0)
+    assert gothic == render_with_explicit_serif(SANS)
+    assert gothic != mincho
+
+
+def test_concurrent_first_renders_share_locale_fonts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fresh documents racing to configure unread locale fonts render identically."""
+    providers = tuple(
+        SimpleNamespace(language=language, extra="", sans=Path(sans), serif=Path(serif))
+        for language, sans, serif in locale_font_files(tmp_path)
+    )
+    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: providers)
+    pdf = build_nonembedded_cjk_pdf()
+
+    def render(_: int) -> bytes:
+        return pylopdf.open(stream=pdf).render_page(0, 1.0)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        rendered = list(executor.map(render, range(32)))
+    assert rendered == [render_with_explicit_serif(SERIF)] * 32
 
 
 @pytest.mark.parametrize(
