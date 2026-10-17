@@ -5,7 +5,10 @@ use std::collections::{HashMap, HashSet};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pyo3::prelude::*;
 
-use crate::document::{PdfError, resolve_local_destination_array};
+use crate::document::{
+    MAX_TOC_TREE_EDGES, MAX_TOC_TREE_NODES, PdfError, resolve_local_destination_array,
+    toc_entry_count_err,
+};
 
 const MAX_ENTRIES: usize = 4_096;
 const MAX_EDGES: usize = 8_192;
@@ -311,10 +314,10 @@ impl PageCleanupPlan {
             };
             validate_navigation_dictionary(dictionary)?;
             nodes += 1;
-            if nodes > MAX_ENTRIES {
-                return Err(PdfError::new_err(
-                    "TOC outline tree exceeds the 4096-node safety limit",
-                ));
+            if nodes > MAX_TOC_TREE_NODES {
+                return Err(toc_entry_count_err(format!(
+                    "TOC outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
+                )));
             }
             for (key, child_depth) in [
                 (b"Next".as_slice(), depth),
@@ -327,10 +330,10 @@ impl PageCleanupPlan {
                         ));
                     }
                     edges += 1;
-                    if edges > MAX_EDGES {
-                        return Err(PdfError::new_err(
-                            "TOC outline tree exceeds the 8192-edge safety limit",
-                        ));
+                    if edges > MAX_TOC_TREE_EDGES {
+                        return Err(toc_entry_count_err(format!(
+                            "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
+                        )));
                     }
                     push(&mut pending, (target.child(Step::Key(key))?, child_depth))?;
                 }

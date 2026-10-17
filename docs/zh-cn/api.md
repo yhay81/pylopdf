@@ -25,13 +25,13 @@ password input上限为127个UTF-8 byte。
 | `is_repaired` | 打开时是否修复了最终classic `startxref`；保存会规范化xref数据 |
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
-| `get_text(pages=None)` | 单次batch最多提取4,096页的plain text，共享一个interpreter font cache（`None`表示所有页） |
-| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；最多4,096页及累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
-| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 有上限的PNG、带4,096页及累计encoded output上限的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
+| `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
+| `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；默认转换所有页，显式entry最多为页数与4,096中较大者，并有累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
+| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 有上限的PNG、在累计encoded output上限内渲染所有页或最多为页数与4,096中较大者的显式entry的保序并行PNG批次，或有上限的UTF-8 SVG（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
-| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete/insert batch上限为4,096个entry |
-| `get_toc()` / `set_toc(toc)` | 可处理cycle且有上限的书签（页码从1开始；4,096个entry/node、8,192条edge、64层、1 MiB文本） |
+| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围 |
+| `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |

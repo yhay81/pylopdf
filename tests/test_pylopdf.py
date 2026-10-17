@@ -181,8 +181,10 @@ def test_get_text_out_of_range(one_page_pdf: bytes) -> None:
 
 def test_get_text_rejects_oversized_batch(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
-    with pytest.raises(ValueError, match="cannot contain more than 4096 entries"):
+    assert doc.get_text([0] * 4096) == doc.get_page_text(0) * 4096
+    with pytest.raises(pylopdf.LimitError, match="cannot contain more than 4096 entries") as caught:
         doc.get_text([0] * 4097)
+    assert caught.value.code == "page_entry_count"
 
 
 def test_get_text_on_closed_document(one_page_pdf: bytes) -> None:
@@ -329,7 +331,7 @@ def test_select_out_of_range(three_page_pdf: bytes) -> None:
 
 
 @pytest.mark.parametrize("method_name", ["delete_pages", "select"])
-def test_structural_page_iterables_stop_at_fixed_limit(
+def test_structural_page_iterables_stop_at_small_document_floor(
     one_page_pdf: bytes,
     method_name: str,
 ) -> None:
@@ -344,21 +346,20 @@ def test_structural_page_iterables_stop_at_fixed_limit(
             yield 0
 
     method = getattr(doc, method_name)
-    with pytest.raises(ValueError, match="4096 entries"):
+    with pytest.raises(pylopdf.LimitError, match="4096 entries") as caught:
         method(page_numbers())
+    assert caught.value.code == "page_entry_count"
     assert consumed == 4097
     assert "Hello PDF" in page.get_text()
 
 
-def test_insert_pdf_rejects_oversized_page_range(one_page_pdf: bytes) -> None:
+def test_insert_pdf_accepts_ranges_beyond_the_batch_floor(one_page_pdf: bytes) -> None:
     target = pylopdf.Document(stream=one_page_pdf)
-    page = target[0]
     source = pylopdf.Document(stream=build_pdf([""] * 4097))
 
-    with pytest.raises(ValueError, match="4096 entries"):
-        target.insert_pdf(source)
-    assert target.page_count == 1
-    assert "Hello PDF" in page.get_text()
+    target.insert_pdf(source, start_at=0)
+    assert target.page_count == 4098
+    assert "Hello PDF" in target.get_page_text(4097)
 
 
 def test_insert_self_raises(one_page_pdf: bytes) -> None:
@@ -610,8 +611,9 @@ def test_render_pages_bounds_page_iterable_before_full_materialization(
             consumed += 1
             yield 0
 
-    with pytest.raises(ValueError, match="4096 entries"):
+    with pytest.raises(pylopdf.LimitError, match="4096 entries") as caught:
         doc.render_pages(pages(), workers=2)
+    assert caught.value.code == "page_entry_count"
     assert consumed == 4097
 
 
