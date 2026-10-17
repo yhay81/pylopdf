@@ -125,8 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page at 2x became 90–95% faster (22.7 ms to 1.2 ms on Windows, 7.6 ms to
   0.7 ms on Linux x86_64), the 14-file corpus first-page total 26–42% faster,
   and 14 rendered documents kept open used 100–157 MiB instead of
-  803–860 MiB. On an Apple M2 Pro the same fresh render fell from about 5.7 ms
-  to 0.4 ms, and free-threaded CPython 3.14t rendered fresh documents about
+  803–860 MiB. On an Apple M2 Pro the same fresh render fell from about 5.6 ms
+  to 0.5 ms, and free-threaded CPython 3.14t rendered fresh documents about
   twice as fast on four and eight threads. Output is unchanged, and extraction
   alone, which never configures fallback fonts, is unaffected. In exchange, the
   process keeps those 54 MiB after its last document is released. That left
