@@ -61,6 +61,10 @@ page-tree walker를 사용합니다. 재사용된Page／Pages object와 cycle, 3
 초과한 간접`/Kids` chain, 256 level을 초과한 내부tree, 간접object 수를 초과한edge를
 거부합니다. `max_pages`는 상한을 넘는 첫page에서 중단합니다. page policy 없는
 open은 호환성을 유지하고 이page-tree 검사를 첫page-indexing 작업까지 지연합니다.
+page count／lookup은 한 번의walk로 만든page index를 재사용하므로 모든page에
+접근해도 선형입니다. 회전과page box 편집은page tree를 바꾸지 않으므로index를
+유지하고, 그 밖의 편집은index를 버린 뒤 다음 접근에서 다시 만듭니다. 실패한walk는
+cache하지 않으므로 잘못된tree는 접근할 때마다 예외를 발생시킵니다.
 
 page batch는 한 번 얻은 page 수로 entry를 검증합니다. `pages=None`과`insert_pdf()`의
 전체 범위는 page 수와 관계없이 모든 page를 대상으로 합니다. 명시sequence는 같은

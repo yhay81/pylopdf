@@ -115,14 +115,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pages and links. `Page.get_links()` used to index the complete
   `/Names/Dests` tree and walk the page tree five times for every call, plus
   three more walks for every resolved link. It now indexes the tree once, on
-  the first named lookup, and reuses that index and the page index until the
-  next edit, which drops both. On a generated 1,000-page manual with 65,536
-  named destinations and three named links per page, reading every page's
-  links fell from 12.7 s to 0.03 s; with 20 links per page and a balanced page
-  tree, from 29.5 s to 0.13 s. The retained index holds each distinct key once
-  under the existing 65,536-entry and 16 MiB key-text limits, about 6 MiB for
-  that manual. Refusals still raise `LimitError` with the same codes on every
-  named lookup, and results are unchanged.
+  the first named lookup, and reuses that index until the next edit, while
+  page lookups use the shared page index. On a generated 1,000-page manual
+  with 65,536 named destinations and three named links per page, reading
+  every page's links fell from 12.7 s to 0.03 s; with 20 links per page and a
+  balanced page tree, from 29.5 s to 0.13 s. The retained index holds each
+  distinct key once under the existing 65,536-entry and 16 MiB key-text
+  limits, about 6 MiB for that manual. Refusals still raise `LimitError` with
+  the same codes on every named lookup, and results are unchanged.
 - Structural edits and `garbage=True` saves now remove unreachable objects
   with a pylopdf-owned reachability sweep instead of lopdf's `prune_objects`,
   which scanned a list of visited IDs for every reference and every object.
@@ -164,6 +164,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   x86_64, so it was not adopted for native wheels. Release compile steps took
   3m29s–10m18s versus 2m33s–10m25s before. The PyEmscripten wheel keeps its
   separately pinned fat-LTO profile.
+- Per-page access is now linear in the page count. `len(doc)`, `doc[i]`, and
+  iteration walked the complete page tree on every call, and so did nearly
+  every per-page read and edit, such as `Page.rotation`, `Page.rect`,
+  `Page.get_text()`, `Page.annots()`, and `Page.set_rotation()`. Page counts
+  and lookups now reuse one page index. On a generated 10,000-page document,
+  `list(doc)` fell from 17.3 s to 0.005 s of CPU time, reading every page's
+  rotation from 17.4 s to 0.007 s, its `rect` from 76.1 s to 0.026 s, and its
+  text from 20.4 s to 0.10 s. Rotation and page-box edits cannot change the
+  page tree and keep the index, so rotating every page fell from 45.9 s to
+  0.013 s. Other edits drop it and the next access rebuilds it, a malformed
+  page tree still raises on every access, and results are unchanged.
 - Repeated raster rendering of one document reuses the fonts, color spaces,
   and glyph outlines hayro parsed in earlier `Document.render_page`,
   `Page.get_pixmap`, `Page.render`, and serial `render_pages` calls on the

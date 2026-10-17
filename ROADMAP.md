@@ -916,6 +916,12 @@ rather than waiting automatically for v1.x.
       extraction but slowed Linux merges by 7–12% and Linux x86_64 PNG
       encoding by 7–8%, so native wheels use thin LTO while PyEmscripten keeps
       fat LTO.
+- [x] Evaluate stripping native wheel symbols (2026-10-18). maturin `--strip`
+      shrank Linux and macOS wheels by 4.8–7.1% (0.34–0.49 MiB) without
+      changing code, while Windows symbols already live in unshipped PDBs.
+      Stripped wheels printed no `RUST_BACKTRACE=1` frames and lost pylopdf
+      names in debuggers, profilers, and macOS crash reports, so native
+      wheels keep their symbol tables.
 - [x] Do not expose `SaveOptions.compression_level` or `linearize` yet.
       In lopdf 0.44, linearize is a dead writer flag; `is_linearized` only
       detects existing files. `compression_level` affects only object streams

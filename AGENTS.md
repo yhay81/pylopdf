@@ -368,7 +368,8 @@ overview.
   for example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
-  always be reflected in rendering and link reads.
+  always be reflected in rendering and link reads. The page index needs no
+  call: mutable document access drops it, as described with the walker below.
   `DocumentLimits.max_interpretation_size` bounds both retained original input
   and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
@@ -760,20 +761,21 @@ overview.
   and page links and the OpenAction keep the 1 MiB per-page annotation budget.
   Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
   name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
-  `_Document` until `invalidate_hayro_pdf` drops it on the next edit: the page
-  order, its reverse index, and an owned name-tree index built on the first
-  named lookup. That index sorts and deduplicates borrowed keys in place with a
-  traversal-order tie-break, so the first occurrence wins, then allocates one
-  exact buffer of distinct keys plus entries that keep only each destination's
-  page operand, fit type, and numeric operands for binary search. A refused or
-  failed build caches nothing, so every later named lookup repeats the bounded
-  build and a refusal raises again. Do not rescan the name tree or walk the
-  page tree per link or per page: destination geometry resolves from cached
-  page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
-  link index grow fallibly. Integer page indexes in link destinations use
-  checked conversion and must name an existing page; anything else is
-  unresolved like an unknown page reference. Convert PDF-supplied integers with
-  `try_from` rather than truncating `as` casts.
+  `_Document` until `invalidate_hayro_pdf` drops it on the next edit. It holds
+  an owned name-tree index built on the first named lookup; page order and
+  reverse page numbers come from the shared page index. The name-tree index
+  sorts and deduplicates borrowed keys in place with a traversal-order
+  tie-break, so the first occurrence wins, then allocates one exact buffer of
+  distinct keys plus entries that keep only each destination's page operand,
+  fit type, and numeric operands for binary search. A refused or failed build
+  caches nothing, so every later named lookup repeats the bounded build and a
+  refusal raises again. Do not rescan the name tree or walk the page tree per
+  link or per page: destination geometry resolves from cached page IDs.
+  Traversal stacks, cycle sets, the borrowed TOC index, and the owned link
+  index grow fallibly. Integer page indexes in link destinations use checked
+  conversion and must name an existing page; anything else is unresolved like
+  an unknown page reference. Convert PDF-supplied integers with `try_from`
+  rather than truncating `as` casts.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
@@ -850,6 +852,28 @@ overview.
   before switching profiles. Clean compile steps took 3m29s–10m18s per target,
   versus 2m33s–10m25s with the default profile. On a 12-core development
   machine, an incremental extension rebuild took about 35 seconds instead of 10.
+- Native release wheels keep their symbol tables. `rust/Cargo.toml` leaves
+  `strip` unset, which Cargo resolves to `debuginfo` because release builds have
+  no debug info, and release.yml passes no maturin `--strip`. The 2026-10-18
+  comparison built the v0.14.0 sources with the thin-LTO profile for all five
+  GitHub-hosted release targets, with maturin `--strip` and with
+  `strip = "symbols"`: abi3 and cp314t wheels shrank 4.8–7.1% (0.34–0.49 MiB)
+  and installed extensions 12.4–17.7% on Linux and macOS. Windows did not change
+  because the MSVC linker ignores `strip` and keeps symbols in an unshipped PDB.
+  maturin `--strip` left every code section byte-identical, and interleaved
+  benchmarks and import time stayed within runner noise. Cargo hashes profile
+  settings into crate metadata, so `strip = "symbols"` also changed code layout
+  on all five targets, including Windows. Stripping removed the names that
+  native diagnostics read. `RUST_BACKTRACE=1` printed no frames;
+  `RUST_BACKTRACE=full` showed pylopdf frames as `<unknown>` on Linux and as
+  `PyInit_pylopdf_core` on macOS; gdb, perf, and py-spy `--native` lost every
+  pylopdf name on Linux; and `sample`, crash reports, and Python 3.14
+  faulthandler C stacks lost them on macOS. Panic messages and source locations
+  survived; Windows wheels already offer only those. Stripping keeps the Mach-O
+  UUID and macOS caches symbolication by UUID, so compare stripped and
+  unstripped macOS builds on separate runners; Linux linker stripping also
+  changes the GNU build ID. Revisit stripping only together with a way to
+  symbolize reports from published wheels.
 - Pyodide 0.28.3 uses a static wheel built by `tools/build_pyodide.sh` with
   exact Python 3.13.2, Emscripten 4.0.9 and its Node.js 20.18.0, Rust 1.95.0,
   pyodide-build 0.30.7, maturin 1.14.1, and hashed build dependencies. The
@@ -931,6 +955,18 @@ overview.
   first over-limit page. `delete_pages` plans the complete retained order
   before mutation; append, copy, and import rebuild from a prevalidated order
   so indirect root Kids are preserved rather than silently replaced.
+  `_Document.doc` is an `IndexedDocument`: page count, page lookup, and the
+  TOC/link reverse page numbers reuse one walk's page index, built lazily by
+  the first read, so per-page access is amortized O(1) instead of a complete
+  walk per call. Its `DerefMut` drops the index before any mutable document
+  access, and the wrapper lives in a private module, so no edit can read or
+  retain an index built from a partially edited tree; never bypass it.
+  `set_page_entry` is the only mutation that keeps the index, and only for
+  `/Rotate` and the five page boxes, which the walk never reads, so rotate- and
+  crop-every-page loops stay linear; any other key drops it. Failed walks are
+  never cached, so a malformed tree raises on every access. Other edits still
+  rebuild the index on the next access, so drawing and annotation loops pay one
+  walk per edited page.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
