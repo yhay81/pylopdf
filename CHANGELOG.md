@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Whole-document operations now work for documents of any page count instead
+  of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
+  `render_pages()` with `pages=None`, and `insert_pdf()` of a complete source.
+  Text extraction and rendering process internally in 4,096-entry chunks that
+  each own their hayro cache, while `max_size`, `max_text_size`, and the other
+  output budgets still bound the complete call. Page entries are validated
+  against one page-count snapshot, removing a page-tree walk per entry that
+  made large batches quadratic, and budgeted extraction keeps running
+  admission totals instead of rescanning every interpreted page.
+- Explicit page sequences for `get_text`, `to_markdown`, `render_pages`,
+  `select`, and `delete_pages` are bounded by the larger of the page count and
+  4,096 instead of a fixed 4,096, so repetition never costs more than one
+  complete document pass. Materialization still stops early, and refusals
+  raise `LimitError` with the new stable code `page_entry_count`; it remains a
+  `ValueError` subclass. Direct core calls repeat the check, and the core page
+  import rejects repeated source pages before mutation instead of producing a
+  page tree that reuses one page object.
+- `set_toc()` and `get_toc()` accept large manuals: outlines may contain
+  65,536 entries/nodes, 131,072 edges, and 16 MiB of title text (formerly
+  4,096, 8,192, and 1 MiB). Entry-count refusals raise `LimitError` with
+  `toc_entry_count`, read-side text refusals use `toc_text_size`, and page
+  deletion and selection share the outline limits so every written outline
+  stays editable.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added

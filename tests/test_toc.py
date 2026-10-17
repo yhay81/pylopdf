@@ -8,8 +8,11 @@ import pytest
 from conftest import build_raw_pdf
 
 import pylopdf
+from pylopdf.pylopdf_core import LimitError, _Document
 
 REAL_WORLD = Path(__file__).parent / "assets" / "real_world"
+MAX_TOC_ENTRIES = 65_536
+MAX_TOC_TEXT_BYTES = 16 * 1024 * 1024
 
 
 def _build_outline_fixture(outline_objects: dict[int, str | bytes]) -> bytes:
@@ -144,41 +147,88 @@ def test_toc_rejects_excessive_depth() -> None:
         doc.get_toc()
 
 
-def test_toc_rejects_excessive_nodes() -> None:
+def _outline_chain(count: int, entry: str = "") -> dict[int, str | bytes]:
+    """Return ``count`` sibling outline items linked from object 5."""
     objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
-    for object_id in range(5, 4102):
-        next_entry = f" /Next {object_id + 1} 0 R" if object_id < 4101 else ""
-        objects[object_id] = f"<<{next_entry} >>"
-    doc = pylopdf.open(stream=_build_outline_fixture(objects))
-    with pytest.raises(pylopdf.PdfError, match="4096-node safety limit"):
+    last = 4 + count
+    for object_id in range(5, last + 1):
+        next_entry = f" /Next {object_id + 1} 0 R" if object_id < last else ""
+        objects[object_id] = f"<<{entry}{next_entry} >>"
+    return objects
+
+
+def test_toc_reads_entries_beyond_the_former_4096_limit() -> None:
+    doc = pylopdf.open(stream=_build_outline_fixture(_outline_chain(4_097, " /Title (A) /Dest [3 0 R /Fit]")))
+    assert doc.get_toc() == [[1, "A", 1]] * 4_097
+
+
+def test_toc_rejects_excessive_nodes() -> None:
+    doc = pylopdf.open(stream=_build_outline_fixture(_outline_chain(MAX_TOC_ENTRIES + 1)))
+    with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
         doc.get_toc()
+    assert caught.value.code == "toc_entry_count"
 
 
 def test_toc_rejects_excessive_edges() -> None:
     objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
-    for object_id in range(5, 4101):
-        next_id = object_id + 1 if object_id < 4100 else 5
+    last = 4 + MAX_TOC_ENTRIES
+    for object_id in range(5, last + 1):
+        next_id = object_id + 1 if object_id < last else 5
         objects[object_id] = f"<< /First 5 0 R /Next {next_id} 0 R >>"
     doc = pylopdf.open(stream=_build_outline_fixture(objects))
-    with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="131072-edge safety limit") as caught:
         doc.get_toc()
+    assert caught.value.code == "toc_entry_count"
 
 
 def test_toc_rejects_excessive_title_bytes() -> None:
-    title = "x" * 1024
+    title = "x" * (1024 * 1024)
     objects: dict[int, str | bytes] = {4: "<< /First 5 0 R >>"}
-    for object_id in range(5, 1030):
-        next_entry = f" /Next {object_id + 1} 0 R" if object_id < 1029 else ""
+    for object_id in range(5, 22):
+        next_entry = f" /Next {object_id + 1} 0 R" if object_id < 21 else ""
         objects[object_id] = f"<< /Title ({title}) /Dest [3 0 R /Fit]{next_entry} >>"
     doc = pylopdf.open(stream=_build_outline_fixture(objects))
-    with pytest.raises(pylopdf.PdfError, match="TOC source text exceeds the 1048576-byte safety limit"):
+    with pytest.raises(pylopdf.LimitError, match="TOC source text exceeds the 16777216-byte safety limit") as caught:
         doc.get_toc()
+    assert caught.value.code == "toc_text_size"
+
+
+def test_page_cleanup_shares_the_toc_node_limit() -> None:
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        4: "<< /First 6 0 R >>",
+        5: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+    }
+    last = 5 + MAX_TOC_ENTRIES + 1
+    for object_id in range(6, last + 1):
+        next_entry = f" /Next {object_id + 1} 0 R" if object_id < last else ""
+        objects[object_id] = f"<< /Title (A) /Dest [5 0 R /Fit]{next_entry} >>"
+    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    page = doc[0]
+
+    for operation in (lambda: doc.delete_pages([1]), lambda: doc.select([0])):
+        with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
+            operation()
+        assert caught.value.code == "toc_entry_count"
+        assert doc.page_count == 2
+        assert page.number == 0
+        assert page.rect.width == 100
 
 
 def test_set_toc_rejects_excessive_entries(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(stream=three_page_pdf)
-    with pytest.raises(ValueError, match="4096 entries"):
-        doc.set_toc([[1, "A", 1]] * 4097)
+    with pytest.raises(pylopdf.LimitError, match="65536 entries") as caught:
+        doc.set_toc([[1, "A", 1]] * (MAX_TOC_ENTRIES + 1))
+    assert caught.value.code == "toc_entry_count"
+    assert doc.get_toc() == []
+
+    core = _Document.load_bytes(three_page_pdf)
+    with pytest.raises(LimitError, match="65536 TOC entries") as core_caught:
+        core.set_toc([(1, "A", 1)] * (MAX_TOC_ENTRIES + 1))
+    assert core_caught.value.args[0] == "toc_entry_count"
+    assert core.get_toc() == []
 
 
 def test_set_toc_limits_are_atomic(three_page_pdf: bytes) -> None:
@@ -186,8 +236,8 @@ def test_set_toc_limits_are_atomic(three_page_pdf: bytes) -> None:
     original: list[list[int | str]] = [[1, "original", 1]]
     doc.set_toc(original)
 
-    with pytest.raises(pylopdf.LimitError, match="1048576-byte encoded-text safety limit") as caught:
-        doc.set_toc([[1, "é" * 524288, 1]])
+    with pytest.raises(pylopdf.LimitError, match="16777216-byte encoded-text safety limit") as caught:
+        doc.set_toc([[1, "é" * (MAX_TOC_TEXT_BYTES // 2), 1]])
     assert caught.value.code == "toc_input_size"
     assert doc.get_toc() == original
 

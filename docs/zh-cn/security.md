@@ -59,12 +59,20 @@ complexity、render snapshot、TOC／link、annotation、Form import与页面结
 停止。未配置页面策略的open保持兼容，并将这些page-tree检查延迟到第一次
 page-indexing操作。
 
+page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`的完整范围
+无论页数多少都覆盖所有页。显式sequence可以重复页面，但在超过页数与4,096中较大者
+的第一个entry处停止materialization并返回`page_entry_count`，因此重复也不会超过
+处理整个文档一次的成本。文本提取与渲染每4,096个entry重建一次call级hayro cache，
+而`max_size`、`max_text_size`等输出预算作用于整个call。直接调用core API时也会
+重复entry检查，core页面导入会在修改前拒绝重复的源页面。
+
 `LimitError`是`PdfError`的子类。稳定的`code`为`file_size`、`page_count`、
 `object_count`、`object_depth`、`decompressed_size`、`page_content_size`、
 `total_decompressed_size`、`text_size`、`text_glyph_count`、`interpretation_size`、`embedded_file_size`、
 `embedded_file_input_size`、`form_field_input_size`、`form_content_size`、
 `annotation_input_size`、
-`metadata_input_size`、`toc_input_size`、`page_label_input_size`、
+`metadata_input_size`、`toc_input_size`、`toc_entry_count`、`toc_text_size`、
+`page_entry_count`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
@@ -86,9 +94,10 @@ AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越
 安装不完整的renderer／extractor cache。为保持兼容，默认值为`None`；
 `DocumentLimits.web()`使用64 MiB。
 
-设置`max_text_size`后，plain-text提取会预检组装后精确的UTF-8大小，并将一个private
-batch限制为glyph payload预算的两倍。每个非空glyph至少贡献一个payload字节，而推断
-gap与换行的总数不会超过glyph数。batch最多接受4,096个page entry，因此重复页码无法
+设置`max_text_size`后，plain-text提取会预检组装后精确的UTF-8大小，并将一次提取
+call限制为glyph payload预算的两倍。每个非空glyph至少贡献一个payload字节，而推断
+gap与换行的总数不会超过glyph数。该输出上限作用于整个call，而不是内部的4,096个
+entry chunk；显式sequence最多接受页数与4,096中较大者的entry，因此重复页码无法
 绕过策略。拒绝code仍为`text_size`；为保持兼容，默认值仍为`None`。
 
 `max_text_glyphs`限制line组装前保留的record数，因此也限制结构化文本可materialize的
@@ -152,9 +161,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   共享content；no-match/error会保留document和cache。caller text会在PyO3 copy前
   逐步计数，而不创建完整encoded copy。可信输入可用
   `max_size=None`显式解除。
-- `delete_pages()`、`select()`和`insert_pdf()`在Python与Rust中每次call最多接受
-  4,096个page entry。iterable会在第4,097个item、graph修改前停止。空delete保留
-  cache、generation及现有`Page` view。
+- `delete_pages()`和`select()`在Python与Rust中每次call最多接受页数与4,096中
+  较大者的entry，因此重复页面也不会使选择结果大于文档。iterable会在超过上限的
+  第一个entry、graph修改前停止，并返回`page_entry_count`。`insert_pdf()`接受源
+  文档的完整范围。空delete保留cache、generation及现有`Page` view。
 - `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
   64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
 - `Document.embfile_add()`会在PyO3 copy前拒绝超过64 MiB的输入，
@@ -190,22 +200,25 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
 - named destination lookup只访问引用cycle一次，并拒绝超过4,096个entry/node、
   8,192条edge、32层或1 MiB key byte的tree，而不会静默地将截断结果报告为未解析。
   `Page.get_links()`每次call只构建一个borrowed index，不会为每个named link重复遍历。
-- TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过4,096个
-  node/entry、8,192条edge、64层、32层destination间接引用或1 MiB source/returned
-  文本时拒绝部分结果。写入会在PyO3 copy与修改前以`toc_input_size`检查entry、
-  深度和title文本上限。
+- TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过65,536个
+  node/entry或131,072条edge时以`toc_entry_count`拒绝部分结果，超过16 MiB
+  source/returned文本时以`toc_text_size`拒绝，并限制64层与32层destination间接
+  引用。写入会在PyO3 copy与修改前以`toc_entry_count`和`toc_input_size`检查相同的
+  entry、深度和title文本上限。页面删除与选择共享outline上限，因此写入的outline
+  始终可以继续编辑。
 - `Document.metadata`只解码8个标准Info字段；aggregate source/returned文本超过
   1 MiB时会拒绝，custom entry不会materialize为Python输出。
   `peek_metadata(max_file_size=)`可在解析前拒绝path或byte input，并限制returned
   标准文本；输入默认不设上限。写入在PyO3 copy前以`metadata_input_size`检查
   1 MiB source/encoded文本并原子应用。
 - 嵌入JavaScript在设计上不受支持，也绝不会执行。
-- `render_pages()`最多接受4,096个page entry，累计encoded PNG默认上限为512 MiB。
-  并行结果共享一个atomic budget，失败时不返回部分list；`max_size=None`可显式
-  取消。worker admission另行限制live raster/conversion buffer；不要在application
+- `render_pages()`默认渲染所有页，显式entry最多为页数与4,096中较大者，累计
+  encoded PNG默认上限为512 MiB。并行结果共享一个atomic budget，失败时不返回
+  部分list；`max_size=None`可显式取消。worker admission另行限制live raster/
+  conversion buffer，且每个worker每4,096页重建一次hayro cache；不要在application
   层叠加无限并行。
-- `Document.to_markdown()`最多接受4,096个page entry，累计UTF-8输出默认上限为
-  64 MiB。heading size统计pass与render pass都只同时保留一页的interpreted
+- `Document.to_markdown()`默认转换所有页，显式entry最多为页数与4,096中较大者，
+  累计UTF-8输出默认上限为64 MiB。heading size统计pass与render pass都只同时保留一页的interpreted
   layout、table和word。在组装page输出前，每个table都会获得剩余的累计预算。
   `Table.to_markdown()`默认使用同一上限，并预检包含合并单元格展开在内的转义后
   精确UTF-8大小。标题、段落、列表和表格在保留entry时计入预算，完整size获准后

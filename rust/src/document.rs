@@ -86,13 +86,16 @@ const MAX_NAMED_DEST_TREE_EDGES: usize = 8_192;
 const MAX_NAMED_DEST_TREE_DEPTH: usize = 32;
 const MAX_NAMED_DEST_NAME_BYTES: usize = 1024 * 1024;
 
-/// Bound outline traversal and returned TOC metadata.
-const MAX_TOC_ENTRIES: usize = 4_096;
-const MAX_TOC_TREE_NODES: usize = 4_096;
-const MAX_TOC_TREE_EDGES: usize = 8_192;
+/// Bound outline traversal and returned TOC metadata for large manuals.
+///
+/// Page cleanup shares the node and edge limits so every outline that
+/// `set_toc` can write remains readable and editable.
+const MAX_TOC_ENTRIES: usize = 65_536;
+pub(crate) const MAX_TOC_TREE_NODES: usize = 65_536;
+pub(crate) const MAX_TOC_TREE_EDGES: usize = 131_072;
 const MAX_TOC_TREE_DEPTH: usize = 64;
 const MAX_TOC_DEST_DEPTH: usize = 32;
-const MAX_TOC_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_TOC_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Bound generated invisible OCR-layer content per call.
 const MAX_OCR_LAYER_WORDS: usize = 4_096;
@@ -101,13 +104,14 @@ const MAX_OCR_LAYER_TEXT_BYTES: usize = 1024 * 1024;
 /// Bound lopdf's simple-font replacement inputs before encoding work.
 const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
 
-/// Bound one page-structure mutation batch before cloning or importing graphs.
-const MAX_STRUCTURAL_PAGE_BATCH: usize = 4_096;
+/// Explicit page batches may repeat pages up to the larger of the page count
+/// and this floor, so repetition never costs more than one full document pass.
+const MIN_PAGE_ENTRY_LIMIT: usize = 4_096;
+/// Replace call-scoped hayro caches after this many page entries so fonts and
+/// objects parsed during whole-document batches cannot accumulate unbounded.
+const PAGE_BATCH_CHUNK: usize = 4_096;
 const MAX_PAGE_TREE_DEPTH: usize = 256;
 const MAX_PAGE_TREE_REFERENCE_DEPTH: usize = 32;
-
-/// Bound the private multi-page plain-text extraction input.
-const MAX_TEXT_EXTRACTION_PAGES: usize = 4_096;
 
 /// Bound search input and returned geometry independently from page text.
 const MAX_SEARCH_INPUT_BYTES: usize = 4_096;
@@ -494,13 +498,19 @@ pub(crate) fn resolve_local_destination_array<'a>(
 fn add_toc_text_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
     *total = total
         .checked_add(amount)
-        .ok_or_else(|| PdfError::new_err("TOC text exceeds the platform size limit"))?;
+        .ok_or_else(|| limit_err("toc_text_size", "TOC text exceeds the platform size limit"))?;
     if *total > MAX_TOC_TEXT_BYTES {
-        return Err(PdfError::new_err(format!(
-            "TOC {label} exceeds the {MAX_TOC_TEXT_BYTES}-byte safety limit"
-        )));
+        return Err(limit_err(
+            "toc_text_size",
+            format!("TOC {label} exceeds the {MAX_TOC_TEXT_BYTES}-byte safety limit"),
+        ));
     }
     Ok(())
+}
+
+/// Report one TOC outline count beyond the shared large-manual boundary.
+pub(crate) fn toc_entry_count_err(message: String) -> PyErr {
+    limit_err("toc_entry_count", message)
 }
 
 /// Decode one outline title while bounding both source and returned text.
@@ -647,7 +657,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
             .checked_add(1)
             .ok_or_else(|| PdfError::new_err("TOC outline tree exceeds the platform size limit"))?;
         if nodes > MAX_TOC_TREE_NODES {
-            return Err(PdfError::new_err(format!(
+            return Err(toc_entry_count_err(format!(
                 "TOC outline tree exceeds the {MAX_TOC_TREE_NODES}-node safety limit"
             )));
         }
@@ -665,7 +675,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
             )?
         {
             if out.len() >= MAX_TOC_ENTRIES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC exceeds the {MAX_TOC_ENTRIES}-entry safety limit"
                 )));
             }
@@ -686,7 +696,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 PdfError::new_err("TOC outline tree exceeds the platform size limit")
             })?;
             if edges > MAX_TOC_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -707,7 +717,7 @@ fn collect_toc(doc: &Document) -> PyResult<Vec<TocEntry>> {
                 PdfError::new_err("TOC outline tree exceeds the platform size limit")
             })?;
             if edges > MAX_TOC_TREE_EDGES {
-                return Err(PdfError::new_err(format!(
+                return Err(toc_entry_count_err(format!(
                     "TOC outline tree exceeds the {MAX_TOC_TREE_EDGES}-edge safety limit"
                 )));
             }
@@ -824,7 +834,6 @@ const INHERITABLE_PAGE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox"
 
 /// Maximum PNG render pixels, approximately a 256 MB RGBA bitmap.
 const MAX_RENDER_PIXELS: u64 = 64_000_000;
-const MAX_RENDER_BATCH_PAGES: usize = 4_096;
 
 /// Bound concurrent pixmap plus straight-alpha conversion buffers to ~512 MB.
 #[cfg(not(target_os = "emscripten"))]
@@ -1094,7 +1103,7 @@ fn load_metadata_with_recovery(
 ///
 /// The first exception argument is a stable code; Python supplies a friendly
 /// `str(error)` and `error.code` view over the two arguments.
-fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
+pub(crate) fn limit_err(code: &'static str, message: impl Into<String>) -> PyErr {
     LimitError::new_err((code, message.into()))
 }
 
@@ -2901,17 +2910,20 @@ impl<'pdf> BatchRenderer<'pdf, '_> {
         }
     }
 
-    /// Render one ordered page batch with one caller-local hayro cache.
+    /// Render one ordered page batch with one caller-local hayro cache per
+    /// bounded chunk, so whole-document batches never retain every resource.
     fn render_serial(&self, page_numbers: &[u32]) -> PyResult<Vec<Vec<u8>>> {
-        let cache = RenderCache::new();
         let mut rendered = Vec::new();
         rendered
             .try_reserve_exact(page_numbers.len())
             .map_err(|error| {
                 PdfError::new_err(format!("failed to allocate serial render results: {error}"))
             })?;
-        for &page_number in page_numbers {
-            rendered.push(self.render(&cache, page_number)?);
+        for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
+            let cache = RenderCache::new();
+            for &page_number in chunk {
+                rendered.push(self.render(&cache, page_number)?);
+            }
         }
         Ok(rendered)
     }
@@ -3821,6 +3833,20 @@ fn page_tree_count(doc: &Document) -> PyResult<usize> {
     walk_page_tree(doc, None, |_, _| Ok(()))
 }
 
+/// Reject explicit page entries beyond the document-relative batch bound.
+fn check_page_entry_count(entries: usize, page_count: usize, verb: &str) -> PyResult<()> {
+    let limit = page_count.max(MIN_PAGE_ENTRY_LIMIT);
+    if entries > limit {
+        return Err(limit_err(
+            "page_entry_count",
+            format!(
+                "cannot {verb} more than {limit} page entries per call (the larger of the page count and {MIN_PAGE_ENTRY_LIMIT})"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<ObjectId> {
     page_number
         .checked_sub(1)
@@ -4607,6 +4633,10 @@ pub struct _Document {
     interpreted_text_sizes: HashMap<u32, usize>,
     /// Positioned glyph records already admitted for each interpreted page.
     interpreted_glyph_counts: HashMap<u32, usize>,
+    /// Running sums of the two admission maps, so whole-document batches do
+    /// not rescan every interpreted page for each newly admitted one.
+    interpreted_text_total: usize,
+    interpreted_glyph_total: usize,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
     /// Whether loading repaired an incorrect final classic startxref offset.
@@ -4663,6 +4693,8 @@ impl _Document {
             max_text_glyphs,
             interpreted_text_sizes: HashMap::new(),
             interpreted_glyph_counts: HashMap::new(),
+            interpreted_text_total: 0,
+            interpreted_glyph_total: 0,
             isolated_content_pages: HashSet::new(),
             is_repaired,
             pending_warnings: Arc::new(Mutex::new(pending)),
@@ -4822,6 +4854,8 @@ impl _Document {
         self.table_page_order.clear();
         self.interpreted_text_sizes.clear();
         self.interpreted_glyph_counts.clear();
+        self.interpreted_text_total = 0;
+        self.interpreted_glyph_total = 0;
     }
 
     /// Return the glyph payload still available to one page interpretation.
@@ -4832,18 +4866,7 @@ impl _Document {
         if let Some(admitted) = self.interpreted_text_sizes.get(&page_number) {
             return Ok(Some(*admitted));
         }
-        let used = self
-            .interpreted_text_sizes
-            .values()
-            .try_fold(0usize, |total, value| total.checked_add(*value))
-            .ok_or_else(|| {
-                limit_err(
-                    "text_size",
-                    "interpreted text size exceeds the platform limit",
-                )
-            })?;
-        let remaining = limit.saturating_sub(used);
-        Ok(Some(remaining))
+        Ok(Some(limit.saturating_sub(self.interpreted_text_total)))
     }
 
     /// Return the positioned glyph records still available to one page.
@@ -4854,17 +4877,7 @@ impl _Document {
         if let Some(admitted) = self.interpreted_glyph_counts.get(&page_number) {
             return Ok(Some(*admitted));
         }
-        let used = self
-            .interpreted_glyph_counts
-            .values()
-            .try_fold(0usize, |total, value| total.checked_add(*value))
-            .ok_or_else(|| {
-                limit_err(
-                    "text_glyph_count",
-                    "interpreted text glyph count exceeds the platform limit",
-                )
-            })?;
-        Ok(Some(limit.saturating_sub(used)))
+        Ok(Some(limit.saturating_sub(self.interpreted_glyph_total)))
     }
 
     /// Record one page's text resources without charging cache re-interpretation.
@@ -4879,17 +4892,15 @@ impl _Document {
             return Ok(());
         }
         debug_assert!(!self.interpreted_glyph_counts.contains_key(&page_number));
+        let text_total = self.interpreted_text_total.checked_add(text_size);
+        let glyph_total = self.interpreted_glyph_total.checked_add(glyph_count);
         if let Some(limit) = self.max_text_size {
-            let used = self
-                .interpreted_text_sizes
-                .values()
-                .try_fold(text_size, |total, value| total.checked_add(*value))
-                .ok_or_else(|| {
-                    limit_err(
-                        "text_size",
-                        "interpreted text size exceeds the platform limit",
-                    )
-                })?;
+            let used = text_total.ok_or_else(|| {
+                limit_err(
+                    "text_size",
+                    "interpreted text size exceeds the platform limit",
+                )
+            })?;
             if used > limit {
                 return Err(limit_err(
                     "text_size",
@@ -4900,16 +4911,12 @@ impl _Document {
             }
         }
         if let Some(limit) = self.max_text_glyphs {
-            let used = self
-                .interpreted_glyph_counts
-                .values()
-                .try_fold(glyph_count, |total, value| total.checked_add(*value))
-                .ok_or_else(|| {
-                    limit_err(
-                        "text_glyph_count",
-                        "interpreted text glyph count exceeds the platform limit",
-                    )
-                })?;
+            let used = glyph_total.ok_or_else(|| {
+                limit_err(
+                    "text_glyph_count",
+                    "interpreted text glyph count exceeds the platform limit",
+                )
+            })?;
             if used > limit {
                 return Err(limit_err(
                     "text_glyph_count",
@@ -4922,7 +4929,19 @@ impl _Document {
         self.interpreted_text_sizes.insert(page_number, text_size);
         self.interpreted_glyph_counts
             .insert(page_number, glyph_count);
+        // Overflow is reachable only without a configured limit, where the
+        // totals are never compared.
+        self.interpreted_text_total = text_total.unwrap_or(usize::MAX);
+        self.interpreted_glyph_total = glyph_total.unwrap_or(usize::MAX);
         Ok(())
+    }
+
+    /// Bound an explicit page batch, walking the page tree only above the floor.
+    fn check_page_entries(&self, entries: usize, verb: &str) -> PyResult<()> {
+        if entries <= MIN_PAGE_ENTRY_LIMIT {
+            return Ok(());
+        }
+        check_page_entry_count(entries, page_tree_count(&self.doc)?, verb)
     }
 
     /// Return the ObjectId of a one-based page.
@@ -6239,9 +6258,11 @@ impl _Document {
             .expect("text page was interpreted immediately before"))
     }
 
-    /// Assemble plain text for one page batch from the detached hayro view.
+    /// Append plain text for one page chunk from the detached hayro view.
     ///
-    /// The same detached-snapshot contract as `interpret_text_page` applies.
+    /// `max_output_size` bounds the complete `out` buffer, so the budget is
+    /// shared by every chunk of one call. The same detached-snapshot contract
+    /// as `interpret_text_page` applies.
     fn extract_text_batch<'a>(
         &mut self,
         pdf: &'a Pdf,
@@ -6249,8 +6270,8 @@ impl _Document {
         page_numbers: &[u32],
         max_output_size: Option<usize>,
         settings: &InterpreterSettings,
-    ) -> PyResult<String> {
-        let mut out = String::new();
+        out: &mut String,
+    ) -> PyResult<()> {
         for number in page_numbers {
             let remaining = max_output_size.map(|limit| limit.saturating_sub(out.len()));
             if !self.touch_text_page(*number) {
@@ -6284,7 +6305,7 @@ impl _Document {
             })?;
             out.push_str(&page_text);
         }
-        Ok(out)
+        Ok(())
     }
 
     /// Refresh a cached table page's LRU position; return false when uncached.
@@ -7783,18 +7804,14 @@ impl _Document {
         self.set_metadata_entries(entries)
     }
 
-    /// Delete a one-based page.
+    /// Delete one-based pages; duplicates name the same page.
     fn delete_pages(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot delete more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         if page_numbers.is_empty() {
             return Ok(());
         }
 
         let pages = collect_page_ids(&self.doc, None)?;
+        check_page_entry_count(page_numbers.len(), pages.len(), "delete")?;
         let mut deleted = HashSet::new();
         deleted.try_reserve(page_numbers.len()).map_err(|error| {
             PdfError::new_err(format!("failed to allocate deleted-page tracking: {error}"))
@@ -7838,11 +7855,7 @@ impl _Document {
     /// Collect glyph Unicode/positions through the hayro interpreter and
     /// assemble reading-order text. CJK fallbacks also apply to extraction.
     fn extract_text(&mut self, py: Python<'_>, page_numbers: Vec<u32>) -> PyResult<String> {
-        if page_numbers.len() > MAX_TEXT_EXTRACTION_PAGES {
-            return Err(PdfError::new_err(format!(
-                "cannot extract text from more than {MAX_TEXT_EXTRACTION_PAGES} page entries per call"
-            )));
-        }
+        self.check_page_entries(page_numbers.len(), "extract text from")?;
         // Every collected glyph contributes at least one UTF-8 byte. Plain
         // assembly adds at most one inferred gap or line ending per glyph, so
         // twice the configured payload budget is a complete output bound.
@@ -7869,14 +7882,29 @@ impl _Document {
                 .hayro_pdf
                 .take()
                 .expect("hayro view was built immediately before");
-            // Share one interpreter cache across the batch so fonts reused by
-            // several pages parse once per call instead of once per page.
-            let cache = InterpreterCache::new();
-            let extracted =
-                self.extract_text_batch(&pdf, &cache, &page_numbers, max_output_size, &settings);
-            drop(cache);
+            // Share one interpreter cache per bounded chunk so fonts reused by
+            // several pages parse once per chunk instead of once per page,
+            // while whole-document batches never retain every parsed font.
+            // The output budget spans the complete call, not one chunk.
+            let mut out = String::new();
+            let mut extracted = Ok(());
+            for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
+                let cache = InterpreterCache::new();
+                extracted = self.extract_text_batch(
+                    &pdf,
+                    &cache,
+                    chunk,
+                    max_output_size,
+                    &settings,
+                    &mut out,
+                );
+                drop(cache);
+                if extracted.is_err() {
+                    break;
+                }
+            }
             self.hayro_pdf = Some(pdf);
-            extracted
+            extracted.map(|()| out)
         })
     }
 
@@ -8052,14 +8080,9 @@ impl _Document {
         })
     }
 
-    /// Append every page from another document.
+    /// Append every page from another document, whatever its page count.
     fn merge(&mut self, py: Python<'_>, other: &Self) -> PyResult<()> {
         let page_count = page_tree_count(&other.doc)?;
-        if page_count > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         let count = u32::try_from(page_count).map_err(|e| PdfError::new_err(e.to_string()))?;
         let mut all = Vec::new();
         all.try_reserve_exact(page_count).map_err(|error| {
@@ -8074,7 +8097,8 @@ impl _Document {
     /// Import specified one-based pages from another document in order.
     ///
     /// `position` is a zero-based insertion point; None appends. Flatten the
-    /// page tree under root while inserting.
+    /// page tree under root while inserting. Each source page is imported at
+    /// most once because a repeated entry would reuse one page object twice.
     fn merge_pages(
         &mut self,
         py: Python<'_>,
@@ -8082,18 +8106,25 @@ impl _Document {
         page_numbers: Vec<u32>,
         position: Option<usize>,
     ) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot merge more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         if page_numbers.is_empty() {
             return Ok(());
         }
         let existing_pages = collect_page_ids(&self.doc, None)?;
         let source_pages = collect_page_ids(&other.doc, None)?;
+        check_page_entry_count(page_numbers.len(), source_pages.len(), "merge")?;
+        let mut imported = HashSet::new();
+        imported.try_reserve(page_numbers.len()).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate imported page tracking: {error}"
+            ))
+        })?;
         for &page_number in &page_numbers {
             page_id_from_index(&source_pages, page_number)?;
+            if !imported.insert(page_number) {
+                return Err(PdfError::new_err(format!(
+                    "page {page_number} is repeated; imported page entries must be unique"
+                )));
+            }
         }
         self.preflight_page_tree_rebuild(&existing_pages)?;
         py.detach(|| {
@@ -8165,12 +8196,8 @@ impl _Document {
     ///
     /// PDF page-tree Parent must be unique, so duplicate selections require copies.
     fn select(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
-        if page_numbers.len() > MAX_STRUCTURAL_PAGE_BATCH {
-            return Err(PdfError::new_err(format!(
-                "cannot select more than {MAX_STRUCTURAL_PAGE_BATCH} page entries per call"
-            )));
-        }
         let pages = collect_page_ids(&self.doc, None)?;
+        check_page_entry_count(page_numbers.len(), pages.len(), "select")?;
         let mut selected_ids = Vec::new();
         selected_ids
             .try_reserve_exact(page_numbers.len())
@@ -8318,11 +8345,7 @@ impl _Document {
         if page_numbers.is_empty() {
             return Ok(Vec::new());
         }
-        if page_numbers.len() > MAX_RENDER_BATCH_PAGES {
-            return Err(PdfError::new_err(format!(
-                "cannot render more than {MAX_RENDER_BATCH_PAGES} pages per batch"
-            )));
-        }
+        self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
             let pdf = self.hayro_view()?;
@@ -8371,13 +8394,20 @@ impl _Document {
                         (0..worker_count)
                             .into_par_iter()
                             .map(|_| {
-                                let cache = RenderCache::new();
+                                let mut cache = RenderCache::new();
+                                let mut cached_pages = 0usize;
                                 let mut rendered = Vec::new();
                                 loop {
                                     let index = next_page.fetch_add(1, Ordering::Relaxed);
                                     let Some(&page_number) = page_numbers.get(index) else {
                                         break;
                                     };
+                                    // Bound each worker cache like a serial chunk.
+                                    if cached_pages == PAGE_BATCH_CHUNK {
+                                        cache = RenderCache::new();
+                                        cached_pages = 0;
+                                    }
+                                    cached_pages += 1;
                                     rendered.try_reserve(1).map_err(|error| {
                                         PdfError::new_err(format!(
                                             "failed to grow worker render results: {error}"
@@ -8508,9 +8538,10 @@ impl _Document {
     /// UTF-16BE with a BOM.
     fn set_toc(&mut self, entries: Vec<(u32, String, u32)>) -> PyResult<()> {
         if entries.len() > MAX_TOC_ENTRIES {
-            return Err(PdfError::new_err(format!(
-                "cannot set more than {MAX_TOC_ENTRIES} TOC entries"
-            )));
+            return Err(limit_err(
+                "toc_entry_count",
+                format!("cannot set more than {MAX_TOC_ENTRIES} TOC entries"),
+            ));
         }
         let pages = collect_page_ids(&self.doc, None)?;
         let mut prepared = Vec::new();

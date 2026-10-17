@@ -62,12 +62,22 @@ page-tree walker를 사용합니다. 재사용된Page／Pages object와 cycle, 3
 거부합니다. `max_pages`는 상한을 넘는 첫page에서 중단합니다. page policy 없는
 open은 호환성을 유지하고 이page-tree 검사를 첫page-indexing 작업까지 지연합니다.
 
+page batch는 한 번 얻은 page 수로 entry를 검증합니다. `pages=None`과`insert_pdf()`의
+전체 범위는 page 수와 관계없이 모든 page를 대상으로 합니다. 명시sequence는 같은
+page를 반복할 수 있지만 page 수와4,096 중 큰 값을 넘는 첫entry에서
+materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 문서 전체를 한 번
+처리하는 비용을 넘지 않습니다. text 추출과 rendering은call 단위hayro cache를
+4,096 entry마다 다시 만들고, `max_size`, `max_text_size` 등 출력 예산은call 전체에
+적용됩니다. core API를 직접 호출해도entry 검사를 반복하며, core page import는 변경
+전에 중복된 원본page를 거부합니다.
+
 `LimitError`는`PdfError`의 subclass입니다. 안정적인`code`는`file_size`,
 `page_count`, `object_count`, `object_depth`, `decompressed_size`,
 `page_content_size`, `total_decompressed_size`, `text_size`, `text_glyph_count`,
 `interpretation_size`, `embedded_file_size`, `embedded_file_input_size`,
 `form_field_input_size`, `form_content_size`, `annotation_input_size`, `xmp_metadata_size`,
-`metadata_input_size`, `toc_input_size`, `page_label_input_size`,
+`metadata_input_size`, `toc_input_size`, `toc_entry_count`, `toc_text_size`,
+`page_entry_count`, `page_label_input_size`,
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
@@ -93,10 +103,11 @@ writer는 경계를 넘는 write를 거부하며 불완전한 renderer／extract
 않습니다. 호환성을 위한 기본값은`None`이고`DocumentLimits.web()`은64 MiB입니다.
 
 `max_text_size`를 설정하면plain-text 추출은 조립된 정확한UTF-8 size를 사전 검사하고
-private batch를glyph payload budget의2배로 제한합니다. 비어 있지 않은glyph는payload를
-최소1 byte 제공하며 추론gap과 줄바꿈 합계는glyph 수를 넘지 않습니다. batch는 최대
-4,096 page entry를 허용하므로 반복page 번호로policy를 우회할 수 없습니다. 거부code는
-`text_size`를 유지하고 호환성을 위한 기본값은`None`입니다.
+한 번의 추출call을glyph payload budget의2배로 제한합니다. 비어 있지 않은glyph는payload를
+최소1 byte 제공하며 추론gap과 줄바꿈 합계는glyph 수를 넘지 않습니다. 이 출력
+상한은 내부4,096 entry chunk가 아니라call 전체에 적용되고, 명시sequence는 page 수와
+4,096 중 큰 값까지의entry만 허용하므로 반복page 번호로policy를 우회할 수 없습니다.
+거부code는`text_size`를 유지하고 호환성을 위한 기본값은`None`입니다.
 
 `max_text_glyphs`는line 조립 전에 유지하는record 수를 제한하므로 구조화text가
 materialize할 수 있는block, line, span, word 수도 제한합니다. 같은page의text 해석과
@@ -173,9 +184,11 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   보존합니다. caller text는PyO3 copy 전에 완전한encoded copy를 만들지 않고
   순차적으로 계산합니다. 신뢰할 수 있는 입력은`max_size=None`으로 명시적으로
   해제할 수 있습니다.
-- `delete_pages()`, `select()`, `insert_pdf()`는Python과Rust 모두에서call당
-  4,096 page entry를 허용합니다. iterable은graph 변경 전4,097번째item에서
-  중단됩니다. 빈delete는cache, generation 및기존`Page` view를 유지합니다.
+- `delete_pages()`와`select()`는Python과Rust 모두에서call당 page 수와4,096 중
+  큰 값까지의entry를 허용하므로, 같은page를 반복해도 선택 결과가 문서보다 커지지
+  않습니다. iterable은graph 변경 전 상한을 넘는 첫entry에서 중단하고
+  `page_entry_count`를 반환합니다. `insert_pdf()`는 원본의 전체 범위를 허용합니다.
+  빈delete는cache, generation 및기존`Page` view를 유지합니다.
 - `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
   64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
   남은byte 예산까지만 압축을 풉니다.
@@ -218,9 +231,11 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   처리하지 않고 거부합니다. `Page.get_links()`는named link마다tree를 다시
   순회하지 않고call당 하나의borrowed index를 만듭니다.
 - TOC 읽기는 반복outline walk로 참조cycle을 한 번만 방문하고GIL을 해제합니다.
-  4,096 node/entry, 8,192 edge, 깊이64, destination 간접 참조32단계 또는
-  source/returned text 1 MiB를 넘는 부분 결과를 거부합니다. 쓰기도 변경 전에
-  `toc_input_size`로entry, 깊이, title text 상한을 검사합니다.
+  65,536 node/entry 또는131,072 edge를 넘는 부분 결과는`toc_entry_count`로,
+  source/returned text 16 MiB를 넘는 결과는`toc_text_size`로 거부하며 깊이64와
+  destination 간접 참조32단계도 넘지 않게 합니다. 쓰기도 변경 전에
+  `toc_entry_count`와`toc_input_size`로 같은entry, 깊이, title text 상한을 검사합니다.
+  page 삭제와 선택은outline 상한을 공유하므로 쓴outline은 계속 편집할 수 있습니다.
 - `Document.metadata`는 표준Info 8개 필드만decode하고 aggregate source/returned
   text 1 MiB를 넘으면 거부합니다. custom entry는Python 출력으로materialize하지
   않습니다. `peek_metadata(max_file_size=)`는 parsing 전에 path 또는 byte input을
@@ -228,13 +243,14 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   쓰기는PyO3 copy 전에`metadata_input_size`로 source/encoded text 1 MiB를 검사해
   원자적으로 적용합니다.
 - 임베드된 JavaScript는 설계상 지원하지 않으며 실행하지 않습니다.
-- `render_pages()`는 최대4,096 page entry를 허용하고 누적encoded PNG 기본 상한은
-  512 MiB입니다. 병렬 결과는 하나의atomic budget을 공유하며 실패 시 부분list를
-  반환하지 않습니다. `max_size=None`으로 명시적으로 해제할 수 있습니다. worker
-  admission은live raster/conversion buffer를 별도로 제한하므로 application
-  계층에서 무제한 병렬 호출을 덧붙이지 마세요.
-- `Document.to_markdown()`는 최대4,096 page entry를 허용하고 누적UTF-8 출력 기본
-  상한은64 MiB입니다. heading size 집계pass와render pass 모두에서 한 번에 한
+- `render_pages()`는 기본적으로 전체page를 렌더링하고 명시entry는 page 수와4,096
+  중 큰 값까지 허용하며 누적encoded PNG 기본 상한은512 MiB입니다. 병렬 결과는
+  하나의atomic budget을 공유하며 실패 시 부분list를 반환하지 않습니다.
+  `max_size=None`으로 명시적으로 해제할 수 있습니다. worker admission은live
+  raster/conversion buffer를 별도로 제한하고 각worker는4,096 page마다hayro cache를
+  다시 만들므로 application 계층에서 무제한 병렬 호출을 덧붙이지 마세요.
+- `Document.to_markdown()`는 기본적으로 전체page를 변환하고 명시entry는 page 수와
+  4,096 중 큰 값까지 허용하며 누적UTF-8 출력 기본 상한은64 MiB입니다. heading size 집계pass와render pass 모두에서 한 번에 한
   page의 interpreted layout, table, word만 유지합니다. page 출력을 조립하기 전에
   각table에 남은 누적 예산을 전달합니다. `Table.to_markdown()`도 같은 기본 상한을
   사용하며 merged-cell 확장을 포함한 escape 후 정확한UTF-8 크기를 사전 검사합니다.
