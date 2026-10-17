@@ -35,7 +35,7 @@ hide:
 
       <ul class="living-proofs" aria-label="プロジェクト情報">
         <li>MITライセンス</li>
-        <li>5–6 MBのwheel</li>
+        <li>6.7–7.8 MBのwheel</li>
         <li>必須Python依存なし</li>
         <li>Python 3.10–3.14</li>
       </ul>
@@ -105,8 +105,8 @@ hide:
     </div>
     <div class="living-evidence">
       <div class="living-evidence__item">
-        <span class="living-evidence__value">5–6 MB</span>
-        <span class="living-evidence__label">公開済みv0.10 wheelの範囲。AWS Lambdaなど容量制約のある環境にも適します。</span>
+        <span class="living-evidence__value">6.7–7.8 MB</span>
+        <span class="living-evidence__label">thin LTOのrelease profileでビルドしたnative wheelの範囲。AWS Lambdaなど容量制約のある環境にも適します。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">なし</span>

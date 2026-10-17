@@ -86,13 +86,16 @@ fuzz = [
 ]
 
 [tool.uv]
-# Cache keys that make uv rebuild the extension after Rust source changes.
+# Cache keys that make uv rebuild the extension after Rust source or local
+# release-profile overrides change.
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "rust/Cargo.toml" },
     { file = "rust/Cargo.lock" },
     { file = "rust/build.rs" },
     { file = "rust/src/*.rs" },
+    { env = "CARGO_PROFILE_RELEASE_LTO" },
+    { env = "CARGO_PROFILE_RELEASE_CODEGEN_UNITS" },
 ]
 
 [tool.uv.workspace]

@@ -158,8 +158,8 @@ RTen inference runtime 不会移除 PDF 抽取、rendering、生成或外部 OCR
 Worker bundle 压缩后为 3.817 MiB，解压后为 10.383 MiB。因此它超过 Cloudflare
 Workers Free 的 3 MB 压缩限制，但符合 paid plan 的 10 MB 压缩限制和共享的 64 MB
 未压缩限制。pylopdf 支持 paid-plan deployment 路径，不发布功能削减的独立 distribution。
-fat LTO 与单个 codegen unit 仅用于 PyEmscripten artifact；native release profile
-保持不变。
+PyEmscripten artifact 固定使用 fat LTO 与单个 codegen unit；native wheel 使用 thin
+LTO release profile。
 
 在 Node/Pyodide harness 中，首次打开并抽取 Form 1040 用时 117.634 ms；五次重复运行的
 median 为 28.506 ms。Wasm linear memory 在安装后达到 39.688 MiB，在完整兼容与

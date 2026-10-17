@@ -162,8 +162,8 @@ capability判定を決定的にするため`OcrEngine()`自体は存在します
 Worker bundleは圧縮後3.817 MiB、展開後10.383 MiBでした。そのためCloudflare Workers
 Freeの圧縮後3 MB上限は超えますが、paid planの圧縮後10 MBと共通の展開後64 MB上限には
 収まります。pylopdfはpaid planへのdeploy経路をsupportし、機能を減らした別distributionは
-配布しません。fat LTOと1 codegen unitはPyEmscripten artifactだけに適用し、nativeの
-release profileは変更しません。
+配布しません。PyEmscripten artifactはfat LTOと1 codegen unitに固定し、native wheelは
+thin LTOのrelease profileを使います。
 
 Node/Pyodide harnessではForm 1040の初回open・extractが117.634 ms、5回反復のmedianが
 28.506 msでした。Wasm linear memoryはinstall後39.688 MiB、互換性・resource suite完了後
