@@ -2568,12 +2568,15 @@ class Page:
 
         GoTo named destinations resolve from both the ``/Names`` name tree and
         the legacy ``/Dests`` dictionary. Reads share the 4,096-annotation and
-        1 MiB aggregate metadata-text boundaries with :meth:`annots`. Name-tree
-        resolution builds one borrowed index per call and is cycle-aware. Trees
-        above 65,536 entries or nodes or 131,072 edges raise
-        :class:`LimitError` with code ``named_destination_count``, above 16 MiB
-        of key text with ``named_destination_text_size``, and above 32 levels
-        with :class:`PdfError`, instead of returning a silent unresolved result.
+        1 MiB aggregate metadata-text boundaries with :meth:`annots`. The first
+        named lookup indexes the name tree once, cycle-aware, and later reads
+        reuse that index and the page index until the next edit, so reading
+        every page stays linear. Trees above 65,536 entries or nodes or 131,072
+        edges raise :class:`LimitError` with code ``named_destination_count``,
+        above 16 MiB of key text with ``named_destination_text_size``, and above
+        32 levels with :class:`PdfError`, instead of returning a silent
+        unresolved result. A refused tree is never cached, so every later named
+        lookup raises again.
         """
         raw = self._document._doc.read_links(self._page_number())
         kind_map = {
@@ -3665,8 +3668,8 @@ class Document:
         cycle-aware and rejects more than 65,536 nodes or entries or 131,072
         edges with ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
         source/returned text with ``"toc_text_size"``, and more than 64 levels
-        or 32 destination indirections. Named destinations resolve through the
-        same bounded name-tree index as :meth:`Page.get_links`.
+        or 32 destination indirections. Named destinations resolve under the
+        same name-tree limits as :meth:`Page.get_links`.
         """
         self._ensure_open()
         return [[level, title, page] for level, title, page in self._doc.get_toc()]

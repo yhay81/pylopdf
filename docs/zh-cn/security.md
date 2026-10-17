@@ -206,8 +206,10 @@ header、修复xref stream或回退到旧revision。修复会发出`PylopdfWarni
   tree也能被清理和导入。改写会在1,048,576个direct object（每个entry 16个）和
   16 MiB文本的范围内copy保留的destination值。查找的destination名计入正在遍历的
   结构的预算：outline计入TOC文本，name tree计入key文本，link计入每页1 MiB的
-  link metadata。`Page.get_links()`每次call只构建一个borrowed index，不会为每个
-  named link重复遍历。
+  link metadata。`Page.get_links()`在首次named lookup时只为tree建立一次index，
+  并在下次编辑前复用该index与page index，因此读取所有页面的link仍保持线性时间。
+  保留的index在相同的entry与key text上限内只保存每个不同的key一次，被拒绝的
+  tree不会被cache。
 - TOC读取使用迭代式outline walk，只访问引用cycle一次并释放GIL；超过65,536个
   node/entry或131,072条edge时以`toc_entry_count`拒绝部分结果，超过16 MiB
   source/returned文本时以`toc_text_size`拒绝，并限制64层与32层destination间接

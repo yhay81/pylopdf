@@ -69,7 +69,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
 `items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashesを持つ

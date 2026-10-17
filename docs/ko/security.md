@@ -237,8 +237,10 @@ rollback은 하지 않습니다. 복구 시`PylopdfWarning`이 발생하고
   object 1,048,576개(entry당16개)와text 16 MiB 범위에서copy합니다.
   조회한destination 이름은 순회 중인 구조의 예산에 계상되며 outline은TOC text,
   name tree는key text, link는page당1 MiB link metadata를 사용합니다.
-  `Page.get_links()`는named link마다tree를 다시 순회하지 않고call당 하나의
-  borrowed index를 만듭니다.
+  `Page.get_links()`는 첫named lookup에서tree를 한 번만index화하고 다음 편집
+  전까지 그index와page index를 재사용하므로 모든page의link를 읽어도 처리
+  시간이 선형으로 유지됩니다. 유지하는index는 같은entry·key text 상한 안에서
+  서로 다른key를 한 번씩만 보관하며, 거부된tree는cache하지 않습니다.
 - TOC 읽기는 반복outline walk로 참조cycle을 한 번만 방문하고GIL을 해제합니다.
   65,536 node/entry 또는131,072 edge를 넘는 부분 결과는`toc_entry_count`로,
   source/returned text 16 MiB를 넘는 결과는`toc_text_size`로 거부하며 깊이64와

@@ -232,8 +232,10 @@ xref dataを正規化します。
   direct object 1,048,576個（entryあたり16個）とtext 16 MiBの範囲でcopyします。
   参照したdestination名は走査中の構造の予算に計上され、outlineはTOC text、
   name treeはkey text、linkはpageごとの1 MiB link metadataを使います。
-  `Page.get_links()`はnamed linkごとにtreeを再走査せず、1 callにつき1つの
-  borrowed indexを構築します。
+  `Page.get_links()`は最初のnamed lookupでtreeを一度だけindex化し、次の編集
+  まではそのindexとpage indexを再利用するため、全pageのlinkを読んでも処理時間
+  は線形に収まります。保持するindexは同じentry・key text上限の範囲で重複しない
+  keyを一度ずつ持ち、拒否したtreeはcacheしません。
 - TOC読み取りは反復outline walkで参照cycleを一度だけ訪問し、GILを解放します。
   65,536 node/entryまたは131,072 edgeを超える部分結果は`toc_entry_count`、
   source/returned text 16 MiBを超えるものは`toc_text_size`で拒否し、深さ64と

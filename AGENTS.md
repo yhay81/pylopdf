@@ -358,9 +358,10 @@ overview.
   unencrypted load first consumes its original input bytes and falls back to a
   lopdf serialization only when hayro rejects them or reports a different page
   count. Editing methods must call `invalidate_hayro_pdf`, which also discards
-  the original-byte fast path; edited state must always be reflected in
-  rendering. `DocumentLimits.max_interpretation_size` bounds both retained
-  original input and the complete reserialization after edits, decryption, or
+  the original-byte fast path and the link-resolution cache; edited state must
+  always be reflected in rendering and link reads.
+  `DocumentLimits.max_interpretation_size` bounds both retained original input
+  and the complete reserialization after edits, decryption, or
   state-appearance normalization. Under a finite limit, serialize before
   constructing the state-normalized render copy. The bounded writer must not
   install a partial hayro cache. Original input above a finite limit retains
@@ -679,9 +680,18 @@ overview.
   the 16 MiB TOC text budget, name-tree rewrites share the key-text budget,
   and page links and the OpenAction keep the 1 MiB per-page annotation budget.
   Legacy catalog `/Dests` remains a direct dictionary lookup after a bounded
-  name-tree miss. `Page.get_links` builds one borrowed index lazily per call;
-  do not rescan the tree for each link. Traversal stacks, cycle sets, and the
-  borrowed index grow fallibly.
+  name-tree miss. `Page.get_links` reuses one `LinkResolutionCache` on
+  `_Document` until `invalidate_hayro_pdf` drops it on the next edit: the page
+  order, its reverse index, and an owned name-tree index built on the first
+  named lookup. That index sorts and deduplicates borrowed keys in place with a
+  traversal-order tie-break, so the first occurrence wins, then allocates one
+  exact buffer of distinct keys plus entries that keep only each destination's
+  page operand, fit type, and numeric operands for binary search. A refused or
+  failed build caches nothing, so every later named lookup repeats the bounded
+  build and a refusal raises again. Do not rescan the name tree or walk the
+  page tree per link or per page: destination geometry resolves from cached
+  page IDs. Traversal stacks, cycle sets, the borrowed TOC index, and the owned
+  link index grow fallibly.
 - TOC reads use pylopdf's iterative outline walk rather than lopdf's recursive
   parser. They visit indirect cycles once, release the GIL, index named
   destinations once, and reject partial results above 65,536 nodes/entries or
