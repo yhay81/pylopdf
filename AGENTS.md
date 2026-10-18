@@ -542,9 +542,9 @@ overview.
   described below. Auto-discovery keeps package assets as paths. Before its
   first render, every new `Document` stats each selected sans/serif path and
   applies that boundary, then reuses the process-wide bytes in
-  `rust/src/fallback_font_cache.rs` while the path's size and modification
+  `rust/src/bundled_font_cache.rs` while the path's size and modification
   time (plus device, inode, and change time on Unix) match the last read for
-  its locale/style slot; only other files are read. The cache holds at most
+  its package/style slot; only other files are read. The cache holds at most
   one file per slot, shared by every document rather than copied into each,
   and keeps it after those documents close. It locks only to look up or swap
   slots, never across file I/O, so a hung filesystem cannot stall other
@@ -647,13 +647,26 @@ overview.
   markers select a provider; pure Han remains JP-first for compatibility and
   `font_language` resolves the intended locale. This selects one font for the
   complete run; it is not per-glyph fallback. Mixed provider scripts require
-  an explicit font. `insert_text`, `insert_textbox`,
-  `set_form_field`, and `set_fallback_font` share a 64 MiB default OpenType
-  boundary. Python rejects buffer input before PyO3 copying; file input uses a
-  one-byte-overrun bounded Rust read with the GIL released and fallible 64 KiB
-  retained-buffer growth. Direct byte/path core variants repeat the check,
-  `max_font_size=None` explicitly opts trusted input out, and failures use
-  `font_input_size` without mutation.
+  an explicit font. Python passes a face selected from an installed package to
+  the `_file` core variants as `package_font=(language, kind)`, and the face
+  shares its package/style slot in `rust/src/bundled_font_cache.rs` with CJK
+  fallback configuration. Every call still stats the path and applies the
+  font boundary below before reusing the slot's bytes, and rereads a replaced
+  file; explicit `fontfile=` paths and `fontbuffer=` input never use the
+  slots. Generation and widget appearances take shared `Arc<Vec<u8>>` font
+  bytes, so a multi-widget fill does not copy the font once per widget, and
+  `_Document.package_font_reads()` counts slot reads for tests. Interleaved
+  A/B on the five GitHub-hosted release targets measured a short Japanese
+  `insert_text` on a fresh document 46–59% faster, Simplified Chinese serif
+  66–83%, and a Japanese `set_form_field` 55–79%, with byte-identical output;
+  each used face then stays resident after the last document closes
+  (11.0 MiB for the Simplified Chinese serif face on Windows). `insert_text`,
+  `insert_textbox`, `set_form_field`, and `set_fallback_font` share a 64 MiB
+  default OpenType boundary. Python rejects buffer input before PyO3 copying;
+  file input uses a one-byte-overrun bounded Rust read with the GIL released and
+  fallible 64 KiB retained-buffer growth. Direct byte/path core variants repeat
+  the check, `max_font_size=None` explicitly opts trusted input out, and
+  failures use `font_input_size` without mutation.
   `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
   boundary. Python rejects text before normalization, tab expansion, or PyO3
   copying; textbox tab expansion is size-preflighted without materializing the

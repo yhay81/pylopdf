@@ -4,8 +4,8 @@
 //! every new `Document` configures before its first render, and the faces
 //! that text generation and form filling select when no font is passed.
 //! Reading a package file again for every document took about 6 ms and 57 MB
-//! of fresh allocations with all four CJK packages, and rereading it for every
-//! generated run cost more than generating a short line. This process-wide
+//! of fresh allocations with all four CJK packages, and rereading the selected
+//! face took 40–70% of every short generated CJK line. This process-wide
 //! cache keeps the bytes most recently read for each package/style slot and
 //! reuses them while the path names an unchanged file.
 
