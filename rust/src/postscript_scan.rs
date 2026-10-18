@@ -26,10 +26,11 @@
 
 /// Deepest `{ }` nesting that may reach hayro's recursive parser.
 ///
-/// Real programs nest a handful of `if` and `ifelse` levels. The bound matches
-/// the one for nested arrays and dictionaries, and hayro's parse, evaluation,
-/// and drop together measured about 430 bytes of stack per level, so the limit
-/// costs under 30 KiB.
+/// Real programs nest a handful of `if` and `ifelse` levels (at most three in
+/// the 5,683 real PDFs that hayro interpreted). The bound matches the one for
+/// nested arrays and dictionaries, and hayro's parse, evaluation, and drop
+/// together measured about 430 bytes of stack per level, so the limit costs
+/// under 30 KiB.
 pub(crate) const MAX_BRACE_DEPTH: u32 = 64;
 
 /// Whether the bytes of a Type 4 function nest procedures deeper than

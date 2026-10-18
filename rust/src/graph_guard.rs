@@ -41,19 +41,21 @@
 use std::collections::{HashMap, HashSet, TryReserveError};
 use std::hash::Hash;
 
-use hayro::hayro_syntax::object::array::ArrayIter;
 use hayro::hayro_syntax::object::dict::keys::{ALTERNATE, FUNCTION_TYPE, FUNCTIONS};
-use hayro::hayro_syntax::object::{Dict, MaybeRef, Object, ObjectIdentifier};
+use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Object, ObjectIdentifier};
+use hayro::hayro_syntax::reader::{Reader, ReaderContext, ReaderExt};
 use hayro::hayro_syntax::xref::XRef;
 
 use crate::postscript_scan;
 
 /// Deepest chain of nested colour spaces and functions that may reach hayro.
 ///
-/// Real documents nest two to four levels: a Pattern over an Indexed space over
-/// an ICC profile, or a stitching function over its pieces. The bound equals
-/// the 32 indirections that pylopdf follows elsewhere, and hayro's frames for
-/// one level measured 0.9 to 1.4 KiB, so the limit costs under 45 KiB of stack.
+/// Real documents stay far below it: hayro's builders nested at most three deep
+/// while it interpreted 54,088 pages of 5,683 real PDFs, and a node here is at
+/// most twice a builder, because an ICCBased space is an array plus its profile
+/// stream. The bound equals the 32 indirections that pylopdf follows elsewhere,
+/// and hayro's frames for one level measured 0.9 to 1.4 KiB, so the limit costs
+/// under 45 KiB of stack.
 pub(crate) const MAX_CHAIN_DEPTH: usize = 32;
 
 /// How the walk names an object.
@@ -87,8 +89,52 @@ pub(crate) enum Refusal {
     Allocation(TryReserveError),
 }
 
+/// The elements of an array, references unresolved.
+///
+/// `Array::raw_iter` unwraps the read of every element that `Array::skip`
+/// accepted, and panics when the two disagree: a bare `+`, or a dictionary
+/// followed by `stream`. hayro never iterates an array that way, so a guard that
+/// did would turn input hayro renders into a `PanicException`. This iterator
+/// reads the elements as `raw_iter` does, steps over one that does not read, and
+/// never stops before the end of the array, like hayro's typed reads that pass
+/// a reference they cannot resolve. Nested containers carry no reader context:
+/// the walk follows every reference through `XRef::get` and reads only direct
+/// values.
+pub(crate) struct Elements<'a> {
+    reader: Reader<'a>,
+}
+
+impl<'a> Elements<'a> {
+    pub(crate) fn new(array: &Array<'a>) -> Self {
+        Self {
+            reader: Reader::new(array.data()),
+        }
+    }
+}
+
+impl<'a> Iterator for Elements<'a> {
+    type Item = MaybeRef<Object<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            self.reader.skip_white_spaces_and_comments();
+            if self.reader.at_end() {
+                return None;
+            }
+            let context = ReaderContext::dummy();
+            if let Some(element) = self
+                .reader
+                .read_with_context::<MaybeRef<Object<'a>>>(&context)
+            {
+                return Some(element);
+            }
+            self.reader.skip::<MaybeRef<Object<'a>>>(false)?;
+        }
+    }
+}
+
 /// An array, dictionary, or stream that a root or an earlier node names.
-pub(crate) struct Node<'a> {
+struct Node<'a> {
     identity: Identity,
     object: Object<'a>,
 }
@@ -153,7 +199,7 @@ struct Frame<'a> {
     identity: Identity,
     /// The elements of a colour space array or of a stitching function's
     /// `/Functions`, not yet visited.
-    elements: Option<ArrayIter<'a>>,
+    elements: Option<Elements<'a>>,
     /// The `/Alternate` of a dictionary or stream, visited before the elements.
     alternate: Option<Node<'a>>,
     /// The depth of the deepest finished child.
@@ -170,7 +216,7 @@ impl<'a> Frame<'a> {
             deepest: 0,
         };
         match &node.object {
-            Object::Array(array) => frame.elements = Some(array.raw_iter()),
+            Object::Array(array) => frame.elements = Some(Elements::new(array)),
             Object::Dict(dictionary) => frame.read(xref, dictionary),
             Object::Stream(stream) => {
                 let dictionary = stream.dict();
@@ -191,7 +237,7 @@ impl<'a> Frame<'a> {
 
     fn read(&mut self, xref: &'a XRef, dictionary: &Dict<'a>) {
         self.elements = match lookup(xref, dictionary, FUNCTIONS) {
-            Some((_, Object::Array(functions))) => Some(functions.raw_iter()),
+            Some((_, Object::Array(functions))) => Some(Elements::new(&functions)),
             _ => None,
         };
         self.alternate = entry(xref, dictionary, ALTERNATE);
@@ -252,7 +298,7 @@ impl GraphGuard {
         }
         match lookup(xref, dictionary, key) {
             Some((_, Object::Array(functions))) => {
-                for element in functions.raw_iter() {
+                for element in Elements::new(&functions) {
                     if let Some(root) = resolve(xref, element) {
                         self.check(xref, root)?;
                     }

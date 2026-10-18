@@ -70,7 +70,7 @@ use pyo3::prelude::*;
 
 use crate::content_scan::{self, MAX_NESTING_DEPTH, Refusal};
 use crate::document::{PdfError, limit_err};
-use crate::graph_guard::{self, GraphGuard, MAX_CHAIN_DEPTH};
+use crate::graph_guard::{self, Elements, GraphGuard, MAX_CHAIN_DEPTH};
 use crate::postscript_scan::MAX_BRACE_DEPTH;
 
 /// The one-based pages an operation is about to interpret.
@@ -263,7 +263,7 @@ impl ContentGuard {
             level = resources.parent();
         }
         if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
-            for item in annotations.raw_iter() {
+            for item in Elements::new(&annotations) {
                 if let Some(annotation) = fresh.item_dictionary(item) {
                     self.visit_appearance(fresh, &annotation, &mut work)?;
                 }
@@ -480,7 +480,7 @@ impl ContentGuard {
         }
         if let Some(font) = fresh
             .array(state, FONT)
-            .and_then(|selection| selection.raw_iter().next())
+            .and_then(|selection| Elements::new(&selection).next())
             .and_then(|item| fresh.item_dictionary(item))
         {
             push(work, Work::Font(font, None))?;

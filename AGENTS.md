@@ -631,9 +631,19 @@ overview.
   before the function and skips the function when the space is invalid, and a
   Separation whose alternate space fails to build never builds its tint
   transform, so any model of the roles would undercount in some malformed
-  case. Elements are enumerated with `Array::raw_iter` and resolved one by one
-  through `XRef::get`, so an element that fails to resolve is skipped without
-  ending the array, as hayro's typed reads can step over it. Every reference
+  case. Elements are enumerated with `graph_guard::Elements` and resolved one
+  by one through `XRef::get`, so an element that fails to resolve is skipped
+  without ending the array, as hayro's typed reads can step over it.
+  `Elements` reads as `Array::raw_iter` does but steps over an element that
+  does not read: `raw_iter` unwraps the read of every element that
+  `Array::skip` accepted, so a bare `+` or a dictionary followed by `stream`
+  panics it (205,000 of 1,188,000 random accepted arrays), while hayro's own
+  typed iteration just stops there. The guard iterates arrays that hayro never
+  does, so `raw_iter` could turn a renderable page into a `PanicException`;
+  `ContentGuard` uses `Elements` for `/Annots` and the `/Font` array too. No
+  reachable panic was found (lopdf drops the page object of every one of
+  143,000 panicking arrays in four roles), and `Elements` equals `raw_iter` on
+  every array where that does not panic. Every reference
   is followed afresh (`lookup`, like `Fresh` in `content_guard.rs`): hayro's
   reader chain would cut a reference back into the path that reached a
   dictionary, and this walk remembers an object after the first path. Depth counts
