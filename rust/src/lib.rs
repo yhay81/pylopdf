@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
+mod bundled_font_cache;
 mod document;
 mod draw;
 mod extract;
-mod fallback_font_cache;
 mod form;
 mod generate;
 mod image_compression;
