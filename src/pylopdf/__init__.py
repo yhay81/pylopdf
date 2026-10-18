@@ -1569,8 +1569,12 @@ def _bundled_generation_font(
     text: str,
     fontname: str,
     font_language: str | None,
-) -> Path | bytes | None:
-    """Select one optional locale font for a complete generated run."""
+) -> tuple[Path | bytes, tuple[FontLanguage, str]] | None:
+    """Select one optional locale font for a complete generated run.
+
+    Return the font source and its ``(language, kind)`` package face, which
+    lets the core share an installed package file across calls.
+    """
     language = _normalize_font_language(font_language)
     if language is None:
         language = _detected_font_language(text)
@@ -1582,7 +1586,7 @@ def _bundled_generation_font(
         msg = f"font_language={language!r} requires pylopdf[{extra}] or an explicit fontfile/fontbuffer"
         raise ValueError(msg)
     kind = "serif" if fontname in _SERIF_BASE14_FONTS else "sans"
-    return provider.serif if kind == "serif" else provider.sans
+    return (provider.serif if kind == "serif" else provider.sans), (language, kind)
 
 
 def _resolve_generation_font(
@@ -1591,8 +1595,12 @@ def _resolve_generation_font(
     font_data: Path | bytes | None,
     fontindex: int,
     font_language: str | None,
-) -> tuple[str | None, Path | bytes | None]:
-    """Resolve explicit, optional locale, or Standard 14 generation input."""
+) -> tuple[str | None, Path | bytes | None, tuple[FontLanguage, str] | None]:
+    """Resolve explicit, optional locale, or Standard 14 generation input.
+
+    Return the Standard 14 font name, the embedded font source, and the
+    package face of an automatically selected installed font.
+    """
     normalized_language = _normalize_font_language(font_language)
     if font_data is not None:
         if normalized_language is not None:
@@ -1601,7 +1609,7 @@ def _resolve_generation_font(
         if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
             msg = f"fontindex must be an integer from 0 through 4294967295: {fontindex!r}"
             raise ValueError(msg)
-        return None, font_data
+        return None, font_data, None
     if fontindex != 0:
         msg = "fontindex requires fontfile or fontbuffer"
         raise ValueError(msg)
@@ -1612,7 +1620,8 @@ def _resolve_generation_font(
         raise ValueError(msg)
     bundled_font = _bundled_generation_font(text, fontname, normalized_language)
     if bundled_font is not None:
-        return None, bundled_font
+        source, package_font = bundled_font
+        return None, source, package_font
     try:
         text.encode("cp1252")
     except UnicodeEncodeError as exc:
@@ -1621,7 +1630,24 @@ def _resolve_generation_font(
             "Install a matching optional font extra or pass fontfile or fontbuffer"
         )
         raise ValueError(msg) from exc
-    return base_font, None
+    return base_font, None, None
+
+
+def _form_generation_font(
+    value: str,
+    font_language: FontLanguage | None,
+) -> tuple[Path | bytes, tuple[FontLanguage, str]] | None:
+    """Select an installed font for a form value Helvetica cannot draw.
+
+    An explicit ``font_language`` selects its package even for WinAnsi text.
+    """
+    if font_language is not None:
+        return _bundled_generation_font(value, "helv", font_language)
+    try:
+        value.encode("cp1252")
+    except UnicodeEncodeError:
+        return _bundled_generation_font(value, "helv", None)
+    return None
 
 
 #: Page-label numbering styles (`/S`); an empty value means prefix only.
@@ -2262,7 +2288,7 @@ class Page:
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         _validate_generated_text_lines(normalized, max_text_size)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data = _resolve_generation_font(
+        base_font, font_data, package_font = _resolve_generation_font(
             normalized,
             fontname,
             font_data,
@@ -2281,6 +2307,7 @@ class Page:
                 overlay,
                 max_font_size,
                 max_text_size,
+                package_font,
             )
             return
         if isinstance(font_data, bytes):
@@ -2375,7 +2402,7 @@ class Page:
             return y1 - y0
 
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
-        base_font, font_data = _resolve_generation_font(
+        base_font, font_data, package_font = _resolve_generation_font(
             normalized,
             fontname,
             font_data,
@@ -2396,6 +2423,7 @@ class Page:
                 overlay,
                 max_font_size,
                 max_text_size,
+                package_font,
             )
         if isinstance(font_data, bytes):
             return self._document._doc.insert_embedded_textbox(
@@ -3154,6 +3182,7 @@ class Document:
             )
         normalized_font_language = _normalize_font_language(font_language)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
+        package_font: tuple[FontLanguage, str] | None = None
         if font_data is not None:
             if normalized_font_language is not None:
                 msg = "font_language cannot be combined with fontfile or fontbuffer"
@@ -3174,15 +3203,11 @@ class Document:
         else:
             resolved = value
             if font_data is None:
-                if normalized_font_language is not None:
-                    font_data = _bundled_generation_font(resolved, "helv", normalized_font_language)
-                else:
-                    try:
-                        resolved.encode("cp1252")
-                    except UnicodeEncodeError:
-                        font_data = _bundled_generation_font(resolved, "helv", None)
+                bundled_font = _form_generation_font(resolved, normalized_font_language)
+                if bundled_font is not None:
+                    font_data, package_font = bundled_font
         if isinstance(font_data, Path):
-            self._doc.set_form_field_file(name, resolved, str(font_data), fontindex, max_font_size)
+            self._doc.set_form_field_file(name, resolved, str(font_data), fontindex, max_font_size, package_font)
         else:
             self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size)
 
