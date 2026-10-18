@@ -833,14 +833,38 @@ overview.
   The walk and `field_widgets` classify `/Kids` entries through
   `classify_field_kid`, so `visible_field_widgets` and button-state handling
   see the widgets that the walk classifies. A kid dictionary whose `/T` is
-  absent, null, an indirect null, or a reference to a missing object is a
-  widget of its parent field, following ISO 32000-2 §7.3.7 and §7.3.10; any
-  other `/T`, including an unusable value or a cyclic or over-long reference
-  chain, makes it a child field. A direct `/Fields` or `/Kids` entry, an
-  indirect null, and a reference to a missing object cost only their edge.
-  Every other `/Kids` entry that is not a child field counts toward the
-  4,096-widget walk budget, so that budget covers every widget that
-  `field_widgets` can return.
+  absent, null, an indirect null, or a reference to a missing object is
+  nameless, following ISO 32000-2 §7.3.7 and §7.3.10; any other `/T`,
+  including an unusable value or a cyclic or over-long reference chain, makes
+  it a child field. A nameless kid is a widget of its parent field unless its
+  `/Kids` resolves to a non-empty array. A field merged with its only widget
+  omits `/Kids` (§12.7.4.1), so such a kid is a nameless intermediate field,
+  another representation of the field above it (§12.7.4.2). Intermediates,
+  including nested ones, fold into the nearest field above them that is not
+  an intermediate: their widget kids become its widgets, their named kids
+  become its child fields under its full name, and leaf detection counts both.
+  The walk visits each intermediate like a child field that adds no name
+  component, and each field reserves its leaf entry before reading its kids so
+  that an intermediate holding a child field can withdraw it. An intermediate
+  that also looks like a widget (`/Subtype /Widget` or a `/Rect`) stays a
+  widget, so a malformed merged widget with stray kids is still drawn. A
+  nameless kid with an absent, null-equivalent, non-array, or empty `/Kids`
+  stays a widget, as a field with such a `/Kids` is its own widget. Folding
+  never moves attributes up: an intermediate's own `/FT`, `/Ff`, and `/V`
+  reach only the named fields below it, and a fill leaves its `/V`, like a
+  widget kid's, unchanged.
+  Intermediates count as nodes and levels, their `/Kids` entries as edges, and
+  their materialized names, types, and values toward the text budgets. A
+  direct `/Fields` or `/Kids` entry, an indirect null, and a reference to a
+  missing object cost only their edge. Every other `/Kids` entry that is
+  neither a child field nor an intermediate counts toward the 4,096-widget
+  walk budget, as does an intermediate that is also a widget, so that budget
+  covers every widget that `field_widgets` can return. `field_widgets` returns
+  widgets in document order, expands each intermediate once, and enforces the
+  walk's node, edge, and widget limits, which a successful walk has already
+  met. It has no depth limit: the node limit bounds its frame stack, and a
+  depth limit could reject an intermediate that the walk reached at a smaller
+  depth through another field.
 - AcroForm button handling rejects more than 4,096 widgets, 8,192 `/AP /N`
   state entries, 4,096 unique returned names, or 1 MiB of encoded/returned
   state-name text. Borrow and preflight state dictionaries before cloning them.
