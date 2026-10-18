@@ -1,0 +1,116 @@
+# Temporary evaluation branch only: why does one 37 MiB document of large
+# image streams load more slowly with a proposed lopdf parser change when
+# loads are 10 ms apart on Linux aarch64, although it loads faster back to
+# back? Compares the change commit by commit, glibc malloc with fixed
+# thresholds, other gaps between loads, and page fault counts.
+name: lopdf parser diagnosis
+
+on:
+  push:
+    branches: ["claude/lopdf-parser-diag-eval"]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    name: diag (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+    env:
+      EVAL: .github/lopdf-parser-eval
+      FILES: pdfs/test.pdf pdfs/AnnotationDemo.pdf pdfs/streams-32x512k.pdf pdfs/streams-8x512k.pdf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Describe the runner
+        run: |
+          python -c "import os, platform; print(platform.platform(), platform.machine(), os.cpu_count(), 'cpus')"
+          ldd --version | head -1
+          cat /sys/kernel/mm/transparent_hugepage/enabled || true
+          getconf PAGESIZE
+      - name: Build the loadbench variants
+        run: bash "${EVAL}/build-diag.sh" work
+      - name: Write the inputs
+        working-directory: work
+        run: |
+          mkdir -p pdfs
+          cp lopdf-main/assets/test.pdf lopdf-main/assets/AnnotationDemo.pdf pdfs/
+          bin/main-seq mk streams 32 512 pdfs/streams-32x512k.pdf
+          bin/main-seq mk streams 8 512 pdfs/streams-8x512k.pdf
+      - name: Check that every build loads the same documents
+        working-directory: work
+        run: |
+          # shellcheck disable=SC2086
+          python "../${EVAL}/check.py" bin "main-seq c1-seq c2-seq c3-seq c4-seq pr-seq prv1-seq" ${FILES} | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Commit by commit, 10 ms apart and back to back
+        working-directory: work
+        run: |
+          # shellcheck disable=SC2086
+          python "../${EVAL}/ab.py" out/steps 8 bin "main-seq c1-seq c2-seq c3-seq c4-seq pr-seq prv1-seq" "warm:30 cold:15:10" ${FILES}
+      - name: glibc malloc with fixed thresholds
+        working-directory: work
+        run: |
+          # shellcheck disable=SC2086
+          python "../${EVAL}/ab.py" out/malloc 8 bin \
+            "main=main-seq pr=pr-seq main-mmap=main-seq,MALLOC_MMAP_THRESHOLD_=131072 pr-mmap=pr-seq,MALLOC_MMAP_THRESHOLD_=131072 main-top=main-seq,MALLOC_TOP_PAD_=134217728 pr-top=pr-seq,MALLOC_TOP_PAD_=134217728" \
+            "warm:30 cold:15:10" ${FILES}
+      - name: Other gaps between loads
+        working-directory: work
+        run: |
+          for gap in 1 3 30 100; do
+            # shellcheck disable=SC2086
+            python "../${EVAL}/ab.py" "out/gap-${gap}" 8 bin "main-seq pr-seq" "cold:15:${gap}" ${FILES}
+          done
+      - name: Page faults
+        working-directory: work
+        run: |
+          [[ -x /usr/bin/time ]] || sudo apt-get install -y -qq time
+          {
+            echo "## Page faults (${{ matrix.platform.target }})"
+            echo
+            echo '```'
+            for variant in main-seq pr-seq; do
+              for mode in "warm 30" "cold 15 10"; do
+                # shellcheck disable=SC2086
+                /usr/bin/time -f "${variant} ${mode}: %R minor faults, %e s elapsed, %M KiB max RSS" \
+                  "bin/${variant}" ${mode} pdfs/test.pdf 2>&1 >/dev/null | tail -1
+              done
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Summarize
+        if: always()
+        working-directory: work
+        run: |
+          {
+            echo "## Commit by commit (${{ matrix.platform.target }}), Δ against main-seq"
+            python "../${EVAL}/summary.py" out/steps main-seq c1-seq c2-seq c3-seq c4-seq pr-seq prv1-seq
+            echo
+            echo "## glibc malloc with fixed thresholds (${{ matrix.platform.target }}), Δ against main"
+            python "../${EVAL}/summary.py" out/malloc main pr main-mmap pr-mmap main-top pr-top
+            for gap in 1 3 30 100; do
+              echo
+              echo "## Loads ${gap} ms apart (${{ matrix.platform.target }})"
+              python "../${EVAL}/summary.py" "out/gap-${gap}" main-seq pr-seq
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: diag-${{ matrix.platform.target }}
+          path: work/out
+          retention-days: 30
