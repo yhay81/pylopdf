@@ -643,12 +643,14 @@ overview.
   `ContentGuard` uses `Elements` for `/Annots` and the `/Font` array too. No
   reachable panic was found (lopdf drops the page object of every one of
   143,000 panicking arrays in four roles), and `Elements` equals `raw_iter` on
-  every array where that does not panic. Every reference
-  is followed afresh (`lookup`, like `Fresh` in `content_guard.rs`): hayro's
-  reader chain would cut a reference back into the path that reached a
-  dictionary, and this walk remembers an object after the first path. Depth counts
-  nodes: a Separation over a Type 2 function is two, and an ICCBased space
-  with its profile stream is two. The name that ends a chain is no node,
+  every array where that does not panic. Every reference is read afresh
+  (`resolve`, like `Fresh` in `content_guard.rs`): hayro's reader chain would
+  cut a reference back into the path that reached a dictionary, and this walk
+  remembers an object after the first path. Depth counts nodes: a Separation
+  over a Type 2 function is two, and an ICCBased space with its profile stream
+  is two. A `/Functions` array that is an object of its own is a node like any
+  other array, one level more than a direct one, which costs real documents
+  nothing and lets the walk remember it. The name that ends a chain is no node,
   though hayro still enters one frame for it, so hayro's frame count can be
   one higher than the node count. An object is identified by its reference,
   or, when direct, by the address and length of its bytes in the snapshot
@@ -659,14 +661,37 @@ overview.
   names it once, where hayro itself needs 2^levels builds.
   hayro cuts a chain where it comes back to an object it is still building
   (`ReaderContext::parent_chain`), so a self-reference or a short ring renders
-  and only a long ring overflows. The walk keeps its own path; a reference to
-  an object on it makes the walk cyclic, per-object depths computed inside a
-  cycle may be too small, so a cyclic walk remembers nothing and bounds the
-  depth by the number of objects it expanded plus the deepest earlier result
-  it reused. That is an upper bound on every simple path (a path cannot
-  return from an earlier result to an object of this walk), exact for
-  acyclic graphs, and over-conservative only for malformed cyclic graphs
-  that reach more than 32 objects. Memory is bounded by the objects reached,
+  and only a long ring overflows. The walk is Tarjan's algorithm for strongly
+  connected components, run iteratively: a simple path visits each node of a
+  component at most once and cannot return to a component it left, so the
+  depth below any node of a component is at most its size plus the depth of
+  the deepest node that the component names outside it, and a node outside
+  every cycle is a component of one with its exact depth. A component's bound
+  depends on the graph alone, never on the order in which roots were walked,
+  and is remembered like an exact depth. The walk refuses a path of 33 nodes
+  at once and a component whose bound passes 32, which is over-conservative
+  only for malformed cyclic graphs: a hub that 33 spokes name and that names
+  each spoke back is 3 deep but one component of 34.
+  A walk must never read an object twice. A document can name one large array,
+  dictionary, or string from thousands of places, and the check lists every
+  entry of every resource dictionary whether or not content draws it, so
+  reading the object for each entry multiplies sizes where hayro, which never
+  touches the unused entries, needs milliseconds. A reference is therefore
+  classified by its identity (`Child::Reference`) against the walk and the
+  remembered depths before the object is parsed, an object that cannot have
+  children is remembered as a leaf of depth zero, and `ContentGuard` reads
+  each shading, shading pattern, and soft mask behind a reference once
+  (`shadings`, `shading_patterns`, `soft_masks`). The first version of the walk
+  remembered nothing for a cycle and parsed every referenced child before it
+  looked the child up: 3,000 stitching functions that name one array of 20,000
+  sub-functions (0.6 MB), or that array as the `/Function` of 3,000 shadings,
+  kept the first `get_text` busy for 50 s on a loaded machine, 3,000
+  `/Shading` entries that name one 20,000-key shading dictionary for 4 s, and
+  4,000 colour space entries that name a self-referencing array of 20,000
+  elements for 7 s. The same files take 2 to 60 ms.
+  `test_an_object_that_many_entries_name_is_read_once` pins nine such shapes
+  with a deadline that the first version missed by factors of 3 to 17; add a
+  shape for every new kind of root. Memory is bounded by the objects reached,
   the path stack by the limit, and every collection grows fallibly.
   The Type 4 scan needs no model beyond hayro's trivia rules: whitespace
   (NUL, tab, LF, FF, CR, space) and comments (`%` to CR or LF) are skipped
@@ -693,15 +718,18 @@ overview.
   guard accepted it and hayro's builders nested deeper than 33 (the limit
   plus the name frame) or its procedures deeper than 64. Count the depth
   rather than watch for overflow, as for content: depth is exact and fast.
-  The first run found the name frame. 4,000,000 documents (5,915 ended early at
-  a 400,000-call budget or a hayro panic, and the depth seen until then still
-  counts), hayro nesting up to 144 levels and 8,021 documents with procedures
-  past 64, produced no violation; 840,917 were refused, most of them although
-  hayro stayed within the limits, because the kind-agnostic walk follows
-  mistyped slots and counts every object of a cycle. A direct oracle that
-  parses 40,000,000 random programs with hayro's own `Function::new` found
-  3,937,787 past 64 levels, all refused, and 1,078,165 refused although hayro
-  stopped earlier at a token it rejects. A sweep of 5,707 distinct local PDFs
+  The first run found the name frame. 11,500,000 documents (6,000,000 on
+  earlier versions of the walk and 5,500,000 on the final one, of which
+  1,000,000 had only well-typed slots and 2,500,000 had dense cycles) produced
+  no violation. Of the first 4,000,000, 5,915 ended early at a 400,000-call
+  budget or a hayro panic (the depth seen until then still counts), hayro
+  nested up to 144 levels, and 8,021 had procedures past 64, all refused;
+  840,917 were refused, most of them although hayro stayed within the limits,
+  because the kind-agnostic walk follows mistyped slots and counts every
+  object of a cycle. A direct oracle that parses 40,000,000 random programs
+  with hayro's own `Function::new` found 3,937,787 past 64 levels, all
+  refused, and 1,078,165 refused although hayro stopped earlier at a token it
+  rejects. A sweep of 5,707 distinct local PDFs
   (the first 40 pages of each) raised no `resource_nesting_depth` refusal;
   its one content refusal, pdf.js `issue16454.pdf`, is the same as before.
   The bundled corpus (19 documents, 95 pages, 1,083 hashes of pixmaps, clipped
@@ -710,7 +738,7 @@ overview.
   first calls cost 1.0% more than `main` in total against 1.4% for the content
   check alone in the same run, so the walk is within noise (11 interleaved
   rounds of CPU-time minimums, local builds without LTO); and the thin-LTO
-  extension grew from 16,146,752 to 16,201,440 bytes unstripped with both
+  extension grew from 16,146,752 to 16,219,008 bytes unstripped with both
   checks.
   The Python regressions in `tests/test_resource_nesting.py` cover each root,
   each structure at 300,000 braces or 20,000 objects in a child interpreter,

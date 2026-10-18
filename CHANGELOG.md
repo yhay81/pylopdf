@@ -346,16 +346,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `resource_nesting_depth` for a chain deeper than 32 levels (colour space
   arrays, functions, and profile streams each count one) and for a Type 4
   program that nests procedures deeper than 64 levels. The walk follows hayro's
-  own cycle cut, so a self-reference or a short ring still renders, measures
-  shared sub-graphs once, and leaves other pages usable. Differential tests
-  against hayro-interpret 0.7.0 with recursion counters, 4,000,000 random
-  documents and 40,000,000 random Type 4 programs, found none that hayro builds
-  deeper than the bounds and the walk accepts. The bounds stop stack overflows,
-  not CPU use: hayro still needs exponential time for graphs that stay under
-  them, such as a function named twice per level or nested Separation spaces,
-  so keep enforcing deadlines in the host. A sweep of 5,707 varied PDFs refused
-  none, no corpus page renders or extracts differently, and the walk adds no
-  measurable cost to the content check.
+  own cycle cut, so a self-reference or a short ring still renders, and a group
+  of more than 32 objects that all reach one another is refused. It reads each
+  object once however many entries name it, so a file that names one large
+  array, dictionary, or string from thousands of places costs milliseconds
+  where reading it for each entry would cost minutes, and it leaves other pages
+  usable. Differential tests against hayro-interpret 0.7.0 with recursion
+  counters, 11,500,000 random documents and 40,000,000 random Type 4 programs,
+  found none that hayro builds deeper than the bounds and the walk accepts. The
+  bounds stop stack overflows, not CPU use: hayro still needs exponential time
+  for graphs that stay under them, such as a function named twice per level or
+  nested Separation spaces, so keep enforcing deadlines in the host. A sweep of
+  5,707 varied PDFs refused none, no corpus page renders or extracts
+  differently, and the walk adds no measurable cost to the content check.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered

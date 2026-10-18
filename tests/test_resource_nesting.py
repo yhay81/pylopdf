@@ -172,6 +172,22 @@ def ring(parts: Parts, depth: int) -> str:
     return f"{first} 0 R"
 
 
+def stitching_through_arrays(parts: Parts, levels: int) -> str:
+    """Stitching functions that each name the next through a `/Functions` array that is an object of its own.
+
+    There are `levels` functions and as many arrays, and a Type 2 function at the end: `2 * levels + 1` nodes.
+    """
+    first = parts.reserve(2 * levels + 1)
+    for level in range(levels):
+        function, listing = first + 2 * level, first + 2 * level + 1
+        parts.objects[function] = (
+            f"<< /FunctionType 3 /Domain [0 1] /Functions {listing} 0 R /Bounds [] /Encode [0 1] >>"
+        )
+        parts.objects[listing] = f"[{function + 2} 0 R]"
+    parts.objects[first + 2 * levels] = TYPE2
+    return f"{first} 0 R"
+
+
 def chain_into(parts: Parts, length: int, target: str) -> str:
     """Stitching functions that each name the next one, the last naming `target`: `length` nodes above it."""
     first = parts.reserve(length)
@@ -1053,6 +1069,28 @@ def test_wide_stitching_functions_are_not_deep() -> None:
     doc = pylopdf.Document(stream=page_scope(parts, resources, content))
 
     assert doc[0].get_pixmap().width == 300
+
+
+@pytest.mark.parametrize("levels", [15, 16])
+def test_an_indirect_functions_array_is_a_level_of_its_own(levels: int) -> None:
+    """A `/Functions` array that is an object of its own is a node, so each level of the chain is two."""
+    parts = Parts()
+    resources, _ = shading(parts, stitching_through_arrays(parts, levels), 3)
+    doc = pylopdf.Document(stream=page_scope(parts, resources, "0 0 m"))
+
+    # Fifteen levels are 31 nodes with the Type 2 function at the end, sixteen are 33.
+    if levels > 15:
+        assert _refusal(partial(doc.get_page_text, 0)).code == CODE
+    else:
+        assert doc.get_page_text(0) is not None
+
+
+def test_a_chain_through_indirect_functions_arrays_is_refused_without_crashing(tmp_path: Path) -> None:
+    parts = Parts()
+    resources, _ = shading(parts, stitching_through_arrays(parts, CRASH_CHAIN // 2), 3)
+    documents = {"arrays": Crash(page_scope(parts, resources, "0 0 m"))}
+
+    assert _run_many(tmp_path, documents, SOME_OPERATIONS[:2]) == _expected(documents, SOME_OPERATIONS[:2])
 
 
 def test_one_object_in_two_roles_is_measured_in_both() -> None:
