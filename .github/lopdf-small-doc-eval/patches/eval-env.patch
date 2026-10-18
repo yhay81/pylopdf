@@ -1,0 +1,55 @@
+From 7998afef3ed2055ae56616a581f5ea2314b91f27 Mon Sep 17 00:00:00 2001
+From: Yusuke Hayashi <yusuke8h@gmail.com>
+Date: Sun, 18 Oct 2026 18:12:14 +0900
+Subject: [PATCH] eval: LOPDF_MIN_PARALLEL overrides both thresholds
+
+---
+ src/object_stream.rs |  2 +-
+ src/reader.rs        | 11 ++++++++++-
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/src/object_stream.rs b/src/object_stream.rs
+index d8a4be7..5681e31 100644
+--- a/src/object_stream.rs
++++ b/src/object_stream.rs
+@@ -115,7 +115,7 @@ pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) ->
+             Some(((id, 0), object))
+         };
+         #[cfg(feature = "rayon")]
+-        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS {
++        let objects = if len / 2 >= crate::reader::eval_min_parallel(MIN_PARALLEL_OBJECTS) {
+             numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect()
+         } else {
+             numbers[..len].chunks(2).filter_map(chunks_filter_map).collect()
+diff --git a/src/reader.rs b/src/reader.rs
+index f62b43d..bf20e1d 100644
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -377,6 +377,15 @@ pub struct Reader<'a> {
+ #[cfg(feature = "rayon")]
+ const MIN_PARALLEL_ENTRIES: usize = 128;
+ 
++/// Evaluation only: `LOPDF_MIN_PARALLEL` overrides both thresholds.
++#[cfg(feature = "rayon")]
++pub(crate) fn eval_min_parallel(default: usize) -> usize {
++    static VALUE: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
++    VALUE
++        .get_or_init(|| std::env::var("LOPDF_MIN_PARALLEL").ok().and_then(|v| v.parse().ok()))
++        .unwrap_or(default)
++}
++
+ /// Maximum allowed embedding of literal strings.
+ pub const MAX_BRACKET: usize = 100;
+ 
+@@ -502,7 +511,7 @@ fn with_options(buffer: &'a [u8], options: LoadOptions) -> Self {
+             normal_offsets: Vec::new(),
+             object_streams: Mutex::default(),
+             #[cfg(feature = "rayon")]
+-            min_parallel_entries: MIN_PARALLEL_ENTRIES,
++            min_parallel_entries: eval_min_parallel(MIN_PARALLEL_ENTRIES),
+         }
+     }
+ 
+-- 
+2.56.0
+

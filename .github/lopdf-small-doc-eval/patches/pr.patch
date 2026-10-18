@@ -1,0 +1,123 @@
+From 236306833fe51377b3dbe09bafc6759c66a00276 Mon Sep 17 00:00:00 2001
+From: Yusuke Hayashi <yusuke8h@gmail.com>
+Date: Sun, 18 Oct 2026 18:12:11 +0900
+Subject: [PATCH] WIP: provisional thresholds
+
+---
+ src/object_stream.rs | 13 ++++++++++++-
+ src/reader.rs        | 45 +++++++++++++++++++++++++++++---------------
+ 2 files changed, 42 insertions(+), 16 deletions(-)
+
+diff --git a/src/object_stream.rs b/src/object_stream.rs
+index 113b0cd..d8a4be7 100644
+--- a/src/object_stream.rs
++++ b/src/object_stream.rs
+@@ -8,6 +8,13 @@
+ #[cfg(feature = "rayon")]
+ use rayon::prelude::*;
+ 
++/// Object streams with fewer members are parsed on the calling thread even
++/// when the `rayon` feature is enabled, for the reason given for the
++/// cross-reference entries in `reader.rs`: handing the work to rayon's pool
++/// costs more than it saves when there is little of it.
++#[cfg(feature = "rayon")]
++const MIN_PARALLEL_OBJECTS: usize = 128;
++
+ #[derive(Debug)]
+ pub struct ObjectStream {
+     pub objects: BTreeMap<ObjectId, Object>,
+@@ -108,7 +115,11 @@ pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) ->
+             Some(((id, 0), object))
+         };
+         #[cfg(feature = "rayon")]
+-        let objects = numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect();
++        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS {
++            numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect()
++        } else {
++            numbers[..len].chunks(2).filter_map(chunks_filter_map).collect()
++        };
+         #[cfg(not(feature = "rayon"))]
+         let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
+ 
+diff --git a/src/reader.rs b/src/reader.rs
+index 5bb4775..f62b43d 100644
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -362,8 +362,21 @@ pub struct Reader<'a> {
+     /// re-decodes the whole container, which is quadratic in the number of
+     /// such streams.
+     object_streams: Mutex<HashMap<u32, Option<Arc<ObjectStream>>>>,
++    /// Loads with at least this many cross-reference entries parse their
++    /// objects on rayon's pool. [`MIN_PARALLEL_ENTRIES`] unless a test forces
++    /// one path.
++    #[cfg(feature = "rayon")]
++    min_parallel_entries: usize,
+ }
+ 
++/// Cross-reference tables with fewer entries are loaded on the calling thread
++/// even when the `rayon` feature is enabled. Handing the parse to rayon's
++/// global pool costs a fixed amount: the caller wakes a sleeping worker and
++/// blocks until the work comes back, and the first load also spawns the pool.
++/// That outweighs what parallel parsing saves on a small document.
++#[cfg(feature = "rayon")]
++const MIN_PARALLEL_ENTRIES: usize = 128;
++
+ /// Maximum allowed embedding of literal strings.
+ pub const MAX_BRACKET: usize = 100;
+ 
+@@ -488,6 +501,8 @@ fn with_options(buffer: &'a [u8], options: LoadOptions) -> Self {
+             max_decompressed_size: options.max_decompressed_size,
+             normal_offsets: Vec::new(),
+             object_streams: Mutex::default(),
++            #[cfg(feature = "rayon")]
++            min_parallel_entries: MIN_PARALLEL_ENTRIES,
+         }
+     }
+ 
+@@ -950,28 +965,28 @@ fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
+             }
+         };
+ 
++        let entries = &self.document.reference_table.entries;
+         #[cfg(feature = "rayon")]
+-        {
+-            self.document.objects = self
+-                .document
+-                .reference_table
+-                .entries
++        let objects: Result<BTreeMap<_, _>> = if entries.len() >= self.min_parallel_entries {
++            entries
+                 .par_iter()
+                 .map(entries_filter_map)
+                 .filter_map(Result::transpose)
+-                .collect::<Result<BTreeMap<_, _>>>()?;
+-        }
+-        #[cfg(not(feature = "rayon"))]
+-        {
+-            self.document.objects = self
+-                .document
+-                .reference_table
+-                .entries
++                .collect()
++        } else {
++            entries
+                 .iter()
+                 .map(entries_filter_map)
+                 .filter_map(Result::transpose)
+-                .collect::<Result<BTreeMap<_, _>>>()?;
+-        }
++                .collect()
++        };
++        #[cfg(not(feature = "rayon"))]
++        let objects: Result<BTreeMap<_, _>> = entries
++            .iter()
++            .map(entries_filter_map)
++            .filter_map(Result::transpose)
++            .collect();
++        self.document.objects = objects?;
+ 
+         // Only add entries, but never replace entries
+         for (id, entry) in object_streams.into_inner().unwrap() {
+-- 
+2.56.0
+

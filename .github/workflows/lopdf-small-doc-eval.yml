@@ -1,0 +1,97 @@
+# Temporary evaluation branch only: time lopdf loads for a proposed upstream
+# change that parses small documents on the calling thread instead of handing
+# them to rayon's global pool. Every job builds lopdf main with and without
+# rayon, main plus the change, and an evaluation-only build whose thresholds
+# an environment variable overrides, then interleaves them on one runner so
+# every build shares its noise.
+name: lopdf small-document load evaluation
+
+on:
+  push:
+    branches: ["claude/lopdf-small-doc-eval"]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: bench (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      EVAL: .github/lopdf-small-doc-eval
+      LOAD_VARIANTS: >-
+        main-rayon main-seq pr-rayon
+        t16=env-rayon,LOPDF_MIN_PARALLEL=16 t32=env-rayon,LOPDF_MIN_PARALLEL=32
+        t64=env-rayon,LOPDF_MIN_PARALLEL=64 t256=env-rayon,LOPDF_MIN_PARALLEL=256
+        t512=env-rayon,LOPDF_MIN_PARALLEL=512
+    steps:
+      - name: Keep checked-out line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Describe the runner
+        run: |
+          python -c "import os, platform; print(platform.platform(), platform.machine(), os.cpu_count(), 'cpus')"
+          rustc --version
+      - name: Build the loadbench variants
+        run: bash "${EVAL}/build.sh" work
+      - name: Install pylopdf for the concatenated inputs
+        run: |
+          python -m venv venv-pylopdf
+          python_bin="venv-pylopdf/bin/python"
+          [[ -x "${python_bin}" ]] || python_bin="venv-pylopdf/Scripts/python.exe"
+          "${python_bin}" -m pip install --quiet pylopdf==0.14.0
+          echo "PYLOPDF_PYTHON=${python_bin}" >>"$GITHUB_ENV"
+      - name: Write the inputs
+        run: bash "${EVAL}/inputs.sh" work . "${PYLOPDF_PYTHON}"
+      - name: Check that every build loads the same documents
+        working-directory: work
+        run: |
+          {
+            echo "## Inputs (${{ matrix.platform.target }})"
+            python "../${EVAL}/check.py" bin "main-rayon main-seq pr-rayon env-rayon" pdfs/*.pdf objstm/*.pdf
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run interleaved load rounds
+        working-directory: work
+        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 after:15:10 first:5" pdfs/*.pdf
+      - name: Run interleaved object stream rounds
+        working-directory: work
+        run: python "../${EVAL}/ab.py" out/objstm 8 bin "${LOAD_VARIANTS}" "objstm:30:0 objstm:15:10" objstm/*.pdf
+      - name: Summarize
+        if: always()
+        working-directory: work
+        run: |
+          {
+            echo "## Loads (${{ matrix.platform.target }}), Δ against main-rayon"
+            python "../${EVAL}/summary.py" out/load main-rayon main-seq pr-rayon t16 t32 t64 t256 t512
+            echo
+            echo "## ObjectStream::new from the calling thread (${{ matrix.platform.target }})"
+            python "../${EVAL}/summary.py" out/objstm main-rayon main-seq pr-rayon t16 t32 t64 t256 t512
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: eval-${{ matrix.platform.target }}
+          path: work/out
+          retention-days: 30
