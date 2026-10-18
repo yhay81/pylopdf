@@ -5793,6 +5793,28 @@ impl _Document {
         None
     }
 
+    /// Resolve the quadding (0 left, 1 centered, 2 right) of a variable-text
+    /// field's appearances.
+    ///
+    /// When the bounded `/Parent` walk finds no `/Q`, the interactive form
+    /// dictionary's document-wide `/Q` applies (ISO 32000-2 Table 225), where
+    /// a null value, an indirect null, and a reference to a missing object
+    /// also read as absent. A present non-integer or out-of-range value aligns
+    /// left; on a field it still overrides the document default.
+    fn field_quadding(&self, field_id: ObjectId) -> u8 {
+        self.resolve_field_attr(field_id, b"Q")
+            .or_else(|| {
+                let acroform = self.doc.catalog().ok()?.get(b"AcroForm").ok()?;
+                let acroform = deref_dict_ref(&self.doc, acroform)?;
+                inheritable_field_value(&self.doc, acroform, b"Q").cloned()
+            })
+            .as_ref()
+            .and_then(|object| resolve_i64(&self.doc, object))
+            .and_then(|value| u8::try_from(value).ok())
+            .filter(|value| *value <= 2)
+            .unwrap_or(0)
+    }
+
     /// Resolve a valid text-field comb size or explain malformed flag data.
     fn field_comb_max_len(&self, field_id: ObjectId, flags: i64) -> Result<Option<usize>, String> {
         if flags & TEXT_FIELD_COMB == 0 {
@@ -6111,13 +6133,7 @@ impl _Document {
                     } else {
                         WidgetTextLayout::SingleLine
                     };
-                    let align = self
-                        .resolve_field_attr(field_id, b"Q")
-                        .as_ref()
-                        .and_then(|object| resolve_i64(&self.doc, object))
-                        .and_then(|value| u8::try_from(value).ok())
-                        .filter(|value| *value <= 2)
-                        .unwrap_or(0);
+                    let align = self.field_quadding(field_id);
                     for widget_id in self.visible_field_widgets(field_id)? {
                         if !self.widget_has_normal_stream(widget_id)
                             && self
@@ -6213,13 +6229,7 @@ impl _Document {
                 } else {
                     WidgetTextLayout::SingleLine
                 };
-                let align = self
-                    .resolve_field_attr(field_id, b"Q")
-                    .as_ref()
-                    .and_then(|object| resolve_i64(&self.doc, object))
-                    .and_then(|value| u8::try_from(value).ok())
-                    .filter(|value| *value <= 2)
-                    .unwrap_or(0);
+                let align = self.field_quadding(field_id);
                 for widget_id in self.visible_field_widgets(field_id)? {
                     self.synthesize_text_appearance(
                         widget_id,
