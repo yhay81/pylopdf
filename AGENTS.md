@@ -740,8 +740,10 @@ overview.
   strategies, SVG, Markdown, and `render_pages`) is identical to `main`; cold
   first calls cost 1.0% more than `main` in total against 1.4% for the content
   check alone in the same run, so the walk is within noise (11 interleaved
-  rounds of CPU-time minimums, local builds without LTO); and the thin-LTO
-  extension grew from 16,146,752 to 16,219,008 bytes unstripped with both
+  rounds of CPU-time minimums, local builds without LTO), and the component
+  walk that remembers cycles and reads each object once measured 0.7% below
+  that first revision (9 rounds, 653.5 ms to 649.0 ms); and the thin-LTO
+  extension grew from 16,146,752 to 16,218,784 bytes unstripped with both
   checks.
   The Python regressions in `tests/test_resource_nesting.py` cover each root,
   each structure at 300,000 braces or 20,000 objects in a child interpreter,
