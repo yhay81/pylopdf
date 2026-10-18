@@ -1,9 +1,10 @@
 """Time generated-PDF imports and document loads for one installed build.
 
-Usage: python import_ab.py ASSETS_DIR LARGE_DIR [REPEATS]
+Usage: python import_ab.py ASSETS_DIR LARGE_DIR [REPEATS] [all|opens]
 
 Prints one JSON line with the median milliseconds of each workload after one
 warmup, plus digests of every produced document so builds can be compared.
+`opens` times only the document loads, in a process that generates nothing.
 The Japanese locale font extra must be installed.
 """
 
@@ -163,6 +164,7 @@ def main() -> None:
     assets = Path(sys.argv[1])
     large = Path(sys.argv[2])
     repeats = int(sys.argv[3]) if len(sys.argv) > 3 else 15
+    opens_only = len(sys.argv) > 4 and sys.argv[4] == "opens"
     gc.disable()
     ja_bytes = ja_font_bytes()
     edits = [
@@ -191,7 +193,7 @@ def main() -> None:
     ]
     results: dict[str, float] = {}
     digests: dict[str, str] = {}
-    for name, factory, call in edits:
+    for name, factory, call in [] if opens_only else edits:
         results[name], digests[name] = measure_edit(factory, call, repeats)
     for name, data in opens:
         count = max(3, repeats // 3) if name.startswith("open_large") else repeats
