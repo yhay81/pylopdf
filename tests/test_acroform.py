@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TypeAlias
@@ -1450,3 +1452,92 @@ def test_nameless_intermediates_count_toward_the_text_limits(
         with pytest.raises(pylopdf.PdfError, match=message):
             doc.set_form_field("name", "new")
         assert doc.tobytes() == before
+
+
+# 64 KiB of text that the kids of field 5 inherit. A copy per pushed kid or per
+# returned leaf took 256-512 MiB for these inputs.
+LONG_TEXT = "x" * (64 * 1024)
+LONG_NAME_FIELD = [{"name": f"{LONG_TEXT}.c", "type": "text", "value": None}]
+TYPE_LEAVES = range(6, 4101)
+# Entries and `/Kids` of field 5, its kids from object 6, and the listed fields.
+# A kid repeated 8,190 times takes all but one of the edges after `/Fields`.
+SHARED_TEXT_CASES = {
+    "child-field": (f"/FT /Tx /T ({LONG_TEXT})", "6 0 R " * 8190, {6: "<< /T (c) >>"}, LONG_NAME_FIELD),
+    "intermediate": (
+        f"/FT /Tx /T ({LONG_TEXT})",
+        "6 0 R " * 8190,
+        {6: "<< /Kids [7 0 R] >>", 7: "<< /T (c) >>"},
+        LONG_NAME_FIELD,
+    ),
+    "type": (
+        f"/FT /{LONG_TEXT}",
+        "6 0 R " * 8190,
+        {6: "<< /T (c) >>"},
+        [{"name": "c", "type": "unknown", "value": None}],
+    ),
+    "type-leaves": (
+        f"/FT /{LONG_TEXT}",
+        " ".join(f"{number} 0 R" for number in TYPE_LEAVES),
+        {number: f"<< /T (k{number}) >>" for number in TYPE_LEAVES},
+        [{"name": name, "type": "unknown", "value": None} for name in sorted(f"k{number}" for number in TYPE_LEAVES)],
+    ),
+}
+
+
+def _build_shared_text_pdf(field: str, kid_refs: str, kids: dict[int, str]) -> bytes:
+    """Build field 5 with the `field` entries and the `kid_refs` kids, which `kids` defines from object 6."""
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< {field} /Kids [{kid_refs}] >>",
+            **kids,
+        }
+    )
+
+
+@pytest.mark.parametrize(("field", "kid_refs", "kids", "expected"), SHARED_TEXT_CASES.values(), ids=SHARED_TEXT_CASES)
+def test_kids_list_the_long_name_or_type_they_inherit(
+    field: str, kid_refs: str, kids: dict[int, str], expected: list[dict[str, str | None]]
+) -> None:
+    """A kid repeated on 8,190 edges is listed once, as one reference lists it, and 4,095 leaves share one type."""
+    doc = pylopdf.open(stream=_build_shared_text_pdf(field, kid_refs, kids))
+    assert doc.get_form_fields() == expected
+
+
+# Print by how many bytes one get_form_fields() call raised the peak RSS.
+PEAK_RSS_GROWTH = """\
+import resource
+import sys
+
+import pylopdf
+
+doc = pylopdf.open(sys.argv[1])
+before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+doc.get_form_fields()
+growth = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before
+print(growth if sys.platform == "darwin" else growth * 1024)
+"""
+
+
+@pytest.mark.parametrize(
+    ("field", "kid_refs", "kids"), [case[:3] for case in SHARED_TEXT_CASES.values()], ids=SHARED_TEXT_CASES
+)
+def test_kids_share_the_long_name_or_type_they_inherit(
+    tmp_path: Path, field: str, kid_refs: str, kids: dict[int, str]
+) -> None:
+    """Listing the fields in a fresh process raises its peak RSS by less than a quarter of the copies."""
+    pytest.importorskip("resource")
+    path = tmp_path / "form.pdf"
+    path.write_bytes(_build_shared_text_pdf(field, kid_refs, kids))
+    result = subprocess.run(  # noqa: S603 - fixed script under the active interpreter.
+        [sys.executable, "-c", PEAK_RSS_GROWTH, str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout) < 64 * 1024 * 1024
