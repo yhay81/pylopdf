@@ -459,7 +459,36 @@ overview.
   address of its bytes, stable because decoded object streams live as long as
   the snapshot. Never identify one by `Dict::obj_id`, which names the object
   that contains a direct dictionary: all direct fonts in one indirect `/Font`
-  object share it. Resolve every reference through `XRef::get` (`Fresh` in
+  object share it.
+  The walk records every reference it follows in `followed`, by `Role` and
+  before it parses the object that the reference names (`first_follow`, behind
+  `follow_dictionary`, `follow_stream`, `follow_object`, and `follow_array`,
+  the only ways the walk reads one), whether or not that object turns out to
+  be readable. Parsing a dictionary builds a hash map of its keys, and the walk
+  lists every entry whether or not content draws it, so parsing the object once
+  for each entry that names it multiplies their sizes. 3,000 entries that name
+  one object of 20,000 keys (0.23 MB) kept the first `get_text` busy for 3.3 s
+  (a font), 3.8 s (a form), 5.8 s (a tiling pattern), and 0.7 s (an ExtGState
+  `/Font` array), because the walk recorded a stream or font only when it
+  processed the queued item, after every entry had parsed the object and
+  queued a copy of it. All 3,000 copies waited in the queue at once: the form
+  peaked at 3.0 GB and the font at 3.3 GB of memory, against 41 and 47 MB
+  now. Time and memory grow with the product of the two sizes, so a few
+  megabytes take minutes and exhaust a small host, where `main` needs
+  milliseconds.
+  Annotations show the cost of the walk alone only when they are hidden
+  (`/F 2`): hayro reads the `/AP /N` of every annotation it draws and resolves
+  every `/Annots` element itself, so for those the walk costs no more than
+  interpreting the page. A role is what the walk does with the object, never
+  where it was found, and a reference is skipped only in the role it was
+  followed for. A stream that was cleared as content from a tiling pattern
+  entry says nothing about the colour space it gives an image: the first
+  version of the `/XObject` loop skipped any stream that was already cleared,
+  so a 20,000-deep chain behind such an image still crashed the process.
+  `streams` stays the record of decoded content, because several roles can
+  queue one stream and the walk decodes it when it takes the first of them
+  from its queue.
+  Resolve every reference through `XRef::get` (`Fresh` in
   `content_guard.rs`) instead of through a dictionary obtained by an earlier
   step. hayro keeps the chain of objects being read in a dictionary's reader
   context and refuses a reference back into it as a cycle, so the same
@@ -468,7 +497,10 @@ overview.
   dictionary whose references failed on a long path and then overlooks what
   hayro's shorter path resolves when it draws. Iterate arrays with the typed
   `iter::<T>()` that hayro uses, never `Array::raw_iter`, which unwraps the read
-  of every element that skipping accepted and so panics on `[+ ]`. State
+  of every element that skipping accepted and so panics on `[+ ]`; the one
+  element that is read before its reference resolves, the first of a graphics
+  state's `/Font` array, comes from `graph_guard::Elements`, which steps over
+  such an element. State
   belongs to the snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
   reset it, so nothing recorded before a failed walk can vouch for a stream
   the walk did not finish. No
@@ -561,7 +593,15 @@ overview.
   the mutated graphs and crashed on 254 of 1,000, the role and font fixes
   alone still crashed 3 of 5,000, and the final walk left no stream unscanned
   in 183,000 graphs and crashed on none of 46,000. Rerun both after any change to
-  the walk.
+  the walk. The read-once rewrite (`followed`) passed them again: hayro
+  interpreted 51,314 streams in 26,000 mutated graphs (20,000 from the test
+  placements, 6,000 with the bundled corpus as extra seeds) and the guard had
+  scanned every one, and none of 4,000 graphs crashed. A variant whose
+  `first_follow_id` ignores the role, one record shared by all of them, leaves
+  a stream unscanned in 343 of 2,000 graphs (17%), so these oracles have power
+  against the mistake that rewrite could make. The resource walk's harness
+  (below) gave the same verdict on `main` and on the rewrite for each of
+  1,000,000 random documents, compared through a hash of every verdict.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
@@ -643,7 +683,9 @@ overview.
   typed iteration just stops there. The graph walk iterates arrays that hayro
   never does, so `raw_iter` could turn a renderable page into a
   `PanicException`; the content walk reads only what hayro reads and uses its
-  typed iteration for `/Annots` and the `/Font` array. No reachable panic was
+  typed iteration for `/Annots`, and `Elements` for the first element of the
+  `/Font` array so that it can classify a reference before it parses it. No
+  reachable panic was
   found (lopdf drops the page object of every one of 143,000 panicking arrays
   in four roles), and `Elements` equals `raw_iter` on every array where that
   does not panic. Every reference is read afresh
@@ -682,20 +724,30 @@ overview.
   touches the unused entries, needs milliseconds. A reference is therefore
   classified by its identity (`Child::Reference`) against the walk and the
   remembered depths before the object is parsed, an object that cannot have
-  children is remembered as a leaf of depth zero, and `ContentGuard` reads
-  each shading, shading pattern, and soft mask behind a reference once
-  (`shadings`, `shading_patterns`, `soft_masks`). The first version of the walk
-  remembered nothing for a cycle and parsed every referenced child before it
-  looked the child up: 3,000 stitching functions that name one array of 20,000
-  sub-functions (0.6 MB), or that array as the `/Function` of 3,000 shadings,
-  kept the first `get_text` busy for 50 s on a loaded machine, 3,000
-  `/Shading` entries that name one 20,000-key shading dictionary for 4 s, and
-  4,000 colour space entries that name a self-referencing array of 20,000
-  elements for 7 s. The same files take 2 to 60 ms.
-  `test_an_object_that_many_entries_name_is_read_once` pins nine such shapes
-  with a deadline that the first version missed by factors of 4 to 17; add a
-  shape for every new kind of root. Memory is bounded by the objects reached,
-  the path stack by the limit, and every collection grows fallibly.
+  children is remembered as a leaf of depth zero, and `ContentGuard` follows
+  every reference by role before it parses the array, dictionary, or stream
+  that it names (`followed`, described with the content walk above), so the
+  shadings, shading patterns, and soft masks it hands to this walk, and the
+  streams, fonts, and dictionaries of its own walk, are each parsed once. The
+  first version of the walk remembered nothing for a cycle and parsed every
+  referenced child before it looked the child up: 3,000 stitching functions
+  that name one array of 20,000 sub-functions (0.6 MB), or that array as the
+  `/Function` of 3,000 shadings, kept the first `get_text` busy for 50 s on a
+  loaded machine, 3,000 `/Shading` entries that name one 20,000-key shading
+  dictionary for 4 s, and 4,000 colour space entries that name a
+  self-referencing array of 20,000 elements for 7 s. The same files take 2 to
+  60 ms. `test_an_object_that_many_entries_name_is_read_once` pins nine such
+  shapes with a deadline that the first version missed by factors of 4 to 17,
+  and `test_a_content_object_that_many_entries_name_is_read_once` fifteen for
+  the content walk (3.7 to 12); add a shape for every new kind of root and for
+  every new reference the content walk follows. Memory is bounded by the
+  objects reached, the path stack by the limit, and every collection grows
+  fallibly. Outside this rule stays what a visited object reads behind a
+  reference through hayro's typed accessors: the `/Subtype` of a form, or the
+  `/Filter`, `/DecodeParms`, and `/Length` that hayro reads when the walk
+  decodes a stream. Each visited object reads its own, so 3,000 forms whose
+  `/Subtype` names one 1 MB name (1.4 MB in all) cost about 1 s, as before;
+  remembering those would take a memo of the value rather than of the visit.
   The Type 4 scan needs no model beyond hayro's trivia rules: whitespace
   (NUL, tab, LF, FF, CR, space) and comments (`%` to CR or LF) are skipped
   before a token, the program must begin with `{`, `{` and `}` are delimiters

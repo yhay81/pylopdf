@@ -49,6 +49,22 @@
 //! and the `/TR` and `/TR2` transfer functions of graphics states and soft
 //! masks.
 //!
+//! The walk parses every array, dictionary, and stream it follows a reference
+//! to at most once for each purpose ([`Role`]). A document can name one large
+//! object from thousands of places, and the walk lists every entry of every
+//! resource dictionary whether or not content draws it, so parsing the object
+//! for each entry would multiply their sizes: 3,000 entries that name one form
+//! of 20,000 keys (0.23 MB) kept the first interpretation busy for several
+//! seconds, where hayro, which never touches the unused entries, needs
+//! milliseconds. Every reference is therefore recorded by role before the
+//! object it names is parsed ([`ContentGuard::first_follow`]), whether or not
+//! the object turns out to be readable, and later entries that name it are
+//! skipped. A role is what the walk does with the object, never where it was
+//! found, so skipping is exact: the first visit did all the work and every
+//! later one would repeat it. A stream that was queued as content in one role
+//! says nothing about another, for a stream may be a tiling pattern and an
+//! image at once.
+//!
 //! The state belongs to one hayro snapshot. Any edit drops the snapshot and
 //! this state with it. An error clears the state too, so nothing recorded
 //! before a failed check can stand in for a stream the check did not finish.
@@ -62,7 +78,7 @@ use hayro::hayro_syntax::object::dict::keys::{
     PATTERN, RESOURCES, SHADING, SMASK, SUBTYPE, TR, TR2, XOBJECT,
 };
 use hayro::hayro_syntax::object::{
-    Array, Dict, Name, Object, ObjectIdentifier, Stream, dict_or_stream,
+    Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream, dict_or_stream,
 };
 use hayro::hayro_syntax::page::{Page, Resources};
 use hayro::hayro_syntax::xref::XRef;
@@ -70,7 +86,7 @@ use pyo3::prelude::*;
 
 use crate::content_scan::{self, MAX_NESTING_DEPTH, Refusal};
 use crate::document::{PdfError, limit_err};
-use crate::graph_guard::{self, GraphGuard, MAX_CHAIN_DEPTH};
+use crate::graph_guard::{self, Elements, GraphGuard, MAX_CHAIN_DEPTH};
 use crate::postscript_scan::MAX_BRACE_DEPTH;
 
 /// The one-based pages an operation is about to interpret.
@@ -123,14 +139,14 @@ enum Work<'a> {
     Content(Stream<'a>),
     /// A `/Resources` dictionary reached through a stream or font.
     Resources(Dict<'a>),
-    /// A font dictionary that may carry Type 3 glyph procedures, with the
-    /// reference it was reached through, if any.
-    Font(Dict<'a>, Option<ObjectIdentifier>),
+    /// A font dictionary that may carry Type 3 glyph procedures.
+    Font(Dict<'a>),
 }
 
-/// What a dictionary is for. One object may serve several roles at once, for
-/// example `/Resources << /XObject 5 0 R /Font 5 0 R >>`, and each role walks
-/// it differently, so a visit in one role says nothing about another.
+/// What the walk does with an object. One object may serve several roles at
+/// once, for example `/Resources << /XObject 5 0 R /Font 5 0 R >>`, and each
+/// role reads it differently, so a visit in one role says nothing about
+/// another.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Role {
     /// A `/Resources` dictionary of a stream or a font.
@@ -149,6 +165,35 @@ enum Role {
     Shadings,
     /// One font dictionary.
     Font,
+    /// An `/XObject` entry: a form to queue, or an image whose colour space is
+    /// measured.
+    XObject,
+    /// A `/Pattern` entry: a tiling pattern stream to queue, or a shading
+    /// pattern whose shading is measured.
+    Pattern,
+    /// An `/ExtGState` entry.
+    GraphicsState,
+    /// A shading, whether an entry of `/Shading` or the `/Shading` of a shading
+    /// pattern.
+    Shading,
+    /// The `/SMask` dictionary of a graphics state.
+    SoftMask,
+    /// The `/G` group of a soft mask: its colour space and its content.
+    SoftMaskGroup,
+    /// The `/Group` attributes of a soft-mask group.
+    GroupAttributes,
+    /// The `/Font` array of a graphics state.
+    FontSelection,
+    /// The font that a `/Font` array names first, which is the only one hayro
+    /// reads.
+    SelectedFont,
+    /// The `/AP` dictionary of an annotation.
+    Appearances,
+    /// The `/CharProcs` dictionary of a Type 3 font.
+    GlyphProcedures,
+    /// A stream that hayro interprets as content and that nothing else reads:
+    /// the `/N` appearance of an annotation or an entry of `/CharProcs`.
+    ContentStream,
 }
 
 /// What the check has already cleared for the current hayro snapshot.
@@ -156,34 +201,22 @@ enum Role {
 pub(crate) struct ContentGuard {
     /// One bit per zero-based page whose reachable content was cleared.
     pages: Vec<u64>,
-    /// Content streams that were decoded and cleared.
+    /// Content streams that were decoded and cleared. Several roles can queue
+    /// one stream, and the walk decodes it when it takes the first of them from
+    /// its queue.
     streams: HashSet<ObjectIdentifier>,
-    /// Fonts that were examined, by the reference they were reached through.
-    /// This only spares resolving a font again; the walk itself is deduplicated
-    /// by [`Role::Font`] below.
-    fonts: HashSet<ObjectIdentifier>,
-    /// Graphics state dictionaries that were examined.
-    graphics_states: HashSet<ObjectIdentifier>,
-    /// `/XObject` entries that are not forms, mostly images, which hayro never
-    /// reads as content and which are costly to decode.
-    inert: HashSet<ObjectIdentifier>,
     /// Dictionaries that were visited, by role and by the address of their
     /// bytes in the snapshot. Decoded object streams live as long as the
     /// snapshot, so an address names one dictionary. The object number would
     /// not: every direct dictionary inside an indirect object reports the
     /// number of that object.
     dictionaries: HashSet<(Role, usize, usize)>,
+    /// References that were followed, by role, whether or not the object they
+    /// name could be read. A reference is recorded before the object is parsed,
+    /// so one object that thousands of entries name is parsed once.
+    followed: HashSet<(Role, ObjectIdentifier)>,
     /// Colour space and function chains that were measured and cleared.
     graph: GraphGuard,
-    /// Shading objects whose colour space and functions were measured, by the
-    /// reference they were reached through.
-    shadings: HashSet<ObjectIdentifier>,
-    /// Pattern objects that are not streams and were examined for a shading, by
-    /// the reference they were reached through.
-    shading_patterns: HashSet<ObjectIdentifier>,
-    /// Soft-mask dictionaries that were examined, by the reference they were
-    /// reached through.
-    soft_masks: HashSet<ObjectIdentifier>,
     /// The one-based page being checked, for error messages.
     page: usize,
 }
@@ -266,6 +299,8 @@ impl ContentGuard {
             // Iterate the way hayro does, which also ends at the first element
             // that is not a dictionary. `Array::raw_iter` unwraps the read of
             // every element that skipping accepted, and `[+ ]` is accepted.
+            // hayro resolves every element itself when it draws the page, so
+            // reading the list costs no more than interpreting it does.
             for annotation in annotations.iter::<Dict<'a>>() {
                 self.visit_appearance(fresh, &annotation, &mut work)?;
             }
@@ -276,9 +311,7 @@ impl ContentGuard {
                 Work::Resources(dictionary) => {
                     self.visit_resource_dictionary(fresh, &dictionary, &mut work)?
                 }
-                Work::Font(font, reference) => {
-                    self.visit_font(fresh, &font, reference, &mut work)?
-                }
+                Work::Font(font) => self.visit_font(fresh, &font, &mut work)?,
             }
         }
         self.clear_page(index)
@@ -333,19 +366,22 @@ impl ContentGuard {
         if !self.first_visit(Role::Resources, resources)? {
             return Ok(());
         }
-        let category = |key: &[u8]| fresh.dictionary(resources, key).unwrap_or_default();
-        self.visit_categories(
-            fresh,
-            &Categories {
-                x_objects: category(XOBJECT),
-                patterns: category(PATTERN),
-                fonts: category(FONT),
-                ext_g_states: category(EXT_G_STATE),
-                color_spaces: category(COLORSPACE),
-                shadings: category(SHADING),
-            },
-            work,
-        )
+        // A category that an earlier dictionary named by reference is empty
+        // here, and an empty dictionary is never visited.
+        let mut category = |role: Role, key: &[u8]| -> PyResult<Dict<'a>> {
+            Ok(self
+                .follow_dictionary(fresh, role, resources, key)?
+                .unwrap_or_default())
+        };
+        let categories = Categories {
+            x_objects: category(Role::XObjects, XOBJECT)?,
+            patterns: category(Role::Patterns, PATTERN)?,
+            fonts: category(Role::Fonts, FONT)?,
+            ext_g_states: category(Role::GraphicsStates, EXT_G_STATE)?,
+            color_spaces: category(Role::ColorSpaces, COLORSPACE)?,
+            shadings: category(Role::Shadings, SHADING)?,
+        };
+        self.visit_categories(fresh, &categories, work)
     }
 
     fn visit_categories<'a>(
@@ -364,70 +400,43 @@ impl ContentGuard {
         } = categories;
         if self.first_visit(Role::XObjects, x_objects)? {
             for key in x_objects.keys() {
-                let reference = x_objects.get_ref(key.as_ref()).map(ObjectIdentifier::from);
-                if reference
-                    .is_some_and(|id| self.streams.contains(&id) || self.inert.contains(&id))
-                {
-                    continue;
-                }
-                let Some(stream) = fresh.stream(x_objects, key.as_ref()) else {
+                let Some(stream) =
+                    self.follow_stream(fresh, Role::XObject, x_objects, key.as_ref())?
+                else {
                     continue;
                 };
                 if is_form(&stream) {
                     push(work, Work::Content(stream))?;
                 } else {
                     self.visit_image(fresh, &stream)?;
-                    if let Some(id) = reference {
-                        insert(&mut self.inert, id)?;
-                    }
                 }
             }
         }
         if self.first_visit(Role::Patterns, patterns)? {
             for key in patterns.keys() {
-                let reference = patterns.get_ref(key.as_ref()).map(ObjectIdentifier::from);
-                if reference.is_some_and(|id| {
-                    self.streams.contains(&id) || self.shading_patterns.contains(&id)
-                }) {
-                    continue;
-                }
-                match fresh.object(patterns, key.as_ref()) {
+                match self.follow_object(fresh, Role::Pattern, patterns, key.as_ref())? {
                     Some(Object::Stream(stream)) => push(work, Work::Content(stream))?,
                     Some(Object::Dict(pattern)) => {
-                        self.visit_shading_entry(fresh, &pattern, SHADING)?;
-                        if let Some(id) = reference {
-                            insert(&mut self.shading_patterns, id)?;
-                        }
+                        self.visit_shading_entry(fresh, &pattern, SHADING)?
                     }
-                    _ => {
-                        if let Some(id) = reference {
-                            insert(&mut self.shading_patterns, id)?;
-                        }
-                    }
+                    _ => {}
                 }
             }
         }
         if self.first_visit(Role::Fonts, fonts)? {
             for key in fonts.keys() {
-                let reference = fonts.get_ref(key.as_ref()).map(ObjectIdentifier::from);
-                if reference.is_some_and(|id| self.fonts.contains(&id)) {
-                    continue;
-                }
-                if let Some(font) = fresh.dictionary(fonts, key.as_ref()) {
-                    push(work, Work::Font(font, reference))?;
+                if let Some(font) =
+                    self.follow_dictionary(fresh, Role::Font, fonts, key.as_ref())?
+                {
+                    push(work, Work::Font(font))?;
                 }
             }
         }
         if self.first_visit(Role::GraphicsStates, ext_g_states)? {
             for key in ext_g_states.keys() {
-                if let Some(id) = ext_g_states
-                    .get_ref(key.as_ref())
-                    .map(ObjectIdentifier::from)
-                    && !insert(&mut self.graphics_states, id)?
+                if let Some(state) =
+                    self.follow_dictionary(fresh, Role::GraphicsState, ext_g_states, key.as_ref())?
                 {
-                    continue;
-                }
-                if let Some(state) = fresh.dictionary(ext_g_states, key.as_ref()) {
                     self.visit_graphics_state(fresh, &state, work)?;
                 }
             }
@@ -446,20 +455,14 @@ impl ContentGuard {
     }
 
     /// Measure the shading that `owner[key]` holds: the entry of a `/Shading`
-    /// category dictionary, or the `/Shading` of a shading pattern. A shading
-    /// that a reference names is read once, however many entries name it.
+    /// category dictionary, or the `/Shading` of a shading pattern.
     fn visit_shading_entry<'a>(
         &mut self,
         fresh: Fresh<'a>,
         owner: &Dict<'a>,
         key: &[u8],
     ) -> PyResult<()> {
-        if let Some(id) = owner.get_ref(key).map(ObjectIdentifier::from)
-            && !insert(&mut self.shadings, id)?
-        {
-            return Ok(());
-        }
-        let Some(shading) = fresh.object(owner, key) else {
+        let Some(shading) = self.follow_object(fresh, Role::Shading, owner, key)? else {
             return Ok(());
         };
         // A mesh shading's stream data is never read here.
@@ -487,25 +490,54 @@ impl ContentGuard {
     ) -> PyResult<()> {
         self.graph_functions(fresh, state, TR)?;
         self.graph_functions(fresh, state, TR2)?;
-        // Graphics states that name one soft mask share what it names.
-        let known_mask = match state.get_ref(SMASK).map(ObjectIdentifier::from) {
-            Some(id) => !insert(&mut self.soft_masks, id)?,
-            None => false,
-        };
-        if !known_mask && let Some(mask) = fresh.dictionary(state, SMASK) {
+        // Graphics states that name one soft mask, or masks that name one group
+        // or one set of group attributes, share what it names.
+        if let Some(mask) = self.follow_dictionary(fresh, Role::SoftMask, state, SMASK)? {
             self.graph_functions(fresh, &mask, TR)?;
-            if let Some(group) = fresh.stream(&mask, G) {
-                if let Some(attributes) = fresh.dictionary(group.dict(), GROUP) {
+            if let Some(group) = self.follow_stream(fresh, Role::SoftMaskGroup, &mask, G)? {
+                if let Some(attributes) =
+                    self.follow_dictionary(fresh, Role::GroupAttributes, group.dict(), GROUP)?
+                {
                     self.graph_entry(fresh, &attributes, CS)?;
                 }
                 push(work, Work::Content(group))?;
             }
         }
-        if let Some(Object::Dict(font)) = fresh
-            .array(state, FONT)
-            .and_then(|selection| selection.iter::<Object<'a>>().next())
-        {
-            push(work, Work::Font(font, None))?;
+        if let Some(selection) = self.follow_array(fresh, Role::FontSelection, state, FONT)? {
+            self.visit_font_selection(fresh, &selection, work)?;
+        }
+        Ok(())
+    }
+
+    /// Queue the font that a graphics state's `/Font` array selects.
+    ///
+    /// hayro reads the first element as an object and keeps it only if it is a
+    /// dictionary; a stream is no font to it. The element is classified by its
+    /// reference before it is read, because graphics states that select one
+    /// font share the object it names.
+    fn visit_font_selection<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        selection: &Array<'a>,
+        work: &mut Vec<Work<'a>>,
+    ) -> PyResult<()> {
+        let font = match Elements::new(selection).next() {
+            Some(MaybeRef::NotRef(Object::Dict(font))) => Some(font),
+            Some(MaybeRef::Ref(reference)) => {
+                let id = ObjectIdentifier::from(reference);
+                if self.first_follow_id(Role::SelectedFont, id)? {
+                    match fresh.0.get::<Object<'a>>(id) {
+                        Some(Object::Dict(font)) => Some(font),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(font) = font {
+            push(work, Work::Font(font))?;
         }
         Ok(())
     }
@@ -538,19 +570,21 @@ impl ContentGuard {
     }
 
     /// Queue an annotation's or widget's normal appearance stream.
+    ///
+    /// hayro reads the appearance of every annotation it draws, so this costs
+    /// no more than interpreting the page does, except for the annotations it
+    /// skips as hidden, which this walk reads as well.
     fn visit_appearance<'a>(
         &mut self,
         fresh: Fresh<'a>,
         annotation: &Dict<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
-        let Some(appearances) = fresh.dictionary(annotation, AP) else {
+        let Some(appearances) = self.follow_dictionary(fresh, Role::Appearances, annotation, AP)?
+        else {
             return Ok(());
         };
-        if self.is_cleared_stream(&appearances, N) {
-            return Ok(());
-        }
-        if let Some(stream) = fresh.stream(&appearances, N) {
+        if let Some(stream) = self.follow_stream(fresh, Role::ContentStream, &appearances, N)? {
             push(work, Work::Content(stream))?;
         }
         Ok(())
@@ -577,7 +611,9 @@ impl ContentGuard {
         if tracked {
             insert(&mut self.streams, id)?;
         }
-        if let Some(resources) = fresh.dictionary(stream.dict(), RESOURCES) {
+        if let Some(resources) =
+            self.follow_dictionary(fresh, Role::Resources, stream.dict(), RESOURCES)?
+        {
             push(work, Work::Resources(resources))?;
         }
         Ok(())
@@ -592,36 +628,26 @@ impl ContentGuard {
         &mut self,
         fresh: Fresh<'a>,
         font: &Dict<'a>,
-        reference: Option<ObjectIdentifier>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
-        if let Some(id) = reference {
-            insert(&mut self.fonts, id)?;
-        }
         if !self.first_visit(Role::Font, font)? {
             return Ok(());
         }
-        if let Some(procedures) = fresh.dictionary(font, CHAR_PROCS) {
+        if let Some(procedures) =
+            self.follow_dictionary(fresh, Role::GlyphProcedures, font, CHAR_PROCS)?
+        {
             for key in procedures.keys() {
-                if self.is_cleared_stream(&procedures, key.as_ref()) {
-                    continue;
-                }
-                if let Some(stream) = fresh.stream(&procedures, key.as_ref()) {
+                if let Some(stream) =
+                    self.follow_stream(fresh, Role::ContentStream, &procedures, key.as_ref())?
+                {
                     push(work, Work::Content(stream))?;
                 }
             }
         }
-        if let Some(resources) = fresh.dictionary(font, RESOURCES) {
+        if let Some(resources) = self.follow_dictionary(fresh, Role::Resources, font, RESOURCES)? {
             push(work, Work::Resources(resources))?;
         }
         Ok(())
-    }
-
-    /// Whether `key` references a stream that was already cleared.
-    fn is_cleared_stream(&self, dictionary: &Dict<'_>, key: &[u8]) -> bool {
-        dictionary
-            .get_ref(key)
-            .is_some_and(|reference| self.streams.contains(&reference.into()))
     }
 
     /// Record a dictionary in one role; false when it was visited in that role
@@ -635,6 +661,82 @@ impl ContentGuard {
             &mut self.dictionaries,
             (role, bytes.as_ptr() as usize, bytes.len()),
         )
+    }
+
+    /// Record the reference that `owner[key]` holds as followed for one role;
+    /// false when it was followed for that role before. A direct value has no
+    /// reference to record: its bytes belong to `owner`, which the walk reads
+    /// once, so it is always read.
+    fn first_follow(&mut self, role: Role, owner: &Dict<'_>, key: &[u8]) -> PyResult<bool> {
+        match owner.get_ref(key) {
+            Some(reference) => self.first_follow_id(role, reference.into()),
+            None => Ok(true),
+        }
+    }
+
+    /// Record a reference as followed for one role; false when it was before.
+    fn first_follow_id(&mut self, role: Role, id: ObjectIdentifier) -> PyResult<bool> {
+        insert(&mut self.followed, (role, id))
+    }
+
+    /// The dictionary under `owner[key]`, unless a reference that names it was
+    /// followed for `role` before. A stream object yields its dictionary.
+    fn follow_dictionary<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        role: Role,
+        owner: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<Option<Dict<'a>>> {
+        Ok(self
+            .first_follow(role, owner, key)?
+            .then(|| fresh.dictionary(owner, key))
+            .flatten())
+    }
+
+    /// The stream under `owner[key]`, unless a reference that names it was
+    /// followed for `role` before.
+    fn follow_stream<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        role: Role,
+        owner: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<Option<Stream<'a>>> {
+        Ok(self
+            .first_follow(role, owner, key)?
+            .then(|| fresh.stream(owner, key))
+            .flatten())
+    }
+
+    /// The object under `owner[key]`, unless a reference that names it was
+    /// followed for `role` before.
+    fn follow_object<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        role: Role,
+        owner: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<Option<Object<'a>>> {
+        Ok(self
+            .first_follow(role, owner, key)?
+            .then(|| fresh.object(owner, key))
+            .flatten())
+    }
+
+    /// The array under `owner[key]`, unless a reference that names it was
+    /// followed for `role` before.
+    fn follow_array<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        role: Role,
+        owner: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<Option<Array<'a>>> {
+        Ok(self
+            .first_follow(role, owner, key)?
+            .then(|| fresh.array(owner, key))
+            .flatten())
     }
 }
 

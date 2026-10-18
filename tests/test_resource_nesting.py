@@ -1052,6 +1052,218 @@ def test_shared_sub_graphs_are_measured_once() -> None:
     assert _refusal(deep.get_text).code == CODE
 
 
+# --- what the content walk must not repeat -------------------------------------------------------------------------
+#
+# The content walk lists the entries of the same dictionaries, and follows every reference it meets to a form, pattern,
+# font, appearance, or glyph procedure, so parsing the object for each entry that names it multiplies their sizes in
+# the same way. Each shape names one large object from thousands of places, through a different kind of reference.
+
+TILING = "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 "
+TYPE3 = (
+    "/Type /Font /Subtype /Type3 /FontBBox [0 0 100 100] /FontMatrix [0.01 0 0 0.01 0 0] "
+    "/Encoding << /Type /Encoding /Differences [97 /g0] >> /FirstChar 97 /LastChar 97 /Widths [100] "
+)
+#: How many entries name the large object, and how many keys it has.
+ENTRIES = 3_000
+KEYS = 50_000
+
+
+def _large() -> str:
+    """Return dictionary entries that nothing reads, closed by a space so that `/Length` can follow."""
+    return _padding(KEYS) + " "
+
+
+def _entries(prefix: str, numbers: Sequence[int]) -> str:
+    """Resource entries `/{prefix}0`, `/{prefix}1`, and so on that name the objects `numbers`."""
+    return " ".join(f"/{prefix}{index} {number} 0 R" for index, number in enumerate(numbers))
+
+
+def _hidden_annotation(entries: str) -> str:
+    """Build an annotation that hayro does not draw, so that only the walk reads its entries.
+
+    hayro reads the appearance of every annotation it draws, which would add the same cost to the first page text.
+    """
+    return f"<< /Type /Annot /Subtype /FreeText /Rect [0 0 10 10] /F 2 {entries}>>"
+
+
+def _annotations(numbers: Sequence[int]) -> str:
+    """Return the page entry that lists the annotations `numbers`."""
+    return "/Annots [" + " ".join(f"{number} 0 R" for number in numbers) + "] "
+
+
+def _large_form(parts: Parts) -> bytes:
+    """Three thousand `/XObject` entries that name one form of fifty thousand keys."""
+    form = parts.add(_stream("", FORM + _large()))
+    return page_scope(parts, f"/XObject << {_entries('Fm', [form] * ENTRIES)} >> ", "0 0 m")
+
+
+def _large_dictionary_as_x_object(parts: Parts) -> bytes:
+    """Three thousand `/XObject` entries that name one dictionary of fifty thousand keys, which is no stream."""
+    dictionary = parts.add(f"<< {_padding(KEYS)} >>")
+    return page_scope(parts, f"/XObject << {_entries('Fm', [dictionary] * ENTRIES)} >> ", "0 0 m")
+
+
+def _large_tiling_pattern(parts: Parts) -> bytes:
+    """Three thousand `/Pattern` entries that name one tiling pattern of fifty thousand keys."""
+    pattern = parts.add(_stream("", TILING + _large()))
+    return page_scope(parts, f"/Pattern << {_entries('P', [pattern] * ENTRIES)} >> ", "0 0 m")
+
+
+def _large_font(parts: Parts) -> bytes:
+    """Three thousand `/Font` entries that name one font of fifty thousand keys."""
+    font = parts.add(f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica {_padding(KEYS)} >>")
+    return page_scope(parts, f"/Font << {_entries('F', [font] * ENTRIES)} >> ", "0 0 m")
+
+
+def _large_appearance(parts: Parts) -> bytes:
+    """Three thousand hidden annotations whose `/N` appearance is one form of fifty thousand keys."""
+    form = parts.add(_stream("", FORM + _large()))
+    annotations = [parts.add(_hidden_annotation(f"/AP << /N {form} 0 R >> ")) for _ in range(ENTRIES)]
+    return parts.build("", "0 0 m", page=_annotations(annotations))
+
+
+def _large_appearance_dictionary(parts: Parts) -> bytes:
+    """Three thousand hidden annotations that name one `/AP` dictionary of fifty thousand keys."""
+    form = parts.add(_stream("", FORM))
+    appearances = parts.add(f"<< /N {form} 0 R {_padding(KEYS)} >>")
+    annotations = [parts.add(_hidden_annotation(f"/AP {appearances} 0 R ")) for _ in range(ENTRIES)]
+    return parts.build("", "0 0 m", page=_annotations(annotations))
+
+
+def _large_glyph_procedure(parts: Parts) -> bytes:
+    """Build a Type 3 font whose three thousand `/CharProcs` entries name one procedure of fifty thousand keys."""
+    procedure = parts.add(_stream("100 0 0 0 100 100 d1", _large()))
+    font = parts.add(f"<< {TYPE3}/CharProcs << {_entries('g', [procedure] * ENTRIES)} >> >>")
+    return page_scope(parts, f"/Font << /F3 {font} 0 R >> ", "0 0 m")
+
+
+def _large_glyph_procedures(parts: Parts) -> bytes:
+    """Three thousand Type 3 fonts that name one `/CharProcs` dictionary of fifty thousand keys."""
+    procedure = parts.add(_stream("100 0 0 0 100 100 d1", ""))
+    procedures = parts.add(f"<< /g0 {procedure} 0 R {_padding(KEYS)} >>")
+    fonts = [parts.add(f"<< {TYPE3}/CharProcs {procedures} 0 R >>") for _ in range(ENTRIES)]
+    return page_scope(parts, f"/Font << {_entries('F', fonts)} >> ", "0 0 m")
+
+
+def _large_resources(parts: Parts) -> bytes:
+    """Three thousand forms that name one `/Resources` dictionary of fifty thousand keys."""
+    resources = parts.add(f"<< {_padding(KEYS)} >>")
+    forms = [parts.add(_stream("", FORM + f"/Resources {resources} 0 R ")) for _ in range(ENTRIES)]
+    return page_scope(parts, f"/XObject << {_entries('Fm', forms)} >> ", "0 0 m")
+
+
+def _large_glyph_resources(parts: Parts) -> bytes:
+    """Three thousand Type 3 fonts that name one `/Resources` dictionary of fifty thousand keys."""
+    resources = parts.add(f"<< {_padding(KEYS)} >>")
+    fonts = [parts.add(f"<< {TYPE3}/Resources {resources} 0 R >>") for _ in range(ENTRIES)]
+    return page_scope(parts, f"/Font << {_entries('F', fonts)} >> ", "0 0 m")
+
+
+def _large_category(parts: Parts) -> bytes:
+    """Three thousand forms whose resources name one `/Font` dictionary of fifty thousand keys."""
+    fonts = parts.add(f"<< {_padding(KEYS)} >>")
+    forms = [parts.add(_stream("", FORM + f"/Resources << /Font {fonts} 0 R >> ")) for _ in range(ENTRIES)]
+    return page_scope(parts, f"/XObject << {_entries('Fm', forms)} >> ", "0 0 m")
+
+
+def _large_soft_mask_group(parts: Parts) -> bytes:
+    """Three thousand graphics states whose soft masks name one group of fifty thousand keys."""
+    group = parts.add(_stream("0 0 m", GROUP + _large()))
+    mask = f"/SMask << /Type /Mask /S /Luminosity /G {group} 0 R >> "
+    states = [parts.add(f"<< /Type /ExtGState {mask}>>") for _ in range(ENTRIES)]
+    return page_scope(parts, f"/ExtGState << {_entries('GS', states)} >> ", "0 0 m")
+
+
+def _large_group_attributes(parts: Parts) -> bytes:
+    """Three thousand soft-mask groups that name one `/Group` dictionary of fifty thousand keys."""
+    attributes = parts.add(f"<< /S /Transparency /CS /DeviceGray {_padding(KEYS)} >>")
+    states = []
+    for _ in range(ENTRIES):
+        group = parts.add(_stream("0 0 m", FORM + f"/Group {attributes} 0 R "))
+        states.append(parts.add(f"<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G {group} 0 R >> >>"))
+    return page_scope(parts, f"/ExtGState << {_entries('GS', states)} >> ", "0 0 m")
+
+
+def _large_font_selection(parts: Parts) -> bytes:
+    """Four thousand graphics states that name one `/Font` array of 120,000 elements."""
+    font = parts.add(FONT)
+    selection = parts.add(f"[{font} 0 R 12 " + "0 " * 120_000 + "]")
+    states = [parts.add(f"<< /Type /ExtGState /Font {selection} 0 R >>") for _ in range(4_000)]
+    return page_scope(parts, f"/ExtGState << {_entries('GS', states)} >> ", "0 0 m")
+
+
+def _large_selected_font(parts: Parts) -> bytes:
+    """Three thousand graphics states whose `/Font` arrays select one font of fifty thousand keys."""
+    font = parts.add(f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica {_padding(KEYS)} >>")
+    states = [parts.add(f"<< /Type /ExtGState /Font [{font} 0 R 12] >>") for _ in range(ENTRIES)]
+    return page_scope(parts, f"/ExtGState << {_entries('GS', states)} >> ", "0 0 m")
+
+
+SHARED_CONTENT: dict[str, Callable[[Parts], bytes]] = {
+    "form": _large_form,
+    "x-object-without-stream": _large_dictionary_as_x_object,
+    "tiling-pattern": _large_tiling_pattern,
+    "font": _large_font,
+    "appearance": _large_appearance,
+    "appearance-dictionary": _large_appearance_dictionary,
+    "glyph-procedure": _large_glyph_procedure,
+    "glyph-procedures": _large_glyph_procedures,
+    "resources": _large_resources,
+    "glyph-resources": _large_glyph_resources,
+    "category": _large_category,
+    "soft-mask-group": _large_soft_mask_group,
+    "group-attributes": _large_group_attributes,
+    "font-selection": _large_font_selection,
+    "selected-font": _large_selected_font,
+}
+
+
+@pytest.mark.parametrize("name", SHARED_CONTENT)
+def test_a_content_object_that_many_entries_name_is_read_once(name: str) -> None:
+    doc = pylopdf.Document(stream=SHARED_CONTENT[name](Parts()))
+
+    started = time.perf_counter()
+    assert doc.get_page_text(0) is not None
+    # Parsing the object for every entry takes seconds to tens of seconds; parsing it once takes milliseconds.
+    assert time.perf_counter() - started < 1.5
+
+
+def _image_and_pattern(depth: int) -> bytes:
+    """Name one stream as a tiling pattern of the page and as an image in the resources of a form.
+
+    The walk queues the stream as content before it meets the image entry, which must still measure the colour space.
+    """
+    parts = Parts()
+    space = indexed_chain(parts, depth)
+    both = parts.add(
+        _stream(
+            b"\x00",
+            f"/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace {space} "
+            "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 ",
+        )
+    )
+    form = parts.add(
+        _stream("q 50 0 0 50 10 10 cm /Im0 Do Q", FORM + f"/Resources << /XObject << /Im0 {both} 0 R >> >> ")
+    )
+    return parts.build(f"/XObject << /Fm0 {form} 0 R >> /Pattern << /P1 {both} 0 R >> ", "q /Fm0 Do Q")
+
+
+def test_a_stream_that_is_a_pattern_and_an_image_is_measured_as_an_image() -> None:
+    """Content that was cleared in one role says nothing about the colour space another role builds."""
+    accepted = pylopdf.Document(stream=_image_and_pattern(ACCEPTED["indexed"]))
+    assert accepted[0].get_pixmap().width == 300
+
+    refused = pylopdf.Document(stream=_image_and_pattern(REFUSED["indexed"]))
+    assert _refusal(refused.get_text).code == CODE
+    assert _refusal(refused[0].get_pixmap).code == CODE
+
+
+def test_a_stream_that_is_a_pattern_and_an_image_does_not_crash(tmp_path: Path) -> None:
+    documents = {"pattern-and-image": Crash(_image_and_pattern(CRASH_CHAIN))}
+
+    assert _run_many(tmp_path, documents, SOME_OPERATIONS[:2]) == _expected(documents, SOME_OPERATIONS[:2])
+
+
 def test_wide_stitching_functions_are_not_deep() -> None:
     """A gradient with thousands of pieces is one level of functions, however wide."""
     parts = Parts()
