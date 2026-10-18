@@ -343,6 +343,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allocator keeps freed memory, showed none. Peaks stayed within 2 MiB,
   except 3–5 MiB higher with three faces in use at once on Linux and Windows
   and about 4 MiB lower for a four-widget form on every target.
+- Text drawn with an embedded font and the form field appearances generated
+  from one no longer wait for a thread pool. Every `Page.insert_text()` and
+  `Page.insert_textbox()` run that embeds an OpenType font, and every text or
+  choice widget appearance that `Document.set_form_field()` generates, is a
+  small PDF that krilla writes and pylopdf imports. lopdf's parallel reader
+  parsed its dozen objects on the global rayon thread pool, so each import
+  woke a pool worker and blocked the calling thread, with the GIL held, until
+  the pool finished. pylopdf now parses the output of krilla's PDF writer on
+  the calling thread and hands anything else to lopdf; documents opened from
+  files and bytes still parse in parallel, and the Emscripten build is
+  unchanged. In interleaved A/B runs on the five GitHub-hosted release
+  targets, inserting a short Japanese line into a fresh document became 6–38%
+  faster (0.62 ms to 0.55 ms on Linux x86_64, 0.64 ms to 0.47 ms on macOS
+  arm64), twenty lines on one page 15–41% faster, and filling a Japanese form
+  field 11–22% faster with one widget and 17–31% faster with twelve. On an
+  Apple M2 Pro the Japanese line fell from about 0.57 ms to 0.39 ms, and
+  free-threaded CPython 3.14t generated 19–36% more fresh documents per second
+  on one to eight threads. Opening documents is unchanged, and generated
+  output is byte-identical.
 - Reading the links of every page of a large manual is now linear in its
   pages and links. `Page.get_links()` used to index the complete
   `/Names/Dests` tree and walk the page tree five times for every call, plus
