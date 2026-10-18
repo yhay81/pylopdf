@@ -416,7 +416,10 @@ overview.
   nested deeper than 100 levels, so a reachable one also keeps them from hayro
   0.7's unbounded recursive parser. Audit and recovery buffers grow fallibly,
   and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
-  and already render from the graph.
+  and already render from the graph. The pass runs before
+  `normalize_object_numbers`, because it compares lopdf's numbers with the
+  cross-reference entries; a renumbering load also renders from the graph, and
+  dropping unreachable debris first spares most such loads the move.
 - Raster rendering reuses one hayro `RenderCache` across calls through
   `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
@@ -532,6 +535,47 @@ overview.
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
+- lopdf numbers new objects above `Document::max_id`, so a loaded reference to
+  a higher number would resolve to whatever a later import or edit adds.
+  `_Document.load` and `load_bytes`, which `authenticate` reuses, therefore
+  call `normalize_object_numbers` in `rust/src/unallocated.rs` before
+  structural validation. It raises `max_id` over the highest loaded object,
+  then replaces every reference to a higher number, of any generation, with
+  null in the trailer, arrays, dictionaries, and stream dictionaries, never in
+  stream content, using a fallibly grown stack. Every reference pylopdf adds
+  later names an allocated object or comes from a renumbered import, so the
+  pass keeps the document alias-free for its lifetime. ISO 32000-2 §7.3.10
+  and hayro already read these references as null, so the original-byte
+  rendering path stays valid. Missing numbers at or below `max_id` are never
+  allocated and stay untouched, so documents without higher references keep
+  their objects and save unchanged; some readers still raise for such a
+  missing object where they skip null. Never raise `max_id` to a referenced
+  number instead: numbers need u32 headroom, and once new objects take such
+  numbers, lopdf's cross-reference writer loops over every number up to the
+  highest object. Page cleanup reads a null value, an indirect null, and a
+  missing reference alike as an absent navigation entry.
+- lopdf increments `max_id` without an overflow check in `add_object`,
+  `new_object_id`, `Document::encrypt`, and its object-stream writer, and its
+  cross-reference writer visits every number up to the highest object on each
+  save. A file whose objects or in-use cross-reference entries reached past
+  8,388,607, the ISO 32000-1 indirect-object limit, could therefore leave no
+  headroom: near u32::MAX, release builds wrapped new objects onto object 0 and
+  then object 1, often the catalog, and a file of a few hundred bytes took about
+  19 seconds per save. When `max_id` exceeds the limit,
+  `normalize_object_numbers` moves every object above it to consecutive numbers
+  after the highest object at or below it, in ascending ID order with
+  generations kept, and ends `max_id` at the last of them. The same traversal
+  points each reference above that highest object at its moved object, matched
+  by number and generation in one exactly reserved sorted table, or replaces it
+  with null. Lower numbers stay unchanged, an over-limit entry without an object
+  only lowers `max_id`, and documents within the limit keep the behavior above.
+  Moving any object drops the original-byte rendering path, because image
+  compression maps hayro's object IDs back to lopdf's and hayro reads object
+  numbers as i32. Later numbers come only from allocations, so the remaining
+  headroom outlasts memory. lopdf's reconstruction already skips headers
+  numbered above 1,000,000, so such numbers come from standard cross-reference
+  resolution, object headers that disagree with their entries, or object-stream
+  members.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
@@ -1047,13 +1091,19 @@ overview.
   lopdf's own `delete_pages`).
 - lopdf's `renumber_objects_with` keeps the number of a reference to a missing
   object, so after an import it resolves to whichever object takes that
-  number. pylopdf's import renumbering writes null instead. The target's own
-  references are not rewritten: one that names a number above the target's
-  `max_id` still resolves to the object that a later import or allocation
-  receives. lopdf stores each loaded object under the number in its own
-  header and adds object-stream members missing from the cross-reference
-  table; lopdf 0.45 raises `max_id` over them, and `object_recovery` drops
-  those that nothing reaches.
+  number. pylopdf's import renumbering writes null instead, and loading nulls
+  a document's own references above `max_id`. lopdf stores each loaded object
+  under the number in its own header and adds object-stream members missing
+  from the cross-reference table. lopdf 0.44 derived `max_id` from the table
+  alone, so a later allocation could replace such an object; 0.45 raises it
+  over every loaded object, and pylopdf's load pass repeats that. hayro reads
+  the original bytes through the table instead, so `object_recovery` drops
+  such objects when nothing reaches them and otherwise renders from lopdf's
+  graph.
+- lopdf allocates object numbers with unchecked `max_id += 1`, so `max_id`
+  must keep its headroom. Loading renumbers objects above 8,388,607 for that
+  reason; never set `max_id` from untrusted input elsewhere. Checked
+  allocation upstream is a contribution candidate.
 - hayro 0.7's typed array iteration ends at the first element that does not
   resolve to the requested type, so `/Kids` and `/Contents` stop at a missing,
   null, or mistyped entry. hayro 0.8 skips such page-tree kids but still ends
