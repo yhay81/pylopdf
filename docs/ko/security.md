@@ -166,8 +166,9 @@ XObject, soft-mask group, graphics state와 soft mask의 전달 함수(`/TR`, `/
 도달하는 것을 측정하고, colour space와 function의 체인이 32단계보다 깊거나 Type 4
 function의 procedure가 64단계보다 깊게 중첩되면 그 페이지를 `resource_nesting_depth`로
 거부합니다. 체인에는 colour space의 array, function, profile stream이 포함됩니다.
-hayro가 스스로 순환을 끊기 때문에 자기 참조나 짧은 고리는 그대로 렌더링되지만, 32개를
-넘는 object에 도달하는 순환은 거부되고, 공유되는 하위 그래프는 한 번만 측정됩니다.
+hayro가 스스로 순환을 끊기 때문에 자기 참조나 짧은 고리는 그대로 렌더링되지만, 서로 도달하는
+object가 32개를 넘는 순환은 거부되고, 공유되는 하위 그래프는 한 번만 측정되며, object는 몇 개의
+항목이 참조하든 한 번만 읽힙니다.
 이 한도는 고정이며 `DocumentLimits` 설정과 관계없이 적용되고, 다른 페이지는 계속 사용할 수
 있습니다. 제한하는 것은 stack 사용량이지 시간이 아닙니다. 각 단계에서 같은 function을 두 번
 참조하거나 Separation을 중첩하는 것처럼 한도 안이지만 정교하게 만든 그래프에서는

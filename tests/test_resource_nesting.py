@@ -172,6 +172,16 @@ def ring(parts: Parts, depth: int) -> str:
     return f"{first} 0 R"
 
 
+def chain_into(parts: Parts, length: int, target: str) -> str:
+    """Stitching functions that each name the next one, the last naming `target`: `length` nodes above it."""
+    first = parts.reserve(length)
+    for index in range(length):
+        number = first + index
+        following = f"{number + 1} 0 R" if index < length - 1 else target
+        parts.objects[number] = f"<< /FunctionType 3 /Domain [0 1] /Functions [{following}] /Bounds [] /Encode [0 1] >>"
+    return f"{first} 0 R"
+
+
 @dataclass(frozen=True)
 class Structure:
     """How to build one kind of deep structure."""
@@ -829,6 +839,161 @@ def test_a_long_cycle_is_refused_without_crashing(tmp_path: Path) -> None:
     documents = {"ring": Crash(page_scope(parts, resources, content))}
 
     assert _run_many(tmp_path, documents, SOME_OPERATIONS[:2]) == _expected(documents, SOME_OPERATIONS[:2])
+
+
+def _two_pages(parts: Parts, first: str, second: str) -> bytes:
+    """Build two pages whose resources are `first` and `second`; neither draws anything."""
+
+    def page(resources: str) -> str:
+        return f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources << {resources}>> /Contents 4 0 R >>"
+
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+            3: page(first),
+            4: _stream("0 0 m"),
+            5: page(second),
+            **parts.objects,
+        }
+    )
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+@pytest.mark.parametrize(
+    ("above", "refused"),
+    [
+        ((20, 5), ()),
+        ((22, 22), ()),
+        ((23, 5), (0,)),
+        ((5, 23), (1,)),
+    ],
+)
+def test_roots_that_share_a_cycle_are_measured_alike_in_any_order(
+    above: tuple[int, int], refused: tuple[int, ...], order: tuple[int, int]
+) -> None:
+    """A ring of ten costs ten levels below any chain that names it, whichever page is checked first."""
+    parts = Parts(first=6)
+    member = ring(parts, 10)
+    resources = [
+        f"/Shading << /Sh1 << {SHADING}/Function {chain_into(parts, length, member)} >> >> " for length in above
+    ]
+    doc = pylopdf.Document(stream=_two_pages(parts, *resources))
+
+    for page in order:
+        if page in refused:
+            assert _refusal(partial(doc.get_page_text, page)).code == CODE
+        else:
+            assert doc.get_page_text(page) is not None
+
+
+# --- what the walk must not repeat -------------------------------------------------------------------------------
+#
+# A document can name one large object from thousands of places, and the check lists every entry of every resource
+# dictionary whether or not content draws it, so reading the object for each entry would multiply their sizes: a file
+# of a few hundred kilobytes would keep the first interpretation busy for minutes, where hayro, which never touches the
+# unused entries, needs milliseconds.
+
+
+def _shared_hub(parts: Parts, *, distinct: bool) -> str:
+    """Ten thousand colour space entries that name one array of forty thousand elements, which names itself."""
+    hub = parts.reserve(1)
+    parts.objects[hub] = f"[/Indexed {hub} 0 R 1 <00 FF> " + "0 " * 40_000 + "]"
+    if distinct:
+        entries = " ".join(f"/Cs{index} [/Indexed {hub} 0 R 1 <00 FF>]" for index in range(10_000))
+    else:
+        entries = " ".join(f"/Cs{index} {hub} 0 R" for index in range(10_000))
+    return f"/ColorSpace << {entries} >> "
+
+
+def _shared_functions_array(parts: Parts) -> str:
+    """Three thousand stitching functions that name one array of ten thousand sub-functions."""
+    function = parts.add(TYPE2)
+    listing = parts.add("[" + f"{function} 0 R " * 10_000 + "]")
+    stitching = [
+        parts.add(f"<< /FunctionType 3 /Domain [0 1] /Functions {listing} 0 R /Bounds [] /Encode [0 1] >>")
+        for _ in range(3_000)
+    ]
+    spaces = " ".join(
+        f"/Cs{index} [/Separation /Spot /DeviceRGB {number} 0 R]" for index, number in enumerate(stitching)
+    )
+    return f"/ColorSpace << {spaces} >> "
+
+
+def _shared_shading_functions(parts: Parts) -> str:
+    """Three thousand shadings whose `/Function` is one array of ten thousand functions."""
+    function = parts.add(TYPE2)
+    listing = parts.add("[" + f"{function} 0 R " * 10_000 + "]")
+    shadings = " ".join(f"/Sh{index} << {SHADING}/Function {listing} 0 R >>" for index in range(3_000))
+    return f"/Shading << {shadings} >> "
+
+
+def _padding(entries: int) -> str:
+    return " ".join(f"/Pad{index} 0" for index in range(entries))
+
+
+def _shared_shading(parts: Parts) -> str:
+    """Three thousand `/Shading` entries that name one shading dictionary of fifty thousand entries."""
+    function = parts.add(TYPE2)
+    shading = parts.add(f"<< {SHADING}/Function {function} 0 R {_padding(50_000)} >>")
+    entries = " ".join(f"/Sh{index} {shading} 0 R" for index in range(3_000))
+    return f"/Shading << {entries} >> "
+
+
+def _shared_pattern(parts: Parts) -> str:
+    """Three thousand `/Pattern` entries that name one shading pattern of fifty thousand entries."""
+    function = parts.add(TYPE2)
+    pattern = parts.add(f"<< /PatternType 2 /Shading << {SHADING}/Function {function} 0 R >> {_padding(50_000)} >>")
+    entries = " ".join(f"/P{index} {pattern} 0 R" for index in range(3_000))
+    return f"/Pattern << {entries} >> "
+
+
+def _shared_soft_mask(parts: Parts) -> str:
+    """Three thousand graphics states that name one soft-mask dictionary of fifty thousand entries."""
+    group = parts.add(_stream("0 0 m", GROUP))
+    mask = parts.add(f"<< /Type /Mask /S /Luminosity /G {group} 0 R {_padding(50_000)} >>")
+    states = [parts.add(f"<< /Type /ExtGState /SMask {mask} 0 R >>") for _ in range(3_000)]
+    entries = " ".join(f"/GS{index} {number} 0 R" for index, number in enumerate(states))
+    return f"/ExtGState << {entries} >> "
+
+
+def _shared_profile(parts: Parts) -> str:
+    """Three thousand ICCBased spaces that name one profile whose dictionary lists 150,000 numbers."""
+    profile = parts.add(_stream("", "/N 3 /Alternate /DeviceRGB /Padding [" + "0 " * 150_000 + "] "))
+    spaces = " ".join(f"/Cs{index} [/ICCBased {profile} 0 R]" for index in range(3_000))
+    return f"/ColorSpace << {spaces} >> "
+
+
+def _shared_string(parts: Parts) -> str:
+    """Three thousand Indexed spaces whose lookup table is one string of a megabyte."""
+    table = parts.add("<" + "00" * 1_000_000 + ">")
+    spaces = " ".join(f"/Cs{index} [/Indexed /DeviceRGB 0 {table} 0 R]" for index in range(3_000))
+    return f"/ColorSpace << {spaces} >> "
+
+
+SHARED_OBJECTS: dict[str, Callable[[Parts], str]] = {
+    "hub-same-entry": partial(_shared_hub, distinct=False),
+    "hub-distinct-entries": partial(_shared_hub, distinct=True),
+    "functions-array": _shared_functions_array,
+    "shading-functions-array": _shared_shading_functions,
+    "shading": _shared_shading,
+    "shading-pattern": _shared_pattern,
+    "soft-mask": _shared_soft_mask,
+    "profile": _shared_profile,
+    "string": _shared_string,
+}
+
+
+@pytest.mark.parametrize("name", SHARED_OBJECTS)
+def test_an_object_that_many_entries_name_is_read_once(name: str) -> None:
+    parts = Parts()
+    resources = SHARED_OBJECTS[name](parts)
+    doc = pylopdf.Document(stream=page_scope(parts, resources, "0 0 m"))
+
+    started = time.perf_counter()
+    assert doc.get_page_text(0) is not None
+    # Reading the object for every entry takes five to a hundred seconds; once takes a few milliseconds.
+    assert time.perf_counter() - started < 1.5
 
 
 def test_shared_sub_graphs_are_measured_once() -> None:

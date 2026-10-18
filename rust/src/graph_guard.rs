@@ -23,22 +23,30 @@
 //! superset of what hayro reads, in whatever order and under whatever names it
 //! reads it, and it is exact for the structures that matter: the depth of a
 //! chain counts its nodes. Elements that fail to resolve are skipped without
-//! ending the array, because hayro's typed reads can step over them.
+//! ending the array, because hayro's typed reads can step over them. A
+//! `/Functions` array that is an object of its own is a node like any other
+//! array, one level more than a direct one, which costs real documents nothing.
 //!
 //! hayro cuts a chain where it comes back to an object it is still building,
-//! so a cycle costs one level per object on it. A walk that meets a cycle
-//! cannot trust per-object depths, so it keeps nothing and bounds the depth by
-//! the number of objects it expanded plus the deepest earlier result it
-//! reused. That is an upper bound on every simple path, and real documents
-//! have no cycles here.
+//! so a cycle costs one level per object on it. The walk therefore finds the
+//! strongly connected components of the graph (Tarjan's algorithm, run
+//! iteratively): a simple path visits each node of a component at most once
+//! and cannot return to a component it left, so the depth below any node of a
+//! component is at most its size plus the depth of the deepest node that the
+//! component names outside it. A node outside every cycle is a component of
+//! one and gets its exact depth. Real documents have no cycles here.
 //!
-//! The walk is linear in the objects it reaches: each object is expanded once
-//! and its depth is remembered, so shared sub-graphs cost nothing more. An
-//! object is identified by its reference, or, for a direct object, by the
+//! The walk is linear in the bytes it reaches, however often they are named:
+//! each object is expanded once and its depth, or the bound for its component,
+//! is remembered, and a reference is classified by its identity before the
+//! object is parsed, with an object that cannot have children remembered as a
+//! leaf. A document can name one large array, dictionary, or string from
+//! thousands of places, and reading it each time would multiply their sizes.
+//! An object is identified by its reference, or, for a direct object, by the
 //! address of its bytes in the snapshot, which stays valid because decoded
 //! object streams live as long as the snapshot.
 
-use std::collections::{HashMap, HashSet, TryReserveError};
+use std::collections::{HashMap, TryReserveError};
 use std::hash::Hash;
 
 use hayro::hayro_syntax::object::dict::keys::{ALTERNATE, FUNCTION_TYPE, FUNCTIONS};
@@ -154,70 +162,109 @@ fn node<'a>(reference: Option<ObjectIdentifier>, object: Object<'a>) -> Option<N
     Some(Node { identity, object })
 }
 
-/// The node that an array element or an entry of `/Functions` names.
-fn resolve<'a>(xref: &'a XRef, item: MaybeRef<Object<'a>>) -> Option<Node<'a>> {
-    match item {
-        MaybeRef::Ref(reference) => {
-            let id = ObjectIdentifier::from(reference);
-            node(Some(id), xref.get::<Object<'a>>(id)?)
+/// A node that a root or an earlier node names, not read yet.
+///
+/// A reference is classified by its identity before anything is parsed: parsing
+/// a large array costs as much as walking it, and a document can name one array
+/// from thousands of places. Only a reference the walk has never met is read.
+enum Child<'a> {
+    Reference(ObjectIdentifier),
+    Direct(Node<'a>),
+}
+
+impl Child<'_> {
+    fn identity(&self) -> Identity {
+        match self {
+            Self::Reference(id) => Identity::Indirect(*id),
+            Self::Direct(node) => node.identity,
         }
-        MaybeRef::NotRef(object) => node(None, object),
     }
 }
 
-/// The object under `key`, with the reference it was reached through, followed
-/// from an empty chain of objects being read.
+/// The child that an array element names, if it can have children.
+fn element(item: MaybeRef<Object<'_>>) -> Option<Child<'_>> {
+    match item {
+        MaybeRef::Ref(reference) => Some(Child::Reference(ObjectIdentifier::from(reference))),
+        MaybeRef::NotRef(object) => node(None, object).map(Child::Direct),
+    }
+}
+
+/// The child that `dictionary[key]` names, if it can have children.
+fn entry<'a>(dictionary: &Dict<'a>, key: &[u8]) -> Option<Child<'a>> {
+    match dictionary.get_ref(key) {
+        Some(reference) => Some(Child::Reference(ObjectIdentifier::from(reference))),
+        None => node(None, dictionary.get::<Object<'a>>(key)?).map(Child::Direct),
+    }
+}
+
+/// Read the object that a reference names.
 ///
 /// hayro keeps the chain of objects it is reading in a dictionary's reader
 /// context and refuses a reference back into it as a cycle, so one dictionary
 /// resolves fewer references the longer the path that led to it. The walk
 /// remembers an object after the first path, so it reads every reference
-/// afresh: no path may hide what another resolves, including the path hayro
-/// takes when it draws. The walk finds cycles itself.
-fn lookup<'a>(
-    xref: &'a XRef,
-    from: &Dict<'a>,
-    key: &[u8],
-) -> Option<(Option<ObjectIdentifier>, Object<'a>)> {
-    match from.get_ref(key) {
-        Some(reference) => {
-            let id = ObjectIdentifier::from(reference);
-            Some((Some(id), xref.get::<Object<'a>>(id)?))
-        }
-        None => Some((None, from.get::<Object<'a>>(key)?)),
-    }
-}
-
-/// The node that `dictionary[key]` holds.
-fn entry<'a>(xref: &'a XRef, dictionary: &Dict<'a>, key: &[u8]) -> Option<Node<'a>> {
-    let (reference, object) = lookup(xref, dictionary, key)?;
-    node(reference, object)
+/// afresh, from an empty chain: no path may hide what another resolves,
+/// including the path hayro takes when it draws. The walk finds cycles itself.
+fn resolve<'a>(xref: &'a XRef, id: ObjectIdentifier) -> Option<Node<'a>> {
+    node(Some(id), xref.get::<Object<'a>>(id)?)
 }
 
 /// A node being measured, with the children still to visit.
 struct Frame<'a> {
     identity: Identity,
-    /// The elements of a colour space array or of a stitching function's
-    /// `/Functions`, not yet visited.
+    /// The `/Alternate` of a dictionary or stream, visited first.
+    alternate: Option<Child<'a>>,
+    /// The `/Functions` array of a dictionary or stream when it is an object of
+    /// its own: a node like any other array.
+    functions: Option<Child<'a>>,
+    /// The elements of a colour space array, or of a direct `/Functions` array,
+    /// not yet visited.
     elements: Option<Elements<'a>>,
-    /// The `/Alternate` of a dictionary or stream, visited before the elements.
-    alternate: Option<Node<'a>>,
-    /// The depth of the deepest finished child.
-    deepest: u8,
+    /// How many nodes the walk had reached before this one.
+    order: usize,
+    /// The smallest `order` among the nodes of an incomplete component that this
+    /// node or anything below it names.
+    low: usize,
+    /// The depth of the deepest complete node outside this node's component
+    /// that it names.
+    exit: u8,
+    /// Where the finished nodes of this node's component start in the walk's list
+    /// of incomplete components.
+    base: usize,
+}
+
+/// What a walk knows about a node it has reached.
+#[derive(Clone, Copy)]
+enum Reached {
+    /// The node's component is incomplete; it was the `order`-th node reached.
+    Open(usize),
+    /// The node's component is complete; nothing below it is deeper than this.
+    Done(u8),
+}
+
+/// A finished node whose component is incomplete.
+struct Member {
+    identity: Identity,
+    /// The depth of the deepest complete node outside the component that it names.
+    exit: u8,
 }
 
 impl<'a> Frame<'a> {
     /// Open a node, scanning the program of a Type 4 function on the way.
-    fn open(xref: &'a XRef, node: &Node<'a>) -> Result<Self, Refusal> {
+    fn open(node: &Node<'a>, order: usize, base: usize) -> Result<Self, Refusal> {
         let mut frame = Self {
             identity: node.identity,
-            elements: None,
             alternate: None,
-            deepest: 0,
+            functions: None,
+            elements: None,
+            order,
+            low: order,
+            exit: 0,
+            base,
         };
         match &node.object {
             Object::Array(array) => frame.elements = Some(Elements::new(array)),
-            Object::Dict(dictionary) => frame.read(xref, dictionary),
+            Object::Dict(dictionary) => frame.read(dictionary),
             Object::Stream(stream) => {
                 let dictionary = stream.dict();
                 if dictionary.get::<u8>(FUNCTION_TYPE) == Some(4)
@@ -228,45 +275,47 @@ impl<'a> Frame<'a> {
                 {
                     return Err(Refusal::Program(node.identity));
                 }
-                frame.read(xref, dictionary);
+                frame.read(dictionary);
             }
             _ => {}
         }
         Ok(frame)
     }
 
-    fn read(&mut self, xref: &'a XRef, dictionary: &Dict<'a>) {
-        self.elements = match lookup(xref, dictionary, FUNCTIONS) {
-            Some((_, Object::Array(functions))) => Some(Elements::new(&functions)),
-            _ => None,
-        };
-        self.alternate = entry(xref, dictionary, ALTERNATE);
+    fn read(&mut self, dictionary: &Dict<'a>) {
+        match dictionary.get_ref(FUNCTIONS) {
+            Some(reference) => {
+                self.functions = Some(Child::Reference(ObjectIdentifier::from(reference)));
+            }
+            None => {
+                if let Some(Object::Array(functions)) = dictionary.get::<Object<'a>>(FUNCTIONS) {
+                    self.elements = Some(Elements::new(&functions));
+                }
+            }
+        }
+        self.alternate = entry(dictionary, ALTERNATE);
     }
 
-    fn next_child(&mut self, xref: &'a XRef) -> Option<Node<'a>> {
-        if let Some(alternate) = self.alternate.take() {
-            return Some(alternate);
+    fn next_child(&mut self) -> Option<Child<'a>> {
+        if let Some(child) = self.alternate.take().or_else(|| self.functions.take()) {
+            return Some(child);
         }
-        self.elements
-            .as_mut()?
-            .find_map(|element| resolve(xref, element))
+        self.elements.as_mut()?.find_map(element)
     }
 }
 
 /// What the walk has already measured for the current hayro snapshot.
 #[derive(Default)]
 pub(crate) struct GraphGuard {
-    /// The depth of every object whose complete sub-graph was measured and found
-    /// free of cycles, counting the object itself.
+    /// The depth of every object whose complete sub-graph was measured, counting
+    /// the object itself: exact outside a cycle, and for the nodes of a cycle the
+    /// size of its component plus the deepest node it names outside. An object
+    /// that cannot have children has depth zero. Everything below a remembered
+    /// object is remembered too.
     depths: HashMap<Identity, u8>,
 }
 
 impl GraphGuard {
-    /// Whether the object that `id` names was measured and cleared.
-    pub(crate) fn is_cleared(&self, id: ObjectIdentifier) -> bool {
-        self.depths.contains_key(&Identity::Indirect(id))
-    }
-
     /// Measure the colour space or function that `dictionary[key]` holds.
     pub(crate) fn check_entry<'a>(
         &mut self,
@@ -274,47 +323,54 @@ impl GraphGuard {
         dictionary: &Dict<'a>,
         key: &[u8],
     ) -> Result<(), Refusal> {
-        let reference = dictionary.get_ref(key).map(ObjectIdentifier::from);
-        if reference.is_some_and(|id| self.is_cleared(id)) {
-            return Ok(());
-        }
-        match entry(xref, dictionary, key) {
-            Some(root) => self.check(xref, root),
+        match entry(dictionary, key) {
+            Some(root) => self.check_child(xref, root),
             None => Ok(()),
         }
     }
 
-    /// Measure the function, or each function of the array, that
-    /// `dictionary[key]` holds.
+    /// Measure the function, or each function of the direct array, that
+    /// `dictionary[key]` holds. A referenced array is a node of its own.
     pub(crate) fn check_functions<'a>(
         &mut self,
         xref: &'a XRef,
         dictionary: &Dict<'a>,
         key: &[u8],
     ) -> Result<(), Refusal> {
-        let reference = dictionary.get_ref(key).map(ObjectIdentifier::from);
-        if reference.is_some_and(|id| self.is_cleared(id)) {
+        if dictionary.get_ref(key).is_none()
+            && let Some(Object::Array(functions)) = dictionary.get::<Object<'a>>(key)
+        {
+            for root in Elements::new(&functions).filter_map(element) {
+                self.check_child(xref, root)?;
+            }
             return Ok(());
         }
-        match lookup(xref, dictionary, key) {
-            Some((_, Object::Array(functions))) => {
-                for element in Elements::new(&functions) {
-                    if let Some(root) = resolve(xref, element) {
-                        self.check(xref, root)?;
-                    }
+        self.check_entry(xref, dictionary, key)
+    }
+
+    /// Measure a root, reading it only if the walk has not met it.
+    fn check_child<'a>(&mut self, xref: &'a XRef, root: Child<'a>) -> Result<(), Refusal> {
+        match root {
+            Child::Direct(root) => self.check(xref, root),
+            Child::Reference(id) => {
+                let identity = Identity::Indirect(id);
+                if self.depths.contains_key(&identity) {
+                    return Ok(());
                 }
-                Ok(())
+                match resolve(xref, id) {
+                    Some(root) => self.check(xref, root),
+                    None => insert_map(&mut self.depths, identity, 0),
+                }
             }
-            Some((reference, object)) => match node(reference, object) {
-                Some(root) => self.check(xref, root),
-                None => Ok(()),
-            },
-            None => Ok(()),
         }
     }
 
     /// Measure everything below `root`, remember it, and refuse a chain that
     /// is too deep.
+    ///
+    /// A component is a set of nodes that all reach one another, so a cycle is
+    /// one. It closes at the first of its nodes that the walk reached, once
+    /// everything below that node has finished.
     fn check<'a>(&mut self, xref: &'a XRef, root: Node<'a>) -> Result<(), Refusal> {
         if self.depths.contains_key(&root.identity) {
             return Ok(());
@@ -324,78 +380,102 @@ impl GraphGuard {
         stack
             .try_reserve_exact(MAX_CHAIN_DEPTH)
             .map_err(Refusal::Allocation)?;
-        // The nodes on the current path, and the depth of those finished so far.
-        let mut path = HashSet::new();
-        let mut measured = HashMap::new();
-        // The deepest earlier result that this walk reused.
-        let mut inherited = 0u8;
-        let mut cyclic = false;
+        let mut reached: HashMap<Identity, Reached> = HashMap::new();
+        let mut members: Vec<Member> = Vec::new();
         let mut entering = Some(root);
         loop {
             if let Some(node) = entering.take() {
                 if stack.len() == MAX_CHAIN_DEPTH {
                     return Err(Refusal::Chain(start));
                 }
-                insert_set(&mut path, node.identity)?;
-                stack.push(Frame::open(xref, &node)?);
+                let order = reached.len();
+                insert_map(&mut reached, node.identity, Reached::Open(order))?;
+                stack.push(Frame::open(&node, order, members.len())?);
                 continue;
             }
             let Some(frame) = stack.last_mut() else {
                 break;
             };
-            if let Some(child) = frame.next_child(xref) {
-                if path.contains(&child.identity) {
-                    // hayro cuts the chain where it comes back to itself.
-                    cyclic = true;
-                } else if let Some(&depth) = measured.get(&child.identity) {
-                    frame.deepest = frame.deepest.max(depth);
-                } else if let Some(&depth) = self.depths.get(&child.identity) {
-                    inherited = inherited.max(depth);
-                    frame.deepest = frame.deepest.max(depth);
-                } else {
-                    entering = Some(child);
+            if let Some(child) = frame.next_child() {
+                let identity = child.identity();
+                let known = reached
+                    .get(&identity)
+                    .copied()
+                    .or_else(|| self.depths.get(&identity).copied().map(Reached::Done));
+                match known {
+                    // The node itself or a node that reaches it: one component.
+                    Some(Reached::Open(order)) => frame.low = frame.low.min(order),
+                    Some(Reached::Done(depth)) => frame.exit = frame.exit.max(depth),
+                    None => match child {
+                        Child::Direct(node) => entering = Some(node),
+                        Child::Reference(id) => match resolve(xref, id) {
+                            Some(node) => entering = Some(node),
+                            // Nothing below it, and not worth reading again.
+                            None => insert_map(&mut reached, identity, Reached::Done(0))?,
+                        },
+                    },
                 }
                 continue;
             }
             let finished = stack.pop().expect("a frame was just borrowed");
-            let depth = finished.deepest + 1;
-            if usize::from(depth) > MAX_CHAIN_DEPTH {
-                return Err(Refusal::Chain(start));
+            reserve_one(&mut members)?;
+            members.push(Member {
+                identity: finished.identity,
+                exit: finished.exit,
+            });
+            if finished.low < finished.order {
+                // A node reached earlier on the path reaches this one and is
+                // reached from it, so the component is not closed yet.
+                if let Some(parent) = stack.last_mut() {
+                    parent.low = parent.low.min(finished.low);
+                }
+                continue;
             }
-            path.remove(&finished.identity);
-            insert_map(&mut measured, finished.identity, depth)?;
-            if let Some(parent) = stack.last_mut() {
-                parent.deepest = parent.deepest.max(depth);
-            }
-        }
-        if cyclic {
-            // Per-object depths may be too small inside a cycle, so keep none.
-            // A simple path visits each object this walk expanded at most once
-            // and cannot return from an earlier result to one of them.
-            let bound = measured.len() + usize::from(inherited);
-            return if bound > MAX_CHAIN_DEPTH {
-                Err(Refusal::Chain(start))
-            } else {
-                Ok(())
+            // Nothing earlier is reached from here, so this node closes its
+            // component: every node that finished since this one was reached.
+            let component = &members[finished.base..];
+            let exit = component
+                .iter()
+                .map(|member| member.exit)
+                .max()
+                .unwrap_or(0);
+            let bound = match u8::try_from(component.len() + usize::from(exit)) {
+                Ok(bound) if usize::from(bound) <= MAX_CHAIN_DEPTH => bound,
+                _ => return Err(Refusal::Chain(start)),
             };
+            for member in component {
+                if let Some(state) = reached.get_mut(&member.identity) {
+                    *state = Reached::Done(bound);
+                }
+            }
+            members.truncate(finished.base);
+            if let Some(parent) = stack.last_mut() {
+                parent.exit = parent.exit.max(bound);
+            }
         }
         self.depths
-            .try_reserve(measured.len())
+            .try_reserve(reached.len())
             .map_err(Refusal::Allocation)?;
-        self.depths.extend(measured);
+        self.depths.extend(
+            reached
+                .into_iter()
+                .filter_map(|(identity, state)| match state {
+                    Reached::Done(depth) => Some((identity, depth)),
+                    Reached::Open(_) => None,
+                }),
+        );
         Ok(())
     }
 }
 
 /// Insert after reserving fallibly.
-fn insert_set<T: Eq + Hash>(set: &mut HashSet<T>, value: T) -> Result<(), Refusal> {
-    set.try_reserve(1).map_err(Refusal::Allocation)?;
-    set.insert(value);
-    Ok(())
-}
-
 fn insert_map<K: Eq + Hash, V>(map: &mut HashMap<K, V>, key: K, value: V) -> Result<(), Refusal> {
     map.try_reserve(1).map_err(Refusal::Allocation)?;
     map.insert(key, value);
     Ok(())
+}
+
+/// Make room for one more element, so that the push after it cannot abort.
+fn reserve_one<T>(list: &mut Vec<T>) -> Result<(), Refusal> {
+    list.try_reserve(1).map_err(Refusal::Allocation)
 }

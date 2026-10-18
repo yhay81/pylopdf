@@ -146,8 +146,8 @@ dictionary的`/ColorSpace`与`/Shading`条目、shading pattern、image XObject�
 group，以及graphics state和soft mask的传递函数（`/TR`、`/TR2`）所能到达的对象；当
 colour space与function的链深度超过32层，或Type 4 function的procedure嵌套超过64层时，
 以`resource_nesting_depth`拒绝该页面。链的深度计入colour space的array、function和
-profile stream；hayro自身会切断环路，因此自引用或很短的环仍可渲染，但到达超过32个对象的
-环会被拒绝；共享的子图只测量一次。这些上限固定不变，无论是否设置`DocumentLimits`都适用，
+profile stream；hayro自身会切断环路，因此自引用或很短的环仍可渲染，但互相可达的对象超过32个
+的环会被拒绝；共享的子图只测量一次，对象无论被多少个条目引用都只读取一次。这些上限固定不变，无论是否设置`DocumentLimits`都适用，
 其他页面仍可使用。它们限制的是栈的使用而不是时间：对于仍在上限以内但经过构造的图
 （每层两次引用同一个function、嵌套Separation等），hayro可能需要指数级CPU时间，因此
 仍需在宿主中强制执行CPU deadline。

@@ -169,8 +169,8 @@ pattern、image XObject、soft-mask group、graphics stateとsoft maskの転送�
 超える場合、またはType 4 functionのprocedureが64階層を超えて入れ子になる場合は、
 そのpageを`resource_nesting_depth`で拒否します。連鎖にはcolour spaceのarray、
 function、profile streamが数えられ、hayro自身が循環を断つため自己参照や短い輪は
-そのまま描画されますが、32個を超えるobjectに達する循環は拒否され、共有された
-sub-graphは1回だけ測られます。これらの上限は固定で、`DocumentLimits`の有無にかかわらず
+そのまま描画されますが、互いに到達し合うobjectが32個を超える循環は拒否され、共有された
+sub-graphは1回だけ測られ、objectは参照する項目の数にかかわらず1回しか読まれません。これらの上限は固定で、`DocumentLimits`の有無にかかわらず
 適用され、ほかのpageは引き続き利用できます。制限するのはstackの使用量であり時間では
 ありません。各階層で同じfunctionを2回参照する、Separationを入れ子にするなど、上限
 以内でも細工されたgraphではhayroが指数時間のCPUを要するため、ホスト側でCPU

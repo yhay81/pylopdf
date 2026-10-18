@@ -184,6 +184,15 @@ pub(crate) struct ContentGuard {
     dictionaries: HashSet<(Role, usize, usize)>,
     /// Colour space and function chains that were measured and cleared.
     graph: GraphGuard,
+    /// Shading objects whose colour space and functions were measured, by the
+    /// reference they were reached through.
+    shadings: HashSet<ObjectIdentifier>,
+    /// Pattern objects that are not streams and were examined for a shading, by
+    /// the reference they were reached through.
+    shading_patterns: HashSet<ObjectIdentifier>,
+    /// Soft-mask dictionaries that were examined, by the reference they were
+    /// reached through.
+    soft_masks: HashSet<ObjectIdentifier>,
     /// The one-based page being checked, for error messages.
     page: usize,
 }
@@ -384,13 +393,25 @@ impl ContentGuard {
         }
         if self.first_visit(Role::Patterns, patterns)? {
             for key in patterns.keys() {
-                if self.is_cleared_stream(patterns, key.as_ref()) {
+                let reference = patterns.get_ref(key.as_ref()).map(ObjectIdentifier::from);
+                if reference.is_some_and(|id| {
+                    self.streams.contains(&id) || self.shading_patterns.contains(&id)
+                }) {
                     continue;
                 }
                 match fresh.object(patterns, key.as_ref()) {
                     Some(Object::Stream(stream)) => push(work, Work::Content(stream))?,
-                    Some(Object::Dict(pattern)) => self.visit_shading_pattern(fresh, &pattern)?,
-                    _ => {}
+                    Some(Object::Dict(pattern)) => {
+                        self.visit_shading_entry(fresh, &pattern, SHADING)?;
+                        if let Some(id) = reference {
+                            insert(&mut self.shading_patterns, id)?;
+                        }
+                    }
+                    _ => {
+                        if let Some(id) = reference {
+                            insert(&mut self.shading_patterns, id)?;
+                        }
+                    }
                 }
             }
         }
@@ -426,30 +447,35 @@ impl ContentGuard {
         }
         if self.first_visit(Role::Shadings, shadings)? {
             for key in shadings.keys() {
-                if let Some(shading) = fresh.object(shadings, key.as_ref()) {
-                    self.visit_shading(fresh, &shading)?;
-                }
+                self.visit_shading_entry(fresh, shadings, key.as_ref())?;
             }
         }
         Ok(())
     }
 
-    /// Measure the colour space and the functions of a shading dictionary or
-    /// stream. A mesh shading's stream data is never read here.
-    fn visit_shading<'a>(&mut self, fresh: Fresh<'a>, shading: &Object<'a>) -> PyResult<()> {
-        let Some((dictionary, _)) = dict_or_stream(shading) else {
+    /// Measure the shading that `owner[key]` holds: the entry of a `/Shading`
+    /// category dictionary, or the `/Shading` of a shading pattern. A shading
+    /// that a reference names is read once, however many entries name it.
+    fn visit_shading_entry<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        owner: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<()> {
+        if let Some(id) = owner.get_ref(key).map(ObjectIdentifier::from)
+            && !insert(&mut self.shadings, id)?
+        {
+            return Ok(());
+        }
+        let Some(shading) = fresh.object(owner, key) else {
+            return Ok(());
+        };
+        // A mesh shading's stream data is never read here.
+        let Some((dictionary, _)) = dict_or_stream(&shading) else {
             return Ok(());
         };
         self.graph_entry(fresh, dictionary, COLORSPACE)?;
         self.graph_functions(fresh, dictionary, FUNCTION)
-    }
-
-    /// Measure the shading that a shading pattern names.
-    fn visit_shading_pattern<'a>(&mut self, fresh: Fresh<'a>, pattern: &Dict<'a>) -> PyResult<()> {
-        match fresh.object(pattern, SHADING) {
-            Some(shading) => self.visit_shading(fresh, &shading),
-            None => Ok(()),
-        }
     }
 
     /// Measure the colour space of an image XObject without decoding its data.
@@ -469,7 +495,12 @@ impl ContentGuard {
     ) -> PyResult<()> {
         self.graph_functions(fresh, state, TR)?;
         self.graph_functions(fresh, state, TR2)?;
-        if let Some(mask) = fresh.dictionary(state, SMASK) {
+        // Graphics states that name one soft mask share what it names.
+        let known_mask = match state.get_ref(SMASK).map(ObjectIdentifier::from) {
+            Some(id) => !insert(&mut self.soft_masks, id)?,
+            None => false,
+        };
+        if !known_mask && let Some(mask) = fresh.dictionary(state, SMASK) {
             self.graph_functions(fresh, &mask, TR)?;
             if let Some(group) = fresh.stream(&mask, G) {
                 if let Some(attributes) = fresh.dictionary(group.dict(), GROUP) {

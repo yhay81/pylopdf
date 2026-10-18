@@ -184,21 +184,22 @@ enclosing dictionary.
 hayro builds colour spaces, shadings, and functions by the same kind of
 unbounded recursion (hayro 0.7 and 0.8 alike): an Indexed or Pattern space from
 its base, a Separation or DeviceN space from its alternate space and tint
-transform, an ICCBased space from the `/Alternate` of a profile it cannot
-parse, a stitching function from every entry of `/Functions`, and a Type 4
-function by parsing its `{ }` procedures recursively. About 20,000 indirect
-objects that name each other, or 300,000 nested braces, used to overflow the
-stack and end the process. Before interpreting a page, pylopdf measures what its
-resource dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns,
-image XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer functions
-of its graphics states and soft masks reach, and refuses the page with
+transform, an ICCBased space from the `/Alternate` of a profile it cannot parse,
+a stitching function from every entry of `/Functions`, and a Type 4 function by
+parsing its `{ }` procedures recursively. About 20,000 indirect objects that
+name each other, or 300,000 nested braces, used to overflow the stack and end
+the process. Before interpreting a page, pylopdf measures what its resource
+dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns, image
+XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer functions of its
+graphics states and soft masks reach, and refuses the page with
 `resource_nesting_depth` when a chain of colour spaces and functions is deeper
 than 32 levels or a Type 4 function nests procedures deeper than 64. A chain
 counts its colour space arrays, functions, and profile streams, hayro's own cut
-lets a self-reference or a short ring still render, a cycle that reaches more
-than 32 objects is refused, and shared sub-graphs are measured once. The
-bounds are fixed, apply with or without `DocumentLimits`, and leave other pages
-usable. They limit stack use, not time: hayro can need exponential CPU for
+lets a self-reference or a short ring still render, a group of more than 32
+objects that all reach one another is refused, and shared sub-graphs are
+measured once, so the check reads each object once however many entries name it.
+The bounds are fixed, apply with or without `DocumentLimits`, and leave other
+pages usable. They limit stack use, not time: hayro can need exponential CPU for
 graphs that stay under them, such as a function named twice per level or nested
 Separation spaces, so keep enforcing CPU deadlines in the host.
 
