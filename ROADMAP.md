@@ -1165,10 +1165,18 @@ rather than waiting automatically for v1.x.
   pages of every real-world corpus file changed 6 of 20 pages (vello_cpu
   0.0.8 to 0.3 resamples the large scans), so the migration needs its own
   reviewed pixel diff, and nested Type 4 function braces plus deep function and
-  colour-space chains still overflow it.
+  colour-space chains still overflow it (verified on 0.8.0 on 2026-10-18,
+  including ICCBased `/Alternate` chains, which cost about 5.8 KiB of stack
+  per level there).
   The nesting guard in `rust/src/content_guard.rs` therefore stays until the
   migration lands; afterwards it remains useful as a typed refusal instead of
-  hayro's silent truncation.
+  hayro's silent truncation. `rust/src/graph_guard.rs` and
+  `rust/src/postscript_scan.rs` bound the Type 4 braces and the chains, and
+  stay unless upstream bounds them; an upstream report with a reproduction and
+  a depth parameter for `Function::new`, `ColorSpace::new`, and
+  `parse_procedure_inner` is a contribution candidate. Re-measure the stack per
+  level and re-read every `Function::new` and `ColorSpace::new` call site when
+  migrating.
 - **fulgur**, Blitz plus krilla for HTML-to-PDF under MIT/Apache-2.0, already
   supports `@page`, page breaks, running headers/footers, and tagged PDF/UA-1,
   but first appeared in 2026-03, is single-maintainer, is at 24.1% css-page WPT,

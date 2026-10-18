@@ -329,12 +329,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hayro 0.8 instead was rejected for this fix: it changes the raster output of
   6 of the 20 compared corpus pages and does not bound nested Type 4 function
   procedures.
-- Three structures that are not content streams still overflow hayro 0.7 and
-  0.8 and remain unguarded: a Type 4 (PostScript calculator) function stream
-  with hundreds of thousands of nested braces, and chains of thousands of
-  indirect objects in which each stitching function names the next as its
-  sub-function, or each Indexed or Separation colour space names the next as
-  its base or alternate.
+- A Type 4 (PostScript calculator) function with hundreds of thousands of
+  nested braces, or a chain of thousands of indirect objects in which each
+  stitching function names the next as its sub-function, or each Indexed,
+  Separation, DeviceN, or ICCBased colour space names the next as its base or
+  alternate, no longer kills the Python process. hayro 0.7 and 0.8 build
+  colour spaces and functions by unbounded recursion, so `"{" * 300_000 +
+  "}" * 300_000` or about 20,000 chained objects, reached through a shading,
+  a shading pattern, an image, a soft-mask group, a transfer function
+  (`/TR`, `/TR2`), or a resource colour space, overflowed the stack and ended
+  the process with SIGSEGV on the first text extraction, rendering, drawing or
+  image read, search, Markdown conversion, or image compression, with or
+  without `DocumentLimits.web()`. Every interpretation now first measures the
+  colour spaces, shadings, and functions that its pages can reach with an
+  iterative walk and raises `LimitError` with the new stable code
+  `resource_nesting_depth` for a chain deeper than 32 levels (colour space
+  arrays, functions, and profile streams each count one) and for a Type 4
+  program that nests procedures deeper than 64 levels. The walk follows hayro's
+  own cycle cut, so a self-reference or a short ring still renders, and a group
+  of more than 32 objects that all reach one another is refused. It reads each
+  object once however many entries name it, so a file that names one large
+  array, dictionary, or string from thousands of places costs milliseconds
+  where reading it for each entry would cost minutes, and it leaves other pages
+  usable. Differential tests against hayro-interpret 0.7.0 with recursion
+  counters, 11,500,000 random documents and 40,000,000 random Type 4 programs,
+  found none that hayro builds deeper than the bounds and the walk accepts. The
+  bounds stop stack overflows, not CPU use: hayro still needs exponential time
+  for graphs that stay under them, such as a function named twice per level or
+  nested Separation spaces, so keep enforcing deadlines in the host. A sweep of
+  5,707 varied PDFs refused none, no corpus page renders or extracts
+  differently, and the walk adds no measurable cost to the content check.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered

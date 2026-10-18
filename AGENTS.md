@@ -575,13 +575,186 @@ overview.
   corpus file with 0.7.1 and 0.8.0 side by side changed 6 of 20 pages (large
   scans and one Type 3 page, 60 to 113,965 pixels each, channel deltas up to
   30), so it needs its own reviewed migration; the guard then becomes a typed
-  refusal on top of hayro's silent truncation. Three further structures
-  recurse without a bound in hayro 0.7 and 0.8 alike, overflow the stack, and
-  remain unguarded because they are not content streams: nested braces in a
-  Type 4 (PostScript calculator) function stream, and chains of thousands of
-  indirect objects in which each stitching function names the next as its
-  sub-function, or each Indexed or Separation colour space names the next as
-  its base or alternate.
+  refusal on top of hayro's silent truncation. The structures that are not
+  content streams but recurse without a bound in hayro 0.7 and 0.8 alike are
+  guarded by the next bullet.
+- Colour spaces, shadings, and functions are cleared for chain depth and Type 4
+  nesting before hayro builds them. hayro 0.7 and 0.8 build a colour space
+  (`ColorSpaceType::new_inner`) and a function (`Function::new`) by recursion
+  over the objects they name, with no bound: an Indexed or Pattern space names
+  a base, a Separation or DeviceN space an alternate space and a tint
+  transform, an ICCBased space the `/Alternate` of a profile it cannot parse,
+  a stitching function (type 3) every entry of `/Functions`, and
+  `parse_procedure_inner` calls itself for every `{` of a Type 4 program.
+  Conversion, evaluation, and drop recurse to the same depth. About 20,000
+  indirect objects that name each other in a chain, or 300,000 nested braces,
+  overflowed the stack and killed the process on the first extraction,
+  rendering, drawing or image read, search, Markdown conversion, or image
+  compression, with or without `DocumentLimits.web()`. The ICCBased chain
+  surfaced while building this guard and is the costliest per level. Every
+  such path starts at `_Document::hayro_view_for`, where `ContentGuard` walks
+  the roots (below) and hands each to `GraphGuard` (`rust/src/graph_guard.rs`);
+  a Type 4 stream goes to `rust/src/postscript_scan.rs`. A refusal raises
+  `LimitError` with the stable code `resource_nesting_depth` before any
+  interpretation, cache insertion, or output. The bounds are unconditional,
+  like the content bound: `MAX_CHAIN_DEPTH` = 32 nodes and `MAX_BRACE_DEPTH` =
+  64 levels. Real documents stay far below both: while hayro interpreted the
+  first 40 pages of 5,683 real PDFs (54,088 pages, 1,453 of them the pdf.js
+  corpus), its colour space and function builders nested at most 3 deep and
+  its Type 4 procedures at most 3, and the node count here is at most about
+  twice the builder count because an ICCBased space is an array plus its
+  profile stream. 32 equals the indirection bound that pylopdf follows
+  elsewhere. hayro 0.7 spends 1.4 KiB of stack per stitching level, 1.0 per
+  Indexed, 0.9 per Separation or ICCBased node, and 0.43 per brace (the deepest
+  chain that survives a 512 KiB thread; identical on the fast and the thin-LTO
+  build), so the limits cost under 45 KiB and 28 KiB. The deepest accepted
+  structures build and draw on 64 to 96 KiB threads, and a plain page needs
+  under 64 KiB, where musl gives spawned threads 128 KiB; the regression runs
+  them on 256 KiB. Re-measure after a hayro upgrade: hayro 0.8.0 spends about
+  5.8 KiB per ICCBased level (two nodes here), which would be 93 KiB at the
+  limit.
+  The roots are every colour space and function that interpretation can
+  build: the `/ColorSpace` and `/Shading` entries of every reachable resource
+  dictionary, the `/Shading` of shading patterns (dictionary entries of
+  `/Pattern`), the `/ColorSpace` and `/CS` of image XObjects (never their
+  data), the `/Group /CS` of soft-mask groups, and the `/TR` and `/TR2`
+  transfer functions of graphics states and soft masks, singly or as arrays.
+  Shading `/Function` entries are single functions or arrays. A shading is not a
+  node. Like the content walk, it visits every entry of a dictionary instead of
+  the names the content uses, because hayro resolves names through the enclosing
+  resources, and `first_visit` keeps its role in the key.
+  The walk is iterative and kind-agnostic. A node is any array, dictionary, or
+  stream; its children are the array, dictionary, and stream elements of an
+  array, the entries of `/Functions`, and the `/Alternate` of a dictionary or
+  stream. That is a superset of what hayro reads, whatever the role of an
+  entry: hayro's typed `flex_iter` reads consume a reference that does not
+  resolve to the requested type (`[/Pattern N 0 R]` reads `N 0 R` as a
+  missing name and then finds no base), `Shading::new` builds the colour space
+  before the function and skips the function when the space is invalid, and a
+  Separation whose alternate space fails to build never builds its tint
+  transform, so any model of the roles would undercount in some malformed
+  case. Elements are enumerated with `graph_guard::Elements` and resolved one
+  by one through `XRef::get`, so an element that fails to resolve is skipped
+  without ending the array, as hayro's typed reads can step over it.
+  `Elements` reads as `Array::raw_iter` does but steps over an element that
+  does not read: `raw_iter` unwraps the read of every element that
+  `Array::skip` accepted, so a bare `+` or a dictionary followed by `stream`
+  panics it (205,000 of 1,188,000 random accepted arrays), while hayro's own
+  typed iteration just stops there. The graph walk iterates arrays that hayro
+  never does, so `raw_iter` could turn a renderable page into a
+  `PanicException`; the content walk reads only what hayro reads and uses its
+  typed iteration for `/Annots` and the `/Font` array. No reachable panic was
+  found (lopdf drops the page object of every one of 143,000 panicking arrays
+  in four roles), and `Elements` equals `raw_iter` on every array where that
+  does not panic. Every reference is read afresh
+  (`resolve`, like `Fresh` in `content_guard.rs`): hayro's reader chain would
+  cut a reference back into the path that reached a dictionary, and this walk
+  remembers an object after the first path. Depth counts nodes: a Separation
+  over a Type 2 function is two, and an ICCBased space with its profile stream
+  is two. A `/Functions` array that is an object of its own is a node like any
+  other array, one level more than a direct one, which costs real documents
+  nothing and lets the walk remember it. The name that ends a chain is no node,
+  though hayro still enters one frame for it, so hayro's frame count can be
+  one higher than the node count. An object is identified by its reference,
+  or, when direct, by the address and length of its bytes in the snapshot
+  (valid for the snapshot's lifetime, as for dictionaries above); never by
+  `Dict::obj_id`. Shared sub-graphs are measured once: the depth of every
+  object whose complete sub-graph was measured is remembered, so a graph
+  that names the same function twice per level costs the same as one that
+  names it once, where hayro itself needs 2^levels builds.
+  hayro cuts a chain where it comes back to an object it is still building
+  (`ReaderContext::parent_chain`), so a self-reference or a short ring renders
+  and only a long ring overflows. The walk is Tarjan's algorithm for strongly
+  connected components, run iteratively: a simple path visits each node of a
+  component at most once and cannot return to a component it left, so the
+  depth below any node of a component is at most its size plus the depth of
+  the deepest node that the component names outside it, and a node outside
+  every cycle is a component of one with its exact depth. A component's bound
+  depends on the graph alone, never on the order in which roots were walked,
+  and is remembered like an exact depth. The walk refuses a path of 33 nodes
+  at once and a component whose bound passes 32, which is over-conservative
+  only for malformed cyclic graphs: a hub that 33 spokes name and that names
+  each spoke back is 3 deep but one component of 34.
+  A walk must never read an object twice. A document can name one large array,
+  dictionary, or string from thousands of places, and the check lists every
+  entry of every resource dictionary whether or not content draws it, so
+  reading the object for each entry multiplies sizes where hayro, which never
+  touches the unused entries, needs milliseconds. A reference is therefore
+  classified by its identity (`Child::Reference`) against the walk and the
+  remembered depths before the object is parsed, an object that cannot have
+  children is remembered as a leaf of depth zero, and `ContentGuard` reads
+  each shading, shading pattern, and soft mask behind a reference once
+  (`shadings`, `shading_patterns`, `soft_masks`). The first version of the walk
+  remembered nothing for a cycle and parsed every referenced child before it
+  looked the child up: 3,000 stitching functions that name one array of 20,000
+  sub-functions (0.6 MB), or that array as the `/Function` of 3,000 shadings,
+  kept the first `get_text` busy for 50 s on a loaded machine, 3,000
+  `/Shading` entries that name one 20,000-key shading dictionary for 4 s, and
+  4,000 colour space entries that name a self-referencing array of 20,000
+  elements for 7 s. The same files take 2 to 60 ms.
+  `test_an_object_that_many_entries_name_is_read_once` pins nine such shapes
+  with a deadline that the first version missed by factors of 4 to 17; add a
+  shape for every new kind of root. Memory is bounded by the objects reached,
+  the path stack by the limit, and every collection grows fallibly.
+  The Type 4 scan needs no model beyond hayro's trivia rules: whitespace
+  (NUL, tab, LF, FF, CR, space) and comments (`%` to CR or LF) are skipped
+  before a token, the program must begin with `{`, `{` and `}` are delimiters
+  that no other token contains, and the parse ends where the first procedure
+  closes. Continuing past input that hayro rejects (an unknown operator, a
+  string) can only count more levels than hayro reaches.
+  This guard bounds stack use, not time. hayro can need exponential CPU for
+  graphs that stay under the limit: a stitching function that names the next
+  one twice per level takes 2^levels builds (20 levels take one second), and
+  painting through nested Separation spaces takes about 3^levels (a 16-level
+  chain needs 0.2 s for one rectangle, 18 levels 1.5 s), so tests list such
+  chains without painting. Hosts must keep enforcing CPU deadlines.
+  The model was validated against hayro itself with a scratch harness that
+  is not stored in the repository: a copy of hayro-interpret 0.7.0 whose
+  `ColorSpaceType::new_inner`, `Function::new`, and `parse_procedure_inner`
+  count their nesting in a thread-local, a crate that includes the real
+  `content_guard.rs`, `graph_guard.rs`, `postscript_scan.rs`, and
+  `content_scan.rs` by path (with a two-line pyo3 stub), and a generator of
+  random one-page PDFs whose resources name colour spaces, shadings, transfer
+  functions, soft masks, images, and shading patterns in spines, cycles,
+  shared graphs, inline nests, mistyped slots, missing objects, and Type 4
+  programs with comments and stray braces. A document is a violation when the
+  guard accepted it and hayro's builders nested deeper than 33 (the limit
+  plus the name frame) or its procedures deeper than 64. Count the depth
+  rather than watch for overflow, as for content: depth is exact and fast.
+  The first run found the name frame. 11,500,000 documents (6,000,000 on
+  earlier versions of the walk and 5,500,000 on the final one, of which
+  1,000,000 had only well-typed slots and 2,500,000 had dense cycles) produced
+  no violation. Of the first 4,000,000, 5,915 ended early at a 400,000-call
+  budget or a hayro panic (the depth seen until then still counts), hayro
+  nested up to 144 levels, and 8,021 had procedures past 64, all refused;
+  840,917 were refused, most of them although hayro stayed within the limits,
+  because the kind-agnostic walk follows mistyped slots and counts every
+  object of a cycle. A direct oracle that parses 40,000,000 random programs
+  with hayro's own `Function::new` found 3,937,787 past 64 levels, all
+  refused, and 1,078,165 refused although hayro stopped earlier at a token it
+  rejects. A sweep of 5,707 distinct local PDFs
+  (the first 40 pages of each) raised no `resource_nesting_depth` refusal;
+  its one content refusal, pdf.js `issue16454.pdf`, is the same as before.
+  The bundled corpus (19 documents, 95 pages, 1,083 hashes of pixmaps, clipped
+  pixmaps, text, words, dict, rawdict, drawings, images, both table
+  strategies, SVG, Markdown, and `render_pages`) is identical to `main`; cold
+  first calls cost 1.0% more than `main` in total against 1.4% for the content
+  check alone in the same run, so the walk is within noise (11 interleaved
+  rounds of CPU-time minimums, local builds without LTO), and the component
+  walk that remembers cycles and reads each object once measured 0.7% below
+  that first revision (9 rounds, 653.5 ms to 649.0 ms); and the thin-LTO
+  extension grew from 16,146,752 to 16,218,784 bytes unstripped with both
+  checks.
+  The Python regressions in `tests/test_resource_nesting.py` cover each root,
+  each structure at 300,000 braces or 20,000 objects in a child interpreter,
+  every public operation at the smallest refused depth, the exact limits, ten
+  places that resources can live, saved variants (compressed, object
+  streams, encrypted), cycles, sharing, and breadth. The Pyodide contract has
+  `resource_nesting_*` and the fuzz seeds have `deep-type4-program`,
+  `deep-function-chain`, and `deep-color-space-chain`. On a hayro upgrade,
+  re-read every
+  `Function::new`, `ColorSpace::new`, and `parse_procedure_inner` call site; a
+  new construction site must join the walk.
 - Raster rendering reuses one hayro `RenderCache` across calls through
   `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
@@ -1436,8 +1609,10 @@ overview.
   ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347), fixed
   in hayro 0.8). `object_recovery` keeps indirect objects that lopdf skips
   from it, and `ContentGuard` checks the content streams that pylopdf never
-  parses at load before every interpretation. Nothing yet guards Type 4
-  function braces or object chains such as stitching functions.
+  parses at load before every interpretation. hayro 0.7 and 0.8 also build
+  colour spaces and functions, and parse Type 4 braces, by recursion with no
+  bound at all; `GraphGuard` and `postscript_scan` bound them before every
+  interpretation, and nothing else in hayro stops them.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.

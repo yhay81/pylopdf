@@ -91,8 +91,8 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth` 중
-하나이며 같은 값은`error.args[0]`에도 있습니다.
+`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
+`resource_nesting_depth` 중 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을materialize하기 전에
 16개 layer를 초과하는`/Filter` chain도 거부합니다.
@@ -153,6 +153,26 @@ hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재�
 한 번만 검사되고 편집하면 결과가 지워집니다. hayro는 이름을 바깥쪽 모든 dictionary를
 거쳐 해석하므로, 어떤 operator도 그리지 않는 리소스 dictionary의 항목도 검사
 대상입니다.
+
+hayro는 colour space, shading, function도 이름으로 참조하는 object를 따라가는 깊이
+제한 없는 재귀로 구성합니다(hayro 0.7과 0.8 모두). Indexed나 Pattern colour space는
+base로, Separation이나 DeviceN colour space는 alternate space와 tint transform으로,
+ICCBased colour space는 파싱할 수 없는 profile의 `/Alternate`로, stitching function
+(type 3)은 `/Functions`의 모든 항목으로 구성되고, Type 4 function은 `{ }` procedure를
+재귀로 파싱합니다. 서로를 참조하는 약 2만 개의 indirect object나 30만 겹의 중괄호는
+stack을 넘쳐 프로세스를 종료시켰습니다. pylopdf는 페이지를 해석하기 전에 그 페이지의
+리소스 dictionary에 있는 `/ColorSpace`와 `/Shading` 항목, shading pattern, image
+XObject, soft-mask group, graphics state와 soft mask의 전달 함수(`/TR`, `/TR2`)가
+도달하는 것을 측정하고, colour space와 function의 체인이 32단계보다 깊거나 Type 4
+function의 procedure가 64단계보다 깊게 중첩되면 그 페이지를 `resource_nesting_depth`로
+거부합니다. 체인에는 colour space의 array, function, profile stream이 포함됩니다.
+hayro가 스스로 순환을 끊기 때문에 자기 참조나 짧은 고리는 그대로 렌더링되지만, 서로 도달하는
+object가 32개를 넘는 순환은 거부되고, 공유되는 하위 그래프는 한 번만 측정되며, object는 몇 개의
+항목이 참조하든 한 번만 읽힙니다.
+이 한도는 고정이며 `DocumentLimits` 설정과 관계없이 적용되고, 다른 페이지는 계속 사용할 수
+있습니다. 제한하는 것은 stack 사용량이지 시간이 아닙니다. 각 단계에서 같은 function을 두 번
+참조하거나 Separation을 중첩하는 것처럼 한도 안이지만 정교하게 만든 그래프에서는
+hayro가 지수 시간의 CPU를 쓸 수 있으므로 호스트에서 CPU deadline을 계속 강제하십시오.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
 - `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG
