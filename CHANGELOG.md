@@ -320,9 +320,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regression tests that keep what hayro can reach, found three ways for a deep
   stream to escape the walk (a dictionary serving two resource roles, several
   direct fonts in one object, and references that hayro refuses on a long path
-  but resolves when it draws); the final walk left no interpreted stream unscanned
-  in 183,000 graphs and in the first six pages of 3,000 varied PDFs, and crashed
-  on none of 46,000 graphs.
+  but resolves when it draws); the final walk left no interpreted stream
+  unscanned in 183,000 graphs and in the first six pages of 3,000 varied PDFs,
+  and crashed on none of 46,000 graphs.
   Cold first calls on the bundled corpus cost 1.0% more in total (9% at most,
   on the form-heavy `f1040.pdf`), no corpus page renders or extracts
   differently, and a sweep of 2,821 varied PDFs raised no refusal. Migrating to
