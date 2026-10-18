@@ -1,37 +1,28 @@
-From 236306833fe51377b3dbe09bafc6759c66a00276 Mon Sep 17 00:00:00 2001
-From: Yusuke Hayashi <yusuke8h@gmail.com>
-Date: Sun, 18 Oct 2026 18:12:11 +0900
-Subject: [PATCH] WIP: provisional thresholds
-
----
- src/object_stream.rs | 13 ++++++++++++-
- src/reader.rs        | 45 +++++++++++++++++++++++++++++---------------
- 2 files changed, 42 insertions(+), 16 deletions(-)
-
 diff --git a/src/object_stream.rs b/src/object_stream.rs
-index 113b0cd..d8a4be7 100644
+index 113b0cd..4a0add6 100644
 --- a/src/object_stream.rs
 +++ b/src/object_stream.rs
-@@ -8,6 +8,13 @@
+@@ -8,6 +8,14 @@
  #[cfg(feature = "rayon")]
  use rayon::prelude::*;
  
-+/// Object streams with fewer members are parsed on the calling thread even
-+/// when the `rayon` feature is enabled, for the reason given for the
-+/// cross-reference entries in `reader.rs`: handing the work to rayon's pool
-+/// costs more than it saves when there is little of it.
++/// With the `rayon` feature, an object stream with fewer members is parsed on
++/// the calling thread unless that thread is one of rayon's workers. Outside
++/// the pool, handing a small stream to it costs more than it saves, as for a
++/// small document in `Reader`. Inside, splitting is cheap and lets idle
++/// workers share a stream that the rest of a parallel load waits for.
 +#[cfg(feature = "rayon")]
-+const MIN_PARALLEL_OBJECTS: usize = 128;
++const MIN_PARALLEL_OBJECTS: usize = 32;
 +
  #[derive(Debug)]
  pub struct ObjectStream {
      pub objects: BTreeMap<ObjectId, Object>,
-@@ -108,7 +115,11 @@ pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) ->
+@@ -108,7 +116,11 @@ pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) ->
              Some(((id, 0), object))
          };
          #[cfg(feature = "rayon")]
 -        let objects = numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect();
-+        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS {
++        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS || rayon::current_thread_index().is_some() {
 +            numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect()
 +        } else {
 +            numbers[..len].chunks(2).filter_map(chunks_filter_map).collect()
@@ -40,41 +31,46 @@ index 113b0cd..d8a4be7 100644
          let objects = numbers[..len].chunks(2).filter_map(chunks_filter_map).collect();
  
 diff --git a/src/reader.rs b/src/reader.rs
-index 5bb4775..f62b43d 100644
+index 5bb4775..09c992c 100644
 --- a/src/reader.rs
 +++ b/src/reader.rs
-@@ -362,8 +362,21 @@ pub struct Reader<'a> {
+@@ -362,8 +362,26 @@ pub struct Reader<'a> {
      /// re-decodes the whole container, which is quadratic in the number of
      /// such streams.
      object_streams: Mutex<HashMap<u32, Option<Arc<ObjectStream>>>>,
-+    /// Loads with at least this many cross-reference entries parse their
-+    /// objects on rayon's pool. [`MIN_PARALLEL_ENTRIES`] unless a test forces
-+    /// one path.
-+    #[cfg(feature = "rayon")]
-+    min_parallel_entries: usize,
++    /// Puts the objects on the calling thread (`Some(false)`) or rayon's pool
++    /// (`Some(true)`) whatever the document's size.
++    #[cfg(all(test, feature = "rayon"))]
++    parallel: Option<bool>,
  }
  
-+/// Cross-reference tables with fewer entries are loaded on the calling thread
-+/// even when the `rayon` feature is enabled. Handing the parse to rayon's
-+/// global pool costs a fixed amount: the caller wakes a sleeping worker and
-+/// blocks until the work comes back, and the first load also spawns the pool.
-+/// That outweighs what parallel parsing saves on a small document.
++/// With the `rayon` feature, a document with fewer cross-reference entries
++/// than this and less input than [`MIN_PARALLEL_BYTES`] is parsed on the
++/// calling thread. Handing the parse to rayon's global pool has a fixed cost:
++/// the caller wakes a parked worker and blocks until the work comes back, and
++/// the first load in a process also spawns the pool. For a document this small
++/// that costs more than parsing it in parallel saves.
 +#[cfg(feature = "rayon")]
-+const MIN_PARALLEL_ENTRIES: usize = 128;
++const MIN_PARALLEL_ENTRIES: usize = 16;
++
++/// Input from which a document is parsed on rayon's pool whatever its number
++/// of entries: copying a few large streams in parallel pays for the handoff.
++#[cfg(feature = "rayon")]
++const MIN_PARALLEL_BYTES: usize = 1 << 20;
 +
  /// Maximum allowed embedding of literal strings.
  pub const MAX_BRACKET: usize = 100;
  
-@@ -488,6 +501,8 @@ fn with_options(buffer: &'a [u8], options: LoadOptions) -> Self {
+@@ -488,6 +506,8 @@ fn with_options(buffer: &'a [u8], options: LoadOptions) -> Self {
              max_decompressed_size: options.max_decompressed_size,
              normal_offsets: Vec::new(),
              object_streams: Mutex::default(),
-+            #[cfg(feature = "rayon")]
-+            min_parallel_entries: MIN_PARALLEL_ENTRIES,
++            #[cfg(all(test, feature = "rayon"))]
++            parallel: None,
          }
      }
  
-@@ -950,28 +965,28 @@ fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
+@@ -950,28 +970,28 @@ fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
              }
          };
  
@@ -85,7 +81,7 @@ index 5bb4775..f62b43d 100644
 -                .document
 -                .reference_table
 -                .entries
-+        let objects: Result<BTreeMap<_, _>> = if entries.len() >= self.min_parallel_entries {
++        let objects: Result<BTreeMap<_, _>> = if self.load_in_parallel() {
 +            entries
                  .par_iter()
                  .map(entries_filter_map)
@@ -118,6 +114,160 @@ index 5bb4775..f62b43d 100644
  
          // Only add entries, but never replace entries
          for (id, entry) in object_streams.into_inner().unwrap() {
--- 
-2.56.0
-
+@@ -985,6 +1005,17 @@ fn load_objects_raw(&mut self, filter_func: Option<FilterFunc>) -> Result<()> {
+         Ok(())
+     }
+ 
++    /// Whether [`Self::load_objects_raw`] parses on rayon's pool; see
++    /// [`MIN_PARALLEL_ENTRIES`].
++    #[cfg(feature = "rayon")]
++    fn load_in_parallel(&self) -> bool {
++        #[cfg(test)]
++        if let Some(parallel) = self.parallel {
++            return parallel;
++        }
++        self.document.reference_table.entries.len() >= MIN_PARALLEL_ENTRIES || self.buffer.len() >= MIN_PARALLEL_BYTES
++    }
++
+     fn read_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
+         let length = self.get_stream_length(object_id)?;
+         let stream = self
+@@ -2254,3 +2285,90 @@ fn ignores_unreadable_hybrid_xref_stream_when_lenient() {
+     );
+     assert!(strict.is_err());
+ }
++
++/// Load `buffer` with its objects parsed on the calling thread and again on
++/// rayon's pool, whatever the number of cross-reference entries.
++#[cfg(all(test, feature = "rayon"))]
++fn load_on_both_paths(buffer: &[u8], strict: bool) -> [Result<Document>; 2] {
++    [false, true].map(|parallel| {
++        let options = LoadOptions {
++            strict,
++            ..Default::default()
++        };
++        Reader {
++            parallel: Some(parallel),
++            ..Reader::with_options(buffer, options)
++        }
++        .read(None)
++    })
++}
++
++#[cfg(all(test, feature = "rayon"))]
++fn assert_same_document(sequential: &Document, parallel: &Document) {
++    assert_eq!(sequential.version, parallel.version);
++    assert_eq!(sequential.max_id, parallel.max_id);
++    assert_eq!(sequential.trailer, parallel.trailer);
++    assert_eq!(sequential.objects, parallel.objects);
++}
++
++/// A saved document of `pages` pages, each drawing its own content stream.
++#[cfg(all(test, feature = "rayon"))]
++fn saved_document(pages: usize, options: crate::SaveOptions) -> Vec<u8> {
++    let texts: Vec<String> = (0..pages).map(|page| format!("Page {page}")).collect();
++    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
++    let mut buffer = Vec::new();
++    crate::creator::tests::create_document_with_texts(&texts)
++        .save_with_options(&mut buffer, options)
++        .unwrap();
++    buffer
++}
++
++#[cfg(all(test, feature = "rayon"))]
++#[test]
++fn sequential_and_parallel_loads_read_the_same_document() {
++    // 2 pages make 9 objects and 300 pages 605. With object streams, one
++    // stream holds every page dictionary, so a sequential load reads 4 or 302
++    // members on either side of MIN_PARALLEL_OBJECTS.
++    let object_streams = crate::SaveOptions::builder()
++        .use_object_streams(true)
++        .use_xref_streams(true)
++        .max_objects_per_stream(1000)
++        .build();
++    for pages in [2, 300] {
++        for options in [crate::SaveOptions::default(), object_streams.clone()] {
++            let buffer = saved_document(pages, options);
++            let [sequential, parallel] = load_on_both_paths(&buffer, true);
++            let (sequential, parallel) = (sequential.unwrap(), parallel.unwrap());
++            assert_eq!(sequential.get_pages().len(), pages);
++            assert_same_document(&sequential, &parallel);
++        }
++    }
++}
++
++#[cfg(all(test, feature = "rayon"))]
++#[test]
++fn sequential_and_parallel_loads_treat_a_malformed_object_alike() {
++    for pages in [2, 300] {
++        let mut buffer = saved_document(pages, crate::SaveOptions::default());
++        let intact = Document::load_mem(&buffer).unwrap();
++        let page = intact.page_iter().next().unwrap();
++        let Some(XrefEntry::Normal { offset, .. }) = intact.reference_table.get(page.0) else {
++            panic!("page {page:?} has no offset");
++        };
++        // The object header no longer starts with a number.
++        buffer[*offset as usize] = b'x';
++
++        let [sequential, parallel] = load_on_both_paths(&buffer, true);
++        let sequential = sequential.map(|_| ()).unwrap_err();
++        assert_eq!(
++            format!("{sequential:?}"),
++            format!("{:?}", parallel.map(|_| ()).unwrap_err())
++        );
++
++        let [sequential, parallel] = load_on_both_paths(&buffer, false);
++        let (sequential, parallel) = (sequential.unwrap(), parallel.unwrap());
++        assert!(!sequential.objects.contains_key(&page));
++        assert_eq!(sequential.objects.len(), intact.objects.len() - 1);
++        assert_same_document(&sequential, &parallel);
++    }
++}
+diff --git a/tests/object_stream_methods_test.rs b/tests/object_stream_methods_test.rs
+index 1b497fa..38c84d2 100644
+--- a/tests/object_stream_methods_test.rs
++++ b/tests/object_stream_methods_test.rs
+@@ -480,3 +480,43 @@ fn test_loads_catalog_from_later_generated_object_stream() {
+         .expect("catalog should remain reachable from a later generated object stream");
+     assert_eq!(loaded.get_pages().len(), 1);
+ }
++
++/// An object stream listing `members` in order, each an integer object.
++fn object_stream_of(members: &[(u32, i64)]) -> Stream {
++    let mut offsets = String::new();
++    let mut body = String::new();
++    for (number, value) in members {
++        offsets.push_str(&format!("{number} {} ", body.len()));
++        body.push_str(&format!("{value} "));
++    }
++    let first = offsets.len();
++    Stream::new(
++        dictionary! {
++            "Type" => "ObjStm",
++            "N" => members.len() as i64,
++            "First" => first as i64,
++        },
++        (offsets + &body).into_bytes(),
++    )
++}
++
++#[test]
++fn test_object_stream_parse_reads_small_and_large_streams_alike() {
++    // With the rayon feature, a few members are read on the calling thread and
++    // many on rayon's pool. Either way every member is read, and an object
++    // listed twice keeps its later entry.
++    for count in [4, 300] {
++        let mut members: Vec<(u32, i64)> = (1..=count).map(|number| (number, i64::from(number) * 10)).collect();
++        members.push((1, -1));
++        let object_stream = ObjectStream::new(&object_stream_of(&members)).unwrap();
++
++        assert_eq!(object_stream.objects.len(), count as usize);
++        assert_eq!(object_stream.objects[&(1, 0)], Object::Integer(-1));
++        for number in 2..=count {
++            assert_eq!(
++                object_stream.objects[&(number, 0)],
++                Object::Integer(i64::from(number) * 10)
++            );
++        }
++    }
++}

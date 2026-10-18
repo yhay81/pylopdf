@@ -4,8 +4,9 @@ Evaluation branch only; delete after review. It measures a proposed upstream
 lopdf change (`patches/pr.patch`, on lopdf `main` 15406c5) that parses
 documents with few cross-reference entries, and object streams with few
 members, on the calling thread instead of rayon's global pool.
-`patches/eval-env.patch` adds `LOPDF_MIN_PARALLEL`, which overrides both
-thresholds, so one build can sweep them. It is not part of the proposal.
+`patches/eval-env.patch` adds `LOPDF_MIN_PARALLEL` (entries and members)
+and `LOPDF_MIN_PARALLEL_BYTES`, which override the thresholds, so one build
+can sweep them and force either path. It is not part of the proposal.
 
 Builds: `main-rayon` (lopdf main, default rayon), `main-seq` (main without
 rayon), `pr-rayon` (main plus the change), `env-rayon` (plus the override).

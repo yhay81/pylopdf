@@ -33,11 +33,15 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EVAL: .github/lopdf-small-doc-eval
+      # par and seq force one path in the evaluation build; tN uses N entries
+      # (and N object stream members) with the default 1 MiB byte threshold.
       LOAD_VARIANTS: >-
-        main-rayon main-seq pr-rayon
-        t16=env-rayon,LOPDF_MIN_PARALLEL=16 t32=env-rayon,LOPDF_MIN_PARALLEL=32
-        t64=env-rayon,LOPDF_MIN_PARALLEL=64 t256=env-rayon,LOPDF_MIN_PARALLEL=256
-        t512=env-rayon,LOPDF_MIN_PARALLEL=512
+        main-rayon pr-rayon
+        par=env-rayon,LOPDF_MIN_PARALLEL=0
+        seq=env-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
+        t8=env-rayon,LOPDF_MIN_PARALLEL=8 t12=env-rayon,LOPDF_MIN_PARALLEL=12
+        t16=env-rayon,LOPDF_MIN_PARALLEL=16 t24=env-rayon,LOPDF_MIN_PARALLEL=24
+        t32=env-rayon,LOPDF_MIN_PARALLEL=32 t48=env-rayon,LOPDF_MIN_PARALLEL=48
     steps:
       - name: Keep checked-out line endings
         run: git config --global core.autocrlf false
@@ -74,7 +78,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run interleaved load rounds
         working-directory: work
-        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 after:15:10 first:5" pdfs/*.pdf
+        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 first:5" pdfs/*.pdf
       - name: Run interleaved object stream rounds
         working-directory: work
         run: python "../${EVAL}/ab.py" out/objstm 8 bin "${LOAD_VARIANTS}" "objstm:30:0 objstm:15:10" objstm/*.pdf
@@ -84,10 +88,10 @@ jobs:
         run: |
           {
             echo "## Loads (${{ matrix.platform.target }}), Δ against main-rayon"
-            python "../${EVAL}/summary.py" out/load main-rayon main-seq pr-rayon t16 t32 t64 t256 t512
+            python "../${EVAL}/summary.py" out/load main-rayon pr-rayon par seq t8 t12 t16 t24 t32 t48
             echo
             echo "## ObjectStream::new from the calling thread (${{ matrix.platform.target }})"
-            python "../${EVAL}/summary.py" out/objstm main-rayon main-seq pr-rayon t16 t32 t64 t256 t512
+            python "../${EVAL}/summary.py" out/objstm main-rayon pr-rayon par seq t8 t12 t16 t24 t32 t48
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
