@@ -367,10 +367,16 @@ overview.
   leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load without cross-reference recovery first consumes its original
-  input bytes and falls back to a lopdf serialization only when hayro rejects
-  them or reports a different page count. A recovered load retains no original
-  bytes: hayro would recover the damaged input independently and can disagree,
-  for example by rolling an incremental file back to its first revision.
+  input bytes when `object_recovery` keeps them, as described below, and falls
+  back to a lopdf serialization when hayro rejects them or resolves other pages
+  than the page-tree walker, compared by object ID in page order. When the
+  serialization still disagrees, rendering uses a copy whose root lists
+  exactly the walker's pages with inherited attributes materialized: hayro 0.7
+  ends `/Kids` at the first entry that is not a dictionary and reads untyped
+  or direct kids as pages, which the walker skips. The editable and saved page
+  tree never change for this. A recovered load retains no original bytes:
+  hayro would recover the damaged input independently and can disagree, for
+  example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
   always be reflected in rendering and link reads. The page index needs no
@@ -384,6 +390,36 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- `rust/src/object_recovery.rs` decides at load whether the original bytes
+  describe lopdf's graph. hayro resolves those bytes through the
+  cross-reference data: it reads a number that no entry lists as null, and the
+  first mismatched or unparseable entry it reads makes it rebuild its whole
+  table by scanning object headers, so its view of a malformed file depends on
+  read order. lopdf stores an uncompressed object under its header number even
+  when the entry names another, skips objects it cannot parse, and adds
+  object-stream members that no entry lists, raising `max_id` over them. A
+  load whose objects match the in-use entries one for one keeps its bytes
+  after a single merge pass; lopdf records no free entries, and well-formed
+  files, incremental updates, and object streams all match. Otherwise loading
+  re-parses each skipped uncompressed object whose header matches its entry
+  with a bounded, iterative parser that reads a bare keyword value such as
+  `/Type XObject` as null, stops at lopdf's 100-level nesting bound, never
+  reads past the next entry's offset, and takes stream data only from a valid
+  `/Length` or a sole `endstream` that `endobj` follows. It then walks every
+  reference reachable from the trailer, drops objects that no entry locates
+  and nothing reaches, such as members that a damaged object stream decodes
+  under arbitrary numbers, and lowers `max_id` to the highest entry or
+  remaining object when no reachable reference names a higher number, because
+  lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
+  stay only when the walk meets no recovered object, no object that no entry
+  locates, and no in-use entry that lopdf could not load. lopdf skips objects
+  nested deeper than 100 levels, so a reachable one also keeps them from hayro
+  0.7's unbounded recursive parser. Audit and recovery buffers grow fallibly,
+  and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
+  and already render from the graph. The pass runs before
+  `normalize_object_numbers`, because it compares lopdf's numbers with the
+  cross-reference entries; a renumbering load also renders from the graph, and
+  dropping unreachable debris first spares most such loads the move.
 - Raster rendering reuses one hayro `RenderCache` across calls through
   `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
@@ -616,8 +652,9 @@ overview.
   trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
   input. lopdf's other lenient tolerances (19-byte xref entries, stream
   `/Length` recovered at an unambiguous object boundary, and skipped
-  unparseable objects) are not reported. Reconstruction never runs for
-  damaged xref-stream files without a classic trailer; they remain rejected.
+  unparseable objects, which `object_recovery` re-parses where it can) are not
+  reported. Reconstruction never runs for damaged xref-stream files without a
+  classic trailer; they remain rejected.
   Before every lenient load, a linear pre-scan estimates lopdf's
   reconstruction work: each `stream` keyword after the last `endstream`
   repeats a scan to the end of the input and a backward `obj`/`/Length`
@@ -1055,10 +1092,11 @@ overview.
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, textbox layout, pixmaps,
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
-  error recovery, and lopdf cross-reference recovery reporting. Add only small
-  redistributable PDFs listed in `tests/assets/real_world/README.md`; non-PDF
-  inputs such as the existing CJK font may be supplied from already licensed
-  repository assets. Do not claim
+  error recovery, lopdf cross-reference recovery reporting, and unchanged
+  extraction after an edit for a skipped bare-keyword form and a non-page
+  page-tree kid. Add only small redistributable PDFs listed in
+  `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
+  font may be supplied from already licensed repository assets. Do not claim
   direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
   783 even though the binary itself passes that runtime's suite.
 - `DocumentLimits` is the public untrusted-input policy. Python validates the
@@ -1166,12 +1204,24 @@ overview.
   from the cross-reference table. lopdf 0.44 derived `max_id` from the table
   alone, so a later allocation could replace such an object; 0.45 raises it
   over every loaded object, and pylopdf's load pass repeats that. hayro reads
-  the original bytes through the table instead, so an unedited document can
-  render without such an object until an edit reserializes lopdf's graph.
+  the original bytes through the table instead, so `object_recovery` drops
+  such objects when nothing reaches them and otherwise renders from lopdf's
+  graph.
 - lopdf allocates object numbers with unchecked `max_id += 1`, so `max_id`
   must keep its headroom. Loading renumbers objects above 8,388,607 for that
   reason; never set `max_id` from untrusted input elsewhere. Checked
   allocation upstream is a contribution candidate.
+- hayro 0.7's typed array iteration ends at the first element that does not
+  resolve to the requested type, so `/Kids` and `/Contents` stop at a missing,
+  null, or mistyped entry. hayro 0.8 skips such page-tree kids but still ends
+  `/Contents` there. hayro also answers the first mismatched or unparseable
+  cross-reference entry it reads by rebuilding its whole table. Keep the
+  page-identity check and `object_recovery` until upstream changes both.
+  hayro 0.7 parses nested arrays and dictionaries recursively without a bound,
+  so deep nesting overflows the stack and kills the process, including inside
+  content streams that pylopdf never parses at load
+  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347), fixed
+  in hayro 0.8).
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
