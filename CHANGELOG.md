@@ -316,6 +316,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a recursion-depth probe, 8.7 billion exhaustive token sequences and 16
   million random and mutated streams, found no stream that recurses past 64
   levels and passes the scan, while each earlier model had let some through.
+  A fuzz of resource graphs, random rewrites of the document shapes in the
+  regression tests that keep what hayro can reach, found three ways for a deep
+  stream to escape the walk (a dictionary serving two resource roles, several
+  direct fonts in one object, and references that hayro refuses on a long path
+  but resolves when it draws); none crashed the final walk in 46,000 graphs.
   Cold first calls on the bundled corpus cost 1.0% more in total (9% at most,
   on the form-heavy `f1040.pdf`), no corpus page renders or extracts
   differently, and a sweep of 2,821 varied PDFs raised no refusal. Migrating to

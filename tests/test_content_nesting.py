@@ -287,6 +287,127 @@ def soft_mask_in_form(content: str) -> bytes:
     )
 
 
+def shared_category(leaf: str, content: str) -> bytes:
+    """Serve one dictionary as every resource category; the leaf lives in the role named by `leaf`.
+
+    Every role walks the dictionary differently, so one walk must not stand in for another.
+    """
+    group = FORM + "/Group << /S /Transparency /CS /DeviceGray >> /Resources << /Font << /F1 4 0 R >> >> "
+    pattern = (
+        "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 "
+        "/Resources << /Font << /F1 4 0 R >> >> "
+    )
+    shallow = "0 0 m"
+    drawing = {
+        "form": "q /Fm0 Do Q",
+        "pattern": "/Pattern cs /P1 scn 0 0 200 200 re f",
+        "font": "BT /F3 12 Tf 20 100 Td (a) Tj ET",
+        "extgstate": "/GS0 gs 0 0 200 200 re f",
+    }[leaf]
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 12 0 R "
+            "/Resources << /XObject 5 0 R /Pattern 5 0 R /Font 5 0 R /ExtGState 5 0 R >> >>",
+            4: FONT,
+            5: "<< /F1 4 0 R /Fm0 6 0 R /P1 7 0 R /F3 8 0 R /GS0 10 0 R >>",
+            6: _stream(content if leaf == "form" else shallow, FORM + "/Resources << /Font << /F1 4 0 R >> >> "),
+            7: _stream(content if leaf == "pattern" else shallow, pattern),
+            8: _type3_font(9),
+            9: _stream("100 0 0 0 100 100 d1 " + (content if leaf == "font" else shallow)),
+            10: "<< /Type /ExtGState /SMask << /Type /Mask /S /Luminosity /G 11 0 R >> >>",
+            11: _stream(content if leaf == "extgstate" else shallow, group),
+            12: _stream(drawing),
+        }
+    )
+
+
+def resources_alias_category(content: str) -> bytes:
+    """Make the page's /Font dictionary also the /Resources of a form that draws with a glyph font.
+
+    The dictionary holds a font of its own and a /Font category of its own. Neither role may stand in
+    for the other.
+    """
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R "
+            "/Resources << /Font 8 0 R /XObject << /Fm0 6 0 R >> >> >>",
+            4: FONT,
+            5: _stream("q /Fm0 Do Q"),
+            6: _stream("BT /F3 12 Tf 20 100 Td (a) Tj ET", FORM + "/Resources 8 0 R "),
+            7: _type3_font(9),
+            8: "<< /F1 4 0 R /Font << /F3 7 0 R >> >>",
+            9: _stream("100 0 0 0 100 100 d1 " + content),
+        }
+    )
+
+
+def chain_cycle(content: str) -> bytes:
+    """List a form in the dictionary that is also the page's /Font category and the form's /Pattern category.
+
+    hayro refuses to follow a reference back into the chain of objects it is reading. Reached as a
+    "font" through that dictionary, the form's /Pattern entry points back into the chain and does not
+    resolve, although it resolves when the page draws the form. A walk that lets the first path decide
+    never meets the pattern.
+    """
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R "
+            "/Resources << /Font 8 0 R /XObject << /Fm0 6 0 R >> >> >>",
+            4: FONT,
+            5: _stream("q /Fm0 Do Q"),
+            6: _stream("/Pattern cs /P1 scn 0 0 200 200 re f", FORM + "/Resources << /Pattern 8 0 R >> "),
+            7: _stream(
+                content,
+                "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 "
+                "/Resources << /Font << /F1 4 0 R >> >> ",
+            ),
+            8: "<< /F1 4 0 R /P1 7 0 R /Fm0 6 0 R >>",
+        }
+    )
+
+
+def _direct_fonts(deep: str, where: str, content: str) -> bytes:
+    """Two direct Type 3 fonts inside one indirect object, `deep` being the one with the deep glyph.
+
+    A direct dictionary reports the object number of the object that contains it, so a guard that
+    identifies fonts that way sees one font. Which of the two it meets first depends on hash order,
+    so the callers try both.
+    """
+
+    def font(name: str) -> str:
+        return _type3_font(8 if name == deep else 7)
+
+    fonts = f"/F1 4 0 R /GA {font('GA')} /GB {font('GB')}"
+    page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 5 0 R /Resources {} >>"
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        4: FONT,
+        5: _stream(f"BT /{deep} 12 Tf 20 100 Td (a) Tj ET"),
+        7: _stream("100 0 0 0 100 100 d1 0 0 m"),
+        8: _stream("100 0 0 0 100 100 d1 " + content),
+    }
+    if where == "font-dictionary":
+        objects[3] = page.format("<< /Font 6 0 R >>")
+        objects[6] = f"<< {fonts} >>"
+    elif where == "resources":
+        objects[3] = page.format("6 0 R")
+        objects[6] = f"<< /Font << {fonts} >> >>"
+    else:
+        # Each ExtGState selects its font directly, and both states sit in one indirect dictionary.
+        states = " ".join(f"/S{name} << /Type /ExtGState /Font [{font(name)} 12] >>" for name in ("GA", "GB"))
+        objects[3] = page.format("<< /ExtGState 6 0 R >>")
+        objects[5] = _stream(f"/S{deep} gs BT 20 100 Td (a) Tj ET")
+        objects[6] = f"<< {states} >>"
+    return build_raw_pdf(objects)
+
+
 #: Where hayro interprets content, with a document builder for each.
 PLACEMENTS: dict[str, Callable[[int], bytes]] = {
     "page": lambda depth: page_content(_show(_arrays(depth))),
@@ -302,6 +423,18 @@ PLACEMENTS: dict[str, Callable[[int], bytes]] = {
     "pattern-in-form": lambda depth: pattern_in_form(_show(_arrays(depth))),
     "form-in-glyph-resources": lambda depth: form_in_glyph_resources(_show(_arrays(depth))),
     "soft-mask-in-form": lambda depth: soft_mask_in_form(_show(_arrays(depth))),
+    "shared-category-form": lambda depth: shared_category("form", _show(_arrays(depth))),
+    "shared-category-pattern": lambda depth: shared_category("pattern", _show(_arrays(depth))),
+    "shared-category-font": lambda depth: shared_category("font", _show(_arrays(depth))),
+    "shared-category-extgstate": lambda depth: shared_category("extgstate", _show(_arrays(depth))),
+    "resources-alias-category": lambda depth: resources_alias_category(_show(_arrays(depth))),
+    "cyclic-chain-resources": lambda depth: chain_cycle(_show(_arrays(depth))),
+    "direct-fonts-a": lambda depth: _direct_fonts("GA", "font-dictionary", _show(_arrays(depth))),
+    "direct-fonts-b": lambda depth: _direct_fonts("GB", "font-dictionary", _show(_arrays(depth))),
+    "direct-fonts-in-resources-a": lambda depth: _direct_fonts("GA", "resources", _show(_arrays(depth))),
+    "direct-fonts-in-resources-b": lambda depth: _direct_fonts("GB", "resources", _show(_arrays(depth))),
+    "direct-fonts-in-graphics-states-a": lambda depth: _direct_fonts("GA", "graphics-states", _show(_arrays(depth))),
+    "direct-fonts-in-graphics-states-b": lambda depth: _direct_fonts("GB", "graphics-states", _show(_arrays(depth))),
     "dictionary-operand": lambda depth: page_content(f"/P {_dictionaries(depth)} BDC EMC {SHOW}"),
     "dictionary-keys": lambda depth: page_content(f"/P {'<<' * depth} BDC EMC {SHOW}"),
     "inline-image-dictionary": lambda depth: page_content(

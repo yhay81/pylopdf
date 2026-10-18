@@ -451,11 +451,25 @@ overview.
   dictionary instead of the names a stream uses; only `/Subtype /Form`
   entries of `/XObject` count, because images are costly to decode and never
   content. The check is lazy and per page. Streams, fonts, graphics states,
-  and dictionaries shared with an earlier page are skipped (dictionaries by
-  the address of their bytes, stable because decoded object streams live as
-  long as the snapshot). State belongs to the snapshot: `invalidate_hayro_pdf`
-  and every refusal or allocation failure reset it, so nothing recorded
-  before a failed walk can vouch for a stream the walk did not finish. No
+  and dictionaries shared with an earlier page are skipped. A dictionary is
+  skipped only in the role it was walked in (a `/Resources` dictionary, an
+  `/XObject`, `/Pattern`, `/Font` or `/ExtGState` category, or one font),
+  because one object may serve several roles, as in
+  `/Resources << /XObject 5 0 R /Font 5 0 R >>`, and is identified by the
+  address of its bytes, stable because decoded object streams live as long as
+  the snapshot. Never identify one by `Dict::obj_id`, which names the object
+  that contains a direct dictionary: all direct fonts in one indirect `/Font`
+  object share it. Resolve every reference through `XRef::get` (`Fresh` in
+  `content_guard.rs`) instead of through a dictionary obtained by an earlier
+  step. hayro keeps the chain of objects being read in a dictionary's reader
+  context and refuses a reference back into it as a cycle, so the same
+  dictionary resolves fewer references the longer the path that reached it. A
+  walk that visits each object once and lets the first path decide records a
+  dictionary whose references failed on a long path and then overlooks what
+  hayro's shorter path resolves when it draws. State belongs to the
+  snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
+  reset it, so nothing recorded before a failed walk can vouch for a stream
+  the walk did not finish. No
   decompression limit is re-applied: load-time validation already measured
   every stream of an unencrypted document under the configured budgets, and
   the guard decodes only streams that interpretation would decode anyway or
@@ -524,10 +538,24 @@ overview.
   streams on a 128 KiB thread stack, 92,907 of which overflowed hayro, were all
   refused, and 40,000 streams through the Python API on a 512 KiB thread stack
   never crashed the guarded build, while `main` crashed on 2,354 of 20,000.
+  Those oracles test the scanner, not the walk. A second scratch harness
+  fuzzes the walk: it captures the document builders of
+  `tests/test_content_nesting.py` as object graphs with one deep leaf stream,
+  applies random rewrites that keep what hayro can reach (indirect and direct
+  swaps, merging dictionaries across roles and into `/Resources`, hoisting
+  resources into the page tree, decoy fonts and forms, clones, self
+  references), and runs the result on a 512 KiB thread stack. The guarded
+  build must never crash: the only deep content is the leaf, so a crash means
+  a path that hayro takes and the walk missed. It found the shared-role,
+  direct-font, and reader-chain bypasses: 254 of 1,000 mutated graphs crashed
+  the first guard, 3 of 5,000 crashed it after the role and font fixes, and
+  none of 46,000 crashed it after `Fresh`. Rerun it after any change to the
+  walk.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
-  inline image evasions, edits, and shared streams. A sweep of 2,821 varied
+  inline image evasions, edits, shared streams, and the dictionary-sharing
+  shapes above. A sweep of 2,821 varied
   real-world PDFs (59,611 pages) raised no refusal, and none of 60,111 page
   streams, 99 of which hold inline images, was refused.
   On a hayro upgrade, re-read every `TypedIter::new`, `UntypedIter::new`, and

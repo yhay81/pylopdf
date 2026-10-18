@@ -23,9 +23,20 @@
 //! through the resources of every enclosing stream and the page, so the walk
 //! visits all entries of every reachable resource dictionary instead of only
 //! the names the content uses. The check is lazy: a page costs one walk, and
-//! streams and dictionaries shared with an earlier page are skipped. Only
-//! streams are decoded, never the whole document, and a decode that hayro's
-//! interpreter would perform anyway is the only extra work.
+//! streams and dictionaries shared with an earlier page are skipped. A
+//! dictionary counts as seen only in the role that was walked, because one
+//! object may serve as several resource categories, and a font is identified
+//! by its own bytes, because the object number of a direct dictionary names
+//! its container. Only streams are decoded, never the whole document, and a
+//! decode that hayro's interpreter would perform anyway is the only extra work.
+//!
+//! The walk resolves every reference through a fresh reader context
+//! ([`Fresh`]). hayro keeps the chain of objects being read in a dictionary's
+//! context and refuses to follow a reference back into it as a cycle, so one
+//! dictionary resolves fewer references the longer the path that led to it. A
+//! walk that visits each object once and lets the first path decide would
+//! overlook whatever a shorter path resolves, including the path hayro takes
+//! when it draws.
 //!
 //! The state belongs to one hayro snapshot. Any edit drops the snapshot and
 //! this state with it. An error clears the state too, so nothing recorded
@@ -39,8 +50,9 @@ use hayro::hayro_syntax::object::dict::keys::{
     ANNOTS, AP, CHAR_PROCS, EXT_G_STATE, FONT, FORM, G, N, PATTERN, RESOURCES, SMASK, SUBTYPE,
     XOBJECT,
 };
-use hayro::hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, Stream};
+use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream};
 use hayro::hayro_syntax::page::{Page, Resources};
+use hayro::hayro_syntax::xref::XRef;
 use pyo3::prelude::*;
 
 use crate::content_scan::{self, MAX_NESTING_DEPTH, Refusal};
@@ -53,14 +65,80 @@ pub(crate) enum PageSelection<'a> {
     All,
 }
 
+/// Reads values the way a new reader would: a reference is followed from an
+/// empty chain of objects being read, never from the one the dictionary it sits
+/// in was reached by.
+#[derive(Clone, Copy)]
+struct Fresh<'a>(&'a XRef);
+
+impl<'a> Fresh<'a> {
+    /// The dictionary under `key`; a stream object yields its dictionary.
+    fn dictionary(self, from: &Dict<'a>, key: &[u8]) -> Option<Dict<'a>> {
+        match from.get_ref(key) {
+            Some(reference) => self.0.get::<Dict<'a>>(reference.into()),
+            None => from.get::<Dict<'a>>(key),
+        }
+    }
+
+    fn stream(self, from: &Dict<'a>, key: &[u8]) -> Option<Stream<'a>> {
+        match from.get_ref(key) {
+            Some(reference) => self.0.get::<Stream<'a>>(reference.into()),
+            None => from.get::<Stream<'a>>(key),
+        }
+    }
+
+    fn object(self, from: &Dict<'a>, key: &[u8]) -> Option<Object<'a>> {
+        match from.get_ref(key) {
+            Some(reference) => self.0.get::<Object<'a>>(reference.into()),
+            None => from.get::<Object<'a>>(key),
+        }
+    }
+
+    fn array(self, from: &Dict<'a>, key: &[u8]) -> Option<Array<'a>> {
+        match from.get_ref(key) {
+            Some(reference) => self.0.get::<Array<'a>>(reference.into()),
+            None => from.get::<Array<'a>>(key),
+        }
+    }
+
+    /// An array item that is a dictionary, or a reference to one.
+    fn item_dictionary(self, item: MaybeRef<Object<'a>>) -> Option<Dict<'a>> {
+        match item {
+            MaybeRef::Ref(reference) => self.0.get::<Dict<'a>>(reference.into()),
+            MaybeRef::NotRef(Object::Dict(dictionary)) => Some(dictionary),
+            MaybeRef::NotRef(_) => None,
+        }
+    }
+}
+
 /// A stream or dictionary still to be visited for one page.
 enum Work<'a> {
     /// A stream whose content hayro interprets.
     Content(Stream<'a>),
     /// A `/Resources` dictionary reached through a stream or font.
     Resources(Dict<'a>),
-    /// A font dictionary that may carry Type 3 glyph procedures.
-    Font(Dict<'a>),
+    /// A font dictionary that may carry Type 3 glyph procedures, with the
+    /// reference it was reached through, if any.
+    Font(Dict<'a>, Option<ObjectIdentifier>),
+}
+
+/// What a dictionary is for. One object may serve several roles at once, for
+/// example `/Resources << /XObject 5 0 R /Font 5 0 R >>`, and each role walks
+/// it differently, so a visit in one role says nothing about another.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Role {
+    /// A `/Resources` dictionary of a stream or a font.
+    Resources,
+    /// An `/XObject` category dictionary.
+    XObjects,
+    /// A `/Pattern` category dictionary.
+    Patterns,
+    /// A `/Font` category dictionary.
+    Fonts,
+    /// An `/ExtGState` category dictionary.
+    GraphicsStates,
+    /// One font dictionary.
+    Font,
 }
 
 /// What the check has already cleared for the current hayro snapshot.
@@ -70,17 +148,21 @@ pub(crate) struct ContentGuard {
     pages: Vec<u64>,
     /// Content streams that were decoded and cleared.
     streams: HashSet<ObjectIdentifier>,
-    /// Fonts that were examined.
+    /// Fonts that were examined, by the reference they were reached through.
+    /// This only spares resolving a font again; the walk itself is deduplicated
+    /// by [`Role::Font`] below.
     fonts: HashSet<ObjectIdentifier>,
     /// Graphics state dictionaries that were examined.
     graphics_states: HashSet<ObjectIdentifier>,
     /// `/XObject` entries that are not forms, mostly images, which hayro never
     /// reads as content and which are costly to decode.
     inert: HashSet<ObjectIdentifier>,
-    /// Resource category and resource dictionaries that were visited, by the
-    /// address of their bytes in the snapshot. Decoded object streams live as
-    /// long as the snapshot, so an address names one dictionary.
-    dictionaries: HashSet<(usize, usize)>,
+    /// Dictionaries that were visited, by role and by the address of their
+    /// bytes in the snapshot. Decoded object streams live as long as the
+    /// snapshot, so an address names one dictionary. The object number would
+    /// not: every direct dictionary inside an indirect object reports the
+    /// number of that object.
+    dictionaries: HashSet<(Role, usize, usize)>,
 }
 
 impl ContentGuard {
@@ -95,13 +177,14 @@ impl ContentGuard {
     /// reports them as missing.
     pub(crate) fn check(&mut self, pdf: &Pdf, selection: PageSelection<'_>) -> PyResult<()> {
         let pages = pdf.pages();
+        let fresh = Fresh(pdf.xref());
         let result = match selection {
-            PageSelection::One(number) => self.check_page(pages, number),
+            PageSelection::One(number) => self.check_page(fresh, pages, number),
             PageSelection::Many(numbers) => numbers
                 .iter()
-                .try_for_each(|&number| self.check_page(pages, number)),
+                .try_for_each(|&number| self.check_page(fresh, pages, number)),
             PageSelection::All => {
-                (0..pages.len()).try_for_each(|index| self.check_indexed_page(pages, index))
+                (0..pages.len()).try_for_each(|index| self.check_indexed_page(fresh, pages, index))
             }
         };
         if result.is_err() {
@@ -110,14 +193,24 @@ impl ContentGuard {
         result
     }
 
-    fn check_page(&mut self, pages: &[Page<'_>], number: u32) -> PyResult<()> {
+    fn check_page<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        pages: &[Page<'a>],
+        number: u32,
+    ) -> PyResult<()> {
         match usize::try_from(number).ok().and_then(|n| n.checked_sub(1)) {
-            Some(index) => self.check_indexed_page(pages, index),
+            Some(index) => self.check_indexed_page(fresh, pages, index),
             None => Ok(()),
         }
     }
 
-    fn check_indexed_page(&mut self, pages: &[Page<'_>], index: usize) -> PyResult<()> {
+    fn check_indexed_page<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        pages: &[Page<'a>],
+        index: usize,
+    ) -> PyResult<()> {
         let Some(page) = pages.get(index) else {
             return Ok(());
         };
@@ -132,21 +225,25 @@ impl ContentGuard {
         let mut work = Vec::new();
         let mut level = Some(page.resources());
         while let Some(resources) = level {
-            self.visit_resources(resources, &mut work)?;
+            self.visit_resources(fresh, resources, &mut work)?;
             level = resources.parent();
         }
-        if let Some(annotations) = page.raw().get::<Array<'_>>(ANNOTS) {
-            for annotation in annotations.iter::<Dict<'_>>() {
-                self.visit_appearance(&annotation, &mut work)?;
+        if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
+            for item in annotations.raw_iter() {
+                if let Some(annotation) = fresh.item_dictionary(item) {
+                    self.visit_appearance(fresh, &annotation, &mut work)?;
+                }
             }
         }
         while let Some(item) = work.pop() {
             match item {
-                Work::Content(stream) => self.visit_content(&stream, number, &mut work)?,
+                Work::Content(stream) => self.visit_content(fresh, &stream, number, &mut work)?,
                 Work::Resources(dictionary) => {
-                    self.visit_resource_dictionary(&dictionary, &mut work)?
+                    self.visit_resource_dictionary(fresh, &dictionary, &mut work)?
                 }
-                Work::Font(font) => self.visit_font(&font, &mut work)?,
+                Work::Font(font, reference) => {
+                    self.visit_font(fresh, &font, reference, &mut work)?
+                }
             }
         }
         self.clear_page(index)
@@ -173,10 +270,12 @@ impl ContentGuard {
     /// Queue the streams and fonts that one level of a resource chain names.
     fn visit_resources<'a>(
         &mut self,
+        fresh: Fresh<'a>,
         resources: &Resources<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
         self.visit_categories(
+            fresh,
             &resources.x_objects,
             &resources.patterns,
             &resources.fonts,
@@ -188,14 +287,16 @@ impl ContentGuard {
     /// Queue what a stream's or font's `/Resources` dictionary names.
     fn visit_resource_dictionary<'a>(
         &mut self,
+        fresh: Fresh<'a>,
         resources: &Dict<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
-        if !self.first_visit(resources)? {
+        if !self.first_visit(Role::Resources, resources)? {
             return Ok(());
         }
-        let category = |key: &[u8]| resources.get::<Dict<'a>>(key).unwrap_or_default();
+        let category = |key: &[u8]| fresh.dictionary(resources, key).unwrap_or_default();
         self.visit_categories(
+            fresh,
             &category(XOBJECT),
             &category(PATTERN),
             &category(FONT),
@@ -206,13 +307,14 @@ impl ContentGuard {
 
     fn visit_categories<'a>(
         &mut self,
+        fresh: Fresh<'a>,
         x_objects: &Dict<'a>,
         patterns: &Dict<'a>,
         fonts: &Dict<'a>,
         ext_g_states: &Dict<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
-        if self.first_visit(x_objects)? {
+        if self.first_visit(Role::XObjects, x_objects)? {
             for key in x_objects.keys() {
                 let reference = x_objects.get_ref(key.as_ref()).map(ObjectIdentifier::from);
                 if reference
@@ -220,7 +322,7 @@ impl ContentGuard {
                 {
                     continue;
                 }
-                let Some(stream) = x_objects.get::<Stream<'a>>(key.as_ref()) else {
+                let Some(stream) = fresh.stream(x_objects, key.as_ref()) else {
                     continue;
                 };
                 if is_form(&stream) {
@@ -230,27 +332,28 @@ impl ContentGuard {
                 }
             }
         }
-        if self.first_visit(patterns)? {
+        if self.first_visit(Role::Patterns, patterns)? {
             for key in patterns.keys() {
                 if self.is_cleared_stream(patterns, key.as_ref()) {
                     continue;
                 }
-                if let Some(Object::Stream(stream)) = patterns.get::<Object<'a>>(key.as_ref()) {
+                if let Some(Object::Stream(stream)) = fresh.object(patterns, key.as_ref()) {
                     push(work, Work::Content(stream))?;
                 }
             }
         }
-        if self.first_visit(fonts)? {
+        if self.first_visit(Role::Fonts, fonts)? {
             for key in fonts.keys() {
-                if self.is_examined_font(fonts, key.as_ref()) {
+                let reference = fonts.get_ref(key.as_ref()).map(ObjectIdentifier::from);
+                if reference.is_some_and(|id| self.fonts.contains(&id)) {
                     continue;
                 }
-                if let Some(font) = fonts.get::<Dict<'a>>(key.as_ref()) {
-                    push(work, Work::Font(font))?;
+                if let Some(font) = fresh.dictionary(fonts, key.as_ref()) {
+                    push(work, Work::Font(font, reference))?;
                 }
             }
         }
-        if self.first_visit(ext_g_states)? {
+        if self.first_visit(Role::GraphicsStates, ext_g_states)? {
             for key in ext_g_states.keys() {
                 if let Some(id) = ext_g_states
                     .get_ref(key.as_ref())
@@ -259,8 +362,8 @@ impl ContentGuard {
                 {
                     continue;
                 }
-                if let Some(state) = ext_g_states.get::<Dict<'a>>(key.as_ref()) {
-                    visit_graphics_state(&state, work)?;
+                if let Some(state) = fresh.dictionary(ext_g_states, key.as_ref()) {
+                    visit_graphics_state(fresh, &state, work)?;
                 }
             }
         }
@@ -270,16 +373,17 @@ impl ContentGuard {
     /// Queue an annotation's or widget's normal appearance stream.
     fn visit_appearance<'a>(
         &mut self,
+        fresh: Fresh<'a>,
         annotation: &Dict<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
-        let Some(appearances) = annotation.get::<Dict<'a>>(AP) else {
+        let Some(appearances) = fresh.dictionary(annotation, AP) else {
             return Ok(());
         };
         if self.is_cleared_stream(&appearances, N) {
             return Ok(());
         }
-        if let Some(stream) = appearances.get::<Stream<'a>>(N) {
+        if let Some(stream) = fresh.stream(&appearances, N) {
             push(work, Work::Content(stream))?;
         }
         Ok(())
@@ -288,6 +392,7 @@ impl ContentGuard {
     /// Scan one stream's decoded content and queue its resources.
     fn visit_content<'a>(
         &mut self,
+        fresh: Fresh<'a>,
         stream: &Stream<'a>,
         page_number: usize,
         work: &mut Vec<Work<'a>>,
@@ -305,30 +410,41 @@ impl ContentGuard {
         if tracked {
             insert(&mut self.streams, id)?;
         }
-        if let Some(resources) = stream.dict().get::<Dict<'a>>(RESOURCES) {
+        if let Some(resources) = fresh.dictionary(stream.dict(), RESOURCES) {
             push(work, Work::Resources(resources))?;
         }
         Ok(())
     }
 
     /// Queue a Type 3 font's glyph procedures and its resources.
-    fn visit_font<'a>(&mut self, font: &Dict<'a>, work: &mut Vec<Work<'a>>) -> PyResult<()> {
-        if let Some(id) = font.obj_id()
-            && !insert(&mut self.fonts, id)?
-        {
+    ///
+    /// A font is the same font when its dictionary bytes are. `Dict::obj_id`
+    /// would name the object that contains a direct font, which several fonts
+    /// in one `/Font` object share.
+    fn visit_font<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        font: &Dict<'a>,
+        reference: Option<ObjectIdentifier>,
+        work: &mut Vec<Work<'a>>,
+    ) -> PyResult<()> {
+        if let Some(id) = reference {
+            insert(&mut self.fonts, id)?;
+        }
+        if !self.first_visit(Role::Font, font)? {
             return Ok(());
         }
-        if let Some(procedures) = font.get::<Dict<'a>>(CHAR_PROCS) {
+        if let Some(procedures) = fresh.dictionary(font, CHAR_PROCS) {
             for key in procedures.keys() {
                 if self.is_cleared_stream(&procedures, key.as_ref()) {
                     continue;
                 }
-                if let Some(stream) = procedures.get::<Stream<'a>>(key.as_ref()) {
+                if let Some(stream) = fresh.stream(&procedures, key.as_ref()) {
                     push(work, Work::Content(stream))?;
                 }
             }
         }
-        if let Some(resources) = font.get::<Dict<'a>>(RESOURCES) {
+        if let Some(resources) = fresh.dictionary(font, RESOURCES) {
             push(work, Work::Resources(resources))?;
         }
         Ok(())
@@ -341,39 +457,38 @@ impl ContentGuard {
             .is_some_and(|reference| self.streams.contains(&reference.into()))
     }
 
-    /// Whether `key` references a font that was already examined.
-    fn is_examined_font(&self, dictionary: &Dict<'_>, key: &[u8]) -> bool {
-        dictionary
-            .get_ref(key)
-            .is_some_and(|reference| self.fonts.contains(&reference.into()))
-    }
-
-    /// Record a dictionary; false when it was visited or has no entries.
-    fn first_visit(&mut self, dictionary: &Dict<'_>) -> PyResult<bool> {
+    /// Record a dictionary in one role; false when it was visited in that role
+    /// or has no entries.
+    fn first_visit(&mut self, role: Role, dictionary: &Dict<'_>) -> PyResult<bool> {
         if dictionary.is_empty() {
             return Ok(false);
         }
         let bytes = dictionary.data();
         insert(
             &mut self.dictionaries,
-            (bytes.as_ptr() as usize, bytes.len()),
+            (role, bytes.as_ptr() as usize, bytes.len()),
         )
     }
 }
 
 /// Queue an ExtGState's soft-mask group and the font it selects.
-fn visit_graphics_state<'a>(state: &Dict<'a>, work: &mut Vec<Work<'a>>) -> PyResult<()> {
-    if let Some(group) = state
-        .get::<Dict<'a>>(SMASK)
-        .and_then(|mask| mask.get::<Stream<'a>>(G))
+fn visit_graphics_state<'a>(
+    fresh: Fresh<'a>,
+    state: &Dict<'a>,
+    work: &mut Vec<Work<'a>>,
+) -> PyResult<()> {
+    if let Some(group) = fresh
+        .dictionary(state, SMASK)
+        .and_then(|mask| fresh.stream(&mask, G))
     {
         push(work, Work::Content(group))?;
     }
-    if let Some(Object::Dict(font)) = state
-        .get::<Array<'a>>(FONT)
-        .and_then(|selection| selection.iter::<Object<'a>>().next())
+    if let Some(font) = fresh
+        .array(state, FONT)
+        .and_then(|selection| selection.raw_iter().next())
+        .and_then(|item| fresh.item_dictionary(item))
     {
-        push(work, Work::Font(font))?;
+        push(work, Work::Font(font, None))?;
     }
     Ok(())
 }
