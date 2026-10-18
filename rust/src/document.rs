@@ -4613,6 +4613,30 @@ fn try_lossy_form_string(value: &[u8], label: &str) -> PyResult<String> {
     }
 }
 
+/// Borrow an inheritable field attribute unless the field omits it.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null, so a null value, an
+/// indirect null, and such a reference inherit from the parent field as an
+/// absent key does. Any other value, including an unusable one and a cyclic or
+/// over-long reference chain, belongs to the field and stops inheritance.
+fn inheritable_field_value<'a>(
+    doc: &'a Document,
+    field: &'a Dictionary,
+    key: &[u8],
+) -> Option<&'a Object> {
+    let value = field.get(key).ok()?;
+    let omitted = match value {
+        Object::Null => true,
+        Object::Reference(id) => matches!(
+            doc.get_object(*id),
+            Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_))
+        ),
+        _ => false,
+    };
+    (!omitted).then_some(value)
+}
+
 /// Decode one field-name component while bounding encoded and decoded text.
 fn bounded_form_text(
     doc: &Document,
@@ -5394,9 +5418,12 @@ impl _Document {
 
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
     ///
-    /// FT/Ff/V inherit from parents; full names join `/T` components with dots.
-    /// A leaf has resolved FT and no child carrying `/T`. Traversal and returned
-    /// text are bounded so malformed trees cannot produce partial results.
+    /// FT/Ff/V inherit from parents when a field omits them or holds a null
+    /// value, an indirect null, or a reference to a missing object; FT and Ff
+    /// also inherit past any other unreadable value. Full names join `/T`
+    /// components with dots. A leaf has resolved FT and no child carrying `/T`.
+    /// Traversal and returned text are bounded so malformed trees cannot
+    /// produce partial results.
     fn collect_form_fields(&self) -> PyResult<Vec<FormFieldEntry>> {
         let Some(acroform_object) = self
             .doc
@@ -5529,8 +5556,8 @@ impl _Document {
                 .ok()
                 .and_then(|object| resolve_i64(&self.doc, object))
                 .unwrap_or(inh_ff);
-            let value = match dict.get(b"V") {
-                Ok(object) => bounded_form_value(
+            let value = match inheritable_field_value(&self.doc, dict, b"V") {
+                Some(object) => bounded_form_value(
                     &self.doc,
                     object,
                     &mut encoded_value_bytes,
@@ -5538,7 +5565,7 @@ impl _Document {
                     &mut value_items,
                 )?
                 .map(Arc::from),
-                Err(_) => inh_v,
+                None => inh_v,
             };
 
             let mut has_child_fields = false;
@@ -5748,6 +5775,9 @@ impl _Document {
     }
 
     /// Read an inheritable field attribute from a field/widget parent chain.
+    ///
+    /// A null value, an indirect null, and a reference to a missing object
+    /// continue to the parent, as an absent key does.
     fn resolve_field_attr(&self, field_id: ObjectId, key: &[u8]) -> Option<Object> {
         let mut current = Some(field_id);
         let mut visited = HashSet::new();
@@ -5756,7 +5786,7 @@ impl _Document {
                 return None;
             }
             let dict = self.doc.get_object(id).ok()?.as_dict().ok()?;
-            if let Ok(value) = dict.get(key) {
+            if let Some(value) = inheritable_field_value(&self.doc, dict, key) {
                 return Some(value.clone());
             }
             current = dict.get(b"Parent").and_then(Object::as_reference).ok();
