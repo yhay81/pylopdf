@@ -1,0 +1,118 @@
+# Temporary evaluation branch only: sweep the thresholds of the pending lopdf
+# calling-thread draft with the pending parser change applied. Every job
+# builds the parser change alone, the draft with it, and one evaluation build
+# whose thresholds environment variables override, forced onto either path
+# and run with each swept threshold pair, then interleaves them on one runner
+# so every variant shares its noise.
+name: lopdf threshold evaluation
+
+on:
+  push:
+    branches: ["claude/lopdf-threshold-eval"]
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: bench (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      EVAL: .github/lopdf-threshold-eval
+      # par and seq force the pool and the calling thread in the evaluation
+      # build with the parser change (old-* without it). eE parses on the
+      # calling thread below E entries (and 1 MiB) and E members, except e16
+      # and e24 with the draft's 32 members. mM sets only the member threshold.
+      LOAD_VARIANTS: >-
+        pr=pr-rayon both=both-rayon norayon=pr-seq
+        par=envnew-rayon,LOPDF_MIN_PARALLEL=0,LOPDF_MIN_PARALLEL_MEMBERS=0
+        seq=envnew-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_MEMBERS=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
+        e16=envnew-rayon,LOPDF_MIN_PARALLEL=16,LOPDF_MIN_PARALLEL_MEMBERS=32
+        e24=envnew-rayon,LOPDF_MIN_PARALLEL=24,LOPDF_MIN_PARALLEL_MEMBERS=32
+        e32=envnew-rayon,LOPDF_MIN_PARALLEL=32,LOPDF_MIN_PARALLEL_MEMBERS=32
+        e48=envnew-rayon,LOPDF_MIN_PARALLEL=48,LOPDF_MIN_PARALLEL_MEMBERS=48
+        e64=envnew-rayon,LOPDF_MIN_PARALLEL=64,LOPDF_MIN_PARALLEL_MEMBERS=64
+        old-par=envold-rayon,LOPDF_MIN_PARALLEL=0,LOPDF_MIN_PARALLEL_MEMBERS=0
+        old-seq=envold-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_MEMBERS=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
+      OBJSTM_VARIANTS: >-
+        pr=pr-rayon both=both-rayon norayon=pr-seq
+        par=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=0
+        seq=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=1000000000
+        m32=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=32
+        m48=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=48
+        m64=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=64
+        old-par=envold-rayon,LOPDF_MIN_PARALLEL_MEMBERS=0
+        old-seq=envold-rayon,LOPDF_MIN_PARALLEL_MEMBERS=1000000000
+    steps:
+      - name: Keep checked-out line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: 1.99.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Describe the runner
+        run: |
+          python -c "import os, platform; print(platform.platform(), platform.machine(), os.cpu_count(), 'cpus')"
+          rustc --version
+      - name: Build the loadbench variants
+        run: bash "${EVAL}/build.sh" work
+      - name: Install pylopdf for the real-world subsets
+        run: |
+          python -m venv venv-pylopdf
+          python_bin="venv-pylopdf/bin/python"
+          [[ -x "${python_bin}" ]] || python_bin="venv-pylopdf/Scripts/python.exe"
+          "${python_bin}" -m pip install --quiet pylopdf==0.14.0
+          echo "PYLOPDF_PYTHON=$(pwd)/${python_bin}" >>"$GITHUB_ENV"
+      - name: Write the inputs
+        run: bash "${EVAL}/inputs.sh" work . "${PYLOPDF_PYTHON}"
+      - name: Check that every variant loads the same documents
+        working-directory: work
+        run: |
+          mkdir -p out
+          bin/pr-rayon info pdfs/*.pdf objstm/*.pdf >out/inputs.jsonl
+          {
+            echo "## Inputs (${{ matrix.platform.target }})"
+            python "../${EVAL}/check.py" bin "${LOAD_VARIANTS}" pdfs/*.pdf objstm/*.pdf
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run interleaved load rounds
+        working-directory: work
+        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 first:5" pdfs/*.pdf
+      - name: Run interleaved object stream rounds
+        working-directory: work
+        run: python "../${EVAL}/ab.py" out/objstm 8 bin "${OBJSTM_VARIANTS}" "objstm:30:0 objstm:15:10" objstm/*.pdf
+      - name: Summarize
+        if: always()
+        working-directory: work
+        run: |
+          {
+            echo "## Loads (${{ matrix.platform.target }}), Δ against e16"
+            python "../${EVAL}/summary.py" out/load e16 both pr par seq e24 e32 e48 e64 old-par old-seq norayon
+            echo
+            echo "## ObjectStream::new from the calling thread (${{ matrix.platform.target }}), Δ against m32"
+            python "../${EVAL}/summary.py" out/objstm m32 both pr par seq m48 m64 old-par old-seq norayon
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: eval-${{ matrix.platform.target }}
+          path: work/out
+          retention-days: 30
