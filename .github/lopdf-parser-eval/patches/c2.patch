@@ -1,0 +1,145 @@
+diff --git a/src/parser/mod.rs b/src/parser/mod.rs
+index 0f08138..e0ff617 100644
+--- a/src/parser/mod.rs
++++ b/src/parser/mod.rs
+@@ -56,14 +56,16 @@ pub(crate) fn comment(input: ParserInput) -> NomResult<()> {
+     map((tag(&b"%"[..]), take_while(|c: u8| !b"\r\n".contains(&c)), eol), |_| ()).parse(input)
+ }
+ 
++// The character classes below run for nearly every input byte, so they compare
++// directly instead of searching a byte string.
+ #[inline]
+ fn is_whitespace(c: u8) -> bool {
+-    b" \t\n\r\0\x0C".contains(&c)
++    matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\0' | b'\x0C')
+ }
+ 
+ #[inline]
+ fn is_delimiter(c: u8) -> bool {
+-    b"()<>[]{}/%".contains(&c)
++    matches!(c, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
+ }
+ 
+ #[inline]
+@@ -73,20 +75,27 @@ fn is_regular(c: u8) -> bool {
+ 
+ #[inline]
+ fn is_direct_literal_string(c: u8) -> bool {
+-    !b"()\\\r\n".contains(&c)
++    !matches!(c, b'(' | b')' | b'\\' | b'\r' | b'\n')
+ }
+ 
+ fn white_space(input: ParserInput) -> NomResult<()> {
+     map(take_while(is_whitespace), |_| ()).parse(input)
+ }
+ 
+-fn space(input: ParserInput) -> NomResult<()> {
+-    fold_many0(
+-        alt((map(take_while1(is_whitespace), |_| ()), comment)),
+-        || {},
+-        |_, _| (),
+-    )
+-    .parse(input)
++/// White space and comments, as many as there are.
++fn space(mut input: ParserInput) -> NomResult<()> {
++    loop {
++        let blanks = input.iter().take_while(|&&c| is_whitespace(c)).count();
++        if blanks > 0 {
++            input = &input[blanks..];
++        } else if input.first() == Some(&b'%')
++            && let Ok((rest, ())) = comment(input)
++        {
++            input = rest;
++        } else {
++            return Ok((input, ()));
++        }
++    }
+ }
+ 
+ fn integer(input: ParserInput) -> NomResult<i64> {
+@@ -385,12 +394,17 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
+     recovered
+ }
+ 
+-fn stream<'a>(
+-    input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_length: bool,
+-    recovery_bound: Option<usize>,
+-) -> NomResult<'a, Object> {
+-    let (i, dict) = terminated(dictionary, (space, tag(&b"stream"[..]), space0, eol)).parse(input)?;
++/// The `stream` keyword and its end-of-line marker, which turn a dictionary into
++/// the dictionary of a stream.
++fn stream_keyword(input: ParserInput) -> NomResult<()> {
++    map((space, tag(&b"stream"[..]), space0, eol), |_| ()).parse(input)
++}
+ 
++/// A stream whose dictionary `dict` starts `input`, with its data starting at `i`.
++fn stream<'a>(
++    input: ParserInput<'a>, i: ParserInput<'a>, dict: Dictionary, reader: &Reader,
++    already_seen: &mut HashSet<ObjectId>, recover_length: bool, recovery_bound: Option<usize>,
++) -> NomResult<'a, Object> {
+     if let Ok(length) = dict.get(b"Length").and_then(|value| {
+         if let Ok(id) = value.as_reference() {
+             reader.get_object(id, already_seen).and_then(|value| value.as_i64())
+@@ -478,14 +492,27 @@ fn object<'a>(
+     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
+     recovery_bound: Option<usize>,
+ ) -> NomResult<'a, Object> {
+-    terminated(
+-        alt((
+-            |input| stream(input, reader, already_seen, recover_stream_length, recovery_bound),
+-            _direct_objects(crate::reader::MAX_NESTING_DEPTH),
+-        )),
+-        space,
+-    )
+-    .parse(input)
++    let (i, object) = if input.starts_with(b"<<") {
++        // A stream starts with its dictionary: parse the dictionary once, and let the
++        // keyword after it decide whether the object is a stream.
++        let (i, dict) = dictionary(input)?;
++        match stream_keyword(i) {
++            Ok((data, ())) => stream(
++                input,
++                data,
++                dict,
++                reader,
++                already_seen,
++                recover_stream_length,
++                recovery_bound,
++            )?,
++            Err(_) => (i, Object::Dictionary(dict)),
++        }
++    } else {
++        _direct_objects(crate::reader::MAX_NESTING_DEPTH)(input)?
++    };
++    let (i, ()) = space(i)?;
++    Ok((i, object))
+ }
+ 
+ pub fn indirect_object(
+@@ -1538,4 +1565,26 @@ fn content_reads_minus_sign_inside_real_as_one_operand() {
+         assert_eq!(content.operations[1].operands.len(), 6);
+         assert_eq!(content.operations[1].operands[1], Object::Real(0.004142502));
+     }
++
++    #[test]
++    fn character_classes_follow_the_standard() {
++        // ISO 32000-2, 7.2.3: the white-space and delimiter characters; every other byte is regular.
++        for c in 0..=u8::MAX {
++            assert_eq!(is_whitespace(c), b" \t\n\r\0\x0C".contains(&c), "{c:#04x}");
++            assert_eq!(is_delimiter(c), b"()<>[]{}/%".contains(&c), "{c:#04x}");
++            assert_eq!(is_regular(c), !b" \t\n\r\0\x0C()<>[]{}/%".contains(&c), "{c:#04x}");
++            assert_eq!(is_direct_literal_string(c), !b"()\\\r\n".contains(&c), "{c:#04x}");
++        }
++    }
++
++    #[test]
++    fn space_skips_white_space_and_comments() {
++        let rest = |input| space(test_span(input)).unwrap().0;
++        assert_eq!(rest(b" \t\r\n\0\x0C/A"), b"/A");
++        assert_eq!(rest(b"% one\n%two\r\n \0% three\r/A"), b"/A");
++        assert_eq!(rest(b"/A"), b"/A");
++        assert_eq!(rest(b""), b"");
++        // A comment ends with an end-of-line marker, without which it is left unread.
++        assert_eq!(rest(b" % unterminated"), b"% unterminated");
++    }
+ }

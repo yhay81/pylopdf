@@ -1,0 +1,48 @@
+diff --git a/src/object_stream.rs b/src/object_stream.rs
+index 4a0add6..dc476fd 100644
+--- a/src/object_stream.rs
++++ b/src/object_stream.rs
+@@ -116,7 +116,9 @@ pub fn new_with_limit(stream: &Stream, max_decompressed_size: Option<usize>) ->
+             Some(((id, 0), object))
+         };
+         #[cfg(feature = "rayon")]
+-        let objects = if len / 2 >= MIN_PARALLEL_OBJECTS || rayon::current_thread_index().is_some() {
++        let objects = if len / 2 >= crate::reader::eval_threshold("LOPDF_MIN_PARALLEL", MIN_PARALLEL_OBJECTS)
++            || rayon::current_thread_index().is_some()
++        {
+             numbers[..len].par_chunks(2).filter_map(chunks_filter_map).collect()
+         } else {
+             numbers[..len].chunks(2).filter_map(chunks_filter_map).collect()
+diff --git a/src/reader.rs b/src/reader.rs
+index 09c992c..d606cc8 100644
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -382,6 +382,18 @@ pub struct Reader<'a> {
+ #[cfg(feature = "rayon")]
+ const MIN_PARALLEL_BYTES: usize = 1 << 20;
+ 
++/// Evaluation only: `LOPDF_MIN_PARALLEL` overrides the entry and member
++/// thresholds, `LOPDF_MIN_PARALLEL_BYTES` the byte threshold.
++#[cfg(feature = "rayon")]
++pub(crate) fn eval_threshold(name: &str, default: usize) -> usize {
++    use std::sync::OnceLock;
++    static ENTRIES: OnceLock<Option<usize>> = OnceLock::new();
++    static BYTES: OnceLock<Option<usize>> = OnceLock::new();
++    let cell = if name == "LOPDF_MIN_PARALLEL" { &ENTRIES } else { &BYTES };
++    cell.get_or_init(|| std::env::var(name).ok().and_then(|v| v.parse().ok()))
++        .unwrap_or(default)
++}
++
+ /// Maximum allowed embedding of literal strings.
+ pub const MAX_BRACKET: usize = 100;
+ 
+@@ -1013,7 +1025,8 @@ fn load_in_parallel(&self) -> bool {
+         if let Some(parallel) = self.parallel {
+             return parallel;
+         }
+-        self.document.reference_table.entries.len() >= MIN_PARALLEL_ENTRIES || self.buffer.len() >= MIN_PARALLEL_BYTES
++        self.document.reference_table.entries.len() >= eval_threshold("LOPDF_MIN_PARALLEL", MIN_PARALLEL_ENTRIES)
++            || self.buffer.len() >= eval_threshold("LOPDF_MIN_PARALLEL_BYTES", MIN_PARALLEL_BYTES)
+     }
+ 
+     fn read_stream_content(&mut self, object_id: ObjectId) -> Result<()> {
