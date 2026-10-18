@@ -1,15 +1,20 @@
 """Per-page access reuses one page index until the document changes.
 
 ``len(doc)``, ``doc[i]``, and per-page reads once walked the complete page tree
-on every call, so touching every page cost O(N^2). Every edit except rotation
-and page-box changes drops the index, and the next access rebuilds it, so reads
-after every kind of edit must match a document that never cached anything, and
-failed walks must keep failing.
+on every call, so touching every page cost O(N^2). Rotation, page-box, drawing,
+and annotation edits cannot change the page tree and keep the index; every
+other edit drops it, and the next access rebuilds it. Reads after every kind of
+edit must therefore match a document that never cached anything, including in
+malformed files whose page objects alias other structures, and failed walks
+must keep failing.
 """
 
 from __future__ import annotations
 
+import struct
 import time
+import zlib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -21,6 +26,8 @@ from pylopdf.pylopdf_core import _Document
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+FONT_ROOT = Path(__file__).parents[1] / "fonts"
+NOTO_SANS_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
 PAGES = 5
 # Page i is 100 + 10 * i units wide, so widths identify pages after edits.
 SPECIAL_WIDTHS = {"new": 50.0, "other": 612.0, "resized": 300.0}
@@ -56,12 +63,38 @@ def _other() -> pylopdf.Document:
     return pylopdf.Document(stream=build_pdf(["Other"]))
 
 
+def _png() -> bytes:
+    """Encode a 1x1 red PNG."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(b"\x00\xff\x00\x00")
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+
+
+PNG = _png()
+# Edits only read the stamp, so one source serves every placement.
+STAMP = pylopdf.Document(stream=build_pdf(["Stamp"]))
+
+
 def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[list[int | str]]]:
-    """Return every page-index-backed read: count, per-page facts, and the TOC."""
+    """Return every page-index-backed read: count, per-page facts, and the TOC.
+
+    Text extraction serializes the document for its renderer, which drops the
+    index, so the other reads cover every page first.
+    """
+    count = len(doc)
+    views = list(doc)
+    facts = [(page.mediabox.x1, page.rotation, page.rect, page.annots(), page.get_links()) for page in views]
+    toc = doc.get_toc()
+    texts = [page.get_text().strip() for page in views]
     pages: list[tuple[object, ...]] = [
-        (page.mediabox.x1, page.rotation, page.rect, page.get_text().strip(), page.annots()) for page in doc
+        (width, rotation, rect, text, annots, links)
+        for (width, rotation, rect, annots, links), text in zip(facts, texts, strict=True)
     ]
-    return len(doc), pages, doc.get_toc()
+    return count, pages, toc
 
 
 UNCHANGED: list[int | str] = list(range(PAGES))
@@ -78,7 +111,14 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "set_rotation": (lambda doc: doc[2].set_rotation(270), UNCHANGED),
     "set_mediabox": (lambda doc: doc[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
     "insert_text": (lambda doc: doc[0].insert_text((10, 20), "Stamp"), UNCHANGED),
+    "insert_embedded_text": (lambda doc: doc[4].insert_text((10, 20), "日本", fontfile=NOTO_SANS_JP), UNCHANGED),
+    "insert_textbox": (lambda doc: doc[1].insert_textbox((5, 5, 95, 60), "Box text"), UNCHANGED),
+    "insert_image": (lambda doc: doc[2].insert_image((10, 10, 40, 40), stream=PNG), UNCHANGED),
+    "show_pdf_page": (lambda doc: doc[2].show_pdf_page((0, 0, 50, 50), STAMP), UNCHANGED),
+    "show_pdf_page_self": (lambda doc: doc[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
+    "replace_text": (lambda doc: doc[4].replace_text("Page", "Leaf"), UNCHANGED),
     "add_link_annot": (lambda doc: doc[3].add_link_annot((1, 1, 20, 20), "https://example.com/"), UNCHANGED),
+    "add_highlight_annot": (lambda doc: doc[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
     "garbage_tobytes": (lambda doc: doc.tobytes(garbage=True), UNCHANGED),
     "embfile_add": (lambda doc: doc.embfile_add("notes.txt", b"notes"), UNCHANGED),
 }
@@ -246,3 +286,270 @@ def test_other_page_entries_drop_the_page_index() -> None:
 
     assert core.page_count() == 2
     assert _Document.load_bytes(core.save_bytes()).page_count() == 2
+
+
+def _text_stream(text: str) -> str:
+    content = f"BT /F1 12 Tf 10 60 Td ({text}) Tj ET"
+    return f"<< /Length {len(content)} >>\nstream\n{content}\nendstream"
+
+
+FONT = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+INHERITED = "/MediaBox [0 0 100 100] /Resources << /Font << /F1 9 0 R >> >>"
+
+# Each malformed file aliases page objects with other structures the page-tree
+# walk reads; object 9 is the Helvetica font that every page inherits.
+ALIASED: dict[str, dict[int, str | bytes]] = {
+    # The catalog is also the first page, so page replacements must keep /Pages.
+    "catalog-page": {
+        1: "<< /Type /Page /Pages 2 0 R /Parent 2 0 R /Contents 3 0 R >>",
+        2: f"<< /Type /Pages /Kids [1 0 R 4 0 R] /Count 2 {INHERITED} >>",
+        3: _text_stream("Text one"),
+        4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+        5: _text_stream("Text two"),
+        6: "(filler)",
+        7: "(filler)",
+        8: "(filler)",
+        9: FONT,
+    },
+    # The first page's /Annots and the second page's /Contents are the /Kids array.
+    "kids-array-alias": {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids 3 0 R /Count 2 {INHERITED} >>",
+        3: "[4 0 R 6 0 R]",
+        4: "<< /Type /Page /Parent 2 0 R /Annots 3 0 R /Contents 5 0 R >>",
+        5: _text_stream("Text one"),
+        6: "<< /Type /Page /Parent 2 0 R /Contents 3 0 R >>",
+        7: "(filler)",
+        8: "(filler)",
+        9: FONT,
+    },
+    # The second page object is a reference to the first page's dictionary, so
+    # both pages share its indirect /Annots array.
+    "page-reference": {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 {INHERITED} >>",
+        3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Annots 6 0 R >>",
+        4: _text_stream("Text one"),
+        5: "3 0 R",
+        6: "[7 0 R]",
+        7: "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (Existing) >>",
+        8: "(filler)",
+        9: FONT,
+    },
+    # A /Kids entry names an absent object, which a new object could complete.
+    "missing-kid": {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids [3 0 R 10 0 R 5 0 R] /Count 2 {INHERITED} >>",
+        3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+        4: _text_stream("Text one"),
+        5: "<< /Type /Page /Parent 2 0 R /Contents 6 0 R >>",
+        6: _text_stream("Text two"),
+        7: "(filler)",
+        8: "(filler)",
+        9: FONT,
+    },
+}
+
+
+def _aliased_pdf(name: str) -> bytes:
+    if name == "small-xref-size":
+        # The trailer /Size names objects 0-2 only, but the table and file hold
+        # 1-9. lopdf raises its next object number past the highest loaded
+        # object, and edits check that the number is free anyway.
+        objects = dict(ALIASED["missing-kid"])
+        objects[2] = f"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 {INHERITED} >>"
+        return build_raw_pdf(objects).replace(b"/Size 10", b"/Size 3")
+    return build_raw_pdf(ALIASED[name])
+
+
+def _text_outcome(page: pylopdf.Page) -> str:
+    """Return a page's text or its error, so malformed files compare either way."""
+    try:
+        return page.get_text().strip()
+    except pylopdf.PdfError as error:
+        return f"{type(error).__name__}: {error}"
+
+
+def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
+    """Like ``_snapshot``, tolerating renderer reads that a malformed tree breaks.
+
+    hayro, which extracts text, resolves some of these trees to fewer pages
+    than the page-tree walk; that disagreement predates the page index.
+    """
+    views = list(doc)
+    facts = [(page.mediabox.x1, page.rotation, page.rect, page.annots(), page.get_links()) for page in views]
+    toc = doc.get_toc()
+    texts = [_text_outcome(page) for page in views]
+    return len(views), facts, toc, texts
+
+
+PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
+    "insert_text": lambda page: page.insert_text((10, 20), "Stamp"),
+    "insert_textbox": lambda page: page.insert_textbox((5, 5, 95, 60), "Box text"),
+    "insert_image": lambda page: page.insert_image((5, 5, 30, 30), stream=PNG),
+    "show_pdf_page": lambda page: page.show_pdf_page((0, 0, 40, 40), STAMP),
+    "replace_text": lambda page: page.replace_text("Text", "Done"),
+    "add_link_annot": lambda page: page.add_link_annot((1, 1, 20, 20), "https://example.com/"),
+    "add_highlight_annot": lambda page: page.add_highlight_annot((5, 5, 40, 15)),
+}
+
+
+@pytest.mark.parametrize("edit", PAGE_EDITS)
+@pytest.mark.parametrize("name", [*ALIASED, "small-xref-size"])
+def test_edits_on_every_page_of_an_aliased_tree_match_a_fresh_document(name: str, edit: str) -> None:
+    doc = pylopdf.Document(stream=_aliased_pdf(name))
+    pages = len(doc)
+    objects = doc.complexity["object_count"]
+
+    for number in range(pages):
+        _aliased_snapshot(doc)
+        PAGE_EDITS[edit](doc[number])
+        assert _aliased_snapshot(doc) == _aliased_snapshot(pylopdf.Document(stream=doc.tobytes()))
+
+    # No edit replaced an existing object or changed the page tree.
+    assert len(doc) == pages
+    assert doc.complexity["object_count"] > objects
+
+
+@pytest.mark.parametrize("edit", PAGE_EDITS)
+def test_edits_on_every_page_of_a_nested_tree_match_a_fresh_document(edit: str) -> None:
+    doc = pylopdf.Document(stream=_nested_pdf())
+    _snapshot(doc)
+
+    for page in doc:
+        PAGE_EDITS[edit](page)
+
+    cached = _snapshot(doc)
+    assert cached == _snapshot(pylopdf.Document(stream=doc.tobytes()))
+    assert [width for width, *_ in cached[1]] == _widths(UNCHANGED)
+
+
+def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
+    """A Form import can fill the object number that a dangling /Kids entry names.
+
+    Renumbering moves source object 1, the Form's font, to the target's next
+    number, 10. The index records the dangling entry and drops itself instead
+    of assuming that the new object is not a page; the font is skipped, as a
+    fresh walk finds.
+    """
+    target = pylopdf.Document(
+        stream=build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [7 0 R 10 0 R] /Count 1 /MediaBox [0 0 100 100] >>",
+                3: "(filler)",
+                4: "(filler)",
+                5: "(filler)",
+                6: "(filler)",
+                7: "<< /Type /Page /Parent 2 0 R /Contents 8 0 R /Resources << /Font << /F1 9 0 R >> >> >>",
+                8: _text_stream("Target"),
+                9: FONT,
+            }
+        )
+    )
+    source_objects: dict[int, str | bytes] = {
+        1: FONT,
+        2: "<< /Type /Catalog /Pages 3 0 R >>",
+        3: "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+        4: "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 1 0 R >> >> "
+        "/Contents 5 0 R >>",
+        5: _text_stream("Source"),
+    }
+    source = pylopdf.Document(stream=build_raw_pdf(source_objects).replace(b"/Root 1 0 R", b"/Root 2 0 R"))
+    assert len(target) == 1
+
+    target[0].show_pdf_page((0, 0, 50, 50), source)
+
+    fresh = pylopdf.Document(stream=target.tobytes())
+    assert _snapshot(target) == _snapshot(fresh)
+    assert len(fresh) == 1
+    assert sorted(fresh[0].get_text().split()) == ["Source", "Target"]
+
+
+def _indirect_annots_pdf(pages: int) -> bytes:
+    """Give every page its own indirect /Annots array holding one shared link."""
+    kids = " ".join(f"{4 + 2 * page} 0 R" for page in range(pages))
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids [{kids}] /Count {pages} /MediaBox [0 0 200 300] >>",
+        3: "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /URI /URI (https://example.com/first) >> >>",
+    }
+    for page in range(pages):
+        objects[4 + 2 * page] = f"<< /Type /Page /Parent 2 0 R /Annots {5 + 2 * page} 0 R >>"
+        objects[5 + 2 * page] = "[3 0 R]"
+    return build_raw_pdf(objects)
+
+
+def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> None:
+    """Appends clone a shared array on write until the last page owns it alone."""
+    doc = pylopdf.Document(stream=_indirect_annots_pdf(1))
+    for _ in range(3):
+        doc.copy_page(0)
+    assert [len(page.annots()) for page in doc] == [1, 1, 1, 1]
+
+    for number, page in enumerate(doc):
+        page.add_link_annot((20, 20, 30, 30), f"https://example.com/{number}")
+
+    uris = [[annot["uri"] for annot in page.annots()] for page in doc]
+    expected = [["https://example.com/first", f"https://example.com/{number}"] for number in range(4)]
+    assert uris == expected
+    assert _snapshot(doc) == _snapshot(pylopdf.Document(stream=doc.tobytes()))
+
+
+TIMED_PAGES = 5_000
+
+
+def _flat_text_pdf(pages: int) -> bytes:
+    kids = " ".join(f"{4 + 2 * page} 0 R" for page in range(pages))
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R >>",
+        2: f"<< /Type /Pages /Kids [{kids}] /Count {pages} /MediaBox [0 0 100 100] "
+        "/Resources << /Font << /F1 3 0 R >> >> >>",
+        3: FONT,
+    }
+    for page in range(pages):
+        objects[4 + 2 * page] = f"<< /Type /Page /Parent 2 0 R /Contents {5 + 2 * page} 0 R >>"
+        objects[5 + 2 * page] = _text_stream(f"Text {page}")
+    return build_raw_pdf(objects)
+
+
+@pytest.mark.parametrize("edit", PAGE_EDITS)
+def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
+    """Drawing and annotation edits keep the index, so editing every page is linear.
+
+    Each edit used to drop the index, so every ``doc[i]`` after it walked the
+    page tree again: about 4 s locally for each loop here, and 22 s for
+    ``show_pdf_page``, which also swept every object of the target. Each loop
+    now takes 0.1 to 0.25 s; the generous bound only catches that regression.
+    """
+    doc = pylopdf.Document(stream=_flat_text_pdf(TIMED_PAGES))
+
+    start = time.perf_counter()
+    for page in doc:
+        PAGE_EDITS[edit](page)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 2.0, f"{edit} on {TIMED_PAGES} pages took {elapsed:.2f}s"
+    assert len(doc) == TIMED_PAGES
+    fresh = pylopdf.Document(stream=doc.tobytes())
+    assert len(fresh) == TIMED_PAGES
+    for number in (0, TIMED_PAGES // 2, TIMED_PAGES - 1):
+        assert fresh[number].get_text() == doc[number].get_text()
+        assert fresh[number].annots() == doc[number].annots()
+
+
+def test_annotating_every_page_with_its_own_indirect_array_is_linear() -> None:
+    """An append to an indirect /Annots array no longer scans every page for sharers.
+
+    Together with the page-tree walk, that scan took about 6 s locally for this
+    loop, against about 0.05 s now.
+    """
+    doc = pylopdf.Document(stream=_indirect_annots_pdf(TIMED_PAGES))
+
+    start = time.perf_counter()
+    for page in doc:
+        page.add_link_annot((20, 20, 30, 30), "https://example.com/second")
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 2.0, f"annotating {TIMED_PAGES} pages took {elapsed:.2f}s"
+    assert {len(page.annots()) for page in doc} == {2}

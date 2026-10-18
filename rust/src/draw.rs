@@ -15,6 +15,20 @@ use crate::layout::{TextBoxLayout, layout_textbox};
 const MAX_PAGE_CONTENT_STREAMS: usize = 4096;
 const MAX_CONTENT_REFERENCE_DEPTH: usize = 32;
 
+/// Destination for new PDF objects.
+///
+/// `_Document` adds them through its page index, which survives while new
+/// object IDs are unused; a plain lopdf document adds them directly.
+pub trait ObjectSink {
+    fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId;
+}
+
+impl ObjectSink for Document {
+    fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId {
+        Document::add_object(self, object)
+    }
+}
+
 /// Decoded image data used to build a PDF Image XObject.
 pub struct ImageParts {
     pub width: u32,
@@ -267,7 +281,7 @@ pub fn flate_compress(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 /// Add an Image XObject and optional SMask, returning its ObjectId.
-pub fn add_image_xobject(doc: &mut Document, parts: ImageParts) -> Result<ObjectId, String> {
+pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result<ObjectId, String> {
     let smask_id = match &parts.alpha {
         Some(alpha) => {
             let compressed = flate_compress(alpha)?;
@@ -995,7 +1009,11 @@ fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
 /// Inspect a page's bounded raw content-stream shape.
 ///
 /// This checks arrays before lopdf materializes their reference list and also
-/// rejects cyclic or excessively deep indirect `/Contents` chains.
+/// rejects cyclic or excessively deep indirect `/Contents` chains. A reference
+/// to a missing object or to an indirect null is dropped like a direct null,
+/// because ISO 32000-2 §7.3.10 reads it as null and renderers stop reading
+/// page content at the first entry that is not a stream. Array entries are
+/// resolved one level, keeping the cost per entry constant.
 pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>, String> {
     let page = doc
         .get_dictionary(page_id)
@@ -1021,7 +1039,8 @@ pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<Ob
                 }
                 visited.push(*id);
                 match doc.objects.get(id) {
-                    None | Some(Object::Stream(_)) => {
+                    None => break,
+                    Some(Object::Stream(_)) => {
                         streams.try_reserve_exact(1).map_err(|error| {
                             format!("failed to inspect page Contents streams: {error}")
                         })?;
@@ -1040,7 +1059,12 @@ pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<Ob
                 streams
                     .try_reserve_exact(entries.len())
                     .map_err(|error| format!("failed to inspect page Contents streams: {error}"))?;
-                streams.extend(entries.iter().filter_map(|entry| entry.as_reference().ok()));
+                streams.extend(
+                    entries
+                        .iter()
+                        .filter_map(|entry| entry.as_reference().ok())
+                        .filter(|id| !matches!(doc.objects.get(id), None | Some(Object::Null))),
+                );
                 break;
             }
             _ => break,
@@ -1127,16 +1151,16 @@ pub fn prepare_push_content(
     })
 }
 
-/// Add drawing operators to the page as a new content stream.
+/// Add drawing operators as a new content stream for the page.
 ///
-/// Overlay appends above existing content; otherwise prepend below it.
-/// Existing content is only wrapped and never modified internally.
-pub fn push_content(
-    doc: &mut Document,
-    page_id: ObjectId,
+/// Return the page's final `/Contents` array and whether existing content is
+/// now isolated. Overlay appends above existing content; otherwise prepend
+/// below it. Existing content is only wrapped and never modified internally.
+pub fn add_content_streams(
+    doc: &mut impl ObjectSink,
     ops: Vec<u8>,
     mut plan: ContentAppendPlan,
-) -> Result<bool, lopdf::Error> {
+) -> (Vec<Object>, bool) {
     if let Some((index, stream)) = plan.opening.take() {
         let id = doc.add_object(stream);
         plan.contents[index] = Object::Reference(id);
@@ -1147,7 +1171,5 @@ pub fn push_content(
     }
     let new_id = doc.add_object(Stream::new(Dictionary::new(), ops).with_compression(false));
     plan.contents[plan.new_index] = Object::Reference(new_id);
-    let page = doc.get_object_mut(page_id).and_then(Object::as_dict_mut)?;
-    page.set("Contents", plan.contents);
-    Ok(plan.is_isolated)
+    (plan.contents, plan.is_isolated)
 }

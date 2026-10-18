@@ -63,9 +63,11 @@ page-tree walkerを使います。Page／Pages objectの再利用とcycle、32�
 `max_pages`は上限を超えた最初のpageで停止します。pageポリシーなしのopenは互換性を
 維持し、これらのpage-tree検査を最初のpage-indexing操作まで遅延します。
 page count／lookupは1回のwalkで作ったpage indexを再利用するため、全pageへの
-accessも線形です。回転とpage boxの編集はpage treeを変えないためindexを保持し、
-それ以外の編集はindexを破棄して次のaccessで作り直します。失敗したwalkはcacheしない
-ため、不正なtreeはaccessのたびに例外を送出します。
+accessも線形です。回転、page box、描画、annotationの編集はpage treeを変えないため
+indexを保持します。各編集は未使用のobject番号にだけobjectを追加し、walkが読んだ
+entryを変えないことを確かめ、確かめられない場合はindexを破棄します。それ以外の編集は
+indexを破棄して次のaccessで作り直します。失敗したwalkはcacheしないため、不正な
+treeはaccessのたびに例外を送出します。
 
 page batchは1回取得したpage数でentryを検証します。`pages=None`と`insert_pdf()`の
 全範囲指定は、page数にかかわらずすべてのpageを対象にします。明示sequenceは同じpageを

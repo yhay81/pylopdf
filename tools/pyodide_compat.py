@@ -307,6 +307,55 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
     }
 
 
+def _consistency_results() -> dict[str, Any]:
+    """Read malformed input the same before and after an unrelated edit."""
+    import pylopdf  # noqa: PLC0415
+
+    def texts(data: bytes) -> list[list[str]]:
+        document = pylopdf.Document(stream=data)
+        unedited = [document.get_page_text(index).splitlines() for index in range(document.page_count)]
+        document.set_metadata({"title": "Edited"})
+        edited = [document.get_page_text(index).splitlines() for index in range(document.page_count)]
+        _require(unedited == edited, "an unrelated edit changed extracted text")
+        return unedited
+
+    def stream(text: str) -> str:
+        content = f"BT /F1 20 Tf 20 100 Td ({text}) Tj ET"
+        return f"<< /Length {len(content)} >>\nstream\n{content}\nendstream"
+
+    font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    page = "BT /F1 20 Tf 20 200 Td (PAGE TEXT) Tj ET q /Fm0 Do Q"
+    form = "BT /F1 20 Tf 20 100 Td (FORM TEXT) Tj ET"
+    # lopdf cannot parse the bare keyword in `/Type XObject`; hayro reads null.
+    bare_keyword = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 300] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R "
+            "/Resources << /Font << /F1 5 0 R >> /XObject << /Fm0 6 0 R >> >> >>",
+            4: f"<< /Length {len(page)} >>\nstream\n{page}\nendstream",
+            5: font,
+            6: f"<< /Type XObject /Subtype /Form /BBox [0 0 300 300] /Resources << /Font << /F1 5 0 R >> >> "
+            f"/Length {len(form)} >>\nstream\n{form}\nendstream",
+        }
+    )
+    # The page-tree walker skips kid 8; hayro 0.7 ended the page list there.
+    non_page_kid = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [4 0 R 8 0 R 6 0 R] /Count 2 /MediaBox [0 0 300 300] "
+            "/Resources << /Font << /F1 3 0 R >> >> >>",
+            3: font,
+            4: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>",
+            5: stream("PAGE ONE"),
+            6: "<< /Type /Page /Parent 2 0 R /Contents 7 0 R >>",
+            7: stream("PAGE TWO"),
+            8: "42",
+        }
+    )
+    return {"bare_keyword_form": texts(bare_keyword), "non_page_kid": texts(non_page_kid)}
+
+
 def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415 - list-assets must work without an installed extension.
 
@@ -419,6 +468,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             bounded_scan.complexity,
         ),
         "recovery": _recovery_results(pdf20_bytes, form_bytes),
+        "consistency": _consistency_results(),
     }
 
 

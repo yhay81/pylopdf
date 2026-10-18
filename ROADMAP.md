@@ -169,8 +169,10 @@ rendering, positioned text extraction, and editing in one package**.
   `search_for → list[Rect]`.
 - Preserve **one-way data flow**. lopdf's `Document` is the sole editable source
   of truth; hayro is an immutable view for rendering and extraction. An
-  unedited, unencrypted document may use its original input bytes when hayro
-  accepts them and reports the same page count. Every edit invalidates that
+  unedited, unencrypted document may use its original input bytes when every
+  reference reachable from its trailer resolves to the same object in lopdf's
+  graph and hayro reads the same pages as the page-tree walker. Every edit
+  invalidates that
   fast path and rebuilds hayro from lopdf serialization, so rendered output
   reflects edited and saved state. New engines must preserve this shape.
   krilla returns bytes that are imported into lopdf; engines never share mutable
@@ -1153,7 +1155,10 @@ rather than waiting automatically for v1.x.
 - **hayro 0.8**: the DrawProps `Device` API change (#1245) is merged but
   unreleased, as are #1318 and #1320. When released, update the two `extract.rs`
   implementations—likely mechanically because paint is mostly ignored—and gain
-  the performance improvements. Keep this separate from krilla integration.
+  the performance improvements. 0.8 also skips page-tree kids that are not
+  dictionaries instead of ending the page list there; keep pylopdf's
+  page-identity check, because 0.8 still reads untyped and direct kids as
+  pages. Keep this separate from krilla integration.
   hayro 0.8.0 was released on 2026-10-04 and bounds nested arrays and
   dictionaries at 64 levels (LaurenzV/hayro#1387), but it is not a drop-in
   fix for the content-nesting crash: a side-by-side render of the first two

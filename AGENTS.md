@@ -367,10 +367,16 @@ overview.
   leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load without cross-reference recovery first consumes its original
-  input bytes and falls back to a lopdf serialization only when hayro rejects
-  them or reports a different page count. A recovered load retains no original
-  bytes: hayro would recover the damaged input independently and can disagree,
-  for example by rolling an incremental file back to its first revision.
+  input bytes when `object_recovery` keeps them, as described below, and falls
+  back to a lopdf serialization when hayro rejects them or resolves other pages
+  than the page-tree walker, compared by object ID in page order. When the
+  serialization still disagrees, rendering uses a copy whose root lists
+  exactly the walker's pages with inherited attributes materialized: hayro 0.7
+  ends `/Kids` at the first entry that is not a dictionary and reads untyped
+  or direct kids as pages, which the walker skips. The editable and saved page
+  tree never change for this. A recovered load retains no original bytes:
+  hayro would recover the damaged input independently and can disagree, for
+  example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
   always be reflected in rendering and link reads. The page index needs no
@@ -384,6 +390,36 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- `rust/src/object_recovery.rs` decides at load whether the original bytes
+  describe lopdf's graph. hayro resolves those bytes through the
+  cross-reference data: it reads a number that no entry lists as null, and the
+  first mismatched or unparseable entry it reads makes it rebuild its whole
+  table by scanning object headers, so its view of a malformed file depends on
+  read order. lopdf stores an uncompressed object under its header number even
+  when the entry names another, skips objects it cannot parse, and adds
+  object-stream members that no entry lists, raising `max_id` over them. A
+  load whose objects match the in-use entries one for one keeps its bytes
+  after a single merge pass; lopdf records no free entries, and well-formed
+  files, incremental updates, and object streams all match. Otherwise loading
+  re-parses each skipped uncompressed object whose header matches its entry
+  with a bounded, iterative parser that reads a bare keyword value such as
+  `/Type XObject` as null, stops at lopdf's 100-level nesting bound, never
+  reads past the next entry's offset, and takes stream data only from a valid
+  `/Length` or a sole `endstream` that `endobj` follows. It then walks every
+  reference reachable from the trailer, drops objects that no entry locates
+  and nothing reaches, such as members that a damaged object stream decodes
+  under arbitrary numbers, and lowers `max_id` to the highest entry or
+  remaining object when no reachable reference names a higher number, because
+  lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
+  stay only when the walk meets no recovered object, no object that no entry
+  locates, and no in-use entry that lopdf could not load. lopdf skips objects
+  nested deeper than 100 levels, so a reachable one also keeps them from hayro
+  0.7's unbounded recursive parser. Audit and recovery buffers grow fallibly,
+  and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
+  and already render from the graph. The pass runs before
+  `normalize_object_numbers`, because it compares lopdf's numbers with the
+  cross-reference entries; a renumbering load also renders from the graph, and
+  dropping unreachable debris first spares most such loads the move.
 - Content streams are cleared for nesting depth before hayro interprets them.
   hayro 0.7 skips and reads arrays and dictionaries in content streams by
   unbounded recursion (LaurenzV/hayro#1347; hayro 0.8 stops at 64 levels), so a
@@ -586,8 +622,8 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `copy_page`, `set_toc`, and `show_pdf_page`) and `garbage=True` saves remove
-  unreachable objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
+  `copy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
   in object count. The replacement keeps lopdf's semantics, following
@@ -597,7 +633,14 @@ overview.
   stack. The set is reserved for the current object count and the stack grows
   fallibly; refusal raises `PdfError` before any object is removed. Pruning
   still runs after the edit it follows has committed, so a refusal there leaves
-  that edit and its unreachable objects in place.
+  that edit and its unreachable objects in place. Form-XObject imports
+  (`show_pdf_page`, embedded-font text, and widget appearances) never sweep
+  the target: before mutation, `prepare_page_form_import` keeps only the
+  source objects that `reachable_object_ids` reaches from the Form dictionary,
+  with source Catalog, Pages, and Page objects treated as absent. A placement
+  therefore costs time in its source rather than in every target object, and
+  objects the target already could not reach stay until a garbage save, as
+  after every other drawing edit.
 - `insert_pdf`, `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
@@ -617,6 +660,61 @@ overview.
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
+- lopdf numbers new objects above `Document::max_id`, so a loaded reference to
+  a higher number would resolve to whatever a later import or edit adds.
+  `_Document.load` and `load_bytes`, which `authenticate` reuses, therefore
+  call `normalize_object_numbers` in `rust/src/unallocated.rs` before
+  structural validation. It raises `max_id` over the highest loaded object,
+  then replaces every reference to a higher number, of any generation, with
+  null in the trailer, arrays, dictionaries, and stream dictionaries, never in
+  stream content, using a fallibly grown stack. Every reference pylopdf adds
+  later names an allocated object or comes from a renumbered import, so the
+  pass keeps the document alias-free for its lifetime. ISO 32000-2 §7.3.10
+  and hayro already read these references as null, so the original-byte
+  rendering path stays valid. Missing numbers at or below `max_id` are never
+  allocated and stay untouched, so documents without higher references keep
+  their objects and save unchanged; readers treat such a missing object as
+  null, as described below. Never raise `max_id` to a referenced
+  number instead: numbers need u32 headroom, and once new objects take such
+  numbers, lopdf's cross-reference writer loops over every number up to the
+  highest object.
+- lopdf increments `max_id` without an overflow check in `add_object`,
+  `new_object_id`, `Document::encrypt`, and its object-stream writer, and its
+  cross-reference writer visits every number up to the highest object on each
+  save. A file whose objects or in-use cross-reference entries reached past
+  8,388,607, the ISO 32000-1 indirect-object limit, could therefore leave no
+  headroom: near u32::MAX, release builds wrapped new objects onto object 0 and
+  then object 1, often the catalog, and a file of a few hundred bytes took about
+  19 seconds per save. When `max_id` exceeds the limit,
+  `normalize_object_numbers` moves every object above it to consecutive numbers
+  after the highest object at or below it, in ascending ID order with
+  generations kept, and ends `max_id` at the last of them. The same traversal
+  points each reference above that highest object at its moved object, matched
+  by number and generation in one exactly reserved sorted table, or replaces it
+  with null. Lower numbers stay unchanged, an over-limit entry without an object
+  only lowers `max_id`, and documents within the limit keep the behavior above.
+  Moving any object drops the original-byte rendering path, because image
+  compression maps hayro's object IDs back to lopdf's and hayro reads object
+  numbers as i32. Later numbers come only from allocations, so the remaining
+  headroom outlasts memory. lopdf's reconstruction already skips headers
+  numbered above 1,000,000, so such numbers come from standard cross-reference
+  resolution, object headers that disagree with their entries, or object-stream
+  members.
+- Readers treat a null value, an indirect null, and a reference to a missing
+  object alike, as an absent entry, following ISO 32000-2 §7.3.7 and §7.3.10.
+  `non_null_object` and `non_null_value` in `rust/src/document.rs` resolve a
+  reference chain this way, and lopdf's reference-limit error for a cyclic or
+  over-long chain still surfaces. Annotation appends start a new `/Annots`
+  array, `set_metadata` replaces trailer `/Info`, both page-attribute
+  inheritance walks end at such a `/Parent`, Font and XObject registration
+  starts an empty category, `get_toc` returns no entries for such an
+  `/Outlines`, attachment writes replace catalog `/Names`, and the
+  EmbeddedFiles walker skips such a FileSpec, so attachment rewrites drop it.
+  Page cleanup reads such navigation entries as absent. Drawing drops such
+  `/Contents` entries, resolving array entries one level so the cost per entry
+  stays constant, because hayro stops reading page content at the first entry
+  that is not a stream. Use these helpers instead of mapping lopdf's
+  `ObjectNotFound` to `PdfError` wherever a reader already skips null.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
@@ -672,8 +770,9 @@ overview.
   trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
   input. lopdf's other lenient tolerances (19-byte xref entries, stream
   `/Length` recovered at an unambiguous object boundary, and skipped
-  unparseable objects) are not reported. Reconstruction never runs for
-  damaged xref-stream files without a classic trailer; they remain rejected.
+  unparseable objects, which `object_recovery` re-parses where it can) are not
+  reported. Reconstruction never runs for damaged xref-stream files without a
+  classic trailer; they remain rejected.
   Before every lenient load, a linear pre-scan estimates lopdf's
   reconstruction work: each `stream` keyword after the last `endstream`
   repeats a scan to the end of the input and a backward `obj`/`/Length`
@@ -690,9 +789,26 @@ overview.
   from locale workspace packages under `fonts/pylopdf-fonts-{jp,ko,zh-cn,zh-tw}/`
   and are exposed only through matching locale extras. Explicit and
   auto-selected fallback font input shares the 64 MiB default OpenType boundary
-  described below. Auto-discovery keeps package assets as paths and must read
-  every selected sans/serif pair successfully before one cache update. Failed
-  path reads or size checks must preserve configured fonts and caches.
+  described below. Auto-discovery keeps package assets as paths. Before its
+  first render, every new `Document` stats each selected sans/serif path and
+  applies that boundary, then reuses the process-wide bytes in
+  `rust/src/bundled_font_cache.rs` while the path's size and modification
+  time (plus device, inode, and change time on Unix) match the last read for
+  its package/style slot; only other files are read. The cache holds at most
+  one file per slot, shared by every document rather than copied into each,
+  and keeps it after those documents close. It locks only to look up or swap
+  slots, never across file I/O, so a hung filesystem cannot stall other
+  threads and a fork cannot inherit it held; concurrent first renders may
+  therefore each read once. New reads are published, and the document
+  updated, only after every selected pair succeeds. Failed path reads or size
+  checks must preserve configured fonts and caches, including those slots.
+  The private `set_fallback_font_locale_files` returns how many files it read,
+  which the tests use to pin reuse. Explicit `set_fallback_font` paths are
+  still read on every call. With all four CJK extras (54 MiB), interleaved A/B
+  on the five GitHub-hosted release targets measured fresh first-page renders
+  of the 1 KB `pdfium-type3.pdf` 90–95% faster and 14 open rendered documents
+  at 100–157 instead of 803–860 MiB; the retained slots add up to 54 MiB after
+  the last document is released where the allocator would have returned it.
 - Drawing (`rust/src/draw.rs`) appends streams to `/Contents` without
   re-encoding existing content. Existing arrays are wrapped in `q/Q` only once.
   `_Document.isolated_content_pages` retains verified page IDs after later
@@ -713,8 +829,8 @@ overview.
   page attributes in one parent-tree pass with a 64-level/cycle boundary.
   Form-XObject imports admit at most 65,536 source objects and 64 MiB of wrapped
   decoded page content. They prepare bounded content, inherited geometry, and
-  the complete movable object collection before cache invalidation or target
-  mutation; commit then has no recoverable source-side work.
+  the collection of Form-reachable source objects before cache invalidation or
+  target mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
   resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
@@ -755,6 +871,8 @@ overview.
   `/Annots` target before dependent-object creation. Direct arrays and unshared
   indirect arrays reserve one slot in place; page-shared indirect arrays
   prepare one fallibly detached direct array so copied pages do not leak edits.
+  Sharing comes from the page index's per-array page counts, described with
+  the walker below, rather than a scan of every page.
   The final reference push must not grow a collection. Link annotations also
   build their complete input-derived dictionary before cache invalidation.
   `render_annotations` defaults to true.
@@ -781,13 +899,26 @@ overview.
   markers select a provider; pure Han remains JP-first for compatibility and
   `font_language` resolves the intended locale. This selects one font for the
   complete run; it is not per-glyph fallback. Mixed provider scripts require
-  an explicit font. `insert_text`, `insert_textbox`,
-  `set_form_field`, and `set_fallback_font` share a 64 MiB default OpenType
-  boundary. Python rejects buffer input before PyO3 copying; file input uses a
-  one-byte-overrun bounded Rust read with the GIL released and fallible 64 KiB
-  retained-buffer growth. Direct byte/path core variants repeat the check,
-  `max_font_size=None` explicitly opts trusted input out, and failures use
-  `font_input_size` without mutation.
+  an explicit font. Python passes a face selected from an installed package to
+  the `_file` core variants as `package_font=(language, kind)`, and the face
+  shares its package/style slot in `rust/src/bundled_font_cache.rs` with CJK
+  fallback configuration. Every call still stats the path and applies the
+  font boundary below before reusing the slot's bytes, and rereads a replaced
+  file; explicit `fontfile=` paths and `fontbuffer=` input never use the
+  slots. Generation and widget appearances take shared `Arc<Vec<u8>>` font
+  bytes, so a multi-widget fill does not copy the font once per widget, and
+  `_Document.package_font_reads()` counts slot reads for tests. Interleaved
+  A/B on the five GitHub-hosted release targets measured a short Japanese
+  `insert_text` on a fresh document 46–59% faster, Simplified Chinese serif
+  66–83%, and a Japanese `set_form_field` 55–79%, with byte-identical output;
+  each used face then stays resident after the last document closes
+  (11.0 MiB for the Simplified Chinese serif face on Windows). `insert_text`,
+  `insert_textbox`, `set_form_field`, and `set_fallback_font` share a 64 MiB
+  default OpenType boundary. Python rejects buffer input before PyO3 copying;
+  file input uses a one-byte-overrun bounded Rust read with the GIL released and
+  fallible 64 KiB retained-buffer growth. Direct byte/path core variants repeat
+  the check, `max_font_size=None` explicitly opts trusted input out, and
+  failures use `font_input_size` without mutation.
   `insert_text` and `insert_textbox` also share a 1 MiB default aggregate UTF-8
   boundary. Python rejects text before normalization, tab expansion, or PyO3
   copying; textbox tab expansion is size-preflighted without materializing the
@@ -816,6 +947,32 @@ overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
+- Generated text and widget appearance PDFs import through
+  `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
+  output to `Document::load_mem` directly. Native lopdf's `rayon` feature
+  parses every object with `par_iter` on the global pool, so each load from a
+  thread outside the pool injected a job, woke a sleeping worker, and blocked,
+  with the GIL held, until the pool finished. For a generated document of
+  about a dozen objects that hand-off cost more than the parse: about 31% of a
+  fresh Japanese `insert_text` on an Apple M2 Pro. The module reads the subset
+  pdf-writer emits on the calling thread (one classic cross-reference section
+  with lopdf's lenient entry terminators, compact direct objects, and direct
+  stream lengths) and builds exactly the document lopdf 0.45 returns, including
+  the header version, binary mark, `xref_start`, the `/Size` correction, and
+  `max_id`. Comments, other cross-reference forms, `/Prev` and `/XRefStm`,
+  encryption, object streams, indirect stream lengths, nesting beyond 32
+  levels, and anything lopdf would repair or skip decline and fall back to
+  `Document::load_mem`. Emscripten always uses `load_mem`, user documents keep
+  lopdf's parallel parse, and the Form-import bounds apply to the result
+  unchanged. `_Document.generated_pdf_loads()` counts sequential, fallback, and
+  mismatched loads, and `compare_generated_pdf_load` checks synthetic syntax
+  against lopdf. `tests/conftest.py` enables `verify_generated_pdf_loads` for
+  the whole suite and fails any test whose import differs from lopdf's parse of
+  the same bytes; after a lopdf, krilla, or pdf-writer upgrade the suite must
+  still report no fallbacks or mismatches. Interleaved A/B on the five
+  GitHub-hosted release targets measured a fresh Japanese `insert_text` 6–38%
+  faster and a twelve-widget `set_form_field` 17–31% faster, with loads
+  unchanged and byte-identical output.
 - `Page.insert_textbox` completes layout before mutating the PDF and returns
   negative spare height without drawing on overflow. Standard 14 measurement
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
@@ -831,28 +988,82 @@ overview.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
-  14 or krilla generation paths. Comb text fields resolve inherited `/MaxLen`,
-  count Unicode graphemes, position them individually, and reject overlength or
-  incompatible flag combinations. Preserve non-empty authored button states
-  and synthesize only missing/empty Off/on states. Widget `/MK /R`, `/BG`,
-  `/BC`, `/BS /W`, and legacy `/Border` feed the appearance. Keep updates
-  atomic by restoring the document clone on error. hayro 0.7 cannot select an
-  `/AP /N` state dictionary, so the rendering snapshot substitutes any
-  resolvable widget `/AS` stream; the editable/saved PDF remains canonical.
-  Retain the original-byte fast path when no selected state stream can be
-  resolved.
+  14 or krilla generation paths. When the bounded `/Parent` walk finds no `/Q`,
+  `field_quadding` uses the AcroForm dictionary's document-wide `/Q`
+  (ISO 32000-2 Table 225), read through `inheritable_field_value`, and
+  otherwise aligns left. A field's own or inherited `/Q`, including `/Q 0` and
+  an unusable value, still wins; an out-of-range or non-integer value aligns
+  left. Comb text fields resolve inherited `/MaxLen`, count Unicode graphemes,
+  position them individually, and reject overlength or incompatible flag
+  combinations. Preserve non-empty authored button states and synthesize only
+  missing/empty Off/on states. Widget `/MK /R`, `/BG`, `/BC`, `/BS /W`, and
+  legacy `/Border` feed the appearance. Keep updates atomic by restoring the
+  document clone on error. hayro 0.7 cannot select an `/AP /N` state
+  dictionary, so the rendering snapshot substitutes any resolvable widget `/AS`
+  stream; the editable/saved PDF remains canonical. Retain the original-byte
+  fast path when no selected state stream can be resolved.
 - AcroForm field-tree reads borrow object shapes, visit indirect cycles once,
   release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
   4,096 choice-value items. Inherited values use shared storage during the
-  walk and count once per returned leaf. Tree stacks, cycle sets, inherited
+  walk and count once per returned leaf. Field-attribute inheritance (`/FT`,
+  `/Ff`, and `/V` in the walk; `/Q` and `/MaxLen` along the `/Parent` chain)
+  reads a null value, an indirect null, and a reference to a missing object as
+  an omitted entry, following ISO 32000-2 §7.3.7 and §7.3.10 as
+  `page_attribute_has_value` does, so the field inherits its parent's value.
+  `inheritable_field_value` keeps any other value on the field, including an
+  unusable one or a cyclic or over-long reference chain, and that value stops
+  inheritance; only `/FT` and `/Ff` also inherit past other unreadable values.
+  pylopdf reads neither `/DA` nor `/DV`; route any inheritable key it starts
+  reading through the same helper, and fall back to the AcroForm dictionary's
+  `/DA` as `field_quadding` does for `/Q`. Tree stacks, cycle sets, inherited
   names/types, choice values, joined values, returned entries, field-widget
   lists, and button-state names grow fallibly; returned ordering uses an
   in-place sort with object-ID tie-breaking.
+  Inherited names and types are shared like values: a push clones an
+  `Arc<String>` around the text that a visit allocated fallibly, and returned
+  fields share their inherited type. `/Kids` can push one kid once per edge,
+  while only its first visit is charged to the text budgets, so a copy per
+  push would let a long name or type grow with the edge count.
   `set_form_field` must reject caller
   field names and values above 1 MiB before font discovery, button lookup, or
   file reads, repeat the check in Rust with `form_field_input_size`, enforce the
   same tree limits, and preserve its atomic rollback contract.
+  The walk and `field_widgets` classify `/Kids` entries through
+  `classify_field_kid`, so `visible_field_widgets` and button-state handling
+  see the widgets that the walk classifies. A kid dictionary whose `/T` is
+  absent, null, an indirect null, or a reference to a missing object is
+  nameless, following ISO 32000-2 §7.3.7 and §7.3.10; any other `/T`,
+  including an unusable value or a cyclic or over-long reference chain, makes
+  it a child field. A nameless kid is a widget of its parent field unless its
+  `/Kids` resolves to a non-empty array. A field merged with its only widget
+  omits `/Kids` (§12.7.4.1), so such a kid is a nameless intermediate field,
+  another representation of the field above it (§12.7.4.2). Intermediates,
+  including nested ones, fold into the nearest field above them that is not
+  an intermediate: their widget kids become its widgets, their named kids
+  become its child fields under its full name, and leaf detection counts both.
+  The walk visits each intermediate like a child field that adds no name
+  component, and each field reserves its leaf entry before reading its kids so
+  that an intermediate holding a child field can withdraw it. An intermediate
+  that also looks like a widget (`/Subtype /Widget` or a `/Rect`) stays a
+  widget, so a malformed merged widget with stray kids is still drawn. A
+  nameless kid with an absent, null-equivalent, non-array, or empty `/Kids`
+  stays a widget, as a field with such a `/Kids` is its own widget. Folding
+  never moves attributes up: an intermediate's own `/FT`, `/Ff`, and `/V`
+  reach only the named fields below it, and a fill leaves its `/V`, like a
+  widget kid's, unchanged.
+  Intermediates count as nodes and levels, their `/Kids` entries as edges, and
+  their materialized names, types, and values toward the text budgets. A
+  direct `/Fields` or `/Kids` entry, an indirect null, and a reference to a
+  missing object cost only their edge. Every other `/Kids` entry that is
+  neither a child field nor an intermediate counts toward the 4,096-widget
+  walk budget, as does an intermediate that is also a widget, so that budget
+  covers every widget that `field_widgets` can return. `field_widgets` returns
+  widgets in document order, expands each intermediate once, and enforces the
+  walk's node, edge, and widget limits, which a successful walk has already
+  met. It has no depth limit: the node limit bounds its frame stack, and a
+  depth limit could reject an intermediate that the walk reached at a smaller
+  depth through another field.
 - AcroForm button handling rejects more than 4,096 widgets, 8,192 `/AP /N`
   state entries, 4,096 unique returned names, or 1 MiB of encoded/returned
   state-name text. Borrow and preflight state dictionaries before cloning them.
@@ -1043,10 +1254,11 @@ overview.
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, textbox layout, pixmaps,
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
-  error recovery, and lopdf cross-reference recovery reporting. Add only small
-  redistributable PDFs listed in `tests/assets/real_world/README.md`; non-PDF
-  inputs such as the existing CJK font may be supplied from already licensed
-  repository assets. Do not claim
+  error recovery, lopdf cross-reference recovery reporting, and unchanged
+  extraction after an edit for a skipped bare-keyword form and a non-page
+  page-tree kid. Add only small redistributable PDFs listed in
+  `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
+  font may be supplied from already licensed repository assets. Do not claim
   direct PyPI installation through Pyodide 0.28.3: its `micropip` predates PEP
   783 even though the binary itself passes that runtime's suite.
 - `DocumentLimits` is the public untrusted-input policy. Python validates the
@@ -1087,12 +1299,30 @@ overview.
   walk per call. Its `DerefMut` drops the index before any mutable document
   access, and the wrapper lives in a private module, so no edit can read or
   retain an index built from a partially edited tree; never bypass it.
-  `set_page_entry` is the only mutation that keeps the index, and only for
-  `/Rotate` and the five page boxes, which the walk never reads, so rotate- and
-  crop-every-page loops stay linear; any other key drops it. Failed walks are
-  never cached, so a malformed tree raises on every access. Other edits still
-  rebuild the index on the next access, so drawing and annotation loops pay one
-  walk per edited page.
+  Page-tree-neutral edits keep the index, so loops that rotate, crop, draw on,
+  or annotate every page stay linear. Besides the page IDs, the walk records
+  the objects on `/Kids` reference chains and the absent objects that skipped
+  `/Kids` entries name, and each neutral edit checks those facts or drops the
+  index. New objects, including `self.doc.add_object` through
+  `draw::ObjectSink` and renumbered Form imports, keep it only at IDs that
+  neither exist nor are recorded as missing entries; lopdf's `add_object`
+  wraps past `u32::MAX` into existing IDs. `replace_page` keeps it only for an
+  indexed page whose `/Type`, `/Pages` (a malformed page can be the catalog),
+  and indirect `/Annots` reference stay the same. `set_page_entry` and
+  `set_page_object_entry` keep it only for `/Rotate`, the five page boxes, and
+  `/Contents`. An in-place annotation-array edit keeps it unless the walk read
+  that array as `/Kids`. No neutral edit removes objects, so the object count
+  that bounds walked edges only grows; anything that prunes goes through
+  `DerefMut`. Because Form imports null references to missing source objects,
+  current edits cannot turn a missing entry or a `/Kids` alias into a page, so
+  those checks are defensive; keep them so each obligation stays locally
+  checkable. The first append to an indirect `/Annots` array counts the pages
+  that reference each such array; detaching a shared array decrements its
+  count, and a page object that is a reference to another dictionary disables
+  the counts in favor of the scan. Failed walks are never cached, so a
+  malformed tree raises on every access. Serialization, including the
+  renderer snapshot, still takes `&mut Document` and drops the index, which
+  the next access rebuilds.
   Keep
   `max_decompressed_size=` as the compatible shorthand, keep the web profile
   usable for representative scans, and require the host to enforce CPU
@@ -1128,16 +1358,42 @@ overview.
   `prune_objects` and `renumber_objects_with`; do not call them or the other
   helpers built on it (`delete_object`, `delete_zero_length_streams`, and
   lopdf's own `delete_pages`).
+- lopdf's `rayon` feature parses even tiny documents on the global pool, so
+  every native load from a thread outside the pool pays a worker wake-up.
+  Without the feature, opening 7- to 29-object PDFs was 10–65% faster on the
+  five release targets, but 445- to 5,343-object documents were 62–257%
+  slower, so pylopdf keeps it for user documents and parses only its own
+  generated PDFs on the calling thread. A lopdf change that parses small
+  cross-reference tables on the calling thread is an upstream contribution
+  candidate.
 - lopdf's `renumber_objects_with` keeps the number of a reference to a missing
   object, so after an import it resolves to whichever object takes that
-  number. pylopdf's import renumbering writes null instead. The target's own
-  references are not rewritten: one that names a number above the target's
-  `max_id` still resolves to the object that a later import or allocation
-  receives. lopdf also derives `max_id` from the highest cross-reference
-  entry, while it stores each loaded object under the number in its own header
-  and adds object-stream members missing from the cross-reference table. In a
-  malformed file such an object can sit above `max_id`, and a later
-  allocation replaces it.
+  number. pylopdf's import renumbering writes null instead, and loading nulls
+  a document's own references above `max_id`. lopdf stores each loaded object
+  under the number in its own header and adds object-stream members missing
+  from the cross-reference table. lopdf 0.44 derived `max_id` from the table
+  alone, so a later allocation could replace such an object; 0.45 raises it
+  over every loaded object, and pylopdf's load pass repeats that. hayro reads
+  the original bytes through the table instead, so `object_recovery` drops
+  such objects when nothing reaches them and otherwise renders from lopdf's
+  graph.
+- lopdf allocates object numbers with unchecked `max_id += 1`, so `max_id`
+  must keep its headroom. Loading renumbers objects above 8,388,607 for that
+  reason; never set `max_id` from untrusted input elsewhere. Checked
+  allocation upstream is a contribution candidate.
+- hayro 0.7's typed array iteration ends at the first element that does not
+  resolve to the requested type, so `/Kids` and `/Contents` stop at a missing,
+  null, or mistyped entry. hayro 0.8 skips such page-tree kids but still ends
+  `/Contents` there. hayro also answers the first mismatched or unparseable
+  cross-reference entry it reads by rebuilding its whole table. Keep the
+  page-identity check and `object_recovery` until upstream changes both.
+  hayro 0.7 parses nested arrays and dictionaries recursively without a bound,
+  so deep nesting overflows the stack and kills the process
+  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347), fixed
+  in hayro 0.8). `object_recovery` keeps indirect objects that lopdf skips
+  from it, and `ContentGuard` checks the content streams that pylopdf never
+  parses at load before every interpretation. Nothing yet guards Type 4
+  function braces or object chains such as stitching functions.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.

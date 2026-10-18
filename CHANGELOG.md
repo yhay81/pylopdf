@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - uv now rebuilds the extension when `CARGO_PROFILE_RELEASE_LTO` or
   `CARGO_PROFILE_RELEASE_CODEGEN_UNITS` changes, so a local profile override
   for faster Rust iteration cannot silently remain in later measurements.
+- `Page.show_pdf_page()`, embedded-font `Page.insert_text()` and
+  `Page.insert_textbox()`, and embedded-font form-field appearances now import
+  only the source objects that the placed Form XObject reaches. They used to
+  import every other source object and then remove every unreachable object
+  of the target, which made placing a page on every page of a document
+  quadratic. The source page's content streams, annotations, outline,
+  attachments, metadata, and orphaned objects still stay out of the target,
+  but objects that the target itself could already not reach now remain until
+  a `garbage=True` save or a structural edit, as after the other drawing
+  edits. Form-field appearances no longer keep the generated page's two
+  unreachable objects, about 1 KB per filled field.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
@@ -86,6 +97,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
   link budget, so every well-formed tree and outline that resolves can also be
   cleaned and imported.
+- AcroForm kids whose `/T` is null, an indirect null, or a reference to a
+  missing object are now widgets of their parent field, as kids without `/T`
+  are, because ISO 32000-2 reads such a value as an omitted entry. Each such
+  kid was an unnamed child field with its parent's full name, so
+  `get_form_fields()` listed the field once per kid, and `set_form_field()`
+  updated only the kid with the lowest object number: the field's other
+  widgets kept their old appearances and `/AS` states, and a radio fill could
+  turn on the wrong widget with a synthesized state. Any other `/T`, including
+  an unusable value, still makes the kid a child field.
+- AcroForm field-tree reads skip an indirect null and a reference to a missing
+  object in `/Fields` or `/Kids` as they already skipped null; such entries
+  counted toward the 4,096-node or 4,096-widget limit. Every entry still
+  counts toward the 8,192-edge limit, and kids whose `/T` reads as omitted now
+  count toward the widget limit like other widgets.
+- AcroForm fields now include the widgets and named fields below nameless
+  intermediate fields: kids with their own `/Kids` but no `/T`, or a `/T` that
+  reads as null, which ISO 32000-2 treats as further representations of the
+  field above them. Each such intermediate was read as a widget, so
+  `set_form_field()` drew none of the widgets below it, left their `/AS`
+  states unchanged, and still cleared `NeedAppearances`, while named fields
+  below it were missing from `get_form_fields()`, which listed the field above
+  as a leaf instead. Those widgets are now the field's widgets, and those
+  named fields its child fields; an intermediate that also looks like a widget
+  is still drawn. Intermediates count toward the node, edge, 64-level, and text
+  limits of field-tree reads, and the widgets below them toward the widget
+  limit.
 - `insert_pdf` and `show_pdf_page` read the source page tree before
   renumbering the source. lopdf's renumbering kept the number of a missing
   Kids entry, so when a renumbered source object took that number, the import
@@ -103,10 +140,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inherits from its original ancestors, or the source default, and
   `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
   raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
-  rebuilt page inherited from its new parent instead. A reference in the
-  target document itself that names an object number above every entry in its
-  cross-reference table is not rewritten and can still resolve to an object
-  that a later import or edit adds.
+  rebuilt page inherited from its new parent instead.
+- A document's own references to object numbers above every object it
+  contains now load as null. New objects take the next numbers, so such a
+  reference used to resolve to whatever a later edit added: after
+  `insert_pdf`, a target page also drew the imported page's content; after
+  three `insert_text` calls, one stamp appeared twice; and an XObject
+  resource, attachment, or other entry could name an unrelated new object.
+  Every edit that adds objects was affected, including `show_pdf_page`,
+  `insert_image`, annotations, `new_page`, `set_toc`, `set_metadata`,
+  `embfile_add`, and the OCR text layer. Loading, including the reload by
+  `authenticate()`, now replaces each such reference with null, which is how
+  ISO 32000-2 reads it, and saving writes `null` in its place; documents
+  without such references load and save unchanged. The pass added about 4–6
+  ms to loading a 10 MB document with 100,000 objects or with one million
+  such references. Drawing on a page whose content names such a number now
+  stays visible: drawing kept the reference, where renderers stop reading
+  page content, so the drawing and everything after it disappeared. Adding
+  annotations to a page whose `/Annots` named such a number, setting metadata
+  when the trailer's `/Info` did, and reading or editing a page whose
+  `/Parent` did no longer raise `PdfError`, and `embfile_names()` no longer
+  lists an attachment whose file specification was such a number. lopdf 0.45
+  also numbers new objects above an object whose header disagrees with the
+  cross-reference table, which a later edit replaced under lopdf 0.44.
+- `delete_pages`, `delete_page`, and `select` read a null or indirect-null
+  `/Outlines`, `/Names`, or `/Names /Dests` entry as absent instead of raising
+  `PdfError`, as they already did for a reference to a missing object.
+- Editing a malformed file whose objects or cross-reference entries are
+  numbered near 2**32 no longer overwrites its catalog. New objects take the
+  numbers after the highest one, and lopdf does not check that increment, so
+  release builds wrapped them onto object 0 and then object 1: after a single
+  `insert_text`, `insert_image`, or `add_highlight_annot`, every later read
+  raised `PdfError`, while `insert_pdf`, `show_pdf_page`, `set_toc`, and the
+  OCR text layer refused with `PdfError` instead. Object-stream and encrypted
+  saves of such a file failed to reopen, and rendering and extraction skipped
+  objects numbered past 2**31. Loading, including the reload by
+  `authenticate()`, now moves objects numbered above 8,388,607, the ISO
+  32000-1 limit on indirect objects, to the numbers after the highest object
+  at or below it, keeping their order and generations. References follow
+  their objects, a reference above that highest object that names no object
+  becomes null, and documents within the limit load and save unchanged.
+  Moving the 100,003 objects of a 50,000-page document added about 15 ms to
+  its 61 ms load.
+- A reference to a missing object now reads as null wherever pylopdf already
+  read null, including the references at or below the highest object number
+  that loading keeps. Three edits raised `PdfError` for such a reference or an
+  indirect null: adding an annotation to a page whose `/Annots` was one now
+  starts a new array, `set_metadata` replaces such a trailer `/Info`, and page
+  attribute inheritance ends at such a `/Parent`, so `Page.mediabox`,
+  `Page.cropbox`, `Page.rotation`, drawing, and page-tree edits work on the
+  page. `embfile_names()` no longer lists an attachment whose file
+  specification is an indirect null or a missing object, and drawing on a page
+  whose `/Contents` holds one stays visible: drawing kept the entry, and
+  renderers stop reading page content at the first entry that is not a
+  stream.
+- Text insertion, `insert_image`, `show_pdf_page`, and the OCR text layer
+  start an empty `/Font` or `/XObject` resource category that is null, an
+  indirect null, or a missing object, `get_toc()` returns no entries for such
+  a catalog `/Outlines`, and `embfile_add()` replaces such a catalog `/Names`,
+  instead of raising `PdfError`.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved
@@ -117,8 +209,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decompression limit; lopdf 0.45 moved wrapped causes out of `Display`.
 - Saving a document whose cross-reference table was rebuilt no longer writes
   the damaged input's `/Prev` offset into the new trailer.
+- AcroForm fields now inherit their parent's `/V`, `/Q`, and `/MaxLen` past a
+  null value, an indirect null, or a reference to a missing object, which
+  ISO 32000-2 reads as an omitted entry; `/FT` and `/Ff` already did.
+  `get_form_fields()` returned no value for such a `/V`. `set_form_field()`
+  rejected a comb field with such a `/MaxLen`, aligned text left for such a
+  `/Q`, and, when it completed the missing appearances of other fields, drew
+  such a field without its inherited value or skipped such a comb field. A
+  value present on the field, including an unusable one, still stops
+  inheritance.
+- AcroForm text and choice appearances now use the interactive form
+  dictionary's document-wide `/Q` when no field on the widget's `/Parent`
+  chain supplies `/Q`, as ISO 32000-2 Table 225 defines. `set_form_field()`
+  aligned such fields left, both the field it filled and the fields whose
+  missing appearances it completed. A null value, an indirect null, or a
+  reference to a missing object reads as absent there too. A field's own or
+  inherited `/Q`, including `/Q 0`, still wins, and an out-of-range or
+  non-integer value still aligns left.
+- Malformed files now render and extract the same before and after an
+  unrelated edit. An unedited document reads its original bytes through hayro,
+  while edits and saves serialize lopdf's object graph, and the two disagreed
+  when a cross-reference entry located an object whose header names another
+  number, when lopdf skipped an object it could not parse, or when an object
+  stream held members that no entry lists. A page that drew such an object
+  gained or lost it after `set_metadata()`. Loading now keeps the original
+  bytes only when every reference reachable from the trailer resolves to the
+  same object in both views; other documents render from the serialized graph
+  from the start, as documents whose cross-reference data lopdf recovered
+  already do. Well-formed files, including incremental updates and object
+  streams, keep the original bytes and save byte-identically.
+- Objects that lopdf skipped because a value is a bare keyword, such as a name
+  written without its slash in `/Type XObject`, now load with that value read
+  as null, as hayro reads it. Loading re-parses each skipped uncompressed
+  object whose header matches its cross-reference entry with a bounded parser.
+  `pdfium-smask-blend.pdf` lost its three soft-mask forms after any edit or
+  save; they now survive. Objects that still do not parse, and skipped objects
+  in encrypted documents or in documents whose cross-reference data lopdf
+  recovered, remain absent.
+- Every page that `page_count` reports can now be extracted and rendered when
+  a page-tree `/Kids` array also holds an entry that is not a page, such as a
+  reference to a missing object, `null`, a number, a stream, or an untyped or
+  direct dictionary. hayro 0.7 ended the page list at the first entry that is
+  not a dictionary and read untyped and direct dictionaries as pages, while
+  pylopdf's page-tree walker skips all of these, so page 2 of
+  `/Kids [3 0 R <missing> 6 0 R]` raised `PdfError` and other pages could show
+  the wrong object. Rendering and extraction now check that hayro resolves the
+  walker's pages, by object ID and in order, and otherwise read a copy whose
+  root lists exactly those pages with inherited attributes materialized. The
+  editable and saved page tree are unchanged.
+- Object-stream members that no cross-reference entry lists and nothing
+  reaches, such as members that a damaged stream decodes under arbitrary
+  numbers, are now dropped at load instead of being written into every save,
+  and the next object number returns to the highest listed entry or remaining
+  object when no reachable reference names a higher one. A five-byte mutation
+  of `f1040.pdf` decodes members numbered up to 521,291,308; they no longer
+  need the move above 8,388,607 described above, and the document keeps its
+  numbering.
 
 ### Security
+- AcroForm field-tree reads now share a field's full name and inherited type
+  with its kids instead of copying both for every `/Kids` entry that names a
+  child field or a nameless intermediate. Only the first visit of a kid is
+  charged to the 1 MiB name budgets, so 8,191 entries naming one kid below a
+  64 KiB name or type held about 512 MiB of copies while `get_form_fields()`
+  returned a single field; the longest name or type that the budgets admit
+  would have needed about 4 or 8 GiB. Every field found also held its own
+  copy of an inherited type until the read returned: 256 MiB for 4,095
+  fields below a 64 KiB type. Those calls now raise peak RSS by under 3 MiB,
+  and `set_form_field()` and the other field-tree reads share the fix.
+  Results, limits, and error messages are unchanged.
 - Opening and metadata probing refuse input whose lopdf cross-reference
   reconstruction could scan more than 64 bytes per input byte plus 64 MiB,
   with `LimitError.code == "recovery_scan_size"`. lopdf rescans the rest of
@@ -126,6 +285,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
   damaged files carry at most one truncated stream in that position.
   `DocumentLimits` continue to apply to recovered documents.
+- A page that reaches an indirect object nested more than 100 levels deep no
+  longer crashes the process on its first render or extraction. lopdf skips
+  such an object, while hayro 0.7, reading the original bytes, parsed it
+  recursively until the stack overflowed
+  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347),
+  fixed in hayro 0.8); a 600 KB file was enough. Such a document now renders
+  from lopdf's serialized graph, which leaves the object out. Arrays nested as
+  deeply inside a content stream are refused by the check in the next entry.
 - A content stream that nests arrays or dictionaries hundreds of thousands of
   levels deep no longer kills the Python process. hayro 0.7 skips and reads
   them by unbounded recursion (LaurenzV/hayro#1347), so
@@ -158,8 +325,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indirect objects in which each stitching function names the next as its
   sub-function, or each Indexed or Separation colour space names the next as
   its base or alternate.
+- Saving no longer takes time proportional to a document's highest object
+  number. lopdf's cross-reference writer visits every number up to the highest
+  object, so a file of a few hundred bytes whose single object was numbered
+  near 2**32 took about 19 seconds per `tobytes()` or `save()`. Objects
+  numbered above 8,388,607 now move below that bound at load, as described
+  under Fixed.
 
 ### Performance
+- Freshly opened documents no longer reread every installed locale fallback
+  font before their first render. With the four CJK font extras installed, as
+  `uv sync --all-extras` and the README's benchmark reproduction do, each new
+  `Document` read and kept its own copy of eight Noto Sans/Serif files
+  (54 MiB). Auto-discovered fonts are now read once into one process-wide slot
+  per locale and style and shared by every document. Each new document still
+  checks every file before its first render (path, size, and modification
+  time, plus device, inode, and change time on Unix) and applies the 64 MiB
+  `font_input_size` boundary, so missing, over-limit, and replaced files fail
+  or are reread as before. In interleaved A/B runs on the five GitHub-hosted
+  release targets, opening the 1 KB `pdfium-type3.pdf` and rendering its first
+  page at 2x became 90–95% faster (22.7 ms to 1.2 ms on Windows, 7.6 ms to
+  0.7 ms on Linux x86_64), the 14-file corpus first-page total 26–42% faster,
+  and 14 rendered documents kept open used 100–157 MiB instead of
+  803–860 MiB. On an Apple M2 Pro the same fresh render fell from about 5.6 ms
+  to 0.5 ms, and free-threaded CPython 3.14t rendered fresh documents about
+  twice as fast on four and eight threads. Output is unchanged, and extraction
+  alone, which never configures fallback fonts, is unaffected. In exchange, the
+  process keeps those 54 MiB after its last document is released. That left
+  54 MiB more resident after a single render on Linux and Windows and after 54
+  renders on Windows; on macOS, and with glibc after 54 renders, the allocator
+  already retained the freed copies, so the difference was 0–16 MiB. A
+  54-render loop on macOS x86_64 also peaked 18–22 MiB higher. Concurrent first
+  renders in a cold process may each read the files once. Explicit
+  `set_fallback_font()` paths are still read on every call.
+- Generated text and form values no longer reread their installed font
+  package file on every call. Without `fontfile=` or `fontbuffer=`,
+  `Page.insert_text()`, `Page.insert_textbox()`, and `Document.set_form_field()`
+  read the complete selected Noto face, 0.1–11.6 MB, for every run. The face
+  now comes from the same process-wide slots, one per font package and style,
+  that fallback configuration uses, so a CJK face read for rendering is reused
+  for generation and the other way around. Every call still checks the path
+  (size and modification time, plus device, inode, and change time on Unix)
+  and applies the 64 MiB `font_input_size` boundary, so missing, over-limit,
+  and replaced files fail or are reread as before. Explicit `fontfile=` paths
+  are still read, and `fontbuffer=` input copied, on every call. Filling a
+  field with several widgets also no longer copies the complete font once per
+  widget. In interleaved A/B runs on the five GitHub-hosted release targets,
+  inserting a short Japanese line into a fresh document became 46–59% faster
+  (2.8 ms to 1.2 ms on Windows, 1.5 ms to 0.6 ms on Linux x86_64), a
+  Simplified Chinese serif line 66–83% faster, and filling a Japanese form
+  field 55–79% faster. Arabic, whose face is 0.8 MB, gained 9–19% on four
+  targets; the macOS arm64 runner was too noisy to resolve it. On an Apple M2
+  Pro the Japanese line fell from 1.0 ms to 0.6 ms, and free-threaded CPython
+  3.14t generated 2.1–2.5 times as many fresh documents per second on one to
+  eight threads. Generated PDFs are byte-identical. In exchange, each face used
+  stays resident after the last document is released. On Windows that left
+  4.3 MiB more after Japanese text, 11.0 MiB more after Simplified Chinese
+  serif text, and 16.3 MiB more after three faces; with glibc, which often
+  kept a freed copy anyway, the difference was 0–5.2 MiB, and macOS, whose
+  allocator keeps freed memory, showed none. Peaks stayed within 2 MiB,
+  except 3–5 MiB higher with three faces in use at once on Linux and Windows
+  and about 4 MiB lower for a four-widget form on every target.
+- Text drawn with an embedded font and the form field appearances generated
+  from one no longer wait for a thread pool. Every `Page.insert_text()` and
+  `Page.insert_textbox()` run that embeds an OpenType font, and every text or
+  choice widget appearance that `Document.set_form_field()` generates, is a
+  small PDF that krilla writes and pylopdf imports. lopdf's parallel reader
+  parsed its dozen objects on the global rayon thread pool, so each import
+  woke a pool worker and blocked the calling thread, with the GIL held, until
+  the pool finished. pylopdf now parses the output of krilla's PDF writer on
+  the calling thread and hands anything else to lopdf; documents opened from
+  files and bytes still parse in parallel, and the Emscripten build is
+  unchanged. In interleaved A/B runs on the five GitHub-hosted release
+  targets, inserting a short Japanese line into a fresh document became 6–38%
+  faster (0.62 ms to 0.55 ms on Linux x86_64, 0.64 ms to 0.47 ms on macOS
+  arm64), twenty lines on one page 15–41% faster, and filling a Japanese form
+  field 11–22% faster with one widget and 17–31% faster with twelve. On an
+  Apple M2 Pro the Japanese line fell from about 0.57 ms to 0.39 ms, and
+  free-threaded CPython 3.14t generated 19–36% more fresh documents per second
+  on one to eight threads. Opening documents is unchanged, and generated
+  output is byte-identical.
 - Reading the links of every page of a large manual is now linear in its
   pages and links. `Page.get_links()` used to index the complete
   `/Names/Dests` tree and walk the page tree five times for every call, plus
@@ -238,6 +483,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changes, `close()`, and dropping the document release it on that thread.
   Calls from other threads, parallel `render_pages` workers, SVG output, and
   text extraction keep call-scoped caches.
+- Drawing on or annotating every page is now linear in the page count.
+  `insert_text()`, `insert_textbox()`, `insert_image()`, `show_pdf_page()`,
+  `replace_text()`, `insert_ocr_text_layer()`, `add_link_annot()`, and
+  `add_highlight_annot()` dropped the page index, so the next page access
+  walked the page tree again. They now keep it: each adds objects only at
+  object numbers that the page-tree walk did not read and leaves every entry
+  it read unchanged, and drops the index when it cannot show that, for
+  example when a malformed page uses a `/Kids` array as its `/Annots`.
+  Appending to an indirect `/Annots` array also no longer scans every page
+  for duplicates made by `copy_page()` or `select()` that share it. On a
+  generated 10,000-page document, one of these edits on every page fell from
+  16.0–20.0 s to 0.05–0.25 s of CPU time, and `show_pdf_page()`, which also
+  swept the complete target after each placement, from 106 s to 0.16 s.
+  Results are unchanged apart from the unreachable objects that placement no
+  longer removes.
 
 ## [0.14.0] - 2026-10-13
 

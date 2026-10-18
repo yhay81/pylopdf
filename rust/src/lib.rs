@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+mod bundled_font_cache;
 mod content_guard;
 mod content_scan;
 mod document;
@@ -6,8 +7,10 @@ mod draw;
 mod extract;
 mod form;
 mod generate;
+mod generated_pdf;
 mod image_compression;
 mod layout;
+mod object_recovery;
 mod ocr;
 #[cfg(not(target_os = "emscripten"))]
 mod ocr_engine;
@@ -21,6 +24,7 @@ mod recovery;
 mod render_cache;
 mod renumber;
 mod text_replace;
+mod unallocated;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;

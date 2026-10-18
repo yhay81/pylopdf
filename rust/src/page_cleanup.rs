@@ -67,6 +67,9 @@ impl Target {
         Ok(Self { id: self.id, path })
     }
 
+    /// Follow references to the located value. A null value, an indirect null,
+    /// and a reference to a missing object all read as an absent entry, as in
+    /// ISO 32000-2 §7.3.7 and §7.3.10.
     fn resolve(mut self, doc: &Document) -> PyResult<Option<Self>> {
         let mut visited = [(0, 0); MAX_DEST_DEPTH];
         let mut count = 0;
@@ -84,7 +87,10 @@ impl Target {
             self.id = *id;
             self.path.clear();
         }
-        Ok(self.object(doc).is_some().then_some(self))
+        Ok(self
+            .object(doc)
+            .is_some_and(|object| !matches!(object, Object::Null))
+            .then_some(self))
     }
 }
 

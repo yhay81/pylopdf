@@ -66,8 +66,10 @@ levels, and edge counts above the indirect-object count. `max_pages` traversal
 stops at the first over-limit page. Opening without a page policy remains
 compatible and defers these page-tree checks until the first operation that
 indexes pages. Page counts and lookups reuse one walk's page index, so
-touching every page stays linear. Rotation and page-box edits keep the index
-because they cannot change the page tree; every other edit drops it, and the
+touching every page stays linear. Rotation, page-box, drawing, and annotation
+edits keep the index because they cannot change the page tree: each adds
+objects only at unused object numbers and keeps every entry the walk read, or
+drops the index when it cannot show that. Every other edit drops it, and the
 next access rebuilds it. A failed walk is never cached, so a malformed tree
 raises on every access.
 

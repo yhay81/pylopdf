@@ -27,18 +27,22 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
+use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
-use crate::draw;
+use crate::draw::{self, ObjectSink};
 use crate::form;
 use crate::generate;
+use crate::generated_pdf;
 use crate::image_compression;
+use crate::object_recovery;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
-use crate::prune::prune_unreachable_objects;
+use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
+use crate::unallocated::normalize_object_numbers;
 use indexed::IndexedDocument;
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -502,8 +506,9 @@ type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
 /// One flattened TOC item: one-based level, title, and page number.
 type TocEntry = (u32, String, u32);
 
-/// One flattened AcroForm field: name, object, type, flags, and normalized value.
-type FormFieldEntry = (String, ObjectId, String, i64, Option<Arc<str>>);
+/// One flattened AcroForm field: name, object, type, flags, and normalized
+/// value. Fields that inherit one type or value share it.
+type FormFieldEntry = (String, ObjectId, Arc<String>, i64, Option<Arc<str>>);
 
 /// One widget and the raw state names from its normal appearance dictionary.
 type WidgetStateNames = (ObjectId, Vec<Vec<u8>>);
@@ -513,6 +518,30 @@ fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     match obj {
         Object::Reference(id) => doc.get_object(*id).unwrap_or(obj),
         other => other,
+    }
+}
+
+/// Resolve an indirect object, reading an indirect null and a missing object
+/// alike as absent.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null. lopdf's error for a
+/// cyclic or over-long reference chain still surfaces.
+fn non_null_object(doc: &Document, id: ObjectId) -> lopdf::Result<Option<&Object>> {
+    match doc.get_object(id) {
+        Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_)) => Ok(None),
+        Ok(object) => Ok(Some(object)),
+        Err(error) => Err(error),
+    }
+}
+
+/// Resolve a value, reading null, an indirect null, and a reference to a
+/// missing object alike as absent, as [`non_null_object`] does.
+fn non_null_value<'a>(doc: &'a Document, object: &'a Object) -> lopdf::Result<Option<&'a Object>> {
+    match object {
+        Object::Reference(id) => non_null_object(doc, *id),
+        Object::Null => Ok(None),
+        other => Ok(Some(other)),
     }
 }
 
@@ -864,8 +893,11 @@ fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
     else {
         return Ok(Vec::new());
     };
-    let Ok(outlines) = deref_object(doc, outlines_object).as_dict() else {
-        return Err(PdfError::new_err("catalog Outlines is not a dictionary"));
+    // Page cleanup reads a null or missing outline root as absent as well.
+    let outlines = match non_null_value(doc, outlines_object) {
+        Ok(None) => return Ok(Vec::new()),
+        Ok(Some(Object::Dictionary(outlines))) => outlines,
+        _ => return Err(PdfError::new_err("catalog Outlines is not a dictionary")),
     };
     let (start, mut edges) = match outlines.get(b"First") {
         Ok(first) => (first, 1usize),
@@ -977,14 +1009,33 @@ fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
     Ok(out)
 }
 
-/// One field-tree traversal node: object, prefix, inherited FT/Ff/value, depth.
+/// How one field-tree traversal node takes part in the walk.
+#[derive(Clone, Copy)]
+enum FieldRole {
+    /// A `/Fields` entry or a named kid, which can be a returned leaf.
+    Field,
+    /// A nameless intermediate field folded into the nearest field above it,
+    /// whose reserved leaf entry, if any, is at this index.
+    Folded(Option<usize>),
+}
+
+/// One field-tree traversal node: object, prefix, inherited FT/Ff/value,
+/// depth, and role.
+///
+/// The prefix and inherited text are shared with the node that pushed it.
+/// Only the first visit of a kid is charged to the text budgets, while
+/// `/Kids` can push it once per edge, so a copy per push would let a long
+/// name or type grow with the edge count. Names and types are `Arc<String>`
+/// so that their fallibly allocated text moves in instead of being copied
+/// into an `Arc<str>`.
 type FieldNode = (
     ObjectId,
-    String,
-    Option<String>,
+    Arc<String>,
+    Option<Arc<String>>,
     i64,
     Option<Arc<str>>,
     usize,
+    FieldRole,
 );
 
 // Python-visible exceptions. PdfError subclasses ValueError for compatibility.
@@ -1175,6 +1226,22 @@ fn recovery_load_err(
     }
 }
 
+/// Recover skipped objects and decide whether hayro may read the original bytes.
+///
+/// Encrypted input and input whose cross-reference data lopdf recovered never
+/// keep their original bytes: hayro would decrypt or recover them on its own
+/// and could resolve different objects. `object_recovery` decides the rest.
+fn original_bytes_match(
+    doc: &mut Document,
+    recovery: Option<XrefRecovery>,
+    data: &[u8],
+) -> PyResult<bool> {
+    if recovery.is_some() || doc.is_encrypted() || doc.was_encrypted() {
+        return Ok(false);
+    }
+    object_recovery::reconcile_loaded_objects(doc, data)
+}
+
 /// Construct a machine-readable resource-limit exception.
 ///
 /// The first exception argument is a stable code; Python supplies a friendly
@@ -1278,19 +1345,23 @@ fn read_bounded_input(
     size_label: &str,
     error_prefix: &str,
 ) -> PyResult<Vec<u8>> {
+    read_bounded_file(path, max_size, limit_code, size_label, error_prefix).map(|(data, _)| data)
+}
+
+/// Read a bounded path and return the metadata of the opened file.
+pub(crate) fn read_bounded_file(
+    path: &str,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
+    error_prefix: &str,
+) -> PyResult<(Vec<u8>, std::fs::Metadata)> {
     let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
     let file = std::fs::File::open(path).map_err(io_error)?;
-    let metadata_size = file.metadata().map_err(io_error)?.len();
-    if let Some(limit) = max_size
-        && metadata_size > limit as u64
-    {
-        return Err(limit_err(
-            limit_code,
-            format!("{size_label} is {metadata_size} bytes, exceeding the {limit}-byte limit"),
-        ));
-    }
+    let metadata = file.metadata().map_err(io_error)?;
+    validate_file_size(metadata.len(), max_size, limit_code, size_label)?;
     let read_limit = max_size.map(|limit| limit.saturating_add(1));
-    let initial_capacity = usize::try_from(metadata_size)
+    let initial_capacity = usize::try_from(metadata.len())
         .unwrap_or(0)
         .min(read_limit.unwrap_or(usize::MAX));
     let data =
@@ -1303,7 +1374,25 @@ fn read_bounded_input(
             format!("{size_label} exceeds the {limit}-byte limit while being read"),
         ));
     }
-    Ok(data)
+    Ok((data, metadata))
+}
+
+/// Reject a file whose reported size already exceeds a caller's budget.
+pub(crate) fn validate_file_size(
+    size: u64,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
+) -> PyResult<()> {
+    if let Some(limit) = max_size
+        && size > limit as u64
+    {
+        return Err(limit_err(
+            limit_code,
+            format!("{size_label} is {size} bytes, exceeding the {limit}-byte limit"),
+        ));
+    }
+    Ok(())
 }
 
 /// Read PDF input without admitting more than one byte beyond its file budget.
@@ -1376,13 +1465,59 @@ fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
 
 /// Read OpenType font input without admitting more than one byte beyond its budget.
 fn read_font_input(path: &str, max_font_size: Option<usize>) -> PyResult<Vec<u8>> {
-    read_bounded_input(
+    read_font_file(path, max_font_size).map(|(data, _)| data)
+}
+
+/// Read bounded OpenType font input and return the metadata of the opened file.
+pub(crate) fn read_font_file(
+    path: &str,
+    max_font_size: Option<usize>,
+) -> PyResult<(Vec<u8>, std::fs::Metadata)> {
+    read_bounded_file(
         path,
         max_font_size,
         "font_input_size",
         "font input",
         "failed to load font",
     )
+}
+
+/// Load generation font input from a path without holding the GIL.
+///
+/// A face Python selected from an installed font package shares its bytes
+/// through `bundled_font_cache`; explicit font paths are read on every call.
+/// Both apply the same `font_input_size` boundary before using any bytes.
+fn load_generation_font(
+    py: Python<'_>,
+    path: &str,
+    package_font: Option<(String, String)>,
+    max_font_size: Option<usize>,
+) -> PyResult<FontBytes> {
+    validate_font_input(None, max_font_size)?;
+    let face = package_font
+        .map(|(language, kind)| PackageFace::parse(&language, &kind))
+        .transpose()?;
+    py.detach(|| match face {
+        Some(face) => load_package_font(face, path, max_font_size),
+        None => read_font_input(path, max_font_size).map(Arc::new),
+    })
+}
+
+/// Inspect a font path without reading it, failing as a bounded read would
+/// for a missing file or a reported size above the font boundary.
+pub(crate) fn font_file_metadata(
+    path: &str,
+    max_font_size: Option<usize>,
+) -> PyResult<std::fs::Metadata> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| PdfError::new_err(format!("failed to load font {path}: {error}")))?;
+    validate_file_size(
+        metadata.len(),
+        max_font_size,
+        "font_input_size",
+        "font input",
+    )?;
+    Ok(metadata)
 }
 
 fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyResult<()> {
@@ -1877,6 +2012,16 @@ fn page_attribute_has_value(doc: &Document, dictionary: &Dictionary, key: &[u8])
     !matches!(value, Object::Null)
 }
 
+/// Resolve one dictionary of a page-attribute inheritance walk.
+///
+/// A `/Parent` that names a missing object or an indirect null ends
+/// inheritance, as a null `/Parent` does.
+fn inheritance_node(doc: &Document, id: ObjectId) -> PyResult<Option<&Dictionary>> {
+    non_null_object(doc, id)
+        .and_then(|node| node.map(Object::as_dict).transpose())
+        .map_err(to_py_err)
+}
+
 /// Materialize inherited page attributes before discarding the source page tree.
 fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Dictionary> {
     let page = doc
@@ -1910,10 +2055,9 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
             )));
         }
         visited.push(parent_id);
-        let parent_dict = doc
-            .get_object(parent_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
+        let Some(parent_dict) = inheritance_node(doc, parent_id)? else {
+            break;
+        };
         for (index, key) in INHERITABLE_PAGE_KEYS.iter().enumerate() {
             if missing[index]
                 && page_attribute_has_value(doc, parent_dict, key)
@@ -1946,6 +2090,80 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
         dict.set("CropBox", media_box.clone());
     }
     Ok(dict)
+}
+
+/// Replace root Pages Kids/Count with `ordered`, flattening the tree.
+///
+/// Materialize inheritance on every page and point Parent to root. Every
+/// fallible step runs before the first change. Callers prune obsolete
+/// intermediate nodes when the result is saved.
+fn rebuild_flat_page_tree(
+    doc: &mut Document,
+    pages_id: ObjectId,
+    ordered: &[ObjectId],
+    cleanup: Option<&PageCleanupPlan>,
+) -> PyResult<()> {
+    doc.get_object(pages_id)
+        .and_then(Object::as_dict)
+        .map_err(to_py_err)?;
+    let count = i64::try_from(ordered.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+    let mut kids = Vec::new();
+    kids.try_reserve_exact(ordered.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate rebuilt page-tree Kids: {error}"
+        ))
+    })?;
+    let mut resolved_pages = Vec::new();
+    resolved_pages
+        .try_reserve_exact(ordered.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate rebuilt page dictionaries: {error}"
+            ))
+        })?;
+    for &page_id in ordered {
+        let mut dict = resolve_inherited_page_dict(doc, page_id)?;
+        if let Some(cleanup) = cleanup {
+            cleanup.clean_page(page_id, &mut dict);
+        }
+        dict.set("Parent", pages_id);
+        kids.push(Object::Reference(page_id));
+        resolved_pages.push((page_id, dict));
+    }
+    for (page_id, dict) in resolved_pages {
+        doc.objects.insert(page_id, Object::Dictionary(dict));
+    }
+    let pages_dict = doc
+        .get_object_mut(pages_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(to_py_err)?;
+    pages_dict.set("Kids", kids);
+    pages_dict.set("Count", count);
+    Ok(())
+}
+
+/// Return the root page-tree node that the catalog names.
+fn page_tree_root(doc: &Document) -> PyResult<ObjectId> {
+    doc.catalog()
+        .map_err(to_py_err)?
+        .get(b"Pages")
+        .and_then(Object::as_reference)
+        .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))
+}
+
+/// Whether hayro resolved exactly the walker's pages, in page order.
+fn hayro_pages_match(pdf: &Pdf, page_ids: &[ObjectId]) -> bool {
+    let pages = pdf.pages();
+    pages.len() == page_ids.len()
+        && pages
+            .iter()
+            .zip(page_ids)
+            .all(|(page, &(number, generation))| {
+                page.raw().obj_id().is_some_and(|id| {
+                    i64::from(id.obj_number) == i64::from(number)
+                        && i64::from(id.gen_number) == i64::from(generation)
+                })
+            })
 }
 
 /// Borrow an imported annotation operand under a bounded reference walk.
@@ -2159,11 +2377,15 @@ fn prepare_imported_page_links<'a>(
     Ok(Some(retained))
 }
 
+/// Resolve page `/Resources` or one of its categories under a bounded chain.
+///
+/// A null value, an indirect null, and a reference to a missing object read
+/// as an absent entry, which the caller starts empty.
 fn resolve_page_resource_dictionary<'a>(
     doc: &'a Document,
     object: &'a Object,
     label: &str,
-) -> PyResult<&'a Dictionary> {
+) -> PyResult<Option<&'a Dictionary>> {
     let mut current = object;
     let mut visited = Vec::new();
     visited
@@ -2175,9 +2397,13 @@ fn resolve_page_resource_dictionary<'a>(
         })?;
     loop {
         let Object::Reference(id) = current else {
-            return current
-                .as_dict()
-                .map_err(|_| PdfError::new_err(format!("{label} must resolve to a dictionary")));
+            return match current {
+                Object::Null => Ok(None),
+                Object::Dictionary(dictionary) => Ok(Some(dictionary)),
+                _ => Err(PdfError::new_err(format!(
+                    "{label} must resolve to a dictionary"
+                ))),
+            };
         };
         if visited.contains(id) {
             return Err(PdfError::new_err(format!(
@@ -2190,12 +2416,10 @@ fn resolve_page_resource_dictionary<'a>(
             )));
         }
         visited.push(*id);
-        current = doc.objects.get(id).ok_or_else(|| {
-            PdfError::new_err(format!(
-                "{label} references missing object {} {}",
-                id.0, id.1
-            ))
-        })?;
+        let Some(object) = doc.objects.get(id) else {
+            return Ok(None);
+        };
+        current = object;
     }
 }
 
@@ -2351,26 +2575,32 @@ fn prepare_page_resource(
     kind: PageResourceKind,
 ) -> PyResult<PageResourcePlan> {
     let mut page = resolve_inherited_page_dict(doc, page_id)?;
-    let mut resources = match page.get(b"Resources") {
-        Ok(object) => {
-            let resolved = resolve_page_resource_dictionary(doc, object, "page Resources")?;
+    let resources = match page.get(b"Resources") {
+        Ok(object) => resolve_page_resource_dictionary(doc, object, "page Resources")?,
+        Err(_) => None,
+    };
+    let mut resources = match resources {
+        Some(resolved) => {
             validate_page_resource_shape(resolved, "page Resources")?;
             resolved.clone()
         }
-        Err(_) => Dictionary::new(),
+        None => Dictionary::new(),
     };
     let key = kind.key();
-    let mut entries = match resources.get(key) {
-        Ok(object) => {
-            let label = match kind {
-                PageResourceKind::XObject => "page Resources/XObject",
-                PageResourceKind::Font => "page Resources/Font",
-            };
-            let resolved = resolve_page_resource_dictionary(doc, object, label)?;
+    let label = match kind {
+        PageResourceKind::XObject => "page Resources/XObject",
+        PageResourceKind::Font => "page Resources/Font",
+    };
+    let entries = match resources.get(key) {
+        Ok(object) => resolve_page_resource_dictionary(doc, object, label)?,
+        Err(_) => None,
+    };
+    let mut entries = match entries {
+        Some(resolved) => {
             validate_page_resource_shape(resolved, label)?;
             resolved.clone()
         }
-        Err(_) => Dictionary::new(),
+        None => Dictionary::new(),
     };
     if !resources.has(key) && resources.len() >= MAX_PAGE_RESOURCE_ENTRIES {
         return Err(page_resource_shape_error(
@@ -2381,10 +2611,7 @@ fn prepare_page_resource(
     }
     if entries.len() >= MAX_PAGE_RESOURCE_ENTRIES {
         return Err(page_resource_shape_error(
-            match kind {
-                PageResourceKind::XObject => "page Resources/XObject",
-                PageResourceKind::Font => "page Resources/Font",
-            },
+            label,
             "entry",
             MAX_PAGE_RESOURCE_ENTRIES,
         ));
@@ -2500,7 +2727,7 @@ fn prepare_page_form_import(
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
     let missing_page = |_| PdfError::new_err(format!("source page {page_number} does not exist"));
-    let mut source_pages = collect_page_ids(&source, None)?;
+    let mut source_pages = collect_page_ids(&source, None, None)?;
     page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
     renumber_objects(&mut source, starting_id, &mut source_pages)?;
     let source_id = page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
@@ -2534,17 +2761,27 @@ fn prepare_page_form_import(
         form_dict.set("Group", group.clone());
     }
 
+    // Move only the source objects that the Form can reach. The page tree
+    // stays behind, so a reference into it dangles, and outlines,
+    // annotations, attachments, metadata, and the page's original content
+    // streams would be unreachable in the target. Pruning the complete
+    // target after the import found the same objects, but walked every
+    // target object for each placement.
+    let reachable = reachable_object_ids(
+        &source,
+        form_dict.iter().map(|(_, value)| value),
+        |object| !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page")),
+    )?;
     let new_max_id = source.max_id;
     let mut objects = Vec::new();
     objects
-        .try_reserve_exact(source.objects.len())
+        .try_reserve_exact(reachable.len())
         .map_err(|error| {
             PdfError::new_err(format!("failed to allocate Form import objects: {error}"))
         })?;
     for (id, object) in source.objects {
-        match object.type_name().unwrap_or(b"") {
-            b"Catalog" | b"Pages" | b"Page" => {}
-            _ => objects.push((id, object)),
+        if reachable.contains(&id) {
+            objects.push((id, object));
         }
     }
     Ok(FormImportPlan {
@@ -2556,15 +2793,30 @@ fn prepare_page_form_import(
     })
 }
 
+/// Destination of a prepared Form import.
+///
+/// The indexed document keeps its page index while the renumbered IDs are
+/// unused; a plain lopdf document inserts them directly.
+trait FormImportTarget: ObjectSink {
+    /// Insert renumbered objects at their IDs and set the highest object number.
+    fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32);
+}
+
+impl FormImportTarget for Document {
+    fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
+        for (id, object) in objects {
+            self.objects.insert(id, object);
+        }
+        self.max_id = max_id;
+    }
+}
+
 /// Commit a fully prepared Form import without further recoverable work.
 fn commit_page_form_import(
-    target: &mut Document,
+    target: &mut impl FormImportTarget,
     plan: FormImportPlan,
 ) -> (ObjectId, [f64; 4], i64) {
-    for (id, object) in plan.objects {
-        target.objects.insert(id, object);
-    }
-    target.max_id = plan.new_max_id;
+    target.insert_new_objects(plan.objects, plan.new_max_id);
     let form_id = target.add_object(plan.form);
     (form_id, plan.crop, plan.rotation)
 }
@@ -3749,7 +4001,66 @@ struct PageTreeFrame<'a> {
     depth: usize,
 }
 
-fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResult<&'a [Object]> {
+/// What a successful page-tree walk read besides page `/Type` entries.
+///
+/// The walk reads `/Root`, the catalog's `/Pages`, each node's `/Type` and
+/// `/Kids`, every object on a `/Kids` reference chain, and the object count,
+/// which bounds the traversed edges and only grows during edits that keep the
+/// page index. Those edits check their changes against these facts.
+#[derive(Default)]
+struct PageTreeFacts {
+    /// Objects on `/Kids` reference chains, including the arrays they reach.
+    kids_objects: HashSet<ObjectId>,
+    /// Absent objects named by a skipped `/Kids` entry or its reference chain.
+    ///
+    /// A new object at one of these IDs could turn the entry into a page.
+    missing_kids: HashSet<ObjectId>,
+}
+
+impl PageTreeFacts {
+    fn record_kids_object(&mut self, id: ObjectId) -> PyResult<()> {
+        self.kids_objects.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!("failed to grow page tree Kids index: {error}"))
+        })?;
+        self.kids_objects.insert(id);
+        Ok(())
+    }
+
+    /// Record the absent object that left a `/Kids` entry unresolved, if any.
+    ///
+    /// This fetches the entry and the references it leads through, as far as
+    /// lopdf's dereference fetches before its 128-reference limit fails. A
+    /// cycle or a final object that is not a dictionary names no absent
+    /// object, and no edit that keeps the index changes such a chain.
+    fn record_missing_kid(&mut self, doc: &Document, kid_id: ObjectId) -> PyResult<()> {
+        const LOPDF_DEREFERENCE_LIMIT: usize = 128;
+        let mut id = kid_id;
+        // The entry itself, then one fetch per reference including the one
+        // that exceeds the limit.
+        for _ in 0..=LOPDF_DEREFERENCE_LIMIT + 1 {
+            match doc.objects.get(&id) {
+                None => {
+                    self.missing_kids.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow page tree missing-object index: {error}"
+                        ))
+                    })?;
+                    self.missing_kids.insert(id);
+                    return Ok(());
+                }
+                Some(Object::Reference(next)) => id = *next,
+                Some(_) => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn resolve_page_tree_kids<'a>(
+    doc: &'a Document,
+    node: &'a Dictionary,
+    mut facts: Option<&mut PageTreeFacts>,
+) -> PyResult<&'a [Object]> {
     let mut current = node
         .get(b"Kids")
         .map_err(|_| PdfError::new_err("page tree node is missing Kids"))?;
@@ -3779,6 +4090,9 @@ fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResu
             )));
         }
         visited.push(*id);
+        if let Some(facts) = facts.as_deref_mut() {
+            facts.record_kids_object(*id)?;
+        }
         current = doc.objects.get(id).ok_or_else(|| {
             PdfError::new_err(format!(
                 "page tree Kids references missing object {} {}",
@@ -3788,9 +4102,11 @@ fn resolve_page_tree_kids<'a>(doc: &'a Document, node: &'a Dictionary) -> PyResu
     }
 }
 
+/// Visit pages in order, recording what the walk read into `facts` if given.
 fn walk_page_tree(
     doc: &Document,
     max_pages: Option<usize>,
+    mut facts: Option<&mut PageTreeFacts>,
     mut visitor: impl FnMut(u32, ObjectId) -> PyResult<()>,
 ) -> PyResult<usize> {
     let root_id = doc
@@ -3808,7 +4124,7 @@ fn walk_page_tree(
         ));
     }
 
-    let root_kids = resolve_page_tree_kids(doc, root)?;
+    let root_kids = resolve_page_tree_kids(doc, root, facts.as_deref_mut())?;
     let mut frames = Vec::new();
     frames.try_reserve_exact(1).map_err(|error| {
         PdfError::new_err(format!(
@@ -3854,6 +4170,9 @@ fn walk_page_tree(
             continue;
         };
         let Ok(dictionary) = doc.get_dictionary(kid_id) else {
+            if let Some(facts) = facts.as_deref_mut() {
+                facts.record_missing_kid(doc, kid_id)?;
+            }
             continue;
         };
         let Ok(type_name) = dictionary.get_type() else {
@@ -3897,7 +4216,7 @@ fn walk_page_tree(
                 "page tree exceeds the {MAX_PAGE_TREE_DEPTH}-level safety limit"
             )));
         }
-        let kids = resolve_page_tree_kids(doc, dictionary)?;
+        let kids = resolve_page_tree_kids(doc, dictionary, facts.as_deref_mut())?;
         frames.try_reserve(1).map_err(|error| {
             PdfError::new_err(format!("failed to grow page tree traversal stack: {error}"))
         })?;
@@ -3910,7 +4229,12 @@ fn walk_page_tree(
     Ok(page_count)
 }
 
-fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<ObjectId>> {
+/// Collect page IDs in order, recording what the walk read into `facts` if given.
+fn collect_page_ids(
+    doc: &Document,
+    max_pages: Option<usize>,
+    facts: Option<&mut PageTreeFacts>,
+) -> PyResult<Vec<ObjectId>> {
     let mut pages = Vec::new();
     if let Some(limit) = max_pages {
         pages
@@ -3919,7 +4243,7 @@ fn collect_page_ids(doc: &Document, max_pages: Option<usize>) -> PyResult<Vec<Ob
                 PdfError::new_err(format!("failed to allocate bounded page index: {error}"))
             })?;
     }
-    walk_page_tree(doc, max_pages, |_, id| {
+    walk_page_tree(doc, max_pages, facts, |_, id| {
         if pages.len() == pages.capacity() {
             pages.try_reserve(1).map_err(|error| {
                 PdfError::new_err(format!("failed to grow page index: {error}"))
@@ -3954,24 +4278,29 @@ fn page_id_from_index(page_ids: &[ObjectId], page_number: u32) -> PyResult<Objec
 }
 
 /// The page index lives in its own module so that only `DerefMut`,
-/// `replace`, and `set_page_entry` can reach the wrapped document mutably.
+/// `replace`, and the page-tree-neutral edits below can reach the wrapped
+/// document mutably.
 mod indexed {
     use std::collections::HashMap;
     use std::ops::{Deref, DerefMut};
     use std::sync::OnceLock;
 
-    use lopdf::{Document, Object, ObjectId};
+    use lopdf::{Dictionary, Document, Object, ObjectId};
     use pyo3::PyResult;
 
-    use super::{PdfError, collect_page_ids, page_id_from_index, to_py_err};
+    use super::{
+        FormImportTarget, PageTreeFacts, PdfError, collect_page_ids, page_id_from_index, to_py_err,
+    };
+    use crate::draw::ObjectSink;
 
     /// Page entries that a page-tree walk never reads.
     ///
     /// The walk reads only `/Type` of a page object (and `/Pages` when a
     /// malformed file also uses the page as its catalog) besides the object
-    /// count, so replacing one of these entries keeps the indexed tree.
-    const UNWALKED_PAGE_ENTRIES: [&str; 6] = [
-        "Rotate", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox",
+    /// count, so replacing one of these entries keeps the indexed tree. None
+    /// is `/Annots`, so the annotation-array counts stay current as well.
+    const UNWALKED_PAGE_ENTRIES: [&str; 7] = [
+        "Rotate", "MediaBox", "CropBox", "BleedBox", "TrimBox", "ArtBox", "Contents",
     ];
 
     /// Page object IDs in document order, derived from one page-tree walk.
@@ -3981,6 +4310,20 @@ mod indexed {
         /// One-based page number of each page object, built on the first
         /// reverse lookup.
         numbers: OnceLock<HashMap<ObjectId, u32>>,
+        /// What the walk read besides page `/Type` entries.
+        tree: PageTreeFacts,
+        /// Pages per indirect `/Annots` array, built on the first append to an
+        /// indirect array and kept current by annotation edits.
+        annotation_arrays: Option<AnnotationArrays>,
+    }
+
+    enum AnnotationArrays {
+        /// How many pages reference each indirect `/Annots` array object.
+        Counted(HashMap<ObjectId, usize>),
+        /// A page object is a reference to a dictionary that another page can
+        /// also reach, so an edit through one page can change what another
+        /// reads; annotation appends scan every page instead.
+        Aliased,
     }
 
     /// The editable lopdf document and the page index derived from it.
@@ -3993,9 +4336,23 @@ mod indexed {
     /// or leave behind, an index of a different page tree, even one built
     /// between two steps of a multi-step edit. A failed walk is never cached,
     /// so it raises again. This wrapper exists for that invariant, which is
-    /// why it implements `Deref` without being a smart pointer. Rotation and
-    /// page-box edits are the one exception, through `set_page_entry`, so
-    /// loops that rotate or crop every page stay linear.
+    /// why it implements `Deref` without being a smart pointer.
+    ///
+    /// Page-tree-neutral edits are the exception, so loops that rotate, crop,
+    /// draw on, or annotate every page stay linear. Each checks against the
+    /// facts the walk recorded that it cannot change the walk's result, and
+    /// drops the index when it cannot show that:
+    ///
+    /// - New objects keep it only at IDs that neither exist nor complete a
+    ///   skipped `/Kids` entry.
+    /// - A page replacement keeps it only for an indexed page whose `/Type`,
+    ///   `/Pages`, and indirect `/Annots` reference stay the same.
+    /// - Rotation, page-box, and `/Contents` entries are never walked.
+    /// - An in-place annotation-array edit keeps it unless the walk read that
+    ///   array as `/Kids`.
+    ///
+    /// None of these edits removes objects, so the object count that bounds
+    /// the walked edges only grows.
     pub(super) struct IndexedDocument {
         doc: Document,
         page_index: OnceLock<PageIndex>,
@@ -4019,12 +4376,15 @@ mod indexed {
             if let Some(index) = self.page_index.get() {
                 return Ok(index);
             }
-            let pages = collect_page_ids(&self.doc, None)?;
+            let mut tree = PageTreeFacts::default();
+            let pages = collect_page_ids(&self.doc, None, Some(&mut tree))?;
             // A concurrent reader of the same unchanged document may store an
             // equal index first; either one describes this page tree.
             Ok(self.page_index.get_or_init(|| PageIndex {
                 pages,
                 numbers: OnceLock::new(),
+                tree,
+                annotation_arrays: None,
             }))
         }
 
@@ -4063,10 +4423,26 @@ mod indexed {
             Ok(index.numbers.get_or_init(|| numbers))
         }
 
+        /// Whether `page_id` is an indexed page, or `None` when no index exists
+        /// or its reverse map cannot be allocated.
+        fn indexed_page(&self, page_id: ObjectId) -> Option<bool> {
+            self.page_index.get()?;
+            self.page_numbers()
+                .ok()
+                .map(|numbers| numbers.contains_key(&page_id))
+        }
+
+        /// Drop the index unless the edit about to happen keeps the walk's
+        /// result, as `keeps_walk` decides from the recorded facts.
+        fn keep_index_if(&mut self, keeps_walk: impl FnOnce(&PageIndex, &Document) -> bool) {
+            if let Some(index) = self.page_index.get()
+                && !keeps_walk(index, &self.doc)
+            {
+                self.page_index.take();
+            }
+        }
+
         /// Set one entry of a one-based page dictionary.
-        ///
-        /// Rotation and page-box entries keep the page index; any other key
-        /// could retype the page, so it drops the index like `DerefMut`.
         pub(super) fn set_page_entry(
             &mut self,
             page_number: u32,
@@ -4074,6 +4450,20 @@ mod indexed {
             value: Object,
         ) -> PyResult<()> {
             let page_id = self.page_id(page_number)?;
+            self.set_page_object_entry(page_id, key, value)
+        }
+
+        /// Set one entry of a page object.
+        ///
+        /// Rotation, page-box, and `/Contents` entries keep the page index;
+        /// any other key could retype the page, so it drops the index like
+        /// `DerefMut`.
+        pub(super) fn set_page_object_entry(
+            &mut self,
+            page_id: ObjectId,
+            key: &str,
+            value: Object,
+        ) -> PyResult<()> {
             if !UNWALKED_PAGE_ENTRIES.contains(&key) {
                 self.page_index.take();
             }
@@ -4083,6 +4473,159 @@ mod indexed {
                 .map_err(to_py_err)?
                 .set(key, value);
             Ok(())
+        }
+
+        /// Replace a page object with a prepared page dictionary.
+        ///
+        /// The index survives when `page_id` is an indexed page and the new
+        /// dictionary keeps the `/Type`, `/Pages`, and indirect `/Annots`
+        /// reference of the dictionary it replaces. A page object that was a
+        /// reference becomes a dictionary with those entries, so every walk
+        /// through it still ends at a page.
+        pub(super) fn replace_page(&mut self, page_id: ObjectId, page: Dictionary) {
+            let keeps_walk = self.indexed_page(page_id) == Some(true)
+                && self
+                    .doc
+                    .get_object(page_id)
+                    .and_then(Object::as_dict)
+                    .is_ok_and(|current| {
+                        current.get(b"Type").ok() == page.get(b"Type").ok()
+                            && current.get(b"Pages").ok() == page.get(b"Pages").ok()
+                            && annotations_reference(current) == annotations_reference(&page)
+                    });
+            if !keeps_walk {
+                self.page_index.take();
+            }
+            self.doc.objects.insert(page_id, Object::Dictionary(page));
+        }
+
+        /// Borrow a page's direct `/Annots` array.
+        ///
+        /// The walk never reads `/Annots`, and the entry stays a direct array,
+        /// so the index and its annotation-array counts survive any change.
+        pub(super) fn page_annotations_mut(
+            &mut self,
+            page_id: ObjectId,
+        ) -> PyResult<&mut Vec<Object>> {
+            self.doc
+                .get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)
+                .and_then(|page| page.get_mut(b"Annots"))
+                .and_then(Object::as_array_mut)
+                .map_err(to_py_err)
+        }
+
+        /// Borrow the indirect annotation array that `array_id` resolves to.
+        ///
+        /// A malformed file can use one array as both `/Annots` and `/Kids`,
+        /// so the index survives only when the walk did not read the array.
+        /// The walk reads no other array content.
+        pub(super) fn annotation_array_mut(
+            &mut self,
+            array_id: ObjectId,
+        ) -> PyResult<&mut Vec<Object>> {
+            // Resolve the array object exactly as `get_object_mut` does below.
+            let stored = self
+                .doc
+                .objects
+                .get(&array_id)
+                .ok_or(lopdf::Error::ObjectNotFound(array_id))
+                .map_err(to_py_err)?;
+            let (resolved, _) = self.doc.dereference(stored).map_err(to_py_err)?;
+            let target = resolved.unwrap_or(array_id);
+            self.keep_index_if(|index, _| !index.tree.kids_objects.contains(&target));
+            self.doc
+                .get_object_mut(array_id)
+                .and_then(Object::as_array_mut)
+                .map_err(to_py_err)
+        }
+
+        /// Replace a page's `/Annots` with a direct array.
+        ///
+        /// Counts of pages per indirect array follow the change; they are
+        /// dropped, to be counted again, unless `page_id` is an indexed page.
+        pub(super) fn set_page_annotations(
+            &mut self,
+            page_id: ObjectId,
+            items: Vec<Object>,
+        ) -> PyResult<()> {
+            let indexed = self.indexed_page(page_id);
+            let page = self
+                .doc
+                .get_object_mut(page_id)
+                .and_then(Object::as_dict_mut)
+                .map_err(to_py_err)?;
+            let previous = annotations_reference(page);
+            page.set("Annots", items);
+            if let Some(array_id) = previous
+                && let Some(index) = self.page_index.get_mut()
+            {
+                match (&mut index.annotation_arrays, indexed) {
+                    (Some(AnnotationArrays::Counted(counts)), Some(true)) => {
+                        if let Some(count) = counts.get_mut(&array_id) {
+                            *count = count.saturating_sub(1);
+                        }
+                    }
+                    (Some(AnnotationArrays::Counted(_)), _) => index.annotation_arrays = None,
+                    _ => {}
+                }
+            }
+            Ok(())
+        }
+
+        /// Whether another page references the indirect `/Annots` array
+        /// `array_id` that `page_id` references.
+        ///
+        /// The first call counts the pages of every indirect array, so later
+        /// appends cost O(1) instead of a scan of every page.
+        pub(super) fn annotation_array_shared(
+            &mut self,
+            page_id: ObjectId,
+            array_id: ObjectId,
+        ) -> PyResult<bool> {
+            let own = self.page_numbers()?.contains_key(&page_id)
+                && page_annotations_reference(&self.doc, page_id) == Some(array_id);
+            let index = self
+                .page_index
+                .get_mut()
+                .ok_or_else(|| PdfError::new_err("page index was not built"))?;
+            if index.annotation_arrays.is_none() {
+                let arrays = AnnotationArrays::count(&self.doc, &index.pages)?;
+                index.annotation_arrays = Some(arrays);
+            }
+            Ok(match &index.annotation_arrays {
+                Some(AnnotationArrays::Counted(counts)) => {
+                    counts.get(&array_id).copied().unwrap_or(0) > usize::from(own)
+                }
+                _ => index.pages.iter().any(|&other_page_id| {
+                    other_page_id != page_id
+                        && page_annotations_reference(&self.doc, other_page_id) == Some(array_id)
+                }),
+            })
+        }
+    }
+
+    impl ObjectSink for IndexedDocument {
+        /// Add an object at lopdf's next ID, keeping the index while that ID is
+        /// unused by the walk.
+        fn add_object<T: Into<Object>>(&mut self, object: T) -> ObjectId {
+            let id = (self.doc.max_id.wrapping_add(1), 0);
+            self.keep_index_if(|index, doc| is_unused_id(index, doc, id));
+            self.doc.add_object(object)
+        }
+    }
+
+    impl FormImportTarget for IndexedDocument {
+        /// Insert renumbered objects, keeping the index while every ID is
+        /// unused by the walk.
+        fn insert_new_objects(&mut self, objects: Vec<(ObjectId, Object)>, max_id: u32) {
+            self.keep_index_if(|index, doc| {
+                objects.iter().all(|&(id, _)| is_unused_id(index, doc, id))
+            });
+            for (id, object) in objects {
+                self.doc.objects.insert(id, object);
+            }
+            self.doc.max_id = max_id;
         }
     }
 
@@ -4100,6 +4643,47 @@ mod indexed {
             self.page_index.take();
             &mut self.doc
         }
+    }
+
+    impl AnnotationArrays {
+        /// Count the pages that reference each indirect `/Annots` array.
+        fn count(doc: &Document, pages: &[ObjectId]) -> PyResult<Self> {
+            let mut counts: HashMap<ObjectId, usize> = HashMap::new();
+            for page_id in pages {
+                let Some(Object::Dictionary(page)) = doc.objects.get(page_id) else {
+                    return Ok(Self::Aliased);
+                };
+                if let Some(array_id) = annotations_reference(page) {
+                    counts.try_reserve(1).map_err(|error| {
+                        PdfError::new_err(format!(
+                            "failed to grow page annotation-array counts: {error}"
+                        ))
+                    })?;
+                    *counts.entry(array_id).or_insert(0) += 1;
+                }
+            }
+            Ok(Self::Counted(counts))
+        }
+    }
+
+    /// Whether a new object at `id` leaves the indexed walk unchanged.
+    ///
+    /// An existing object could be anything the walk read, and an absent
+    /// object named by a skipped `/Kids` entry could become a page.
+    fn is_unused_id(index: &PageIndex, doc: &Document, id: ObjectId) -> bool {
+        !doc.objects.contains_key(&id) && !index.tree.missing_kids.contains(&id)
+    }
+
+    fn annotations_reference(page: &Dictionary) -> Option<ObjectId> {
+        page.get(b"Annots").and_then(Object::as_reference).ok()
+    }
+
+    /// The indirect `/Annots` array a page object resolves to, if any.
+    fn page_annotations_reference(doc: &Document, page_id: ObjectId) -> Option<ObjectId> {
+        doc.get_object(page_id)
+            .and_then(Object::as_dict)
+            .ok()
+            .and_then(annotations_reference)
     }
 
     fn reverse_page_index(page_ids: &[ObjectId]) -> PyResult<HashMap<ObjectId, u32>> {
@@ -4156,7 +4740,7 @@ fn validate_structural_limits(
     }
 
     if validate_pages && (limits.max_pages.is_some() || limits.max_page_content_size.is_some()) {
-        return collect_page_ids(doc, limits.max_pages).map(Some);
+        return collect_page_ids(doc, limits.max_pages, None).map(Some);
     }
     Ok(None)
 }
@@ -4438,7 +5022,7 @@ struct FallbackFonts {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CjkFontLanguage {
+pub(crate) enum CjkFontLanguage {
     Ja,
     Ko,
     ZhCn,
@@ -4613,6 +5197,30 @@ fn try_lossy_form_string(value: &[u8], label: &str) -> PyResult<String> {
     }
 }
 
+/// Borrow an inheritable field attribute unless the field omits it.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null, so a null value, an
+/// indirect null, and such a reference inherit from the parent field as an
+/// absent key does. Any other value, including an unusable one and a cyclic or
+/// over-long reference chain, belongs to the field and stops inheritance.
+fn inheritable_field_value<'a>(
+    doc: &'a Document,
+    field: &'a Dictionary,
+    key: &[u8],
+) -> Option<&'a Object> {
+    let value = field.get(key).ok()?;
+    let omitted = match value {
+        Object::Null => true,
+        Object::Reference(id) => matches!(
+            doc.get_object(*id),
+            Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_))
+        ),
+        _ => false,
+    };
+    (!omitted).then_some(value)
+}
+
 /// Decode one field-name component while bounding encoded and decoded text.
 fn bounded_form_text(
     doc: &Document,
@@ -4757,6 +5365,135 @@ fn bounded_form_value(
     }
 }
 
+/// Read null, an indirect null, and a reference to a missing object alike.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null. A cyclic or
+/// over-long reference chain is an unusable value rather than null.
+fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
+    match object {
+        Object::Null => true,
+        Object::Reference(id) => matches!(
+            doc.get_object(*id),
+            Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_))
+        ),
+        _ => false,
+    }
+}
+
+/// One AcroForm `/Kids` entry as every field-tree reader classifies it.
+enum FieldKid<'a> {
+    /// A dictionary with its own partial field name.
+    Field(ObjectId),
+    /// A dictionary without one or kids to fold, which is a widget of the
+    /// parent field.
+    Widget(ObjectId),
+    /// A dictionary without one but with kids, which is a nameless
+    /// intermediate field folded into the parent field. `widget` is true when
+    /// it also looks like a widget annotation.
+    Intermediate {
+        id: ObjectId,
+        kids: &'a [Object],
+        widget: bool,
+    },
+    /// Any other referenced value, such as a number or a cyclic reference chain.
+    Unusable,
+    /// A direct entry, an indirect null, or a reference to a missing object.
+    Ignored,
+}
+
+/// Mark one AcroForm field-tree node visited within the node limit.
+///
+/// Returns false when the node was already visited.
+fn visit_form_node(visited: &mut HashSet<ObjectId>, id: ObjectId) -> PyResult<bool> {
+    if visited.contains(&id) {
+        return Ok(false);
+    }
+    if visited.len() == visited.capacity() {
+        visited.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow AcroForm field-tree cycle set: {error}"
+            ))
+        })?;
+    }
+    visited.insert(id);
+    if visited.len() > MAX_FORM_FIELD_TREE_NODES {
+        return Err(PdfError::new_err(format!(
+            "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
+        )));
+    }
+    Ok(true)
+}
+
+/// Add the entries of one `/Kids` array to the AcroForm field-tree edges.
+fn add_form_tree_edges(edges: &mut usize, count: usize) -> PyResult<()> {
+    *edges = edges
+        .checked_add(count)
+        .ok_or_else(|| PdfError::new_err("AcroForm field tree exceeds the platform size limit"))?;
+    if *edges > MAX_FORM_FIELD_TREE_EDGES {
+        return Err(PdfError::new_err(format!(
+            "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
+        )));
+    }
+    Ok(())
+}
+
+/// Borrow a field's `/Kids` array, reading any other value as an absent entry.
+fn field_kids<'a>(doc: &'a Document, field: &'a Dictionary) -> Option<&'a [Object]> {
+    let kids = field.get(b"Kids").ok()?;
+    deref_object(doc, kids).as_array().ok().map(Vec::as_slice)
+}
+
+/// Treat a dictionary with `/Subtype /Widget` or a `/Rect` as a widget annotation.
+fn looks_like_widget(dict: &Dictionary) -> bool {
+    dict.get(b"Subtype")
+        .and_then(Object::as_name)
+        .is_ok_and(|name| name == b"Widget")
+        || dict.has(b"Rect")
+}
+
+/// Classify one AcroForm `/Kids` entry for the walk and `field_widgets`.
+///
+/// A `/T` that is null, an indirect null, or a reference to a missing object
+/// is an omitted partial name, so such a kid is nameless, as one without `/T`
+/// is. Any other `/T`, including an unusable value or a cyclic or over-long
+/// reference chain, makes the kid a child field.
+///
+/// A nameless kid whose `/Kids` resolves to a non-empty array is a field,
+/// because a field merged with its only widget omits `/Kids` (ISO 32000-2
+/// §12.7.4.1), and a field without a partial name represents the field above
+/// it (§12.7.4.2). It is therefore an intermediate field whose kids fold into
+/// the parent field, and it stays a widget too when it looks like one, so a
+/// malformed merged widget with stray kids keeps its appearance in sync. Any
+/// other nameless kid is a widget of its parent field: an absent,
+/// null-equivalent, non-array, or empty `/Kids` names no kids to fold, and a
+/// field with such a `/Kids` is its own widget.
+fn classify_field_kid<'a>(doc: &'a Document, kid: &Object) -> FieldKid<'a> {
+    let Object::Reference(id) = kid else {
+        return FieldKid::Ignored;
+    };
+    match doc.get_object(*id) {
+        Ok(Object::Dictionary(child)) => {
+            if child
+                .get(b"T")
+                .is_ok_and(|name| !is_null_equivalent(doc, name))
+            {
+                return FieldKid::Field(*id);
+            }
+            match field_kids(doc, child) {
+                Some(kids) if !kids.is_empty() => FieldKid::Intermediate {
+                    id: *id,
+                    kids,
+                    widget: looks_like_widget(child),
+                },
+                _ => FieldKid::Widget(*id),
+            }
+        }
+        Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_)) => FieldKid::Ignored,
+        _ => FieldKid::Unusable,
+    }
+}
+
 /// Add to one annotation metadata budget without overflow or partial output.
 fn add_annotation_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
     *total = total
@@ -4864,9 +5601,12 @@ pub struct _Document {
     ///
     /// This avoids a potentially expensive lopdf serialization before the
     /// first render or extraction. Any edit discards it together with the
-    /// parsed hayro view. Input whose cross-reference data lopdf recovered is
-    /// not retained: hayro would recover the damaged bytes independently and
-    /// could keep different objects than the graph that edits and saves use.
+    /// parsed hayro view. Input is retained only when lopdf loaded exactly the
+    /// object each in-use cross-reference entry names, as `object_recovery`
+    /// checks: otherwise hayro could resolve different objects from the bytes
+    /// than the graph that edits and saves use. That excludes input whose
+    /// cross-reference data lopdf recovered, which hayro would recover
+    /// independently.
     hayro_source: HayroSource,
     /// Content streams of the current hayro snapshot that were cleared for
     /// array and dictionary nesting before hayro could interpret them.
@@ -5029,13 +5769,17 @@ impl _Document {
             prepared.push((key.into_bytes(), encoded));
         }
 
+        // An indirect null and a missing object read as an absent `/Info`, as
+        // a null value does, so a new dictionary replaces the reference.
         let existing_id = match self.doc.trailer.get(b"Info") {
             Ok(Object::Reference(id)) => {
-                self.doc
-                    .get_object(*id)
-                    .and_then(Object::as_dict)
-                    .map_err(to_py_err)?;
-                Some(*id)
+                match non_null_object(&self.doc, *id).map_err(to_py_err)? {
+                    Some(info) => {
+                        info.as_dict().map_err(to_py_err)?;
+                        Some(*id)
+                    }
+                    None => None,
+                }
             }
             _ => None,
         };
@@ -5243,11 +5987,11 @@ impl _Document {
                 )));
             }
             visited.push(id);
-            let dict = self
-                .doc
-                .get_object(id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?;
+            // `page_id` comes from the page index, so only a parent can end
+            // the walk here.
+            let Some(dict) = inheritance_node(&self.doc, id)? else {
+                break;
+            };
             if page_attribute_has_value(&self.doc, dict, key)
                 && let Ok(value) = dict.get(key)
             {
@@ -5343,14 +6087,17 @@ impl _Document {
     }
 
     /// Append one prepared stream and retain verified in-memory isolation state.
+    ///
+    /// New streams and the page's `/Contents` keep the page index.
     fn push_page_content(
         &mut self,
         page_id: ObjectId,
         ops: Vec<u8>,
         plan: draw::ContentAppendPlan,
     ) -> PyResult<()> {
-        let is_isolated =
-            draw::push_content(&mut self.doc, page_id, ops, plan).map_err(to_py_err)?;
+        let (contents, is_isolated) = draw::add_content_streams(&mut self.doc, ops, plan);
+        self.doc
+            .set_page_object_entry(page_id, "Contents", Object::Array(contents))?;
         if is_isolated {
             self.isolated_content_pages.insert(page_id);
         }
@@ -5358,6 +6105,8 @@ impl _Document {
     }
 
     /// Bind a prepared resource slot and replace the page without allocation.
+    ///
+    /// The replacement keeps the page's walked entries, so the page index survives.
     fn commit_drawing_resource(
         &mut self,
         page_id: ObjectId,
@@ -5365,7 +6114,7 @@ impl _Document {
         resource_id: ObjectId,
     ) -> PyResult<()> {
         let page = plan.bind(resource_id)?;
-        self.doc.objects.insert(page_id, Object::Dictionary(page));
+        self.doc.replace_page(page_id, page);
         Ok(())
     }
 
@@ -5392,18 +6141,134 @@ impl _Document {
         );
         let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
         self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
-        self.push_page_content(page_id, ops, drawing_plan.content)?;
-        // All source non-page objects were moved initially; prune assets and
-        // attachments unreachable from the Form XObject.
-        prune_unreachable_objects(&mut self.doc)?;
-        Ok(())
+        self.push_page_content(page_id, ops, drawing_plan.content)
+    }
+
+    /// Draw validated subset-embedded text; see `insert_embedded_text`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_embedded_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: &[String],
+        font_data: FontBytes,
+        font_index: u32,
+        fontsize: f64,
+        color: (f64, f64, f64),
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let generated = py.detach(|| {
+            generate::embedded_text_page(
+                page_size, point, lines, font_data, font_index, fontsize, color,
+            )
+            .map_err(PdfError::new_err)
+        })?;
+        let generated_doc = generated_pdf::load(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                form_plan,
+                placement,
+                drawing_plan,
+            )
+        })
+    }
+
+    /// Lay out and draw validated subset-embedded text inside a display rectangle.
+    ///
+    /// An overflow returns its negative spare height without mutating the PDF.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_embedded_textbox(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        font_data: FontBytes,
+        font_index: u32,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_text_size: Option<usize>,
+    ) -> PyResult<f64> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let rect_array = [rect.0, rect.1, rect.2, rect.3];
+        let (generated, spare_height) = py.detach(|| {
+            generate::embedded_textbox_page(
+                page_size,
+                rect_array,
+                text,
+                font_data,
+                font_index,
+                fontsize,
+                line_height,
+                align,
+                color,
+                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
+            )
+            .map_err(generated_text_err)
+        })?;
+        let Some(generated) = generated else {
+            return Ok(spare_height);
+        };
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let generated_doc = generated_pdf::load(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                form_plan,
+                placement,
+                drawing_plan,
+            )
+        })?;
+        Ok(spare_height)
     }
 
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
     ///
-    /// FT/Ff/V inherit from parents; full names join `/T` components with dots.
-    /// A leaf has resolved FT and no child carrying `/T`. Traversal and returned
-    /// text are bounded so malformed trees cannot produce partial results.
+    /// FT/Ff/V inherit from parents when a field omits them or holds a null
+    /// value, an indirect null, or a reference to a missing object; FT and Ff
+    /// also inherit past any other unreadable value. Full names join `/T`
+    /// components with dots. A leaf has resolved FT and no child carrying `/T`.
+    /// Traversal and returned text are bounded so malformed trees cannot
+    /// produce partial results.
     fn collect_form_fields(&self) -> PyResult<Vec<FormFieldEntry>> {
         let Some(acroform_object) = self
             .doc
@@ -5428,16 +6293,25 @@ impl _Document {
             )));
         }
 
-        let mut out = Vec::new();
+        // Each field with a resolved type reserves its leaf entry before its
+        // kids are read, so a nameless intermediate field folded into it can
+        // withdraw the entry when it holds a child field.
+        let mut leaves: Vec<Option<FormFieldEntry>> = Vec::new();
         let mut stack: Vec<FieldNode> = Vec::new();
         stack.try_reserve_exact(fields.len()).map_err(|error| {
             PdfError::new_err(format!(
                 "failed to allocate AcroForm field-tree stack: {error}"
             ))
         })?;
+        let top_level_prefix = Arc::new(String::new());
         for field in fields {
-            if let Ok(id) = field.as_reference() {
-                stack.push((id, String::new(), None, 0, None, 1));
+            // As in `/Kids`, an indirect null or a reference to a missing
+            // object costs only its edge, like a direct entry.
+            if let Ok(id) = field.as_reference()
+                && !is_null_equivalent(&self.doc, field)
+            {
+                let prefix = Arc::clone(&top_level_prefix);
+                stack.push((id, prefix, None, 0, None, 1, FieldRole::Field));
             }
         }
         let mut visited = HashSet::new();
@@ -5450,22 +6324,9 @@ impl _Document {
         let mut decoded_value_bytes = 0usize;
         let mut returned_value_bytes = 0usize;
         let mut value_items = 0usize;
-        while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth)) = stack.pop() {
-            if visited.contains(&id) {
+        while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth, role)) = stack.pop() {
+            if !visit_form_node(&mut visited, id)? {
                 continue;
-            }
-            if visited.len() == visited.capacity() {
-                visited.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!(
-                        "failed to grow AcroForm field-tree cycle set: {error}"
-                    ))
-                })?;
-            }
-            visited.insert(id);
-            if visited.len() > MAX_FORM_FIELD_TREE_NODES {
-                return Err(PdfError::new_err(format!(
-                    "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
-                )));
             }
             let Ok(dict) = self.doc.get_object(id).and_then(Object::as_dict) else {
                 continue;
@@ -5481,25 +6342,32 @@ impl _Document {
                 )?,
                 Err(_) => None,
             };
-            let mut name = prefix;
-            if let Some(component) = component {
-                if name.is_empty() {
-                    name = component;
-                } else {
-                    let additional = component.len().checked_add(1).ok_or_else(|| {
-                        PdfError::new_err(
-                            "AcroForm field-name length exceeds the platform size limit",
-                        )
-                    })?;
-                    name.try_reserve(additional).map_err(|error| {
+            // A node without a partial name shares the name above it.
+            let name = match component {
+                Some(component) if prefix.is_empty() => Arc::new(component),
+                Some(component) => {
+                    let len = component
+                        .len()
+                        .checked_add(1)
+                        .and_then(|len| len.checked_add(prefix.len()))
+                        .ok_or_else(|| {
+                            PdfError::new_err(
+                                "AcroForm field-name length exceeds the platform size limit",
+                            )
+                        })?;
+                    let mut name = String::new();
+                    name.try_reserve_exact(len).map_err(|error| {
                         PdfError::new_err(format!(
                             "failed to grow AcroForm materialized field name: {error}"
                         ))
                     })?;
+                    name.push_str(&prefix);
                     name.push('.');
                     name.push_str(&component);
+                    Arc::new(name)
                 }
-            }
+                None => prefix,
+            };
             add_form_budget(
                 &mut materialized_name_bytes,
                 name.len(),
@@ -5524,7 +6392,7 @@ impl _Document {
                                 MAX_FORM_FIELD_NAME_BYTES,
                                 "decoded field-name/type",
                             )?;
-                            Some(decoded)
+                            Some(Arc::new(decoded))
                         }
                         Err(_) => inh_ft,
                     }
@@ -5536,8 +6404,8 @@ impl _Document {
                 .ok()
                 .and_then(|object| resolve_i64(&self.doc, object))
                 .unwrap_or(inh_ff);
-            let value = match dict.get(b"V") {
-                Ok(object) => bounded_form_value(
+            let value = match inheritable_field_value(&self.doc, dict, b"V") {
+                Some(object) => bounded_form_value(
                     &self.doc,
                     object,
                     &mut encoded_value_bytes,
@@ -5545,107 +6413,161 @@ impl _Document {
                     &mut value_items,
                 )?
                 .map(Arc::from),
-                Err(_) => inh_v,
+                None => inh_v,
             };
 
             let mut has_child_fields = false;
-            if let Ok(kids_object) = dict.get(b"Kids")
-                && let Ok(kids) = deref_object(&self.doc, kids_object).as_array()
-            {
-                edges = edges.checked_add(kids.len()).ok_or_else(|| {
-                    PdfError::new_err("AcroForm field tree exceeds the platform size limit")
-                })?;
-                if edges > MAX_FORM_FIELD_TREE_EDGES {
-                    return Err(PdfError::new_err(format!(
-                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
-                    )));
+            let leaf = match role {
+                FieldRole::Field if ft.is_some() => {
+                    try_push_form(&mut leaves, None, "returned field entries")?;
+                    Some(leaves.len() - 1)
                 }
+                FieldRole::Field => None,
+                FieldRole::Folded(leaf) => leaf,
+            };
+            if let Some(kids) = field_kids(&self.doc, dict) {
+                add_form_tree_edges(&mut edges, kids.len())?;
                 for kid in kids {
-                    let Ok(kid_id) = kid.as_reference() else {
-                        continue;
-                    };
-                    let is_field = self
-                        .doc
-                        .get_object(kid_id)
-                        .and_then(Object::as_dict)
-                        .is_ok_and(|child| child.has(b"T"));
-                    if !is_field {
+                    // An ignored entry costs only its edge. Every other entry
+                    // that is neither a child field nor an intermediate field
+                    // counts toward the widget budget, as does an intermediate
+                    // that looks like a widget, so that budget covers every
+                    // widget that `field_widgets` can return.
+                    let kid = classify_field_kid(&self.doc, kid);
+                    if matches!(
+                        kid,
+                        FieldKid::Widget(_)
+                            | FieldKid::Unusable
+                            | FieldKid::Intermediate { widget: true, .. }
+                    ) {
                         widget_refs = widget_refs.saturating_add(1);
                         if widget_refs > MAX_FORM_FIELD_WIDGETS {
                             return Err(PdfError::new_err(format!(
                                 "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
                             )));
                         }
-                        continue;
                     }
+                    // An intermediate is walked like a child field, but it adds
+                    // no name component and reports its child fields to the
+                    // field it folds into.
+                    let (kid_id, kid_role) = match kid {
+                        FieldKid::Field(kid_id) => {
+                            has_child_fields = true;
+                            (kid_id, FieldRole::Field)
+                        }
+                        FieldKid::Intermediate { id, .. } => (id, FieldRole::Folded(leaf)),
+                        FieldKid::Widget(_) | FieldKid::Unusable | FieldKid::Ignored => continue,
+                    };
                     if depth >= MAX_FORM_FIELD_TREE_DEPTH {
                         return Err(PdfError::new_err(format!(
                             "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_DEPTH}-level safety limit"
                         )));
                     }
-                    has_child_fields = true;
-                    let child_name =
-                        try_clone_form_string(&name, "inherited field-name component")?;
-                    let child_ft = match &ft {
-                        Some(field_type) => {
-                            Some(try_clone_form_string(field_type, "inherited field type")?)
-                        }
-                        None => None,
-                    };
                     try_push_form(
                         &mut stack,
-                        (kid_id, child_name, child_ft, ff, value.clone(), depth + 1),
+                        (
+                            kid_id,
+                            Arc::clone(&name),
+                            ft.clone(),
+                            ff,
+                            value.clone(),
+                            depth + 1,
+                            kid_role,
+                        ),
                         "field-tree stack",
                     )?;
                 }
             }
-            if !has_child_fields && let Some(ft) = ft {
-                if out.len() >= MAX_FORM_FIELD_ENTRIES {
-                    return Err(PdfError::new_err(format!(
-                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_ENTRIES}-entry safety limit"
-                    )));
+            if let Some(index) = leaf {
+                if has_child_fields {
+                    leaves[index] = None;
+                } else if let (FieldRole::Field, Some(ft)) = (role, ft) {
+                    // Copy the name only while another node shares it, such
+                    // as an intermediate folded into this field.
+                    let name = Arc::try_unwrap(name)
+                        .or_else(|name| try_clone_form_string(&name, "returned field name"))?;
+                    leaves[index] = Some((name, id, ft, ff, value));
                 }
-                if let Some(value) = &value {
-                    add_form_budget(
-                        &mut returned_value_bytes,
-                        value.len(),
-                        MAX_FORM_FIELD_VALUE_BYTES,
-                        "returned field-value",
-                    )?;
-                }
-                try_push_form(
-                    &mut out,
-                    (name, id, ft, ff, value),
-                    "returned field entries",
+            }
+        }
+        let leaf_count = leaves.iter().flatten().count();
+        if leaf_count > MAX_FORM_FIELD_ENTRIES {
+            return Err(PdfError::new_err(format!(
+                "AcroForm field tree exceeds the {MAX_FORM_FIELD_ENTRIES}-entry safety limit"
+            )));
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(leaf_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate AcroForm returned field entries: {error}"
+            ))
+        })?;
+        for (name, id, ft, ff, value) in leaves.into_iter().flatten() {
+            if let Some(value) = &value {
+                add_form_budget(
+                    &mut returned_value_bytes,
+                    value.len(),
+                    MAX_FORM_FIELD_VALUE_BYTES,
+                    "returned field-value",
                 )?;
             }
+            out.push((name, id, ft, ff, value));
         }
         out.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
         Ok(out)
     }
 
-    /// Return widget annotation ObjectIds, or the field itself when Kids is absent.
+    /// Return the widgets that the walk classifies below a field in document
+    /// order, or the field itself when it has none.
+    ///
+    /// The widgets of a nameless intermediate field take its place among the
+    /// kids, and each intermediate is expanded once, so a cycle ends. The walk
+    /// visits every intermediate below a field it returns, so a successful
+    /// walk has already met the node, edge, and widget limits enforced here;
+    /// they keep this traversal bounded on its own. The frame stack holds one
+    /// frame per intermediate on the current path, so the node limit bounds
+    /// its depth too, while a depth limit could reject an intermediate that the
+    /// walk reached at a smaller depth through another field.
     fn field_widgets(&self, field_id: ObjectId) -> PyResult<Vec<ObjectId>> {
         let mut widgets = Vec::new();
         let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
             try_push_form(&mut widgets, field_id, "field widgets")?;
             return Ok(widgets);
         };
-        let kids = dict
-            .get(b"Kids")
-            .ok()
-            .map(|object| deref_object(&self.doc, object))
-            .and_then(|object| object.as_array().ok())
-            .into_iter()
-            .flatten();
-        for kid_id in kids.filter_map(|kid| kid.as_reference().ok()) {
-            let is_widget = self
-                .doc
-                .get_object(kid_id)
-                .and_then(Object::as_dict)
-                .is_ok_and(|child| !child.has(b"T"));
+        let kids = field_kids(&self.doc, dict).unwrap_or_default();
+        let mut edges = 0usize;
+        add_form_tree_edges(&mut edges, kids.len())?;
+        let mut frames = Vec::new();
+        try_push_form(&mut frames, kids.iter(), "field-widget stack")?;
+        let mut expanded = HashSet::new();
+        while let Some(frame) = frames.last_mut() {
+            let Some(kid) = frame.next() else {
+                frames.pop();
+                continue;
+            };
+            let (kid_id, is_widget, folded_kids) = match classify_field_kid(&self.doc, kid) {
+                FieldKid::Widget(kid_id) => (kid_id, true, None),
+                FieldKid::Intermediate { id, kids, widget } => (id, widget, Some(kids)),
+                FieldKid::Field(_) | FieldKid::Unusable | FieldKid::Ignored => continue,
+            };
             if is_widget {
+                if widgets.len() >= MAX_FORM_FIELD_WIDGETS {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm field exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+                    )));
+                }
                 try_push_form(&mut widgets, kid_id, "field widgets")?;
+            }
+            let Some(kids) = folded_kids else {
+                continue;
+            };
+            // The field is the first expanded node, so a cycle back to it ends.
+            if expanded.is_empty() {
+                visit_form_node(&mut expanded, field_id)?;
+            }
+            if visit_form_node(&mut expanded, kid_id)? {
+                add_form_tree_edges(&mut edges, kids.len())?;
+                try_push_form(&mut frames, kids.iter(), "field-widget stack")?;
             }
         }
         if widgets.is_empty() {
@@ -5661,13 +6583,7 @@ impl _Document {
                 .doc
                 .get_object(widget_id)
                 .and_then(Object::as_dict)
-                .is_ok_and(|widget| {
-                    widget
-                        .get(b"Subtype")
-                        .and_then(Object::as_name)
-                        .is_ok_and(|name| name == b"Widget")
-                        || widget.has(b"Rect")
-                });
+                .is_ok_and(looks_like_widget);
             if is_visible {
                 try_push_form(&mut visible, widget_id, "visible field widgets")?;
             }
@@ -5755,6 +6671,9 @@ impl _Document {
     }
 
     /// Read an inheritable field attribute from a field/widget parent chain.
+    ///
+    /// A null value, an indirect null, and a reference to a missing object
+    /// continue to the parent, as an absent key does.
     fn resolve_field_attr(&self, field_id: ObjectId, key: &[u8]) -> Option<Object> {
         let mut current = Some(field_id);
         let mut visited = HashSet::new();
@@ -5763,12 +6682,34 @@ impl _Document {
                 return None;
             }
             let dict = self.doc.get_object(id).ok()?.as_dict().ok()?;
-            if let Ok(value) = dict.get(key) {
+            if let Some(value) = inheritable_field_value(&self.doc, dict, key) {
                 return Some(value.clone());
             }
             current = dict.get(b"Parent").and_then(Object::as_reference).ok();
         }
         None
+    }
+
+    /// Resolve the quadding (0 left, 1 centered, 2 right) of a variable-text
+    /// field's appearances.
+    ///
+    /// When the bounded `/Parent` walk finds no `/Q`, the interactive form
+    /// dictionary's document-wide `/Q` applies (ISO 32000-2 Table 225), where
+    /// a null value, an indirect null, and a reference to a missing object
+    /// also read as absent. A present non-integer or out-of-range value aligns
+    /// left; on a field it still overrides the document default.
+    fn field_quadding(&self, field_id: ObjectId) -> u8 {
+        self.resolve_field_attr(field_id, b"Q")
+            .or_else(|| {
+                let acroform = self.doc.catalog().ok()?.get(b"AcroForm").ok()?;
+                let acroform = deref_dict_ref(&self.doc, acroform)?;
+                inheritable_field_value(&self.doc, acroform, b"Q").cloned()
+            })
+            .as_ref()
+            .and_then(|object| resolve_i64(&self.doc, object))
+            .and_then(|value| u8::try_from(value).ok())
+            .filter(|value| *value <= 2)
+            .unwrap_or(0)
     }
 
     /// Resolve a valid text-field comb size or explain malformed flag data.
@@ -5955,7 +6896,7 @@ impl _Document {
         value: &str,
         layout: WidgetTextLayout,
         align: u8,
-        font_data: Option<&Vec<u8>>,
+        font_data: Option<&FontBytes>,
         font_index: u32,
     ) -> PyResult<bool> {
         let widget = self
@@ -5986,7 +6927,7 @@ impl _Document {
                         value,
                         max_len,
                         align,
-                        font_data.clone(),
+                        Arc::clone(font_data),
                         font_index,
                         (0.0, 0.0, 0.0),
                     ),
@@ -5994,7 +6935,7 @@ impl _Document {
                         (style.layout_width, style.layout_height),
                         style.content_rect(),
                         value,
-                        font_data.clone(),
+                        Arc::clone(font_data),
                         font_index,
                         matches!(layout, WidgetTextLayout::Multiline),
                         align,
@@ -6002,7 +6943,7 @@ impl _Document {
                     ),
                 }
                 .map_err(generated_text_err)?;
-                let generated_doc = Document::load_mem(&generated).map_err(|error| {
+                let generated_doc = generated_pdf::load(&generated).map_err(|error| {
                     lopdf_err(Some("failed to import generated form appearance"), &error)
                 })?;
                 let (form_id, crop, rotation) =
@@ -6077,7 +7018,7 @@ impl _Document {
                     if !draw::is_winansi(&value) {
                         continue;
                     }
-                    let layout = if field_type == "Tx" {
+                    let layout = if field_type.as_str() == "Tx" {
                         match self.field_comb_max_len(field_id, flags) {
                             Ok(Some(max_len)) => WidgetTextLayout::Comb(max_len),
                             Ok(None) if flags & TEXT_FIELD_MULTILINE != 0 => {
@@ -6089,13 +7030,7 @@ impl _Document {
                     } else {
                         WidgetTextLayout::SingleLine
                     };
-                    let align = self
-                        .resolve_field_attr(field_id, b"Q")
-                        .as_ref()
-                        .and_then(|object| resolve_i64(&self.doc, object))
-                        .and_then(|value| u8::try_from(value).ok())
-                        .filter(|value| *value <= 2)
-                        .unwrap_or(0);
+                    let align = self.field_quadding(field_id);
                     for widget_id in self.visible_field_widgets(field_id)? {
                         if !self.widget_has_normal_stream(widget_id)
                             && self
@@ -6155,12 +7090,46 @@ impl _Document {
         Ok(true)
     }
 
-    /// Mutating implementation kept behind an atomic clone in the Python method.
+    /// Set a validated form-field value, restoring the document on any error.
+    fn fill_form_field(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        font_data: Option<FontBytes>,
+        font_index: u32,
+    ) -> PyResult<()> {
+        let encoded_value = form_text_string(value);
+        if encoded_value
+            .as_str()
+            .is_ok_and(|bytes| bytes.len() > MAX_FORM_FIELD_VALUE_BYTES)
+        {
+            return Err(PdfError::new_err(format!(
+                "encoded form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
+            )));
+        }
+        let result = py.detach(|| {
+            let original = self.doc.clone();
+            match self.set_form_field_inner(name, value, font_data.as_ref(), font_index) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    self.doc.replace(original);
+                    Err(error)
+                }
+            }
+        });
+        if result.is_ok() {
+            self.invalidate_hayro_pdf();
+        }
+        result
+    }
+
+    /// Mutating implementation kept behind an atomic clone in `fill_form_field`.
     fn set_form_field_inner(
         &mut self,
         name: &str,
         value: &str,
-        font_data: Option<Vec<u8>>,
+        font_data: Option<&FontBytes>,
         font_index: u32,
     ) -> PyResult<()> {
         let (field_id, ft, ff) = self
@@ -6179,7 +7148,7 @@ impl _Document {
                         .map_err(to_py_err)?;
                     field.set("V", form_text_string(value));
                 }
-                let layout = if ft == "Tx" {
+                let layout = if ft.as_str() == "Tx" {
                     match self
                         .field_comb_max_len(field_id, ff)
                         .map_err(PdfError::new_err)?
@@ -6191,21 +7160,10 @@ impl _Document {
                 } else {
                     WidgetTextLayout::SingleLine
                 };
-                let align = self
-                    .resolve_field_attr(field_id, b"Q")
-                    .as_ref()
-                    .and_then(|object| resolve_i64(&self.doc, object))
-                    .and_then(|value| u8::try_from(value).ok())
-                    .filter(|value| *value <= 2)
-                    .unwrap_or(0);
+                let align = self.field_quadding(field_id);
                 for widget_id in self.visible_field_widgets(field_id)? {
                     self.synthesize_text_appearance(
-                        widget_id,
-                        value,
-                        layout,
-                        align,
-                        font_data.as_ref(),
-                        font_index,
+                        widget_id, value, layout, align, font_data, font_index,
                     )?;
                 }
             }
@@ -6283,13 +7241,16 @@ impl _Document {
                 .and_then(Object::as_dict)
                 .map_err(to_py_err)?;
             match page.get(b"Annots") {
+                // An indirect null and a missing object start a new array, as
+                // a null value does.
                 Ok(Object::Reference(id)) => {
-                    let items = self
-                        .doc
-                        .get_object(*id)
-                        .and_then(Object::as_array)
-                        .map_err(to_py_err)?;
-                    (Target::IndirectArray(*id), items.len())
+                    match non_null_object(&self.doc, *id).map_err(to_py_err)? {
+                        Some(annots) => (
+                            Target::IndirectArray(*id),
+                            annots.as_array().map_err(to_py_err)?.len(),
+                        ),
+                        None => (Target::Missing, 0),
+                    }
                 }
                 Ok(Object::Array(items)) => (Target::PageArray, items.len()),
                 _ => (Target::Missing, 0),
@@ -6308,17 +7269,7 @@ impl _Document {
             Target::IndirectArray(arr_id) => {
                 // copy_page/select duplicates may share indirect Annots arrays.
                 // Clone on write while shared so additions do not leak.
-                let shared = self.doc.page_ids()?.iter().copied().any(|other_page_id| {
-                    other_page_id != page_id
-                        && self
-                            .doc
-                            .get_object(other_page_id)
-                            .and_then(Object::as_dict)
-                            .ok()
-                            .and_then(|page| page.get(b"Annots").ok())
-                            .and_then(|annots| annots.as_reference().ok())
-                            == Some(arr_id)
-                });
+                let shared = self.doc.annotation_array_shared(page_id, arr_id)?;
                 if shared {
                     let source = self
                         .doc
@@ -6336,11 +7287,7 @@ impl _Document {
                     }
                     Ok(PageAnnotationAppendPlan::Replacement(detached))
                 } else {
-                    let items = self
-                        .doc
-                        .get_object_mut(arr_id)
-                        .and_then(Object::as_array_mut)
-                        .map_err(to_py_err)?;
+                    let items = self.doc.annotation_array_mut(arr_id)?;
                     items.try_reserve_exact(1).map_err(|error| {
                         PdfError::new_err(format!(
                             "failed to grow indirect page annotations: {error}"
@@ -6350,15 +7297,7 @@ impl _Document {
                 }
             }
             Target::PageArray => {
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                let items = page
-                    .get_mut(b"Annots")
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
+                let items = self.doc.page_annotations_mut(page_id)?;
                 items.try_reserve_exact(1).map_err(|error| {
                     PdfError::new_err(format!("failed to grow page annotations: {error}"))
                 })?;
@@ -6383,33 +7322,18 @@ impl _Document {
     ) -> PyResult<()> {
         match plan {
             PageAnnotationAppendPlan::Direct => {
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                let items = page
-                    .get_mut(b"Annots")
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
-                items.push(Object::Reference(annot_id));
+                self.doc
+                    .page_annotations_mut(page_id)?
+                    .push(Object::Reference(annot_id));
             }
             PageAnnotationAppendPlan::Indirect(array_id) => {
-                let items = self
-                    .doc
-                    .get_object_mut(array_id)
-                    .and_then(Object::as_array_mut)
-                    .map_err(to_py_err)?;
-                items.push(Object::Reference(annot_id));
+                self.doc
+                    .annotation_array_mut(array_id)?
+                    .push(Object::Reference(annot_id));
             }
             PageAnnotationAppendPlan::Replacement(mut items) => {
                 items.push(Object::Reference(annot_id));
-                let page = self
-                    .doc
-                    .get_object_mut(page_id)
-                    .and_then(Object::as_dict_mut)
-                    .map_err(to_py_err)?;
-                page.set("Annots", items);
+                self.doc.set_page_annotations(page_id, items)?;
             }
         }
         Ok(())
@@ -6419,11 +7343,13 @@ impl _Document {
     ///
     /// Editing methods invalidate the cache, preserving the invariant that
     /// rendered state always reflects edits. Consecutive renders rebuild once.
+    /// Extraction and rendering index hayro's pages by page number, so every
+    /// view must resolve exactly the page-tree walker's pages, in order.
     fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
-            let expected_pages = self.doc.page_count()?;
+            let page_ids = self.doc.owned_page_ids()?;
             let state_appearances = state_appearance_ids(&self.doc)?;
-            let mut text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
+            let text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
             let prepare_appearances = !state_appearances.is_empty()
                 || text_markup_appearances
                     .as_ref()
@@ -6448,43 +7374,33 @@ impl _Document {
                 .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
-                .filter(|pdf| pdf.pages().len() == expected_pages);
+                .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             let pdf = match source_pdf {
                 Some(pdf) => pdf,
                 None => {
-                    let mut render_doc = if prepare_appearances {
-                        let mut doc = if self.max_interpretation_size.is_some() {
-                            let data = self.current_bytes()?;
-                            Document::load_mem(&data).map_err(|error| {
-                                PdfError::new_err(format!(
-                                    "failed to prepare bounded PDF for rendering: {}",
-                                    LopdfErrorChain(&error)
-                                ))
-                            })?
-                        } else {
-                            self.doc.clone()
-                        };
-                        normalize_state_appearances_for_render(&mut doc, &state_appearances);
-                        if let Some(plans) = text_markup_appearances.take() {
-                            synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
-                        }
-                        Some(doc)
+                    let pdf =
+                        self.render_snapshot(&state_appearances, text_markup_appearances, None)?;
+                    if hayro_pages_match(&pdf, &page_ids) {
+                        pdf
                     } else {
-                        None
-                    };
-                    let data = match render_doc.as_mut() {
-                        Some(doc) => serialize_pdf_with_limit(
-                            doc,
-                            None,
-                            self.max_interpretation_size,
-                            "interpretation_size",
-                            "serialized rendering and extraction snapshot",
-                        )?,
-                        None => self.current_bytes()?,
-                    };
-                    Pdf::new(data).map_err(|e| {
-                        PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
-                    })?
+                        // hayro 0.7 stops at the first page-tree kid that is
+                        // not a dictionary and reads untyped kids as pages,
+                        // while the walker skips both, so list only the
+                        // walker's pages in a rendering copy.
+                        let text_markup_appearances =
+                            missing_text_markup_appearance_plans(&self.doc)?;
+                        let pdf = self.render_snapshot(
+                            &state_appearances,
+                            text_markup_appearances,
+                            Some(&page_ids),
+                        )?;
+                        if !hayro_pages_match(&pdf, &page_ids) {
+                            return Err(PdfError::new_err(
+                                "the renderer could not resolve the document page tree",
+                            ));
+                        }
+                        pdf
+                    }
                 }
             };
             self.content_guard.reset();
@@ -6510,6 +7426,56 @@ impl _Document {
             .expect("hayro view was built immediately before");
         self.content_guard.check(pdf, pages)?;
         Ok(pdf)
+    }
+
+    /// Parse a serialized snapshot, normalizing a rendering copy when
+    /// appearances or the page tree need it.
+    ///
+    /// `flattened_pages` lists the walker's pages directly under the root
+    /// page-tree node. None of this changes the editable or saved document.
+    fn render_snapshot(
+        &mut self,
+        state_appearances: &[ObjectId],
+        text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
+        flattened_pages: Option<&[ObjectId]>,
+    ) -> PyResult<Pdf> {
+        let normalize = !state_appearances.is_empty()
+            || text_markup_appearances
+                .as_ref()
+                .is_some_and(|plans| !plans.is_empty())
+            || flattened_pages.is_some();
+        let data = if normalize {
+            let mut doc = if self.max_interpretation_size.is_some() {
+                let data = self.current_bytes()?;
+                Document::load_mem(&data).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to prepare bounded PDF for rendering: {}",
+                        LopdfErrorChain(&error)
+                    ))
+                })?
+            } else {
+                self.doc.clone()
+            };
+            normalize_state_appearances_for_render(&mut doc, state_appearances);
+            if let Some(plans) = text_markup_appearances {
+                synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
+            }
+            if let Some(pages) = flattened_pages {
+                let pages_id = page_tree_root(&doc)?;
+                rebuild_flat_page_tree(&mut doc, pages_id, pages, None)?;
+            }
+            serialize_pdf_with_limit(
+                &mut doc,
+                None,
+                self.max_interpretation_size,
+                "interpretation_size",
+                "serialized rendering and extraction snapshot",
+            )?
+        } else {
+            self.current_bytes()?
+        };
+        Pdf::new(data)
+            .map_err(|e| PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
@@ -6984,45 +7950,7 @@ impl _Document {
         ordered: Vec<ObjectId>,
         cleanup: Option<&PageCleanupPlan>,
     ) -> PyResult<()> {
-        self.doc
-            .get_object(pages_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
-        let count = i64::try_from(ordered.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
-        let mut kids = Vec::new();
-        kids.try_reserve_exact(ordered.len()).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate rebuilt page-tree Kids: {error}"
-            ))
-        })?;
-        let mut resolved_pages = Vec::new();
-        resolved_pages
-            .try_reserve_exact(ordered.len())
-            .map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate rebuilt page dictionaries: {error}"
-                ))
-            })?;
-        for &page_id in &ordered {
-            let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
-            if let Some(cleanup) = cleanup {
-                cleanup.clean_page(page_id, &mut dict);
-            }
-            dict.set("Parent", pages_id);
-            kids.push(Object::Reference(page_id));
-            resolved_pages.push((page_id, dict));
-        }
-        for (page_id, dict) in resolved_pages {
-            self.doc.objects.insert(page_id, Object::Dictionary(dict));
-        }
-        let pages_dict = self
-            .doc
-            .get_object_mut(pages_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        pages_dict.set("Kids", kids);
-        pages_dict.set("Count", count);
-        Ok(())
+        rebuild_flat_page_tree(&mut self.doc, pages_id, &ordered, cleanup)
     }
 
     /// Resolve an array/name/string/or `/D` dictionary to a one-based lopdf page,
@@ -7440,7 +8368,9 @@ fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
 ///
 /// Recurse through `/Kids` with depth, cycle, node, entry, and decoded-name
 /// guards. Nodes and FileSpecs remain borrowed so read operations do not clone
-/// adversarial direct object shapes. Returning `Some` stops the walk early.
+/// adversarial direct object shapes. A FileSpec that is null, an indirect
+/// null, or a reference to a missing object is skipped, so attachment
+/// rewrites drop it. Returning `Some` stops the walk early.
 fn visit_embedded_files<'a, T>(
     doc: &'a Document,
     mut visitor: impl FnMut(String, &'a Object) -> PyResult<Option<T>>,
@@ -7524,7 +8454,9 @@ fn visit_embedded_files<'a, T>(
                         "attachment names exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
                     )));
                 }
-                if !matches!(value, Object::Reference(_) | Object::Dictionary(_)) {
+                if !matches!(value, Object::Reference(_) | Object::Dictionary(_))
+                    || matches!(non_null_value(doc, value), Ok(None))
+                {
                     continue;
                 }
                 if let Some(result) = visitor(name, value)? {
@@ -7689,17 +8621,21 @@ fn collect_embedded_files(doc: &Document) -> PyResult<Vec<EmbeddedFileEntry>> {
 }
 
 /// Validate the name-dictionary target before attachment objects are added.
+///
+/// A null `/Names`, an indirect null, and a reference to a missing object
+/// read as an absent entry, which the rewrite replaces with a new dictionary.
 fn embedded_files_write_target(doc: &Document) -> PyResult<EmbeddedFilesWriteTarget> {
     let catalog = doc.catalog().map_err(to_py_err)?;
-    if !catalog.has(b"Names") {
+    let Ok(names) = catalog.get(b"Names") else {
         return Ok(EmbeddedFilesWriteTarget::Missing);
-    }
-    match catalog.get(b"Names").map_err(to_py_err)? {
+    };
+    let Some(resolved) = non_null_value(doc, names).map_err(to_py_err)? else {
+        return Ok(EmbeddedFilesWriteTarget::Missing);
+    };
+    match names {
         Object::Dictionary(_) => Ok(EmbeddedFilesWriteTarget::Inline),
         Object::Reference(id) => {
-            doc.get_object(*id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?;
+            resolved.as_dict().map_err(to_py_err)?;
             Ok(EmbeddedFilesWriteTarget::Indirect(*id))
         }
         _ => Err(PdfError::new_err(
@@ -7853,13 +8789,17 @@ impl _Document {
         };
         py.detach(|| {
             let data = read_input(path, limits.max_file_size)?;
-            let (doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
+            let (mut doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
                 recovery_load_err(
                     Some(&format!("failed to load {path}")),
                     &error,
                     decoder_limit_code,
                 )
             })?;
+            // Compare objects with their cross-reference entries before any
+            // object changes number.
+            let original_bytes_match = original_bytes_match(&mut doc, recovery, &data)?;
+            let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7871,10 +8811,12 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
-                HayroSource::Unavailable
-            } else {
+            // Image compression maps hayro's object IDs to lopdf's, which no
+            // longer match the original bytes once objects are renumbered.
+            let hayro_source = if original_bytes_match && !renumbered {
                 HayroSource::from_owned(data, limits.max_interpretation_size)
+            } else {
+                HayroSource::Unavailable
             };
             Ok(Self::from_loaded_doc(
                 doc,
@@ -7952,8 +8894,12 @@ impl _Document {
             ..Default::default()
         };
         py.detach(|| {
-            let (doc, recovery) = recovery::load_document(data, options)
+            let (mut doc, recovery) = recovery::load_document(data, options)
                 .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
+            // Compare objects with their cross-reference entries before any
+            // object changes number.
+            let original_bytes_match = original_bytes_match(&mut doc, recovery, data)?;
+            let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7965,10 +8911,12 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
-                HayroSource::Unavailable
-            } else {
+            // Image compression maps hayro's object IDs to lopdf's, which no
+            // longer match the original bytes once objects are renumbered.
+            let hayro_source = if original_bytes_match && !renumbered {
                 HayroSource::from_borrowed(data, limits.max_interpretation_size)?
+            } else {
+                HayroSource::Unavailable
             };
             Ok(Self::from_loaded_doc(
                 doc,
@@ -8138,7 +9086,10 @@ impl _Document {
         Ok(())
     }
 
-    /// Atomically read and configure every discovered locale font pair.
+    /// Atomically configure every discovered locale font pair.
+    ///
+    /// Files read by earlier documents are reused while unchanged; see
+    /// `bundled_font_cache`. Return how many files were read from disk.
     #[pyo3(signature = (
         files,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
@@ -8148,7 +9099,7 @@ impl _Document {
         py: Python<'_>,
         files: Vec<(String, String, String)>,
         max_font_size: Option<usize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_font_input(None, max_font_size)?;
         if files.len() > 4 {
             return Err(PdfError::new_err(
@@ -8173,31 +9124,49 @@ impl _Document {
             requests.push((language, sans_path, serif_path));
         }
         if requests.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let loaded = py.detach(|| {
-            let mut loaded = Vec::new();
-            loaded.try_reserve_exact(requests.len()).map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate loaded CJK locale fonts: {error}"
-                ))
-            })?;
-            for (language, sans_path, serif_path) in requests {
-                let sans = read_font_input(&sans_path, max_font_size)?;
-                let serif = read_font_input(&serif_path, max_font_size)?;
-                loaded.push((language, sans, serif));
-            }
-            Ok::<_, PyErr>(loaded)
+            crate::bundled_font_cache::load_locale_font_pairs(&requests, max_font_size)
         })?;
         let mut fallback_fonts = self.fallback_fonts.clone();
-        for (language, sans, serif) in loaded {
-            let pair = fallback_fonts.pair_mut(language);
-            pair.sans = Some((Arc::new(sans), 0));
-            pair.serif = Some((Arc::new(serif), 0));
+        for ((language, _, _), (sans, serif)) in requests.iter().zip(loaded.pairs) {
+            let pair = fallback_fonts.pair_mut(*language);
+            pair.sans = Some((sans, 0));
+            pair.serif = Some((serif, 0));
         }
         self.fallback_fonts = fallback_fonts;
         self.invalidate_interpreted_pages();
-        Ok(())
+        Ok(loaded.files_read)
+    }
+
+    /// Return how many installed font package files the shared slots have
+    /// read since the process started, so tests can pin reuse.
+    #[staticmethod]
+    fn package_font_reads() -> usize {
+        crate::bundled_font_cache::files_read()
+    }
+
+    /// Return `(sequential, fallback, mismatched)` counts of generated-PDF
+    /// imports since the process started, so tests can pin the calling-thread
+    /// parser; mismatches are counted only while verification is enabled.
+    #[staticmethod]
+    fn generated_pdf_loads() -> (usize, usize, usize) {
+        generated_pdf::load_counts()
+    }
+
+    /// Compare every later calling-thread import with lopdf's own parse, so
+    /// tests can verify identical documents for real generated output.
+    #[staticmethod]
+    fn verify_generated_pdf_loads(enabled: bool) {
+        generated_pdf::set_verification(enabled);
+    }
+
+    /// Report whether the calling-thread parser reads `data` exactly as lopdf
+    /// does, or `None` when it declines the input.
+    #[staticmethod]
+    fn compare_generated_pdf_load(data: &[u8]) -> Option<bool> {
+        generated_pdf::compare_with_lopdf(data)
     }
 
     /// Clear all CJK fallback-font configuration.
@@ -9931,7 +10900,7 @@ impl _Document {
                 .find(|(field_name, ..)| field_name == name)
                 .map(|(_, id, ft, ..)| (id, ft))
                 .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
-            if ft != "Btn" {
+            if ft.as_str() != "Btn" {
                 return Ok(Vec::new());
             }
             let (widget_states, _, _) = self.button_appearance_states(field_id)?;
@@ -9981,38 +10950,21 @@ impl _Document {
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
         validate_font_input(font_data.as_deref(), max_font_size)?;
-        let encoded_value = form_text_string(value);
-        if encoded_value
-            .as_str()
-            .is_ok_and(|bytes| bytes.len() > MAX_FORM_FIELD_VALUE_BYTES)
-        {
-            return Err(PdfError::new_err(format!(
-                "encoded form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
-            )));
-        }
-        let result = py.detach(|| {
-            let original = self.doc.clone();
-            match self.set_form_field_inner(name, value, font_data, font_index) {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    self.doc.replace(original);
-                    Err(error)
-                }
-            }
-        });
-        if result.is_ok() {
-            self.invalidate_hayro_pdf();
-        }
-        result
+        self.fill_form_field(py, name, value, font_data.map(Arc::new), font_index)
     }
 
     /// Set a form-field value using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names an installed package face as for
+    /// `insert_embedded_text_file`; explicit font paths are read on every call.
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         name,
         value,
         path,
         font_index=0,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        package_font=None
     ))]
     fn set_form_field_file(
         &mut self,
@@ -10022,11 +10974,11 @@ impl _Document {
         path: &str,
         font_index: u32,
         max_font_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.set_form_field(py, name, value, Some(data), font_index, max_font_size)
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.fill_form_field(py, name, value, Some(data), font_index)
     }
 
     /// Return sorted attachment names independent of name-tree order.
@@ -10475,42 +11427,24 @@ impl _Document {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
-        let generated = py.detach(|| {
-            generate::embedded_text_page(
-                page_size, point, &lines, font_data, font_index, fontsize, color,
-            )
-            .map_err(PdfError::new_err)
-        })?;
-        let generated_doc = Document::load_mem(&generated)
-            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let placement = PagePlacement {
-            rect: [0.0, 0.0, page_size.0, page_size.1],
-            keep_proportion: false,
-        };
-        let form_plan =
-            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })
+        self.draw_embedded_text(
+            py,
+            page_number,
+            point,
+            &lines,
+            Arc::new(font_data),
+            font_index,
+            fontsize,
+            color,
+            overlay,
+        )
     }
 
     /// Draw subset-embedded text using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names the `(language, kind)` of a face Python selected
+    /// from an installed font package; see `bundled_font_cache`. Explicit
+    /// font paths pass `None` and are read on every call.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         page_number,
@@ -10522,7 +11456,8 @@ impl _Document {
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        package_font=None
     ))]
     fn insert_embedded_text_file(
         &mut self,
@@ -10537,23 +11472,21 @@ impl _Document {
         overlay: bool,
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<()> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.insert_embedded_text(
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.draw_embedded_text(
             py,
             page_number,
             point,
-            lines,
+            &lines,
             data,
             font_index,
             fontsize,
             color,
             overlay,
-            max_font_size,
-            max_text_size,
         )
     }
 
@@ -10592,56 +11525,26 @@ impl _Document {
         validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
-        let rect_array = [rect.0, rect.1, rect.2, rect.3];
-        let (generated, spare_height) = py.detach(|| {
-            generate::embedded_textbox_page(
-                page_size,
-                rect_array,
-                text,
-                font_data,
-                font_index,
-                fontsize,
-                line_height,
-                align,
-                color,
-                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
-            )
-            .map_err(generated_text_err)
-        })?;
-        let Some(generated) = generated else {
-            return Ok(spare_height);
-        };
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let generated_doc = Document::load_mem(&generated)
-            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let placement = PagePlacement {
-            rect: [0.0, 0.0, page_size.0, page_size.1],
-            keep_proportion: false,
-        };
-        let form_plan =
-            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })?;
-        Ok(spare_height)
+        self.draw_embedded_textbox(
+            py,
+            page_number,
+            rect,
+            text,
+            Arc::new(font_data),
+            font_index,
+            fontsize,
+            line_height,
+            align,
+            color,
+            overlay,
+            max_text_size,
+        )
     }
 
     /// Lay out subset-embedded text using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names an installed package face as for
+    /// `insert_embedded_text_file`; explicit font paths are read on every call.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         page_number,
@@ -10655,7 +11558,8 @@ impl _Document {
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        package_font=None
     ))]
     fn insert_embedded_textbox_file(
         &mut self,
@@ -10672,12 +11576,12 @@ impl _Document {
         overlay: bool,
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<f64> {
         validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.insert_embedded_textbox(
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.draw_embedded_textbox(
             py,
             page_number,
             rect,
@@ -10689,7 +11593,6 @@ impl _Document {
             align,
             color,
             overlay,
-            max_font_size,
             max_text_size,
         )
     }
@@ -10842,11 +11745,9 @@ impl _Document {
 
             // Everything above is fallible. Commit the page-owned stream and
             // resolved page dictionary only after preparation succeeds.
-            self.doc
-                .objects
-                .insert(new_content_id, Object::Stream(stream));
-            self.doc.max_id = new_object_number;
-            self.doc.objects.insert(page_id, Object::Dictionary(page));
+            let content_id = self.doc.add_object(stream);
+            debug_assert_eq!(content_id, new_content_id);
+            self.doc.replace_page(page_id, page);
             Ok(count)
         })?;
         if replacement_count > 0 {
