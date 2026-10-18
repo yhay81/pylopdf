@@ -60,7 +60,7 @@ rayon = "1"
 # pylopdf keeps PDF date strings opaque and calls no lopdf date conversion, so
 # neither target enables a date backend. lopdf's default chrono-clock feature
 # would also link the system time-zone stack (and a js-sys clock on Emscripten).
-lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
+lopdf = { version = "0.45.0", default-features = false }
 # Run optional PP-OCR models without a C++ runtime. Preconverted RTen model data
 # ships independently through pylopdf[ocr], keeping the ONNX parser out of the
 # core wheel. Emscripten exposes an explicit unsupported stub instead of
