@@ -200,6 +200,15 @@ def _limit_results(
             4: "[" * 12 + "0" + "]" * 12,
         }
     )
+    deep_content = b"BT [" + b"[" * 100_000 + b"(X)" + b"]" * 100_000 + b"] TJ ET"
+    nested_content = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>",
+            4: f"<< /Length {len(deep_content)} >>\nstream\n".encode() + deep_content + b"\nendstream",
+        }
+    )
     unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
     cyclic = pylopdf.Document(
         stream=_build_reference_cycle_pdf(),
@@ -236,6 +245,8 @@ def _limit_results(
                 limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
             )
         ),
+        # hayro 0.7 overflows its stack on this stream; the guard refuses it first.
+        "content_nesting": limit_code(lambda: pylopdf.Document(stream=nested_content).get_page_text(0)),
         "reference_cycle_pages": cyclic.page_count,
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,

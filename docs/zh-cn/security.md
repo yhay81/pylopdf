@@ -83,7 +83,8 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
 `font_input_size`、`text_input_size`、`text_line_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
-`stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`之一；
+`stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`、
+`content_nesting_depth`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。pylopdf自有的有界lopdf解码路径还会在materialize filter列表前拒绝
 超过16层的`/Filter` chain。
@@ -123,6 +124,17 @@ lopdf的重建会在每个后面没有`endstream`的`stream`关键字之后重�
 pylopdf在每次宽松打开和metadata probe之前以线性时间估算该工作量，超过每个输入
 byte 64 byte再加64 MiB时以`recovery_scan_size`拒绝，防止恶意输入使恢复变为二次
 复杂度。真实损坏文件在该位置最多只有一个被截断的stream。
+
+hayro 0.7以不限深度的递归读取内容流中的array和dictionary，因此只要有一个流打开数十万个
+`[`，就会在不抛出异常的情况下耗尽栈并终止Python进程。pylopdf在文本提取、布局、表格、
+搜索、绘图、图像读取、渲染（PNG、pixmap、SVG）、Markdown转换和图像压缩解释页面之前，
+会先解码该页面可达的内容流（`/Contents`、资源中的Form XObject、注释和控件的
+appearance、soft-mask group、tiling pattern和Type 3 glyph procedure）。当array或
+dictionary嵌套超过64层、嵌入了stream对象，或存在无法检查的inline image边界时，会以
+`content_nesting_depth`拒绝该页面。该上限固定不变，无论是否设置`DocumentLimits`都适用，
+其他页面仍可使用。每个页面在每个文档snapshot中只检查一次，编辑会清除结果。hayro会沿
+所有外层dictionary解析名称，因此即使没有operator绘制，页面资源dictionary中列出的条目
+也在检查范围内。
 
 - 每页渲染上限为6400万像素。
 - `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG

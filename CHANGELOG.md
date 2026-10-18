@@ -292,7 +292,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347),
   fixed in hayro 0.8); a 600 KB file was enough. Such a document now renders
   from lopdf's serialized graph, which leaves the object out. Arrays nested as
-  deeply inside a content stream still reach hayro 0.7's parser.
+  deeply inside a content stream are refused by the check in the next entry.
+- A content stream that nests arrays or dictionaries hundreds of thousands of
+  levels deep no longer kills the Python process. hayro 0.7 skips and reads
+  them by unbounded recursion (LaurenzV/hayro#1347), so
+  `"[" * 300_000 + "(X)" + "]" * 300_000 + " TJ"` in page content, a Form
+  XObject, an annotation or widget appearance, a tiling pattern, a Type 3
+  glyph procedure, or a soft-mask group overflowed the stack and ended the
+  process with SIGSEGV on the first text extraction, rendering, drawing or
+  image read, search, Markdown conversion, or image compression, with or
+  without `DocumentLimits.web()`; lopdf never parses content at load, so
+  `max_object_depth` did not apply. Every interpretation now first clears the
+  content streams that its pages can reach with an iterative scan and raises
+  `LimitError` with the new stable code `content_nesting_depth` for nesting
+  beyond 64 levels (the bound hayro 0.8 uses), for a stream object embedded in
+  content, and for inline image boundaries too ambiguous to check. The scan
+  decodes through hayro, so it sees the bytes that hayro's parser will, reuses
+  hayro's cached decode for page content, runs once per page and snapshot, and
+  leaves other pages usable. It models hayro's inline image handling: the
+  search for the end of an image, where hayro resumes when no `EI` ends it, and
+  the dictionaries that the search reads behind every `BI` byte pair, even one
+  inside a string or comment. Differential tests against hayro-syntax 0.7.2
+  with a recursion-depth probe, 8.7 billion exhaustive token sequences and 16
+  million random and mutated streams, found no stream that recurses past 64
+  levels and passes the scan, while each earlier model had let some through.
+  A fuzz of resource graphs, random rewrites of the document shapes in the
+  regression tests that keep what hayro can reach, found three ways for a deep
+  stream to escape the walk (a dictionary serving two resource roles, several
+  direct fonts in one object, and references that hayro refuses on a long path
+  but resolves when it draws); the final walk left no interpreted stream
+  unscanned in 183,000 graphs and in the first six pages of 3,000 varied PDFs,
+  and crashed on none of 46,000 graphs.
+  Cold first calls on the bundled corpus cost 1.0% more in total (9% at most,
+  on the form-heavy `f1040.pdf`), no corpus page renders or extracts
+  differently, and a sweep of 2,821 varied PDFs raised no refusal. Migrating to
+  hayro 0.8 instead was rejected for this fix: it changes the raster output of
+  6 of the 20 compared corpus pages and does not bound nested Type 4 function
+  procedures.
+- Three structures that are not content streams still overflow hayro 0.7 and
+  0.8 and remain unguarded: a Type 4 (PostScript calculator) function stream
+  with hundreds of thousands of nested braces, and chains of thousands of
+  indirect objects in which each stitching function names the next as its
+  sub-function, or each Indexed or Separation colour space names the next as
+  its base or alternate.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered

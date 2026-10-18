@@ -97,7 +97,7 @@ repeated source pages before mutation.
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable`, or `recovery_scan_size`.
+`decompression_unverifiable`, `recovery_scan_size`, or `content_nesting_depth`.
 The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
@@ -164,6 +164,22 @@ probe, pylopdf estimates that work in linear time and refuses input above 64
 bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
 cannot make recovery quadratic. Real damaged files carry at most one truncated
 stream in that position.
+
+hayro 0.7 reads arrays and dictionaries in content streams by unbounded
+recursion, so one stream that opens hundreds of thousands of `[` used to
+overflow the stack and end the Python process instead of raising. Before text
+extraction, layout, tables, search, drawings, image reads, rendering (PNG,
+pixmap, SVG), Markdown conversion, or image compression interprets a page,
+pylopdf decodes the content streams that page can reach: its `/Contents`, the
+Form XObjects in its resources, annotation and widget appearances, soft-mask
+groups, tiling patterns, and Type 3 glyph procedures. It refuses the page with
+`content_nesting_depth` when they nest arrays or dictionaries deeper than 64
+levels, embed a stream object, or hide an inline image boundary it cannot
+check. The bound is fixed, applies with or without `DocumentLimits`, and leaves
+other pages usable. Each page is checked once per document snapshot, and an
+edit clears the result. Entries that a page's resource dictionaries list count
+even when no operator draws them, because hayro resolves names through every
+enclosing dictionary.
 
 - Rendering is capped at 64 megapixels per page.
 - Page deletion and selection clean navigation to excluded pages before

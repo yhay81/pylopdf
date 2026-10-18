@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 mod bundled_font_cache;
+mod content_guard;
+mod content_scan;
 mod document;
 mod draw;
 mod extract;
