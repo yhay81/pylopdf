@@ -1004,7 +1004,18 @@ fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
     Ok(out)
 }
 
-/// One field-tree traversal node: object, prefix, inherited FT/Ff/value, depth.
+/// How one field-tree traversal node takes part in the walk.
+#[derive(Clone, Copy)]
+enum FieldRole {
+    /// A `/Fields` entry or a named kid, which can be a returned leaf.
+    Field,
+    /// A nameless intermediate field folded into the nearest field above it,
+    /// whose reserved leaf entry, if any, is at this index.
+    Folded(Option<usize>),
+}
+
+/// One field-tree traversal node: object, prefix, inherited FT/Ff/value,
+/// depth, and role.
 type FieldNode = (
     ObjectId,
     String,
@@ -1012,6 +1023,7 @@ type FieldNode = (
     i64,
     Option<Arc<str>>,
     usize,
+    FieldRole,
 );
 
 // Python-visible exceptions. PdfError subclasses ValueError for compatibility.
@@ -5247,24 +5259,93 @@ fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
 }
 
 /// One AcroForm `/Kids` entry as every field-tree reader classifies it.
-enum FieldKid {
+enum FieldKid<'a> {
     /// A dictionary with its own partial field name.
     Field(ObjectId),
-    /// A dictionary without one, which is a widget of the parent field.
+    /// A dictionary without one or kids to fold, which is a widget of the
+    /// parent field.
     Widget(ObjectId),
+    /// A dictionary without one but with kids, which is a nameless
+    /// intermediate field folded into the parent field. `widget` is true when
+    /// it also looks like a widget annotation.
+    Intermediate {
+        id: ObjectId,
+        kids: &'a [Object],
+        widget: bool,
+    },
     /// Any other referenced value, such as a number or a cyclic reference chain.
     Unusable,
     /// A direct entry, an indirect null, or a reference to a missing object.
     Ignored,
 }
 
+/// Mark one AcroForm field-tree node visited within the node limit.
+///
+/// Returns false when the node was already visited.
+fn visit_form_node(visited: &mut HashSet<ObjectId>, id: ObjectId) -> PyResult<bool> {
+    if visited.contains(&id) {
+        return Ok(false);
+    }
+    if visited.len() == visited.capacity() {
+        visited.try_reserve(1).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to grow AcroForm field-tree cycle set: {error}"
+            ))
+        })?;
+    }
+    visited.insert(id);
+    if visited.len() > MAX_FORM_FIELD_TREE_NODES {
+        return Err(PdfError::new_err(format!(
+            "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
+        )));
+    }
+    Ok(true)
+}
+
+/// Add the entries of one `/Kids` array to the AcroForm field-tree edges.
+fn add_form_tree_edges(edges: &mut usize, count: usize) -> PyResult<()> {
+    *edges = edges
+        .checked_add(count)
+        .ok_or_else(|| PdfError::new_err("AcroForm field tree exceeds the platform size limit"))?;
+    if *edges > MAX_FORM_FIELD_TREE_EDGES {
+        return Err(PdfError::new_err(format!(
+            "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
+        )));
+    }
+    Ok(())
+}
+
+/// Borrow a field's `/Kids` array, reading any other value as an absent entry.
+fn field_kids<'a>(doc: &'a Document, field: &'a Dictionary) -> Option<&'a [Object]> {
+    let kids = field.get(b"Kids").ok()?;
+    deref_object(doc, kids).as_array().ok().map(Vec::as_slice)
+}
+
+/// Treat a dictionary with `/Subtype /Widget` or a `/Rect` as a widget annotation.
+fn looks_like_widget(dict: &Dictionary) -> bool {
+    dict.get(b"Subtype")
+        .and_then(Object::as_name)
+        .is_ok_and(|name| name == b"Widget")
+        || dict.has(b"Rect")
+}
+
 /// Classify one AcroForm `/Kids` entry for the walk and `field_widgets`.
 ///
 /// A `/T` that is null, an indirect null, or a reference to a missing object
-/// is an omitted partial name, so such a kid is a widget of its parent field,
-/// as one without `/T` is. Any other `/T`, including an unusable value or a
-/// cyclic or over-long reference chain, makes the kid a child field.
-fn classify_field_kid(doc: &Document, kid: &Object) -> FieldKid {
+/// is an omitted partial name, so such a kid is nameless, as one without `/T`
+/// is. Any other `/T`, including an unusable value or a cyclic or over-long
+/// reference chain, makes the kid a child field.
+///
+/// A nameless kid whose `/Kids` resolves to a non-empty array is a field,
+/// because a field merged with its only widget omits `/Kids` (ISO 32000-2
+/// §12.7.4.1), and a field without a partial name represents the field above
+/// it (§12.7.4.2). It is therefore an intermediate field whose kids fold into
+/// the parent field, and it stays a widget too when it looks like one, so a
+/// malformed merged widget with stray kids keeps its appearance in sync. Any
+/// other nameless kid is a widget of its parent field: an absent,
+/// null-equivalent, non-array, or empty `/Kids` names no kids to fold, and a
+/// field with such a `/Kids` is its own widget.
+fn classify_field_kid<'a>(doc: &'a Document, kid: &Object) -> FieldKid<'a> {
     let Object::Reference(id) = kid else {
         return FieldKid::Ignored;
     };
@@ -5274,9 +5355,15 @@ fn classify_field_kid(doc: &Document, kid: &Object) -> FieldKid {
                 .get(b"T")
                 .is_ok_and(|name| !is_null_equivalent(doc, name))
             {
-                FieldKid::Field(*id)
-            } else {
-                FieldKid::Widget(*id)
+                return FieldKid::Field(*id);
+            }
+            match field_kids(doc, child) {
+                Some(kids) if !kids.is_empty() => FieldKid::Intermediate {
+                    id: *id,
+                    kids,
+                    widget: looks_like_widget(child),
+                },
+                _ => FieldKid::Widget(*id),
             }
         }
         Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_)) => FieldKid::Ignored,
@@ -5956,7 +6043,10 @@ impl _Document {
             )));
         }
 
-        let mut out = Vec::new();
+        // Each field with a resolved type reserves its leaf entry before its
+        // kids are read, so a nameless intermediate field folded into it can
+        // withdraw the entry when it holds a child field.
+        let mut leaves: Vec<Option<FormFieldEntry>> = Vec::new();
         let mut stack: Vec<FieldNode> = Vec::new();
         stack.try_reserve_exact(fields.len()).map_err(|error| {
             PdfError::new_err(format!(
@@ -5969,7 +6059,7 @@ impl _Document {
             if let Ok(id) = field.as_reference()
                 && !is_null_equivalent(&self.doc, field)
             {
-                stack.push((id, String::new(), None, 0, None, 1));
+                stack.push((id, String::new(), None, 0, None, 1, FieldRole::Field));
             }
         }
         let mut visited = HashSet::new();
@@ -5982,22 +6072,9 @@ impl _Document {
         let mut decoded_value_bytes = 0usize;
         let mut returned_value_bytes = 0usize;
         let mut value_items = 0usize;
-        while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth)) = stack.pop() {
-            if visited.contains(&id) {
+        while let Some((id, prefix, inh_ft, inh_ff, inh_v, depth, role)) = stack.pop() {
+            if !visit_form_node(&mut visited, id)? {
                 continue;
-            }
-            if visited.len() == visited.capacity() {
-                visited.try_reserve(1).map_err(|error| {
-                    PdfError::new_err(format!(
-                        "failed to grow AcroForm field-tree cycle set: {error}"
-                    ))
-                })?;
-            }
-            visited.insert(id);
-            if visited.len() > MAX_FORM_FIELD_TREE_NODES {
-                return Err(PdfError::new_err(format!(
-                    "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_NODES}-node safety limit"
-                )));
             }
             let Ok(dict) = self.doc.get_object(id).and_then(Object::as_dict) else {
                 continue;
@@ -6081,41 +6158,52 @@ impl _Document {
             };
 
             let mut has_child_fields = false;
-            if let Ok(kids_object) = dict.get(b"Kids")
-                && let Ok(kids) = deref_object(&self.doc, kids_object).as_array()
-            {
-                edges = edges.checked_add(kids.len()).ok_or_else(|| {
-                    PdfError::new_err("AcroForm field tree exceeds the platform size limit")
-                })?;
-                if edges > MAX_FORM_FIELD_TREE_EDGES {
-                    return Err(PdfError::new_err(format!(
-                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_EDGES}-edge safety limit"
-                    )));
+            let leaf = match role {
+                FieldRole::Field if ft.is_some() => {
+                    try_push_form(&mut leaves, None, "returned field entries")?;
+                    Some(leaves.len() - 1)
                 }
+                FieldRole::Field => None,
+                FieldRole::Folded(leaf) => leaf,
+            };
+            if let Some(kids) = field_kids(&self.doc, dict) {
+                add_form_tree_edges(&mut edges, kids.len())?;
                 for kid in kids {
                     // An ignored entry costs only its edge. Every other entry
-                    // that is not a child field counts toward the widget
-                    // budget, which therefore covers every widget that
-                    // `field_widgets` can return.
-                    let kid_id = match classify_field_kid(&self.doc, kid) {
-                        FieldKid::Field(kid_id) => kid_id,
-                        FieldKid::Ignored => continue,
-                        FieldKid::Widget(_) | FieldKid::Unusable => {
-                            widget_refs = widget_refs.saturating_add(1);
-                            if widget_refs > MAX_FORM_FIELD_WIDGETS {
-                                return Err(PdfError::new_err(format!(
-                                    "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
-                                )));
-                            }
-                            continue;
+                    // that is neither a child field nor an intermediate field
+                    // counts toward the widget budget, as does an intermediate
+                    // that looks like a widget, so that budget covers every
+                    // widget that `field_widgets` can return.
+                    let kid = classify_field_kid(&self.doc, kid);
+                    if matches!(
+                        kid,
+                        FieldKid::Widget(_)
+                            | FieldKid::Unusable
+                            | FieldKid::Intermediate { widget: true, .. }
+                    ) {
+                        widget_refs = widget_refs.saturating_add(1);
+                        if widget_refs > MAX_FORM_FIELD_WIDGETS {
+                            return Err(PdfError::new_err(format!(
+                                "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+                            )));
                         }
+                    }
+                    // An intermediate is walked like a child field, but it adds
+                    // no name component and reports its child fields to the
+                    // field it folds into.
+                    let (kid_id, kid_role) = match kid {
+                        FieldKid::Field(kid_id) => {
+                            has_child_fields = true;
+                            (kid_id, FieldRole::Field)
+                        }
+                        FieldKid::Intermediate { id, .. } => (id, FieldRole::Folded(leaf)),
+                        FieldKid::Widget(_) | FieldKid::Unusable | FieldKid::Ignored => continue,
                     };
                     if depth >= MAX_FORM_FIELD_TREE_DEPTH {
                         return Err(PdfError::new_err(format!(
                             "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_DEPTH}-level safety limit"
                         )));
                     }
-                    has_child_fields = true;
                     let child_name =
                         try_clone_form_string(&name, "inherited field-name component")?;
                     let child_ft = match &ft {
@@ -6126,54 +6214,105 @@ impl _Document {
                     };
                     try_push_form(
                         &mut stack,
-                        (kid_id, child_name, child_ft, ff, value.clone(), depth + 1),
+                        (
+                            kid_id,
+                            child_name,
+                            child_ft,
+                            ff,
+                            value.clone(),
+                            depth + 1,
+                            kid_role,
+                        ),
                         "field-tree stack",
                     )?;
                 }
             }
-            if !has_child_fields && let Some(ft) = ft {
-                if out.len() >= MAX_FORM_FIELD_ENTRIES {
-                    return Err(PdfError::new_err(format!(
-                        "AcroForm field tree exceeds the {MAX_FORM_FIELD_ENTRIES}-entry safety limit"
-                    )));
+            if let Some(index) = leaf {
+                if has_child_fields {
+                    leaves[index] = None;
+                } else if let (FieldRole::Field, Some(ft)) = (role, ft) {
+                    leaves[index] = Some((name, id, ft, ff, value));
                 }
-                if let Some(value) = &value {
-                    add_form_budget(
-                        &mut returned_value_bytes,
-                        value.len(),
-                        MAX_FORM_FIELD_VALUE_BYTES,
-                        "returned field-value",
-                    )?;
-                }
-                try_push_form(
-                    &mut out,
-                    (name, id, ft, ff, value),
-                    "returned field entries",
+            }
+        }
+        let leaf_count = leaves.iter().flatten().count();
+        if leaf_count > MAX_FORM_FIELD_ENTRIES {
+            return Err(PdfError::new_err(format!(
+                "AcroForm field tree exceeds the {MAX_FORM_FIELD_ENTRIES}-entry safety limit"
+            )));
+        }
+        let mut out = Vec::new();
+        out.try_reserve_exact(leaf_count).map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate AcroForm returned field entries: {error}"
+            ))
+        })?;
+        for (name, id, ft, ff, value) in leaves.into_iter().flatten() {
+            if let Some(value) = &value {
+                add_form_budget(
+                    &mut returned_value_bytes,
+                    value.len(),
+                    MAX_FORM_FIELD_VALUE_BYTES,
+                    "returned field-value",
                 )?;
             }
+            out.push((name, id, ft, ff, value));
         }
         out.sort_unstable_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
         Ok(out)
     }
 
-    /// Return the widget kids that the walk classifies, or the field itself
-    /// when it has none.
+    /// Return the widgets that the walk classifies below a field in document
+    /// order, or the field itself when it has none.
+    ///
+    /// The widgets of a nameless intermediate field take its place among the
+    /// kids, and each intermediate is expanded once, so a cycle ends. The walk
+    /// visits every intermediate below a field it returns, so a successful
+    /// walk has already met the node, edge, and widget limits enforced here;
+    /// they keep this traversal bounded on its own. The frame stack holds one
+    /// frame per intermediate on the current path, so the node limit bounds
+    /// its depth too, while a depth limit could reject an intermediate that the
+    /// walk reached at a smaller depth through another field.
     fn field_widgets(&self, field_id: ObjectId) -> PyResult<Vec<ObjectId>> {
         let mut widgets = Vec::new();
         let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
             try_push_form(&mut widgets, field_id, "field widgets")?;
             return Ok(widgets);
         };
-        let kids = dict
-            .get(b"Kids")
-            .ok()
-            .map(|object| deref_object(&self.doc, object))
-            .and_then(|object| object.as_array().ok())
-            .into_iter()
-            .flatten();
-        for kid in kids {
-            if let FieldKid::Widget(kid_id) = classify_field_kid(&self.doc, kid) {
+        let kids = field_kids(&self.doc, dict).unwrap_or_default();
+        let mut edges = 0usize;
+        add_form_tree_edges(&mut edges, kids.len())?;
+        let mut frames = Vec::new();
+        try_push_form(&mut frames, kids.iter(), "field-widget stack")?;
+        let mut expanded = HashSet::new();
+        while let Some(frame) = frames.last_mut() {
+            let Some(kid) = frame.next() else {
+                frames.pop();
+                continue;
+            };
+            let (kid_id, is_widget, folded_kids) = match classify_field_kid(&self.doc, kid) {
+                FieldKid::Widget(kid_id) => (kid_id, true, None),
+                FieldKid::Intermediate { id, kids, widget } => (id, widget, Some(kids)),
+                FieldKid::Field(_) | FieldKid::Unusable | FieldKid::Ignored => continue,
+            };
+            if is_widget {
+                if widgets.len() >= MAX_FORM_FIELD_WIDGETS {
+                    return Err(PdfError::new_err(format!(
+                        "AcroForm field exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+                    )));
+                }
                 try_push_form(&mut widgets, kid_id, "field widgets")?;
+            }
+            let Some(kids) = folded_kids else {
+                continue;
+            };
+            // The field is the first expanded node, so a cycle back to it ends.
+            if expanded.is_empty() {
+                visit_form_node(&mut expanded, field_id)?;
+            }
+            if visit_form_node(&mut expanded, kid_id)? {
+                add_form_tree_edges(&mut edges, kids.len())?;
+                try_push_form(&mut frames, kids.iter(), "field-widget stack")?;
             }
         }
         if widgets.is_empty() {
@@ -6189,13 +6328,7 @@ impl _Document {
                 .doc
                 .get_object(widget_id)
                 .and_then(Object::as_dict)
-                .is_ok_and(|widget| {
-                    widget
-                        .get(b"Subtype")
-                        .and_then(Object::as_name)
-                        .is_ok_and(|name| name == b"Widget")
-                        || widget.has(b"Rect")
-                });
+                .is_ok_and(looks_like_widget);
             if is_visible {
                 try_push_form(&mut visible, widget_id, "visible field widgets")?;
             }
