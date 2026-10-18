@@ -1008,7 +1008,7 @@ def test_an_object_that_many_entries_name_is_read_once(name: str) -> None:
 
     started = time.perf_counter()
     assert doc.get_page_text(0) is not None
-    # Reading the object for every entry takes five to a hundred seconds; once takes a few milliseconds.
+    # Reading the object for every entry takes seconds to tens of seconds; reading it once takes milliseconds.
     assert time.perf_counter() - started < 1.5
 
 

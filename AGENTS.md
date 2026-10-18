@@ -690,7 +690,7 @@ overview.
   4,000 colour space entries that name a self-referencing array of 20,000
   elements for 7 s. The same files take 2 to 60 ms.
   `test_an_object_that_many_entries_name_is_read_once` pins nine such shapes
-  with a deadline that the first version missed by factors of 3 to 17; add a
+  with a deadline that the first version missed by factors of 4 to 17; add a
   shape for every new kind of root. Memory is bounded by the objects reached,
   the path stack by the limit, and every collection grows fallibly.
   The Type 4 scan needs no model beyond hayro's trivia rules: whitespace
