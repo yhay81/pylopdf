@@ -97,8 +97,8 @@ repeated source pages before mutation.
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable`, `recovery_scan_size`, or `content_nesting_depth`.
-The same code is also
+`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`, or
+`resource_nesting_depth`. The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
 paths also reject more than 16 sequential `/Filter` layers before materializing
@@ -180,6 +180,27 @@ other pages usable. Each page is checked once per document snapshot, and an
 edit clears the result. Entries that a page's resource dictionaries list count
 even when no operator draws them, because hayro resolves names through every
 enclosing dictionary.
+
+hayro builds colour spaces, shadings, and functions by the same kind of
+unbounded recursion (hayro 0.7 and 0.8 alike): an Indexed or Pattern space from
+its base, a Separation or DeviceN space from its alternate space and tint
+transform, an ICCBased space from the `/Alternate` of a profile it cannot
+parse, a stitching function from every entry of `/Functions`, and a Type 4
+function by parsing its `{ }` procedures recursively. About 20,000 indirect
+objects that name each other, or 300,000 nested braces, used to overflow the
+stack and end the process. Before interpreting a page, pylopdf measures what its
+resource dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns,
+image XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer functions
+of its graphics states and soft masks reach, and refuses the page with
+`resource_nesting_depth` when a chain of colour spaces and functions is deeper
+than 32 levels or a Type 4 function nests procedures deeper than 64. A chain
+counts its colour space arrays, functions, and profile streams, hayro's own cut
+lets a self-reference or a short ring still render, a cycle that reaches more
+than 32 objects is refused, and shared sub-graphs are measured once. The
+bounds are fixed, apply with or without `DocumentLimits`, and leave other pages
+usable. They limit stack use, not time: hayro can need exponential CPU for
+graphs that stay under them, such as a function named twice per level or nested
+Separation spaces, so keep enforcing CPU deadlines in the host.
 
 - Rendering is capped at 64 megapixels per page.
 - Page deletion and selection clean navigation to excluded pages before

@@ -209,6 +209,33 @@ def _limit_results(
             4: f"<< /Length {len(deep_content)} >>\nstream\n".encode() + deep_content + b"\nendstream",
         }
     )
+    deep_program = b"{" * 100_000 + b"}" * 100_000
+    type4_header = f"<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length {len(deep_program)} >>"
+    deep_functions = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Shading << /Sh1 5 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 7 >>\nstream\n/Sh1 sh\nendstream",
+            5: "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Function 6 0 R >>",
+            6: f"{type4_header}\nstream\n".encode() + deep_program + b"\nendstream",
+        }
+    )
+    chain_length = 2_000
+    deep_chain = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /ColorSpace << /Cs1 5 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 22 >>\nstream\n/Cs1 cs 0 sc 0 0 9 9 re f\nendstream",
+            **{
+                number: f"[/Indexed {number + 1} 0 R 1 <00 FF>]" if number < 4 + chain_length else "[/DeviceGray]"
+                for number in range(5, 5 + chain_length)
+            },
+        }
+    )
     unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
     cyclic = pylopdf.Document(
         stream=_build_reference_cycle_pdf(),
@@ -247,6 +274,9 @@ def _limit_results(
         ),
         # hayro 0.7 overflows its stack on this stream; the guard refuses it first.
         "content_nesting": limit_code(lambda: pylopdf.Document(stream=nested_content).get_page_text(0)),
+        # Neither recursion is a content stream, and hayro 0.7 and 0.8 overflow their stacks on both.
+        "resource_nesting_program": limit_code(lambda: pylopdf.Document(stream=deep_functions).get_page_text(0)),
+        "resource_nesting_chain": limit_code(lambda: pylopdf.Document(stream=deep_chain).get_page_text(0)),
         "reference_cycle_pages": cyclic.page_count,
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,

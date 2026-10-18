@@ -54,6 +54,15 @@ risky. When processing untrusted files:
   unbounded recursion, so hundreds of thousands of nested `[` used to overflow
   the stack and end the process. The bound is fixed, applies with or without
   limits, and stays page-granular: other pages remain usable.
+- The same check measures the colour spaces, shadings, and functions that the
+  page's resources reach (Indexed, Pattern, Separation, DeviceN, ICCBased, and
+  stitching and Type 4 functions, found through `/ColorSpace` and `/Shading`
+  entries, shading patterns, images, soft-mask groups, and `/TR` transfer
+  functions) and refuses them with `resource_nesting_depth` when a chain is
+  deeper than 32 levels or a Type 4 function nests procedures deeper than 64.
+  hayro 0.7 and 0.8 build them by unbounded recursion, so about 20,000 chained
+  objects or 300,000 nested braces used to overflow the stack and end the
+  process. The bounds stop stack overflows, not CPU use.
 - Page batches cover every page by default. Explicit page sequences stop at the
   first entry beyond the larger of the page count and 4,096 with
   `page_entry_count`, so repetition never costs more than one complete document

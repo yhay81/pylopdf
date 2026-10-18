@@ -43,6 +43,50 @@ def _one_page(content: bytes, *, filter_name: str | None = None) -> bytes:
     )
 
 
+def _shading_with_function(objects: dict[int, bytes | str]) -> bytes:
+    """Build a page that draws a shading whose `/Function` is object 6; the caller supplies objects 6 and up."""
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Shading << /Sh1 5 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 7 >>\nstream\n/Sh1 sh\nendstream",
+            5: "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Function 6 0 R >>",
+            **objects,
+        }
+    )
+
+
+def _function_chain(length: int) -> bytes:
+    """Stitching functions that each name the next one, which hayro 0.7 builds by recursion."""
+    objects: dict[int, bytes | str] = {
+        number: f"<< /FunctionType 3 /Domain [0 1] /Functions [{number + 1} 0 R] /Bounds [] /Encode [0 1] >>"
+        for number in range(6, 6 + length - 1)
+    }
+    objects[5 + length] = "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 1 1] /N 1 >>"
+    return _shading_with_function(objects)
+
+
+def _color_space_chain(length: int) -> bytes:
+    """Indexed colour spaces that each take the next one as their base."""
+    objects: dict[int, bytes | str] = {
+        number: f"[/Indexed {number + 1} 0 R 1 <00 FF>]" for number in range(6, 6 + length - 1)
+    }
+    objects[5 + length] = "[/Indexed /DeviceGray 1 <00 FF>]"
+    return _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /ColorSpace << /Cs1 6 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 22 >>\nstream\n/Cs1 cs 0 sc 0 0 9 9 re f\nendstream",
+            5: "<< >>",
+            **objects,
+        }
+    )
+
+
 def _reference_cycle() -> bytes:
     return _build_raw_pdf(
         {
@@ -81,9 +125,13 @@ def generate(output: Path) -> None:
     inline_image_resume = b"BI /W 1 /H 1 ID \x00 EITJ " + b"<<" * 100_000
     # hayro reads a dictionary behind every `BI` it meets while it searches for the image end.
     inline_image_search = b"BI /W 1 /H 1 ID \xff EI (BI /A " + b"<<" * 100_000
+    # hayro 0.7 parses the braces of a Type 4 function by recursion.
+    deep_program = b"{" * 100_000 + b"}" * 100_000
+    type4_header = f"<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length {len(deep_program)} >>"
     cases = {
         "bad-xref.pdf": b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\nstartxref\n999999\n%%EOF",
         "deep-content-stream.pdf": _one_page(nested_content),
+        "deep-color-space-chain.pdf": _color_space_chain(5_000),
         "deep-direct-object.pdf": _build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -91,6 +139,10 @@ def generate(output: Path) -> None:
                 3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
                 4: deep_array,
             }
+        ),
+        "deep-function-chain.pdf": _function_chain(5_000),
+        "deep-type4-program.pdf": _shading_with_function(
+            {6: f"{type4_header}\nstream\n".encode() + deep_program + b"\nendstream"}
         ),
         "flate-bomb.pdf": _one_page(zlib.compress(expanded), filter_name="FlateDecode"),
         "inline-image-resume.pdf": _one_page(inline_image_resume),

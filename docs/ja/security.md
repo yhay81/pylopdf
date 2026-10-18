@@ -92,8 +92,8 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
-`decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`の
-いずれかです。同じ値を`error.args[0]`でも取得できます。
+`decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、
+`resource_nesting_depth`のいずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 pylopdfが所有する上限付きlopdf decode経路では、filter listをmaterializeする
 前に16層を超える`/Filter` chainも拒否します。
@@ -155,6 +155,26 @@ Type 3 glyph procedure）をデコードします。arrayまたはdictionaryが6
 各pageはdocument snapshotごとに1回だけ検査され、編集すると結果は破棄されます。
 hayroは名前を外側のすべてのdictionaryにたどって解決するため、operatorが描画しない
 resource dictionaryのentryも検査対象です。
+
+hayroはcolour space、shading、functionも、それらが名前で参照するobjectをたどる深さ
+無制限の再帰で構築します（hayro 0.7と0.8の両方）。IndexedまたはPattern colour space
+はbase、SeparationまたはDeviceN colour spaceはalternate spaceとtint transform、
+ICCBased colour spaceは解析できないprofileの`/Alternate`、stitching function
+（type 3）は`/Functions`のすべてのentryから構築され、Type 4 functionは`{ }`
+procedureを再帰でparseします。互いを参照する約2万個のindirect object、または30万
+個の入れ子の波括弧で、stackが溢れてプロセスが終了していました。pylopdfはpageを解釈
+する前に、そのpageのresource dictionaryの`/ColorSpace`と`/Shading`のentry、shading
+pattern、image XObject、soft-mask group、graphics stateとsoft maskの転送関数
+（`/TR`、`/TR2`）から到達できるものを測り、colour spaceとfunctionの連鎖が32階層を
+超える場合、またはType 4 functionのprocedureが64階層を超えて入れ子になる場合は、
+そのpageを`resource_nesting_depth`で拒否します。連鎖にはcolour spaceのarray、
+function、profile streamが数えられ、hayro自身が循環を断つため自己参照や短い輪は
+そのまま描画されますが、32個を超えるobjectに達する循環は拒否され、共有された
+sub-graphは1回だけ測られます。これらの上限は固定で、`DocumentLimits`の有無にかかわらず
+適用され、ほかのpageは引き続き利用できます。制限するのはstackの使用量であり時間では
+ありません。各階層で同じfunctionを2回参照する、Separationを入れ子にするなど、上限
+以内でも細工されたgraphではhayroが指数時間のCPUを要するため、ホスト側でCPU
+deadlineを強制してください。
 
 - レンダリングは1ページ64メガピクセルまでです。
 - `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded

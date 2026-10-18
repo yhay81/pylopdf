@@ -38,6 +38,17 @@
 //! overlook whatever a shorter path resolves, including the path hayro takes
 //! when it draws.
 //!
+//! The same walk reaches the colour spaces, shadings, and functions that hayro
+//! builds by recursion over the objects they name, which overflows its stack
+//! just as deeply nested content does: a chain of thousands of indirect objects
+//! that name each other, or a Type 4 function with hundreds of thousands of
+//! nested braces. [`GraphGuard`] measures what each root reaches and refuses the
+//! page with `LimitError` code `resource_nesting_depth`. The roots are the
+//! `/ColorSpace` and `/Shading` entries of every reachable resource dictionary,
+//! shading patterns, the colour space of image XObjects and of soft-mask groups,
+//! and the `/TR` and `/TR2` transfer functions of graphics states and soft
+//! masks.
+//!
 //! The state belongs to one hayro snapshot. Any edit drops the snapshot and
 //! this state with it. An error clears the state too, so nothing recorded
 //! before a failed check can stand in for a stream the check did not finish.
@@ -47,16 +58,20 @@ use std::hash::Hash;
 
 use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::object::dict::keys::{
-    ANNOTS, AP, CHAR_PROCS, EXT_G_STATE, FONT, FORM, G, N, PATTERN, RESOURCES, SMASK, SUBTYPE,
-    XOBJECT,
+    ANNOTS, AP, CHAR_PROCS, COLORSPACE, CS, EXT_G_STATE, FONT, FORM, FUNCTION, G, GROUP, N,
+    PATTERN, RESOURCES, SHADING, SMASK, SUBTYPE, TR, TR2, XOBJECT,
 };
-use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream};
+use hayro::hayro_syntax::object::{
+    Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream, dict_or_stream,
+};
 use hayro::hayro_syntax::page::{Page, Resources};
 use hayro::hayro_syntax::xref::XRef;
 use pyo3::prelude::*;
 
 use crate::content_scan::{self, MAX_NESTING_DEPTH, Refusal};
 use crate::document::{PdfError, limit_err};
+use crate::graph_guard::{self, GraphGuard, MAX_CHAIN_DEPTH};
+use crate::postscript_scan::MAX_BRACE_DEPTH;
 
 /// The one-based pages an operation is about to interpret.
 pub(crate) enum PageSelection<'a> {
@@ -137,6 +152,10 @@ enum Role {
     Fonts,
     /// An `/ExtGState` category dictionary.
     GraphicsStates,
+    /// A `/ColorSpace` category dictionary.
+    ColorSpaces,
+    /// A `/Shading` category dictionary.
+    Shadings,
     /// One font dictionary.
     Font,
 }
@@ -163,6 +182,20 @@ pub(crate) struct ContentGuard {
     /// not: every direct dictionary inside an indirect object reports the
     /// number of that object.
     dictionaries: HashSet<(Role, usize, usize)>,
+    /// Colour space and function chains that were measured and cleared.
+    graph: GraphGuard,
+    /// The one-based page being checked, for error messages.
+    page: usize,
+}
+
+/// The resource categories of one dictionary.
+struct Categories<'a> {
+    x_objects: Dict<'a>,
+    patterns: Dict<'a>,
+    fonts: Dict<'a>,
+    ext_g_states: Dict<'a>,
+    color_spaces: Dict<'a>,
+    shadings: Dict<'a>,
 }
 
 impl ContentGuard {
@@ -218,6 +251,7 @@ impl ContentGuard {
             return Ok(());
         }
         let number = index + 1;
+        self.page = number;
         if let Some(content) = page.page_stream() {
             content_scan::scan(content)
                 .map_err(|refusal| refusal_error(&Subject::Page(number), refusal))?;
@@ -276,10 +310,14 @@ impl ContentGuard {
     ) -> PyResult<()> {
         self.visit_categories(
             fresh,
-            &resources.x_objects,
-            &resources.patterns,
-            &resources.fonts,
-            &resources.ext_g_states,
+            &Categories {
+                x_objects: resources.x_objects.clone(),
+                patterns: resources.patterns.clone(),
+                fonts: resources.fonts.clone(),
+                ext_g_states: resources.ext_g_states.clone(),
+                color_spaces: resources.color_spaces.clone(),
+                shadings: resources.shadings.clone(),
+            },
             work,
         )
     }
@@ -297,10 +335,14 @@ impl ContentGuard {
         let category = |key: &[u8]| fresh.dictionary(resources, key).unwrap_or_default();
         self.visit_categories(
             fresh,
-            &category(XOBJECT),
-            &category(PATTERN),
-            &category(FONT),
-            &category(EXT_G_STATE),
+            &Categories {
+                x_objects: category(XOBJECT),
+                patterns: category(PATTERN),
+                fonts: category(FONT),
+                ext_g_states: category(EXT_G_STATE),
+                color_spaces: category(COLORSPACE),
+                shadings: category(SHADING),
+            },
             work,
         )
     }
@@ -308,12 +350,17 @@ impl ContentGuard {
     fn visit_categories<'a>(
         &mut self,
         fresh: Fresh<'a>,
-        x_objects: &Dict<'a>,
-        patterns: &Dict<'a>,
-        fonts: &Dict<'a>,
-        ext_g_states: &Dict<'a>,
+        categories: &Categories<'a>,
         work: &mut Vec<Work<'a>>,
     ) -> PyResult<()> {
+        let Categories {
+            x_objects,
+            patterns,
+            fonts,
+            ext_g_states,
+            color_spaces,
+            shadings,
+        } = categories;
         if self.first_visit(Role::XObjects, x_objects)? {
             for key in x_objects.keys() {
                 let reference = x_objects.get_ref(key.as_ref()).map(ObjectIdentifier::from);
@@ -327,8 +374,11 @@ impl ContentGuard {
                 };
                 if is_form(&stream) {
                     push(work, Work::Content(stream))?;
-                } else if let Some(id) = reference {
-                    insert(&mut self.inert, id)?;
+                } else {
+                    self.visit_image(fresh, &stream)?;
+                    if let Some(id) = reference {
+                        insert(&mut self.inert, id)?;
+                    }
                 }
             }
         }
@@ -337,8 +387,10 @@ impl ContentGuard {
                 if self.is_cleared_stream(patterns, key.as_ref()) {
                     continue;
                 }
-                if let Some(Object::Stream(stream)) = fresh.object(patterns, key.as_ref()) {
-                    push(work, Work::Content(stream))?;
+                match fresh.object(patterns, key.as_ref()) {
+                    Some(Object::Stream(stream)) => push(work, Work::Content(stream))?,
+                    Some(Object::Dict(pattern)) => self.visit_shading_pattern(fresh, &pattern)?,
+                    _ => {}
                 }
             }
         }
@@ -363,11 +415,104 @@ impl ContentGuard {
                     continue;
                 }
                 if let Some(state) = fresh.dictionary(ext_g_states, key.as_ref()) {
-                    visit_graphics_state(fresh, &state, work)?;
+                    self.visit_graphics_state(fresh, &state, work)?;
+                }
+            }
+        }
+        if self.first_visit(Role::ColorSpaces, color_spaces)? {
+            for key in color_spaces.keys() {
+                self.graph_entry(fresh, color_spaces, key.as_ref())?;
+            }
+        }
+        if self.first_visit(Role::Shadings, shadings)? {
+            for key in shadings.keys() {
+                if let Some(shading) = fresh.object(shadings, key.as_ref()) {
+                    self.visit_shading(fresh, &shading)?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Measure the colour space and the functions of a shading dictionary or
+    /// stream. A mesh shading's stream data is never read here.
+    fn visit_shading<'a>(&mut self, fresh: Fresh<'a>, shading: &Object<'a>) -> PyResult<()> {
+        let Some((dictionary, _)) = dict_or_stream(shading) else {
+            return Ok(());
+        };
+        self.graph_entry(fresh, dictionary, COLORSPACE)?;
+        self.graph_functions(fresh, dictionary, FUNCTION)
+    }
+
+    /// Measure the shading that a shading pattern names.
+    fn visit_shading_pattern<'a>(&mut self, fresh: Fresh<'a>, pattern: &Dict<'a>) -> PyResult<()> {
+        match fresh.object(pattern, SHADING) {
+            Some(shading) => self.visit_shading(fresh, &shading),
+            None => Ok(()),
+        }
+    }
+
+    /// Measure the colour space of an image XObject without decoding its data.
+    fn visit_image<'a>(&mut self, fresh: Fresh<'a>, image: &Stream<'a>) -> PyResult<()> {
+        let dictionary = image.dict();
+        self.graph_entry(fresh, dictionary, CS)?;
+        self.graph_entry(fresh, dictionary, COLORSPACE)
+    }
+
+    /// Measure the transfer functions of a graphics state and the colour space
+    /// of its soft-mask group, and queue the group and the font it selects.
+    fn visit_graphics_state<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        state: &Dict<'a>,
+        work: &mut Vec<Work<'a>>,
+    ) -> PyResult<()> {
+        self.graph_functions(fresh, state, TR)?;
+        self.graph_functions(fresh, state, TR2)?;
+        if let Some(mask) = fresh.dictionary(state, SMASK) {
+            self.graph_functions(fresh, &mask, TR)?;
+            if let Some(group) = fresh.stream(&mask, G) {
+                if let Some(attributes) = fresh.dictionary(group.dict(), GROUP) {
+                    self.graph_entry(fresh, &attributes, CS)?;
+                }
+                push(work, Work::Content(group))?;
+            }
+        }
+        if let Some(font) = fresh
+            .array(state, FONT)
+            .and_then(|selection| selection.raw_iter().next())
+            .and_then(|item| fresh.item_dictionary(item))
+        {
+            push(work, Work::Font(font, None))?;
+        }
+        Ok(())
+    }
+
+    /// Measure the colour space or function that `dictionary[key]` holds.
+    fn graph_entry<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        dictionary: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<()> {
+        let page = self.page;
+        self.graph
+            .check_entry(fresh.0, dictionary, key)
+            .map_err(|refusal| graph_error(page, refusal))
+    }
+
+    /// Measure the function, or each function of an array, that
+    /// `dictionary[key]` holds.
+    fn graph_functions<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        dictionary: &Dict<'a>,
+        key: &[u8],
+    ) -> PyResult<()> {
+        let page = self.page;
+        self.graph
+            .check_functions(fresh.0, dictionary, key)
+            .map_err(|refusal| graph_error(page, refusal))
     }
 
     /// Queue an annotation's or widget's normal appearance stream.
@@ -471,28 +616,6 @@ impl ContentGuard {
     }
 }
 
-/// Queue an ExtGState's soft-mask group and the font it selects.
-fn visit_graphics_state<'a>(
-    fresh: Fresh<'a>,
-    state: &Dict<'a>,
-    work: &mut Vec<Work<'a>>,
-) -> PyResult<()> {
-    if let Some(group) = fresh
-        .dictionary(state, SMASK)
-        .and_then(|mask| fresh.stream(&mask, G))
-    {
-        push(work, Work::Content(group))?;
-    }
-    if let Some(font) = fresh
-        .array(state, FONT)
-        .and_then(|selection| selection.raw_iter().next())
-        .and_then(|item| fresh.item_dictionary(item))
-    {
-        push(work, Work::Font(font, None))?;
-    }
-    Ok(())
-}
-
 /// Whether hayro draws the stream as a Form XObject.
 fn is_form(stream: &Stream<'_>) -> bool {
     stream
@@ -533,6 +656,26 @@ fn refusal_error(subject: &Subject, refusal: Refusal) -> PyErr {
             format!("{whose} has inline image boundaries too ambiguous to check for nesting"),
         ),
         Refusal::Allocation(error) => allocation_error(error),
+    }
+}
+
+fn graph_error(page: usize, refusal: graph_guard::Refusal) -> PyErr {
+    match refusal {
+        graph_guard::Refusal::Chain(root) => limit_err(
+            "resource_nesting_depth",
+            format!(
+                "the chain of colour spaces and functions that starts at {} reachable from page {page} is deeper than the {MAX_CHAIN_DEPTH}-level limit",
+                root.describe()
+            ),
+        ),
+        graph_guard::Refusal::Program(function) => limit_err(
+            "resource_nesting_depth",
+            format!(
+                "Type 4 function {} reachable from page {page} nests procedures deeper than the {MAX_BRACE_DEPTH}-level limit",
+                function.describe()
+            ),
+        ),
+        graph_guard::Refusal::Allocation(error) => allocation_error(error),
     }
 }
 
