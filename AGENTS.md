@@ -466,8 +466,10 @@ overview.
   dictionary resolves fewer references the longer the path that reached it. A
   walk that visits each object once and lets the first path decide records a
   dictionary whose references failed on a long path and then overlooks what
-  hayro's shorter path resolves when it draws. State belongs to the
-  snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
+  hayro's shorter path resolves when it draws. Iterate arrays with the typed
+  `iter::<T>()` that hayro uses, never `Array::raw_iter`, which unwraps the read
+  of every element that skipping accepted and so panics on `[+ ]`. State
+  belongs to the snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
   reset it, so nothing recorded before a failed walk can vouch for a stream
   the walk did not finish. No
   decompression limit is re-applied: load-time validation already measured

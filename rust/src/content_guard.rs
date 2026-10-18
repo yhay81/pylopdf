@@ -50,7 +50,7 @@ use hayro::hayro_syntax::object::dict::keys::{
     ANNOTS, AP, CHAR_PROCS, EXT_G_STATE, FONT, FORM, G, N, PATTERN, RESOURCES, SMASK, SUBTYPE,
     XOBJECT,
 };
-use hayro::hayro_syntax::object::{Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream};
+use hayro::hayro_syntax::object::{Array, Dict, Name, Object, ObjectIdentifier, Stream};
 use hayro::hayro_syntax::page::{Page, Resources};
 use hayro::hayro_syntax::xref::XRef;
 use pyo3::prelude::*;
@@ -98,15 +98,6 @@ impl<'a> Fresh<'a> {
         match from.get_ref(key) {
             Some(reference) => self.0.get::<Array<'a>>(reference.into()),
             None => from.get::<Array<'a>>(key),
-        }
-    }
-
-    /// An array item that is a dictionary, or a reference to one.
-    fn item_dictionary(self, item: MaybeRef<Object<'a>>) -> Option<Dict<'a>> {
-        match item {
-            MaybeRef::Ref(reference) => self.0.get::<Dict<'a>>(reference.into()),
-            MaybeRef::NotRef(Object::Dict(dictionary)) => Some(dictionary),
-            MaybeRef::NotRef(_) => None,
         }
     }
 }
@@ -229,10 +220,11 @@ impl ContentGuard {
             level = resources.parent();
         }
         if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
-            for item in annotations.raw_iter() {
-                if let Some(annotation) = fresh.item_dictionary(item) {
-                    self.visit_appearance(fresh, &annotation, &mut work)?;
-                }
+            // Iterate the way hayro does, which also ends at the first element
+            // that is not a dictionary. `Array::raw_iter` unwraps the read of
+            // every element that skipping accepted, and `[+ ]` is accepted.
+            for annotation in annotations.iter::<Dict<'a>>() {
+                self.visit_appearance(fresh, &annotation, &mut work)?;
             }
         }
         while let Some(item) = work.pop() {
@@ -483,10 +475,9 @@ fn visit_graphics_state<'a>(
     {
         push(work, Work::Content(group))?;
     }
-    if let Some(font) = fresh
+    if let Some(Object::Dict(font)) = fresh
         .array(state, FONT)
-        .and_then(|selection| selection.raw_iter().next())
-        .and_then(|item| fresh.item_dictionary(item))
+        .and_then(|selection| selection.iter::<Object<'a>>().next())
     {
         push(work, Work::Font(font, None))?;
     }
