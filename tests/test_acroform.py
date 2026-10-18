@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TypeAlias
 
 import pytest
 from conftest import build_raw_pdf
@@ -623,15 +624,15 @@ def _build_widget_kids_pdf(field: str, kids: list[str], extra: dict[int, str] | 
     return _build_sparse_pdf(objects)
 
 
-def _kid_ink(doc: pylopdf.Document) -> list[int]:
-    """Count the opaque pixels inside each of the three kid widgets."""
-    return [_opaque_pixels(doc, (10 + 100 * index, 60, 90 + 100 * index, 90)) for index in range(3)]
+def _kid_ink(doc: pylopdf.Document, count: int = 3) -> list[int]:
+    """Count the opaque pixels inside each of the first `count` kid widgets."""
+    return [_opaque_pixels(doc, (10 + 100 * index, 60, 90 + 100 * index, 90)) for index in range(count)]
 
 
-def _kid_colors(doc: pylopdf.Document) -> list[tuple[int, ...]]:
-    """Sample the RGB color at the center of each of the three kid widgets."""
+def _kid_colors(doc: pylopdf.Document, count: int = 3) -> list[tuple[int, ...]]:
+    """Sample the RGB color at the center of each of the first `count` kid widgets."""
     pix = doc[0].get_pixmap()
-    centers = ((75 * pix.width + 50 + 100 * index) * pix.n for index in range(3))
+    centers = ((75 * pix.width + 50 + 100 * index) * pix.n for index in range(count))
     return [tuple(pix.samples[center : center + 3]) for center in centers]
 
 
@@ -793,3 +794,419 @@ def test_null_field_entries_cost_only_their_edge(kind: str) -> None:
 
     for doc in (source, pylopdf.open(stream=source.tobytes())):
         assert doc.get_form_fields() == [{"name": "field", "type": "text", "value": "value"}]
+
+
+# An intermediate field is nameless when its `/T` is absent or reads as null.
+NAMELESS = {"absent": "", **{kind: f"/T {value}" for kind, value in NULL_EQUIVALENTS.items()}}
+nameless_kinds = pytest.mark.parametrize("nameless", list(NAMELESS.values()), ids=list(NAMELESS))
+
+# A string is a widget kid with those entries, and a list is a nameless
+# intermediate field whose kids follow the list.
+FoldedKids: TypeAlias = "list[str | FoldedKids]"
+
+
+def _build_folded_pdf(field: str, kids: FoldedKids, nameless: str = "", extra: dict[int, str] | None = None) -> bytes:
+    """Build top-level field 5 whose `/Kids` follow `kids`, adding `nameless` to every intermediate field.
+
+    Widget `index`, counted in document order, covers an 80-by-30 rectangle at
+    x = 10 + 100 * index. Object 6 is null and number 7 stays free, as
+    `NULL_EQUIVALENTS` expects; the kids are numbered from 8 in document order.
+    """
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        4: "<< /Fields [5 0 R] >>",
+        6: "null",
+        **(extra or {}),
+    }
+    next_number = 8
+    widgets: list[str] = []
+
+    def add(parent: int, kid: str | FoldedKids) -> str:
+        nonlocal next_number
+        number = next_number
+        next_number += 1
+        assert number not in objects
+        if isinstance(kid, str):
+            left = 10 + 100 * len(widgets)
+            widgets.append(f"{number} 0 R")
+            objects[number] = (
+                f"<< /Parent {parent} 0 R {kid} /Type /Annot /Subtype /Widget"
+                f" /Rect [{left} 10 {left + 80} 40] /P 3 0 R /F 4 >>"
+            )
+        else:
+            grandkids = " ".join(add(number, grandkid) for grandkid in kid)
+            objects[number] = f"<< /Parent {parent} 0 R {nameless} /Kids [{grandkids}] >>"
+        return f"{number} 0 R"
+
+    refs = " ".join(add(5, kid) for kid in kids)
+    objects[3] = (
+        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {20 + 100 * len(widgets)} 100] /Annots [{' '.join(widgets)}] >>"
+    )
+    objects[5] = f"<< {field} /Kids [{refs}] >>"
+    return _build_sparse_pdf(objects)
+
+
+@nameless_kinds
+def test_nameless_intermediate_widgets_belong_to_the_field_above(nameless: str) -> None:
+    """Widgets below a nameless intermediate field are widgets of the field above it.
+
+    The intermediate was a widget itself, so a fill drew none of the widgets
+    below it and still cleared NeedAppearances.
+    """
+    source = pylopdf.open(stream=_build_folded_pdf("/FT /Tx /T (name) /V (old)", [["", "", ""]], nameless))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name", "type": "text", "value": "old"}]
+        assert _kid_ink(doc) == [0, 0, 0]
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "name", "type": "text", "value": "new"}]
+            ink = _kid_ink(current)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 3
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@nameless_kinds
+def test_widget_kids_and_nested_intermediates_fold_into_one_field(nameless: str) -> None:
+    """Direct widget kids, sibling intermediates, and a nested intermediate all show one field's value."""
+    kids: FoldedKids = ["", ["", ""], [[""], ""]]
+    source = pylopdf.open(stream=_build_folded_pdf("/FT /Tx /T (name)", kids, nameless))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name", "type": "text", "value": None}]
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            ink = _kid_ink(current, 5)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 5
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@nameless_kinds
+def test_nameless_intermediate_widgets_follow_their_checkbox_state(nameless: str) -> None:
+    """Checkbox fills synchronize `/AS` on direct widget kids and on the widgets below an intermediate."""
+    states = "/AS /Off /AP << /N << /Yes 20 0 R /Off 21 0 R >> >>"
+    pdf = _build_folded_pdf("/FT /Btn /T (agree) /V /Off", [states, [states, states]], nameless, SOLID_BUTTON_STATES)
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "agree", "type": "checkbox", "value": "Off"}]
+        assert _kid_colors(doc) == [RED] * 3
+        for checked, state, color in ((True, "Yes", GREEN), (False, "Off", RED)):
+            doc.set_form_field("agree", checked)
+            for current in (doc, pylopdf.open(stream=doc.tobytes())):
+                assert current.get_form_fields() == [{"name": "agree", "type": "checkbox", "value": state}]
+                assert _kid_colors(current) == [color] * 3
+                assert b"/NeedAppearances false" in current.tobytes()
+
+
+@nameless_kinds
+def test_nameless_intermediate_widgets_follow_their_radio_state(nameless: str) -> None:
+    """Radio fills turn on the matching widget below an intermediate and turn off every other widget."""
+    first, second, third = (f"/AS /Off /AP << /N << /{state} 20 0 R /Off 21 0 R >> >>" for state in "ABC")
+    pdf = _build_folded_pdf(
+        "/FT /Btn /Ff 32768 /T (plan) /V /Off", [first, [second, third]], nameless, SOLID_BUTTON_STATES
+    )
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "plan", "type": "radio", "value": "Off"}]
+        doc.set_form_field("plan", "C")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "plan", "type": "radio", "value": "C"}]
+            assert _kid_colors(current) == [RED, RED, GREEN]
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@nameless_kinds
+def test_named_fields_below_nameless_intermediates_are_child_fields(nameless: str) -> None:
+    """A named field below an intermediate is a child field of the field above, with no name component between.
+
+    It inherits through the intermediate, and the field above is no longer a
+    leaf. The field above was listed as a leaf instead, and the named field was
+    unreachable.
+    """
+    pdf = _build_folded_pdf("/FT /Tx /T (name) /V (parent)", [["/T (inner)"]], f"{nameless} /V (folded)")
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name.inner", "type": "text", "value": "folded"}]
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match="form field not found"):
+            doc.set_form_field("name", "new")
+        assert doc.tobytes() == before
+        doc.set_form_field("name.inner", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "name.inner", "type": "text", "value": "new"}]
+            assert _kid_ink(current, 1)[0] > 0
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+def _build_cycle_pdf(field_kids: str, intermediates: dict[int, str]) -> bytes:
+    """Build text field 5 with the given kids and intermediates; 9 and 10 are widgets in kid-ink order."""
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Annots [9 0 R 10 0 R] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: f"<< /FT /Tx /T (name) /Kids {field_kids} >>",
+        9: "<< /Type /Annot /Subtype /Widget /Rect [10 10 90 40] /P 3 0 R /F 4 >>",
+        10: "<< /Type /Annot /Subtype /Widget /Rect [110 10 190 40] /P 3 0 R /F 4 >>",
+        **intermediates,
+    }
+    return _build_sparse_pdf(objects)
+
+
+@pytest.mark.parametrize(
+    "intermediates",
+    [
+        {8: "<< /Parent 5 0 R /Kids [8 0 R 9 0 R 10 0 R] >>"},
+        {8: "<< /Parent 5 0 R /Kids [11 0 R 9 0 R] >>", 11: "<< /Parent 8 0 R /Kids [8 0 R 10 0 R] >>"},
+    ],
+    ids=["itself", "ancestor"],
+)
+def test_cycles_through_nameless_intermediates_end(intermediates: dict[int, str]) -> None:
+    """An intermediate that is its own kid or a kid of its own kid is expanded once."""
+    source = pylopdf.open(stream=_build_cycle_pdf("[8 0 R]", intermediates))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name", "type": "text", "value": None}]
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            ink = _kid_ink(current, 2)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 2
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@pytest.mark.parametrize("field_kids", ["[5 0 R 9 0 R 10 0 R]", "[8 0 R]"], ids=["direct", "through-intermediate"])
+def test_fields_below_their_own_intermediates_are_their_own_child_fields(field_kids: str) -> None:
+    """A field below its own intermediate is its own child field, as a field in its own `/Kids` is.
+
+    The field is therefore not a leaf in either case, and the walk still ends.
+    """
+    pdf = _build_cycle_pdf(field_kids, {8: "<< /Parent 5 0 R /Kids [5 0 R 9 0 R 10 0 R] >>"})
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == []
+        with pytest.raises(pylopdf.PdfError, match="form field not found"):
+            doc.set_form_field("name", "new")
+
+
+@pytest.mark.parametrize(
+    "kids",
+    ["null", "6 0 R", "7 0 R", "5", "[]"],
+    ids=["null", "indirect-null", "missing", "not-an-array", "empty"],
+)
+def test_nameless_kids_without_kids_to_fold_stay_widgets(kids: str) -> None:
+    """A nameless kid is an intermediate field only when its `/Kids` resolves to a non-empty array.
+
+    Any other `/Kids` names no kids to fold, so the kid stays a widget and is
+    drawn, as a field with such a `/Kids` is its own widget.
+    """
+    source = pylopdf.open(stream=_build_folded_pdf("/FT /Tx /T (name)", [f"/Kids {kids}", ""]))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            ink = _kid_ink(current, 2)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 2
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+def test_nameless_widget_with_kids_is_drawn_with_its_kids() -> None:
+    """A nameless kid that has kids and looks like a widget is a widget and an intermediate field at once.
+
+    Only the kid itself was drawn; the widgets below it were not.
+    """
+    widget = "/Type /Annot /Subtype /Widget /P 3 0 R /F 4"
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Annots [5 0 R 6 0 R 7 0 R] >>",
+        4: "<< /Fields [8 0 R] >>",
+        5: f"<< /Parent 8 0 R /Kids [6 0 R 7 0 R] {widget} /Rect [10 10 90 40] >>",
+        6: f"<< /Parent 5 0 R {widget} /Rect [110 10 190 40] >>",
+        7: f"<< /Parent 5 0 R {widget} /Rect [210 10 290 40] >>",
+        8: "<< /FT /Tx /T (name) /Kids [5 0 R] >>",
+    }
+    source = pylopdf.open(stream=build_raw_pdf(objects))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            ink = _kid_ink(current)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 3
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@nameless_kinds
+def test_need_appearances_waits_for_the_widgets_below_intermediates(
+    nameless: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NeedAppearances stays true while a widget below an intermediate lacks an appearance.
+
+    Such widgets went unchecked, so a fill that drew no appearance still
+    cleared NeedAppearances.
+    """
+    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: ())
+    source = pylopdf.open(stream=_build_folded_pdf("/FT /Tx /T (name)", [["", ""]], nameless))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field("name", "山田")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "name", "type": "text", "value": "山田"}]
+            assert _kid_ink(current, 2) == [0, 0]
+            assert b"/NeedAppearances true" in current.tobytes()
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert min(_kid_ink(current, 2)) > 0
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+def _assert_checkbox_limit(at_limit: bytes, over_limit: bytes, message: str) -> None:
+    """Fill checkbox `button` at a limit, and check that one more entry is refused atomically, live and reloaded."""
+    source = pylopdf.open(stream=at_limit)
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Off"}]
+        doc.set_form_field("button", True)
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Yes"}]
+
+    refused = pylopdf.open(stream=over_limit)
+    for doc in (refused, pylopdf.open(stream=refused.tobytes())):
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match=message):
+            doc.get_form_fields()
+        with pytest.raises(pylopdf.PdfError, match=message):
+            doc.set_form_field("button", "Yes")
+        assert doc.tobytes() == before
+
+
+def _build_folded_budget_pdf(kids: str, nameless: str = "") -> bytes:
+    """Build checkbox 5 whose only kid is intermediate 8 with the `kids` entries and `nameless`; 9 is a widget."""
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [9 0 R] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: "<< /FT /Btn /T (button) /V /Off /Kids [8 0 R] >>",
+        6: "null",
+        7: _form_stream("0 0 20 20 re f"),
+        8: f"<< /Parent 5 0 R {nameless} /Kids [{kids}] >>",
+        9: (
+            "<< /Parent 8 0 R /Type /Annot /Subtype /Widget /Rect [10 10 30 30]"
+            " /AS /Off /AP << /N << /Yes 7 0 R /Off 7 0 R >> >> >>"
+        ),
+    }
+    return build_raw_pdf(objects)
+
+
+def test_nameless_intermediate_kids_count_toward_the_edge_limit() -> None:
+    """Each `/Kids` entry of an intermediate takes one of the 8,192 edges, after the `/Fields` and field entries."""
+    _assert_checkbox_limit(
+        _build_folded_budget_pdf("9 0 R " + "null " * 8189),
+        _build_folded_budget_pdf("9 0 R " + "null " * 8190),
+        "8192-edge safety limit",
+    )
+
+
+@pytest.mark.parametrize(
+    ("nameless", "widgets"),
+    [("", 4096), ("/Type /Annot /Subtype /Widget /Rect [40 10 60 30]", 4095)],
+    ids=["intermediate", "widget-intermediate"],
+)
+def test_nameless_intermediate_widgets_count_toward_the_widget_limit(nameless: str, widgets: int) -> None:
+    """Widgets below an intermediate count toward the 4,096-widget limit, as does an intermediate that is a widget."""
+    _assert_checkbox_limit(
+        _build_folded_budget_pdf("9 0 R " * widgets, nameless),
+        _build_folded_budget_pdf("9 0 R " * (widgets + 1), nameless),
+        "4096-widget safety limit",
+    )
+
+
+def test_nameless_intermediates_count_toward_the_node_limit() -> None:
+    """Each intermediate is a node, so the field and 4,095 intermediates reach the 4,096-node limit."""
+
+    def build(count: int) -> bytes:
+        numbers = range(10, 10 + count)
+        refs = " ".join(f"{number} 0 R" for number in numbers)
+        objects = {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [8 0 R] >>",
+            4: "<< /Fields [5 0 R] >>",
+            5: f"<< /FT /Btn /T (button) /V /Off /Kids [{refs}] >>",
+            8: (
+                "<< /Parent 10 0 R /Type /Annot /Subtype /Widget /Rect [10 10 30 30]"
+                " /AS /Off /AP << /N << /Yes 9 0 R /Off 9 0 R >> >> >>"
+            ),
+            9: _form_stream("0 0 20 20 re f"),
+            # Every intermediate holds one kid; only the first holds the widget.
+            **{number: f"<< /Parent 5 0 R /Kids [{'8 0 R' if number == 10 else 'null'}] >>" for number in numbers},
+        }
+        return _build_sparse_pdf(objects)
+
+    _assert_checkbox_limit(build(4095), build(4096), "4096-node safety limit")
+
+
+def test_nameless_intermediates_count_toward_the_depth_limit() -> None:
+    """Each intermediate is a level, so 63 nested intermediates below a top-level field reach the 64-level limit."""
+
+    def build(depth: int) -> bytes:
+        kids: FoldedKids = [""]
+        for _ in range(depth):
+            kids = [kids]
+        return _build_folded_pdf("/FT /Tx /T (name)", kids)
+
+    source = pylopdf.open(stream=build(63))
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _kid_ink(current, 1)[0] > 0
+            assert b"/NeedAppearances false" in current.tobytes()
+
+    refused = pylopdf.open(stream=build(64))
+    for doc in (refused, pylopdf.open(stream=refused.tobytes())):
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+            doc.get_form_fields()
+        with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
+            doc.set_form_field("name", "new")
+        assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize(
+    ("field", "nameless", "limit", "message"),
+    [
+        ("/FT /Tx /T ({text})", "", 512 * 1024, r"materialized field-name.*1048576-byte safety limit"),
+        ("/FT /Tx /T (name)", "/V ({text})", 1024 * 1024, r"encoded field-value.*1048576-byte safety limit"),
+    ],
+    ids=["materialized-name", "value"],
+)
+def test_nameless_intermediates_count_toward_the_text_limits(
+    field: str, nameless: str, limit: int, message: str
+) -> None:
+    """An intermediate materializes the full name of the field above it and reads its own value within the limits."""
+
+    def build(size: int) -> bytes:
+        text = "x" * size
+        return _build_folded_pdf(field.format(text=text), [[""]], nameless.format(text=text))
+
+    source = pylopdf.open(stream=build(limit))
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert len(doc.get_form_fields()) == 1
+
+    refused = pylopdf.open(stream=build(limit + 1))
+    for doc in (refused, pylopdf.open(stream=refused.tobytes())):
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match=message):
+            doc.get_form_fields()
+        with pytest.raises(pylopdf.PdfError, match=message):
+            doc.set_form_field("name", "new")
+        assert doc.tobytes() == before

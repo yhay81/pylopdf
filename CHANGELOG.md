@@ -100,6 +100,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counted toward the 4,096-node or 4,096-widget limit. Every entry still
   counts toward the 8,192-edge limit, and kids whose `/T` reads as omitted now
   count toward the widget limit like other widgets.
+- AcroForm fields now include the widgets and named fields below nameless
+  intermediate fields: kids with their own `/Kids` but no `/T`, or a `/T` that
+  reads as null, which ISO 32000-2 treats as further representations of the
+  field above them. Each such intermediate was read as a widget, so
+  `set_form_field()` drew none of the widgets below it, left their `/AS`
+  states unchanged, and still cleared `NeedAppearances`, while named fields
+  below it were missing from `get_form_fields()`, which listed the field above
+  as a leaf instead. Those widgets are now the field's widgets, and those
+  named fields its child fields; an intermediate that also looks like a widget
+  is still drawn. Intermediates count toward the node, edge, 64-level, and text
+  limits of field-tree reads, and the widgets below them toward the widget
+  limit.
 - `insert_pdf` and `show_pdf_page` read the source page tree before
   renumbering the source. lopdf's renumbering kept the number of a missing
   Kids entry, so when a renumbered source object took that number, the import
