@@ -159,6 +159,62 @@ def _inner_comb_cells(doc: pylopdf.Document, count: int = 6) -> list[bool]:
     return [_opaque_pixels(doc, (5 + index * width, 40, 5 + (index + 1) * width, 70)) > 0 for index in range(count)]
 
 
+def _build_default_quadding_pdf(
+    acroform: str,
+    *,
+    parent: str = "",
+    child: str = "",
+    extra: dict[int, str] | None = None,
+    direct: bool = False,
+) -> bytes:
+    """Build comb, text, and choice fields without `/Q` beyond the given entries.
+
+    The interactive form dictionary adds `acroform` entries and is a direct
+    catalog value when `direct` is true. The comb field `code` adds `parent`
+    entries, and its child `code.inner` adds `child` entries and inherits the
+    comb flag, MaxLen 6, and value P42. The text field `other` and the combo
+    box `level` hold xyz. No widget has an appearance or a border, so filling
+    one field draws it and completes the appearances of the other two.
+    """
+    form = f"<< /Fields [5 0 R 9 0 R 10 0 R] {acroform} >>"
+    objects = {
+        1: f"<< /Type /Catalog /Pages 2 0 R /AcroForm {form if direct else '4 0 R'} >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 250 100] /Annots [8 0 R 9 0 R 10 0 R] >>",
+        5: f"<< /FT /Tx /Ff 16777216 /MaxLen 6 /T (code) /V (P42) {parent} /Kids [8 0 R] >>",
+        6: "null",
+        8: (
+            f"<< /T (inner) /Parent 5 0 R {child} /Type /Annot /Subtype /Widget"
+            " /Rect [3 30 247 60] /P 3 0 R /F 4 /BS << /W 0 >> >>"
+        ),
+        9: (
+            "<< /FT /Tx /T (other) /V (xyz) /Type /Annot /Subtype /Widget"
+            " /Rect [3 70 247 95] /P 3 0 R /F 4 /BS << /W 0 >> >>"
+        ),
+        10: (
+            "<< /FT /Ch /Ff 131072 /T (level) /V (xyz) /Opt [(xyz) (A12)] /Type /Annot /Subtype /Widget"
+            " /Rect [3 3 247 27] /P 3 0 R /F 4 /BS << /W 0 >> >>"
+        ),
+        **(extra or {}),
+    }
+    if not direct:
+        objects[4] = form
+    return _build_sparse_pdf(objects)
+
+
+def _quadding_ink(doc: pylopdf.Document) -> dict[str, tuple[bool, ...]]:
+    """Report the inked comb cells of `code.inner` and the inked halves of `other` and `level`."""
+    return {
+        "code.inner": tuple(_inner_comb_cells(doc)),
+        "other": tuple(_opaque_pixels(doc, (left, 5, left + 120, 30)) > 0 for left in (5, 125)),
+        "level": tuple(_opaque_pixels(doc, (left, 73, left + 120, 97)) > 0 for left in (5, 125)),
+    }
+
+
+LEFT_ALIGNED = {"code.inner": (True, True, True, False, False, False), "other": (True, False), "level": (True, False)}
+RIGHT_ALIGNED = {"code.inner": (False, False, False, True, True, True), "other": (False, True), "level": (False, True)}
+
+
 def test_get_form_fields_lists_all() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     fields = {f["name"]: f for f in doc.get_form_fields()}
@@ -365,6 +421,78 @@ def test_present_child_field_entries_override_parent_values(entries: str, extra:
     for current in (doc, pylopdf.open(stream=doc.tobytes())):
         # Left alignment places three characters in the first three of four cells.
         assert _inner_comb_cells(current, 4) == [True, True, True, False]
+
+
+@pytest.mark.parametrize("direct", [False, True], ids=["indirect", "direct"])
+@pytest.mark.parametrize("target", ["code.inner", "other", "level"])
+def test_appearances_default_to_acroform_quadding(target: str, *, direct: bool) -> None:
+    """Fields without `/Q` on their `/Parent` chain use the AcroForm's `/Q`.
+
+    ISO 32000-2 Table 225 makes the interactive form dictionary's `/Q` the
+    document-wide default. Filling a field and completing the missing
+    appearances of the others aligned comb, text, and choice values left.
+    """
+    source = pylopdf.open(stream=_build_default_quadding_pdf("/Q 2", direct=direct))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _quadding_ink(current) == RIGHT_ALIGNED
+
+
+@null_equivalents
+@pytest.mark.parametrize("target", ["code.inner", "other"])
+def test_null_field_quadding_reaches_acroform_default(value: str, target: str) -> None:
+    """Null-equivalent `/Q` entries on the `/Parent` chain fall through to the AcroForm's `/Q`."""
+    pdf = _build_default_quadding_pdf("/Q 2", parent=f"/Q {value}", child=f"/Q {value}")
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _quadding_ink(current) == RIGHT_ALIGNED
+
+
+@pytest.mark.parametrize(
+    "value",
+    [*NULL_EQUIVALENTS.values(), "3", "/Right"],
+    ids=[*NULL_EQUIVALENTS, "out-of-range", "non-integer"],
+)
+@pytest.mark.parametrize("target", ["code.inner", "other"])
+def test_null_or_unusable_acroform_quadding_aligns_left(value: str, target: str) -> None:
+    """A null-equivalent AcroForm `/Q` reads as absent, and an unusable one aligns left."""
+    source = pylopdf.open(stream=_build_default_quadding_pdf(f"/Q {value}"))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _quadding_ink(current) == LEFT_ALIGNED
+
+
+@pytest.mark.parametrize(
+    ("parent", "child", "extra"),
+    [
+        ("", "/Q 0", {}),
+        ("", "/Q 11 0 R", {11: "0"}),
+        ("/Q 0", "", {}),
+        ("", "/Q 3", {}),
+    ],
+    ids=["field", "indirect", "parent", "out-of-range"],
+)
+@pytest.mark.parametrize("target", ["code.inner", "other"])
+def test_field_quadding_overrides_acroform_default(parent: str, child: str, extra: dict[int, str], target: str) -> None:
+    """A `/Q` on the `/Parent` chain, including `/Q 0`, wins over the AcroForm's `/Q`.
+
+    An out-of-range field value still stops inheritance and aligns left. Fields
+    without `/Q` keep the document default.
+    """
+    pdf = _build_default_quadding_pdf("/Q 2", parent=parent, child=child, extra=extra)
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _quadding_ink(current) == {**RIGHT_ALIGNED, "code.inner": LEFT_ALIGNED["code.inner"]}
 
 
 def test_fill_checkbox_with_bool() -> None:

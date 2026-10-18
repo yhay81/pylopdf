@@ -754,16 +754,20 @@ overview.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
-  14 or krilla generation paths. Comb text fields resolve inherited `/MaxLen`,
-  count Unicode graphemes, position them individually, and reject overlength or
-  incompatible flag combinations. Preserve non-empty authored button states
-  and synthesize only missing/empty Off/on states. Widget `/MK /R`, `/BG`,
-  `/BC`, `/BS /W`, and legacy `/Border` feed the appearance. Keep updates
-  atomic by restoring the document clone on error. hayro 0.7 cannot select an
-  `/AP /N` state dictionary, so the rendering snapshot substitutes any
-  resolvable widget `/AS` stream; the editable/saved PDF remains canonical.
-  Retain the original-byte fast path when no selected state stream can be
-  resolved.
+  14 or krilla generation paths. When the bounded `/Parent` walk finds no `/Q`,
+  `field_quadding` uses the AcroForm dictionary's document-wide `/Q`
+  (ISO 32000-2 Table 225), read through `inheritable_field_value`, and
+  otherwise aligns left. A field's own or inherited `/Q`, including `/Q 0` and
+  an unusable value, still wins; an out-of-range or non-integer value aligns
+  left. Comb text fields resolve inherited `/MaxLen`, count Unicode graphemes,
+  position them individually, and reject overlength or incompatible flag
+  combinations. Preserve non-empty authored button states and synthesize only
+  missing/empty Off/on states. Widget `/MK /R`, `/BG`, `/BC`, `/BS /W`, and
+  legacy `/Border` feed the appearance. Keep updates atomic by restoring the
+  document clone on error. hayro 0.7 cannot select an `/AP /N` state
+  dictionary, so the rendering snapshot substitutes any resolvable widget `/AS`
+  stream; the editable/saved PDF remains canonical. Retain the original-byte
+  fast path when no selected state stream can be resolved.
 - AcroForm field-tree reads borrow object shapes, visit indirect cycles once,
   release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
@@ -777,7 +781,8 @@ overview.
   unusable one or a cyclic or over-long reference chain, and that value stops
   inheritance; only `/FT` and `/Ff` also inherit past other unreadable values.
   pylopdf reads neither `/DA` nor `/DV`; route any inheritable key it starts
-  reading through the same helper. Tree stacks, cycle sets, inherited
+  reading through the same helper, and fall back to the AcroForm dictionary's
+  `/DA` as `field_quadding` does for `/Q`. Tree stacks, cycle sets, inherited
   names/types, choice values, joined values, returned entries, field-widget
   lists, and button-state names grow fallibly; returned ordering uses an
   in-place sort with object-ID tie-breaking.
