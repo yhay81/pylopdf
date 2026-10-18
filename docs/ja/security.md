@@ -90,7 +90,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
-`decompression_unverifiable`、`recovery_scan_size`の
+`decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`の
 いずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 pylopdfが所有する上限付きlopdf decode経路では、filter listをmaterializeする
@@ -139,6 +139,20 @@ lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入
 `recovery_scan_size`で拒否します。これにより、敵対的な入力で復旧が二乗時間に
 なることを防ぎます。実際の破損ファイルでは、その位置にある途切れたstreamは
 多くても1つです。
+
+hayro 0.7はcontent stream内のarrayとdictionaryを深さ無制限の再帰で読むため、
+数十万個の`[`を開くstreamが1つあるだけで、例外にならずstackを溢れさせてPython
+プロセスを終了させていました。pylopdfは、text抽出、layout、table、検索、drawing、
+image取得、rendering（PNG、pixmap、SVG）、Markdown変換、image圧縮がpageを解釈する
+前に、そのpageから到達できるcontent stream（`/Contents`、resourceにあるForm
+XObject、annotationとwidgetのappearance、soft-mask group、tiling pattern、
+Type 3 glyph procedure）をデコードします。arrayまたはdictionaryが64階層を超えて
+入れ子になる場合、stream objectが埋め込まれている場合、検査できないinline image
+境界がある場合は、そのpageを`content_nesting_depth`で拒否します。この上限は固定で、
+`DocumentLimits`の有無にかかわらず適用され、ほかのpageは引き続き利用できます。
+各pageはdocument snapshotごとに1回だけ検査され、編集すると結果は破棄されます。
+hayroは名前を外側のすべてのdictionaryにたどって解決するため、operatorが描画しない
+resource dictionaryのentryも検査対象です。
 
 - レンダリングは1ページ64メガピクセルまでです。
 - `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded

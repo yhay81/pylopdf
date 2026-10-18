@@ -1,4 +1,6 @@
 use pyo3::prelude::*;
+mod content_guard;
+mod content_scan;
 mod document;
 mod draw;
 mod extract;

@@ -45,6 +45,15 @@ risky. When processing untrusted files:
   across every internal 4,096-entry chunk. Inferred spaces plus line endings
   cannot outnumber non-empty glyphs, so repeated-page amplification is rejected
   with `text_size`.
+- Before hayro interprets a page, pylopdf decodes the content streams that
+  page can reach (its `/Contents`, Form XObjects, annotation and widget
+  appearances, soft-mask groups, tiling patterns, and Type 3 glyph procedures)
+  and refuses it with `content_nesting_depth` when arrays or dictionaries nest
+  deeper than 64 levels, a stream object is embedded in content, or inline
+  image boundaries are too ambiguous to check. hayro 0.7 parses such nesting by
+  unbounded recursion, so hundreds of thousands of nested `[` used to overflow
+  the stack and end the process. The bound is fixed, applies with or without
+  limits, and stays page-granular: other pages remain usable.
 - Page batches cover every page by default. Explicit page sequences stop at the
   first entry beyond the larger of the page count and 4,096 with
   `page_entry_count`, so repetition never costs more than one complete document

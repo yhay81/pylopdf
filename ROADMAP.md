@@ -1154,6 +1154,16 @@ rather than waiting automatically for v1.x.
   unreleased, as are #1318 and #1320. When released, update the two `extract.rs`
   implementations—likely mechanically because paint is mostly ignored—and gain
   the performance improvements. Keep this separate from krilla integration.
+  hayro 0.8.0 was released on 2026-10-04 and bounds nested arrays and
+  dictionaries at 64 levels (LaurenzV/hayro#1387), but it is not a drop-in
+  fix for the content-nesting crash: a side-by-side render of the first two
+  pages of every real-world corpus file changed 6 of 20 pages (vello_cpu
+  0.0.8 to 0.3 resamples the large scans), so the migration needs its own
+  reviewed pixel diff, and nested Type 4 function braces plus deep function and
+  colour-space chains still overflow it.
+  The nesting guard in `rust/src/content_guard.rs` therefore stays until the
+  migration lands; afterwards it remains useful as a typed refusal instead of
+  hayro's silent truncation.
 - **fulgur**, Blitz plus krilla for HTML-to-PDF under MIT/Apache-2.0, already
   supports `@page`, page breaks, running headers/footers, and tagged PDF/UA-1,
   but first appeared in 2026-03, is single-maintainer, is at 24.1% css-page WPT,

@@ -384,6 +384,124 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- Content streams are cleared for nesting depth before hayro interprets them.
+  hayro 0.7 skips and reads arrays and dictionaries in content streams by
+  unbounded recursion (LaurenzV/hayro#1347; hayro 0.8 stops at 64 levels), so a
+  stream with about 300,000 nested `[` overflowed the stack and killed the
+  process on the first extraction, rendering, drawing or image read, search,
+  Markdown conversion, or image compression. It did so in page content, Form
+  XObjects, annotation and widget appearances, tiling patterns, Type 3 glyph
+  procedures, and soft-mask groups, and `DocumentLimits.web()` did not help
+  because lopdf never parses content at load. Every path that lets hayro
+  interpret a page must start with `_Document::hayro_view_for`, which builds the
+  snapshot and has `ContentGuard::check` (`rust/src/content_guard.rs`) clear
+  the pages first: `One`, `Many` for explicit batches, `All` for
+  `compress_images`. A refusal raises `LimitError` with the stable code
+  `content_nesting_depth` before any interpretation, cache insertion, or
+  output. The bound is `MAX_NESTING_DEPTH` = 64 levels of arrays and
+  dictionaries, the one hayro 0.8 uses, and is unconditional rather than a
+  `DocumentLimits` field because it prevents a crash instead of bounding
+  resource use.
+  The guard decodes with hayro's own `Stream::decoded`, never with lopdf: the
+  two decoders and stream-extent rules can disagree on damaged input, and only
+  hayro's bytes reach its parser. Page content comes from `Page::page_stream`,
+  which hayro caches, so interpretation reuses that decode; other streams
+  decode once more. The walk mirrors the four places where hayro 0.7 parses
+  content operators: the joined `/Contents`, Form XObjects (`Do`, annotation
+  `/AP /N`, ExtGState `/SMask /G`), tiling pattern streams, and Type 3
+  `/CharProcs`, including fonts that only an ExtGState `/Font` entry selects.
+  hayro resolves a name through the resources of every enclosing stream and
+  the page, so the walk visits every entry of every reachable resource
+  dictionary instead of the names a stream uses; only `/Subtype /Form`
+  entries of `/XObject` count, because images are costly to decode and never
+  content. The check is lazy and per page. Streams, fonts, graphics states,
+  and dictionaries shared with an earlier page are skipped (dictionaries by
+  the address of their bytes, stable because decoded object streams live as
+  long as the snapshot). State belongs to the snapshot: `invalidate_hayro_pdf`
+  and every refusal or allocation failure reset it, so nothing recorded
+  before a failed walk can vouch for a stream the walk did not finish. No
+  decompression limit is re-applied: load-time validation already measured
+  every stream of an unencrypted document under the configured budgets, and
+  the guard decodes only streams that interpretation would decode anyway or
+  that a resource dictionary lists. Cold first-call cost on the bundled corpus
+  is 0.8% in total (interleaved 5-round minimums, thin-LTO builds) and at most
+  7% on a two-page form-heavy document (`f1040.pdf`), where hayro resolves
+  annotation dictionaries from object streams once for the walk and again to
+  draw them.
+  `rust/src/content_scan.rs` decides without recursion whether the decoded
+  bytes can drive hayro's parser deeper than 64 levels. One small lexer per
+  hypothesis about hayro's tokenization models whitespace, comments, literal
+  and hexadecimal strings, names, `[ ]`, and `<< >>`, and never abandons input
+  that hayro would reject. A leading sign or dot that no digit follows is the
+  number 0 to hayro, which starts the next token behind it, so `-.BI` is a
+  number and the keyword `BI`; the lexer ignores such leading bytes and the
+  fast path looks back over them. Two constructs hide bytes from tokenization.
+  Inline images: after `BI` hayro reads key/value pairs up to `ID` at a key
+  position, skips one whitespace byte, and searches for an `EI` followed by
+  whitespace with a heuristic that parses the rest of the stream, so every
+  `EI` that hayro does not certainly reject (a non-ASCII byte before the next
+  `EI`) starts a fresh lexer behind it. That search also looks for the bytes
+  `BI` wherever they occur, inside a string or comment as well, and reads an
+  inline image dictionary behind each pair, discarding the result. Behind the
+  first candidate every such pair therefore starts a trial lexer, and the
+  trial ends where hayro's read must end: at a key position anything but
+  whitespace, a comment, a name, or the tag `ID` fails the read, so prose and
+  binary bytes cost a byte or two. When no `EI` is accepted hayro keeps
+  going: it tokenizes from the data start if the stream has no `EI`, and
+  otherwise from behind the last `EI` it examined, which is the last one or one
+  byte later when a regular byte follows the one before it. Those positions
+  start lexers as well. Stream objects: a dictionary followed by `stream`
+  makes hayro skip an opaque body, and content never holds one, so such a
+  stream is refused. At most eight lexers stay alive and equal ones merge; a
+  stream that needs more is refused as ambiguous. All three refusals share the
+  code. `scan_alone` runs the only lexer through the stream until the first
+  image and skips every byte that cannot change it, about 1 GB/s against
+  140 MB/s byte by byte; it must stay equivalent to `Lexer::step`, which is the
+  specification, and must reset the token in progress when it recognizes `BI`
+  because the bytes it skipped leave a stale one. Pathological 64 MiB inputs
+  (repeated `BI ID`, many `EI`, endless comments after `>>`) scan in about a
+  second at most, so keep every search bounded by the next scheduled position.
+  The model was validated against hayro-syntax 0.7.2 itself with scratch
+  harnesses, not stored in the repository. They include `content_scan.rs` by
+  path and a vendored copy of the crate whose recursive container parses
+  (`Array::skip`, `Dict::skip`, and `<<` dictionary reads) count their depth in
+  a thread-local, and they require that any stream whose parse reaches 65
+  levels was refused. Count the depth rather than follow the operators that
+  hayro yields: the dictionary reads of the `EI` search discard their result,
+  so a marker operator behind a deep array, or an overflow of a 128 KiB thread
+  stack, can miss them or find them only by chance. The harnesses also require
+  the optimized `scan_alone` path and a byte-wise reference derived from the
+  same file to agree on every input. Gaps surfaced one by one while the model
+  grew: without the fall-through resumption 17 of 3,000 random streams got
+  through, reading `-.BI` as one token let 1 of about 700,000 through, and not
+  modeling the `BI` search let 2 of 400,000 through (found by the
+  stack-overflow campaign, then pinned by the depth oracle in 32 of 5.4
+  million short sequences). So keep growing the generators and rerun every
+  oracle after any change to the lexer. The final scanner agrees on EXH_TOTAL
+  exhaustive token sequences, every sequence of up to nine tokens over
+  vocabularies of inline image keywords, strings, comments, signs, dots,
+  brackets, and dictionary delimiters, hayro reaching 65 levels in EXH_DEEP of
+  them, and on RAND_TOTAL random, structure-aware, and mutated corpus streams
+  with the depth oracle, and a final end-to-end stack-overflow campaign
+  refused all of its OVERFLOW_CRASHES overflowing streams among OVERFLOW_TOTAL.
+  Keep a deterministic Python regression for each construct a harness found.
+  The Python regressions in `tests/test_content_nesting.py` cover each place
+  hayro interprets content, every public operation, the 64-level boundary, the
+  inline image evasions, edits, and shared streams. A sweep of 2,821 varied
+  real-world PDFs (59,611 pages) raised no refusal.
+  On a hayro upgrade, re-read every `TypedIter::new`, `UntypedIter::new`, and
+  `Stream::decoded` call site; a new content-parsing site must join the walk.
+  hayro 0.8 bounds nesting itself, but rendering the first two pages of every
+  corpus file with 0.7.1 and 0.8.0 side by side changed 6 of 20 pages (large
+  scans and one Type 3 page, 60 to 113,965 pixels each, channel deltas up to
+  30), so it needs its own reviewed migration; the guard then becomes a typed
+  refusal on top of hayro's silent truncation. Three further structures
+  recurse without a bound in hayro 0.7 and 0.8 alike, overflow the stack, and
+  remain unguarded because they are not content streams: nested braces in a
+  Type 4 (PostScript calculator) function stream, and chains of thousands of
+  indirect objects in which each stitching function names the next as its
+  sub-function, or each Indexed or Separation colour space names the next as
+  its base or alternate.
 - Raster rendering reuses one hayro `RenderCache` across calls through
   `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`

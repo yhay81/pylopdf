@@ -89,7 +89,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable`, `recovery_scan_size` 중
+`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth` 중
 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을materialize하기 전에
@@ -137,6 +137,20 @@ lopdf의 재구성은 뒤에`endstream`이 없는`stream` keyword마다 입력�
 추정하고, 입력 1 byte당 64 byte에 64 MiB를 더한 값을 넘는 입력을
 `recovery_scan_size`로 거부하여 악의적인 입력이 복구를 이차 시간으로 만들지 못하게
 합니다. 실제 손상 파일에는 그 위치에 잘린 stream이 많아야 하나 있습니다.
+
+hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재귀로 읽기 때문에,
+수십만 개의 `[`를 여는 stream 하나가 예외를 던지는 대신 stack을 넘쳐 Python
+프로세스를 종료시켰습니다. pylopdf는 텍스트 추출, 레이아웃, 표, 검색, 드로잉, 이미지
+읽기, 렌더링(PNG, pixmap, SVG), Markdown 변환, 이미지 압축이 페이지를 해석하기 전에
+그 페이지가 도달할 수 있는 content stream(`/Contents`, 리소스의 Form XObject, 주석과
+위젯의 appearance, soft-mask group, tiling pattern, Type 3 glyph procedure)을
+디코딩합니다. array나 dictionary가 64단계보다 깊게 중첩되거나, stream object가
+포함되어 있거나, 검사할 수 없는 inline image 경계가 있으면 그 페이지를
+`content_nesting_depth`로 거부합니다. 이 한도는 고정이며 `DocumentLimits` 설정과
+관계없이 적용되고, 다른 페이지는 계속 사용할 수 있습니다. 각 페이지는 문서 snapshot마다
+한 번만 검사되고 편집하면 결과가 지워집니다. hayro는 이름을 바깥쪽 모든 dictionary를
+거쳐 해석하므로, 어떤 operator도 그리지 않는 리소스 dictionary의 항목도 검사
+대상입니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
 - `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG

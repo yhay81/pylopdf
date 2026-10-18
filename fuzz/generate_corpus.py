@@ -76,8 +76,14 @@ def generate(output: Path) -> None:
     expanded = b" " * (8 * 1024 * 1024)
     run_length = bytes((129, 0)) * 65_536 + bytes((128,))
     deep_array = "[" * 96 + "0" + "]" * 96
+    nested_content = b"BT /F1 12 Tf " + b"[" * 100_000 + b"(X)" + b"]" * 100_000 + b" TJ ET"
+    # hayro resumes tokenizing behind an `EI` that a regular byte follows.
+    inline_image_resume = b"BI /W 1 /H 1 ID \x00 EITJ " + b"<<" * 100_000
+    # hayro reads a dictionary behind every `BI` it meets while it searches for the image end.
+    inline_image_search = b"BI /W 1 /H 1 ID \xff EI (BI /A " + b"<<" * 100_000
     cases = {
         "bad-xref.pdf": b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\nstartxref\n999999\n%%EOF",
+        "deep-content-stream.pdf": _one_page(nested_content),
         "deep-direct-object.pdf": _build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -87,6 +93,8 @@ def generate(output: Path) -> None:
             }
         ),
         "flate-bomb.pdf": _one_page(zlib.compress(expanded), filter_name="FlateDecode"),
+        "inline-image-resume.pdf": _one_page(inline_image_resume),
+        "inline-image-search.pdf": _one_page(inline_image_search),
         "many-pages.pdf": _many_pages(250),
         "reference-cycle.pdf": _reference_cycle(),
         "run-length-bomb.pdf": _one_page(run_length, filter_name="RunLengthDecode"),

@@ -126,6 +126,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
   damaged files carry at most one truncated stream in that position.
   `DocumentLimits` continue to apply to recovered documents.
+- A content stream that nests arrays or dictionaries hundreds of thousands of
+  levels deep no longer kills the Python process. hayro 0.7 skips and reads
+  them by unbounded recursion (LaurenzV/hayro#1347), so
+  `"[" * 300_000 + "(X)" + "]" * 300_000 + " TJ"` in page content, a Form
+  XObject, an annotation or widget appearance, a tiling pattern, a Type 3
+  glyph procedure, or a soft-mask group overflowed the stack and ended the
+  process with SIGSEGV on the first text extraction, rendering, drawing or
+  image read, search, Markdown conversion, or image compression, with or
+  without `DocumentLimits.web()`; lopdf never parses content at load, so
+  `max_object_depth` did not apply. Every interpretation now first clears the
+  content streams that its pages can reach with an iterative scan and raises
+  `LimitError` with the new stable code `content_nesting_depth` for nesting
+  beyond 64 levels (the bound hayro 0.8 uses), for a stream object embedded in
+  content, and for inline image boundaries too ambiguous to check. The scan
+  decodes through hayro, so it sees the bytes that hayro's parser will, reuses
+  hayro's cached decode for page content, runs once per page and snapshot, and
+  leaves other pages usable. It models hayro's inline image search, including
+  where hayro resumes when no `EI` ends the image. A differential fuzz against
+  hayro-syntax 0.7.2 on a 128 KiB stack found no stream that overflows hayro
+  and passes the scan, 17 of 3,000 streams got past a first model without the
+  resumption rule. Cold first calls on the bundled corpus cost 0.8% more in
+  total (7% at most, on the form-heavy `f1040.pdf`), no corpus page renders or
+  extracts differently, and a sweep of 2,821 varied PDFs raised no refusal.
+  Migrating to hayro 0.8 instead was rejected for this fix: it changes the
+  raster output of 6 of the 20 compared corpus pages and does not bound nested
+  Type 4 function procedures.
+- Three structures that are not content streams still overflow hayro 0.7 and
+  0.8 and remain unguarded: a Type 4 (PostScript calculator) function stream
+  with hundreds of thousands of nested braces, and chains of thousands of
+  indirect objects in which each stitching function names the next as its
+  sub-function, or each Indexed or Separation colour space names the next as
+  its base or alternate.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its

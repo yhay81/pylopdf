@@ -27,6 +27,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
+use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw;
 use crate::form;
 use crate::generate;
@@ -4867,6 +4868,11 @@ pub struct _Document {
     /// not retained: hayro would recover the damaged bytes independently and
     /// could keep different objects than the graph that edits and saves use.
     hayro_source: HayroSource,
+    /// Content streams of the current hayro snapshot that were cleared for
+    /// array and dictionary nesting before hayro could interpret them.
+    ///
+    /// Dropped with the snapshot, so edits never leave a stale verdict.
+    content_guard: ContentGuard,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
@@ -4939,6 +4945,7 @@ impl _Document {
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
             hayro_source,
+            content_guard: ContentGuard::default(),
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
             table_pages: HashMap::new(),
@@ -5100,6 +5107,7 @@ impl _Document {
     fn invalidate_hayro_pdf(&mut self) {
         self.hayro_pdf = None;
         self.hayro_source = HayroSource::Unavailable;
+        self.content_guard.reset();
         self.link_resolution = None;
         self.invalidate_interpreted_pages();
     }
@@ -6479,12 +6487,29 @@ impl _Document {
                     })?
                 }
             };
+            self.content_guard.reset();
             self.hayro_pdf = Some(Arc::new(pdf));
         }
         Ok(self
             .hayro_pdf
             .as_ref()
             .expect("constructed immediately before"))
+    }
+
+    /// Return the hayro view after clearing the content of `pages` for nesting.
+    ///
+    /// hayro 0.7 overflows its stack, and kills the process, on arrays or
+    /// dictionaries nested hundreds of thousands deep in a content stream. Every
+    /// path that lets hayro interpret a page therefore starts here; a refusal
+    /// raises `LimitError` before any interpretation or cache insertion.
+    fn hayro_view_for(&mut self, pages: PageSelection<'_>) -> PyResult<&Arc<Pdf>> {
+        self.hayro_view()?;
+        let pdf = self
+            .hayro_pdf
+            .as_ref()
+            .expect("hayro view was built immediately before");
+        self.content_guard.check(pdf, pages)?;
+        Ok(pdf)
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
@@ -6542,7 +6567,7 @@ impl _Document {
         settings: InterpreterSettings,
     ) -> PyResult<&crate::extract::TextPage> {
         if !self.touch_text_page(page_number) {
-            self.hayro_view()?;
+            self.hayro_view_for(PageSelection::One(page_number))?;
             let pdf = self
                 .hayro_pdf
                 .take()
@@ -6666,7 +6691,7 @@ impl _Document {
         settings: InterpreterSettings,
     ) -> PyResult<&crate::extract::TablePage> {
         if !self.touch_table_page(page_number) {
-            self.hayro_view()?;
+            self.hayro_view_for(PageSelection::One(page_number))?;
             let pdf = self
                 .hayro_pdf
                 .take()
@@ -6744,7 +6769,7 @@ impl _Document {
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            self.hayro_view()?;
+            self.hayro_view_for(PageSelection::One(page_number))?;
             let pdf = self
                 .hayro_pdf
                 .as_ref()
@@ -8376,7 +8401,7 @@ impl _Document {
         }
         let settings = self.interpreter_settings();
         py.detach(|| {
-            self.hayro_view()?;
+            self.hayro_view_for(PageSelection::Many(&page_numbers))?;
             let pdf = self
                 .hayro_pdf
                 .take()
@@ -8479,7 +8504,7 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<crate::extract::ImageTuple>> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
+        let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
         py.detach(|| {
             let pages = pdf.pages();
             let page = page_number
@@ -8497,7 +8522,7 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<crate::extract::DrawingTuple>> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
+        let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
         py.detach(|| {
             let pages = pdf.pages();
             let page = page_number
@@ -8516,7 +8541,7 @@ impl _Document {
         quality: u8,
     ) -> PyResult<image_compression::CompressionResult> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view()?;
+        let pdf = self.hayro_view_for(PageSelection::All)?;
         let usages = py
             .detach(|| crate::extract::collect_image_usages(pdf, settings))
             .map_err(PdfError::new_err)?;
@@ -8847,7 +8872,7 @@ impl _Document {
         self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            self.hayro_view()?;
+            self.hayro_view_for(PageSelection::Many(&page_numbers))?;
             let pdf = self
                 .hayro_pdf
                 .as_ref()
@@ -9018,7 +9043,7 @@ impl _Document {
     ) -> PyResult<String> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
-            let pdf = self.hayro_view()?;
+            let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
             let pages = pdf.pages();
             let page = page_number
                 .checked_sub(1)
