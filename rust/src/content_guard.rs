@@ -300,7 +300,10 @@ impl ContentGuard {
             // that is not a dictionary. `Array::raw_iter` unwraps the read of
             // every element that skipping accepted, and `[+ ]` is accepted.
             // hayro resolves every element itself when it draws the page, so
-            // reading the list costs no more than interpreting it does.
+            // the list costs about as much to read here as to interpret. Both
+            // pay for members of object streams, whose index hayro-syntax
+            // rebuilds on every lookup: a page with thousands of annotations in
+            // one object stream is quadratic twice.
             for annotation in annotations.iter::<Dict<'a>>() {
                 self.visit_appearance(fresh, &annotation, &mut work)?;
             }
@@ -572,7 +575,7 @@ impl ContentGuard {
     /// Queue an annotation's or widget's normal appearance stream.
     ///
     /// hayro reads the appearance of every annotation it draws, so this costs
-    /// no more than interpreting the page does, except for the annotations it
+    /// about as much as interpreting the page does, plus the annotations it
     /// skips as hidden, which this walk reads as well.
     fn visit_appearance<'a>(
         &mut self,

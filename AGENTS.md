@@ -478,16 +478,20 @@ overview.
   milliseconds.
   Annotations show the cost of the walk alone only when they are hidden
   (`/F 2`): hayro reads the `/AP /N` of every annotation it draws and resolves
-  every `/Annots` element itself, so for those the walk costs no more than
-  interpreting the page. A role is what the walk does with the object, never
-  where it was found, and a reference is skipped only in the role it was
-  followed for. A stream that was cleared as content from a tiling pattern
-  entry says nothing about the colour space it gives an image: the first
-  version of the `/XObject` loop skipped any stream that was already cleared,
-  so a 20,000-deep chain behind such an image still crashed the process.
-  `streams` stays the record of decoded content, because several roles can
-  queue one stream and the walk decodes it when it takes the first of them
-  from its queue.
+  every `/Annots` element itself, so the walk costs about as much as
+  interpreting the page there, and the `/Annots` loop is left as it was. That
+  doubles the first call of a page with thousands of annotations in one object
+  stream, because hayro-syntax rebuilds an object stream's index on every lookup
+  and both passes are quadratic: pdf.js `bug1978317.pdf` (1.5 MB, 40 pages)
+  takes 65 s, 33 s of it in the walk's `/Annots` loop and 31 s in hayro's own
+  interpretation. A role is what the walk does with the object, never where it
+  was found, and a reference is skipped only in the role it was followed for. A
+  stream that was cleared as content from a tiling pattern entry says nothing
+  about the colour space it gives an image: the first version of the `/XObject`
+  loop skipped any stream that was already cleared, so a 20,000-deep chain
+  behind such an image still crashed the process. `streams` stays the record of
+  decoded content, because several roles can queue one stream and the walk
+  decodes it when it takes the first of them from its queue.
   Resolve every reference through `XRef::get` (`Fresh` in
   `content_guard.rs`) instead of through a dictionary obtained by an earlier
   step. hayro keeps the chain of objects being read in a dictionary's reader
@@ -601,7 +605,8 @@ overview.
   a stream unscanned in 343 of 2,000 graphs (17%), so these oracles have power
   against the mistake that rewrite could make. The resource walk's harness
   (below) gave the same verdict on `main` and on the rewrite for each of
-  1,000,000 random documents, compared through a hash of every verdict.
+  1,500,000 random documents (1,000,000 as generated and 500,000 with only
+  well-typed slots), compared through a hash of every verdict.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
