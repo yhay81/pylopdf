@@ -1,6 +1,7 @@
 # Temporary evaluation branch only: compare generated-PDF imports and document
-# loads across builds on every release target. `nolr` drops lopdf's rayon
-# feature and bounds what parsing on the calling thread can save. Build jobs
+# loads across builds on every release target. `seq` parses generated PDFs
+# on the calling thread; `nolr` drops lopdf's rayon feature and bounds what
+# that can save. Build jobs
 # mirror release.yml; bench jobs interleave the resulting wheels on one runner
 # so every build shares its noise.
 name: Sequential generated import evaluation
@@ -32,6 +33,7 @@ jobs:
           - { runner: windows-latest, target: x86_64-pc-windows-msvc }
         variant:
           - { name: base, ref: 38bb24d1f4b5201a73b0e4de743672161eed1576 }
+          - { name: seq, ref: fe43c7f8fccede9e481adde63bdee153631c0d05 }
           - { name: nolr, ref: 86fc8e84a43d566a14ad4f3c817fd770d5bdbc77 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -94,7 +96,7 @@ jobs:
     env:
       UV_PYTHON_PREFERENCE: only-system
       PYTHONUTF8: "1"
-      VARIANTS: base nolr
+      VARIANTS: base seq nolr
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
