@@ -129,6 +129,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `delete_pages`, `delete_page`, and `select` read a null or indirect-null
   `/Outlines`, `/Names`, or `/Names /Dests` entry as absent instead of raising
   `PdfError`, as they already did for a reference to a missing object.
+- Editing a malformed file whose objects or cross-reference entries are
+  numbered near 2**32 no longer overwrites its catalog. New objects take the
+  numbers after the highest one, and lopdf does not check that increment, so
+  release builds wrapped them onto object 0 and then object 1: after a single
+  `insert_text`, `insert_image`, or `add_highlight_annot`, every later read
+  raised `PdfError`, while `insert_pdf`, `show_pdf_page`, `set_toc`, and the
+  OCR text layer refused with `PdfError` instead. Object-stream and encrypted
+  saves of such a file failed to reopen, and rendering and extraction skipped
+  objects numbered past 2**31. Loading, including the reload by
+  `authenticate()`, now moves objects numbered above 8,388,607, the ISO
+  32000-1 limit on indirect objects, to the numbers after the highest object
+  at or below it, keeping their order and generations. References follow
+  their objects, a reference above that highest object that names no object
+  becomes null, and documents within the limit load and save unchanged.
+  Moving the 100,003 objects of a 50,000-page document added about 15 ms to
+  its 61 ms load.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved
@@ -148,6 +164,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
   damaged files carry at most one truncated stream in that position.
   `DocumentLimits` continue to apply to recovered documents.
+- Saving no longer takes time proportional to a document's highest object
+  number. lopdf's cross-reference writer visits every number up to the highest
+  object, so a file of a few hundred bytes whose single object was numbered
+  near 2**32 took about 19 seconds per `tobytes()` or `save()`. Objects
+  numbered above 8,388,607 now move below that bound at load, as described
+  under Fixed.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its
