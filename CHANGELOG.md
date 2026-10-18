@@ -226,6 +226,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference to a missing object reads as absent there too. A field's own or
   inherited `/Q`, including `/Q 0`, still wins, and an out-of-range or
   non-integer value still aligns left.
+- Malformed files now render and extract the same before and after an
+  unrelated edit. An unedited document reads its original bytes through hayro,
+  while edits and saves serialize lopdf's object graph, and the two disagreed
+  when a cross-reference entry located an object whose header names another
+  number, when lopdf skipped an object it could not parse, or when an object
+  stream held members that no entry lists. A page that drew such an object
+  gained or lost it after `set_metadata()`. Loading now keeps the original
+  bytes only when every reference reachable from the trailer resolves to the
+  same object in both views; other documents render from the serialized graph
+  from the start, as documents whose cross-reference data lopdf recovered
+  already do. Well-formed files, including incremental updates and object
+  streams, keep the original bytes and save byte-identically.
+- Objects that lopdf skipped because a value is a bare keyword, such as a name
+  written without its slash in `/Type XObject`, now load with that value read
+  as null, as hayro reads it. Loading re-parses each skipped uncompressed
+  object whose header matches its cross-reference entry with a bounded parser.
+  `pdfium-smask-blend.pdf` lost its three soft-mask forms after any edit or
+  save; they now survive. Objects that still do not parse, and skipped objects
+  in encrypted documents or in documents whose cross-reference data lopdf
+  recovered, remain absent.
+- Every page that `page_count` reports can now be extracted and rendered when
+  a page-tree `/Kids` array also holds an entry that is not a page, such as a
+  reference to a missing object, `null`, a number, a stream, or an untyped or
+  direct dictionary. hayro 0.7 ended the page list at the first entry that is
+  not a dictionary and read untyped and direct dictionaries as pages, while
+  pylopdf's page-tree walker skips all of these, so page 2 of
+  `/Kids [3 0 R <missing> 6 0 R]` raised `PdfError` and other pages could show
+  the wrong object. Rendering and extraction now check that hayro resolves the
+  walker's pages, by object ID and in order, and otherwise read a copy whose
+  root lists exactly those pages with inherited attributes materialized. The
+  editable and saved page tree are unchanged.
+- Object-stream members that no cross-reference entry lists and nothing
+  reaches, such as members that a damaged stream decodes under arbitrary
+  numbers, are now dropped at load instead of being written into every save,
+  and the next object number returns to the highest listed entry or remaining
+  object when no reachable reference names a higher one. A five-byte mutation
+  of `f1040.pdf` decodes members numbered up to 521,291,308; they no longer
+  need the move above 8,388,607 described above, and the document keeps its
+  numbering.
 
 ### Security
 - Opening and metadata probing refuse input whose lopdf cross-reference
@@ -235,6 +274,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
   damaged files carry at most one truncated stream in that position.
   `DocumentLimits` continue to apply to recovered documents.
+- A page that reaches an indirect object nested more than 100 levels deep no
+  longer crashes the process on its first render or extraction. lopdf skips
+  such an object, while hayro 0.7, reading the original bytes, parsed it
+  recursively until the stack overflowed
+  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347),
+  fixed in hayro 0.8); a 600 KB file was enough. Such a document now renders
+  from lopdf's serialized graph, which leaves the object out. Arrays nested as
+  deeply inside a content stream still reach hayro 0.7's parser.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered

@@ -31,6 +31,7 @@ use crate::draw::{self, ObjectSink};
 use crate::form;
 use crate::generate;
 use crate::image_compression;
+use crate::object_recovery;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
@@ -1214,6 +1215,22 @@ fn recovery_load_err(
     }
 }
 
+/// Recover skipped objects and decide whether hayro may read the original bytes.
+///
+/// Encrypted input and input whose cross-reference data lopdf recovered never
+/// keep their original bytes: hayro would decrypt or recover them on its own
+/// and could resolve different objects. `object_recovery` decides the rest.
+fn original_bytes_match(
+    doc: &mut Document,
+    recovery: Option<XrefRecovery>,
+    data: &[u8],
+) -> PyResult<bool> {
+    if recovery.is_some() || doc.is_encrypted() || doc.was_encrypted() {
+        return Ok(false);
+    }
+    object_recovery::reconcile_loaded_objects(doc, data)
+}
+
 /// Construct a machine-readable resource-limit exception.
 ///
 /// The first exception argument is a stable code; Python supplies a friendly
@@ -2041,6 +2058,80 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
         dict.set("CropBox", media_box.clone());
     }
     Ok(dict)
+}
+
+/// Replace root Pages Kids/Count with `ordered`, flattening the tree.
+///
+/// Materialize inheritance on every page and point Parent to root. Every
+/// fallible step runs before the first change. Callers prune obsolete
+/// intermediate nodes when the result is saved.
+fn rebuild_flat_page_tree(
+    doc: &mut Document,
+    pages_id: ObjectId,
+    ordered: &[ObjectId],
+    cleanup: Option<&PageCleanupPlan>,
+) -> PyResult<()> {
+    doc.get_object(pages_id)
+        .and_then(Object::as_dict)
+        .map_err(to_py_err)?;
+    let count = i64::try_from(ordered.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+    let mut kids = Vec::new();
+    kids.try_reserve_exact(ordered.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate rebuilt page-tree Kids: {error}"
+        ))
+    })?;
+    let mut resolved_pages = Vec::new();
+    resolved_pages
+        .try_reserve_exact(ordered.len())
+        .map_err(|error| {
+            PdfError::new_err(format!(
+                "failed to allocate rebuilt page dictionaries: {error}"
+            ))
+        })?;
+    for &page_id in ordered {
+        let mut dict = resolve_inherited_page_dict(doc, page_id)?;
+        if let Some(cleanup) = cleanup {
+            cleanup.clean_page(page_id, &mut dict);
+        }
+        dict.set("Parent", pages_id);
+        kids.push(Object::Reference(page_id));
+        resolved_pages.push((page_id, dict));
+    }
+    for (page_id, dict) in resolved_pages {
+        doc.objects.insert(page_id, Object::Dictionary(dict));
+    }
+    let pages_dict = doc
+        .get_object_mut(pages_id)
+        .and_then(Object::as_dict_mut)
+        .map_err(to_py_err)?;
+    pages_dict.set("Kids", kids);
+    pages_dict.set("Count", count);
+    Ok(())
+}
+
+/// Return the root page-tree node that the catalog names.
+fn page_tree_root(doc: &Document) -> PyResult<ObjectId> {
+    doc.catalog()
+        .map_err(to_py_err)?
+        .get(b"Pages")
+        .and_then(Object::as_reference)
+        .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))
+}
+
+/// Whether hayro resolved exactly the walker's pages, in page order.
+fn hayro_pages_match(pdf: &Pdf, page_ids: &[ObjectId]) -> bool {
+    let pages = pdf.pages();
+    pages.len() == page_ids.len()
+        && pages
+            .iter()
+            .zip(page_ids)
+            .all(|(page, &(number, generation))| {
+                page.raw().obj_id().is_some_and(|id| {
+                    i64::from(id.obj_number) == i64::from(number)
+                        && i64::from(id.gen_number) == i64::from(generation)
+                })
+            })
 }
 
 /// Borrow an imported annotation operand under a bounded reference walk.
@@ -5478,9 +5569,12 @@ pub struct _Document {
     ///
     /// This avoids a potentially expensive lopdf serialization before the
     /// first render or extraction. Any edit discards it together with the
-    /// parsed hayro view. Input whose cross-reference data lopdf recovered is
-    /// not retained: hayro would recover the damaged bytes independently and
-    /// could keep different objects than the graph that edits and saves use.
+    /// parsed hayro view. Input is retained only when lopdf loaded exactly the
+    /// object each in-use cross-reference entry names, as `object_recovery`
+    /// checks: otherwise hayro could resolve different objects from the bytes
+    /// than the graph that edits and saves use. That excludes input whose
+    /// cross-reference data lopdf recovered, which hayro would recover
+    /// independently.
     hayro_source: HayroSource,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
@@ -7059,11 +7153,13 @@ impl _Document {
     ///
     /// Editing methods invalidate the cache, preserving the invariant that
     /// rendered state always reflects edits. Consecutive renders rebuild once.
+    /// Extraction and rendering index hayro's pages by page number, so every
+    /// view must resolve exactly the page-tree walker's pages, in order.
     fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
-            let expected_pages = self.doc.page_count()?;
+            let page_ids = self.doc.owned_page_ids()?;
             let state_appearances = state_appearance_ids(&self.doc)?;
-            let mut text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
+            let text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
             let prepare_appearances = !state_appearances.is_empty()
                 || text_markup_appearances
                     .as_ref()
@@ -7088,43 +7184,33 @@ impl _Document {
                 .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
-                .filter(|pdf| pdf.pages().len() == expected_pages);
+                .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             let pdf = match source_pdf {
                 Some(pdf) => pdf,
                 None => {
-                    let mut render_doc = if prepare_appearances {
-                        let mut doc = if self.max_interpretation_size.is_some() {
-                            let data = self.current_bytes()?;
-                            Document::load_mem(&data).map_err(|error| {
-                                PdfError::new_err(format!(
-                                    "failed to prepare bounded PDF for rendering: {}",
-                                    LopdfErrorChain(&error)
-                                ))
-                            })?
-                        } else {
-                            self.doc.clone()
-                        };
-                        normalize_state_appearances_for_render(&mut doc, &state_appearances);
-                        if let Some(plans) = text_markup_appearances.take() {
-                            synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
-                        }
-                        Some(doc)
+                    let pdf =
+                        self.render_snapshot(&state_appearances, text_markup_appearances, None)?;
+                    if hayro_pages_match(&pdf, &page_ids) {
+                        pdf
                     } else {
-                        None
-                    };
-                    let data = match render_doc.as_mut() {
-                        Some(doc) => serialize_pdf_with_limit(
-                            doc,
-                            None,
-                            self.max_interpretation_size,
-                            "interpretation_size",
-                            "serialized rendering and extraction snapshot",
-                        )?,
-                        None => self.current_bytes()?,
-                    };
-                    Pdf::new(data).map_err(|e| {
-                        PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}"))
-                    })?
+                        // hayro 0.7 stops at the first page-tree kid that is
+                        // not a dictionary and reads untyped kids as pages,
+                        // while the walker skips both, so list only the
+                        // walker's pages in a rendering copy.
+                        let text_markup_appearances =
+                            missing_text_markup_appearance_plans(&self.doc)?;
+                        let pdf = self.render_snapshot(
+                            &state_appearances,
+                            text_markup_appearances,
+                            Some(&page_ids),
+                        )?;
+                        if !hayro_pages_match(&pdf, &page_ids) {
+                            return Err(PdfError::new_err(
+                                "the renderer could not resolve the document page tree",
+                            ));
+                        }
+                        pdf
+                    }
                 }
             };
             self.hayro_pdf = Some(Arc::new(pdf));
@@ -7133,6 +7219,56 @@ impl _Document {
             .hayro_pdf
             .as_ref()
             .expect("constructed immediately before"))
+    }
+
+    /// Parse a serialized snapshot, normalizing a rendering copy when
+    /// appearances or the page tree need it.
+    ///
+    /// `flattened_pages` lists the walker's pages directly under the root
+    /// page-tree node. None of this changes the editable or saved document.
+    fn render_snapshot(
+        &mut self,
+        state_appearances: &[ObjectId],
+        text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
+        flattened_pages: Option<&[ObjectId]>,
+    ) -> PyResult<Pdf> {
+        let normalize = !state_appearances.is_empty()
+            || text_markup_appearances
+                .as_ref()
+                .is_some_and(|plans| !plans.is_empty())
+            || flattened_pages.is_some();
+        let data = if normalize {
+            let mut doc = if self.max_interpretation_size.is_some() {
+                let data = self.current_bytes()?;
+                Document::load_mem(&data).map_err(|error| {
+                    PdfError::new_err(format!(
+                        "failed to prepare bounded PDF for rendering: {}",
+                        LopdfErrorChain(&error)
+                    ))
+                })?
+            } else {
+                self.doc.clone()
+            };
+            normalize_state_appearances_for_render(&mut doc, state_appearances);
+            if let Some(plans) = text_markup_appearances {
+                synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
+            }
+            if let Some(pages) = flattened_pages {
+                let pages_id = page_tree_root(&doc)?;
+                rebuild_flat_page_tree(&mut doc, pages_id, pages, None)?;
+            }
+            serialize_pdf_with_limit(
+                &mut doc,
+                None,
+                self.max_interpretation_size,
+                "interpretation_size",
+                "serialized rendering and extraction snapshot",
+            )?
+        } else {
+            self.current_bytes()?
+        };
+        Pdf::new(data)
+            .map_err(|e| PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
@@ -7607,45 +7743,7 @@ impl _Document {
         ordered: Vec<ObjectId>,
         cleanup: Option<&PageCleanupPlan>,
     ) -> PyResult<()> {
-        self.doc
-            .get_object(pages_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
-        let count = i64::try_from(ordered.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
-        let mut kids = Vec::new();
-        kids.try_reserve_exact(ordered.len()).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to allocate rebuilt page-tree Kids: {error}"
-            ))
-        })?;
-        let mut resolved_pages = Vec::new();
-        resolved_pages
-            .try_reserve_exact(ordered.len())
-            .map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate rebuilt page dictionaries: {error}"
-                ))
-            })?;
-        for &page_id in &ordered {
-            let mut dict = resolve_inherited_page_dict(&self.doc, page_id)?;
-            if let Some(cleanup) = cleanup {
-                cleanup.clean_page(page_id, &mut dict);
-            }
-            dict.set("Parent", pages_id);
-            kids.push(Object::Reference(page_id));
-            resolved_pages.push((page_id, dict));
-        }
-        for (page_id, dict) in resolved_pages {
-            self.doc.objects.insert(page_id, Object::Dictionary(dict));
-        }
-        let pages_dict = self
-            .doc
-            .get_object_mut(pages_id)
-            .and_then(Object::as_dict_mut)
-            .map_err(to_py_err)?;
-        pages_dict.set("Kids", kids);
-        pages_dict.set("Count", count);
-        Ok(())
+        rebuild_flat_page_tree(&mut self.doc, pages_id, &ordered, cleanup)
     }
 
     /// Resolve an array/name/string/or `/D` dictionary to a one-based lopdf page,
@@ -8491,6 +8589,9 @@ impl _Document {
                     decoder_limit_code,
                 )
             })?;
+            // Compare objects with their cross-reference entries before any
+            // object changes number.
+            let original_bytes_match = original_bytes_match(&mut doc, recovery, &data)?;
             let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
@@ -8505,10 +8606,10 @@ impl _Document {
             }
             // Image compression maps hayro's object IDs to lopdf's, which no
             // longer match the original bytes once objects are renumbered.
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() || renumbered {
-                HayroSource::Unavailable
-            } else {
+            let hayro_source = if original_bytes_match && !renumbered {
                 HayroSource::from_owned(data, limits.max_interpretation_size)
+            } else {
+                HayroSource::Unavailable
             };
             Ok(Self::from_loaded_doc(
                 doc,
@@ -8588,6 +8689,9 @@ impl _Document {
         py.detach(|| {
             let (mut doc, recovery) = recovery::load_document(data, options)
                 .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
+            // Compare objects with their cross-reference entries before any
+            // object changes number.
+            let original_bytes_match = original_bytes_match(&mut doc, recovery, data)?;
             let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
@@ -8602,10 +8706,10 @@ impl _Document {
             }
             // Image compression maps hayro's object IDs to lopdf's, which no
             // longer match the original bytes once objects are renumbered.
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() || renumbered {
-                HayroSource::Unavailable
-            } else {
+            let hayro_source = if original_bytes_match && !renumbered {
                 HayroSource::from_borrowed(data, limits.max_interpretation_size)?
+            } else {
+                HayroSource::Unavailable
             };
             Ok(Self::from_loaded_doc(
                 doc,
