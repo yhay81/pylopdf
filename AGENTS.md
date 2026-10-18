@@ -735,6 +735,17 @@ overview.
   field names and values above 1 MiB before font discovery, button lookup, or
   file reads, repeat the check in Rust with `form_field_input_size`, enforce the
   same tree limits, and preserve its atomic rollback contract.
+  The walk and `field_widgets` classify `/Kids` entries through
+  `classify_field_kid`, so `visible_field_widgets` and button-state handling
+  see the widgets that the walk classifies. A kid dictionary whose `/T` is
+  absent, null, an indirect null, or a reference to a missing object is a
+  widget of its parent field, following ISO 32000-2 §7.3.7 and §7.3.10; any
+  other `/T`, including an unusable value or a cyclic or over-long reference
+  chain, makes it a child field. A direct `/Fields` or `/Kids` entry, an
+  indirect null, and a reference to a missing object cost only their edge.
+  Every other `/Kids` entry that is not a child field counts toward the
+  4,096-widget walk budget, so that budget covers every widget that
+  `field_widgets` can return.
 - AcroForm button handling rejects more than 4,096 widgets, 8,192 `/AP /N`
   state entries, 4,096 unique returned names, or 1 MiB of encoded/returned
   state-name text. Borrow and preflight state dictionaries before cloning them.

@@ -4756,6 +4756,60 @@ fn bounded_form_value(
     }
 }
 
+/// Read null, an indirect null, and a reference to a missing object alike.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null. A cyclic or
+/// over-long reference chain is an unusable value rather than null.
+fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
+    match object {
+        Object::Null => true,
+        Object::Reference(id) => matches!(
+            doc.get_object(*id),
+            Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_))
+        ),
+        _ => false,
+    }
+}
+
+/// One AcroForm `/Kids` entry as every field-tree reader classifies it.
+enum FieldKid {
+    /// A dictionary with its own partial field name.
+    Field(ObjectId),
+    /// A dictionary without one, which is a widget of the parent field.
+    Widget(ObjectId),
+    /// Any other referenced value, such as a number or a cyclic reference chain.
+    Unusable,
+    /// A direct entry, an indirect null, or a reference to a missing object.
+    Ignored,
+}
+
+/// Classify one AcroForm `/Kids` entry for the walk and `field_widgets`.
+///
+/// A `/T` that is null, an indirect null, or a reference to a missing object
+/// is an omitted partial name, so such a kid is a widget of its parent field,
+/// as one without `/T` is. Any other `/T`, including an unusable value or a
+/// cyclic or over-long reference chain, makes the kid a child field.
+fn classify_field_kid(doc: &Document, kid: &Object) -> FieldKid {
+    let Object::Reference(id) = kid else {
+        return FieldKid::Ignored;
+    };
+    match doc.get_object(*id) {
+        Ok(Object::Dictionary(child)) => {
+            if child
+                .get(b"T")
+                .is_ok_and(|name| !is_null_equivalent(doc, name))
+            {
+                FieldKid::Field(*id)
+            } else {
+                FieldKid::Widget(*id)
+            }
+        }
+        Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_)) => FieldKid::Ignored,
+        _ => FieldKid::Unusable,
+    }
+}
+
 /// Add to one annotation metadata budget without overflow or partial output.
 fn add_annotation_budget(total: &mut usize, amount: usize, label: &str) -> PyResult<()> {
     *total = total
@@ -5428,7 +5482,11 @@ impl _Document {
             ))
         })?;
         for field in fields {
-            if let Ok(id) = field.as_reference() {
+            // As in `/Kids`, an indirect null or a reference to a missing
+            // object costs only its edge, like a direct entry.
+            if let Ok(id) = field.as_reference()
+                && !is_null_equivalent(&self.doc, field)
+            {
                 stack.push((id, String::new(), None, 0, None, 1));
             }
         }
@@ -5553,23 +5611,23 @@ impl _Document {
                     )));
                 }
                 for kid in kids {
-                    let Ok(kid_id) = kid.as_reference() else {
-                        continue;
-                    };
-                    let is_field = self
-                        .doc
-                        .get_object(kid_id)
-                        .and_then(Object::as_dict)
-                        .is_ok_and(|child| child.has(b"T"));
-                    if !is_field {
-                        widget_refs = widget_refs.saturating_add(1);
-                        if widget_refs > MAX_FORM_FIELD_WIDGETS {
-                            return Err(PdfError::new_err(format!(
-                                "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
-                            )));
+                    // An ignored entry costs only its edge. Every other entry
+                    // that is not a child field counts toward the widget
+                    // budget, which therefore covers every widget that
+                    // `field_widgets` can return.
+                    let kid_id = match classify_field_kid(&self.doc, kid) {
+                        FieldKid::Field(kid_id) => kid_id,
+                        FieldKid::Ignored => continue,
+                        FieldKid::Widget(_) | FieldKid::Unusable => {
+                            widget_refs = widget_refs.saturating_add(1);
+                            if widget_refs > MAX_FORM_FIELD_WIDGETS {
+                                return Err(PdfError::new_err(format!(
+                                    "AcroForm field tree exceeds the {MAX_FORM_FIELD_WIDGETS}-widget safety limit"
+                                )));
+                            }
+                            continue;
                         }
-                        continue;
-                    }
+                    };
                     if depth >= MAX_FORM_FIELD_TREE_DEPTH {
                         return Err(PdfError::new_err(format!(
                             "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_DEPTH}-level safety limit"
@@ -5616,7 +5674,8 @@ impl _Document {
         Ok(out)
     }
 
-    /// Return widget annotation ObjectIds, or the field itself when Kids is absent.
+    /// Return the widget kids that the walk classifies, or the field itself
+    /// when it has none.
     fn field_widgets(&self, field_id: ObjectId) -> PyResult<Vec<ObjectId>> {
         let mut widgets = Vec::new();
         let Ok(dict) = self.doc.get_object(field_id).and_then(Object::as_dict) else {
@@ -5630,13 +5689,8 @@ impl _Document {
             .and_then(|object| object.as_array().ok())
             .into_iter()
             .flatten();
-        for kid_id in kids.filter_map(|kid| kid.as_reference().ok()) {
-            let is_widget = self
-                .doc
-                .get_object(kid_id)
-                .and_then(Object::as_dict)
-                .is_ok_and(|child| !child.has(b"T"));
-            if is_widget {
+        for kid in kids {
+            if let FieldKid::Widget(kid_id) = classify_field_kid(&self.doc, kid) {
                 try_push_form(&mut widgets, kid_id, "field widgets")?;
             }
         }
