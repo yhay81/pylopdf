@@ -1,9 +1,8 @@
-# Temporary evaluation branch only: compare the pending lopdf calling-thread
-# draft with a second limit (also fewer than 48 entries when the input is
-# under 32 KiB) against the draft as it is, both on top of the pending parser
-# change, and both without it. Runs 39172528996 and 39173055129 swept the
-# thresholds with an evaluation-only override; this run measures the builds
-# themselves, interleaved on one runner so every build shares its noise.
+# Temporary evaluation branch only: measure the second calling-thread limit
+# of the pending lopdf draft (fewer than 48 entries under 32 KiB) on its worst
+# case, documents of many small dictionaries, which cost more to parse per
+# entry than pages. Run 39175297480 measured the builds on the general
+# inputs. Interleaved on one runner so every variant shares its noise.
 name: lopdf threshold evaluation
 
 on:
@@ -33,13 +32,14 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EVAL: .github/lopdf-threshold-eval
-      BUILDS: pr-rayon both-rayon tuned-rayon small-rayon oldtuned-rayon
-      # pr: the parser change alone. both and tuned: the draft as it is and
-      # with the second limit, on top of the parser change. small and
-      # oldtuned: the same two without the parser change.
+      BUILDS: pr-rayon both-rayon tuned-rayon envnew-rayon
+      # both and tuned: the draft as it is and with the second limit, on top
+      # of the parser change. par and seq force the evaluation build onto the
+      # pool and onto the calling thread.
       LOAD_VARIANTS: >-
-        pr=pr-rayon both=both-rayon tuned=tuned-rayon
-        small=small-rayon oldtuned=oldtuned-rayon
+        both=both-rayon tuned=tuned-rayon
+        par=envnew-rayon,LOPDF_MIN_PARALLEL=0,LOPDF_MIN_PARALLEL_MEMBERS=0
+        seq=envnew-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_MEMBERS=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
     steps:
       - name: Keep checked-out line endings
         run: git config --global core.autocrlf false
@@ -66,26 +66,26 @@ jobs:
           "${python_bin}" -m pip install --quiet pylopdf==0.14.0
           echo "PYLOPDF_PYTHON=$(pwd)/${python_bin}" >>"$GITHUB_ENV"
       - name: Write the inputs
-        run: bash "${EVAL}/inputs.sh" work . "${PYLOPDF_PYTHON}"
+        run: bash "${EVAL}/inputs-dicts.sh" work . "${PYLOPDF_PYTHON}"
       - name: Check that every variant loads the same documents
         working-directory: work
         run: |
           mkdir -p out
-          bin/pr-rayon info pdfs/*.pdf objstm/*.pdf >out/inputs.jsonl
+          bin/pr-rayon info dicts/*.pdf >out/inputs.jsonl
           {
             echo "## Inputs (${{ matrix.platform.target }})"
-            python "../${EVAL}/check.py" bin "${LOAD_VARIANTS}" pdfs/*.pdf objstm/*.pdf
+            python "../${EVAL}/check.py" bin "${LOAD_VARIANTS}" dicts/*.pdf
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run interleaved load rounds
         working-directory: work
-        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 first:5" pdfs/*.pdf
+        run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 first:5" dicts/*.pdf
       - name: Summarize
         if: always()
         working-directory: work
         run: |
           {
-            echo "## Loads (${{ matrix.platform.target }}), Δ against pr"
-            python "../${EVAL}/summary.py" out/load pr both tuned small oldtuned
+            echo "## Loads (${{ matrix.platform.target }}), Δ against both"
+            python "../${EVAL}/summary.py" out/load both tuned par seq
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
