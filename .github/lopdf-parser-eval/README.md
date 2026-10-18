@@ -12,8 +12,10 @@ evaluation-only threshold override (`LOPDF_MIN_PARALLEL`,
 `LOPDF_MIN_PARALLEL_BYTES`), neither part of this proposal.
 
 Builds: `main` (lopdf main), `pr` (main plus the change), `c1`..`c4`,
-`small` (main plus the draft), `both` (the draft plus the change), `env`
-(both plus the override, run as `par` and `seq` to force one path).
+`prv1` (an earlier version of the change that also rewrote the character
+classes with `matches!`), `small` (main plus the draft), `both` (the draft
+plus the change), `envold` (the draft plus the override) and `envnew` (that
+plus the change), run as `par-*` and `seq-*` to force one path.
 `-rayon` builds use lopdf's default `rayon` feature, `-seq` builds go
 without it.
 

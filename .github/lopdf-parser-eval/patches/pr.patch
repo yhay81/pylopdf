@@ -1,5 +1,5 @@
 diff --git a/src/parser/mod.rs b/src/parser/mod.rs
-index 0f08138..f2a99f8 100644
+index 0f08138..a0ca211 100644
 --- a/src/parser/mod.rs
 +++ b/src/parser/mod.rs
 @@ -16,7 +16,7 @@
@@ -11,34 +11,7 @@ index 0f08138..f2a99f8 100644
  
  pub(crate) mod cmap_parser;
  
-@@ -56,14 +56,16 @@ pub(crate) fn comment(input: ParserInput) -> NomResult<()> {
-     map((tag(&b"%"[..]), take_while(|c: u8| !b"\r\n".contains(&c)), eol), |_| ()).parse(input)
- }
- 
-+// The character classes below run for nearly every input byte, so they compare
-+// directly instead of searching a byte string.
- #[inline]
- fn is_whitespace(c: u8) -> bool {
--    b" \t\n\r\0\x0C".contains(&c)
-+    matches!(c, b' ' | b'\t' | b'\n' | b'\r' | b'\0' | b'\x0C')
- }
- 
- #[inline]
- fn is_delimiter(c: u8) -> bool {
--    b"()<>[]{}/%".contains(&c)
-+    matches!(c, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
- }
- 
- #[inline]
-@@ -73,32 +75,61 @@ fn is_regular(c: u8) -> bool {
- 
- #[inline]
- fn is_direct_literal_string(c: u8) -> bool {
--    !b"()\\\r\n".contains(&c)
-+    !matches!(c, b'(' | b')' | b'\\' | b'\r' | b'\n')
- }
- 
- fn white_space(input: ParserInput) -> NomResult<()> {
+@@ -80,25 +80,54 @@ fn white_space(input: ParserInput) -> NomResult<()> {
      map(take_while(is_whitespace), |_| ()).parse(input)
  }
  
@@ -104,7 +77,7 @@ index 0f08138..f2a99f8 100644
          alt((
              map((digit1, tag(&b"."[..]), digit0), |_| ()),
              map(pair(tag(&b"."[..]), digit1), |_| ()),
-@@ -121,13 +152,16 @@ fn real(input: ParserInput) -> NomResult<f32> {
+@@ -121,13 +150,16 @@ fn real(input: ParserInput) -> NomResult<f32> {
      convert_result(value, i, ErrorKind::Digit)
  }
  
@@ -127,7 +100,7 @@ index 0f08138..f2a99f8 100644
      .parse(input)
  }
  
-@@ -141,20 +175,28 @@ fn oct_char(input: ParserInput) -> NomResult<u8> {
+@@ -141,20 +173,28 @@ fn oct_char(input: ParserInput) -> NomResult<u8> {
  }
  
  pub(crate) fn name(input: ParserInput) -> NomResult<Vec<u8>> {
@@ -169,7 +142,7 @@ index 0f08138..f2a99f8 100644
  }
  
  fn escape_sequence(input: ParserInput) -> NomResult<Option<u8>> {
-@@ -240,10 +282,7 @@ fn literal_string(input: ParserInput) -> NomResult<Vec<u8>> {
+@@ -240,10 +280,7 @@ fn literal_string(input: ParserInput) -> NomResult<Vec<u8>> {
  
  #[inline]
  fn hex_digit(input: ParserInput) -> NomResult<u8> {
@@ -181,7 +154,7 @@ index 0f08138..f2a99f8 100644
  }
  
  fn hexadecimal_string(input: ParserInput) -> NomResult<Object> {
-@@ -385,12 +424,17 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
+@@ -385,12 +422,17 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
      recovered
  }
  
@@ -204,7 +177,7 @@ index 0f08138..f2a99f8 100644
      if let Ok(length) = dict.get(b"Length").and_then(|value| {
          if let Ok(id) = value.as_reference() {
              reader.get_object(id, already_seen).and_then(|value| value.as_i64())
-@@ -428,9 +472,9 @@ fn stream<'a>(
+@@ -428,9 +470,9 @@ fn stream<'a>(
      }
  }
  
@@ -217,7 +190,7 @@ index 0f08138..f2a99f8 100644
      })
      .parse(input)
  }
-@@ -444,20 +488,18 @@ fn reference(input: ParserInput) -> NomResult<Object> {
+@@ -444,20 +486,18 @@ fn reference(input: ParserInput) -> NomResult<Object> {
  }
  
  fn _direct_objects(depth: usize) -> impl Fn(ParserInput) -> NomResult<Object> {
@@ -250,7 +223,7 @@ index 0f08138..f2a99f8 100644
      }
  }
  
-@@ -478,14 +520,27 @@ fn object<'a>(
+@@ -478,14 +518,27 @@ fn object<'a>(
      input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
      recovery_bound: Option<usize>,
  ) -> NomResult<'a, Object> {
@@ -286,21 +259,10 @@ index 0f08138..f2a99f8 100644
  }
  
  pub fn indirect_object(
-@@ -1538,4 +1593,129 @@ fn content_reads_minus_sign_inside_real_as_one_operand() {
+@@ -1538,4 +1591,118 @@ fn content_reads_minus_sign_inside_real_as_one_operand() {
          assert_eq!(content.operations[1].operands.len(), 6);
          assert_eq!(content.operations[1].operands[1], Object::Real(0.004142502));
      }
-+
-+    #[test]
-+    fn character_classes_follow_the_standard() {
-+        // ISO 32000-2, 7.2.3: the white-space and delimiter characters; every other byte is regular.
-+        for c in 0..=u8::MAX {
-+            assert_eq!(is_whitespace(c), b" \t\n\r\0\x0C".contains(&c), "{c:#04x}");
-+            assert_eq!(is_delimiter(c), b"()<>[]{}/%".contains(&c), "{c:#04x}");
-+            assert_eq!(is_regular(c), !b" \t\n\r\0\x0C()<>[]{}/%".contains(&c), "{c:#04x}");
-+            assert_eq!(is_direct_literal_string(c), !b"()\\\r\n".contains(&c), "{c:#04x}");
-+        }
-+    }
 +
 +    #[test]
 +    fn space_skips_white_space_and_comments() {

@@ -3,9 +3,12 @@
 #   main          lopdf main
 #   pr            main plus the parser change (patches/pr.patch)
 #   c1..c4        main plus the first N commits of the change, for attribution
+#   prv1          an earlier version of the change that also rewrote the
+#                 character classes with matches!
 #   small         main plus the pending calling-thread draft (patches/small.patch)
 #   both          small plus the parser change
-#   env           both plus the evaluation-only threshold override
+#   envold        small plus the evaluation-only threshold override
+#   envnew        envold plus the parser change
 # "-rayon" builds use lopdf's default rayon feature, "-seq" builds go without it.
 # Usage: build.sh WORK_DIR
 set -euo pipefail
@@ -35,9 +38,11 @@ tree c1 c1
 tree c2 c2
 tree c3 c3
 tree c4 c4
+tree prv1 prv1
 tree small small
 tree both small pr
-tree env small eval-env pr
+tree envold small eval-env
+tree envnew small eval-env pr
 
 build() {
     local name="$1" source="$2" features="$3"
@@ -72,7 +77,9 @@ build c1-seq lopdf-c1 ""
 build c2-seq lopdf-c2 ""
 build c3-seq lopdf-c3 ""
 build c4-seq lopdf-c4 ""
+build prv1-seq lopdf-prv1 ""
 build small-rayon lopdf-small "--features rayon"
 build both-rayon lopdf-both "--features rayon"
-build env-rayon lopdf-env "--features rayon"
+build envold-rayon lopdf-envold "--features rayon"
+build envnew-rayon lopdf-envnew "--features rayon"
 ls -l bin
