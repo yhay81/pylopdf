@@ -1305,19 +1305,23 @@ fn read_bounded_input(
     size_label: &str,
     error_prefix: &str,
 ) -> PyResult<Vec<u8>> {
+    read_bounded_file(path, max_size, limit_code, size_label, error_prefix).map(|(data, _)| data)
+}
+
+/// Read a bounded path and return the metadata of the opened file.
+pub(crate) fn read_bounded_file(
+    path: &str,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
+    error_prefix: &str,
+) -> PyResult<(Vec<u8>, std::fs::Metadata)> {
     let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
     let file = std::fs::File::open(path).map_err(io_error)?;
-    let metadata_size = file.metadata().map_err(io_error)?.len();
-    if let Some(limit) = max_size
-        && metadata_size > limit as u64
-    {
-        return Err(limit_err(
-            limit_code,
-            format!("{size_label} is {metadata_size} bytes, exceeding the {limit}-byte limit"),
-        ));
-    }
+    let metadata = file.metadata().map_err(io_error)?;
+    validate_file_size(metadata.len(), max_size, limit_code, size_label)?;
     let read_limit = max_size.map(|limit| limit.saturating_add(1));
-    let initial_capacity = usize::try_from(metadata_size)
+    let initial_capacity = usize::try_from(metadata.len())
         .unwrap_or(0)
         .min(read_limit.unwrap_or(usize::MAX));
     let data =
@@ -1330,7 +1334,25 @@ fn read_bounded_input(
             format!("{size_label} exceeds the {limit}-byte limit while being read"),
         ));
     }
-    Ok(data)
+    Ok((data, metadata))
+}
+
+/// Reject a file whose reported size already exceeds a caller's budget.
+pub(crate) fn validate_file_size(
+    size: u64,
+    max_size: Option<usize>,
+    limit_code: &'static str,
+    size_label: &str,
+) -> PyResult<()> {
+    if let Some(limit) = max_size
+        && size > limit as u64
+    {
+        return Err(limit_err(
+            limit_code,
+            format!("{size_label} is {size} bytes, exceeding the {limit}-byte limit"),
+        ));
+    }
+    Ok(())
 }
 
 /// Read PDF input without admitting more than one byte beyond its file budget.
@@ -1403,13 +1425,38 @@ fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
 
 /// Read OpenType font input without admitting more than one byte beyond its budget.
 fn read_font_input(path: &str, max_font_size: Option<usize>) -> PyResult<Vec<u8>> {
-    read_bounded_input(
+    read_font_file(path, max_font_size).map(|(data, _)| data)
+}
+
+/// Read bounded OpenType font input and return the metadata of the opened file.
+pub(crate) fn read_font_file(
+    path: &str,
+    max_font_size: Option<usize>,
+) -> PyResult<(Vec<u8>, std::fs::Metadata)> {
+    read_bounded_file(
         path,
         max_font_size,
         "font_input_size",
         "font input",
         "failed to load font",
     )
+}
+
+/// Inspect a font path without reading it, failing as a bounded read would
+/// for a missing file or a reported size above the font boundary.
+pub(crate) fn font_file_metadata(
+    path: &str,
+    max_font_size: Option<usize>,
+) -> PyResult<std::fs::Metadata> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| PdfError::new_err(format!("failed to load font {path}: {error}")))?;
+    validate_file_size(
+        metadata.len(),
+        max_font_size,
+        "font_input_size",
+        "font input",
+    )?;
+    Ok(metadata)
 }
 
 fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyResult<()> {
@@ -4840,7 +4887,7 @@ struct FallbackFonts {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CjkFontLanguage {
+pub(crate) enum CjkFontLanguage {
     Ja,
     Ko,
     ZhCn,
@@ -4860,7 +4907,7 @@ impl CjkFontLanguage {
         }
     }
 
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         match self {
             Self::Ja => 0,
             Self::Ko => 1,
@@ -8541,7 +8588,10 @@ impl _Document {
         Ok(())
     }
 
-    /// Atomically read and configure every discovered locale font pair.
+    /// Atomically configure every discovered locale font pair.
+    ///
+    /// Files read by earlier documents are reused while unchanged; see
+    /// `fallback_font_cache`. Return how many files were read from disk.
     #[pyo3(signature = (
         files,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
@@ -8551,7 +8601,7 @@ impl _Document {
         py: Python<'_>,
         files: Vec<(String, String, String)>,
         max_font_size: Option<usize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_font_input(None, max_font_size)?;
         if files.len() > 4 {
             return Err(PdfError::new_err(
@@ -8576,31 +8626,20 @@ impl _Document {
             requests.push((language, sans_path, serif_path));
         }
         if requests.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let loaded = py.detach(|| {
-            let mut loaded = Vec::new();
-            loaded.try_reserve_exact(requests.len()).map_err(|error| {
-                PdfError::new_err(format!(
-                    "failed to allocate loaded CJK locale fonts: {error}"
-                ))
-            })?;
-            for (language, sans_path, serif_path) in requests {
-                let sans = read_font_input(&sans_path, max_font_size)?;
-                let serif = read_font_input(&serif_path, max_font_size)?;
-                loaded.push((language, sans, serif));
-            }
-            Ok::<_, PyErr>(loaded)
+            crate::fallback_font_cache::load_locale_font_pairs(&requests, max_font_size)
         })?;
         let mut fallback_fonts = self.fallback_fonts.clone();
-        for (language, sans, serif) in loaded {
-            let pair = fallback_fonts.pair_mut(language);
-            pair.sans = Some((Arc::new(sans), 0));
-            pair.serif = Some((Arc::new(serif), 0));
+        for ((language, _, _), (sans, serif)) in requests.iter().zip(loaded.pairs) {
+            let pair = fallback_fonts.pair_mut(*language);
+            pair.sans = Some((sans, 0));
+            pair.serif = Some((serif, 0));
         }
         self.fallback_fonts = fallback_fonts;
         self.invalidate_interpreted_pages();
-        Ok(())
+        Ok(loaded.files_read)
     }
 
     /// Clear all CJK fallback-font configuration.
