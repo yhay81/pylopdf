@@ -15,10 +15,6 @@ NOTO_SANS_JP = (
     Path(__file__).parents[1] / "fonts" / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "NotoSansJP-Regular.otf"
 )
 
-pytestmark = pytest.mark.skipif(
-    sys.platform == "emscripten", reason="Emscripten keeps lopdf's loader, which already runs on the calling thread"
-)
-
 
 def pdf_writer_document(
     objects: dict[int, bytes],
@@ -184,6 +180,7 @@ def _form_pdf() -> bytes:
     )
 
 
+@pytest.mark.skipif(sys.platform == "emscripten", reason="Emscripten keeps lopdf's loader, which never uses rayon")
 def test_generated_imports_parse_on_the_calling_thread() -> None:
     sequential, fallback, mismatched = _Document.generated_pdf_loads()
     with pylopdf.Document() as doc:
