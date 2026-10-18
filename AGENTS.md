@@ -538,19 +538,28 @@ overview.
   streams on a 128 KiB thread stack, 92,907 of which overflowed hayro, were all
   refused, and 40,000 streams through the Python API on a 512 KiB thread stack
   never crashed the guarded build, while `main` crashed on 2,354 of 20,000.
-  Those oracles test the scanner, not the walk. A second scratch harness
-  fuzzes the walk: it captures the document builders of
-  `tests/test_content_nesting.py` as object graphs with one deep leaf stream,
-  applies random rewrites that keep what hayro can reach (indirect and direct
-  swaps, merging dictionaries across roles and into `/Resources`, hoisting
-  resources into the page tree, decoy fonts and forms, clones, self
-  references), and runs the result on a 512 KiB thread stack. The guarded
-  build must never crash: the only deep content is the leaf, so a crash means
-  a path that hayro takes and the walk missed. It found the shared-role,
-  direct-font, and reader-chain bypasses: 254 of 1,000 mutated graphs crashed
-  the first guard, 3 of 5,000 crashed it after the role and font fixes, and
-  none of 46,000 crashed it after `Fresh`. Rerun it after any change to the
-  walk.
+  Those oracles test the scanner, not the walk. Two more harnesses test the
+  walk. The first checks the property the guard exists to provide: copies of
+  hayro-syntax and hayro-interpret log a hash of every content stream hayro
+  starts to interpret (page, form, tiling pattern, glyph procedure), the guard
+  logs each stream it scans, and every non-empty interpreted stream must have
+  been scanned. It needs no deep content and no crash, so it runs on real
+  documents, where hayro interpreted 48,350 content streams in the first six
+  pages of 3,000 varied PDFs and the guard had scanned all of them, and on
+  mutated document graphs, thousands per minute. The second captures the
+  document builders of `tests/test_content_nesting.py` and the bundled corpus
+  as object graphs and applies random rewrites that keep what hayro can reach
+  (indirect and direct swaps, merging dictionaries across roles and into
+  `/Resources`, hoisting resources into the page tree, decoy fonts and forms,
+  clones, self references, object-stream storage). With a deep leaf stream it
+  runs on a 512 KiB thread stack, where a crash of the guarded build means a
+  path hayro takes and the walk missed; `main` crashes on about 90% of the
+  graphs, so the oracle has power. Both found the shared-role, direct-font,
+  and reader-chain bypasses: the first guard left a stream unscanned in 27% of
+  the mutated graphs and crashed on 254 of 1,000, the role and font fixes
+  alone still crashed 3 of 5,000, and the final walk left no stream unscanned
+  in 183,000 graphs and crashed on none of 46,000. Rerun both after any change to
+  the walk.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
