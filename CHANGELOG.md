@@ -228,6 +228,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-integer value still aligns left.
 
 ### Security
+- AcroForm field-tree reads now share a field's full name and inherited type
+  with its kids instead of copying both for every `/Kids` entry that names a
+  child field or a nameless intermediate. Only the first visit of a kid is
+  charged to the 1 MiB name budgets, so 8,191 entries naming one kid below a
+  64 KiB name or type held about 512 MiB of copies while `get_form_fields()`
+  returned a single field; the longest name or type that the budgets admit
+  would have needed about 4 or 8 GiB. Every field found also held its own
+  copy of an inherited type until the read returned: 256 MiB for 4,095
+  fields below a 64 KiB type. Those calls now raise peak RSS by under 3 MiB,
+  and `set_form_field()` and the other field-tree reads share the fix.
+  Results, limits, and error messages are unchanged.
 - Opening and metadata probing refuse input whose lopdf cross-reference
   reconstruction could scan more than 64 bytes per input byte plus 64 MiB,
   with `LimitError.code == "recovery_scan_size"`. lopdf rescans the rest of

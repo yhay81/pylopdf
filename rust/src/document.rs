@@ -502,8 +502,9 @@ type PageLabelEntry = (i64, Option<String>, Option<String>, i64);
 /// One flattened TOC item: one-based level, title, and page number.
 type TocEntry = (u32, String, u32);
 
-/// One flattened AcroForm field: name, object, type, flags, and normalized value.
-type FormFieldEntry = (String, ObjectId, String, i64, Option<Arc<str>>);
+/// One flattened AcroForm field: name, object, type, flags, and normalized
+/// value. Fields that inherit one type or value share it.
+type FormFieldEntry = (String, ObjectId, Arc<String>, i64, Option<Arc<str>>);
 
 /// One widget and the raw state names from its normal appearance dictionary.
 type WidgetStateNames = (ObjectId, Vec<Vec<u8>>);
@@ -1016,10 +1017,17 @@ enum FieldRole {
 
 /// One field-tree traversal node: object, prefix, inherited FT/Ff/value,
 /// depth, and role.
+///
+/// The prefix and inherited text are shared with the node that pushed it.
+/// Only the first visit of a kid is charged to the text budgets, while
+/// `/Kids` can push it once per edge, so a copy per push would let a long
+/// name or type grow with the edge count. Names and types are `Arc<String>`
+/// so that their fallibly allocated text moves in instead of being copied
+/// into an `Arc<str>`.
 type FieldNode = (
     ObjectId,
-    String,
-    Option<String>,
+    Arc<String>,
+    Option<Arc<String>>,
     i64,
     Option<Arc<str>>,
     usize,
@@ -6053,13 +6061,15 @@ impl _Document {
                 "failed to allocate AcroForm field-tree stack: {error}"
             ))
         })?;
+        let top_level_prefix = Arc::new(String::new());
         for field in fields {
             // As in `/Kids`, an indirect null or a reference to a missing
             // object costs only its edge, like a direct entry.
             if let Ok(id) = field.as_reference()
                 && !is_null_equivalent(&self.doc, field)
             {
-                stack.push((id, String::new(), None, 0, None, 1, FieldRole::Field));
+                let prefix = Arc::clone(&top_level_prefix);
+                stack.push((id, prefix, None, 0, None, 1, FieldRole::Field));
             }
         }
         let mut visited = HashSet::new();
@@ -6090,25 +6100,32 @@ impl _Document {
                 )?,
                 Err(_) => None,
             };
-            let mut name = prefix;
-            if let Some(component) = component {
-                if name.is_empty() {
-                    name = component;
-                } else {
-                    let additional = component.len().checked_add(1).ok_or_else(|| {
-                        PdfError::new_err(
-                            "AcroForm field-name length exceeds the platform size limit",
-                        )
-                    })?;
-                    name.try_reserve(additional).map_err(|error| {
+            // A node without a partial name shares the name above it.
+            let name = match component {
+                Some(component) if prefix.is_empty() => Arc::new(component),
+                Some(component) => {
+                    let len = component
+                        .len()
+                        .checked_add(1)
+                        .and_then(|len| len.checked_add(prefix.len()))
+                        .ok_or_else(|| {
+                            PdfError::new_err(
+                                "AcroForm field-name length exceeds the platform size limit",
+                            )
+                        })?;
+                    let mut name = String::new();
+                    name.try_reserve_exact(len).map_err(|error| {
                         PdfError::new_err(format!(
                             "failed to grow AcroForm materialized field name: {error}"
                         ))
                     })?;
+                    name.push_str(&prefix);
                     name.push('.');
                     name.push_str(&component);
+                    Arc::new(name)
                 }
-            }
+                None => prefix,
+            };
             add_form_budget(
                 &mut materialized_name_bytes,
                 name.len(),
@@ -6133,7 +6150,7 @@ impl _Document {
                                 MAX_FORM_FIELD_NAME_BYTES,
                                 "decoded field-name/type",
                             )?;
-                            Some(decoded)
+                            Some(Arc::new(decoded))
                         }
                         Err(_) => inh_ft,
                     }
@@ -6204,20 +6221,12 @@ impl _Document {
                             "AcroForm field tree exceeds the {MAX_FORM_FIELD_TREE_DEPTH}-level safety limit"
                         )));
                     }
-                    let child_name =
-                        try_clone_form_string(&name, "inherited field-name component")?;
-                    let child_ft = match &ft {
-                        Some(field_type) => {
-                            Some(try_clone_form_string(field_type, "inherited field type")?)
-                        }
-                        None => None,
-                    };
                     try_push_form(
                         &mut stack,
                         (
                             kid_id,
-                            child_name,
-                            child_ft,
+                            Arc::clone(&name),
+                            ft.clone(),
                             ff,
                             value.clone(),
                             depth + 1,
@@ -6231,6 +6240,10 @@ impl _Document {
                 if has_child_fields {
                     leaves[index] = None;
                 } else if let (FieldRole::Field, Some(ft)) = (role, ft) {
+                    // Copy the name only while another node shares it, such
+                    // as an intermediate folded into this field.
+                    let name = Arc::try_unwrap(name)
+                        .or_else(|name| try_clone_form_string(&name, "returned field name"))?;
                     leaves[index] = Some((name, id, ft, ff, value));
                 }
             }
@@ -6763,7 +6776,7 @@ impl _Document {
                     if !draw::is_winansi(&value) {
                         continue;
                     }
-                    let layout = if field_type == "Tx" {
+                    let layout = if field_type.as_str() == "Tx" {
                         match self.field_comb_max_len(field_id, flags) {
                             Ok(Some(max_len)) => WidgetTextLayout::Comb(max_len),
                             Ok(None) if flags & TEXT_FIELD_MULTILINE != 0 => {
@@ -6859,7 +6872,7 @@ impl _Document {
                         .map_err(to_py_err)?;
                     field.set("V", form_text_string(value));
                 }
-                let layout = if ft == "Tx" {
+                let layout = if ft.as_str() == "Tx" {
                     match self
                         .field_comb_max_len(field_id, ff)
                         .map_err(PdfError::new_err)?
@@ -10560,7 +10573,7 @@ impl _Document {
                 .find(|(field_name, ..)| field_name == name)
                 .map(|(_, id, ft, ..)| (id, ft))
                 .ok_or_else(|| PdfError::new_err(format!("form field not found: {name:?}")))?;
-            if ft != "Btn" {
+            if ft.as_str() != "Btn" {
                 return Ok(Vec::new());
             }
             let (widget_states, _, _) = self.button_appearance_states(field_id)?;

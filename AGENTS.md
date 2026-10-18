@@ -826,6 +826,11 @@ overview.
   names/types, choice values, joined values, returned entries, field-widget
   lists, and button-state names grow fallibly; returned ordering uses an
   in-place sort with object-ID tie-breaking.
+  Inherited names and types are shared like values: a push clones an
+  `Arc<String>` around the text that a visit allocated fallibly, and returned
+  fields share their inherited type. `/Kids` can push one kid once per edge,
+  while only its first visit is charged to the text budgets, so a copy per
+  push would let a long name or type grow with the edge count.
   `set_form_field` must reject caller
   field names and values above 1 MiB before font discovery, button lookup, or
   file reads, repeat the check in Rust with `form_field_input_size`, enforce the
