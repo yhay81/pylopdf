@@ -20,7 +20,7 @@ Every bundled document has a redistributable license.
 | `nics-background-checks-2015-11.pdf` | FBI NICS monthly report, [pdfplumber test-corpus mirror](https://github.com/jsvine/pdfplumber/blob/stable/tests/pdfs/nics-background-checks-2015-11.pdf) | US government work, public domain; mirror repository is MIT licensed | PDF 1.3, Quartz output, dense 25-column records with internal row rules omitted; retrieved 2026-07-25 |
 | `senate-expenditures.pdf` | US Senate expenditure-report excerpt, [pdfplumber test-corpus mirror](https://github.com/jsvine/pdfplumber/blob/stable/tests/pdfs/senate-expenditures.pdf) | US government work, public domain; mirror repository is MIT licensed | PDF 1.3, iText/pdftk output, 90-degree page rotation, merged bordered header, and borderless data rows; retrieved 2026-07-25 |
 | `pdfium-type3.pdf` | [PDFium `type3.in`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/type3.in) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Type 3 stencil glyph program under three text transforms; SVG succeeds while the platform-dependent hayro 0.7.1 raster omission is a conditional xfail |
-| `pdfium-smask-blend.pdf` | [PDFium `smask_blend.in`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/smask_blend.in) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Form XObjects, an alpha soft mask, partial opacity, and Screen blending |
+| `pdfium-smask-blend.pdf` | [PDFium `smask_blend.in`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/smask_blend.in) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Form XObjects, an alpha soft mask, partial opacity, and Screen blending; the forms spell `/Type XObject` without the name's slash |
 | `pdfium-jpx-lzw.pdf` | [PDFium `jpx_lzw.pdf`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/jpx_lzw.pdf) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Full-page red image with an `ASCIIHexDecode` → `LZWDecode` → `JPXDecode` filter chain |
 | `pdfium-links-highlights-annots.pdf` | [PDFium `links_highlights_annots.pdf`](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/links_highlights_annots.pdf) | PDFium BSD 3-Clause; see `LICENSES/PDFium-BSD-3-Clause.txt` | Existing Widget, URI Link, and Highlight annotations from an independent producer |
 
@@ -47,6 +47,14 @@ Every bundled document has a redistributable license.
   extraction with the hayro engine. `test_pdf20_comment_streams_extract`
   protects the regression and the same engine also extracts non-embedded CJK
   text using `90ms-RKSJ-H`.
+
+- **`pdfium-smask-blend.pdf` lost its soft mask after any edit or save.** Its
+  three Form XObjects spell `/Type XObject` without the name's slash. lopdf
+  skipped them as unparseable while hayro read the bare keyword as null, so
+  only unedited renders, which read the original bytes, showed the mask.
+  Loading now re-parses such skipped objects with the bare keyword read as
+  null. `test_pdfium_soft_mask_forms_survive_edits_and_saves` pins the
+  rendering after an edit and after a reload.
 
 ## Covered dimensions
 

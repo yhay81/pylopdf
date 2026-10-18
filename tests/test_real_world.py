@@ -519,25 +519,37 @@ def test_max_decompressed_size_guards_against_bombs() -> None:
 
 
 def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
-    """Use original bytes before normalizing a damaged but readable PDF.
+    """Keep a damaged but readable PDF fast to interpret and to save.
 
-    This five-byte f1040 mutation is a minimized Atheris slow unit. Serializing
-    the recovered lopdf object graph used to take about 9 seconds before hayro
-    could start, while hayro can parse the original bytes directly.
+    This five-byte f1040 mutation is a minimized Atheris slow unit. It damages
+    an object stream: lopdf loses 69 listed structure elements and decodes
+    other members under unlisted numbers up to 521,291,308, then raises the
+    next object number over them. Its cross-reference writer runs in time
+    linear in that number, so serializing the graph took about 9 seconds.
+    References to the lost elements now make hayro read the serialized graph,
+    and loading first drops the unreachable members and their numbers.
     """
     data = bytearray((ASSETS / "f1040.pdf").read_bytes())
     data[29_909] = 244
     data[186_564:186_568] = bytes(4)
 
     start = time.perf_counter()
-    text = pylopdf.open(
+    document = pylopdf.open(
         stream=bytes(data),
         max_decompressed_size=16 * 1024 * 1024,
-    ).get_page_text(0)
+    )
+    text = document.get_page_text(0)
     elapsed = time.perf_counter() - start
 
     assert "U.S. Individual Income Tax Return" in text
     assert elapsed < 5.0, f"initial extraction took {elapsed:.2f}s"
+
+    start = time.perf_counter()
+    saved = document.tobytes()
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 5.0, f"saving took {elapsed:.2f}s"
+    assert b"/Size 2455" in saved
 
 
 @pytest.mark.parametrize("filter_name", ["FlateDecode", "Fl"])
@@ -675,6 +687,24 @@ def test_pdfium_soft_mask_and_blend_render_expected_region() -> None:
     assert _rgba_pixel(page, 75, 150) == (102, 102, 102, 255)
     assert _rgba_pixel(page, 25, 150) == (255, 255, 255, 255)
     assert _rgba_pixel(page, 75, 50) == (255, 255, 255, 255)
+
+
+def test_pdfium_soft_mask_forms_survive_edits_and_saves() -> None:
+    """Keep the three forms that spell `/Type XObject` without its slash.
+
+    lopdf skipped them, so the unedited page showed the soft mask while any
+    edit or save dropped it. Loading now recovers them, reading the bare
+    keyword as null as hayro does.
+    """
+    document = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf")
+    document.set_metadata({"title": "Edited"})
+    saved = document.tobytes()
+
+    assert len(re.findall(rb"/Type null\s*/Subtype\s*/Form", saved)) == 3
+    for page in (document[0], pylopdf.open(stream=saved)[0]):
+        assert _rgba_pixel(page, 75, 150) == (102, 102, 102, 255)
+        assert _rgba_pixel(page, 25, 150) == (255, 255, 255, 255)
+        assert _rgba_pixel(page, 75, 50) == (255, 255, 255, 255)
 
 
 def test_pdfium_existing_annotations_and_external_link_are_read() -> None:

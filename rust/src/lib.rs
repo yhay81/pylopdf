@@ -6,6 +6,7 @@ mod form;
 mod generate;
 mod image_compression;
 mod layout;
+mod object_recovery;
 mod ocr;
 #[cfg(not(target_os = "emscripten"))]
 mod ocr_engine;
