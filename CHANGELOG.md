@@ -164,6 +164,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such a field without its inherited value or skipped such a comb field. A
   value present on the field, including an unusable one, still stops
   inheritance.
+- AcroForm text and choice appearances now use the interactive form
+  dictionary's document-wide `/Q` when no field on the widget's `/Parent`
+  chain supplies `/Q`, as ISO 32000-2 Table 225 defines. `set_form_field()`
+  aligned such fields left, both the field it filled and the fields whose
+  missing appearances it completed. A null value, an indirect null, or a
+  reference to a missing object reads as absent there too. A field's own or
+  inherited `/Q`, including `/Q 0`, still wins, and an out-of-range or
+  non-integer value still aligns left.
 
 ### Security
 - Opening and metadata probing refuse input whose lopdf cross-reference
