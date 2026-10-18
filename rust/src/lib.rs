@@ -5,6 +5,7 @@ mod draw;
 mod extract;
 mod form;
 mod generate;
+mod generated_pdf;
 mod image_compression;
 mod layout;
 mod object_recovery;

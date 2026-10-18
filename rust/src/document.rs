@@ -31,6 +31,7 @@ use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::draw::{self, ObjectSink};
 use crate::form;
 use crate::generate;
+use crate::generated_pdf;
 use crate::image_compression;
 use crate::object_recovery;
 use crate::ocr;
@@ -6156,7 +6157,7 @@ impl _Document {
             )
             .map_err(PdfError::new_err)
         })?;
-        let generated_doc = Document::load_mem(&generated)
+        let generated_doc = generated_pdf::load(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
         let placement = PagePlacement {
             rect: [0.0, 0.0, page_size.0, page_size.1],
@@ -6223,7 +6224,7 @@ impl _Document {
         };
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let generated_doc = Document::load_mem(&generated)
+        let generated_doc = generated_pdf::load(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
         let placement = PagePlacement {
             rect: [0.0, 0.0, page_size.0, page_size.1],
@@ -6921,7 +6922,7 @@ impl _Document {
                     ),
                 }
                 .map_err(generated_text_err)?;
-                let generated_doc = Document::load_mem(&generated).map_err(|error| {
+                let generated_doc = generated_pdf::load(&generated).map_err(|error| {
                     lopdf_err(Some("failed to import generated form appearance"), &error)
                 })?;
                 let (form_id, crop, rotation) =
@@ -9106,6 +9107,28 @@ impl _Document {
     #[staticmethod]
     fn package_font_reads() -> usize {
         crate::bundled_font_cache::files_read()
+    }
+
+    /// Return `(sequential, fallback, mismatched)` counts of generated-PDF
+    /// imports since the process started, so tests can pin the calling-thread
+    /// parser; mismatches are counted only while verification is enabled.
+    #[staticmethod]
+    fn generated_pdf_loads() -> (usize, usize, usize) {
+        generated_pdf::load_counts()
+    }
+
+    /// Compare every later calling-thread import with lopdf's own parse, so
+    /// tests can verify identical documents for real generated output.
+    #[staticmethod]
+    fn verify_generated_pdf_loads(enabled: bool) {
+        generated_pdf::set_verification(enabled);
+    }
+
+    /// Report whether the calling-thread parser reads `data` exactly as lopdf
+    /// does, or `None` when it declines the input.
+    #[staticmethod]
+    fn compare_generated_pdf_load(data: &[u8]) -> Option<bool> {
+        generated_pdf::compare_with_lopdf(data)
     }
 
     /// Clear all CJK fallback-font configuration.

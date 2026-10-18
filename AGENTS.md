@@ -829,6 +829,32 @@ overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
+- Generated text and widget appearance PDFs import through
+  `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
+  output to `Document::load_mem` directly. Native lopdf's `rayon` feature
+  parses every object with `par_iter` on the global pool, so each load from a
+  thread outside the pool injected a job, woke a sleeping worker, and blocked,
+  with the GIL held, until the pool finished. For a generated document of
+  about a dozen objects that hand-off cost more than the parse: about 31% of a
+  fresh Japanese `insert_text` on an Apple M2 Pro. The module reads the subset
+  pdf-writer emits on the calling thread (one classic cross-reference section
+  with lopdf's lenient entry terminators, compact direct objects, and direct
+  stream lengths) and builds exactly the document lopdf 0.45 returns, including
+  the header version, binary mark, `xref_start`, the `/Size` correction, and
+  `max_id`. Comments, other cross-reference forms, `/Prev` and `/XRefStm`,
+  encryption, object streams, indirect stream lengths, nesting beyond 32
+  levels, and anything lopdf would repair or skip decline and fall back to
+  `Document::load_mem`. Emscripten always uses `load_mem`, user documents keep
+  lopdf's parallel parse, and the Form-import bounds apply to the result
+  unchanged. `_Document.generated_pdf_loads()` counts sequential, fallback, and
+  mismatched loads, and `compare_generated_pdf_load` checks synthetic syntax
+  against lopdf. `tests/conftest.py` enables `verify_generated_pdf_loads` for
+  the whole suite and fails any test whose import differs from lopdf's parse of
+  the same bytes; after a lopdf, krilla, or pdf-writer upgrade the suite must
+  still report no fallbacks or mismatches. Interleaved A/B on the five
+  GitHub-hosted release targets measured a fresh Japanese `insert_text` 6–38%
+  faster and a twelve-widget `set_form_field` 17–31% faster, with loads
+  unchanged and byte-identical output.
 - `Page.insert_textbox` completes layout before mutating the PDF and returns
   negative spare height without drawing on overflow. Standard 14 measurement
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
@@ -1209,6 +1235,14 @@ overview.
   `prune_objects` and `renumber_objects_with`; do not call them or the other
   helpers built on it (`delete_object`, `delete_zero_length_streams`, and
   lopdf's own `delete_pages`).
+- lopdf's `rayon` feature parses even tiny documents on the global pool, so
+  every native load from a thread outside the pool pays a worker wake-up.
+  Without the feature, opening 7- to 29-object PDFs was 10–65% faster on the
+  five release targets, but 445- to 5,343-object documents were 62–257%
+  slower, so pylopdf keeps it for user documents and parses only its own
+  generated PDFs on the calling thread. A lopdf change that parses small
+  cross-reference tables on the calling thread is an upstream contribution
+  candidate.
 - lopdf's `renumber_objects_with` keeps the number of a reference to a missing
   object, so after an import it resolves to whichever object takes that
   number. pylopdf's import renumbering writes null instead, and loading nulls

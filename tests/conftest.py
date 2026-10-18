@@ -2,7 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
+
+from pylopdf.pylopdf_core import _Document
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _verify_generated_pdf_loads() -> Iterator[None]:
+    """Compare every generated-PDF import in the suite with lopdf's parse."""
+    _Document.verify_generated_pdf_loads(True)
+    yield
+    _Document.verify_generated_pdf_loads(False)
+
+
+@pytest.fixture(autouse=True)
+def _no_generated_pdf_mismatch() -> Iterator[None]:
+    """Fail the test whose generated import the sequential parser misread."""
+    mismatched = _Document.generated_pdf_loads()[2]
+    yield
+    assert _Document.generated_pdf_loads()[2] == mismatched, "sequential generated-PDF parse differs from lopdf"
 
 
 def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> bytes:
