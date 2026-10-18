@@ -97,6 +97,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outline cleanup to the 16 MiB TOC text budget instead of one page's 1 MiB
   link budget, so every well-formed tree and outline that resolves can also be
   cleaned and imported.
+- AcroForm kids whose `/T` is null, an indirect null, or a reference to a
+  missing object are now widgets of their parent field, as kids without `/T`
+  are, because ISO 32000-2 reads such a value as an omitted entry. Each such
+  kid was an unnamed child field with its parent's full name, so
+  `get_form_fields()` listed the field once per kid, and `set_form_field()`
+  updated only the kid with the lowest object number: the field's other
+  widgets kept their old appearances and `/AS` states, and a radio fill could
+  turn on the wrong widget with a synthesized state. Any other `/T`, including
+  an unusable value, still makes the kid a child field.
+- AcroForm field-tree reads skip an indirect null and a reference to a missing
+  object in `/Fields` or `/Kids` as they already skipped null; such entries
+  counted toward the 4,096-node or 4,096-widget limit. Every entry still
+  counts toward the 8,192-edge limit, and kids whose `/T` reads as omitted now
+  count toward the widget limit like other widgets.
 - `insert_pdf` and `show_pdf_page` read the source page tree before
   renumbering the source. lopdf's renumbering kept the number of a missing
   Kids entry, so when a renumbered source object took that number, the import

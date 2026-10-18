@@ -829,3 +829,207 @@ def test_form_button_supports_indirect_kids_array() -> None:
     doc = pylopdf.open(stream=_build_button_state_pdf("/Off 7 0 R /Yes 7 0 R", indirect_kids=True))
     doc.set_form_field("button", True)
     assert doc.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Yes"}]
+
+
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+SOLID_BUTTON_STATES = {20: _form_stream("0 1 0 rg 0 0 20 20 re f"), 21: _form_stream("1 0 0 rg 0 0 20 20 re f")}
+
+
+def _build_widget_kids_pdf(field: str, kids: list[str], extra: dict[int, str] | None = None) -> bytes:
+    """Build top-level field 5 whose widget kids 8, 9, and so on add the `kids` entries.
+
+    Kid `index` covers an 80-by-30 rectangle at x = 10 + 100 * index on a
+    300-by-100 page. Object 6 is null and number 7 stays free, as
+    `NULL_EQUIVALENTS` expects.
+    """
+    numbers = range(8, 8 + len(kids))
+    refs = " ".join(f"{number} 0 R" for number in numbers)
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] /Annots [{refs}] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: f"<< {field} /Kids [{refs}] >>",
+        6: "null",
+        **(extra or {}),
+    }
+    for index, (number, entries) in enumerate(zip(numbers, kids, strict=True)):
+        left = 10 + 100 * index
+        objects[number] = (
+            f"<< /Parent 5 0 R {entries} /Type /Annot /Subtype /Widget"
+            f" /Rect [{left} 10 {left + 80} 40] /P 3 0 R /F 4 >>"
+        )
+    return _build_sparse_pdf(objects)
+
+
+def _kid_ink(doc: pylopdf.Document) -> list[int]:
+    """Count the opaque pixels inside each of the three kid widgets."""
+    return [_opaque_pixels(doc, (10 + 100 * index, 60, 90 + 100 * index, 90)) for index in range(3)]
+
+
+def _kid_colors(doc: pylopdf.Document) -> list[tuple[int, ...]]:
+    """Sample the RGB color at the center of each of the three kid widgets."""
+    pix = doc[0].get_pixmap()
+    centers = ((75 * pix.width + 50 + 100 * index) * pix.n for index in range(3))
+    return [tuple(pix.samples[center : center + 3]) for center in centers]
+
+
+@null_equivalents
+def test_null_named_kids_are_widgets_of_their_text_field(value: str) -> None:
+    """Kids whose `/T` is null-equivalent are widgets of their parent field, as kids without `/T` are.
+
+    Each such kid was an unnamed child field with its parent's full name, so
+    the field was listed once per kid and a fill drew only the kid with the
+    lowest object number.
+    """
+    source = pylopdf.open(stream=_build_widget_kids_pdf("/FT /Tx /T (name) /V (old)", [f"/T {value}"] * 3))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name", "type": "text", "value": "old"}]
+        assert _kid_ink(doc) == [0, 0, 0]
+        doc.set_form_field("name", "new")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "name", "type": "text", "value": "new"}]
+            ink = _kid_ink(current)
+            assert ink[0] > 0
+            assert ink == [ink[0]] * 3
+            assert b"/NeedAppearances false" in current.tobytes()
+
+
+@null_equivalents
+def test_null_named_kids_follow_their_checkbox_state(value: str) -> None:
+    """Checkbox fills synchronize `/AS` on every kid whose `/T` is null-equivalent."""
+    states = "/AS /Off /AP << /N << /Yes 20 0 R /Off 21 0 R >> >>"
+    pdf = _build_widget_kids_pdf("/FT /Btn /T (agree) /V /Off", [f"/T {value} {states}"] * 3, SOLID_BUTTON_STATES)
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "agree", "type": "checkbox", "value": "Off"}]
+        assert _kid_colors(doc) == [RED] * 3
+        for checked, state, color in ((True, "Yes", GREEN), (False, "Off", RED)):
+            doc.set_form_field("agree", checked)
+            for current in (doc, pylopdf.open(stream=doc.tobytes())):
+                assert current.get_form_fields() == [{"name": "agree", "type": "checkbox", "value": state}]
+                assert _kid_colors(current) == [color] * 3
+
+
+@null_equivalents
+def test_null_named_kids_follow_their_radio_state(value: str) -> None:
+    """Radio fills turn on the matching kid and turn off the other kids whose `/T` is null-equivalent."""
+    kids = [f"/T {value} /AS /Off /AP << /N << /{state} 20 0 R /Off 21 0 R >> >>" for state in ("A", "B", "C")]
+    pdf = _build_widget_kids_pdf("/FT /Btn /Ff 32768 /T (plan) /V /Off", kids, SOLID_BUTTON_STATES)
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "plan", "type": "radio", "value": "Off"}]
+        doc.set_form_field("plan", "B")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "plan", "type": "radio", "value": "B"}]
+            assert _kid_colors(current) == [RED, GREEN, RED]
+
+
+@pytest.mark.parametrize(
+    ("name", "extra"),
+    [("5", {}), ("/name", {}), ("20 0 R", {20: "20 0 R"})],
+    ids=["number", "name-object", "reference-cycle"],
+)
+def test_unusable_kid_names_still_make_child_fields(name: str, extra: dict[int, str]) -> None:
+    """Only null-equivalent `/T` values are omitted; any other value makes the kid a child field.
+
+    Such a child field has its parent's full name and reads its own value.
+    """
+    pdf = _build_widget_kids_pdf("/FT /Tx /T (name) /V (parent)", [f"/T {name} /V (kid)"], extra)
+    source = pylopdf.open(stream=pdf)
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "name", "type": "text", "value": "kid"}]
+
+
+def _build_widget_budget_pdf(kids: str, widget_entries: str = "") -> bytes:
+    """Build checkbox 5 with the `kids` entries and widget 8; object 6 is null and number 7 stays free."""
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [8 0 R] >>",
+        4: "<< /Fields [5 0 R] >>",
+        5: f"<< /FT /Btn /T (button) /V /Off /Kids [{kids}] >>",
+        6: "null",
+        8: (
+            f"<< /Parent 5 0 R {widget_entries} /Type /Annot /Subtype /Widget /Rect [10 10 30 30]"
+            " /AS /Off /AP << /N << /Yes 9 0 R /Off 9 0 R >> >> >>"
+        ),
+        9: _form_stream("0 0 20 20 re f"),
+    }
+    return _build_sparse_pdf(objects)
+
+
+@null_equivalents
+def test_null_kid_entries_cost_only_their_edge(value: str) -> None:
+    """Null-equivalent `/Kids` entries are skipped alike instead of counting as widgets.
+
+    An indirect null and a missing object counted toward the 4,096-widget
+    limit, while a null entry was skipped. Every entry still counts toward the
+    8,192-edge limit, and the `/Fields` entry takes one edge.
+    """
+    widgets = "8 0 R " * 4096
+    source = pylopdf.open(stream=_build_widget_budget_pdf(widgets + f"{value} " * 4095))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Off"}]
+        doc.set_form_field("button", True)
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert current.get_form_fields() == [{"name": "button", "type": "checkbox", "value": "Yes"}]
+
+    over_limit = pylopdf.open(stream=_build_widget_budget_pdf(widgets + f"{value} " * 4096))
+    for doc in (over_limit, pylopdf.open(stream=over_limit.tobytes())):
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+            doc.get_form_fields()
+        with pytest.raises(pylopdf.PdfError, match="8192-edge safety limit"):
+            doc.set_form_field("button", "Yes")
+        assert doc.tobytes() == before
+
+
+@null_equivalents
+def test_null_named_kids_count_toward_the_widget_limit(value: str) -> None:
+    """Kids whose `/T` is null-equivalent count toward the 4,096-widget limit like other widgets.
+
+    As a child field, such a kid was visited once however often `/Kids`
+    referenced it.
+    """
+    source = pylopdf.open(stream=_build_widget_budget_pdf("8 0 R " * 4097, f"/T {value}"))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        before = doc.tobytes()
+        with pytest.raises(pylopdf.PdfError, match="4096-widget safety limit"):
+            doc.get_form_fields()
+        with pytest.raises(pylopdf.PdfError, match="4096-widget safety limit"):
+            doc.set_form_field("button", "Yes")
+        assert doc.tobytes() == before
+
+
+@pytest.mark.parametrize("kind", list(NULL_EQUIVALENTS))
+def test_null_field_entries_cost_only_their_edge(kind: str) -> None:
+    """Null-equivalent `/Fields` entries are skipped alike instead of counting as tree nodes.
+
+    Distinct indirect nulls and missing objects counted toward the 4,096-node
+    limit, while null entries were skipped.
+    """
+    numbers = range(10, 4106)
+    entries = "null " * len(numbers) if kind == "null" else " ".join(f"{number} 0 R" for number in numbers)
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+        4: f"<< /Fields [5 0 R {entries}] >>",
+        5: "<< /FT /Tx /T (field) /V (value) >>",
+        # An unreferenced object keeps the missing numbers below the highest one.
+        5000: "<< >>",
+    }
+    if kind == "indirect-null":
+        objects.update(dict.fromkeys(numbers, "null"))
+    source = pylopdf.open(stream=_build_sparse_pdf(objects))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        assert doc.get_form_fields() == [{"name": "field", "type": "text", "value": "value"}]
