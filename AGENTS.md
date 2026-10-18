@@ -466,8 +466,10 @@ overview.
   dictionary resolves fewer references the longer the path that reached it. A
   walk that visits each object once and lets the first path decide records a
   dictionary whose references failed on a long path and then overlooks what
-  hayro's shorter path resolves when it draws. State belongs to the
-  snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
+  hayro's shorter path resolves when it draws. Iterate arrays with the typed
+  `iter::<T>()` that hayro uses, never `Array::raw_iter`, which unwraps the read
+  of every element that skipping accepted and so panics on `[+ ]`. State
+  belongs to the snapshot: `invalidate_hayro_pdf` and every refusal or allocation failure
   reset it, so nothing recorded before a failed walk can vouch for a stream
   the walk did not finish. No
   decompression limit is re-applied: load-time validation already measured
@@ -638,12 +640,13 @@ overview.
   does not read: `raw_iter` unwraps the read of every element that
   `Array::skip` accepted, so a bare `+` or a dictionary followed by `stream`
   panics it (205,000 of 1,188,000 random accepted arrays), while hayro's own
-  typed iteration just stops there. The guard iterates arrays that hayro never
-  does, so `raw_iter` could turn a renderable page into a `PanicException`;
-  `ContentGuard` uses `Elements` for `/Annots` and the `/Font` array too. No
-  reachable panic was found (lopdf drops the page object of every one of
-  143,000 panicking arrays in four roles), and `Elements` equals `raw_iter` on
-  every array where that does not panic. Every reference is read afresh
+  typed iteration just stops there. The graph walk iterates arrays that hayro
+  never does, so `raw_iter` could turn a renderable page into a
+  `PanicException`; the content walk reads only what hayro reads and uses its
+  typed iteration for `/Annots` and the `/Font` array. No reachable panic was
+  found (lopdf drops the page object of every one of 143,000 panicking arrays
+  in four roles), and `Elements` equals `raw_iter` on every array where that
+  does not panic. Every reference is read afresh
   (`resolve`, like `Fresh` in `content_guard.rs`): hayro's reader chain would
   cut a reference back into the path that reached a dictionary, and this walk
   remembers an object after the first path. Depth counts nodes: a Separation

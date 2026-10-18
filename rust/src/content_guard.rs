@@ -62,7 +62,7 @@ use hayro::hayro_syntax::object::dict::keys::{
     PATTERN, RESOURCES, SHADING, SMASK, SUBTYPE, TR, TR2, XOBJECT,
 };
 use hayro::hayro_syntax::object::{
-    Array, Dict, MaybeRef, Name, Object, ObjectIdentifier, Stream, dict_or_stream,
+    Array, Dict, Name, Object, ObjectIdentifier, Stream, dict_or_stream,
 };
 use hayro::hayro_syntax::page::{Page, Resources};
 use hayro::hayro_syntax::xref::XRef;
@@ -70,7 +70,7 @@ use pyo3::prelude::*;
 
 use crate::content_scan::{self, MAX_NESTING_DEPTH, Refusal};
 use crate::document::{PdfError, limit_err};
-use crate::graph_guard::{self, Elements, GraphGuard, MAX_CHAIN_DEPTH};
+use crate::graph_guard::{self, GraphGuard, MAX_CHAIN_DEPTH};
 use crate::postscript_scan::MAX_BRACE_DEPTH;
 
 /// The one-based pages an operation is about to interpret.
@@ -113,15 +113,6 @@ impl<'a> Fresh<'a> {
         match from.get_ref(key) {
             Some(reference) => self.0.get::<Array<'a>>(reference.into()),
             None => from.get::<Array<'a>>(key),
-        }
-    }
-
-    /// An array item that is a dictionary, or a reference to one.
-    fn item_dictionary(self, item: MaybeRef<Object<'a>>) -> Option<Dict<'a>> {
-        match item {
-            MaybeRef::Ref(reference) => self.0.get::<Dict<'a>>(reference.into()),
-            MaybeRef::NotRef(Object::Dict(dictionary)) => Some(dictionary),
-            MaybeRef::NotRef(_) => None,
         }
     }
 }
@@ -272,10 +263,11 @@ impl ContentGuard {
             level = resources.parent();
         }
         if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
-            for item in Elements::new(&annotations) {
-                if let Some(annotation) = fresh.item_dictionary(item) {
-                    self.visit_appearance(fresh, &annotation, &mut work)?;
-                }
+            // Iterate the way hayro does, which also ends at the first element
+            // that is not a dictionary. `Array::raw_iter` unwraps the read of
+            // every element that skipping accepted, and `[+ ]` is accepted.
+            for annotation in annotations.iter::<Dict<'a>>() {
+                self.visit_appearance(fresh, &annotation, &mut work)?;
             }
         }
         while let Some(item) = work.pop() {
@@ -509,10 +501,9 @@ impl ContentGuard {
                 push(work, Work::Content(group))?;
             }
         }
-        if let Some(font) = fresh
+        if let Some(Object::Dict(font)) = fresh
             .array(state, FONT)
-            .and_then(|selection| Elements::new(&selection).next())
-            .and_then(|item| fresh.item_dictionary(item))
+            .and_then(|selection| selection.iter::<Object<'a>>().next())
         {
             push(work, Work::Font(font, None))?;
         }
