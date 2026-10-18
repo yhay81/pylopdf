@@ -315,6 +315,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   54-render loop on macOS x86_64 also peaked 18–22 MiB higher. Concurrent first
   renders in a cold process may each read the files once. Explicit
   `set_fallback_font()` paths are still read on every call.
+- Generated text and form values no longer reread their installed font
+  package file on every call. Without `fontfile=` or `fontbuffer=`,
+  `Page.insert_text()`, `Page.insert_textbox()`, and `Document.set_form_field()`
+  read the complete selected Noto face, 0.1–11.6 MB, for every run. The face
+  now comes from the same process-wide slots, one per font package and style,
+  that fallback configuration uses, so a CJK face read for rendering is reused
+  for generation and the other way around. Every call still checks the path
+  (size and modification time, plus device, inode, and change time on Unix)
+  and applies the 64 MiB `font_input_size` boundary, so missing, over-limit,
+  and replaced files fail or are reread as before. Explicit `fontfile=` paths
+  are still read, and `fontbuffer=` input copied, on every call. Filling a
+  field with several widgets also no longer copies the complete font once per
+  widget. In interleaved A/B runs on the five GitHub-hosted release targets,
+  inserting a short Japanese line into a fresh document became 46–59% faster
+  (2.8 ms to 1.2 ms on Windows, 1.5 ms to 0.6 ms on Linux x86_64), a
+  Simplified Chinese serif line 66–83% faster, and filling a Japanese form
+  field 55–79% faster. Arabic, whose face is 0.8 MB, gained 9–19% on four
+  targets; the macOS arm64 runner was too noisy to resolve it. On an Apple M2
+  Pro the Japanese line fell from 1.0 ms to 0.6 ms, and free-threaded CPython
+  3.14t generated 2.1–2.5 times as many fresh documents per second on one to
+  eight threads. Generated PDFs are byte-identical. In exchange, each face used
+  stays resident after the last document is released. On Windows that left
+  4.3 MiB more after Japanese text, 11.0 MiB more after Simplified Chinese
+  serif text, and 16.3 MiB more after three faces; with glibc, which often
+  kept a freed copy anyway, the difference was 0–5.2 MiB, and macOS, whose
+  allocator keeps freed memory, showed none. Peaks stayed within 2 MiB,
+  except 3–5 MiB higher with three faces in use at once on Linux and Windows
+  and about 4 MiB lower for a four-widget form on every target.
 - Reading the links of every page of a large manual is now linear in its
   pages and links. `Page.get_links()` used to index the complete
   `/Names/Dests` tree and walk the page tree five times for every call, plus

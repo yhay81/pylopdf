@@ -27,6 +27,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
+use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::draw::{self, ObjectSink};
 use crate::form;
 use crate::generate;
@@ -1469,6 +1470,27 @@ pub(crate) fn read_font_file(
         "font input",
         "failed to load font",
     )
+}
+
+/// Load generation font input from a path without holding the GIL.
+///
+/// A face Python selected from an installed font package shares its bytes
+/// through `bundled_font_cache`; explicit font paths are read on every call.
+/// Both apply the same `font_input_size` boundary before using any bytes.
+fn load_generation_font(
+    py: Python<'_>,
+    path: &str,
+    package_font: Option<(String, String)>,
+    max_font_size: Option<usize>,
+) -> PyResult<FontBytes> {
+    validate_font_input(None, max_font_size)?;
+    let face = package_font
+        .map(|(language, kind)| PackageFace::parse(&language, &kind))
+        .transpose()?;
+    py.detach(|| match face {
+        Some(face) => load_package_font(face, path, max_font_size),
+        None => read_font_input(path, max_font_size).map(Arc::new),
+    })
 }
 
 /// Inspect a font path without reading it, failing as a bounded read would
@@ -5010,7 +5032,7 @@ impl CjkFontLanguage {
         }
     }
 
-    pub(crate) fn index(self) -> usize {
+    fn index(self) -> usize {
         match self {
             Self::Ja => 0,
             Self::Ko => 1,
@@ -6105,6 +6127,123 @@ impl _Document {
         self.push_page_content(page_id, ops, drawing_plan.content)
     }
 
+    /// Draw validated subset-embedded text; see `insert_embedded_text`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_embedded_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: &[String],
+        font_data: FontBytes,
+        font_index: u32,
+        fontsize: f64,
+        color: (f64, f64, f64),
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let generated = py.detach(|| {
+            generate::embedded_text_page(
+                page_size, point, lines, font_data, font_index, fontsize, color,
+            )
+            .map_err(PdfError::new_err)
+        })?;
+        let generated_doc = Document::load_mem(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                form_plan,
+                placement,
+                drawing_plan,
+            )
+        })
+    }
+
+    /// Lay out and draw validated subset-embedded text inside a display rectangle.
+    ///
+    /// An overflow returns its negative spare height without mutating the PDF.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_embedded_textbox(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        font_data: FontBytes,
+        font_index: u32,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_text_size: Option<usize>,
+    ) -> PyResult<f64> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let rect_array = [rect.0, rect.1, rect.2, rect.3];
+        let (generated, spare_height) = py.detach(|| {
+            generate::embedded_textbox_page(
+                page_size,
+                rect_array,
+                text,
+                font_data,
+                font_index,
+                fontsize,
+                line_height,
+                align,
+                color,
+                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
+            )
+            .map_err(generated_text_err)
+        })?;
+        let Some(generated) = generated else {
+            return Ok(spare_height);
+        };
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let generated_doc = Document::load_mem(&generated)
+            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        let form_plan =
+            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
+        self.invalidate_hayro_pdf();
+        py.detach(|| {
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                form_plan,
+                placement,
+                drawing_plan,
+            )
+        })?;
+        Ok(spare_height)
+    }
+
     /// Flatten AcroForm fields into `(full name, ObjectId, FT, Ff, V)`.
     ///
     /// FT/Ff/V inherit from parents when a field omits them or holds a null
@@ -6735,7 +6874,7 @@ impl _Document {
         value: &str,
         layout: WidgetTextLayout,
         align: u8,
-        font_data: Option<&Vec<u8>>,
+        font_data: Option<&FontBytes>,
         font_index: u32,
     ) -> PyResult<bool> {
         let widget = self
@@ -6766,7 +6905,7 @@ impl _Document {
                         value,
                         max_len,
                         align,
-                        font_data.clone(),
+                        Arc::clone(font_data),
                         font_index,
                         (0.0, 0.0, 0.0),
                     ),
@@ -6774,7 +6913,7 @@ impl _Document {
                         (style.layout_width, style.layout_height),
                         style.content_rect(),
                         value,
-                        font_data.clone(),
+                        Arc::clone(font_data),
                         font_index,
                         matches!(layout, WidgetTextLayout::Multiline),
                         align,
@@ -6929,12 +7068,46 @@ impl _Document {
         Ok(true)
     }
 
-    /// Mutating implementation kept behind an atomic clone in the Python method.
+    /// Set a validated form-field value, restoring the document on any error.
+    fn fill_form_field(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        font_data: Option<FontBytes>,
+        font_index: u32,
+    ) -> PyResult<()> {
+        let encoded_value = form_text_string(value);
+        if encoded_value
+            .as_str()
+            .is_ok_and(|bytes| bytes.len() > MAX_FORM_FIELD_VALUE_BYTES)
+        {
+            return Err(PdfError::new_err(format!(
+                "encoded form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
+            )));
+        }
+        let result = py.detach(|| {
+            let original = self.doc.clone();
+            match self.set_form_field_inner(name, value, font_data.as_ref(), font_index) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    self.doc.replace(original);
+                    Err(error)
+                }
+            }
+        });
+        if result.is_ok() {
+            self.invalidate_hayro_pdf();
+        }
+        result
+    }
+
+    /// Mutating implementation kept behind an atomic clone in `fill_form_field`.
     fn set_form_field_inner(
         &mut self,
         name: &str,
         value: &str,
-        font_data: Option<Vec<u8>>,
+        font_data: Option<&FontBytes>,
         font_index: u32,
     ) -> PyResult<()> {
         let (field_id, ft, ff) = self
@@ -6968,12 +7141,7 @@ impl _Document {
                 let align = self.field_quadding(field_id);
                 for widget_id in self.visible_field_widgets(field_id)? {
                     self.synthesize_text_appearance(
-                        widget_id,
-                        value,
-                        layout,
-                        align,
-                        font_data.as_ref(),
-                        font_index,
+                        widget_id, value, layout, align, font_data, font_index,
                     )?;
                 }
             }
@@ -8882,7 +9050,7 @@ impl _Document {
     /// Atomically configure every discovered locale font pair.
     ///
     /// Files read by earlier documents are reused while unchanged; see
-    /// `fallback_font_cache`. Return how many files were read from disk.
+    /// `bundled_font_cache`. Return how many files were read from disk.
     #[pyo3(signature = (
         files,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
@@ -8920,7 +9088,7 @@ impl _Document {
             return Ok(0);
         }
         let loaded = py.detach(|| {
-            crate::fallback_font_cache::load_locale_font_pairs(&requests, max_font_size)
+            crate::bundled_font_cache::load_locale_font_pairs(&requests, max_font_size)
         })?;
         let mut fallback_fonts = self.fallback_fonts.clone();
         for ((language, _, _), (sans, serif)) in requests.iter().zip(loaded.pairs) {
@@ -8931,6 +9099,13 @@ impl _Document {
         self.fallback_fonts = fallback_fonts;
         self.invalidate_interpreted_pages();
         Ok(loaded.files_read)
+    }
+
+    /// Return how many installed font package files the shared slots have
+    /// read since the process started, so tests can pin reuse.
+    #[staticmethod]
+    fn package_font_reads() -> usize {
+        crate::bundled_font_cache::files_read()
     }
 
     /// Clear all CJK fallback-font configuration.
@@ -10714,38 +10889,21 @@ impl _Document {
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
         validate_font_input(font_data.as_deref(), max_font_size)?;
-        let encoded_value = form_text_string(value);
-        if encoded_value
-            .as_str()
-            .is_ok_and(|bytes| bytes.len() > MAX_FORM_FIELD_VALUE_BYTES)
-        {
-            return Err(PdfError::new_err(format!(
-                "encoded form field value exceeds the {MAX_FORM_FIELD_VALUE_BYTES}-byte safety limit"
-            )));
-        }
-        let result = py.detach(|| {
-            let original = self.doc.clone();
-            match self.set_form_field_inner(name, value, font_data, font_index) {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    self.doc.replace(original);
-                    Err(error)
-                }
-            }
-        });
-        if result.is_ok() {
-            self.invalidate_hayro_pdf();
-        }
-        result
+        self.fill_form_field(py, name, value, font_data.map(Arc::new), font_index)
     }
 
     /// Set a form-field value using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names an installed package face as for
+    /// `insert_embedded_text_file`; explicit font paths are read on every call.
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         name,
         value,
         path,
         font_index=0,
-        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE)
+        max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
+        package_font=None
     ))]
     fn set_form_field_file(
         &mut self,
@@ -10755,11 +10913,11 @@ impl _Document {
         path: &str,
         font_index: u32,
         max_font_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.set_form_field(py, name, value, Some(data), font_index, max_font_size)
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.fill_form_field(py, name, value, Some(data), font_index)
     }
 
     /// Return sorted attachment names independent of name-tree order.
@@ -11208,42 +11366,24 @@ impl _Document {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
-        let generated = py.detach(|| {
-            generate::embedded_text_page(
-                page_size, point, &lines, font_data, font_index, fontsize, color,
-            )
-            .map_err(PdfError::new_err)
-        })?;
-        let generated_doc = Document::load_mem(&generated)
-            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let placement = PagePlacement {
-            rect: [0.0, 0.0, page_size.0, page_size.1],
-            keep_proportion: false,
-        };
-        let form_plan =
-            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })
+        self.draw_embedded_text(
+            py,
+            page_number,
+            point,
+            &lines,
+            Arc::new(font_data),
+            font_index,
+            fontsize,
+            color,
+            overlay,
+        )
     }
 
     /// Draw subset-embedded text using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names the `(language, kind)` of a face Python selected
+    /// from an installed font package; see `bundled_font_cache`. Explicit
+    /// font paths pass `None` and are read on every call.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         page_number,
@@ -11255,7 +11395,8 @@ impl _Document {
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        package_font=None
     ))]
     fn insert_embedded_text_file(
         &mut self,
@@ -11270,23 +11411,21 @@ impl _Document {
         overlay: bool,
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<()> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.insert_embedded_text(
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.draw_embedded_text(
             py,
             page_number,
             point,
-            lines,
+            &lines,
             data,
             font_index,
             fontsize,
             color,
             overlay,
-            max_font_size,
-            max_text_size,
         )
     }
 
@@ -11325,56 +11464,26 @@ impl _Document {
         validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
-        let rect_array = [rect.0, rect.1, rect.2, rect.3];
-        let (generated, spare_height) = py.detach(|| {
-            generate::embedded_textbox_page(
-                page_size,
-                rect_array,
-                text,
-                font_data,
-                font_index,
-                fontsize,
-                line_height,
-                align,
-                color,
-                max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
-            )
-            .map_err(generated_text_err)
-        })?;
-        let Some(generated) = generated else {
-            return Ok(spare_height);
-        };
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let generated_doc = Document::load_mem(&generated)
-            .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
-        let placement = PagePlacement {
-            rect: [0.0, 0.0, page_size.0, page_size.1],
-            keep_proportion: false,
-        };
-        let form_plan =
-            py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })?;
-        Ok(spare_height)
+        self.draw_embedded_textbox(
+            py,
+            page_number,
+            rect,
+            text,
+            Arc::new(font_data),
+            font_index,
+            fontsize,
+            line_height,
+            align,
+            color,
+            overlay,
+            max_text_size,
+        )
     }
 
     /// Lay out subset-embedded text using bounded OpenType font input from a path.
+    ///
+    /// `package_font` names an installed package face as for
+    /// `insert_embedded_text_file`; explicit font paths are read on every call.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         page_number,
@@ -11388,7 +11497,8 @@ impl _Document {
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
-        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE),
+        package_font=None
     ))]
     fn insert_embedded_textbox_file(
         &mut self,
@@ -11405,12 +11515,12 @@ impl _Document {
         overlay: bool,
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
+        package_font: Option<(String, String)>,
     ) -> PyResult<f64> {
         validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
         validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
-        validate_font_input(None, max_font_size)?;
-        let data = py.detach(|| read_font_input(path, max_font_size))?;
-        self.insert_embedded_textbox(
+        let data = load_generation_font(py, path, package_font, max_font_size)?;
+        self.draw_embedded_textbox(
             py,
             page_number,
             rect,
@@ -11422,7 +11532,6 @@ impl _Document {
             align,
             color,
             overlay,
-            max_font_size,
             max_text_size,
         )
     }

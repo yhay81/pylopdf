@@ -3,6 +3,8 @@
 //! krilla owns generation and font subsetting. The resulting bytes are imported
 //! into lopdf as a Form XObject, preserving the edit/render engine boundary.
 
+use std::sync::Arc;
+
 use harfrust::{Direction, FontRef, ShapeOptions, Shaper, ShaperData, UnicodeBuffer};
 use krilla::Document;
 use krilla::color::rgb;
@@ -24,7 +26,7 @@ pub fn embedded_text_page(
     page_size: (f64, f64),
     point: (f64, f64),
     lines: &[String],
-    font_data: Vec<u8>,
+    font_data: Arc<Vec<u8>>,
     font_index: u32,
     font_size: f64,
     color: (f64, f64, f64),
@@ -82,7 +84,7 @@ pub fn embedded_textbox_page(
     page_size: (f64, f64),
     rect: [f64; 4],
     text: &str,
-    font_data: Vec<u8>,
+    font_data: Arc<Vec<u8>>,
     font_index: u32,
     font_size: f64,
     line_height: f64,
@@ -185,7 +187,7 @@ pub fn embedded_widget_text_page(
     page_size: (f64, f64),
     rect: [f64; 4],
     text: &str,
-    font_data: Vec<u8>,
+    font_data: Arc<Vec<u8>>,
     font_index: u32,
     multiline: bool,
     align: u8,
@@ -292,7 +294,7 @@ pub fn embedded_widget_comb_text_page(
     text: &str,
     max_len: usize,
     align: u8,
-    font_data: Vec<u8>,
+    font_data: Arc<Vec<u8>>,
     font_index: u32,
     color: (f64, f64, f64),
 ) -> Result<Vec<u8>, String> {
