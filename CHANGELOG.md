@@ -117,6 +117,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decompression limit; lopdf 0.45 moved wrapped causes out of `Display`.
 - Saving a document whose cross-reference table was rebuilt no longer writes
   the damaged input's `/Prev` offset into the new trailer.
+- AcroForm fields now inherit their parent's `/V`, `/Q`, and `/MaxLen` past a
+  null value, an indirect null, or a reference to a missing object, which
+  ISO 32000-2 reads as an omitted entry; `/FT` and `/Ff` already did.
+  `get_form_fields()` returned no value for such a `/V`. `set_form_field()`
+  rejected a comb field with such a `/MaxLen`, aligned text left for such a
+  `/Q`, and, when it completed the missing appearances of other fields, drew
+  such a field without its inherited value or skipped such a comb field. A
+  value present on the field, including an unusable one, still stops
+  inheritance.
 
 ### Security
 - Opening and metadata probing refuse input whose lopdf cross-reference

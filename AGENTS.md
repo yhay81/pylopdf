@@ -727,7 +727,16 @@ overview.
   release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
   4,096 choice-value items. Inherited values use shared storage during the
-  walk and count once per returned leaf. Tree stacks, cycle sets, inherited
+  walk and count once per returned leaf. Field-attribute inheritance (`/FT`,
+  `/Ff`, and `/V` in the walk; `/Q` and `/MaxLen` along the `/Parent` chain)
+  reads a null value, an indirect null, and a reference to a missing object as
+  an omitted entry, following ISO 32000-2 §7.3.7 and §7.3.10 as
+  `page_attribute_has_value` does, so the field inherits its parent's value.
+  `inheritable_field_value` keeps any other value on the field, including an
+  unusable one or a cyclic or over-long reference chain, and that value stops
+  inheritance; only `/FT` and `/Ff` also inherit past other unreadable values.
+  pylopdf reads neither `/DA` nor `/DV`; route any inheritable key it starts
+  reading through the same helper. Tree stacks, cycle sets, inherited
   names/types, choice values, joined values, returned entries, field-widget
   lists, and button-state names grow fallibly; returned ordering uses an
   in-place sort with object-ID tie-breaking.

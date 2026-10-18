@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,6 +72,11 @@ def _build_form_pdf(*, checkbox_on_content: str = "", text_widget_extra: str = "
         24: "<< /FT /Tx /Ff 16777216 /MaxLen 6 /Q 1 /T (code) /Kids [25 0 R] >>",
         25: ("<< /Parent 24 0 R /Type /Annot /Subtype /Widget /Rect [300 540 500 565] /P 4 0 R /F 4 /BS << /W 0 >> >>"),
     }
+    return _build_sparse_pdf(objects)
+
+
+def _build_sparse_pdf(objects: dict[int, str]) -> bytes:
+    """Serialize objects, writing a free cross-reference entry for each absent number."""
     out = bytearray(b"%PDF-1.6\n")
     offsets: dict[int, int] = {}
     for num in sorted(objects):
@@ -112,6 +118,45 @@ def _build_button_state_pdf(states: str, *, indirect_kids: bool = False) -> byte
 def _opaque_pixels(doc: pylopdf.Document, clip: tuple[float, float, float, float]) -> int:
     pix = doc[0].get_pixmap(clip=clip)
     return sum(alpha != 0 for alpha in pix.samples[3::4])
+
+
+# Object 6 is an indirect null. Number 7 is a free cross-reference entry below
+# the highest object, so its reference stays missing through loading, saving,
+# and reloading. ISO 32000-2 §7.3.7 reads a null value as an omitted key, and
+# §7.3.10 reads a reference to a missing object as null.
+NULL_EQUIVALENTS = {"null": "null", "indirect-null": "6 0 R", "missing": "7 0 R"}
+null_equivalents = pytest.mark.parametrize("value", list(NULL_EQUIVALENTS.values()), ids=list(NULL_EQUIVALENTS))
+INHERITABLE_FIELD_KEYS = ("FT", "Ff", "MaxLen", "Q", "V")
+
+
+def _build_inherited_comb_pdf(child: str, extra: dict[int, str] | None = None) -> bytes:
+    """Build a comb field whose child field `code.inner` adds `child` entries.
+
+    The child inherits the text type, comb flag, MaxLen 6, right alignment,
+    and value of its parent `code`. Filling the sibling `other` completes the
+    child's missing appearance from the value that it inherits.
+    """
+    objects = {
+        1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 250 100] /Annots [8 0 R 9 0 R] >>",
+        4: "<< /Fields [5 0 R 9 0 R] >>",
+        5: "<< /FT /Tx /Ff 16777216 /MaxLen 6 /Q 2 /T (code) /V (P42) /Kids [8 0 R] >>",
+        6: "null",
+        8: (
+            f"<< /T (inner) /Parent 5 0 R {child} /Type /Annot /Subtype /Widget"
+            " /Rect [3 30 247 60] /P 3 0 R /F 4 /BS << /W 0 >> >>"
+        ),
+        9: "<< /FT /Tx /T (other) /Type /Annot /Subtype /Widget /Rect [3 70 247 95] /P 3 0 R /F 4 >>",
+        **(extra or {}),
+    }
+    return _build_sparse_pdf(objects)
+
+
+def _inner_comb_cells(doc: pylopdf.Document, count: int = 6) -> list[bool]:
+    """Report which comb cells of `code.inner`, inside its 240-point content box, hold ink."""
+    width = 240 / count
+    return [_opaque_pixels(doc, (5 + index * width, 40, 5 + (index + 1) * width, 70)) > 0 for index in range(count)]
 
 
 def test_get_form_fields_lists_all() -> None:
@@ -240,6 +285,86 @@ def test_malformed_comb_field_is_rejected_atomically(original: bytes, replacemen
         doc.set_form_field("code", "12")
     assert {field["name"]: field["value"] for field in doc.get_form_fields()}["code"] is None
     assert doc.tobytes() == before
+
+
+def test_missing_field_entry_stays_a_reference_after_saving() -> None:
+    """Saving keeps number 7 free, so reloaded documents still read a missing object."""
+    saved = pylopdf.open(stream=_build_inherited_comb_pdf("/V 7 0 R")).tobytes()
+
+    assert re.search(rb"/V\s*7 0 R", saved)
+    assert not re.search(rb"(?m)^7 0 obj", saved)
+
+
+@null_equivalents
+def test_null_child_field_entries_inherit_parent_values(value: str) -> None:
+    """Null-equivalent child entries inherit like absent ones; `/V` read as no value."""
+    entries = " ".join(f"/{key} {value}" for key in INHERITABLE_FIELD_KEYS)
+    doc = pylopdf.open(stream=_build_inherited_comb_pdf(entries))
+
+    for current in (doc, pylopdf.open(stream=doc.tobytes())):
+        assert current.get_form_fields() == [
+            {"name": "code.inner", "type": "text", "value": "P42"},
+            {"name": "other", "type": "text", "value": None},
+        ]
+
+
+@null_equivalents
+@pytest.mark.parametrize("target", ["code.inner", "other"])
+def test_comb_appearance_inherits_past_null_child_entries(value: str, target: str) -> None:
+    """Comb layout and alignment use the parent's `/MaxLen` and `/Q` past null child entries.
+
+    Filling the child raised for its null-equivalent `/MaxLen`, and a null
+    `/Q` replaced the parent's right alignment with left alignment. Filling the
+    sibling skipped the child's missing appearance instead of drawing the
+    value that the child inherits.
+    """
+    entries = " ".join(f"/{key} {value}" for key in INHERITABLE_FIELD_KEYS)
+    source = pylopdf.open(stream=_build_inherited_comb_pdf(entries))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        with pytest.raises(pylopdf.PdfError, match="exceeding MaxLen 6"):
+            doc.set_form_field("code.inner", "1234567")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            # Right alignment places three characters in the last three of six cells.
+            assert _inner_comb_cells(current) == [False, False, False, True, True, True]
+
+
+@null_equivalents
+@pytest.mark.parametrize("target", ["code.inner", "other"])
+def test_text_appearance_inherits_past_null_child_entries(value: str, target: str) -> None:
+    """A single-line child draws right-aligned text past null-equivalent `/Q` and `/V`.
+
+    A null `/Q` aligned the text left, and filling the sibling completed the
+    child's missing appearance without the value that the child inherits.
+    """
+    source = pylopdf.open(stream=_build_inherited_comb_pdf(f"/Ff 0 /Q {value} /V {value}"))
+
+    for doc in (source, pylopdf.open(stream=source.tobytes())):
+        doc.set_form_field(target, "A12")
+        for current in (doc, pylopdf.open(stream=doc.tobytes())):
+            assert _opaque_pixels(current, (5, 40, 125, 70)) == 0
+            assert _opaque_pixels(current, (125, 40, 245, 70)) > 0
+
+
+@pytest.mark.parametrize(
+    ("entries", "extra"),
+    [
+        ("/MaxLen 4 /Q 0 /V (own)", {}),
+        ("/MaxLen 10 0 R /Q 11 0 R /V 12 0 R", {10: "4", 11: "0", 12: "(own)"}),
+    ],
+    ids=["direct", "indirect"],
+)
+def test_present_child_field_entries_override_parent_values(entries: str, extra: dict[int, str]) -> None:
+    """Only null-equivalent entries inherit; a present child value still wins."""
+    doc = pylopdf.open(stream=_build_inherited_comb_pdf(entries, extra))
+    assert doc.get_form_fields()[0] == {"name": "code.inner", "type": "text", "value": "own"}
+
+    doc.set_form_field("other", "x")
+
+    for current in (doc, pylopdf.open(stream=doc.tobytes())):
+        # Left alignment places three characters in the first three of four cells.
+        assert _inner_comb_cells(current, 4) == [True, True, True, False]
 
 
 def test_fill_checkbox_with_bool() -> None:
