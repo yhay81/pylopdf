@@ -129,6 +129,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `delete_pages`, `delete_page`, and `select` read a null or indirect-null
   `/Outlines`, `/Names`, or `/Names /Dests` entry as absent instead of raising
   `PdfError`, as they already did for a reference to a missing object.
+- A reference to a missing object now reads as null wherever pylopdf already
+  read null, including the references at or below the highest object number
+  that loading keeps. Three edits raised `PdfError` for such a reference or an
+  indirect null: adding an annotation to a page whose `/Annots` was one now
+  starts a new array, `set_metadata` replaces such a trailer `/Info`, and page
+  attribute inheritance ends at such a `/Parent`, so `Page.mediabox`,
+  `Page.cropbox`, `Page.rotation`, drawing, and page-tree edits work on the
+  page. `embfile_names()` no longer lists an attachment whose file
+  specification is an indirect null or a missing object, and drawing on a page
+  whose `/Contents` holds one stays visible: drawing kept the entry, and
+  renderers stop reading page content at the first entry that is not a
+  stream.
+- Text insertion, `insert_image`, `show_pdf_page`, and the OCR text layer
+  start an empty `/Font` or `/XObject` resource category that is null, an
+  indirect null, or a missing object, `get_toc()` returns no entries for such
+  a catalog `/Outlines`, and `embfile_add()` replaces such a catalog `/Names`,
+  instead of raising `PdfError`.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved

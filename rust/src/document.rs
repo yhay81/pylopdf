@@ -516,6 +516,30 @@ fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     }
 }
 
+/// Resolve an indirect object, reading an indirect null and a missing object
+/// alike as absent.
+///
+/// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
+/// §7.3.10 reads a reference to a missing object as null. lopdf's error for a
+/// cyclic or over-long reference chain still surfaces.
+fn non_null_object(doc: &Document, id: ObjectId) -> lopdf::Result<Option<&Object>> {
+    match doc.get_object(id) {
+        Ok(Object::Null) | Err(lopdf::Error::ObjectNotFound(_)) => Ok(None),
+        Ok(object) => Ok(Some(object)),
+        Err(error) => Err(error),
+    }
+}
+
+/// Resolve a value, reading null, an indirect null, and a reference to a
+/// missing object alike as absent, as [`non_null_object`] does.
+fn non_null_value<'a>(doc: &'a Document, object: &'a Object) -> lopdf::Result<Option<&'a Object>> {
+    match object {
+        Object::Reference(id) => non_null_object(doc, *id),
+        Object::Null => Ok(None),
+        other => Ok(Some(other)),
+    }
+}
+
 /// Visit a named-destination tree with complete node-local safety budgets.
 fn visit_named_destinations<'a>(
     doc: &'a Document,
@@ -864,8 +888,11 @@ fn collect_toc(doc: &IndexedDocument) -> PyResult<Vec<TocEntry>> {
     else {
         return Ok(Vec::new());
     };
-    let Ok(outlines) = deref_object(doc, outlines_object).as_dict() else {
-        return Err(PdfError::new_err("catalog Outlines is not a dictionary"));
+    // Page cleanup reads a null or missing outline root as absent as well.
+    let outlines = match non_null_value(doc, outlines_object) {
+        Ok(None) => return Ok(Vec::new()),
+        Ok(Some(Object::Dictionary(outlines))) => outlines,
+        _ => return Err(PdfError::new_err("catalog Outlines is not a dictionary")),
     };
     let (start, mut edges) = match outlines.get(b"First") {
         Ok(first) => (first, 1usize),
@@ -1877,6 +1904,16 @@ fn page_attribute_has_value(doc: &Document, dictionary: &Dictionary, key: &[u8])
     !matches!(value, Object::Null)
 }
 
+/// Resolve one dictionary of a page-attribute inheritance walk.
+///
+/// A `/Parent` that names a missing object or an indirect null ends
+/// inheritance, as a null `/Parent` does.
+fn inheritance_node(doc: &Document, id: ObjectId) -> PyResult<Option<&Dictionary>> {
+    non_null_object(doc, id)
+        .and_then(|node| node.map(Object::as_dict).transpose())
+        .map_err(to_py_err)
+}
+
 /// Materialize inherited page attributes before discarding the source page tree.
 fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Dictionary> {
     let page = doc
@@ -1910,10 +1947,9 @@ fn resolve_inherited_page_dict(doc: &Document, page_id: ObjectId) -> PyResult<Di
             )));
         }
         visited.push(parent_id);
-        let parent_dict = doc
-            .get_object(parent_id)
-            .and_then(Object::as_dict)
-            .map_err(to_py_err)?;
+        let Some(parent_dict) = inheritance_node(doc, parent_id)? else {
+            break;
+        };
         for (index, key) in INHERITABLE_PAGE_KEYS.iter().enumerate() {
             if missing[index]
                 && page_attribute_has_value(doc, parent_dict, key)
@@ -2159,11 +2195,15 @@ fn prepare_imported_page_links<'a>(
     Ok(Some(retained))
 }
 
+/// Resolve page `/Resources` or one of its categories under a bounded chain.
+///
+/// A null value, an indirect null, and a reference to a missing object read
+/// as an absent entry, which the caller starts empty.
 fn resolve_page_resource_dictionary<'a>(
     doc: &'a Document,
     object: &'a Object,
     label: &str,
-) -> PyResult<&'a Dictionary> {
+) -> PyResult<Option<&'a Dictionary>> {
     let mut current = object;
     let mut visited = Vec::new();
     visited
@@ -2175,9 +2215,13 @@ fn resolve_page_resource_dictionary<'a>(
         })?;
     loop {
         let Object::Reference(id) = current else {
-            return current
-                .as_dict()
-                .map_err(|_| PdfError::new_err(format!("{label} must resolve to a dictionary")));
+            return match current {
+                Object::Null => Ok(None),
+                Object::Dictionary(dictionary) => Ok(Some(dictionary)),
+                _ => Err(PdfError::new_err(format!(
+                    "{label} must resolve to a dictionary"
+                ))),
+            };
         };
         if visited.contains(id) {
             return Err(PdfError::new_err(format!(
@@ -2190,12 +2234,10 @@ fn resolve_page_resource_dictionary<'a>(
             )));
         }
         visited.push(*id);
-        current = doc.objects.get(id).ok_or_else(|| {
-            PdfError::new_err(format!(
-                "{label} references missing object {} {}",
-                id.0, id.1
-            ))
-        })?;
+        let Some(object) = doc.objects.get(id) else {
+            return Ok(None);
+        };
+        current = object;
     }
 }
 
@@ -2351,26 +2393,32 @@ fn prepare_page_resource(
     kind: PageResourceKind,
 ) -> PyResult<PageResourcePlan> {
     let mut page = resolve_inherited_page_dict(doc, page_id)?;
-    let mut resources = match page.get(b"Resources") {
-        Ok(object) => {
-            let resolved = resolve_page_resource_dictionary(doc, object, "page Resources")?;
+    let resources = match page.get(b"Resources") {
+        Ok(object) => resolve_page_resource_dictionary(doc, object, "page Resources")?,
+        Err(_) => None,
+    };
+    let mut resources = match resources {
+        Some(resolved) => {
             validate_page_resource_shape(resolved, "page Resources")?;
             resolved.clone()
         }
-        Err(_) => Dictionary::new(),
+        None => Dictionary::new(),
     };
     let key = kind.key();
-    let mut entries = match resources.get(key) {
-        Ok(object) => {
-            let label = match kind {
-                PageResourceKind::XObject => "page Resources/XObject",
-                PageResourceKind::Font => "page Resources/Font",
-            };
-            let resolved = resolve_page_resource_dictionary(doc, object, label)?;
+    let label = match kind {
+        PageResourceKind::XObject => "page Resources/XObject",
+        PageResourceKind::Font => "page Resources/Font",
+    };
+    let entries = match resources.get(key) {
+        Ok(object) => resolve_page_resource_dictionary(doc, object, label)?,
+        Err(_) => None,
+    };
+    let mut entries = match entries {
+        Some(resolved) => {
             validate_page_resource_shape(resolved, label)?;
             resolved.clone()
         }
-        Err(_) => Dictionary::new(),
+        None => Dictionary::new(),
     };
     if !resources.has(key) && resources.len() >= MAX_PAGE_RESOURCE_ENTRIES {
         return Err(page_resource_shape_error(
@@ -2381,10 +2429,7 @@ fn prepare_page_resource(
     }
     if entries.len() >= MAX_PAGE_RESOURCE_ENTRIES {
         return Err(page_resource_shape_error(
-            match kind {
-                PageResourceKind::XObject => "page Resources/XObject",
-                PageResourceKind::Font => "page Resources/Font",
-            },
+            label,
             "entry",
             MAX_PAGE_RESOURCE_ENTRIES,
         ));
@@ -5023,13 +5068,17 @@ impl _Document {
             prepared.push((key.into_bytes(), encoded));
         }
 
+        // An indirect null and a missing object read as an absent `/Info`, as
+        // a null value does, so a new dictionary replaces the reference.
         let existing_id = match self.doc.trailer.get(b"Info") {
             Ok(Object::Reference(id)) => {
-                self.doc
-                    .get_object(*id)
-                    .and_then(Object::as_dict)
-                    .map_err(to_py_err)?;
-                Some(*id)
+                match non_null_object(&self.doc, *id).map_err(to_py_err)? {
+                    Some(info) => {
+                        info.as_dict().map_err(to_py_err)?;
+                        Some(*id)
+                    }
+                    None => None,
+                }
             }
             _ => None,
         };
@@ -5236,11 +5285,11 @@ impl _Document {
                 )));
             }
             visited.push(id);
-            let dict = self
-                .doc
-                .get_object(id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?;
+            // `page_id` comes from the page index, so only a parent can end
+            // the walk here.
+            let Some(dict) = inheritance_node(&self.doc, id)? else {
+                break;
+            };
             if page_attribute_has_value(&self.doc, dict, key)
                 && let Ok(value) = dict.get(key)
             {
@@ -6276,13 +6325,16 @@ impl _Document {
                 .and_then(Object::as_dict)
                 .map_err(to_py_err)?;
             match page.get(b"Annots") {
+                // An indirect null and a missing object start a new array, as
+                // a null value does.
                 Ok(Object::Reference(id)) => {
-                    let items = self
-                        .doc
-                        .get_object(*id)
-                        .and_then(Object::as_array)
-                        .map_err(to_py_err)?;
-                    (Target::IndirectArray(*id), items.len())
+                    match non_null_object(&self.doc, *id).map_err(to_py_err)? {
+                        Some(annots) => (
+                            Target::IndirectArray(*id),
+                            annots.as_array().map_err(to_py_err)?.len(),
+                        ),
+                        None => (Target::Missing, 0),
+                    }
                 }
                 Ok(Object::Array(items)) => (Target::PageArray, items.len()),
                 _ => (Target::Missing, 0),
@@ -7416,7 +7468,9 @@ fn collect_page_labels(doc: &Document) -> PyResult<Vec<PageLabelEntry>> {
 ///
 /// Recurse through `/Kids` with depth, cycle, node, entry, and decoded-name
 /// guards. Nodes and FileSpecs remain borrowed so read operations do not clone
-/// adversarial direct object shapes. Returning `Some` stops the walk early.
+/// adversarial direct object shapes. A FileSpec that is null, an indirect
+/// null, or a reference to a missing object is skipped, so attachment
+/// rewrites drop it. Returning `Some` stops the walk early.
 fn visit_embedded_files<'a, T>(
     doc: &'a Document,
     mut visitor: impl FnMut(String, &'a Object) -> PyResult<Option<T>>,
@@ -7500,7 +7554,9 @@ fn visit_embedded_files<'a, T>(
                         "attachment names exceed the {MAX_EMBEDDED_FILE_NAME_BYTES}-byte safety limit"
                     )));
                 }
-                if !matches!(value, Object::Reference(_) | Object::Dictionary(_)) {
+                if !matches!(value, Object::Reference(_) | Object::Dictionary(_))
+                    || matches!(non_null_value(doc, value), Ok(None))
+                {
                     continue;
                 }
                 if let Some(result) = visitor(name, value)? {
@@ -7665,17 +7721,21 @@ fn collect_embedded_files(doc: &Document) -> PyResult<Vec<EmbeddedFileEntry>> {
 }
 
 /// Validate the name-dictionary target before attachment objects are added.
+///
+/// A null `/Names`, an indirect null, and a reference to a missing object
+/// read as an absent entry, which the rewrite replaces with a new dictionary.
 fn embedded_files_write_target(doc: &Document) -> PyResult<EmbeddedFilesWriteTarget> {
     let catalog = doc.catalog().map_err(to_py_err)?;
-    if !catalog.has(b"Names") {
+    let Ok(names) = catalog.get(b"Names") else {
         return Ok(EmbeddedFilesWriteTarget::Missing);
-    }
-    match catalog.get(b"Names").map_err(to_py_err)? {
+    };
+    let Some(resolved) = non_null_value(doc, names).map_err(to_py_err)? else {
+        return Ok(EmbeddedFilesWriteTarget::Missing);
+    };
+    match names {
         Object::Dictionary(_) => Ok(EmbeddedFilesWriteTarget::Inline),
         Object::Reference(id) => {
-            doc.get_object(*id)
-                .and_then(Object::as_dict)
-                .map_err(to_py_err)?;
+            resolved.as_dict().map_err(to_py_err)?;
             Ok(EmbeddedFilesWriteTarget::Indirect(*id))
         }
         _ => Err(PdfError::new_err(
