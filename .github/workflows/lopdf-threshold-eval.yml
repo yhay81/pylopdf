@@ -1,9 +1,9 @@
-# Temporary evaluation branch only: sweep the thresholds of the pending lopdf
-# calling-thread draft with the pending parser change applied. Every job
-# builds the parser change alone, the draft with it, and one evaluation build
-# whose thresholds environment variables override, forced onto either path
-# and run with each swept threshold pair, then interleaves them on one runner
-# so every variant shares its noise.
+# Temporary evaluation branch only: compare the pending lopdf calling-thread
+# draft with a second limit (also fewer than 48 entries when the input is
+# under 32 KiB) against the draft as it is, both on top of the pending parser
+# change, and both without it. Runs 39172528996 and 39173055129 swept the
+# thresholds with an evaluation-only override; this run measures the builds
+# themselves, interleaved on one runner so every build shares its noise.
 name: lopdf threshold evaluation
 
 on:
@@ -21,9 +21,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Run 39172528996 measured the other four targets; its Windows job
-        # failed while writing the inputs, before any measurement.
         platform:
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-15-intel, target: x86_64-apple-darwin }
           - { runner: windows-latest, target: x86_64-pc-windows-msvc }
     defaults:
       run:
@@ -31,30 +33,13 @@ jobs:
     env:
       PYTHONUTF8: "1"
       EVAL: .github/lopdf-threshold-eval
-      # par and seq force the pool and the calling thread in the evaluation
-      # build with the parser change (old-* without it). eE parses on the
-      # calling thread below E entries (and 1 MiB) and E members, except e16
-      # and e24 with the draft's 32 members. mM sets only the member threshold.
+      BUILDS: pr-rayon both-rayon tuned-rayon small-rayon oldtuned-rayon
+      # pr: the parser change alone. both and tuned: the draft as it is and
+      # with the second limit, on top of the parser change. small and
+      # oldtuned: the same two without the parser change.
       LOAD_VARIANTS: >-
-        pr=pr-rayon both=both-rayon norayon=pr-seq
-        par=envnew-rayon,LOPDF_MIN_PARALLEL=0,LOPDF_MIN_PARALLEL_MEMBERS=0
-        seq=envnew-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_MEMBERS=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
-        e16=envnew-rayon,LOPDF_MIN_PARALLEL=16,LOPDF_MIN_PARALLEL_MEMBERS=32
-        e24=envnew-rayon,LOPDF_MIN_PARALLEL=24,LOPDF_MIN_PARALLEL_MEMBERS=32
-        e32=envnew-rayon,LOPDF_MIN_PARALLEL=32,LOPDF_MIN_PARALLEL_MEMBERS=32
-        e48=envnew-rayon,LOPDF_MIN_PARALLEL=48,LOPDF_MIN_PARALLEL_MEMBERS=48
-        e64=envnew-rayon,LOPDF_MIN_PARALLEL=64,LOPDF_MIN_PARALLEL_MEMBERS=64
-        old-par=envold-rayon,LOPDF_MIN_PARALLEL=0,LOPDF_MIN_PARALLEL_MEMBERS=0
-        old-seq=envold-rayon,LOPDF_MIN_PARALLEL=1000000000,LOPDF_MIN_PARALLEL_MEMBERS=1000000000,LOPDF_MIN_PARALLEL_BYTES=1000000000000
-      OBJSTM_VARIANTS: >-
-        pr=pr-rayon both=both-rayon norayon=pr-seq
-        par=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=0
-        seq=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=1000000000
-        m32=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=32
-        m48=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=48
-        m64=envnew-rayon,LOPDF_MIN_PARALLEL_MEMBERS=64
-        old-par=envold-rayon,LOPDF_MIN_PARALLEL_MEMBERS=0
-        old-seq=envold-rayon,LOPDF_MIN_PARALLEL_MEMBERS=1000000000
+        pr=pr-rayon both=both-rayon tuned=tuned-rayon
+        small=small-rayon oldtuned=oldtuned-rayon
     steps:
       - name: Keep checked-out line endings
         run: git config --global core.autocrlf false
@@ -94,19 +79,13 @@ jobs:
       - name: Run interleaved load rounds
         working-directory: work
         run: python "../${EVAL}/ab.py" out/load 8 bin "${LOAD_VARIANTS}" "warm:30 cold:15:10 first:5" pdfs/*.pdf
-      - name: Run interleaved object stream rounds
-        working-directory: work
-        run: python "../${EVAL}/ab.py" out/objstm 8 bin "${OBJSTM_VARIANTS}" "objstm:30:0 objstm:15:10" objstm/*.pdf
       - name: Summarize
         if: always()
         working-directory: work
         run: |
           {
-            echo "## Loads (${{ matrix.platform.target }}), Δ against e16"
-            python "../${EVAL}/summary.py" out/load e16 both pr par seq e24 e32 e48 e64 old-par old-seq norayon
-            echo
-            echo "## ObjectStream::new from the calling thread (${{ matrix.platform.target }}), Δ against m32"
-            python "../${EVAL}/summary.py" out/objstm m32 both pr par seq m48 m64 old-par old-seq norayon
+            echo "## Loads (${{ matrix.platform.target }}), Δ against pr"
+            python "../${EVAL}/summary.py" out/load pr both tuned small oldtuned
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

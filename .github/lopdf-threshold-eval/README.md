@@ -36,3 +36,14 @@ round; `summary.py` reports the median over rounds of the per-round medians.
 `check.py` requires every variant to load every input to the same exact
 digest of the document (objects with raw names, strings and stream content,
 trailer, cross-reference table, `max_id` and `xref_start`).
+
+Runs 39172528996 (four targets) and 39173055129 (Windows) swept the
+thresholds. With the parser change, raising the entry threshold alone made
+back-to-back loads slower on Linux for documents with more than a few
+dozen KiB of stream data, while documents of small objects stayed faster on
+the calling thread up to about 48 entries. `patches/small-tuned.patch`
+therefore keeps the draft's limits and adds a second one: fewer than 48
+entries when the input is under 32 KiB. The confirmation run measures it as
+built (`tuned`, and `oldtuned` without the parser change) against `pr`,
+`both` and `small` (the draft without the parser change), selected with
+`BUILDS` in the workflow.
