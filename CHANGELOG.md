@@ -103,10 +103,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inherits from its original ancestors, or the source default, and
   `Page.mediabox`, `Page.cropbox`, and `Page.rotation` return it instead of
   raising `PdfError`. Page-tree rebuilds used to keep the reference, so the
-  rebuilt page inherited from its new parent instead. A reference in the
-  target document itself that names an object number above every entry in its
-  cross-reference table is not rewritten and can still resolve to an object
-  that a later import or edit adds.
+  rebuilt page inherited from its new parent instead.
+- A document's own references to object numbers above every object it
+  contains now load as null. New objects take the next numbers, so such a
+  reference used to resolve to whatever a later edit added: after
+  `insert_pdf`, a target page also drew the imported page's content; after
+  three `insert_text` calls, one stamp appeared twice; and an XObject
+  resource, attachment, or other entry could name an unrelated new object.
+  Every edit that adds objects was affected, including `show_pdf_page`,
+  `insert_image`, annotations, `new_page`, `set_toc`, `set_metadata`,
+  `embfile_add`, and the OCR text layer. Loading, including the reload by
+  `authenticate()`, now replaces each such reference with null, which is how
+  ISO 32000-2 reads it, and saving writes `null` in its place; documents
+  without such references load and save unchanged. The pass added about 4–6
+  ms to loading a 10 MB document with 100,000 objects or with one million
+  such references. Drawing on a page whose content names such a number now
+  stays visible: drawing kept the reference, where renderers stop reading
+  page content, so the drawing and everything after it disappeared. Adding
+  annotations to a page whose `/Annots` named such a number, setting metadata
+  when the trailer's `/Info` did, and reading or editing a page whose
+  `/Parent` did no longer raise `PdfError`, and `embfile_names()` no longer
+  lists an attachment whose file specification was such a number. lopdf 0.45
+  also numbers new objects above an object whose header disagrees with the
+  cross-reference table, which a later edit replaced under lopdf 0.44.
+- `delete_pages`, `delete_page`, and `select` read a null or indirect-null
+  `/Outlines`, `/Names`, or `/Names /Dests` entry as absent instead of raising
+  `PdfError`, as they already did for a reference to a missing object.
+- Editing a malformed file whose objects or cross-reference entries are
+  numbered near 2**32 no longer overwrites its catalog. New objects take the
+  numbers after the highest one, and lopdf does not check that increment, so
+  release builds wrapped them onto object 0 and then object 1: after a single
+  `insert_text`, `insert_image`, or `add_highlight_annot`, every later read
+  raised `PdfError`, while `insert_pdf`, `show_pdf_page`, `set_toc`, and the
+  OCR text layer refused with `PdfError` instead. Object-stream and encrypted
+  saves of such a file failed to reopen, and rendering and extraction skipped
+  objects numbered past 2**31. Loading, including the reload by
+  `authenticate()`, now moves objects numbered above 8,388,607, the ISO
+  32000-1 limit on indirect objects, to the numbers after the highest object
+  at or below it, keeping their order and generations. References follow
+  their objects, a reference above that highest object that names no object
+  becomes null, and documents within the limit load and save unchanged.
+  Moving the 100,003 objects of a 50,000-page document added about 15 ms to
+  its 61 ms load.
 - `Page.get_links()` now validates integer destination page indexes, which some
   producers write instead of page references. A checked conversion replaces
   the truncating cast, and an index outside the document is unresolved
@@ -126,6 +164,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this check, a 1 MiB input of such keywords needs over a minute of CPU. Real
   damaged files carry at most one truncated stream in that position.
   `DocumentLimits` continue to apply to recovered documents.
+- Saving no longer takes time proportional to a document's highest object
+  number. lopdf's cross-reference writer visits every number up to the highest
+  object, so a file of a few hundred bytes whose single object was numbered
+  near 2**32 took about 19 seconds per `tobytes()` or `save()`. Objects
+  numbered above 8,388,607 now move below that bound at load, as described
+  under Fixed.
 
 ### Performance
 - Reading the links of every page of a large manual is now linear in its
