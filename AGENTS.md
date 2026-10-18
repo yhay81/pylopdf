@@ -519,12 +519,11 @@ overview.
   and hayro already read these references as null, so the original-byte
   rendering path stays valid. Missing numbers at or below `max_id` are never
   allocated and stay untouched, so documents without higher references keep
-  their objects and save unchanged; some readers still raise for such a
-  missing object where they skip null. Never raise `max_id` to a referenced
+  their objects and save unchanged; readers treat such a missing object as
+  null, as described below. Never raise `max_id` to a referenced
   number instead: numbers need u32 headroom, and once new objects take such
   numbers, lopdf's cross-reference writer loops over every number up to the
-  highest object. Page cleanup reads a null value, an indirect null, and a
-  missing reference alike as an absent navigation entry.
+  highest object.
 - lopdf increments `max_id` without an overflow check in `add_object`,
   `new_object_id`, `Document::encrypt`, and its object-stream writer, and its
   cross-reference writer visits every number up to the highest object on each
@@ -547,6 +546,21 @@ overview.
   numbered above 1,000,000, so such numbers come from standard cross-reference
   resolution, object headers that disagree with their entries, or object-stream
   members.
+- Readers treat a null value, an indirect null, and a reference to a missing
+  object alike, as an absent entry, following ISO 32000-2 §7.3.7 and §7.3.10.
+  `non_null_object` and `non_null_value` in `rust/src/document.rs` resolve a
+  reference chain this way, and lopdf's reference-limit error for a cyclic or
+  over-long chain still surfaces. Annotation appends start a new `/Annots`
+  array, `set_metadata` replaces trailer `/Info`, both page-attribute
+  inheritance walks end at such a `/Parent`, Font and XObject registration
+  starts an empty category, `get_toc` returns no entries for such an
+  `/Outlines`, attachment writes replace catalog `/Names`, and the
+  EmbeddedFiles walker skips such a FileSpec, so attachment rewrites drop it.
+  Page cleanup reads such navigation entries as absent. Drawing drops such
+  `/Contents` entries, resolving array entries one level so the cost per entry
+  stays constant, because hayro stops reading page content at the first entry
+  that is not a stream. Use these helpers instead of mapping lopdf's
+  `ObjectNotFound` to `PdfError` wherever a reader already skips null.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
   `StalePageError`. Add new errors under the `PdfError` hierarchy instead of

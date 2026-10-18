@@ -1009,7 +1009,11 @@ fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
 /// Inspect a page's bounded raw content-stream shape.
 ///
 /// This checks arrays before lopdf materializes their reference list and also
-/// rejects cyclic or excessively deep indirect `/Contents` chains.
+/// rejects cyclic or excessively deep indirect `/Contents` chains. A reference
+/// to a missing object or to an indirect null is dropped like a direct null,
+/// because ISO 32000-2 §7.3.10 reads it as null and renderers stop reading
+/// page content at the first entry that is not a stream. Array entries are
+/// resolved one level, keeping the cost per entry constant.
 pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>, String> {
     let page = doc
         .get_dictionary(page_id)
@@ -1035,7 +1039,8 @@ pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<Ob
                 }
                 visited.push(*id);
                 match doc.objects.get(id) {
-                    None | Some(Object::Stream(_)) => {
+                    None => break,
+                    Some(Object::Stream(_)) => {
                         streams.try_reserve_exact(1).map_err(|error| {
                             format!("failed to inspect page Contents streams: {error}")
                         })?;
@@ -1054,7 +1059,12 @@ pub fn inspect_page_contents(doc: &Document, page_id: ObjectId) -> Result<Vec<Ob
                 streams
                     .try_reserve_exact(entries.len())
                     .map_err(|error| format!("failed to inspect page Contents streams: {error}"))?;
-                streams.extend(entries.iter().filter_map(|entry| entry.as_reference().ok()));
+                streams.extend(
+                    entries
+                        .iter()
+                        .filter_map(|entry| entry.as_reference().ok())
+                        .filter(|id| !matches!(doc.objects.get(id), None | Some(Object::Null))),
+                );
                 break;
             }
             _ => break,
