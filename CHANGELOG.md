@@ -309,16 +309,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content, and for inline image boundaries too ambiguous to check. The scan
   decodes through hayro, so it sees the bytes that hayro's parser will, reuses
   hayro's cached decode for page content, runs once per page and snapshot, and
-  leaves other pages usable. It models hayro's inline image search, including
-  where hayro resumes when no `EI` ends the image. A differential fuzz against
-  hayro-syntax 0.7.2 on a 128 KiB stack found no stream that overflows hayro
-  and passes the scan, 17 of 3,000 streams got past a first model without the
-  resumption rule. Cold first calls on the bundled corpus cost 0.8% more in
-  total (7% at most, on the form-heavy `f1040.pdf`), no corpus page renders or
-  extracts differently, and a sweep of 2,821 varied PDFs raised no refusal.
-  Migrating to hayro 0.8 instead was rejected for this fix: it changes the
-  raster output of 6 of the 20 compared corpus pages and does not bound nested
-  Type 4 function procedures.
+  leaves other pages usable. It models hayro's inline image handling: the
+  search for the end of an image, where hayro resumes when no `EI` ends it, and
+  the dictionaries that the search reads behind every `BI` byte pair, even one
+  inside a string or comment. Differential tests against hayro-syntax 0.7.2
+  with a recursion-depth probe, 8.7 billion exhaustive token sequences and 16
+  million random and mutated streams, found no stream that recurses past 64
+  levels and passes the scan, while each earlier model had let some through.
+  Cold first calls on the bundled corpus cost 1.0% more in total (9% at most,
+  on the form-heavy `f1040.pdf`), no corpus page renders or extracts
+  differently, and a sweep of 2,821 varied PDFs raised no refusal. Migrating to
+  hayro 0.8 instead was rejected for this fix: it changes the raster output of
+  6 of the 20 compared corpus pages and does not bound nested Type 4 function
+  procedures.
 - Three structures that are not content streams still overflow hayro 0.7 and
   0.8 and remain unguarded: a Type 4 (PostScript calculator) function stream
   with hundreds of thousands of nested braces, and chains of thousands of

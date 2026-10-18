@@ -460,8 +460,8 @@ overview.
   every stream of an unencrypted document under the configured budgets, and
   the guard decodes only streams that interpretation would decode anyway or
   that a resource dictionary lists. Cold first-call cost on the bundled corpus
-  is 0.8% in total (interleaved 5-round minimums, thin-LTO builds) and at most
-  7% on a two-page form-heavy document (`f1040.pdf`), where hayro resolves
+  is 1.0% in total (interleaved 5-round minimums, thin-LTO builds) and at most
+  9% on a two-page form-heavy document (`f1040.pdf`), where hayro resolves
   annotation dictionaries from object streams once for the walk and again to
   draw them.
   `rust/src/content_scan.rs` decides without recursion whether the decoded
@@ -495,8 +495,8 @@ overview.
   140 MB/s byte by byte; it must stay equivalent to `Lexer::step`, which is the
   specification, and must reset the token in progress when it recognizes `BI`
   because the bytes it skipped leave a stale one. Pathological 64 MiB inputs
-  (repeated `BI ID`, many `EI`, endless comments after `>>`) scan in about a
-  second at most, so keep every search bounded by the next scheduled position.
+  (repeated `BI ID`, `BI/`, or `EI`, endless comments after `>>`) scan in under
+  two seconds, so keep every search bounded by the next scheduled position.
   The model was validated against hayro-syntax 0.7.2 itself with scratch
   harnesses, not stored in the repository. They include `content_scan.rs` by
   path and a vendored copy of the crate whose recursive container parses
@@ -513,18 +513,23 @@ overview.
   modeling the `BI` search let 2 of 400,000 through (found by the
   stack-overflow campaign, then pinned by the depth oracle in 32 of 5.4
   million short sequences). So keep growing the generators and rerun every
-  oracle after any change to the lexer. The final scanner agrees on EXH_TOTAL
-  exhaustive token sequences, every sequence of up to nine tokens over
-  vocabularies of inline image keywords, strings, comments, signs, dots,
-  brackets, and dictionary delimiters, hayro reaching 65 levels in EXH_DEEP of
-  them, and on RAND_TOTAL random, structure-aware, and mutated corpus streams
-  with the depth oracle, and a final end-to-end stack-overflow campaign
-  refused all of its OVERFLOW_CRASHES overflowing streams among OVERFLOW_TOTAL.
+  oracle after any change to the lexer. The final scanner passes 8.7 billion
+  exhaustive token sequences, every sequence of up to four to ten tokens
+  (depending on the vocabulary) over vocabularies of inline image keywords,
+  strings, comments, signs, dots, brackets, and dictionary delimiters followed
+  by a balanced 70-deep array, dictionary, or mixed structure, hayro reaching
+  65 levels in 829 million of them, and 16 million random, structure-aware, and
+  mutated corpus streams, with no violation and no disagreement between the
+  optimized and the byte-wise scan. Two end-to-end checks agree: 400,000
+  streams on a 128 KiB thread stack, 92,907 of which overflowed hayro, were all
+  refused, and 40,000 streams through the Python API on a 512 KiB thread stack
+  never crashed the guarded build, while `main` crashed on 2,354 of 20,000.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
   inline image evasions, edits, and shared streams. A sweep of 2,821 varied
-  real-world PDFs (59,611 pages) raised no refusal.
+  real-world PDFs (59,611 pages) raised no refusal, and none of 60,111 page
+  streams, 99 of which hold inline images, was refused.
   On a hayro upgrade, re-read every `TypedIter::new`, `UntypedIter::new`, and
   `Stream::decoded` call site; a new content-parsing site must join the walk.
   hayro 0.8 bounds nesting itself, but rendering the first two pages of every
