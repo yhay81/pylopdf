@@ -75,10 +75,6 @@ def _structural_edit_pdf() -> bytes:
     return build_raw_pdf(objects)
 
 
-def _show_stamp(doc: pylopdf.Document) -> None:
-    doc[0].show_pdf_page((0, 0, 50, 50), pylopdf.Document(stream=build_pdf(["Stamp"])))
-
-
 @pytest.mark.parametrize(
     ("edit", "dropped"),
     [
@@ -89,9 +85,8 @@ def _show_stamp(doc: pylopdf.Document) -> None:
         (lambda doc: doc.set_toc([[1, "New outline", 1]]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.set_toc([]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Inserted"]))), []),
-        (_show_stamp, []),
     ],
-    ids=["delete_pages", "select", "new_page", "copy_page", "set_toc", "clear_toc", "insert_pdf", "show_pdf_page"],
+    ids=["delete_pages", "select", "new_page", "copy_page", "set_toc", "clear_toc", "insert_pdf"],
 )
 def test_structural_edits_drop_unreachable_objects(
     edit: Callable[[pylopdf.Document], object],
@@ -106,6 +101,52 @@ def test_structural_edits_drop_unreachable_objects(
     for marker in [b"ORPHAN-OBJECT", *dropped]:
         assert marker not in saved
     assert "KEPT-PAGE-CONTENT" in pylopdf.Document(stream=saved).get_page_text(0)
+
+
+def _source_with_unreachable_objects() -> pylopdf.Document:
+    """One page plus an outline, an annotation, an attachment, and an orphan."""
+    objects: dict[int, str | bytes] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /Names << /EmbeddedFiles << /Names [(a.txt) 8 0 R] >> >> >>",
+        2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+        3: "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Annots [7 0 R] /Resources << /Font << /F1 5 0 R >> >> >>",
+        4: _stream("SOURCE-PAGE-TEXT"),
+        5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /PylopdfProbe (KEPT-SOURCE-FONT) >>",
+        6: "<< /Type /Outlines /First 10 0 R /Last 10 0 R /Count 1 >>",
+        7: "<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (DROPPED-SOURCE-ANNOT) >>",
+        8: "<< /Type /Filespec /F (a.txt) /EF << /F 9 0 R >> >>",
+        9: "<< /Length 23 >>\nstream\nDROPPED-SOURCE-ATTACHED\nendstream",
+        10: "<< /Title (DROPPED-SOURCE-OUTLINE) /Parent 6 0 R /Dest [3 0 R /Fit] >>",
+        11: "(DROPPED-SOURCE-ORPHAN)",
+    }
+    return pylopdf.Document(stream=build_raw_pdf(objects))
+
+
+def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
+    """Placement imports the source objects its Form XObject reaches, not the rest.
+
+    The source page's own content stream, annotations, outline, attachments,
+    and orphans stay behind. Placement no longer sweeps the target either:
+    objects it already could not reach stay until a ``garbage=True`` save, as
+    after every other drawing edit.
+    """
+    doc = pylopdf.Document(stream=_structural_edit_pdf())
+    objects = doc.complexity["object_count"]
+
+    doc[0].show_pdf_page((0, 0, 50, 50), _source_with_unreachable_objects())
+
+    saved = doc.tobytes()
+    # The Form copies the source content, and its resources keep the font.
+    for kept in (b"SOURCE-PAGE-TEXT", b"KEPT-SOURCE-FONT", b"KEPT-PAGE-CONTENT", b"ORPHAN-OBJECT"):
+        assert kept in saved
+    for dropped in (b"SOURCE-ANNOT", b"SOURCE-ATTACHED", b"SOURCE-OUTLINE", b"SOURCE-ORPHAN"):
+        assert b"DROPPED-" + dropped not in saved
+    # The font, the Form XObject, the new content stream, and the q/Q pair
+    # that isolates the page's existing content.
+    assert doc.complexity["object_count"] == objects + 5
+    assert doc.embfile_names() == []
+    assert [entry[1] for entry in doc.get_toc()] == ["OLD-OUTLINE-TITLE"]
+    assert b"ORPHAN-OBJECT" not in doc.tobytes(garbage=True)
+    assert "SOURCE-PAGE-TEXT" in pylopdf.Document(stream=saved).get_page_text(0)
 
 
 def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:

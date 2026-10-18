@@ -7,9 +7,9 @@
 
 use std::collections::BTreeMap;
 
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
+use lopdf::{Dictionary, Object, ObjectId, Stream, dictionary};
 
-use crate::draw;
+use crate::draw::{self, ObjectSink};
 
 /// One OCR word: display-coordinate bbox plus text.
 pub type OcrWord = (f64, f64, f64, f64, String);
@@ -70,7 +70,7 @@ pub fn build_to_unicode(cid_map: &BTreeMap<char, u16>) -> Vec<u8> {
 ///
 /// No FontFile is embedded. Every CID uses DW=1000 (1 em); a horizontal text
 /// matrix scale fits each word to its actual width.
-pub fn add_ocr_font(doc: &mut Document, to_unicode_data: Vec<u8>) -> ObjectId {
+pub fn add_ocr_font(doc: &mut impl ObjectSink, to_unicode_data: Vec<u8>) -> ObjectId {
     let to_unicode =
         doc.add_object(Stream::new(Dictionary::new(), to_unicode_data).with_compression(false));
     let descriptor = doc.add_object(dictionary! {
