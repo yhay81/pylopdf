@@ -38,7 +38,7 @@ use crate::prune::prune_unreachable_objects;
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
-use crate::unallocated::null_unallocated_references;
+use crate::unallocated::normalize_object_numbers;
 use indexed::IndexedDocument;
 
 /// Bound interpreted text-page memory on long documents while retaining the
@@ -7836,7 +7836,7 @@ impl _Document {
                     decoder_limit_code,
                 )
             })?;
-            null_unallocated_references(&mut doc)?;
+            let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7848,7 +7848,9 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
+            // Image compression maps hayro's object IDs to lopdf's, which no
+            // longer match the original bytes once objects are renumbered.
+            let hayro_source = if doc.was_encrypted() || recovery.is_some() || renumbered {
                 HayroSource::Unavailable
             } else {
                 HayroSource::from_owned(data, limits.max_interpretation_size)
@@ -7931,7 +7933,7 @@ impl _Document {
         py.detach(|| {
             let (mut doc, recovery) = recovery::load_document(data, options)
                 .map_err(|error| recovery_load_err(None, &error, decoder_limit_code))?;
-            null_unallocated_references(&mut doc)?;
+            let renumbered = normalize_object_numbers(&mut doc)?;
             let decrypted = !doc.is_encrypted();
             let page_ids = validate_structural_limits(&doc, limits, decrypted)?;
             if decrypted {
@@ -7943,7 +7945,9 @@ impl _Document {
                     limits.max_total_decompressed_size,
                 )?;
             }
-            let hayro_source = if doc.was_encrypted() || recovery.is_some() {
+            // Image compression maps hayro's object IDs to lopdf's, which no
+            // longer match the original bytes once objects are renumbered.
+            let hayro_source = if doc.was_encrypted() || recovery.is_some() || renumbered {
                 HayroSource::Unavailable
             } else {
                 HayroSource::from_borrowed(data, limits.max_interpretation_size)?
