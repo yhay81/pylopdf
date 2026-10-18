@@ -7412,12 +7412,14 @@ impl _Document {
             .expect("constructed immediately before"))
     }
 
-    /// Return the hayro view after clearing the content of `pages` for nesting.
+    /// Return the hayro view after clearing `pages` for nesting.
     ///
     /// hayro 0.7 overflows its stack, and kills the process, on arrays or
-    /// dictionaries nested hundreds of thousands deep in a content stream. Every
-    /// path that lets hayro interpret a page therefore starts here; a refusal
-    /// raises `LimitError` before any interpretation or cache insertion.
+    /// dictionaries nested hundreds of thousands deep in a content stream, on
+    /// Type 4 function braces nested as deeply, and on chains of thousands of
+    /// colour spaces or functions that name each other. Every path that lets
+    /// hayro interpret a page therefore starts here; a refusal raises
+    /// `LimitError` before any interpretation or cache insertion.
     fn hayro_view_for(&mut self, pages: PageSelection<'_>) -> PyResult<&Arc<Pdf>> {
         self.hayro_view()?;
         let pdf = self
