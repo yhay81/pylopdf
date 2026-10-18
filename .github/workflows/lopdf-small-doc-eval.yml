@@ -62,7 +62,7 @@ jobs:
           python_bin="venv-pylopdf/bin/python"
           [[ -x "${python_bin}" ]] || python_bin="venv-pylopdf/Scripts/python.exe"
           "${python_bin}" -m pip install --quiet pylopdf==0.14.0
-          echo "PYLOPDF_PYTHON=${python_bin}" >>"$GITHUB_ENV"
+          echo "PYLOPDF_PYTHON=$(pwd)/${python_bin}" >>"$GITHUB_ENV"
       - name: Write the inputs
         run: bash "${EVAL}/inputs.sh" work . "${PYLOPDF_PYTHON}"
       - name: Check that every build loads the same documents
