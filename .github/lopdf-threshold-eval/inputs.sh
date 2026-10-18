@@ -34,8 +34,10 @@ cp "${repo}"/tests/assets/real_world/*.pdf pdfs/
 for asset in AnnotationDemo Incremental example unicode; do
     cp "lopdf-main/assets/${asset}.pdf" pdfs/
 done
-# First pages of the real-world documents, and some joined together.
-rw="${repo}/tests/assets/real_world"
+# First pages of the real-world documents, and some joined together. The
+# sources are the copies in pdfs/: Git Bash on Windows does not convert an
+# absolute path inside an argument such as PATH:PAGES for native programs.
+rw=pdfs
 senate="${rw}/senate-expenditures.pdf"
 nics="${rw}/nics-background-checks-2015-11.pdf"
 patent="${rw}/patent-us223898.pdf"
