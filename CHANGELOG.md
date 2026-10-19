@@ -81,6 +81,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays at 3.0.0 because 3.1 publishes only x86-64 Linux wheels, and the
   Pyodide build keeps Rust 1.95.0, maturin 1.14.1, and pyodide-build 0.30.7 as
   part of its Pyodide 0.28.3 contract.
+- Parity with pymupdf is measured instead of claimed (ROADMAP.md F3).
+  `api/pymupdf-parity.json` classifies the 948 public API entries of pymupdf
+  1.28.0, from module functions and constants grouped by prefix to the members
+  of 20 classes. 97 are available today and 659 are planned with their
+  ROADMAP.md milestone; 694 of these keep pymupdf's name and meaning, and 62
+  are replaced by a different pylopdf API with a migration hint. The other 192
+  are non-goals. The 66 entries that the API reset (M0) touches record its 37
+  changes. `tools/check_parity.py` runs in the test suite: available entries
+  must name a symbol in `api/public-api.json`, planned entries a milestone, and
+  replaced entries a hint, and it reports coverage per class and the M0
+  changes. The development-only
+  `tools/pymupdf_inventory.py` lists pymupdf's API from the `bench` group so
+  that the manifest stays complete.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
