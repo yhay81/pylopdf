@@ -41,7 +41,7 @@ def test_every_native_release_wheel_runs_on_its_own_architecture() -> None:
         assert "matrix.platform.smoke" not in job
         assert "runs-on: ${{ matrix.platform.runner }}" in job
         assert "target: ${{ matrix.platform.target }}" in job
-        assert 'rust-toolchain: "1.99.0"' in job
+        assert 'rust-toolchain: "1.99.1"' in job
         assert "python tools/smoke_artifact.py dist" in job
         assert job.index("Smoke-test installed") < job.index("Attest")
 

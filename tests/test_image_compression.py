@@ -418,10 +418,10 @@ def test_compress_images_does_not_count_inline_images() -> None:
 @pytest.mark.parametrize("dpi", [True, 0, 35, 2401, float("inf"), "150"])
 def test_compress_images_rejects_invalid_dpi(dpi: object) -> None:
     with pytest.raises(pylopdf.PdfError, match="dpi must"):
-        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(dpi=dpi)  # type: ignore[arg-type]
+        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(dpi=dpi)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("quality", [True, 0, 101, 75.5, "75"])
 def test_compress_images_rejects_invalid_quality(quality: object) -> None:
     with pytest.raises(pylopdf.PdfError, match="quality must"):
-        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(quality=quality)  # type: ignore[arg-type]
+        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(quality=quality)  # ty: ignore[invalid-argument-type]

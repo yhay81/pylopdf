@@ -57,11 +57,13 @@ features = ["pyo3/extension-module"]
 
 [dependency-groups]
 dev = [
-    "maturin>=1.14.1",
-    "mypy>=1.14",
+    "maturin>=1.15.0",
     "pre-commit>=4.6.1",
     "pytest>=8.3",
-    "ruff>=0.16.0",
+    "ruff>=0.17.1",
+    # ty is pre-1.0 and its diagnostics change between releases; uv.lock pins
+    # the version that CI and the pre-commit hook run.
+    "ty>=0.0.89",
     "typing-extensions>=4.6",
 ]
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
@@ -81,7 +83,8 @@ docs = [
 ]
 # Coverage-guided public-API fuzzing; Linux/macOS only.
 fuzz = [
-    # Atheris 3.1 has no source distribution for the Linux ARM64 runner.
+    # Atheris 3.1 ships only x86-64 Linux wheels and no source distribution;
+    # the 3.0.0 source distribution still builds on macOS and Linux ARM64.
     "atheris==3.0.0",
 ]
 
@@ -126,35 +129,24 @@ pylopdf-ocr-models = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-[[tool.mypy.overrides]]
-# pypdf is used only by a manually run fixture generator, not as a dev dependency.
-module = "pypdf.*"
-ignore_missing_imports = true
+[tool.ty.src]
+# Check the package and its tests. ty reads the Python 3.10 floor from
+# project.requires-python.
+include = ["src", "tests"]
 
-[[tool.mypy.overrides]]
-# Allow type checking without locale-specific font extras installed.
-module = [
-    "pylopdf_fonts_ar",
-    "pylopdf_fonts_he",
-    "pylopdf_fonts_hi",
-    "pylopdf_fonts_jp",
-    "pylopdf_fonts_ko",
-    "pylopdf_fonts_th",
-    "pylopdf_fonts_zh_cn",
-    "pylopdf_fonts_zh_tw",
+[tool.ty.analysis]
+# Modules that a regular development environment may not install: pypdf is
+# used only by a manually run fixture generator, the locale font and OCR model
+# packages come from extras, and typst, pyHanko, and cryptography (transitive
+# through pyHanko) come from the interop group.
+allowed-unresolved-imports = [
+    "pypdf.**",
+    "pylopdf_fonts_*",
+    "pylopdf_ocr_models",
+    "typst",
+    "pyhanko.**",
+    "cryptography.**",
 ]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# Allow type checking without the OCR model extra installed.
-module = "pylopdf_ocr_models"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# Allow type checking without the interop test group.
-# cryptography is transitive through pyHanko and absent from the regular dev group.
-module = ["typst", "pyhanko.*", "cryptography", "cryptography.*"]
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120

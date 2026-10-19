@@ -6,7 +6,7 @@ Describe the user-visible problem and the chosen solution.
 
 - [ ] Added or updated Python tests
 - [ ] Ran the relevant pytest suite
-- [ ] Ran Ruff and mypy
+- [ ] Ran Ruff and ty
 - [ ] Ran rustfmt and Clippy when Rust changed
 - [ ] Updated `CHANGELOG.md` for user-visible changes
 - [ ] Updated canonical English documentation when behavior or API changed

@@ -59,6 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `garbage=True` save or a structural edit, as after the other drawing
   edits. Form-field appearances no longer keep the generated page's two
   unreachable objects, about 1 KB per filled field.
+- Type checking uses ty instead of mypy. `uv run ty check` covers `src` and
+  `tests` at the Python 3.10 floor that `requires-python` declares, and CI and
+  the pre-commit hook run the ty version that `uv.lock` pins. mypy's
+  `type: ignore[...]` comments became rule-specific `ty: ignore[...]`
+  comments, and two casts that ty narrows by itself were removed.
+- Development tooling moves to current releases: Ruff 0.17.1 (whose new
+  `datetime` import convention one test now follows), maturin 1.15.0 for native
+  release wheels, Rust 1.99.1, uv 0.13.1, every pinned GitHub Action, the
+  pre-commit hooks, and every locked development, documentation, interop, and
+  benchmark dependency, including Zensical 0.0.71 and pyHanko 0.38. Atheris
+  stays at 3.0.0 because 3.1 publishes only x86-64 Linux wheels, and the
+  Pyodide build keeps Rust 1.95.0, maturin 1.14.1, and pyodide-build 0.30.7 as
+  part of its Pyodide 0.28.3 contract.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead

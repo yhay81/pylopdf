@@ -236,12 +236,12 @@ def test_password_input_is_bounded_before_save_mutation(
     kwargs = {password_field: "é" * 64}
 
     with pytest.raises(pylopdf.LimitError) as memory_limit:
-        doc.tobytes(garbage=True, **kwargs)  # type: ignore[arg-type]
+        doc.tobytes(garbage=True, **kwargs)  # ty: ignore[invalid-argument-type]
     assert memory_limit.value.code == "password_input_size"
     assert doc.tobytes() == before
 
     output = tmp_path / "oversized-password.pdf"
     with pytest.raises(pylopdf.LimitError) as file_limit:
-        doc.save(output, **kwargs)  # type: ignore[arg-type]
+        doc.save(output, **kwargs)  # ty: ignore[invalid-argument-type]
     assert file_limit.value.code == "password_input_size"
     assert not output.exists()

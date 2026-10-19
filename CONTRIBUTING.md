@@ -33,7 +33,7 @@ uv sync --all-extras --group interop
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src tests
+uv run ty check
 cargo fmt --manifest-path rust/Cargo.toml --check
 cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
 ```

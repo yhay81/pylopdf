@@ -176,7 +176,7 @@ def test_ocr_layer_rejects_empty() -> None:
     with pytest.raises(ValueError, match="words"):
         doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "")])
     with pytest.raises(pylopdf.OcrError, match="rotation"):
-        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # type: ignore[arg-type]
+        doc[0].insert_ocr_text_layer([(10, 10, 50, 20, "Text")], rotation=45)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_layer_bounds_generator_words_before_full_materialization() -> None:

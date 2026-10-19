@@ -101,7 +101,7 @@ def test_pdfa_claim_normalizes_filter_abbreviations_and_reports_decode_errors() 
 def test_pdfa_claim_rejects_non_integer_size_limits(max_size: object) -> None:
     doc = pylopdf.open(stream=build_pdf(["plain"]))
     with pytest.raises(TypeError, match="max_size"):
-        doc.get_pdfa_claim(max_size=max_size)  # type: ignore[arg-type]
+        doc.get_pdfa_claim(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
