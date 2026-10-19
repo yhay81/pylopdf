@@ -31,6 +31,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
+use crate::acroform_import::AcroFormImport;
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
@@ -81,9 +82,9 @@ const MAX_PAGE_LABEL_TREE_DEPTH: usize = 32;
 const MAX_FORM_FIELD_ENTRIES: usize = 4_096;
 const MAX_FORM_FIELD_TREE_NODES: usize = 4_096;
 const MAX_FORM_FIELD_TREE_EDGES: usize = 8_192;
-const MAX_FORM_FIELD_TREE_DEPTH: usize = 64;
-const MAX_FORM_FIELD_WIDGETS: usize = 4_096;
-const MAX_FORM_FIELD_NAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FORM_FIELD_TREE_DEPTH: usize = 64;
+pub(crate) const MAX_FORM_FIELD_WIDGETS: usize = 4_096;
+pub(crate) const MAX_FORM_FIELD_NAME_BYTES: usize = 1024 * 1024;
 const MAX_FORM_FIELD_VALUE_BYTES: usize = 1024 * 1024;
 const MAX_FORM_FIELD_VALUE_ITEMS: usize = 4_096;
 const MAX_FORM_BUTTON_STATE_ENTRIES: usize = 8_192;
@@ -91,7 +92,7 @@ const MAX_FORM_BUTTON_STATE_NAMES: usize = 4_096;
 const MAX_FORM_BUTTON_STATE_NAME_BYTES: usize = 1024 * 1024;
 
 /// Bound page annotation/link interpretation and generated annotation input.
-const MAX_PAGE_ANNOTATIONS: usize = 4_096;
+pub(crate) const MAX_PAGE_ANNOTATIONS: usize = 4_096;
 const MAX_ANNOTATION_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
@@ -576,7 +577,7 @@ type FormFieldEntry = (String, ObjectId, Arc<String>, i64, Option<Arc<str>>);
 type WidgetStateNames = (ObjectId, Vec<Vec<u8>>);
 
 /// Resolve one reference level, returning the original object on failure.
-fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
+pub(crate) fn deref_object<'a>(doc: &'a Document, obj: &'a Object) -> &'a Object {
     match obj {
         Object::Reference(id) => doc.get_object(*id).unwrap_or(obj),
         other => other,
@@ -2496,7 +2497,7 @@ fn page_resource_shape_error(label: &str, detail: &str, limit: usize) -> PyErr {
 ///
 /// Indirect references are leaves; their target dictionaries are validated
 /// separately when selected as Resources or the requested resource category.
-fn validate_page_resource_shape(dict: &Dictionary, label: &str) -> PyResult<()> {
+pub(crate) fn validate_page_resource_shape(dict: &Dictionary, label: &str) -> PyResult<()> {
     if dict.len() > MAX_PAGE_RESOURCE_ENTRIES {
         return Err(page_resource_shape_error(
             label,
@@ -3348,7 +3349,7 @@ fn deref_dict_ref<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Dictiona
 }
 
 /// Preserve control characters that PDFDocEncoding intentionally leaves unmapped.
-fn form_text_string(text: &str) -> Object {
+pub(crate) fn form_text_string(text: &str) -> Object {
     if !text.chars().any(char::is_control) {
         return text_string(text);
     }
@@ -3647,7 +3648,7 @@ fn synthesize_missing_text_markup_appearances_for_render(
 }
 
 /// Read an integer while allowing an indirect reference.
-fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
+pub(crate) fn resolve_i64(doc: &Document, obj: &Object) -> Option<i64> {
     match obj {
         Object::Reference(id) => doc.get_object(*id).ok()?.as_i64().ok(),
         other => other.as_i64().ok(),
@@ -5201,7 +5202,7 @@ fn try_lossy_form_string(value: &[u8], label: &str) -> PyResult<String> {
 /// indirect null, and such a reference inherit from the parent field as an
 /// absent key does. Any other value, including an unusable one and a cyclic or
 /// over-long reference chain, belongs to the field and stops inheritance.
-fn inheritable_field_value<'a>(
+pub(crate) fn inheritable_field_value<'a>(
     doc: &'a Document,
     field: &'a Dictionary,
     key: &[u8],
@@ -5219,7 +5220,7 @@ fn inheritable_field_value<'a>(
 }
 
 /// Decode one field-name component while bounding encoded and decoded text.
-fn bounded_form_text(
+pub(crate) fn bounded_form_text(
     doc: &Document,
     object: &Object,
     encoded_bytes: &mut usize,
@@ -5367,7 +5368,7 @@ fn bounded_form_value(
 /// ISO 32000-2 §7.3.7 treats a null dictionary value as an omitted key, and
 /// §7.3.10 reads a reference to a missing object as null. A cyclic or
 /// over-long reference chain is an unusable value rather than null.
-fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
+pub(crate) fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
     match object {
         Object::Null => true,
         Object::Reference(id) => matches!(
@@ -5379,7 +5380,7 @@ fn is_null_equivalent(doc: &Document, object: &Object) -> bool {
 }
 
 /// One AcroForm `/Kids` entry as every field-tree reader classifies it.
-enum FieldKid<'a> {
+pub(crate) enum FieldKid<'a> {
     /// A dictionary with its own partial field name.
     Field(ObjectId),
     /// A dictionary without one or kids to fold, which is a widget of the
@@ -5402,7 +5403,7 @@ enum FieldKid<'a> {
 /// Mark one AcroForm field-tree node visited within the node limit.
 ///
 /// Returns false when the node was already visited.
-fn visit_form_node(visited: &mut HashSet<ObjectId>, id: ObjectId) -> PyResult<bool> {
+pub(crate) fn visit_form_node(visited: &mut HashSet<ObjectId>, id: ObjectId) -> PyResult<bool> {
     if visited.contains(&id) {
         return Ok(false);
     }
@@ -5423,7 +5424,7 @@ fn visit_form_node(visited: &mut HashSet<ObjectId>, id: ObjectId) -> PyResult<bo
 }
 
 /// Add the entries of one `/Kids` array to the AcroForm field-tree edges.
-fn add_form_tree_edges(edges: &mut usize, count: usize) -> PyResult<()> {
+pub(crate) fn add_form_tree_edges(edges: &mut usize, count: usize) -> PyResult<()> {
     *edges = edges
         .checked_add(count)
         .ok_or_else(|| PdfError::new_err("AcroForm field tree exceeds the platform size limit"))?;
@@ -5436,13 +5437,13 @@ fn add_form_tree_edges(edges: &mut usize, count: usize) -> PyResult<()> {
 }
 
 /// Borrow a field's `/Kids` array, reading any other value as an absent entry.
-fn field_kids<'a>(doc: &'a Document, field: &'a Dictionary) -> Option<&'a [Object]> {
+pub(crate) fn field_kids<'a>(doc: &'a Document, field: &'a Dictionary) -> Option<&'a [Object]> {
     let kids = field.get(b"Kids").ok()?;
     deref_object(doc, kids).as_array().ok().map(Vec::as_slice)
 }
 
 /// Treat a dictionary with `/Subtype /Widget` or a `/Rect` as a widget annotation.
-fn looks_like_widget(dict: &Dictionary) -> bool {
+pub(crate) fn looks_like_widget(dict: &Dictionary) -> bool {
     dict.get(b"Subtype")
         .and_then(Object::as_name)
         .is_ok_and(|name| name == b"Widget")
@@ -5465,7 +5466,7 @@ fn looks_like_widget(dict: &Dictionary) -> bool {
 /// other nameless kid is a widget of its parent field: an absent,
 /// null-equivalent, non-array, or empty `/Kids` names no kids to fold, and a
 /// field with such a `/Kids` is its own widget.
-fn classify_field_kid<'a>(doc: &'a Document, kid: &Object) -> FieldKid<'a> {
+pub(crate) fn classify_field_kid<'a>(doc: &'a Document, kid: &Object) -> FieldKid<'a> {
     let Object::Reference(id) = kid else {
         return FieldKid::Ignored;
     };
@@ -5878,7 +5879,8 @@ impl _Document {
     ///
     /// Such an edit only adds objects; replaces page dictionaries; rewrites
     /// the page tree, the catalog, the document information dictionary, or
-    /// navigation structures (outlines, name trees, and annotations); or
+    /// navigation structures (outlines, name trees, and annotations); adds
+    /// fields and new default-resource names to the interactive form; or
     /// removes unreachable objects. Placement reuse checks that an object
     /// still exists, which covers the removal. Like every edit, it gives the
     /// document a new revision.
@@ -7999,15 +8001,18 @@ impl _Document {
     /// Import selected one-based pages from `other` in order into self's object
     /// space and return their ObjectIds; the caller connects root Kids.
     ///
-    /// `other_pages` is `other`'s page-tree order. Materialize inherited page
-    /// attributes and repoint Parent to root Pages.
+    /// `other_pages` is `other`'s page-tree order, and `page_numbers` must be
+    /// unique. Materialize inherited page attributes and repoint Parent to
+    /// root Pages. The returned AcroForm import registers the fields of the
+    /// imported pages once the caller has connected them.
     fn transplant_pages(
         &mut self,
         other: &Self,
         mut other_pages: Vec<ObjectId>,
         page_numbers: &[u32],
         pages_id: ObjectId,
-    ) -> PyResult<Vec<ObjectId>> {
+    ) -> PyResult<(Vec<ObjectId>, Option<AcroFormImport>)> {
+        let complete = page_numbers.len() == other_pages.len();
         let starting_id = self
             .doc
             .max_id
@@ -8071,6 +8076,16 @@ impl _Document {
                 other_doc.objects.insert(id, Object::Dictionary(annotation));
             }
         }
+        let form_import = AcroFormImport::prepare(
+            &self.doc,
+            &mut other_doc,
+            &other_pages,
+            &imported_pages,
+            complete,
+        )?;
+        if let Some(form_import) = &form_import {
+            form_import.reserve(&mut self.doc)?;
+        }
 
         // Import objects outside the Catalog/Pages/Page tree.
         for (id, object) in other_doc.objects {
@@ -8086,7 +8101,7 @@ impl _Document {
         }
 
         self.doc.max_id = new_max_id;
-        Ok(ordered_ids)
+        Ok((ordered_ids, form_import))
     }
 
     /// Return current pages with `new_ids` inserted at zero-based `position`.
@@ -9867,10 +9882,14 @@ impl _Document {
         py.detach(|| {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
-            let new_ids = self.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
+            let (new_ids, form_import) =
+                self.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
             self.invalidate_hayro_pdf_keeping_placements();
             let order = Self::spliced_page_order(existing_pages, new_ids, position)?;
             self.rebuild_page_tree(pages_id, order)?;
+            if let Some(form_import) = form_import {
+                form_import.apply(&mut self.doc);
+            }
             // transplant_pages initially moves all non-page objects. Prune
             // attachments/metadata unreachable from selected pages or hidden
             // source data remains even for a full-range append.

@@ -288,6 +288,11 @@ Rustが標準エラー出力に書き出します。
   拒否します。参照cycleは一度だけ訪問し、継承値は返却leafごとに課金します。
   fillにも同じtree上限とcaller名／値1 MiB上限を原子的に適用し、font探索・button
   lookup・file読込前の拒否には`form_field_input_size`を使います。
+- `insert_pdf()`は取り込み先を変更する前に、最上位のfield名を1 MiBのname予算内で
+  比較し、ページ範囲の指定時は同じnode・edge・widget・深さの上限で取り込み元の
+  field treeを走査します。全ページの取り込みはfield treeを走査せずにコピーします。
+  共有のための既定リソース2件の比較は4,096 object・1 MiBまでで、それを超える組は
+  改名します。
 - AcroForm button fieldは4,096 widget、8,192 normal appearance state entry、
   4,096 unique returned state name、encoded/returned state-name text 1 MiBを
   超えると拒否します。fillは不足する`Off`/on state keyを変更前に課金します。
