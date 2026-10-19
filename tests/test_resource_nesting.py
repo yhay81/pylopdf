@@ -32,7 +32,7 @@ CRASH_BRACES = 300_000
 CRASH_CHAIN = 20_000
 #: The deepest braces and chain that reach hayro's recursive builders.
 BRACE_LIMIT = 64
-CHAIN_LIMIT = 32
+CHAIN_LIMIT = 16
 SOME_OPERATIONS = ["get_page_text", "get_pixmap", "render_page_svg"]
 
 
@@ -80,8 +80,11 @@ TYPE2 = "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0.5 0] /N 1 >>"
 
 
 def _valid_program(depth: int) -> str:
-    """Write a program that nests `depth` levels of braces and still evaluates to three values."""
-    return "{ " + "dup 0.5 gt { " * (depth - 1) + "dup " + "} if " * (depth - 1) + "dup dup }"
+    """Write a program that nests `depth` levels of braces and evaluates to three values for every input.
+
+    The innermost procedure leaves the stack as it found it, so the values do not depend on which branches run.
+    """
+    return "{ " + "dup 0.5 gt { " * (depth - 1) + "1 mul " + "} if " * (depth - 1) + "dup dup }"
 
 
 def type4_program(parts: Parts, depth: int) -> str:
@@ -155,9 +158,13 @@ def icc_chain(parts: Parts, depth: int) -> str:
 
 
 def pattern_nesting(parts: Parts, depth: int) -> str:
-    """Direct Pattern spaces inside one another: `depth` nodes, none of them an object of its own."""
+    """Direct Pattern spaces inside one another: `depth` nodes, none of them an object of its own.
+
+    The innermost base is DeviceRGB, which hayro also takes when it reads one name too many in `[/Pattern /DeviceGray]`
+    (LaurenzV/hayro#1546), so every reading delivers three components.
+    """
     del parts
-    return "[/Pattern " * depth + "/DeviceGray" + "]" * depth
+    return "[/Pattern " * depth + "/DeviceRGB" + "]" * depth
 
 
 def ring(parts: Parts, depth: int) -> str:
@@ -217,7 +224,7 @@ COLOUR_SPACES = {
     "separation": Structure(separation_chain),
     "devicen": Structure(devicen_chain, components=2),
     "icc": Structure(icc_chain),
-    "pattern": Structure(pattern_nesting),
+    "pattern": Structure(pattern_nesting, components=3),
 }
 
 
@@ -307,8 +314,9 @@ def indirect_tint_transform(parts: Parts, function: str, _: int) -> tuple[str, s
 
 
 def devicen_tint_transform(parts: Parts, function: str, _: int) -> tuple[str, str]:
-    space = parts.add(f"[/DeviceN [/A /B] /DeviceRGB {function}]")
-    return f"/ColorSpace << /Cs1 {space} 0 R >> ", "/Cs1 cs " + _fill(2)
+    """Name one colourant: every function structure takes one input, and a Type 4 program cannot count its inputs."""
+    space = parts.add(f"[/DeviceN [/A] /DeviceRGB {function}]")
+    return f"/ColorSpace << /Cs1 {space} 0 R >> ", "/Cs1 cs " + _fill(1)
 
 
 def _image(parts: Parts, space: str, components: int) -> tuple[str, str]:
@@ -437,6 +445,23 @@ def widget_scope(parts: Parts, resources: str, content: str) -> bytes:
     return annotation_scope(parts, resources, content, "/Subtype /Widget /FT /Tx /T (name) /V (value)")
 
 
+def appearance_state_scope(parts: Parts, resources: str, content: str, state: str = "/On") -> bytes:
+    """Draw from the state of a check box's `/AP /N` dictionary that hayro selects: `/AS`, else `/Off`."""
+    form = "/Type /XObject /Subtype /Form /BBox [0 0 190 50] "
+    drawn = parts.add(_stream(content, form + f"/Resources << {resources}>> "))
+    other = parts.add(_stream("0 0 m", form))
+    names = ("/Off", "/On") if state == "/Gone" else ("/On", "/Off")
+    annotation = parts.add(
+        f"<< /Type /Annot /Subtype /Widget /FT /Btn /T (box) /AS {state} /Rect [10 150 200 200] "
+        f"/AP << /N << {names[0]} {drawn} 0 R {names[1]} {other} 0 R >> >> >>"
+    )
+    return parts.build("", "0 0 m", page=f"/Annots [{annotation} 0 R] ")
+
+
+def off_state_scope(parts: Parts, resources: str, content: str) -> bytes:
+    return appearance_state_scope(parts, resources, content, "/Gone")
+
+
 def tiling_pattern_scope(parts: Parts, resources: str, content: str) -> bytes:
     attributes = "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 "
     pattern = parts.add(_stream(content, attributes + f"/Resources << {resources}>> "))
@@ -469,6 +494,8 @@ SCOPES: dict[str, Callable[[Parts, str, str], bytes]] = {
     "nested-form": nested_form_scope,
     "annotation": annotation_scope,
     "widget": widget_scope,
+    "appearance-state": appearance_state_scope,
+    "off-state": off_state_scope,
     "tiling-pattern": tiling_pattern_scope,
     "glyph": glyph_scope,
     "soft-mask": soft_mask_scope,
@@ -587,13 +614,25 @@ def test_a_painted_chain_at_the_limit_is_interpreted(case: str) -> None:
     assert doc[0].get_pixmap().width == 300
 
 
-@pytest.mark.parametrize("depth", [CHAIN_LIMIT + 1, 60, 90])
+@pytest.mark.parametrize("depth", [CHAIN_LIMIT + 1, 60, 61])
 def test_directly_nested_spaces_are_a_chain_too(depth: int) -> None:
     """Spaces nested inside one another cost as many levels as spaces that reference each other."""
     doc = pylopdf.Document(stream=CASES["pattern-resource"](depth))
 
     assert _refusal(lambda: doc.get_page_text(0)).code == CODE
     assert _refusal(doc[0].get_pixmap).code == CODE
+
+
+@pytest.mark.parametrize("depth", [62, 90])
+def test_a_page_too_deep_for_hayro_to_read_is_refused_as_such(depth: int) -> None:
+    """Refuse the page itself: hayro reads no page dictionary nested more than 64 levels deep.
+
+    The page, its `/Resources`, and its `/ColorSpace` dictionary are the three levels above the spaces.
+    """
+    doc = pylopdf.Document(stream=CASES["pattern-resource"](depth))
+
+    assert _refusal(lambda: doc.get_page_text(0)).code == "object_depth"
+    assert _refusal(doc[0].get_pixmap).code == "object_depth"
 
 
 @pytest.mark.parametrize("structure", ["separation", "devicen"])
@@ -814,7 +853,7 @@ def test_refusals_name_where_the_structure_is() -> None:
     chain = pylopdf.Document(stream=CASES["stitching-shading"](CHAIN_LIMIT + 1))
     message = str(_refusal(lambda: chain.get_page_text(0)))
     assert "chain of colour spaces and functions that starts at" in message
-    assert "reachable from page 1 is deeper than the 32-level limit" in message
+    assert f"reachable from page 1 is deeper than the {CHAIN_LIMIT}-level limit" in message
 
     program = pylopdf.Document(stream=CASES["type4-shading"](BRACE_LIMIT + 1))
     assert "Type 4 function 5 0 R reachable from page 1 nests procedures deeper than the 64-level limit" in str(
@@ -875,22 +914,25 @@ def _two_pages(parts: Parts, first: str, second: str) -> bytes:
     )
 
 
+RING = 5
+
+
 @pytest.mark.parametrize("order", [(0, 1), (1, 0)])
 @pytest.mark.parametrize(
     ("above", "refused"),
     [
-        ((20, 5), ()),
-        ((22, 22), ()),
-        ((23, 5), (0,)),
-        ((5, 23), (1,)),
+        ((CHAIN_LIMIT - RING - 3, 3), ()),
+        ((CHAIN_LIMIT - RING, CHAIN_LIMIT - RING), ()),
+        ((CHAIN_LIMIT - RING + 1, 3), (0,)),
+        ((3, CHAIN_LIMIT - RING + 1), (1,)),
     ],
 )
 def test_roots_that_share_a_cycle_are_measured_alike_in_any_order(
     above: tuple[int, int], refused: tuple[int, ...], order: tuple[int, int]
 ) -> None:
-    """A ring of ten costs ten levels below any chain that names it, whichever page is checked first."""
+    """A ring of five costs five levels below any chain that names it, whichever page is checked first."""
     parts = Parts(first=6)
-    member = ring(parts, 10)
+    member = ring(parts, RING)
     resources = [
         f"/Shading << /Sh1 << {SHADING}/Function {chain_into(parts, length, member)} >> >> " for length in above
     ]
@@ -1013,15 +1055,15 @@ def test_an_object_that_many_entries_name_is_read_once(name: str) -> None:
 
 
 def test_shared_sub_graphs_are_measured_once() -> None:
-    """Thirty levels that each name the next one twice have a billion paths and a depth of thirty."""
+    """Sixteen levels that each name the next one four times have a billion paths and a depth of sixteen."""
     parts = Parts()
-    first = parts.reserve(30)
-    for index in range(30):
+    first = parts.reserve(CHAIN_LIMIT)
+    for index in range(CHAIN_LIMIT):
         number = first + index
-        if index < 29:
+        if index < CHAIN_LIMIT - 1:
             parts.objects[number] = (
-                f"<< /FunctionType 3 /Domain [0 1] /Functions [{number + 1} 0 R {number + 1} 0 R] "
-                "/Bounds [0.5] /Encode [0 1 0 1] >>"
+                f"<< /FunctionType 3 /Domain [0 1] /Functions [{f'{number + 1} 0 R ' * 4}] "
+                "/Bounds [0.25 0.5 0.75] /Encode [0 1 0 1 0 1 0 1] >>"
             )
         else:
             parts.objects[number] = TYPE2
@@ -1411,15 +1453,15 @@ def test_wide_stitching_functions_are_not_deep() -> None:
     assert doc[0].get_pixmap().width == 300
 
 
-@pytest.mark.parametrize("levels", [15, 16])
+@pytest.mark.parametrize("levels", [CHAIN_LIMIT // 2 - 1, CHAIN_LIMIT // 2])
 def test_an_indirect_functions_array_is_a_level_of_its_own(levels: int) -> None:
     """A `/Functions` array that is an object of its own is a node, so each level of the chain is two."""
     parts = Parts()
     resources, _ = shading(parts, stitching_through_arrays(parts, levels), 3)
     doc = pylopdf.Document(stream=page_scope(parts, resources, "0 0 m"))
 
-    # Fifteen levels are 31 nodes with the Type 2 function at the end, sixteen are 33.
-    if levels > 15:
+    # Seven levels are 15 nodes with the Type 2 function at the end, eight are 17.
+    if levels >= CHAIN_LIMIT // 2:
         assert _refusal(partial(doc.get_page_text, 0)).code == CODE
     else:
         assert doc.get_page_text(0) is not None

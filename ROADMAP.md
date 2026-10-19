@@ -1,1309 +1,898 @@
 # pylopdf roadmap
 
-This is the canonical medium-term plan. It began with a 2026-07-22 survey of
-the market and upstream projects (all APIs in lopdf 0.44, all hayro 0.7 crates,
-and the Python PDF ecosystem), followed by a 2026-07-23 deeper review of areas
-outside the intended core: krilla, typst, pure-Rust OCR, digital signatures, and
-HTML-to-PDF. Current competitive claims were reviewed again on 2026-07-25.
-Survey sections at the end are dated snapshots, not rolling current claims.
+This is the canonical medium-term plan. It was rewritten on 2026-10-19 around
+one program: **give Python developers everything pymupdf offers for PDF files,
+under the MIT license, without giving up what makes pylopdf different** — a
+pure-Rust core, small wheels, bounded behavior on untrusted input, a supported
+concurrency contract, WebAssembly deployment, and first-class CJK and
+multilingual text.
 
-See [AGENTS.md](AGENTS.md) for day-to-day development context and
-[CHANGELOG.md](CHANGELOG.md) for completed changes.
+The previous roadmap's dated release narratives (v0.5–v0.14), its 2026-10-13
+stabilization review, and its 2026-07 surveys remain in Git history
+(`git show a233814:ROADMAP.md`) and in [CHANGELOG.md](CHANGELOG.md). Evidence
+that still drives decisions is condensed in the [evidence log](#evidence-log).
+[AGENTS.md](AGENTS.md) remains the day-to-day development context.
 
-## Current priorities: 2026-10-13 review
+## Goal
 
-The review baseline is main commit `4b16cdd`, version 0.13.0. The project
-already has locale fonts, OCR, encryption, a redistributable real-world corpus,
-and installed-artifact checks. The next work strengthens correctness,
-verification, and maintainability. The release sections below retain the
-historical record; this section defines the current execution order.
+pylopdf reaches **parity** when every capability of pymupdf 1.28's public API
+that applies to PDF documents is available — under pymupdf's name with
+pymupdf's meaning, or through a redesigned pylopdf API that replaces it — or is
+listed as a reasoned non-goal with an ecosystem answer. Parity is about
+capabilities, not about copying every name. It **exceeds** pymupdf where
+pymupdf structurally cannot follow:
 
-| Order | Focus | Completion condition |
+- One API with one way to do each task, typed results, and no hidden state.
+- MIT licensing for the complete feature set, including layout analysis;
+  pymupdf is AGPL and pymupdf-layout is PolyForm Noncommercial.
+- Typed, bounded refusal (`LimitError`) on every untrusted-input path instead
+  of best-effort behavior.
+- A supported concurrency contract on GIL-enabled and free-threaded CPython.
+- PyEmscripten and Cloudflare Python Workers deployment.
+- CJK, vertical, right-to-left, and complex-script quality backed by a
+  licensed real-world corpus.
+- Verifiable results: redaction that proves removal, structure-aware
+  extraction from tagged PDFs, and benchmarks that publish wins and losses.
+
+Parity is measured, not asserted. The [parity manifest](#f3--parity-manifest)
+maps each pymupdf API to its pylopdf status, CI keeps that map honest, and the
+same map drives the [migration tools](#f9--migration-tooling).
+
+## Baseline: 2026-10-19
+
+Main is `a233814`: 0.14.0 plus 32 merged pull requests, mostly hardening,
+performance, and tooling.
+
+**Already covered.** Page organization (merge, select, insert,
+rotate, MediaBox/CropBox, labels, TOC), text extraction
+(`text`/`words`/`blocks`/`dict`/`rawdict`), search, bordered and borderless
+tables, Markdown, vector-path and image extraction, PNG and SVG rendering with
+ordered parallel batches, shaped and subset-embedded generated text, textbox
+layout, AcroForm filling with regenerated appearances, attachments, AES-256
+encryption, image compression, native offline OCR, resource limits, the
+concurrency contract, and WebAssembly.
+
+**Gaps by severity.** These come from comparing the pymupdf 1.28.0 source with
+the pylopdf public API snapshot and implementation, with the two import
+defects reproduced on the real-world corpus.
+
+| Area | Gap | Severity |
 | --- | --- | --- |
-| 1 | Stabilization | The review regressions pass, supported Python typing and rebuilds are reliable, and CI finishes on standard GitHub-hosted runners. |
-| 2 | Real-document quality | Human-verified text, reading order, table cells, and OCR ground truth supplement similarity proxies on representative business documents. |
-| 3 | Maintainability | Internally split the large Rust document and Python API modules while preserving the reviewed public surface and corpus behavior. |
-| 4 | v1.0 readiness | Independent use, documented limits, error recovery, compatibility, and executed distribution checks support a durable API promise. |
-
-### 1. Stabilization
-
-The review reproduced these issues through public Python APIs:
-
-- **P1: page geometry changes after insertion.** An imported 612-by-792 page
-  with no CropBox or Rotate inherited a destination parent's crop and rotation,
-  becoming 200-by-100 at 90 degrees. Blank-page insertion had the same issue.
-  Materialize source defaults before reparenting and give new pages independent
-  defaults. Cover parent-only geometry and saved/reopened output.
-- **P1: verification cannot finish under the existing timeout.** One-minute
-  jobs include native compilation, Pyodide builds, and a 600-second fuzz run.
-  Use standard GitHub-hosted runners for every job and set deadlines per
-  workload, including native compilation, full tests, and WebAssembly builds.
-  Remove the global one-minute cap and allow release asset uploads enough
-  time to finish. Keep personal infrastructure details out of this public
-  repository.
-  A queued or cancelled gate is not a successful validation.
-- **P2: imported internal links lose or collide with named destinations.**
-  Resolve source destinations to imported page references before discarding
-  the source Catalog. Remove links to pages outside the selected import range;
-  test collisions with destination names already in the receiving document.
-- **P2: excluded-page navigation retains unwanted page data.** Clean links,
-  outlines, and named destinations after deletion/selection before pruning.
-  Preserve retained destinations and outline children. This is navigation and
-  object-graph cleanup, not a secure-redaction guarantee. AcroForm widget `/P`
-  references are a separate retained-page path; form-tree reconciliation,
-  arbitrary custom references, attachments, and metadata are not removed by
-  this navigation cleanup.
-- **P2: API failure and path contracts are incomplete.** Bump Page generations
-  only after successful structural edits, and use the filesystem-path protocol
-  consistently in opening and metadata probing. Verify that rejected operations
-  preserve both document bytes and existing Page views, including malformed
-  parent trees rejected before importing or creating objects.
-- **P2: Python 3.10 typing is not validated.** Keep `Self` typing compatible with
-  the supported floor without introducing a mandatory Python dependency or
-  changing public signatures. Type-check explicitly against Python 3.10.
-- **P2: dependency updates can leave a stale native extension.** Include
-  `rust/Cargo.lock` in uv rebuild keys. Restore strict Clippy on current native
-  Rust while retaining the pinned Rust 1.95.0 Wasm build compatibility.
-
-Track implementation evidence in the Unreleased changelog and the stabilization
-pull request. Completion requires the full extras/interop pytest suite,
-Ruff/format, Python 3.10 typing, rustfmt/Clippy, public API checks, and finished
-CI runs. Release artifacts still require installation and execution on their
-actual target architectures before publication.
-
-### 2. Real-document quality
-
-Prioritize measured editing/extraction failures in Japanese business forms,
-multicolumn prose, mixed scripts, tables, and scans. Extend the licensed corpus
-with independently checked expected results and end-to-end combinations of
-editing, saving, reopening, extraction, and rendering. Keep OCR accuracy and
-throughput evidence separate. PyMuPDF similarity remains a comparison signal,
-not the definition of correct reading order or cell structure.
-The v0.14.0 `get_text("rawdict")` work adds a narrow inspection tool for this
-phase: typed glyph mappings, approximate display-space bounds, and baseline
-origins from the existing bounded text cache, plus a rendered HTML overlay.
-Keep whole multi-character glyph mappings and existing reading-order behavior;
-verify rotations, CropBox offsets, cache/limit behavior, and native/Wasm logical
-results. This adds glyph-position evidence without expanding into coordinate
-conversion APIs, quadrilaterals, OCR recognition, or CAD geometry.
-Reconcile AcroForm fields/widgets with page deletion and selection using real
-form fixtures: remove only widgets on excluded pages, preserve surviving field
-children and appearances, and verify that widget `/P` references cannot retain
-unwanted page objects. Treat this separately from secure redaction.
-Damaged-input recovery was the weakest area in an evaluation of v0.14.0 over
-14 corpus files with 8 deterministic damage types: pylopdf opened 35 of 112
-damaged inputs, while hayro alone rendered 103. In this repository's
-reproduction of those damage types, lopdf 0.45 cross-reference recovery raises
-inputs that open with a usable page tree from 33 to 57 and reports every xref
-recovery through `is_repaired`; `tests/test_real_world.py` pins the
-per-damage outcomes. Damaged xref-stream files and truncated files without a
-classic trailer remain rejected because lopdf rebuilds only from a classic
-trailer. Hayro-assisted recovery for those inputs is a separate design
-decision: the lopdf graph must remain the editing source of truth, and a second
-recovered view must not silently disagree with what saving writes.
-
-### 3. Maintainability
-
-Split validation, navigation/object-graph editing, rendering policy, public
-types, Page, and Document behind the existing import surface. Move detailed
-implementation notes out of the agent entry point into focused references,
-and keep current work separate from completed release history. Each extraction
-must preserve API snapshots, failure atomicity, resource boundaries, and corpus
-results before the next one begins.
-Complete structural-edit planning so all final page-tree allocations precede
-object transplantation. The stabilization preflights predictable malformed-input
-failures; a complete transaction boundary for allocator refusal remains work
-before the v1.0 promise and needs corpus/time/memory measurements.
-
-### 4. v1.0 readiness
-
-Use the existing stability policy and independent field reports to assess
-readiness after stabilization and quality work. Require explicit support and
-limitation evidence plus completed artifact verification. Adoption signals
-inform the decision; they do not replace correctness or compatibility gates.
-
-## Strategy
-
-Build **a verifiably accurate, permissively licensed library that combines
-rendering, positioned text extraction, and editing in one package**.
-
-- As of 2026-07, no mature permissive library combines all three. pymupdf is
-  AGPL; [pypdfium2](https://pypdfium2-team.github.io/pypdfium2/readme.html)
-  documents a volunteer support model, limited editing, and no raw PDF
-  dictionary/stream/name-tree access; pikepdf deliberately excludes extraction
-  and rendering; pypdf has no renderer and is slower on the published pylopdf
-  extraction corpus.
-- pymupdf's structural weaknesses are difficult to erase: AGPL licensing and
-  [officially unsupported multithreaded use](https://pymupdf.readthedocs.io/en/latest/faq/index.html),
-  including on free-threaded Python. Version 1.28.0 does publish an experimental
-  Linux x86-64 cp314t wheel, so differentiate through pylopdf's explicit
-  concurrency contract and five-target cp314t release matrix rather than merely
-  claiming free-threaded availability. Published
-  [pymupdf 1.28.0](https://pypi.org/project/pymupdf/1.28.0/) wheels are about
-  17.5–24.7 MiB versus 5.0–5.8 MiB for pylopdf 0.10.0. pymupdf-layout was first
-  published in 2025-11; its current
-  [1.28.0 package](https://pypi.org/project/pymupdf-layout/1.28.0/) has a roughly
-  39.6 MiB wheel and uses PolyForm Noncommercial plus commercial licensing.
-  MIT's commercial advantage therefore remains material.
-- Rust competitor pdf_oxide, started in 2025-11, releases frequently and records
-  about 142,000 monthly downloads, but has no renderer and publishes
-  self-reported benchmarks without third-party verification as of 2026-07-25.
-  Differentiate through a real-world corpus, reproducible evidence, and upstream
-  contributions.
-- **oxidize-pdf** (`bzsanti/oxidizePdf`, MIT, crates.io `oxidize-pdf`) is a
-  separate direct competitor. It combines parsing, generation, extraction,
-  encryption, splitting, merging, and rotation in pure Rust while promoting
-  structure-aware chunking for AI/RAG and is released frequently. Do not
-  confuse it with pdf_oxide.
-- The largest demand is positioned text extraction followed by Markdown
-  conversion for RAG/LLM workloads. pymupdf4llm records about 24 million monthly
-  downloads and docling about 20 million.
-- CJK handling—vertical writing, CID fonts, and Japanese business forms—is a
-  defensible advantage built on the existing fallback implementation and
-  corpus, and is difficult for global competitors to reproduce.
+| Redaction | No content removal (`apply_redactions`) and no `scrub` | Critical |
+| Annotations | Only Highlight and URI Link creation; no editing, deletion, or flattening | Critical |
+| Forms | No field creation, deletion, properties, reset, or flattening; widget geometry is not returned | Critical |
+| Drawing | No vector primitives (`Shape`, `draw_*`); no rotated, translucent, or outlined text | Major |
+| Low-level access | No `xref_*` object API, no XMP read/write, no optional-content (OCG) API | Major |
+| Extraction attributes | No span color, alpha, ascender, descender, or `char_flags`; no `clip=`; no image blocks, quads, or html/xml/json output | Major |
+| Rendering | No arbitrary matrix, grayscale or RGB output, `annots=False`, or JPEG output | Major |
+| LLM output | No `page_chunks`, image export, margins, or header/footer removal | Major |
+| Resource reuse | Repeated `insert_image` and `show_pdf_page` duplicate objects (5 stamps of one page embedded 25 font files); `garbage` cannot merge duplicates | Major, in progress |
+| Import | `insert_pdf` drops AcroForm registration (199 fields became 0, leaving 128 orphaned widgets) | Major, in progress |
+| Persistence | No incremental save or font subsetting; damaged xref streams and truncated files are still rejected | Major |
+| Navigation | No TOC detail or item editing; no internal, remote, or named link creation; no link editing | Minor |
+| Geometry | No `Matrix`, `Quad`, `IRect`, or `Rect` algebra | Minor |
+| Document properties | No Art/Bleed/TrimBox, viewer preferences, MarkInfo, language, or attachment info/update | Minor |
+| Images in and out | Limited Pixmap conversion, constructors, and formats; no image or CBZ to PDF conversion | Minor |
+| Rich text | No styled runs, per-glyph font fallback, or HTML subset | Minor |
+| API consistency | pymupdf-named APIs whose pylopdf meaning differs (`get_images`, `get_pixmap` defaults, `annots`), and pylopdf's own synonyms (`render_page`, `Page.render`, `render_page_svg`) | Major |
 
 ## Principles
 
-- Be pymupdf-*style*, not pymupdf-compatible. Match migration-critical data
-  shapes such as word tuple ordering, dict layout, and
-  `search_for → list[Rect]`.
-- Preserve **one-way data flow**. lopdf's `Document` is the sole editable source
-  of truth; hayro is an immutable view for rendering and extraction. An
-  unedited, unencrypted document may use its original input bytes when every
-  reference reachable from its trailer resolves to the same object in lopdf's
-  graph and hayro reads the same pages as the page-tree walker. Every edit
-  invalidates that
-  fast path and rebuilds hayro from lopdf serialization, so rendered output
-  reflects edited and saved state. New engines must preserve this shape.
-  krilla returns bytes that are imported into lopdf; engines never share mutable
-  state.
-- Use the supported lopdf and hayro surfaces deeply: lopdf encryption,
-  `SaveOptions`, object-graph import, images, TOC, text replacement, and
-  dictionary operations; hayro `Device`, `RenderSettings`, `warning_sink`, and
-  immutable render/extraction snapshots. Evaluate incomplete or unstable
-  surfaces such as incremental save and offset viewports before exposing them.
-- Implement areas absent from lopdf through pylopdf's own dictionary operations:
-  AcroForm, annotation creation, attachments, and page labels.
-- Keep the core wheel small by choosing between native implementation and
-  ecosystem integration. Use typst/typst-py for typesetting and new-document
-  PDF/A, pyHanko for signatures, and veraPDF for PDF/A validation. Protect
-  integration recipes with tests.
-- Maintain the three-engine split: editing = lopdf, rendering/extraction =
-  hayro, generation = krilla with HarfRust shaping. The production krilla
-  configuration is `default-features = false`, without redundant raster or PDF
-  import support; generated pages cross the existing lopdf Form-XObject
-  boundary. Arbitrary embedded fonts, textbox layout, and AcroForm appearances
-  now use this path. New-document PDF/A and eventually tagged PDF/UA remain
-  gated future work rather than reasons to broaden the core prematurely.
+1. **One API.** Each task has one way to do it. pylopdf adds no synonyms of
+   its own and ships no compatibility layer or aliases.
+2. **Same name, same meaning.** When pymupdf has an API with the meaning
+   pylopdf needs, pylopdf uses pymupdf's name, argument names, constants, and
+   data shapes, even where a clearer name exists: familiarity across pymupdf's
+   user base, and in the code that coding assistants write, outweighs local
+   naming taste. A pymupdf-named API may support a subset of pymupdf's
+   parameters; an unsupported parameter raises `TypeError` instead of being
+   reinterpreted. Extensions that leave pymupdf's parameters and defaults
+   unchanged, such as `max_*` limits or `font_language=`, are allowed.
+3. **Redesign for substance, under a new name.** pylopdf replaces a pymupdf
+   design only for a substantive defect — hidden state that a forgotten
+   `update()` loses, positional tuples, magic numbers, objects
+   encoded as strings, inconsistent numbering, unsafe defaults, or global
+   state — or when a standard Python protocol such as a mapping, a sequence, or
+   a context manager replaces a bespoke family of methods. The replacement
+   gets a new name, and the pymupdf name is not provided. Style alone, such as
+   a `get_` prefix or camelCase dictionary keys, is never a reason.
+4. **Migration through tools, not shims.** The parity manifest drives a
+   codemod, migration hints for pymupdf names, and an `llms.txt` guide for
+   coding assistants ([F9](#f9--migration-tooling)).
+5. **Break once before 1.0.** pylopdf has no established user base to protect,
+   so redesigns land without deprecation windows. The
+   [API reset](#m0--api-reset) gathers them into one breaking release.
+6. **One-way data flow.** lopdf's `Document` is the sole editable source of
+   truth; hayro is an immutable view for rendering and extraction. An
+   unedited, unencrypted document may use its original input bytes only when
+   every reference reachable from its trailer resolves to the same object in
+   lopdf's graph and hayro reads the same pages as the page-tree walker. Every
+   edit invalidates that fast path, so rendered output always reflects the
+   edited and saved state. krilla returns bytes that are imported into lopdf.
+   Engines never share mutable state.
+7. **Clear engine ownership.** lopdf edits, hayro renders and extracts, krilla
+   with HarfRust generates text and appearances, and pylopdf's content engine
+   ([F8](#f8--content-stream-engine)) interprets and rewrites content streams
+   inside the lopdf graph.
+8. **Bounded by default.** Every caller input and decoded amplification has a
+   documented cap. Python checks it before PyO3 copies and Rust checks it
+   again. Trusted workloads opt out explicitly with `None`. Refusal raises
+   `LimitError` with a stable code and returns no partial result.
+9. **Prepare, then commit.** A mutation plans all fallible work first,
+   invalidates caches immediately before its first change, and leaves the
+   document unchanged on refusal. Structural changes bump the page generation,
+   and stale views raise.
+10. **Lightweight handles.** `Page`, `Annot`, `Widget`, `Link`, and outline
+    items are views of a document, a generation, and an object ID. Setters
+    apply immediately and atomically, regenerating appearances in the same
+    operation, so there is no hidden dirty state and no `update()`; pymupdf
+    code that calls it receives a migration hint.
+11. **Small core, optional data.** The core abi3 wheel stays at or below
+    9.0 MiB on every platform; the thin-LTO wheels built from the 0.14.0
+    sources are 6.4–7.4 MiB. Fonts, OCR models, and layout models ship as
+    independently versioned data packages. Each pull request reports its wheel
+    size delta, and growth above 0.25 MiB needs a written justification.
+12. **Integrate where an ecosystem leader exists.** typst for typesetting and
+    new-document PDF/A, pyHanko for cryptographic signing, and veraPDF for
+    PDF/A validation. Integration recipes are covered by tests.
+13. **Evidence over claims.** Every feature lands with real-document or
+    adversarial regressions, save/reopen and render checks, published
+    benchmarks for performance-relevant paths, and upstream reports for engine
+    limitations.
 
-## Release plan
+## Definition of done
 
-Each release has one theme. Ordering follows architectural dependencies;
-completed releases remain below as historical evidence.
+Every feature pull request satisfies all of the following before merge.
 
-### Near term: 0.5.x foundations
+- **API.** Follows the [API design](#f0--api-design): pymupdf's name and
+  meaning where a counterpart exists, a new name where pylopdf redesigns;
+  complete type hints and docstrings; an updated `pylopdf_core.pyi`;
+  `api/public-api.json` refreshed after reviewing runtime, typing,
+  documentation, and SemVer impact; updated parity manifest entries, including
+  the migration hint for every replaced pymupdf name.
+- **Safety.** Caller input caps before PyO3 copies, repeated in Rust; new
+  `LimitError` codes documented in the security guide; fallible growth for
+  input-derived collections; no partial results; prepare-then-commit; the cache
+  and generation rules in AGENTS.md.
+- **Tests.** Python tests only, with no Rust unit tests: success, boundary,
+  refusal, and malformed-input cases; a save/reopen round trip; rendered or
+  extracted verification; a redistributable real-world fixture when behavior
+  depends on producers. pymupdf may serve as a development-only oracle where a
+  comparison is meaningful; it is never a runtime dependency or a required
+  test dependency.
+- **Portability.** The free-threaded lanes pass, and the native/PyEmscripten
+  contract in `tools/pyodide_compat.py` covers the feature unless it depends on
+  OCR or threads.
+- **Documentation.** The English API reference and guide change in the same
+  pull request. Japanese, Simplified Chinese, and Korean follow before the
+  release tag, as LANGUAGES.md requires. The migration guide gains a mapping
+  row.
+- **Measurement.** The wheel size delta, a benchmark entry for
+  performance-relevant paths, and fuzz seeds for every new parser.
+- **Changelog.** One changelog fragment ([F2](#f2--changelog-fragments)).
 
-- [x] Cache the hayro PDF and invalidate it after edits, eliminating repeated
-      serialization and parsing for every render.
-- [x] Release the GIL for load, save, render, extraction, and merge.
-- [x] Add `dpi=` and `background=` to `render_page`.
-- [x] Add `garbage=`, `deflate=`, and `object_streams=` to `save` and `tobytes`
-      through lopdf `SaveOptions`. The measured reduction on already-compressed
-      `bill-hr815.pdf` is 13%. Current v0.11 hardening also bounds all
-      `tobytes` serialization paths at the writer with an explicit `None`
-      opt-out.
-- [x] Make the repository public and configure its description and topics
-      (2026-07-22).
-- [x] Add encryption and CJK rows to the README comparison table (2026-07-23).
-- [ ] Improve discovery through possible participation in py-pdf/benchmarks and
-      articles on relevant developer platforms.
+## Execution model
 
-### v0.6 — complete page operations and saving
+### Workstreams
 
-Released as v0.6.0 on 2026-07-23.
+After the module split ([F1](#f1--module-split)), each workstream owns a set of
+modules. Concurrent pull requests stay inside one workstream. A change to
+another workstream's module is coordinated as its own small pull request.
 
-- [x] Add `Page` objects with `doc[i]`, negative indices, iteration, and
-      generation tracking that raises `StalePageError` after structural changes.
-- [x] Read and write page rotation and `MediaBox`/`CropBox`, resolving
-      inheritance and indirect references.
-- [x] Support ranged `insert_pdf` (`from_page`, `to_page`, `start_at`, including
-      reverse order), `new_page`, `copy_page`, and page duplication through
-      repeated indices in `select`.
-- [x] Read and write TOC with `get_toc` and `set_toc`; page numbers are one-based
-      for pymupdf compatibility.
-- [x] Encrypt on save with AES-256 V5/R6 and permissions while leaving the
-      in-memory document plaintext.
-- [x] Add the `PdfError`/`PasswordError`/`DocumentClosedError`/
-      `EncryptedDocumentError`/`StalePageError` hierarchy.
-- [x] Publish `peek_metadata` for fast metadata without full parsing and
-      `max_decompressed_size` for decompression-bomb protection.
+| Workstream | Scope | Owned modules after F1 (indicative) |
+| --- | --- | --- |
+| A — Extraction | `get_text` family, search, tables, Markdown, structure | `rust/src/extract/`, `src/pylopdf/_text.py`, `_tables.py`, `_markdown.py` |
+| B — Rendering | Pixmap, rasterization options, SVG | `rust/src/render/`, `rust/src/pixmap.rs`, `src/pylopdf/_pixmap.py` |
+| C — Generation | Shapes, text, images, fonts, page placement, page geometry | `rust/src/draw/`, `generate.rs`, `layout.rs`, `src/pylopdf/_shape.py`, `_fonts.py`, `_geometry.py` |
+| D — Interactive | Annotations, links, AcroForm, flattening | `rust/src/annots/`, `rust/src/form/`, `src/pylopdf/_annots.py`, `_widgets.py` |
+| E — Structure | Low-level objects, metadata and XMP, TOC, labels, OCG, attachments | `rust/src/lowlevel.rs`, `rust/src/navigation/`, `src/pylopdf/_lowlevel.py`, `_layers.py` |
+| F — Content engine | Content interpretation and rewriting, redaction, sanitization | `rust/src/content/`, `src/pylopdf/_redact.py` |
+| G — Persistence | Save options, deduplication, incremental save, recovery, encryption, subsetting | `rust/src/save/`, `recovery.rs`, `object_recovery.rs` |
+| H — Intelligence | OCR modes, layout model, LLM-oriented output | `rust/src/ocr*`, `src/pylopdf/_ocr.py`, model packages |
 
-### v0.7 — positioned text extraction
+Shared files stay cheap to merge. Changelog fragments remove `CHANGELOG.md`
+conflicts. `api/public-api.json` and the parity manifest are regenerated after
+each rebase. `src/pylopdf/__init__.py` and `rust/src/lib.rs` receive only
+append-only re-exports and registrations. Run at most one writer per
+workstream; four to six concurrent pull requests is the expected range.
 
-Released as v0.7.0 on 2026-07-23.
+Each pull request names its roadmap item, such as `F5` or `M3`, in its
+description, and updates the parity manifest entries it completes. A
+milestone is done when its acceptance criteria pass on main. Every workstream
+implements against the F0 API design; a change to a shared design rule goes
+through F0 first.
 
-- [x] Replace lopdf extraction with a hayro-interpret `Device` implementing
-      `get_text("text"/"words"/"blocks"/"dict")`,
-      `search_for → list[Rect]`, and invisible text. This fixed lopdf#535 and
-      non-embedded CJK extraction. MCID retention remains unimplemented and can
-      be added when `to_markdown` requires it.
-- [x] Add `Page.get_images`, passing through filter chains ending in DCT as JPEG.
-- [x] Route hayro's `warning_sink` through Python warnings as `PylopdfWarning`.
-- [x] Add `Pixmap`. The buffer protocol was deferred because `Py_buffer` entered
-      the stable ABI in Python 3.11 and conflicts with `abi3-py310`; `samples`
-      performs one copy. Reconsider when raising the abi3 floor or adding cp314t.
-- Note: hayro 0.8 is expected to change the `Device` API to `DrawProps`, requiring
-  one migration. See the watchlist.
+### Waves
 
-### v0.7.x — ecosystem integrations
+Waves define order, not dates. A release ships when one or more milestones are
+complete, and version numbers are assigned at release time.
 
-Make intentionally external features “solved through integration.”
+| Wave | Work that runs in parallel | Gate for the next wave |
+| --- | --- | --- |
+| 0 — in flight | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion; XObject reuse (#231); save-time merging of identical objects; CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design draft | Merged to main; F0 approved |
+| 1 — foundations | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each | F1 merged with an unchanged API snapshot and corpus |
+| 2 — API reset | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
+| 3 — breadth | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
+| 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
+| 5 — depth | M6 (A, H), M7 (G) | Milestone acceptance |
+| 6 — rich text | M8 (C) | Milestone acceptance |
+| 7 — freeze | [v1.0 readiness](#v10--api-freeze) | Parity manifest complete |
 
-- [x] Document typst-py for typesetting and new-document PDF/A, pyHanko for
-      signatures, and veraPDF for validation.
-- [x] Add integration tests in `tests/test_interop.py` under the `interop`
-      dependency group. Verify `typst.compile → pylopdf.open(stream=)` and that a
-      pyHanko incremental signature preserves the entire pylopdf output as an
-      unchanged prefix. Include the group in CI.
+## Foundations
 
-### v0.8 — drawing
+### F0 — API design
 
-Released as v0.8.0 on 2026-07-23.
+Write `api/DESIGN.md` before implementation fans out. It states the design
+rules from [Principles](#principles) 1–5 as checkable rules; naming; result
+types (NamedTuples for pymupdf's positional records, frozen dataclasses for
+richer records, TypedDicts for interchange formats such as `dict` output,
+handles for document-backed objects, and IntEnum/IntFlag for codes and flags);
+collections; mutation, builders, and transactions; errors, limits, and
+warnings; coordinates; constraints of the Python 3.10 floor; and the target
+signature of every existing API and every redesigned capability. Workstreams
+implement against it, and a change to a rule goes through it.
 
-- [x] Add `insert_image`: JPEG SOF parsing and passthrough; PNG decoding through
-      the png crate with soft-mask transparency. Avoid lopdf's image-crate
-      feature to keep the wheel small. Append content without re-encoding and
-      wrap existing content in `q/Q` once.
-- [x] Add `show_pdf_page` for watermarks and stamps through native lopdf
-      page-to-Form-XObject import. hayro-write proved unnecessary: import the
-      object graph and resources like merge, keep content bytes unchanged, and
-      resolve rotation and CropBox visually.
-- [x] Solve CJK watermarks and headers through typst integration: typeset a
-      one-page PDF, then apply it with `show_pdf_page`. typst subset-embeds fonts
-      and can reuse `pylopdf-fonts-cjk` through `font_paths`. Integration tests
-      cover the recipe. At v0.8, krilla remained the future option for
-      self-contained CJK `insert_text`; that path shipped in the later v0.11
-      work.
-- [x] Publish lopdf's simple-encoding partial text replacement as
-      `Page.replace_text`, explicitly excluding CJK. The current v0.11 work
-      makes it atomic copy-on-write, bounds input/font/content/output work, and
-      preserves documents and caches on no-match or refusal.
-- [x] Add `Page.insert_text` for headers, footers, page numbers, and Bates
-      numbers using Standard 14 fonts and WinAnsi. CJK input points to the typst
-      recipe. Rotated pages remain upright through display-space `Tm`.
-- [x] Read annotations and create highlight/link annotations. Search results can
-      be passed directly for “search and mark.” Highlights always include an
-      `AP /N` appearance stream with Multiply blending. hayro renders
-      annotations with appearances when `render_annotations` is true by
-      default. The current rendering snapshot also supplies bounded appearances
-      for valid existing RGB Highlight, Underline, StrikeOut, and Squiggly
-      annotations without `AP`, while the editable and saved PDF remain
-      unchanged. Aggregate synthesis stops atomically at 4,096 quads or 65,536
-      generated path segments.
+Acceptance: maintainer review; every M0 reset item resolved in the design;
+the parity manifest's provisional names finalized.
 
-### v0.9 — document finishing
+### F1 — Module split
 
-Released as v0.9.0 on 2026-07-23.
+Split `rust/src/document.rs` (11,804 lines) and `src/pylopdf/__init__.py`
+(4,230 lines) behind the existing import surface.
 
-- [x] Implement first-stage AcroForm reading and filling through
-      `get_form_fields` and `set_form_field`: inherited `FT`/`Ff`/`V`, fully
-      qualified dotted names, checkbox bool-to-on-state resolution, `/AS`
-      synchronization, and `NeedAppearances`. At v0.9, native appearance
-      generation remained stage two and pylopdf's renderer did not display
-      filled values; the current v0.11 work completes that stage.
-- [x] Add EmbeddedFiles through `embfile_add`, `names`, `get`, and `del`, with
-      recursive Kids reading, flat rewriting, preservation of other `/Names`
-      trees, Unicode names in `UF`, and survival across
-      garbage/deflate/object-stream saves.
-- [x] Add page labels through `get_page_labels`, `set_page_labels`, and
-      `Page.get_label`, including recursive number-tree reading, flat rewriting,
-      and R/r/A/a/D label calculation.
-- [x] Add initial `Document.to_markdown` and `Page.to_markdown`. The most common
-      size is body text; larger sizes become heading levels. CJK wrapped lines
-      join without spaces, lists normalize, and OCR layers participate.
-      At that release, documented limitations included tables, multicolumn
-      order, vertical writing, and some emphasis metadata. Later extraction work
-      added table results, multicolumn and conservative vertical-CJK order, and
-      emphasis. The current v0.11 work automatically inserts complete bordered
-      tables; conservative borderless insertion remains explicit. Direct table
-      conversion now preflights exact escaped UTF-8 output, and document
-      conversion gives each table the remaining aggregate output budget before
-      assembling the page.
-- Deferred: incremental save. A 2026-07-23 OSS review found that qpdf and pikepdf
-  succeed with normalization-and-rewrite designs, while pypdf's implementation
-  accumulated bugs immediately after its 5.0 debut in 2024-09 (for example
-  pypdf#3118). The main need—signature preservation—is already covered by
-  pyHanko with byte-prefix guarantees. Reconsider when real issue demand appears.
-- [x] Add `Page.insert_ocr_text_layer`, following the ocrmypdf approach:
-      non-embedded CID font, Identity-H, ToUnicode, and `Tr 3`. It extracts and
-      searches CJK independently of fallback fonts with nearly zero size growth,
-      and accepts `get_text("words")`-shaped data. Current calls stop iterable
-      materialization at 4,096 words or 1 MiB of UTF-8 text, bound distinct CIDs,
-      and prepare input-derived buffers before PDF mutation.
-- [x] Read XMP PDF/A claims with `Document.get_pdfa_claim`, returning
-      `(part, conformance)`. Integration tests read `(2, "B")` from typst's
-      krilla-validated output. The docstring states that this is not validation.
+- Rust: a `rust/src/document/` module with the `_Document` class and shared
+  state in `mod.rs`, plus domain submodules for page structure, rendering
+  policy, text and table caches, navigation, metadata, attachments, forms,
+  annotations, drawing, saving, and validation helpers. Keep one
+  `#[pymethods]` block that delegates to submodule functions; do not enable
+  PyO3 `multiple-pymethods`, whose `inventory` registration this project has
+  not validated on PyEmscripten.
+- Python: private `_errors.py`, `_types.py`, `_limits.py`, `_document.py`,
+  `_page.py`, `_pixmap.py`, `_tables.py`, and `_ocr.py` modules, with
+  `__init__.py` as the re-export surface. Public classes keep
+  `__module__ == "pylopdf"` so reprs, documentation, and pickling stay stable.
+- Record the module ownership map from [Workstreams](#workstreams) in
+  AGENTS.md.
 
-### v0.10 — hardening and reusable page interpretation
+Acceptance: `api/public-api.json`, the corpus results, and the
+native/PyEmscripten compatibility hashes are unchanged; benchmarks stay within
+noise; and no other open pull request touches the split files during the
+freeze.
 
-Released as v0.10.0 on 2026-07-25.
+### F2 — Changelog fragments
 
-v0.10 is the pre-1.0 stabilization release, not the OCR release. It publishes
-the substantial safety, performance, documentation, and link-reading work
-completed after v0.9, then establishes the reusable interpretation layer needed
-for deeper extraction accuracy. The release is intentionally allowed to refine
-pre-1.0 APIs.
+Each pull request adds `changelog.d/<slug>.<added|changed|deprecated|removed|fixed|security>.md`.
+`tools/changelog.py` assembles the fragments into `CHANGELOG.md` at release
+time, CI requires one fragment unless a pull request is labeled
+`no-changelog`, and the release procedure in AGENTS.md gains the assembly step.
 
-- [x] Publish the decompression-limit, object-import isolation, malformed
-  input, rotated extraction, rendering, compression, documentation, benchmark,
-  and `Page.get_links` changes as one coherent minor release.
-- [x] Synchronize PyPI tags and GitHub Releases, enable public issue reporting, and
-  add contributor guidance plus issue and pull-request templates. Require a
-  redistributable minimal PDF for parser, renderer, and extraction regressions.
-- [x] Introduce an internal bounded, generation-invalidated `TextPage` that
-  interprets and clusters a page once, then serves `get_text`, `search_for`, and
-  `to_markdown`. It owns glyph geometry, transformed baseline direction, and
-  font metadata without retaining references into hayro.
-- [x] Cache page interpretation without weakening the one-way lopdf-to-hayro
-  data flow. Every edit invalidates both the hayro parse and derived text pages;
-  fallback-font changes invalidate derived text pages while retaining the parse.
-- [x] Add an initial coverage-guided public-API fuzzing lane for bounded open,
-  positioned extraction, search, rendering, editing, object-stream saving, and
-  reopening, seeded by the redistributable corpus. Independent PDFium fixtures
-  now cover Type 3 fonts, JPX nested behind LZW, transparency groups, soft
-  masks, and existing annotations/links; a runtime-derived truncated classic
-  xref covers controlled refusal. The current hayro 0.7.1 Type 3 raster
-  variation is retained as a conditional xfail on affected renderer targets
-  while its SVG device is positively covered.
-- [x] Recover an incorrect final classic `startxref` only when an intact table
-  in the final revision passes a complete bounded retry. Surface recovery
-  through warnings, `Document.is_repaired`, and metadata probes; normalize on
-  save and refuse xref-stream guessing or previous-revision rollback.
-- [x] Add artifact smoke tests that install every natively runnable wheel plus
-  the sdist and exercise import, open, extraction, rendering, and save before
-  publication. Cross-compiled Linux aarch64 and macOS x86_64 wheels remain
-  build-only because their release runners cannot execute the target binary.
-- Migrate to hayro 0.8 when released. The extensive v0.10/v0.11 layout work is
-  already isolated behind bounded, owned `TextPage` and `TablePage` caches, so
-  the expected `Device`/`DrawProps` migration should not change the Python API.
+### F3 — Parity manifest
 
-### v0.11 — layout, creation, and concurrency depth
+`api/pymupdf-parity.json` holds one entry per pymupdf 1.28 public API: module
+functions, constants, and the members of `Document`, `Page`, `Annot`,
+`Widget`, `Link`, `Outline`, `Pixmap`, `TextPage`, `Shape`, `TextWriter`,
+`Font`, `Point`, `Rect`, `IRect`, `Quad`, `Matrix`, `Story`,
+`DocumentWriter`, `Archive`, and `DisplayList`. Each entry records its
+`status` (`available`, `planned`, `integration`, or `non-goal`), its
+`relation` (`same` when pylopdf provides the pymupdf name with pymupdf's
+meaning, `replaced` when a redesigned pylopdf API provides the capability and
+the pymupdf name is absent), the pylopdf equivalent, a one-sentence migration
+`hint` for every replaced name, a `reset` note when an existing pylopdf API
+must change to honor its pymupdf name, the target milestone, and a note. The
+2026-10-19 counts of public methods are Document 141, Page 115, Annot 53,
+Pixmap 40, Rect 22, Font 20, Shape 17, TextPage 16, Story 16, Link 11,
+Outline 11, Matrix 7, Quad 7, Widget 5 plus 30 public attributes,
+TextWriter 5, Archive 4, DisplayList 4, and DocumentWriter 3.
 
-Released as v0.11.0 on 2026-07-26 after its implementation and validation
-boundary completed. Layout, creation, form appearances, typed mapping
-contracts, concurrency, native OCR, and the PyEmscripten deployment path now
-have a published field-use baseline.
-Work beyond this release keeps the same rule: no arbitrary feature-count
-deadline, only accurate, measurable, coherent boundaries.
+- `tools/check_parity.py` verifies that every `available` entry names a
+  symbol present in `api/public-api.json`, that `same` entries keep pymupdf's
+  name, that every replaced name has a hint, and that every `planned` entry
+  has a milestone. It reports coverage per class and relation and lists the
+  remaining `reset` items, which form M0's work list.
+- The manifest is the data source for the [migration tools](#f9--migration-tooling).
+- The migration guide's parity tables are generated from the manifest in all
+  four locales, with localized headings and untranslated API names. The
+  current guide still lists `rawdict` as unsupported although 0.14.0 added it;
+  generation removes that class of drift.
+- Record API names and statuses only. Never copy pymupdf code or documentation
+  text, which is AGPL-licensed.
 
-- [x] Build deterministic multicolumn reading order on `TextPage`: sustained
-  whitespace gutters split line segments into recursive left-to-right columns,
-  with full-width headings and footers preserved and isolated wide gaps
-  rejected.
-- [x] Preserve overlapping text paint runs as source-ordered logical layers
-      before geometric line ordering. Exact CJK and Latin overprints, distinct
-      strings at one origin, partial overlaps, and slight offsets retain each
-      phrase, search result, and bbox across text, words, blocks, dict, and
-      Markdown output instead of interleaving equal-position glyphs.
-- [x] Add high-confidence geometry-based table extraction for complete
-  axis-aligned stroked grids, with owned `TableFinder` / `Table` results,
-  display-space cell bboxes, text matrices, and Markdown export.
-- [x] Expose general vector paint operations through `Page.get_drawings()`.
-      The hayro Device returns bounded, typed, pymupdf-style fill/stroke paths
-      with display-space line/cubic geometry and normalized paint/stroke
-      properties. Ten real-world first pages plus synthetic styling, rotation,
-      and adversarial path-count cases cover the extraction boundary.
-- [x] Add attachment-oriented
-      `Document.compress_images(dpi=150, quality=75)`. Interpret every indirect
-      raster placement through hayro and retain the largest reuse by
-      aggregating minimum effective DPI per source axis. Atomically rewrite
-      only safe, unmasked, 8-bit DeviceGray or DeviceRGB DCT or Flate streams
-      to JPEG; Flate supports bounded decoding with absent or consistent PNG
-      predictors. Resize with Lanczos3, use optimized Huffman coding, and skip
-      non-smaller output.
-      Repeat calls at the same settings are idempotent, object and decoded-pixel
-      work is bounded, and the GIL is released. Synthetic placement, reuse,
-      size, render, save/reopen, mask, idempotence, and hostile-input cases plus
-      the redistributable WDL masked-image corpus and CPython 3.14t
-      distinct-document concurrency guard the contract.
-      A compact local separable Lanczos3 implementation limits the measured
-      Windows abi3 wheel increase to 0.07 MiB (6.78 to 6.86 MiB); bounded
-      Flate decoding raises it another 0.04 MiB to 6.90 MiB.
-- [x] Extend the inspectable rule-based core to thin filled-rectangle rules and
-  rectangular merged cells. Keep adversarial search bounded and reject broken
-  outer grids and compact filled decorations.
-- [x] Add an explicit, opt-in `strategy="text"` for borderless tables. Require
-  at least three consecutive rows, stable segment counts, aligned left/right
-  edges, compatible leading, and clear gutters; keep the vector-rule strategy
-  as the default and document aligned multicolumn prose as an unavoidable
-  ambiguity.
-- [x] Add confidence diagnostics and conservative region clipping before
-      considering an optional layout model. `find_tables(clip=)` uses
-      rotation-resolved display coordinates and returns only complete candidate
-      bboxes. Text tables expose em-normalized alignment error, minimum gutter,
-      and row-gap variation plus a documented non-probabilistic ranking score;
-      complete vector grids score 1.0.
-- [x] Add vertical CJK extraction by assembling transformed vertical baselines
-  directly and conservatively inferring hidden font WMode from CJK glyph
-  geometry. Vertical columns read top-to-bottom and right-to-left between
-  horizontal page furniture; synthetic Shift-JIS vertical fixtures cover the
-  positive path and the Japanese business-document corpus guards against false
-  classification. Ruby, warichu, and mixed-orientation typography remain
-  explicit follow-up depth.
-- [x] Turn the successful krilla spike into arbitrary subset-embedded OpenType
-      text insertion. `insert_text(fontfile= / fontbuffer=, fontindex=)` shapes
-      Unicode through HarfRust 0.12, generates in the target page's
-      rotation-resolved display space, and imports through the existing
-      Form-XObject boundary. Extraction, search, multiline placement, rotation,
-      color, overlay order, invalid or incomplete fonts, and save round-trips
-      are covered. RTL glyph shaping works, while extraction currently follows
-      visual rather than logical order.
-      A 4.5 MB Noto Sans JP source produces a 3.3 KB edited PDF for the test
-      phrase. The Windows abi3 wheel is 5.42 MB versus 4.44 MB before krilla
-      (+0.98 MB); `NOTICE.md`, PEP 639 license files, and the wheel SBOM retain
-      third-party attribution.
-- [x] Build `insert_textbox` on the same generation boundary. Standard 14 text
-      uses Adobe AFM widths; arbitrary OpenType text uses HarfRust advances and
-      krilla subsetting. Shared UAX #14 wrapping handles CJK, grapheme-safe
-      emergency breaks handle overlong words, and left/center/right/justify,
-      tab expansion, custom leading, rotation, overlay order, overflow
-      non-mutation, missing glyphs, and save round-trips are covered.
-      The Windows abi3 wheel is 5.58 MB, up 0.16 MB for canonical Core 14
-      metrics plus Unicode line/grapheme tables. The completed AcroForm work
-      below reuses this generation boundary.
-- [x] Complete second-stage AcroForm appearance generation for text, choice,
-      checkbox, and radio widgets. Standard text auto-fits with canonical
-      Helvetica metrics; explicit OpenType sources and optional
-      `pylopdf[cjk]` use HarfRust/krilla subsetting. Preserve non-empty authored
-      button states, synthesize missing vector states, honor inherited
-      alignment/multiline flags plus widget rotation/background/border, and make
-      updates atomic. Comb text fields additionally honor inherited `MaxLen`,
-      position Unicode graphemes individually, and reject overlength values
-      atomically. A render-only state-dictionary normalization bridges hayro 0.7
-      while keeping saved PDFs canonical and save/reopen-visible.
-- [x] Add `Document.render_pages(workers=)` over one immutable hayro snapshot,
-  with deterministic input order, a dedicated 1–64 worker pool, four-worker
-  default, GIL release, and a ~512 MB estimated working-memory concurrency cap.
-  The current boundary also stops iterable materialization at 4,096 pages and
-  atomically caps cumulative encoded PNG output at 512 MiB by default without
-  partial results. Document mutation/other same-document calls from external
-  threads remain outside the contract. Latest scaling on 12 usrguide pages at 2x:
-  1/2/4/8 workers = 317.4/179.6/99.1/81.5 ms.
-  Per-call cache reuse now keeps one hayro `RenderCache` for serial
-  execution and one per native worker while an atomic page queue retains dynamic
-  load balancing. Interleaved before/after medians on the same workload improved
-  by 10.6%/9.2%/6.3%/4.2% at 1/2/4/8 workers.
-- [x] Add `get_pixmap(clip=)` in rotation-resolved display coordinates with
-  outward pixel rounding, page intersection, and explicit non-intersection
-  errors. hayro 0.7 lacks an offset viewport, so this initially crops the
-  full-page raster and retains the full-page size/cost limits; pursue an
-  upstream offset viewport before claiming true region-only rendering.
-- [x] Bound `render_page_svg()` and `Page.render_svg()` at 64 MiB of UTF-8
-  output by default, rejecting before Python string conversion with an
-  explicit `None` opt-out. hayro-svg 0.7 exposes only a completed `String`, so
-  its internal temporary remains an upstream limitation (2026-07-26).
-- [x] Bound `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()`
-  at 64 MiB of encoded PNG output by default. The writer stops at the boundary
-  before Python bytes conversion, direct core rendering repeats it, and
-  `None` is the explicit trusted-output opt-out (2026-07-26).
-- [x] Add `Pixmap.save(path)` for direct PNG output from immutable rendered
-      pixels. Encoding and filesystem I/O release the GIL, strings and path-like
-      objects are accepted, non-PNG extensions are rejected, and failures remain
-      inside the `PdfError` hierarchy. Saving now uses an unpredictable,
-      exclusively created same-directory sibling and atomically replaces the
-      requested path only after a complete write; replacement failures preserve
-      existing output and clean up the temporary. PNG bytes stream directly to
-      that sibling without a second completed in-memory copy (2026-07-26).
-- [x] Build and test version-specific cp314t wheels after the mutable `Document`
-      concurrency audit. Import keeps the GIL disabled; immutable Pixmaps expose
-      a read-only zero-copy buffer; distinct-document extraction is tested for
-      correctness and measured at 1.74x with two threads on Windows 11 /
-      CPython 3.14.6t. CI runs the full suite on 3.14t, and release CI builds
-      cp314t alongside abi3 on all five targets. Local Windows artifacts are
-      4.43 MB for cp314t and 4.44 MB for abi3.
-- [x] Replace public `dict[str, Any]` shapes with documented, runtime-importable
-  `TypedDict` contracts while preserving pymupdf-style dictionaries. This also
-  covers metadata inputs/results and promotes word/block/form-kind aliases to
-  public runtime types.
-- [x] Adopt the optional OCR track below after RTen execution, model packaging,
-      memory use, multilingual accuracy, and distribution-size gates passed.
+### F4 — Geometry types
 
-#### Optional OCR track for v0.11 — `pylopdf[ocr]`
+Add `Point`, `Rect`, `IRect`, `Quad`, and `Matrix` in top-left display space
+with pymupdf's value-returning members: `Rect.contains`, `intersects`,
+`is_empty`, `is_infinite`, `is_valid`, `round`, `morph`, `quad`, `get_area`,
+`torect`, the corner properties, and the `|`, `&`, and `*` operators;
+pymupdf's `Matrix` constructors, `is_rectilinear`, `*`, and `~`; and
+`Quad.rect`, `morph`, `is_rectangular`, `is_convex`, `is_empty`, and `*`.
+Every API accepts these types and plain tuples interchangeably.
 
-The gate is **go** as of 2026-07-25. “pip-only, no shared libraries,
-permissively licensed Japanese OCR” remains an ecosystem gap: pymupdf integrates
-the Tesseract engine but still requires
-[external language data (`tessdata`) and configuration](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support),
-pponnxcr is AGPL, and rapidocr depends on the C++ onnxruntime. pylopdf now fills
-that gap without broadening the mandatory Python dependency set.
+The types stay immutable, because the values are hashable, thread-safe, and
+already returned everywhere. pymupdf's in-place mutators (`include_point`,
+`include_rect`, `intersect`, `normalize`, `transform`, and the `Matrix.pre*`
+family) are not provided, because the same names on immutable values would
+silently do nothing; the codemod rewrites them to operators.
 
-- [x] Statically link RTen 0.24, a pure-Rust runtime under MIT/Apache-2.0, with
-      only its native RTen-format reader. The ONNX parser remains outside the
-      core wheel. Model loading and inference release the GIL, use a dedicated
-      bounded thread pool, and share immutable Pixmap storage without copying.
-      The Windows abi3 wheel is 7.06 MB versus 5.42 MB for v0.10.0, a 1.64 MB
-      increase for the offline inference engine.
-- [x] Select PP-OCRv6 small rather than the earlier v5 mobile candidate. The
-      unified detector and recognizer cover 50 languages including Japanese,
-      Simplified and Traditional Chinese, and English. RTen output matched ONNX
-      Runtime numerically (detector maximum difference 0; recognizer about
-      3e-6). On the tracked 1,188-character MHLW fixture, the native pipeline
-      measured 3.788% / 3.704% whitespace-stripped strict CER and 0.842% /
-      0.842% after NFKC at 150 / 300 dpi. The RapidOCR v6 reference measured
-      0.926% / 0.758% after NFKC, exposing both the 150-dpi win and 300-dpi loss.
-- [x] Publish model data through a separately versioned
-      `pylopdf-ocr-models` wheel, following the font-wheel pattern. It contains
-      deterministic RTen conversions plus the multilingual dictionary, with
-      pinned source URLs, source and artifact SHA-256 values, conversion
-      commands, Apache-2.0 licensing, wheel smoke tests, SBOM generation,
-      provenance attestations, and an immutable GitHub release workflow. The
-      wheel is 26.6 MB; the two uncompressed RTen models total about 31.2 MB.
-- [x] Add reusable `OcrEngine`, `Page.get_text_ocr`, and `Page.apply_ocr`.
-      Results are typed `OcrWord` mappings in rotation-resolved display
-      coordinates. Applying OCR retains visual pixels and inserts the existing
-      invisible searchable CID layer. Pages with extractable text are skipped
-      by default, making repeated application idempotent. Display-coordinate
-      region clips let mixed-content pages recognize scanned areas without
-      duplicating digital text; callers can still opt into appending.
-- [x] Bound model-set admission before inference. Detector, recognizer, and
-      dictionary files share a 64 MiB default cumulative input budget, direct
-      core calls repeat it, and dictionary materialization stops at 65,536
-      entries. `None` remains an explicit trusted-model opt-out.
-- [x] Keep full-page detector memory bounded with overlapping tiles and a
-      4,096-candidate safety cap. The default 1,408-pixel tile with 192-pixel
-      overlap uses six tiles for a 300-dpi A4 page and measured about 419 MiB
-      peak child-process memory; 1,280 measured about 369 MiB and 1,536 about
-      475 MiB. Each engine now admits one complete render-and-recognize call by
-      default, preventing accidental outer concurrency from multiplying that
-      measured peak; `max_concurrent` can be raised through 16 only after
-      workload measurement. Sustained whitespace gutters retain deterministic
-      left-to-right multicolumn reading order after edge-duplicate merging.
-- [x] Reject premature quantization. Full int8 Conv/MatMul quantization broke
-      detection and recognition; recognizer MatMul-only quantization reduced
-      size but worsened NFKC CER from 0.842% to 1.010%. The first release
-      keeps the f32 models and prioritizes accuracy.
-- [x] Prerequisite 1, Japanese accuracy measurement, completed 2026-07-23:
-      **go**. At 300 dpi, the PP-OCRv5 mobile Chinese model, which covers Chinese,
-      Japanese, and English and has no separate v5 Japanese recognizer, measured
-      4.0% strict CER and 1.3% after NFKC on five synthetic cases plus one MHLW
-      document with 2,428 ground-truth characters. Kanji, kana, and digits were
-      nearly perfect. Remaining differences were width folding and symbols such
-      as circled numbers, postal marks, and reference marks. It beat the v4
-      Japanese-specific model in practical accuracy and trailed the server model
-      by only 0.5 points.
-- [x] Prerequisite 2: prove RTen execution and choose the stronger PP-OCRv6
-      small models through numerical, synthetic, Japanese real-document,
-      memory, and artifact-size measurements.
-- The first native engine deliberately exposes axis-aligned boxes and no
-  automatic page-orientation classifier. Explicit `rotation=90 / 180 / 270`
-  correction now turns OCR input clockwise, maps boxes back to the original
-  display space, and writes an orientation-aware invisible layer without
-  changing PDF page rotation. Arbitrary skew, automatic sideways-page
-  detection, ruby, warichu, and mixed-orientation typography remain explicit
-  depth. Use ocrs-cjk (MIT/Apache) as a reference, not a dependency.
-- [x] Register the first `pylopdf-ocr-models` PyPI Trusted Publisher, publish
-      model v0.1.0, then publish pylopdf v0.11.0 (2026-07-26).
-- [x] Extend field validation to a licensed, image-only Japanese archival scan
-      with 384 manually verified characters. It measured 1.823% / 1.302% strict
-      CER and 1.562% / 1.042% NFKC CER at 150 / 300 dpi. A shared-engine,
-      two-document 150-dpi check exactly matched sequential text at both
-      admission limits, while `max_concurrent=1` took 6.31s and 2 took 6.75s.
-      The higher limit did not improve this four-thread workload and still owns
-      separate buffers, reinforcing the conservative default of 1.
+### F5 — Low-level object API
 
-### v0.12 — bounded interpretation and interoperability
+Expose the lopdf graph as a typed object model in the style of pikepdf:
+names, dictionaries, arrays, streams, and indirect references as Python
+objects, reachable from the trailer, the catalog, each page's object, and
+lookup by object number. This replaces pymupdf's `xref_*` methods
+(`xref_object`, `xref_get_key`, `xref_set_key`, `update_stream`, and the rest),
+which encode objects as PDF syntax strings; the codemod and migration hints
+point to the object model.
 
-Released as v0.12.0 on 2026-07-26. The v0.12 line makes resource behavior more
-predictable across the complete public workflow rather than treating individual
-parsers or writers in isolation. It also strengthens release-artifact execution
-and real-producer compatibility while preserving v1.0 as a later
-product-quality decision.
+- lopdf 0.45 keeps its object parser and writer private, so pylopdf converts
+  objects itself, or upstreams a public API. Decoded streams use the existing
+  bounded multi-layer decoder.
+- Every write invalidates the hayro snapshot and derived caches. Writes to the
+  trailer, Catalog, page-tree nodes, or pages also bump the page generation.
+- pymupdf xref numbers are object numbers; pylopdf resolves them to lopdf's
+  `(number, generation)` pairs from the object table.
+- The API is covered by SemVer but documented as raw access whose semantic
+  correctness is the caller's responsibility.
 
-- [x] Apply stable, pre-copy limits to metadata, TOC, page labels, annotations,
-      attachments, form values, generated text, search, and passwords. Repeat
-      the checks at the Rust boundary and preserve mutation atomicity.
-- [x] Bound interpretation snapshots, positioned glyphs, assembled text,
-      repeated page batches, search hits, and generated line counts with
-      machine-readable `LimitError.code` values and explicit trusted-input
-      opt-outs.
-- [x] Execute-smoke all ten native wheels before publication, including every
-      supported `abi3-py310` and CPython 3.14t platform artifact, while retaining
-      the pinned PyEmscripten and Cloudflare validation path.
-- [x] Expand the redistributable real-world corpus with pinned PDFium fixtures
-      for Type 3 glyphs, nested JPX filters, soft masks, blending, and existing
-      annotations, plus bounded malformed-xref refusal.
-- [x] Synthesize bounded render-only appearances for existing Highlight,
-      Underline, StrikeOut, and Squiggly annotations when producers omit
-      `/AP /N`, without changing the editable or saved PDF.
-- [x] Remove pathological work from long textbox layout, repeated search
-      geometry materialization, oversized password KDF input, and aggregate
-      text-size preflight while retaining paired benchmark evidence.
+### F6 — Resource reuse and duplicate collection
 
-### v0.13 — extraction fidelity and product refinement
+- In review as #231: reuse one XObject for repeated `insert_image` input and
+  one imported Form for repeated `show_pdf_page` placements of an unchanged
+  source page. Five placements of one `bill-hr815.pdf` page then write one
+  Form and 5 font files (39.7 KB instead of 192 KB).
+- In progress: save-time merging of identical objects. The target API is
+  pymupdf's `garbage` levels for `save` and `tobytes`: 0 keeps every
+  object; 1 removes unreferenced objects, as `True` does today; 2 also compacts
+  numbering; 3 also merges identical non-stream objects; 4 also merges
+  identical streams. `True` and `False` keep their meaning because `bool` is a
+  subclass of `int`. Merging hashes serialized objects, confirms equality
+  before retargeting references, and stays bounded by the object count.
 
-Released as v0.13.0 on 2026-07-28. This line uses the post-v0.12 field and
-benchmark evidence to improve product behavior before the v1.0 API and
-limitation freeze; the release completes the allocation-hardening campaign
-begun after v0.12.0 and ships the first benchmark-driven reading-order
-recovery. Work beyond the release continues on the same line.
+### F7 — Content and appearance builder
 
-- [x] Surface allocator refusal as `PdfError` across the public surface
-      instead of aborting the process. Extraction, search, tables, drawings,
-      images, OCR ordering, attachments, AcroForm reads and fills, metadata,
-      TOC, page labels, annotations, structural page edits, batch rendering,
-      textbox layout, and generated text grow their collections fallibly
-      without exposing partial results. Public page indexing is unified behind
-      one bounded iterative walker, stream filter chains stop at 16 layers,
-      and Form imports reject undecodable source content.
-- [x] Recover column-major reading order for sustained sub-em prose gutters
-      without lowering the general line-split threshold. Four dense support
-      lines, substantial text on both sides, and one plausible separator per
-      line distinguish prose columns from aligned labels, dot leaders, and
-      multi-separator table rows. Confirmed boundaries follow up to 0.5 em of
-      horizontal scan/OCR drift on continuation lines. The bundled 1880 patent
-      similarity proxy improved from 0.320 to 0.581 while the bill, form, NICS
-      table, and user guide retained their prior corpus results.
-- [x] Keep spreadsheet-like rows row-major under wide gutters: baseline bands
-      bisected by a candidate boundary must not fragment into more than four
-      same-baseline cell segments. The NICS statistics table similarity proxy
-      improved from 0.121 to 0.855 without changing any other corpus result.
-      Diagnosis also established that the remaining rotated-table and form
-      scores measure pymupdf reference conventions: pylopdf beats pymupdf's
-      own sorted mode on the rotated Senate table and matches it at 0.991 on
-      the 1040 form, which the benchmark caveat now records.
-- [x] Restore pure RTL lines and one Latin or numeric token bracketed by RTL
-      text from visual glyph order to logical Unicode order across text,
-      positioned layout, search, tables, and Markdown. Edge tokens, multiple
-      tokens, and general neutral punctuation remain explicit depth rather than
-      a producer-independent guess. In-place glyph reversal preserves
-      multi-character CMaps and repairs separate nonspacing-mark clusters.
-- Continue the limitation review from measured field cases; prefer extraction,
-  Markdown, OCR, and recovery improvements that increase end-to-end document
-  value without freezing the API prematurely.
+Build one typed writer for content operators and use it everywhere pylopdf
+emits content: paths, rectangles with corner radii, Bézier curves, Gray, RGB,
+and CMYK colors, line width, cap, join, miter limit and dashes, ExtGState
+opacity and blend modes, clipping, Standard 14 and krilla text runs, and
+XObject placement. It also builds resource dictionaries and Form XObjects with
+`/BBox` and `/Matrix`. It replaces ad hoc operator assembly in `draw.rs` and
+`form.rs`, emits deterministic minimal operators, and serves M2 shapes, M3
+appearances, M4 redaction fills, and widget appearances.
 
-### v1.0 — product-quality declaration of trust
+### F8 — Content-stream engine
 
-No target date or minor release is assigned. Continue the 0.x line until
-pylopdf has sustained external adoption, an indicative signal of roughly 1,000
-GitHub stars, independent field reports across its core workflows, and enough
-limitation evidence to make a durable compatibility promise. Stars are an
-adoption signal rather than a mechanical release trigger: v1.0 still ships only
-after product experience, error recovery, documentation, performance, and
-known-limit behavior are polished together.
+Build a bounded interpreter and rewriter for content streams in the lopdf
+graph.
 
-- [x] Publish the semantic-versioning and deprecation policy before the final
-      freeze. The EN/JA/zh-CN/KO contract defines the public boundary, typed
-      mappings, behavioral corrections, runtime changes, and a post-v1.0
-      two-minor-and-six-month deprecation window. A deterministic 0.12 candidate
-      snapshot now reviews exports, signatures, members, mapping keys, aliases,
-      constants, and exception inheritance on every native Python test lane.
-- Freeze the v1.0 API only after repeated 0.x field use, meaningful external
-  adoption, and the remaining limitation review; the snapshot is a review gate,
-  not a premature compatibility claim.
-- [x] Publish the EN/JA/zh-CN/KO documentation and pymupdf migration guide.
-      Rebuilt on 2026-07-24 with Zensical 0.0.51 and a custom Living Document
-      theme at <https://pylopdf.haya.works/>. Includes per-locale strict
-      builds, search, dark mode, same-page switching, `llms.txt`, and an Open
-      Graph card. English is canonical; Japanese, Simplified Chinese, and Korean
-      are first-class translations defined in `LANGUAGES.md`. `docs.yml`
-      deploys on pushes to main without building Rust.
-- [x] Publish reproducible benchmarks from `bench/run.py` using one corpus, one
-      task definition, medians, wins and losses, and pymupdf similarity as a
-      fidelity proxy. The first 2026-07-23 run found pylopdf faster on four of
-      seven extraction files, 4.1× faster for merge, and faster on all seven 2×
-      renders. Free-threaded extraction now has its own generated report so a
-      regular benchmark rerun cannot erase manually appended 3.14t evidence.
-      Apply separately to py-pdf/benchmarks.
-- [x] Publish an explicit support and concurrency contract covering GIL-enabled,
-      free-threaded, single-document, and multi-document use, plus the supported
-      `render_pages` boundary and immutable Pixmap buffer behavior.
-- [x] Validate installation and core workflows from every published wheel and
-      the sdist, and publish release provenance alongside the artifacts
-      (2026-07-26). Architecture-matched standard runners now build and
-      install-smoke all five `abi3-py310` and all five CPython 3.14t wheels;
-      Linux aarch64 and macOS x86_64 are no longer unexecuted cross-builds.
-      Manual release run
-      [30199414878](https://github.com/yhay81/pylopdf/actions/runs/30199414878)
-      passed all ten wheel jobs, the sdist, and PyEmscripten while correctly
-      skipping tag-only publication.
-- Review every documented limitation. Improve high-value limits before release;
-  keep only those backed by a clear architectural or ecosystem boundary.
-- [x] Make public file saving failure-atomic across normal, object/xref-stream,
-      encrypted PDF, and rendered PNG output. `Document.save()` and
-      `Pixmap.save()` now use securely created same-directory siblings, preserve
-      an existing target on serialization, encoding, or replacement failure,
-      clean up failed temporaries, and keep errors under `PdfError` without
-      changing save-option mutation semantics (2026-07-26).
-- [x] Bound `Page.get_images()` output amplification per page across placement
-      count, cumulative source pixels, returned payload bytes, and the
-      Flate-to-DCT fast path. Repeated reuse now fails atomically instead of
-      multiplying one source into unbounded Python-owned byte strings.
-- [x] Bound attachment insertion and retrieval (completed symmetrically on
-      2026-07-26). `embfile_add` rejects data above its 64 MiB default before
-      the PyO3 copy, while `embfile_get` applies the same default to every
-      decoder layer; direct Rust calls repeat the check, both paths use stable
-      code `embedded_file_size`, and `None` is the explicit unbounded opt-out.
-      Name-tree traversal borrows direct object shapes, visits cycles once, and
-      rejects excessive entries, nodes, depth, or name bytes; failed additions
-      cannot create an unreadable tree. Edits preflight the Catalog write target
-      instead of cloning the full document, cap new key/filename/description
-      input at 1 MiB before attachment-data copying, bound lookup/deletion names
-      before traversal, repeat both caller-input checks in Rust with
-      `embedded_file_input_size`, and validate bounded direct object
-      count/depth/data before cloning an inline FileSpec.
-- [x] Bound XMP PDF/A self-claim inspection before metadata materialization.
-      `get_pdfa_claim(max_size=1 MiB)` shares the layered decoder contract,
-      reports `xmp_metadata_size`, and requires an explicit unbounded opt-out.
-      Exact XML-token matching now ignores lookalike prefixes, quoted values,
-      comments, and CDATA rather than reporting false declarations.
-- [x] Bound page-label number-tree interpretation and writes. Reads now borrow
-      nodes, visit cycles once, release the GIL, and reject partial results
-      above 4,096 entries/nodes, 32 levels, or 1 MiB of label text. Writes
-      enforce the same entry/text boundary before mutation instead of creating
-      output the reader must reject. Caller style/prefix UTF-8 and exact PDF
-      text size now stop before PyO3 copying with `page_label_input_size`, and
-      direct Rust calls repeat the boundary (2026-07-26).
-- [x] Bound AcroForm field-tree interpretation and fills. Reads now borrow
-      object shapes, visit cycles once, release the GIL, and reject partial
-      output above field/node/edge/depth and aggregate name/value budgets.
-      Inherited values remain shared during traversal and are charged per
-      returned leaf; fills reject 1 MiB caller field-name/value input before
-      font discovery, button lookup, or file reads, repeat the boundary with
-      `form_field_input_size`, and enforce the same tree atomically.
-- [x] Bound AcroForm button-state interpretation and synthesis. Widget and
-      normal-appearance state counts plus encoded/returned state-name text are
-      capped before cloning or mutation. Boolean lookup now releases the GIL
-      and deduplicates linearly; fills preflight missing `Off`/on keys so they
-      cannot create output the next call rejects.
-- [x] Bound page annotation and link interpretation plus creation. Reads now
-      borrow `/Annots`, release the GIL, and share fixed entry and aggregate
-      metadata-text budgets. Adds preflight page capacity, Contents/URI text,
-      and highlight rectangle count before creating dependent appearance
-      objects, preserving document bytes and caches on refusal. Caller text
-      now stops at 1 MiB before PyO3 copying or rectangle iteration with
-      `annotation_input_size`; direct Rust calls repeat the boundary, and
-      highlight iteration stops at item 4,097 without first materializing the
-      complete input (2026-07-26).
-- [x] Bound named-destination resolution. `/Names/Dests` lookup is now
-      iterative and cycle-aware, with fixed entry/node/edge/depth and key-byte
-      budgets. Excessive trees raise instead of becoming indistinguishable from
-      a genuinely absent or unresolved destination. `get_links` builds one
-      borrowed index per page call instead of multiplying tree traversal by the
-      number of named links.
-- [x] Replace lopdf's recursive TOC reader with a bounded iterative outline
-      walk. Reads visit cycles once, release the GIL, index named destinations
-      once, and enforce node/entry/edge/depth/destination/text budgets. Writes
-      preflight compatible entry, depth, and title-text budgets atomically.
-      Caller title UTF-8 and exact PDF text size now stop before PyO3 copying
-      with `toc_input_size`, repeated by direct Rust calls (2026-07-26).
-- [x] Bound standard Info metadata materialization and updates. Full-document
-      reads decode only the eight public fields under source/returned-text
-      budgets, the fast probe bounds returned standard text, and batch writes
-      preflight source/encoded text before one atomic mutation. Caller UTF-8
-      and exact PDF text size now stop before PyO3 copying with
-      `metadata_input_size`, repeated by direct Rust calls (2026-07-26).
-- [x] Bound fast metadata-probe input on demand (2026-07-26).
-      `peek_metadata(..., *, max_file_size=None)` now rejects oversized paths
-      through a one-byte-overrun read and checks byte input before parsing;
-      direct Rust calls repeat the boundary and failures report `file_size`.
-      The default remains unbounded for backward-compatible collection scans.
-- [x] Bound structural page batches in both public Python and direct Rust calls.
-      `delete_pages`, `select`, and `insert_pdf` stop at 4,096 entries before
-      iterable allocation or graph import; empty deletion is now a cache- and
-      generation-preserving no-op (2026-07-26).
-- [x] Align normal text generation with the optional CJK product experience:
-      `insert_text` and `insert_textbox` now auto-select the JP-subset sans or
-      serif font for Japanese/Han input when `pylopdf[cjk]` is installed,
-      without weakening the single-font, no-per-glyph-fallback boundary.
-      Hangul and locale-specific Chinese typography remain explicit-font cases
-      until the data package has measured pan-CJK coverage.
-- [x] Replace the misleading Japanese-only CJK product boundary with
-      locale/script providers. `[jp]`, `[ko]`, `[zh-cn]`, and `[zh-tw]` route
-      non-embedded Adobe CJK collections to matching Noto regional glyphs and
-      also provide generation fonts; `[ar]`, `[he]`, `[hi]`, and `[th]` add
-      shaped generation providers. `font_language` resolves ambiguous Han,
-      and save/reopen conformance covers every provider. The misleading
-      Japanese-only generic extra and package discovery were removed before
-      release; locale names are the only public installation contract. Thai,
-      Lao, Khmer, and Myanmar extraction no longer invent spaces inside
-      no-space-script runs, and Markdown joins their wrapped physical lines
-      without inserting Latin-style spaces.
-- [x] Remove the Pillow/PNG round-trip from rendered-image reuse:
-      `Page.insert_image(pixmap=)` now converts immutable straight-alpha RGBA8
-      storage directly into a Flate-compressed PDF Image XObject, preserves
-      transparency, and omits the soft mask for fully opaque input. Its
-      `rotate=` option removes another preprocessing step for all JPEG, PNG, and
-      Pixmap sources, with clockwise right-angle rotation composed in display
-      space and the rotated aspect ratio retained.
-- [x] Remove the serialize/open workaround from same-document page placement.
-      `show_pdf_page` now clones the current lopdf graph under the released GIL
-      and imports from that pre-edit snapshot, supporting both another page and
-      the target page itself without aliasing mutable state.
-- [x] Bound drawing append amplification before mutation. Raw page `/Contents`
-      arrays stop at 4,096 entries, reference chains at 32 levels, and the
-      post-insertion array at 4,096 stream references including the one-time
-      `q`/`Q` isolation pair. Verified in-memory page state fixes repeated nested
-      wrapping without trusting a spoofable persistent PDF marker (2026-07-26).
-- [x] Bound encoded-image insertion and PNG decode amplification before
-      mutation. `insert_image(max_size=64 MiB, max_pixels=64,000,000)` rejects
-      oversized stream data before its PyO3 copy, reads filename sources through
-      a one-byte-overrun bounded Rust path with the GIL released, and preflights
-      PNG IHDR dimensions before allocating decoded storage. Direct core calls
-      repeat both limits, stable codes distinguish encoded bytes from pixels,
-      and `None` explicitly opts trusted workloads out (2026-07-26).
-- [x] Bound every explicit and automatically selected OpenType input path.
-      `insert_text`, `insert_textbox`, `set_form_field`, and
-      `set_fallback_font` share `max_font_size=64 MiB`; byte input is rejected
-      before PyO3 copying, file input uses a one-byte-overrun bounded Rust read
-      with the GIL released, direct core calls repeat the boundary, and failed
-      reads preserve document and fallback-cache state. `font_input_size` is the
-      stable code and `None` is the trusted-input opt-out (2026-07-26).
-- [x] Bound generated text, logical-line materialization, and wrapping work
-      (2026-07-26). `insert_text` and `insert_textbox` default aggregate UTF-8
-      input to 1 MiB, reject before PyO3 copying or mutation, repeat the
-      boundary in direct Rust calls, and preflight textbox tab expansion
-      without allocating the expanded string. `text_input_size` is stable and
-      `None` is the trusted-input opt-out. Configured insertion budgets and
-      AcroForm appearances stop before a 4,097th physical or wrapped line with
-      `text_line_count`. The layout engine measures a complete fitting
-      paragraph once, otherwise collects break/grapheme boundaries once and
-      uses local galloping probes with binary refinement. On a
-      1,000,000,000-point-wide page, one warmup plus five runs of
-      `"word " * 10_000` fell from a 928.7 ms median to 31.1 ms (29.9x) while
-      retaining one-line semantics.
-- [x] Remove complete UTF-8 preflight copies from bounded caller text
-      (2026-07-26). `replace_text` now counts its 4,096-byte aggregate input
-      incrementally before PyO3 copying, and OCR layer aggregation uses the
-      same allocation-free counter within its 1 MiB boundary.
-- [x] Bound search geometry and linearize dense-hit indexing (2026-07-26).
-      `search_for` rejects terms above 4,096 UTF-8 bytes before PyO3 copying
-      and defaults output to 4,096 rectangles; direct Rust calls repeat both
-      checks, `search_input_size` and `search_hit_count` are stable, and
-      `max_hits=None` is the trusted-result opt-out. Sequential byte/character
-      cursors and allocation-free first/last glyph lookup reduced a cached
-      100,000-match single-line median from 371.1 ms to 79.9 ms (4.6x);
-      bounded default refusal took 3.1 ms.
-- [x] Enforce the PDF 2.0 password boundary before KDF work (2026-07-26).
-      Open, authenticate, fast metadata probe, and AES-256 save paths reject
-      each password above 127 UTF-8 bytes before PyO3 copying; direct Rust calls
-      repeat the check, failures use `password_input_size`, and save refusal
-      precedes mutation or output creation. This also prevents lopdf from
-      writing a password above 127 bytes that it cannot reopen identically.
-      A pathological 1 MiB local save probe took about 64 seconds versus about
-      11 ms at the valid 127-byte boundary.
-- [x] Translate runtime errors and warnings to English before API freeze
-      (2026-07-24, about 100 Rust/Python messages plus tests).
-- [x] Make English canonical for repository documentation, comments, docstrings,
-      automation, and future commit messages. Localized docs and CJK fixtures are
-      the only exceptions (2026-07-24).
-- [x] Add `SECURITY.md` with a private-reporting path, untrusted-PDF guidance,
-      and `max_decompressed_size`, plus cargo-audit in CI. pip-audit is omitted
-      because the core package has no mandatory Python dependencies.
+- Interpretation over lopdf's strict content decoding: graphics state
+  (`q`/`Q`/`cm`), text state (`Tf`, `Tc`, `Tw`, `Tz`, `TL`, `Ts`, `Tr`, `Tm`,
+  `Td`, `TD`, `T*`, `'`, `"`), marked content, inline images, and Form XObject
+  recursion with cycle and depth limits.
+- Font metrics: simple-font `/Widths`, `/FirstChar`, and `/Encoding` with
+  `/Differences`; Standard 14 AFM metrics; CID-font `/W`, `/DW`, `/W2`, and
+  `/DW2` with CMaps through `hayro-cmap`, which is already in the dependency
+  tree; Type 3 `/FontMatrix`; glyph boxes from FontDescriptor ascent,
+  descent, and bounding box.
+- Geometry agreement: glyph positions agree with hayro extraction within a
+  documented tolerance across the corpus.
+- Rewriting: drop glyphs from `Tj` and `TJ` with compensating `TJ`
+  adjustments so the remaining glyphs keep their positions, drop path
+  painting, replace or remove image `Do` operators, rewrite inline images,
+  copy shared Form XObjects before editing them, and re-serialize.
+- No public API until M4; private Python hooks drive the tests.
 
-### Continuing engineering inventory — v0.10 through v1.x
+### F9 — Migration tooling
 
-Candidates from the 2026-07-23 lopdf/hayro/krilla inventory. Completed items
-remain as evidence; unfinished items feed v0.10 and v0.11 in dependency order
-rather than waiting automatically for v1.x.
+- `python -m pylopdf.migrate` rewrites pymupdf programs with LibCST from an
+  optional `[migrate]` extra: renames, argument changes, and page-number
+  shifts recorded in the manifest, plus `TODO` comments where a change of
+  meaning needs a person.
+- Migration hints: looking up a pymupdf name that pylopdf replaced raises
+  `AttributeError` naming the replacement. The hints are generated from the
+  manifest into a private module and consulted only after normal lookup fails,
+  so successful lookups cost nothing.
+- `docs/en/llms.txt` gains the mapping for coding assistants.
 
-- [x] Switch flate2 to zlib-rs. Three merge rounds over the corpus
-      (554 pages) with garbage=3, deflate, and object streams improved median
-      save time from 74 to 66 ms, or 13%, with only a 0.01% output-size increase.
-      The earlier 3.3× result measured compression alone; GC and serialization
-      dominate complete saves.
-- [x] Evaluate native link-time optimization (2026-10-17). On the five
-      GitHub-hosted release targets, thin LTO with one codegen unit shrank abi3
-      wheels by 0.2–11.3% and sped up extraction by 6–14% without a stable
-      regression above 5%. Fat LTO was slightly smaller and faster for
-      extraction but slowed Linux merges by 7–12% and Linux x86_64 PNG
-      encoding by 7–8%, so native wheels use thin LTO while PyEmscripten keeps
-      fat LTO.
-- [x] Evaluate stripping native wheel symbols (2026-10-18). maturin `--strip`
-      shrank Linux and macOS wheels by 4.8–7.1% (0.34–0.49 MiB) without
-      changing code, while Windows symbols already live in unshipped PDBs.
-      Stripped wheels printed no `RUST_BACKTRACE=1` frames and lost pylopdf
-      names in debuggers, profilers, and macOS crash reports, so native
-      wheels keep their symbol tables.
-- [x] Do not expose `SaveOptions.compression_level` or `linearize` yet.
-      In lopdf 0.44, linearize is a dead writer flag; `is_linearized` only
-      detects existing files. `compression_level` affects only object streams
-      through four buckets, while normal streams always use
-      `Compression::best()`. Contribute consistent normal-stream support
-      upstream before exposing the option.
-- [x] Add `Page.get_links` for `/A` actions (URI, GoTo, GoToR, Launch, Named) and
-      direct `/Dest`. Resolve GoTo named destinations through multilevel,
-      cycle-safe `/Names` trees and legacy `/Dests`; convert destinations to
-      zero-based page numbers, display-coordinate points, and zoom. Return
-      pymupdf-style dicts with `LINK_GOTO` constants and `Point`. Verified by
-      resolving all 40 GoTo links in `usrguide.pdf`.
-- [x] Complete a krilla integration spike on 2026-07-23: **go**. krilla 0.8.2
-      builds in isolation with `default-features = false` and `simple-text`.
-      It subset-embedded a 4.5 MB Noto Sans JP font into an 8 KB one-page PDF,
-      which pylopdf opened, extracted with exact Unicode through ToUnicode, and
-      rendered. The spike executable is 3.3 MB, but skrifa and related
-      dependencies are shared with hayro. Production integration is now
-      complete with HarfRust replacing that spike-only shaping feature: the
-      abi3 wheel grew by 0.98 MB, and generated text is imported into lopdf as
-      a Form XObject. `insert_textbox` now reuses this boundary.
-- [x] Add `get_pixmap(clip=)` by cropping the full-page raster with exact
-      rotation-resolved display-coordinate semantics. hayro `RenderSettings`
-      still supports only an origin-fixed viewport, so true region-only
-      rendering remains an upstream contribution candidate.
-- [x] Cache extraction results by generation in bounded TextPage and TablePage
-      caches, eliminating repeated interpretation in search/extract and
-      repeated table workflows while keeping table-only geometry off the common
-      text path.
-- [x] Add `Document.render_pages(workers=)` as the supported same-document
-      parallel rendering boundary; measured at 1.77x / 3.20x / 3.89x for
-      two/four/eight workers in the published benchmark. Its
-      Python-orchestration value grows further with cp314t.
-- Keep annotation/widget dict and tuple APIs until mutation grows enough to
-  justify objects. Do not copy pymupdf's heavyweight `Annot`.
+Acceptance: the codemod turns a corpus of pymupdf example programs, written
+for this repository rather than copied, into passing pylopdf programs, and
+lists the manual steps that remain.
 
-### Parallel work, not tied to releases
+## Milestones
 
-- [x] Add a real-document-derived incorrect-classic-`startxref` regression with
-  bounded recovery, save normalization, and xref-stream/rollback refusal.
-- [x] Expand the corpus with independent, redistributable fixtures for a
-      truncated classic xref table, Type 3 stencil glyphs, JPX nested behind
-      LZW, transparency groups/soft masks, and existing annotations/links
-      (2026-07-26). Type 3 raster output remains an explicit conditional
-      hayro 0.7.1 limitation rather than a silent claim of support.
-- [x] Normalize rotated-page extraction into display space (2026-07-23) by
-      passing the renderer's `initial_transform(true)` to extraction. Reading
-      order, search, words, image bboxes, and OCR layers now use display
-      coordinates on rotated pages and correctly handle nonzero CropBox origins.
-- [x] Improve rendering speed (2026-07-23). Profiling found PNG encoding, not
-      rasterization, responsible for up to 85%; png's default Balanced+Adaptive
-      managed about 11 MB/s on photos. Switching to Fast/fdeflate and releasing
-      the GIL made pylopdf faster than pymupdf on all seven corpus renders,
-      including `wdl6812` from 278 to 43 ms. Per-call `RenderCache` reuse now
-      improves serial and bounded parallel batches without unsafe
-      self-references or cross-thread cache sharing. Cross-call reuse followed
-      on 2026-10-18 after interleaved 8-round A/B runs on all five hosted
-      targets. hayro 0.7 and 0.8 caches borrow the snapshot and use `Rc`, so a
-      per-thread slot owns the snapshot `Arc` and its cache through `self_cell`;
-      only the document's creating thread uses it, with one cache per thread and
-      at most 64 retained pages. Linux runners measured fresh-document renders
-      within 1.5%, first-page re-renders 3-5% faster in corpus total (`usrguide`
-      20%, `mhlw-doc` 17-18%), and 27-page `usrguide` `get_pixmap` loops 22-28%
-      faster at 1x and 11-15% at 2x. Peak and retained memory grew by at most
-      3 MiB on every target, and output was pixel-identical. Type 1 font
-      parsing was about 36% of a cold 1x `usrguide` render. The cache does not
-      close MuPDF's 2-3x warm-raster lead, which comes from rasterization plus
-      MuPDF's glyph and image caches rather than font parsing. A dedicated
-      render thread per document was rejected: it frees the cache promptly but
-      costs one OS thread per document, adds fork hazards, and cannot run on
-      PyEmscripten. Thread-safe hayro caches would allow a document-owned cache,
-      and faster Type 1 parsing upstream would also speed cold renders. Other
-      candidates are zlib-rs for high compression and upstream hayro
-      stencil-mask and `num_threads` improvements.
-- [x] Add font names and pymupdf-compatible flags to extraction spans from
-      embedded font weight/italic metadata. `to_markdown` now emits emphasis.
-      Standard 14 Type 1 fonts still produce flags 0 because hayro exposes no
-      font data; upstream Type 1 metadata remains a contribution candidate.
-- Upstream contributions, started 2026-07-23; three of four merged by 2026-07-24:
-  - [lopdf#537](https://github.com/J-F-Liu/lopdf/pull/537), a one-line fix plus
-    regression test for lopdf#535, is **merged** and released in lopdf 0.45.0,
-    which pylopdf now uses.
-  - lopdf 0.45 recovery follow-ups are contribution candidates: report
-    cross-reference recovery through the API instead of `log` records, drop
-    `/Prev`/`/XRefStm` from a rebuilt trailer, make the unterminated-`stream`
-    reconstruction scan linear, and rebuild xref-stream files from their
-    catalog.
-  - [hayro#1315](https://github.com/LaurenzV/hayro/issues/1315) reports stencil
-    masks about 5× slower.
-  - [hayro#1316](https://github.com/LaurenzV/hayro/issues/1316) proposes exposing
-    `num_threads`. PR [#1317](https://github.com/LaurenzV/hayro/pull/1317)
-    remains **open** after all eight cargo-hack feature combinations, clippy,
-    fmt, and pixel-identical validation over 147 pages. A/B medians over seven
-    runs show 1.35–1.55× at scale 4–6, 10–20% at scale 2, and no benefit on
-    scan-dominated files.
-  - [hayro#1318](https://github.com/LaurenzV/hayro/pull/1318) is **merged**. It
-    composites mismatched masks onto a common grid instead of nested drawing,
-    reducing `wdl6812` mask drawing from 11.4 to 4.2 ms and the page from about
-    30 to 21 ms. The PR discloses visually reviewed low-amplitude differences in
-    26 upstream tests caused by compositing order.
-  - [hayro#1320](https://github.com/LaurenzV/hayro/pull/1320), following issue
-    [#1319](https://github.com/LaurenzV/hayro/issues/1319), is **merged**. It
-    replaces packed 1-bit mask expansion with a LUT. The original issue
-    incorrectly attributed the cost to JBIG2 and was publicly corrected after
-    confirming that JBIG2 filters already produce 8-bit data. A synthetic
-    2400×3150 mask improved from 48–60 ms to 1.5–1.6 ms, about 33×, with
-    pixel-identical output. The remaining 4.4 ms in `wdl6812` is hayro-jbig2
-    arithmetic decoding.
-  - crates.io still has hayro 0.7.1 from 2026-06-05, so these merges are
-    unreleased. hayro 0.8's DrawProps change is also merged and unreleased; the
-    next release will likely combine the Device migration with #1318/#1320.
-  - Other candidates: hayro #452 for an official text extraction `Device`, Type
-    1 font metadata, clip/offset in `RenderSettings`, a `'static` `RenderCache`,
-    consistent normal-stream `compression_level` in lopdf, and implementing or
-    removing lopdf's dead `linearize` flag.
-- [x] Add a Python 3.10 CI job to validate the abi3 floor (2026-07-23).
-- [x] Produce a reproducible Pyodide 0.28.3/emscripten wheel (2026-07-26).
-  The builder checks the static legacy
-  `cp310-abi3-pyodide_2025_0_wasm32` artifact with ordinary
-  `micropip.install()` in the pinned runtime, then deterministically retags the
-  same binary as the PEP 783
-  `cp310-abi3-pyemscripten_2025_0_wasm32` artifact accepted by PyPI. It imports
-  without wasm-bindgen shims, preserves Python exceptions through the
-  WebAssembly exception tag, and passes byte-stream open, extraction,
-  rendering, malformed-input recovery, and post-error reuse checks. The
-  builder pins and verifies the complete native toolchain and hashed Python
-  build environment.
-- [x] Automate PyEmscripten wheel CI and release gates (2026-07-26).
-  Pull requests build the wheel, run the pinned Pyodide smoke suite, verify its
-  PEP 783 metadata, bundle a Cloudflare Python Worker with pinned `workers-py`
-  and Wrangler versions, start local `workerd`, and request `/health`. Tagged
-  releases attach build provenance, include the artifact in the PyPI upload and
-  SBOM, then resolve it back from PyPI and repeat the runtime gate before
-  creating the immutable GitHub release. v0.11.0 and the first model artifact
-  were published on 2026-07-26; the v0.11.1 gate additionally proves
-  module-scope import under `workerd`, and #20 through #24 are complete.
-- [x] Extend the Cloudflare gate from bundle-only validation to an actual local
-  `workerd` startup and `/health` request (2026-07-26). The example imports
-  pylopdf at module scope. Emscripten selects PyO3's foldhash-backed
-  `hashbrown` class-builder maps so import does not request entropy that
-  Cloudflare makes available only after startup. The same runtime gate runs
-  against both the locally built wheel and the PyPI artifact.
-- [x] Establish the native/Pyodide functional compatibility matrix (2026-07-26).
-  One shared suite now checks bytes-only input, PDF 2.0, text and document
-  Markdown, embedded and vertical CJK, multicolumn order, bordered/borderless
-  and rotated tables, vector paths, image-only input, AES-256 authentication,
-  generation with subset-embedded OpenType, textbox layout, pixmaps, ordered
-  serial-fallback batch rendering, virtual-filesystem save, merge/select, and
-  typed error recovery. The Python 3.10 CI lane records a stable native result
-  artifact; the pinned Pyodide lane must match it exactly while also satisfying
-  explicit structure and content assertions. Four localized documentation
-  pages distinguish the tested Cloudflare path, runtime-level Pyodide
-  compatibility, unsupported direct PyPI installation through Pyodide 0.28.3's
-  pre-PEP-783 `micropip`, and out-of-scope OCR/fallback-font behavior.
-- [x] Establish a shared untrusted-PDF resource policy (2026-07-26).
-  `DocumentLimits` bounds file bytes, pages, indirect objects, direct nesting,
-  per-stream and cumulative decompression, page-content decompression, and
-  cumulative interpreted glyph bytes. `DocumentLimits.web()` encodes the
-  initial bounded-worker profile without rejecting a representative scanned
-  page under the page-content budget. `LimitError.code` gives stable
-  machine-readable rejection categories, while `Document.complexity` exposes
-  cheap facts before rendering or extraction. Native and Pyodide share
-  file/page/decompression/depth/unverifiable-filter/text regressions, reference
-  cycles, representative vector and scan inputs, and a reproducible timing
-  trend recorded in `bench/results/limits-latest.md`. Scheduled Atheris fuzzing
-  generates bad xrefs, broken streams, deep direct objects, cycles, excessive
-  pages, and Flate/RunLength bombs. CPU
-  deadlines remain an explicit host responsibility; application-level
-  parallelism must retain the library's bounded admissions.
-- [x] Bound the complete renderer/extractor PDF snapshot (2026-07-26).
-  `DocumentLimits.max_interpretation_size` covers retained original input and
-  bounded reserialization after edits, decryption, or AcroForm state
-  normalization. Failures use `interpretation_size` without installing a
-  partial hayro cache; the compatible default is `None`, the web profile uses
-  64 MiB, and the Cloudflare example uses 16 MiB.
-- [x] Bound positioned-text record amplification (2026-07-26).
-  `DocumentLimits.max_text_glyphs` stops collection before cached glyph records
-  and structured Python blocks, lines, spans, or words can multiply short
-  ASCII payloads. Normal and table interpretation share one page admission,
-  rejected pages consume no budget, failures use `text_glyph_count`, the web
-  profile uses 65,536, and the Cloudflare example uses 16,384.
-- [x] Bound plain-text assembly amplification (2026-07-26).
-  With `max_text_size` configured, exact UTF-8 output size is preflighted before
-  allocation and safely derives a two-times output cap because inferred gaps
-  and line endings cannot outnumber non-empty glyphs. The private Rust batch
-  accepts at most 4,096 page entries. Repeated page numbers therefore cannot
-  bypass the policy; failures retain `text_size`.
-- [x] Measure and refine the PyEmscripten distribution (2026-07-26).
-  Emscripten now omits the unsupported RTen inference runtime while preserving
-  an explicit `OcrError` capability boundary and external OCR text-layer
-  insertion. The pinned wheel fell from 4.522 to 3.834 MiB (-15.21%), the Wasm
-  code section fell 21.92%, and the tested Cloudflare gzip upload fell from
-  4.570 to 3.882 MiB. CI records machine-readable artifact sections, staged
-  Pyodide startup/workload timings, linear-memory checkpoints, and Wrangler
-  bundle sizes. A feature-preserving follow-up applies fat LTO only to the
-  PyEmscripten artifact, reducing the wheel by another 2.78%, the installed
-  extension by 5.83%, and observed Wasm linear-memory high water by 0.812 MiB;
-  exact compatibility hashes and the module-scope `workerd` gate remain
-  unchanged. The complete core fits Cloudflare's paid-plan limits but not its
-  Free compressed-size limit; removing coherent PDF features for the Free tier
-  would fragment the API without establishing a credible workload, so no
-  separate lightweight distribution is planned.
-- [x] Publish the end-to-end WebAssembly installation and operations guide
-  (2026-07-26). A tested `examples/cloudflare-worker` is the source used by CI
-  and documents a bounded extraction service. Four locale guides record the
-  exact Python/Pyodide/Emscripten/PyEmscripten/workers-py/Wrangler matrix,
-  Cloudflare and direct-Pyodide workflows, dependency-to-capability ownership,
-  OCR/threads/filesystem/rendering boundaries, resource policy, size/startup
-  evidence, and the release support checklist. The public PyEmscripten
-  artifact first ships in v0.11; v0.10.0 remains native-only.
-- [x] Integrate detected tables into `Document.to_markdown()`: bordered grids
-  are automatic, borderless candidates remain opt-in, table text is suppressed
-  from prose and heading inference, and reading order is covered at all four
-  right-angle rotations plus the public-domain IRS Form 1040 corpus. Conversion
-  now stops page iterable materialization above 4,096 entries, defaults to a
-  64 MiB cumulative UTF-8 output cap, and uses page-at-a-time heading-count and
-  rendering passes instead of retaining every page interpretation together.
-  Each table preflights exact escaped UTF-8 output against the remaining
-  aggregate budget before page assembly. Page entries are charged as retained,
-  and paragraph/list joining uses linear final assembly rather than repeated
-  immutable-string concatenation (2026-07-26).
-- [x] Expand independent table corpora and quality evaluation beyond synthetic
-  and IRS coverage. Public-domain FBI NICS and US Senate fixtures now protect
-  sparse internal rules, dense numeric records, merged headers, borderless
-  bodies, and all four right-angle reading orientations (2026-07-25).
+### M0 — API reset
+
+All workstreams. Depends on F0 approval, F1, and F4. Ships as one breaking
+release.
+
+- Resolve every manifest `reset` item so that pymupdf names carry pymupdf's
+  meaning. Known items: `Page.get_images` returns pymupdf's xref inventory as
+  NamedTuples, with placements moving to `get_image_info` and image data to
+  `extract_image`; `Page.get_pixmap` defaults to `alpha=False` RGB output and
+  takes `matrix=` and `dpi=` instead of `scale=`; `Page.annots` returns
+  read-only `Annot` handles; `save(object_streams=)` becomes `use_objstms=`;
+  `compress_images` takes `rewrite_images`' name and meaning; `render_svg`
+  becomes `get_svg_image`; a missing file raises `FileNotFoundError`, and
+  `FileDataError` and `EmptyFileError` exist as `PdfError` subclasses;
+  `Permissions` members take pymupdf's names. Side-by-side runs against
+  pymupdf added: the `Document` constructor's positional `filetype`,
+  `authenticate` return codes, `set_metadata` round trips, pymupdf's page-box
+  convention and `set_mediabox` side effects, return values of `insert_text`,
+  `insert_image`, and `show_pdf_page`, full Standard 14 font names,
+  `Pixmap.save(filename)`, clamped `Rect` widths, and geometric operators. The
+  authoritative list is section 15 of `api/DESIGN.md`.
+- Make encryption explicit: `save(encryption=)` takes pymupdf's
+  `PDF_ENCRYPT_*` values with pymupdf's `PDF_ENCRYPT_NONE` default, and a
+  password without an encrypting method raises instead of being ignored as
+  in pymupdf or implying AES-256 as today.
+- Remove pylopdf's own synonyms: `Document.render_page`, `Page.render`,
+  `Document.render_page_svg`, and the duplicate OCR entry points.
+- Redesign existing capabilities under new names: `embfile_*` becomes a
+  `doc.attachments` mapping of attachment handles, and `get_toc`/`set_toc`
+  become zero-based outline entries. Today's `copy_page`, which makes an
+  independent copy, becomes pymupdf's `fullcopy_page`, because pylopdf never
+  shares page objects. `get_form_fields` and `set_form_field` remain until M3
+  replaces them.
+- Publish codemod rules and hints for every change (F9).
+
+Acceptance: the manifest has no `reset` entries; `api/public-api.json`, the
+documentation in four languages, and the migration guide describe the new
+surface; the codemod migrates the example corpus.
+
+### M1 — Extraction and rendering depth
+
+Workstreams A and B. Depends on hayro 0.8, M0, and F4.
+
+Extraction:
+
+- Span `color` (sRGB integer), `alpha`, `ascender`, `descender`, and
+  `char_flags` (fill, stroke, clip, invisible, synthetic), read from hayro
+  0.8 `DrawProps.paint` and `DrawMode` in the glyph-run callback. Spans split
+  on color and alpha changes, as in pymupdf.
+- `get_text(option, clip=, flags=, sort=, delimiters=)`; the `html`,
+  `xhtml`, `xml`, `json`, and `rawjson` outputs; `get_textbox`,
+  `get_text_selection`, `get_text_words`, and `get_text_blocks`.
+- Flags: `TEXT_PRESERVE_LIGATURES`, `TEXT_PRESERVE_WHITESPACE`,
+  `TEXT_PRESERVE_IMAGES` (type 1 image blocks), `TEXT_INHIBIT_SPACES`,
+  `TEXT_DEHYPHENATE`, `TEXT_MEDIABOX_CLIP`,
+  `TEXT_USE_CID_FOR_UNKNOWN_UNICODE` (plus U+FFFD placeholders for unmapped
+  glyphs, which are skipped today), and `TEXT_ACCURATE_BBOXES` through hayro
+  glyph outlines. Default output stays unchanged unless a flag is passed.
+- `search_for(needle, clip=, quads=, flags=)` and `Document.search_page_for`.
+- Inventory beyond M0's image APIs: `get_image_info(hashes=, xrefs=)`
+  options, `get_image_rects`, `get_image_bbox`, `get_fonts(full=)`,
+  `get_xobjects`, `Document.get_page_images`, `get_page_fonts`,
+  `get_page_xobjects`, `extract_font(xref)`, and `get_char_widths`. hayro
+  already reports image object IDs through `RasterImage::stream().obj_id()`,
+  which `compress_images` uses today.
+- Traces: `get_texttrace`, `get_bboxlog(layers=)`, `get_drawings(extended=True)`
+  with the clip and group hierarchy, `get_cdrawings`, and `cluster_drawings`.
+
+Rendering:
+
+- `get_pixmap(matrix=, dpi=, colorspace=, clip=, alpha=, annots=)` and the
+  same options on `Document.render_pages`. Arbitrary affine matrices use
+  hayro 0.8 `render_into`, and `annots=` sets
+  `InterpreterSettings.render_annotations` per call.
+- Pixmap: `n` of 1, 3, or 4 (gray, RGB, RGBA), `colorspace`, `alpha`, `xres`,
+  `yres`, `set_dpi`, `irect`, and `size`; constructors from encoded PNG or
+  JPEG, raw samples, and `(document, xref)` images with soft masks;
+  `tobytes(output=, jpg_quality=)` and `save(filename, output=, jpg_quality=)`
+  for PNG, JPEG (through the existing `jpeg-encoder` dependency), and PNM/PAM;
+  analysis with `pixel`, `color_count`, `color_topusage`, `is_unicolor`,
+  `is_monochrome`, and `digest`; cheap transforms with `copy`, `shrink`,
+  `set_alpha`, `invert_irect`, `clear_with`, `tint_with`, and `gamma_with`;
+  `pil_image`, `pil_save`, and `pil_tobytes` when Pillow is installed.
+- `get_svg_image(matrix=, text_as_path=)`. `text_as_path=False` needs an
+  upstream hayro-svg option or a pylopdf SVG device; until then it raises
+  instead of silently producing paths.
+
+Acceptance: span colors match pymupdf exactly on the corpus; ascender-based
+boxes meet a published IoU threshold; quads cover rotated-text search; a
+diagonal matrix renders pixel-identically to the equivalent `dpi`; and every
+default output is unchanged.
+
+### M2 — Drawing and generation
+
+Workstream C. Depends on M0, F4, and F7.
+
+- `Page.new_shape()` returns a `Shape` with `draw_line`, `draw_rect(radius=)`,
+  `draw_circle`, `draw_oval`, `draw_polyline`, `draw_bezier`, `draw_curve`,
+  `draw_quad`, `draw_sector`, `draw_squiggle`, `draw_zigzag`,
+  `finish(width, color, fill, lineCap, lineJoin, dashes, even_odd, morph, closePath, fill_opacity, stroke_opacity, oc)`,
+  `insert_text`, `insert_textbox`, and `commit(overlay=)`, which writes one
+  content stream per commit. `Page.draw_*` methods are single-shape shortcuts.
+  A `Shape` is also a context manager that commits on a clean exit and writes
+  nothing after an exception, and an uncommitted `Shape` warns when it is
+  collected, so drawings are never lost silently.
+- `insert_text` and `insert_textbox` gain `rotate=`, `morph=`,
+  `render_mode=`, `border_width=`, `miter_limit=`, `fill=`,
+  `stroke_opacity=`, `fill_opacity=`, `lineheight=`, and `oc=` for both
+  Standard 14 and embedded fonts.
+- `insert_image` gains `mask=`, `alpha=`, `xref=`, `width=`, `height=`, and
+  `oc=`, plus JPX passthrough. Add `replace_image(xref, ...)` and
+  `delete_image(xref)`. `show_pdf_page` gains `clip=`, `rotate=`, and `oc=`
+  and returns the reusable xref.
+- `Font` exposes metrics, `text_length`, `char_lengths`, `has_glyph`,
+  `valid_codepoints`, `glyph_advance`, `glyph_bbox`, and style flags for
+  Standard 14 and OpenType fonts. Add `get_text_length()` and `insert_font()`.
+- Page geometry: `artbox`, `bleedbox`, `trimbox` and their setters,
+  `mediabox_size`, `cropbox_position`, `bound()`, `transformation_matrix`,
+  `rotation_matrix`, `derotation_matrix`, and `remove_rotation()`.
+- Page operations: `move_page`, `fullcopy_page`, `insert_page(text=)`, and
+  `Document.pages(start, stop, step)`.
+- Conversion: `Document.insert_file()` and `convert_to_pdf()` for JPEG, PNG,
+  and JPX (passthrough) images and CBZ archives (read with Python `zipfile`).
+  Other raster formats go through optional Pillow, and `pylopdf.open()`
+  converts image inputs.
+
+Acceptance: shapes and text effects render within a published pixel
+tolerance of pymupdf; opacity and rotation are verified by rendering and
+extraction; a diagonal translucent watermark example is covered by tests; and
+image and Form reuse hold across many pages.
+
+### M3 — Annotations, links, and forms
+
+Workstream D. Depends on F7 and M2.
+
+- `Annot` handles mirror pymupdf: `type`, `rect`, `info` and `set_info`,
+  `colors` and `set_colors`, `border` and `set_border`, `opacity` and
+  `set_opacity`, `flags` and `set_flags`, `blendmode`, `line_ends`,
+  `vertices`, `rotation`, `popup_rect` and `set_popup`, `is_open` and
+  `set_open`, `irt_xref` and `set_irt_xref`, `set_name`, `file_info`,
+  `get_file`, `update_file`, `get_text`, `get_textbox`, `get_pixmap`,
+  `delete_responses`, `xref`, and `next`. There is no `update()`: setters
+  regenerate appearances immediately. `Page` gains `annots(types=)`,
+  `load_annot`, `first_annot`, `annot_names`, `annot_xrefs`, and
+  `delete_annot`.
+- Every pymupdf `add_*_annot` creator: text notes, FreeText with callouts,
+  borders, and rotation, line, square, circle, polygon, polyline, ink, stamps
+  (standard and image), file attachments, caret, and Highlight, Underline,
+  StrikeOut, and Squiggly with `quads`, `start`/`stop`, and `clip`, plus
+  Redact (applied in M4). Every annotation receives an `/AP /N` built with F7;
+  the existing `text_markup_ap_ops` already produces Underline, StrikeOut,
+  and Squiggly appearances.
+- Render-only appearance synthesis for every supported annotation type and
+  for widgets that rely on `/NeedAppearances`. The editable PDF stays
+  unchanged; hayro draws only annotations that have an appearance stream.
+- Links: `insert_link` for GOTO, GOTOR, URI, LAUNCH, and NAMED; `update_link`;
+  `delete_link`; `Link` handles with `border`, `colors`, `flags`, and setters;
+  `Document.resolve_link` and `resolve_names`.
+- Forms: `Widget` handles with pymupdf's attributes (`field_name`,
+  `field_label`, `field_value`, `field_type`, `field_flags`, `field_display`,
+  `rect`, `xref`, border, fill and text styling, `text_maxlen`, `text_format`,
+  `choice_values`, `button_caption`, `button_states()`, `on_state()`, the
+  `script*` actions, and `is_signed`), `Page.widgets(types=)`, `add_widget`,
+  `delete_widget`, `load_widget`, `Widget.reset()`, `Document.is_form_pdf`,
+  `need_appearances()`, and `get_sigflags()`. Attribute assignment applies
+  immediately, so `Widget.update()` is not provided. A by-name `doc.form`
+  mapping replaces `get_form_fields` and `set_form_field`.
+- `Document.bake(annots=, widgets=)` flattens the `/AS`-selected `/AP /N`
+  into page content with the same BBox-to-Rect mapping hayro uses.
+- Signature fields: create empty signature widgets and report signed state;
+  an interop test signs a pylopdf-created field with pyHanko.
+- JavaScript actions (widget `/AA`, document-level `/JavaScript`) can be
+  authored and removed. pylopdf never executes them.
+- M0 already returns read-only `Annot` handles from `Page.annots()`; M3 adds
+  creation, mutation, widgets, and the form mapping.
+
+Acceptance: every created annotation renders within tolerance in pylopdf and
+pymupdf and survives save/reopen; flattening preserves rendered output and
+extracted text; fields created by pylopdf can be filled by pymupdf and by
+pylopdf.
+
+### M4 — Redaction and sanitization
+
+Workstream F. Depends on F7, F8, and the M3 annotation core.
+
+- `Page.add_redact_annot(quad, text=, fontname=, fontsize=, align=, fill=, text_color=, cross_out=)`
+  and `Page.apply_redactions(images=, graphics=, text=)` with pymupdf's
+  constants: `PDF_REDACT_IMAGE_NONE`, `PDF_REDACT_IMAGE_REMOVE`,
+  `PDF_REDACT_IMAGE_PIXELS`, and `PDF_REDACT_IMAGE_REMOVE_UNLESS_INVISIBLE`;
+  `PDF_REDACT_LINE_ART_NONE`, `PDF_REDACT_LINE_ART_REMOVE_IF_COVERED`, and
+  `PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED`; `PDF_REDACT_TEXT_REMOVE`,
+  `PDF_REDACT_TEXT_REMOVE_INVISIBLE`, and `PDF_REDACT_TEXT_NONE`.
+- Text: remove every glyph whose box intersects a redaction area, with
+  compensating `TJ` adjustments; simple, CID (Identity and embedded CMaps),
+  and Type 3 fonts; horizontal and vertical writing; invisible `Tr 3` OCR
+  layers.
+- Images: blank pixels and re-encode, or remove whole placements, including
+  inline images, image masks, and soft masks.
+- Vector graphics: remove covered or touched paths and intersecting shadings.
+- Copy shared Form XObjects before editing them, remove overlapping
+  annotations, and replace redaction annotations with their fill and overlay
+  text.
+- Verification contract: after application, re-interpretation with hayro
+  finds no glyph, image pixel, or path inside a redacted area.
+  `apply_redactions` returns a report, and saving rewrites the file without
+  incremental history.
+- `Document.scrub()` with all of pymupdf's options; `Page.clean_contents()`,
+  `Annot.clean_contents()`, `wrap_contents`, `is_wrapped`, `read_contents`,
+  `get_contents`, and `set_contents`; `recolor(components=)` for pages and
+  documents.
+- The security guide states what redaction does not remove: embedded font
+  programs keep their glyphs until M7 subsetting, and metadata needs `scrub`.
+
+Acceptance: an adversarial redaction corpus (kerned `TJ` arrays, shared
+Forms, rotated pages, CJK CID fonts, Type 3 fonts, overlapping layers, inline
+images, and masks) shows zero leaks, cross-checked by pymupdf extraction of the
+redacted areas.
+
+### M5 — Document structure and navigation
+
+Workstream E. Depends on M0 and F5.
+
+- XMP: `get_xml_metadata`, `set_xml_metadata`, and `del_xml_metadata`, with
+  optional synchronization from `set_metadata`.
+- Outline: the zero-based outline entries from M0 gain destinations (kind,
+  target point, zoom), color, bold, italic, collapse state, item editing, and
+  traversal handles. They replace pymupdf's `get_toc(simple=False)`,
+  `set_toc_item`, `del_toc_item`, `get_outline_xrefs`, and `Outline`.
+- Document properties: `pagemode`, `pagelayout`, `set_pagemode`,
+  `set_pagelayout`, `markinfo`, `set_markinfo`, `language` and
+  `set_language` for documents and pages, `is_fast_webaccess`,
+  `version_count`, `is_dirty`, `has_links`, `has_annots`, `permissions`, and
+  `get_page_numbers(label)`.
+- Optional content: `get_ocgs`, `add_ocg`, `get_layer`, `get_layers`,
+  `set_layer`, `add_layer`, `switch_layer`, `layer_ui_configs`,
+  `set_layer_ui_config`, `get_oc`, `set_oc`, `get_ocmd`, `set_ocmd`, and
+  `Page.get_oc_items`, plus `oc=` on insertion APIs. hayro reads
+  `/OCProperties /D`, so edits to the default configuration reach rendering
+  and extraction directly; other configurations render through a render-only
+  snapshot.
+- Attachments: file name, description, size, dates, and in-place updates on
+  the `doc.attachments` handles from M0, shared with M3 file attachment
+  annotations. They replace pymupdf's `embfile_info`, `embfile_upd`, and
+  `embfile_count`.
+
+Acceptance: layer visibility changes rendering and extraction; XMP round-trips
+through an XML parser; TOC round-trips agree with pymupdf.
+
+### M6 — Document intelligence
+
+Workstreams A and H. Depends on hayro 0.8 and M1.
+
+- Tagged PDF: track marked-content IDs through hayro 0.8
+  `begin_marked_content`, resolve `/StructTreeRoot`, `/ParentTree`, and role
+  maps, attach structure IDs to spans, and let Markdown use headings, lists,
+  tables, figure alternate text, and structure reading order when the tree is
+  trustworthy. This is `TEXT_COLLECT_STRUCTURE`.
+- ActualText: contribute marked-content property access upstream to hayro,
+  honor `/ActualText` by default, and add `TEXT_IGNORE_ACTUALTEXT`.
+- pymupdf4llm parity on `to_markdown`: `page_chunks`, `write_images`,
+  `embed_images`, `image_path`, `image_format`, `dpi`, `extract_words`,
+  `margins`, `ignore_graphics`, `graphics_limit`, and header/footer removal
+  from geometry repeated across pages.
+- Hybrid OCR: recognize only areas without legible digital text, like
+  pymupdf's `get_textpage_ocr(full=False)`, rendering just those areas through
+  the hayro 0.8 clip viewport; add an images-to-searchable-PDF convenience.
+- Tables: pymupdf's `find_tables` parameters (strategies, explicit lines,
+  tolerances, minimum words, `add_lines`, `add_boxes`), `Table.header`,
+  `row_count`, `col_count`, `rows`, `cells`, and `to_pandas()` with optional
+  pandas.
+- Layout model: a `[layout]` extra running an Apache-2.0 PP-DocLayout model
+  through RTen, versioned separately like the OCR models, behind
+  `Page.get_layout()`.
+
+Acceptance: human-verified ground truth on representative business documents,
+and published comparisons with pymupdf4llm with and without pymupdf-layout.
+
+### M7 — Persistence and robustness
+
+Workstream G. Depends on F5, F6, and F8.
+
+- `save` and `tobytes` gain `clean=`, `deflate_images=`, `deflate_fonts=`,
+  `ascii=`, `expand=`, `pretty=`, `no_new_id=`, `preserve_metadata=`,
+  `compression_effort=`, and `incremental=`, together with `ez_save()`,
+  `saveIncr()`, and `can_save_incrementally()`.
+- Incremental save: retain the original bytes, track dirty objects centrally
+  (F1 makes the write paths enumerable), and append through lopdf
+  `IncrementalDocument`. Existing signatures stay valid, which a pyHanko
+  validation test proves. Refuse repaired inputs and encryption changes.
+- `subset_fonts(fallback=)`: collect glyph usage through interpretation,
+  subset TrueType and CFF programs with `subsetter`, which krilla already
+  links, rewrite font programs and width arrays, and remap content strings
+  when glyph IDs change.
+- Damaged-input recovery: add opt-in reconstruction for damaged xref streams
+  and truncated files without a classic trailer, the classes that remain
+  rejected after lopdf 0.45 recovery. In the 2026-10 evaluation, hayro alone
+  rendered 103 of 112 damaged inputs; in this repository's reproduction,
+  lopdf 0.45 recovery lets pylopdf open 57 with a usable page tree. Rebuild
+  the lopdf graph itself, using an object scan or hayro-syntax's repaired view
+  as the oracle, and let hayro read lopdf's serialization, so editing, saving,
+  and rendering cannot disagree. Report the result through `is_repaired` and a
+  warning.
+- Encryption: verify reading of RC4 40/128-bit and AES-128/256, and add
+  `PDF_ENCRYPT_AES_128` and `PDF_ENCRYPT_KEEP` to the `encryption=` option
+  that M0 introduces; `PDF_ENCRYPT_KEEP` preserves a supported input handler.
+  Writing RC4 raises, while reading stays supported.
+- Journal: `journal_enable`, `journal_undo`, `journal_redo`,
+  `journal_can_do`, `journal_position`, `journal_op_name`, `journal_save`, and
+  `journal_load`, with `with doc.transaction(name):` replacing
+  `journal_start_op` and `journal_stop_op`, built from object-level snapshots
+  per operation under a memory budget.
+- `rewrite_images` parity: lossless recompression, bitonal and grayscale
+  targets, and `set_to_gray`, completing the `rewrite_images` that M0 aligns
+  with pymupdf's meaning.
+
+Acceptance: pyHanko signatures stay valid after incremental edits; an
+independent structural check (pikepdf in the interop group) accepts every
+output; subsetting reduces size without changing extracted text or rendering.
+
+### M8 — Rich text
+
+Workstream C. Depends on M2.
+
+- Styled runs and per-glyph fallback: `insert_textbox` accepts runs with font,
+  size, color, weight, style, and link, falls back across the installed
+  locale and script providers, and keeps bidirectional ordering and
+  justification on the existing UAX #14 and HarfRust layout. Evaluate parley
+  (see the [watchlist](#watchlist)) before extending `layout.rs`.
+- `insert_htmlbox(rect, text, css=, scale_low=, archive=, rotate=, oc=, opacity=)`
+  for an HTML and CSS subset: block and inline elements, font properties,
+  color, lists, line breaks, links, and images from an archive mapping. It
+  returns the spare height and scale like pymupdf.
+- `TextWriter` with `append`, `appendv`, `fill_textbox`, and
+  `write_text(color, opacity, morph, matrix, render_mode, oc)`.
+
+Acceptance: HTML subset conformance tests, mixed CJK and RTL runs, and
+comparison with pymupdf `insert_htmlbox` on the supported subset.
+
+### v1.0 — API freeze
+
+- The parity manifest has no `planned` entries left, and every replaced
+  pymupdf name has a migration hint.
+- Independent field reports cover the new surfaces, especially redaction,
+  forms, and annotations. Adoption signals, with roughly 1,000 GitHub stars as
+  an indication rather than a trigger, inform the decision but do not replace
+  correctness and compatibility gates.
+- Deprecations are resolved, documentation is complete in all four
+  languages, every artifact is verified on its target, and the stability
+  policy is frozen.
+
+## Continuous tracks
+
+- **Real-document quality.** Human-verified ground truth for text, reading
+  order, table cells, and OCR on Japanese business forms, multicolumn prose,
+  mixed scripts, and scans. pymupdf similarity stays a signal, not the
+  definition of correctness.
+- **Performance.** Close MuPDF's 2–3× warm-raster lead through upstream glyph
+  and image caching and thread-safe hayro caches; keep publishing wins and
+  losses.
+- **Security.** Fuzz lanes for every new parser and rewriter (object syntax,
+  content engine, XMP, HTML subset, CBZ), and extend `DocumentLimits.web()` to
+  every new surface.
+- **Distribution.** CPython 3.15 and 3.15t (#230), PyEmscripten parity, and the
+  wheel budget.
+
+## Upstream contributions
+
+- **hayro**: marked-content properties for ActualText (M6), Unicode for Type 3
+  glyphs without ToUnicode (LaurenzV/hayro#1331), parsing an object stream's
+  member table once (LaurenzV/hayro#1545, open), thread-safe render caches,
+  Type 1 font metadata for span flags, a text-preserving SVG mode,
+  stencil-mask performance (LaurenzV/hayro#1315), and `num_threads`
+  (LaurenzV/hayro#1317). Depth parameters for `Function::new`,
+  `ColorSpace::new`, and `parse_procedure_inner` would let pylopdf drop its
+  guards.
+- **lopdf**: a public object parser and serializer (F5), recovery reporting
+  through the API instead of `log`, a linear unterminated-`stream` scan,
+  xref-stream rebuilds from the catalog, consistent `compression_level`, and
+  implementing or removing the dead `linearize` flag. Dropping `/Prev` and
+  `/XRefStm` from rebuilt trailers merged upstream as J-F-Liu/lopdf#609 on
+  2026-10-18.
+
+## Non-goals
+
+These boundaries remain after the 2026-10-19 rewrite. Each has an ecosystem
+answer.
+
+- **Formats that need a layout engine**: XPS and OpenXPS, EPUB, MOBI, FB2,
+  HTML, and text documents, with the reflowable APIs (`layout`, chapters,
+  locations, bookmarks). Images and CBZ are in scope (M2).
+- **Full HTML/CSS pagination**: `Story`, `DocumentWriter`, `Archive`, `Xml`,
+  and `apply_css`. Use typst, and reassess fulgur around 2027-01. The HTML
+  subset in M8 covers text boxes.
+- **Executing JavaScript or XFA**: authoring and removing JavaScript actions
+  is in scope (M3). XFA is deprecated in PDF 2.0 and has no Rust
+  implementation.
+- **Native cryptographic signing**: pyHanko provides active MIT-licensed PAdES
+  through B-LTA. Signature fields and signed-state inspection are in scope
+  (M3); watch underskrift.
+- **Converting or validating arbitrary PDFs as PDF/A**: krilla's validated
+  export rejects embedded pages, and validation would duplicate veraPDF. Use
+  typst for new documents; `get_pdfa_claim` stays.
+- **MuPDF internals without PDF-level meaning**: `DisplayList`,
+  `Page.run(device)`, store and anti-aliasing controls in `TOOLS` (reassess
+  anti-aliasing if vello_cpu exposes it), colorspace management beyond
+  `Colorspace(name, n)` values and the `cs*` and `CS_*` constants,
+  `Pixmap.warp`, and `Pixmap.pdfocr_*`. Images-to-PDF plus native OCR covers
+  the last case.
+- **Compatibility layers**: no `fitz` module, no aliases for redesigned APIs,
+  and no byte-identical output. The F9 tools handle migration.
+- **RC4 encryption output**: insecure; reading remains supported.
 
 ## Watchlist
 
-- **hayro 0.8**: the DrawProps `Device` API change (#1245) is merged but
-  unreleased, as are #1318 and #1320. When released, update the two `extract.rs`
-  implementations—likely mechanically because paint is mostly ignored—and gain
-  the performance improvements. 0.8 also skips page-tree kids that are not
-  dictionaries instead of ending the page list there; keep pylopdf's
-  page-identity check, because 0.8 still reads untyped and direct kids as
-  pages. Keep this separate from krilla integration.
-  hayro 0.8.0 was released on 2026-10-04 and bounds nested arrays and
-  dictionaries at 64 levels (LaurenzV/hayro#1387), but it is not a drop-in
-  fix for the content-nesting crash: a side-by-side render of the first two
-  pages of every real-world corpus file changed 6 of 20 pages (vello_cpu
-  0.0.8 to 0.3 resamples the large scans), so the migration needs its own
-  reviewed pixel diff, and nested Type 4 function braces plus deep function and
-  colour-space chains still overflow it (verified on 0.8.0 on 2026-10-18,
-  including ICCBased `/Alternate` chains, which cost about 5.8 KiB of stack
-  per level there).
-  The nesting guard in `rust/src/content_guard.rs` therefore stays until the
-  migration lands; afterwards it remains useful as a typed refusal instead of
-  hayro's silent truncation. `rust/src/graph_guard.rs` and
-  `rust/src/postscript_scan.rs` bound the Type 4 braces and the chains, and
-  stay unless upstream bounds them; an upstream report with a reproduction and
-  a depth parameter for `Function::new`, `ColorSpace::new`, and
-  `parse_procedure_inner` is a contribution candidate. Re-measure the stack per
-  level and re-read every `Function::new` and `ColorSpace::new` call site when
-  migrating.
-- **fulgur**, Blitz plus krilla for HTML-to-PDF under MIT/Apache-2.0, already
-  supports `@page`, page breaks, running headers/footers, and tagged PDF/UA-1,
-  but first appeared in 2026-03, is single-maintainer, is at 24.1% css-page WPT,
-  and is changing APIs rapidly. Reassess around 2027-01 for survival, API
-  stability, and a stable Blitz 0.3. pyfulgur currently stops at cp312 and is
-  not abi3, leaving an opportunity.
-- **underskrift**, BSD-2-Clause PAdES signing over lopdf by kushaldas, appeared
-  in 2026-03 and claims B-B through LTA. Reconsider as an optional signature
-  backend after maturity and lopdf-version alignment.
-- **PP-OCRv6**, released in 2026-06: wait for ONNX conversion support before
-  selecting the `[ocr]` model generation.
-- **parley**, linebender's richer text layout engine and a krilla dev
-  dependency: UAX #14 plus HarfRust metrics was sufficient for the bounded
-  `insert_textbox` contract without adding per-glyph fallback and styling
-  machinery. Reconsider only if product demand justifies a native rich-text
-  surface.
-- **PP-DocLayout**, Apache-2.0: possible `[layout]` alternative to the
-  PolyForm-Noncommercial pymupdf-layout. It could share rten with `[ocr]`;
-  evaluate after OCR succeeds.
-- **Incremental save**: reconsider after real issue demand or stabilization in
-  pypdf. The implementation path would retain original bytes at load, reparse
-  them at save, and append only changed objects through lopdf
-  `IncrementalDocument`, initially excluding encrypted documents.
+- **hayro 0.8 and later**: the migration is in progress. hayro 0.8.0 bounds
+  nested arrays and dictionaries at 64 levels, but nested Type 4 function
+  braces and deep function and color-space chains still overflow its stack, so
+  `content_guard.rs`, `graph_guard.rs`, and `postscript_scan.rs` stay. The
+  migration needs its own reviewed pixel diff: vello_cpu resamples large
+  scans, and 6 of 20 corpus pages changed.
+- **fulgur** (Blitz plus krilla, HTML to PDF): reassess around 2027-01 for
+  survival, API stability, and a stable Blitz 0.3.
+- **underskrift** (BSD-2-Clause PAdES over lopdf): reconsider as an optional
+  signature backend after it matures.
+- **parley** (linebender text layout): evaluate for M8 before extending
+  `layout.rs`.
+- **PP-DocLayout** (Apache-2.0) and later PP-OCR generations: candidates for the
+  `[layout]` extra (M6) and for `[ocr]` model updates.
+- **pymupdf, pymupdf4llm, and pymupdf-layout releases**: record new public
+  APIs in the parity manifest as they appear.
+- **Competitors**: pdf_oxide, oxidize-pdf, pypdfium2, kreuzberg, and docling.
 
-## Explicit non-goals
+## Decisions in this rewrite
 
-These boundaries preserve focus. The 2026-07-23 deeper review updated the
-evidence; built-in OCR moved out of this list into the gated v0.11 track.
+- **D1**: the scope expands to every capability of pymupdf's API that applies
+  to PDF documents, except the [non-goals](#non-goals).
+- **D2**: one API in which the same name means the same thing; pymupdf names
+  carry pymupdf's meaning, and redesigns take new names. This replaces
+  "pymupdf-style, not pymupdf-compatible" and rules out a compatibility layer.
+- **D3**: geometry types are adopted (F4) as immutable values; pymupdf's
+  in-place mutators are not provided.
+- **D4**: lightweight `Annot`, `Widget`, `Link`, and outline handles replace
+  the dictionary-only policy (M0, M3); setters apply immediately, and there is
+  no `update()`.
+- **D5**: the low-level object API becomes public (F5) as a typed object
+  model instead of pymupdf's string-based `xref_*` methods.
+- **D6**: incremental save moves from the watchlist into M7.
+- **D7**: opt-in reconstruction of damaged xref streams and truncated files is
+  scheduled (M7) under the single-source-of-truth constraint.
+- **D8**: redaction is in scope with a verification contract (M4).
+- **D9**: the core wheel budget is 9.0 MiB.
+- **D10**: changelog fragments (F2) and the parity manifest (F3) become part
+  of the process.
+- **D11**: migration is served by tools generated from the manifest (F9): a
+  codemod, migration hints, and `llms.txt`.
+- **D12**: there are no deprecation windows before 1.0; the API reset (M0)
+  ships as one breaking release.
+- **D13**: the API design (F0) is written and reviewed before implementation
+  fans out.
 
-- **Drop-in pymupdf compatibility**: remain pymupdf-style.
-- **Converting or validating arbitrary PDFs as PDF/A**: krilla's validated
-  export is for new content and explicitly rejects embedded PDF pages as
-  `ValidationError::EmbeddedPDF`. Converting lopdf-edited PDFs therefore cannot
-  be assembled from the current ecosystem. Validation would duplicate
-  veraPDF's hundreds of Java rules. Use typst for new-document PDF/A and expose
-  only XMP claim reading in v0.9.
-- **Native digital signatures**: technically possible with lopdf
-  `IncrementalDocument`, whose writer preserves original bytes, but pyHanko
-  already provides active MIT-licensed PAdES B-LTA and validation. Domestic
-  demand tends to require certified timestamps and LTV; a B-B-only
-  implementation would be a poor entry. Watch underskrift.
-- **XFA or JavaScript forms**: XFA is deprecated in PDF 2.0, has no Rust
-  implementation, and lacks major-viewer support. PDF JavaScript demand is
-  mostly form calculation; bundling an engine conflicts with both wheel-size
-  and security goals.
-- **Native HTML-to-PDF**: recreating pagination would duplicate the work behind
-  fulgur's roughly 2,800 commits. Keep fulgur on the watchlist.
-- **Bundling typst or another typesetter**: current typst wheels add about
-  25–35 MB and break the lightweight goal. Integrate externally. The maximum
-  future native typesetting scope is text flow into a rectangle, similar to
-  pymupdf `insert_htmlbox`.
+## Evidence log
 
-## Survey notes: confirmed 2026-07-22
+Dated facts that still drive decisions. Earlier detail is in Git history.
 
-- lopdf 0.44.0 was current. Its `time` feature still did not compile; upstream
-  #527 was merged but unreleased. Keep default features disabled.
-- `save_with_options` automatically raises output to PDF 1.5 and switches to an
-  xref stream when using object streams. `ObjectStreamConfig` defaults to
-  100 objects and compression level 6.
-- hayro 0.7 includes the `Device` trait and an official extraction example. All
-  crates are dual MIT/Apache-2.0. typst 0.14 uses it for embedded PDFs.
-- Monthly PyPI downloads from pypistats: pymupdf 106M, pypdf 116M, pdfplumber
-  54M, pypdfium2 68M, pikepdf 9.3M, pymupdf4llm 24M, docling 20M.
-- Concrete AGPL avoidance: doctr#486 removed pymupdf, browser-use#2610 treated a
-  transitive dependency as a problem, and marker created pdftext explicitly
-  “without the AGPL license.”
-
-## Survey notes: Rust PDF crates, 2026-07-23
-
-- **krilla**, a high-level pdf-writer-based generation API in the
-  LaurenzV/typst ecosystem, is hayro's sibling project and the strongest
-  reference for future drawing.
-- Several extraction-focused Rust projects appeared in 2026:
-  **kreuzberg**, an active multilingual document extractor with 8.7k stars;
-  **pdf-extract**, based on lopdf with 3.19M total crates.io downloads; unpdf;
-  and pdfsink-rs. v0.7 extraction enters a competitive market, not an empty one.
-- mupdf-rs (AGPL) and poppler-rs (GPL-family) can only be references.
-  pdfium-render is MIT over BSD-family PDFium but is unnecessary because hayro
-  already renders.
-- pdf-rs/pdf is an MIT low-level parser with experimental writing. It is much
-  smaller than lopdf, which has 12.87M downloads and 2.2k stars, so switching has
-  little motivation.
-
-## Survey notes: deeper out-of-scope review, 2026-07-23
-
-Confirmed findings across krilla, typst, pure-Rust OCR, signatures, and
-HTML-to-PDF:
-
-- **krilla 0.8.2**, MIT OR Apache-2.0 by hayro's author, supports validated
-  PDF/A-1 through PDF/A-4 conformance and PDF/UA-1. CI validates with veraPDF and
-  Arlington; typst 0.14 uses it as the PDF backend. Its `pdf` feature imports
-  existing pages through hayro-write 0.7.0, but validated output rejects them as
-  EmbeddedPDF. `NOTICE.md` discloses resvg-derived MPL code, which would require
-  wheel license attribution.
-- **hayro-write 0.7.0** explicitly calls itself an internal crate not meant for
-  external use. krilla's `pdf` feature is a more stable wrapper when needed.
-- **typst-py** wheels measure 25.7–36.5 MB, record 437,000 monthly downloads,
-  follow upstream releases within a day, and ship cp38-abi3, cp314t, and
-  emscripten wheels. It exports PDF/A-1b through 4 and UA-1. typst still lacks
-  vertical writing (#5908) and ruby (#1489), so it cannot claim complete
-  Japanese typesetting.
-- **Pure-Rust OCR**: upstream ocrs is Latin-only and its model is
-  CC-BY-SA-4.0. PP-OCRv5_mobile is Apache-2.0 and its 4.6 MB detector plus
-  15.8 MB recognizer include Japanese. rten, with 970,000 total downloads and
-  active MIT/Apache development, is the preferred pure-Rust runtime; tract-onnx
-  is second. rapidocr demonstrates long-term redistribution of Apache-2.0
-  models with LICENSE/NOTICE.
-- **Digital signatures**: RustCrypto cms 0.2.3 can build PAdES B-B but lacks an
-  ESS signing-certificate-v2 type, requiring custom DER. lopdf
-  `IncrementalDocument` preserves original bytes. pyHanko 0.35.2 remains the
-  active MIT-licensed Python reference.
-- **PDF/A validation**: veraPDF, dual GPLv3+/MPLv2+ in Java, is effectively the
-  only OSS implementation. Rust pdf-compliance requires a commercial production
-  license; no native Python validator exists.
-- **HTML-to-PDF**: Blitz is pre-alpha and schedules fragmentation for 1.0.
-  hyper-render died after two days. fulgur, Blitz plus krilla under
-  MIT/Apache and started in 2026-03, has 55 releases and about 2,814 commits
-  implementing paged media. pyfulgur 0.37.0 ships cp39–cp312 non-abi3 wheels.
-  weasyprint records 33.13M monthly downloads and documents performance
-  limitations, proving demand for a Rust alternative.
-- **XFA and JavaScript**: XFA is deprecated in PDF 2.0 and has no Rust
-  implementation. pdf.js enables QuickJS form calculation in a sandbox by
-  default; an extraction/editing library does not need general JavaScript.
-- **pymupdf 1.28** remains AGPL. **pymupdf-layout** was first published in
-  2025-11; version 1.28.0 provides a GNN layout analyzer used by pymupdf4llm
-  when separately installed and enabled. It uses PolyForm Noncommercial plus
-  commercial licensing, ships a roughly 39.6 MiB wheel, and depends on NumPy,
-  ONNX Runtime, NetworkX, PyYAML, and the matching pymupdf release.
-- **pdf_oxide** records weekly releases, about 145,000 monthly downloads, and
-  899 stars, but no renderer and no third-party benchmark verification.
+- **2026-07-22, market**: monthly PyPI downloads were pymupdf 106M, pypdf 116M,
+  pypdfium2 68M, pdfplumber 54M, pymupdf4llm 24M, docling 20M, and pikepdf
+  9.3M. Projects avoid AGPL dependencies in practice: doctr#486 removed
+  pymupdf, browser-use#2610 treated a transitive dependency as a problem, and
+  marker built pdftext explicitly without AGPL code.
+- **2026-07-23, ecosystem**: krilla 0.8.2 produces veraPDF-validated PDF/A-1
+  through PDF/A-4 and PDF/UA-1 but rejects embedded pages in validated output;
+  typst-py wheels are 25.7–36.5 MB; veraPDF is effectively the only open
+  PDF/A validator; pyHanko is the active MIT-licensed signing reference; XFA
+  is deprecated in PDF 2.0.
+- **2026-07-25, competitors**: pymupdf 1.28.0 wheels are 17.5–24.7 MiB; the
+  pymupdf-layout 1.28.0 wheel is about 39.6 MiB under PolyForm Noncommercial
+  plus commercial licensing; pdf_oxide has no renderer and self-reported
+  benchmarks; oxidize-pdf is a separate MIT Rust competitor focused on
+  structure-aware chunking.
+- **2026-10-17, wheels**: thin-LTO abi3 wheels built from the 0.14.0 sources
+  are 6.4–7.4 MiB, versus 6.8–7.9 MiB for the published 0.14.0 wheels. Thin LTO
+  sped up extraction by 6–14%; native wheels keep their symbol tables.
+- **2026-10-18, rendering**: cross-call render-cache reuse made re-renders
+  3–28% faster with at most 3 MiB more memory. MuPDF's 2–3× warm-raster lead
+  comes from rasterization and its glyph and image caches, not font parsing.
+- **2026-10, damaged input**: over 14 corpus files with 8 deterministic damage
+  types, pylopdf 0.14.0 opened 35 of 112 inputs and hayro alone rendered 103.
+  lopdf 0.45 recovery raised usable openings from 33 to 57 in this
+  repository's reproduction; damaged xref streams and truncated files without a
+  classic trailer remain rejected.
+- **2026-10-19, parity**: the pymupdf 1.28.0 source defines 141 public
+  `Document` methods, 115 `Page` methods, and 53 `Annot` methods. On the
+  corpus, five `show_pdf_page` placements of one `bill-hr815.pdf` page
+  embedded 25 font files, and `insert_pdf` of `f1040.pdf` (199 fields) left 0
+  registered fields and 128 orphaned widgets. The first parity manifest
+  classified 948 pymupdf 1.28.0 entries as 40 supported, 120 deviations,
+  593 planned, and 195 non-goals, before its reclassification under the
+  same-name, same-meaning rule.

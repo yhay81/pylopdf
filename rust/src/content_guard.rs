@@ -1,34 +1,41 @@
 //! Check the content streams of a page before hayro interprets it.
 //!
-//! hayro 0.7 parses arrays and dictionaries in content streams by unbounded
-//! recursion, so one stream with a few hundred thousand nested `[` kills the
-//! process (LaurenzV/hayro#1347). Nothing can catch that overflow, and lopdf
-//! never parses content at load, so `DocumentLimits.max_object_depth` does not
-//! cover it. [`ContentGuard`] decodes every stream that hayro may interpret for
-//! a page with hayro's own decoder, so the bytes are exactly the ones its
-//! parser will see, and refuses the page with `LimitError` code
-//! `content_nesting_depth` when [`crate::content_scan::scan`] cannot clear one.
+//! hayro 0.7 parsed arrays and dictionaries in content streams by unbounded
+//! recursion, so one stream with a few hundred thousand nested `[` killed the
+//! process (LaurenzV/hayro#1347). hayro 0.8 stops at 64 levels and silently
+//! leaves out what lies deeper. lopdf never parses content at load, so
+//! `DocumentLimits.max_object_depth` covers neither. [`ContentGuard`] decodes
+//! every stream that hayro may interpret for a page with hayro's own decoder,
+//! so the bytes are exactly the ones its parser will see, and refuses the page
+//! with `LimitError` code `content_nesting_depth` when
+//! [`crate::content_scan::scan`] cannot clear one, instead of letting hayro
+//! truncate it.
 //!
-//! hayro 0.7 parses content operators at four places, which this walk mirrors:
+//! hayro parses content operators at four places, which this walk mirrors:
 //!
 //! * the page's `/Contents`, which `Page::page_stream` joins and caches, so the
 //!   interpreter later reuses the very decode the scan paid for;
 //! * Form XObjects, whether drawn by `Do`, as an annotation or widget
-//!   appearance `/AP /N`, or as an ExtGState soft-mask group `/SMask /G`;
+//!   appearance, or as an ExtGState soft-mask group `/SMask /G`. An appearance
+//!   is the `/AP /N` stream, or, when `/N` is a dictionary of states, the
+//!   state that `/AS` names, else `/Off`;
 //! * tiling pattern streams;
 //! * Type 3 glyph procedures in `/CharProcs`, including fonts that only an
 //!   ExtGState `/Font` entry selects.
 //!
-//! Each stream's `/Resources` leads to more of them. hayro resolves a name
-//! through the resources of every enclosing stream and the page, so the walk
-//! visits all entries of every reachable resource dictionary instead of only
-//! the names the content uses. The check is lazy: a page costs one walk, and
-//! streams and dictionaries shared with an earlier page are skipped. A
-//! dictionary counts as seen only in the role that was walked, because one
-//! object may serve as several resource categories, and a font is identified
-//! by its own bytes, because the object number of a direct dictionary names
-//! its container. Only streams are decoded, never the whole document, and a
-//! decode that hayro's interpreter would perform anyway is the only extra work.
+//! Each stream's `/Resources` leads to more of them. hayro 0.8 resolves a name
+//! in the `/Resources` of the stream it interprets; a form or glyph procedure
+//! without any uses the resources it is drawn with (a glyph procedure tries
+//! its font's first), and a pattern has only its own. hayro 0.7 also fell back
+//! through every enclosing stream and the page. Either way the walk visits all
+//! entries of every reachable resource dictionary instead of only the names
+//! the content uses. The check is lazy: a page costs one walk, and streams and
+//! dictionaries shared with an earlier page are skipped. A dictionary counts
+//! as seen only in the role that was walked, because one object may serve as
+//! several resource categories, and a font is identified by its own bytes,
+//! because the object number of a direct dictionary names its container. Only
+//! streams are decoded, never the whole document, and a decode that hayro's
+//! interpreter would perform anyway is the only extra work.
 //!
 //! The walk resolves every reference through a fresh reader context
 //! ([`Fresh`]). hayro keeps the chain of objects being read in a dictionary's
@@ -39,10 +46,11 @@
 //! when it draws.
 //!
 //! The same walk reaches the colour spaces, shadings, and functions that hayro
-//! builds by recursion over the objects they name, which overflows its stack
-//! just as deeply nested content does: a chain of thousands of indirect objects
-//! that name each other, or a Type 4 function with hundreds of thousands of
-//! nested braces. [`GraphGuard`] measures what each root reaches and refuses the
+//! 0.7 and 0.8 build by recursion over the objects they name, with no bound,
+//! which overflows the stack just as deeply nested content did: a chain of
+//! thousands of indirect objects that name each other, or a Type 4 function
+//! with hundreds of thousands of nested braces. [`GraphGuard`] measures what
+//! each root reaches and refuses the
 //! page with `LimitError` code `resource_nesting_depth`. The roots are the
 //! `/ColorSpace` and `/Shading` entries of every reachable resource dictionary,
 //! shading patterns, the colour space of image XObjects and of soft-mask groups,
@@ -200,10 +208,16 @@ enum Role {
     SelectedFont,
     /// The `/AP` dictionary of an annotation.
     Appearances,
+    /// The `/N` entry of an `/AP` dictionary: an appearance stream to queue,
+    /// or a dictionary of appearance states whose streams are queued.
+    NormalAppearance,
+    /// A dictionary of appearance states, the `/N` of a check box or radio
+    /// button.
+    AppearanceStates,
     /// The `/CharProcs` dictionary of a Type 3 font.
     GlyphProcedures,
     /// A stream that hayro interprets as content and that nothing else reads:
-    /// the `/N` appearance of an annotation or an entry of `/CharProcs`.
+    /// an appearance state or an entry of `/CharProcs`.
     ContentStream,
 }
 
@@ -307,11 +321,14 @@ impl ContentGuard {
                 .map_err(|refusal| refusal_error(&Subject::Page(number), refusal))?;
         }
         let mut work = Vec::new();
-        let mut level = Some(page.resources());
-        while let Some(resources) = level {
-            self.visit_resources(fresh, resources, &mut work)?;
-            level = resources.parent();
-        }
+        // hayro 0.8 resolves a page's names only in its own `/Resources`, or
+        // the nearest one it inherits from the page tree, and never falls back
+        // to an ancestor's dictionary. A form or Type 3 glyph procedure with
+        // its own `/Resources` (or, for a glyph, its font's) uses only that
+        // dictionary, and one without uses the resources it is drawn with; a
+        // pattern uses only its own. The walk visits every one of these
+        // dictionaries below.
+        self.visit_resources(fresh, page.resources(), &mut work)?;
         if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
             // Iterate the way hayro does, which also ends at the first element
             // that is not a dictionary. `Array::raw_iter` unwraps the read of
@@ -589,7 +606,7 @@ impl ContentGuard {
             .map_err(|refusal| graph_error(page, refusal))
     }
 
-    /// Queue an annotation's or widget's normal appearance stream.
+    /// Queue an annotation's or widget's normal appearance.
     ///
     /// hayro reads the appearance of every annotation it draws, so this costs
     /// about as much as interpreting the page does, plus the annotations it
@@ -604,8 +621,36 @@ impl ContentGuard {
         else {
             return Ok(());
         };
-        if let Some(stream) = self.follow_stream(fresh, Role::ContentStream, &appearances, N)? {
-            push(work, Work::Content(stream))?;
+        match self.follow_object(fresh, Role::NormalAppearance, &appearances, N)? {
+            Some(Object::Stream(stream)) => push(work, Work::Content(stream))?,
+            Some(Object::Dict(states)) => self.visit_appearance_states(fresh, &states, work)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Queue every stream of a dictionary of appearance states.
+    ///
+    /// hayro draws the state that the annotation's `/AS` names, or `/Off` when
+    /// that is no stream. Every state is queued instead, so that the walk need
+    /// not read `/AS` nor resolve it the way hayro's reader chain does: a
+    /// superset of hayro's choice, which costs real forms nothing because a
+    /// check box or radio button has two states.
+    fn visit_appearance_states<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        states: &Dict<'a>,
+        work: &mut Vec<Work<'a>>,
+    ) -> PyResult<()> {
+        if !self.first_visit(Role::AppearanceStates, states)? {
+            return Ok(());
+        }
+        for key in states.keys() {
+            if let Some(stream) =
+                self.follow_stream(fresh, Role::ContentStream, states, key.as_ref())?
+            {
+                push(work, Work::Content(stream))?;
+            }
         }
         Ok(())
     }

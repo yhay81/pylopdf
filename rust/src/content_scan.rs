@@ -1,12 +1,15 @@
 //! Iterative nesting scan for the content streams that hayro interprets.
 //!
-//! hayro-syntax 0.7 skips and reads arrays and dictionaries in content streams
-//! by recursion with no depth bound (LaurenzV/hayro#1347; hayro 0.8 stops at 64
-//! levels). A stream such as `"[" * 300_000 + "(X)" + "]" * 300_000 + " TJ"`
-//! overflows the stack of the interpreting thread, and a stack overflow kills
-//! the process instead of raising. [`scan`] decides, without recursing itself,
-//! whether hayro's object parser can be driven deeper than
-//! [`MAX_NESTING_DEPTH`] by the given bytes.
+//! hayro-syntax 0.7 skipped and read arrays and dictionaries in content streams
+//! by recursion with no depth bound (LaurenzV/hayro#1347), so a stream such as
+//! `"[" * 300_000 + "(X)" + "]" * 300_000 + " TJ"` overflowed the stack of the
+//! interpreting thread and killed the process. hayro-syntax 0.8 stops at 64
+//! levels and leaves out the deeper operands. [`scan`] decides, without
+//! recursing itself, whether hayro's object parser can be driven deeper than
+//! [`MAX_NESTING_DEPTH`] by the given bytes, so that such a page is refused
+//! instead of truncated. The model below was validated against hayro-syntax
+//! 0.7.2, which tokenizes content as 0.8.0 does apart from that bound and how
+//! a number with more digits than an `i64` holds is read.
 //!
 //! The scan runs one small lexer per hypothesis about how hayro tokenizes the
 //! stream and refuses the stream when any hypothesis nests too deeply. A lexer
@@ -49,10 +52,10 @@
 
 use std::collections::TryReserveError;
 
-/// Deepest array/dictionary nesting that may reach hayro's recursive parser.
+/// Deepest array/dictionary nesting that hayro's parser reads.
 ///
-/// This matches the bound that hayro 0.8 applies and
-/// `DocumentLimits.web()` applies to direct objects at load.
+/// This matches the bound that hayro 0.8 applies (`MAX_OBJECT_NESTING_DEPTH`)
+/// and `DocumentLimits.web()` applies to direct objects at load.
 pub(crate) const MAX_NESTING_DEPTH: u32 = 64;
 
 /// Hypotheses about hayro's tokenization that may run side by side.

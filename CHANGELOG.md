@@ -45,6 +45,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raw-dylib since 0.29, so the deprecated `generate-import-lib` feature is no
   longer enabled. RTen 0.27 deprecates the `.rten` model format that
   `pylopdf-ocr-models` ships; pylopdf keeps enabling it explicitly.
+- Upgrade hayro and hayro-svg from 0.7 to 0.8.0. On the bundled corpus (19
+  documents, 165 pages), text, words, `dict`, `rawdict`, Markdown, tables,
+  drawings, and images are unchanged. Rendering changed 14 pages, 0.5% of
+  their pixels: scanned pages by at most 30 levels per channel through image
+  resampling, vector pages by at most 3 through anti-aliasing. SVG output is
+  6 to 8 times smaller on text-heavy pages, because hayro-svg 0.8 writes
+  rectangles as `<rect>` and reuses each glyph outline; the corpus's SVG fell
+  from 322 MB to 48 MB. Cold first calls on the corpus take 25% less CPU time
+  in total (`get_text` −27%, `to_markdown` −17%, `render_pages` −30%,
+  `get_drawings` −30%). The macOS arm64 abi3 wheel grows by 0.29 MiB (4.2%),
+  mostly for skrifa 0.46 and read-fonts 0.43.
+- `Page.get_pixmap(clip=)` and OCR with `clip=` now rasterize only the clipped
+  region, through hayro 0.8's `render_into` with a shifted viewport, instead
+  of cropping a full-page raster. hayro still interprets the whole page, and
+  the full-page render-size limits still apply.
+- hayro 0.8 draws the state of a check box or radio button that `/AS`
+  selects from an `/AP /N` state dictionary, else `/Off`, so rendering no
+  longer substitutes the state in a serialized copy, and an unedited form
+  renders from its original bytes. hayro 0.8 also reports an annotation whose
+  appearance it cannot select, which includes every check box whose `/AS /Off`
+  has no `/Off` appearance, as ISO 32000 allows; pylopdf raises no
+  `PylopdfWarning` for that report.
+- hayro 0.8 reads no array or dictionary nested more than 64 levels deep and
+  treats the whole object as absent, where hayro 0.7 read such objects by
+  recursion. A page whose dictionary, with the attributes it inherits, nests
+  deeper is now refused with `LimitError` code `object_depth` whenever an
+  operation interprets it; other pages stay usable. A trailer, catalog, or
+  root page-tree node nested that deeply still renders: rendering and
+  extraction read a copy without the entries that nest too deeply, so hayro
+  neither fails to open the document nor lists its pages without their
+  inherited attributes, and the saved document keeps those entries. Other
+  objects nested that deeply read as absent. `DocumentLimits.web()` already
+  refused such documents when they opened.
 - `bench/run.py` now splits first-page rendering into end-to-end time, cold
   and warm Pixmap rasterization, and PNG encoding time and size for both
   pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
@@ -110,6 +143,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays at 3.0.0 because 3.1 publishes only x86-64 Linux wheels, and the
   Pyodide build keeps Rust 1.95.0, maturin 1.14.1, and pyodide-build 0.30.7 as
   part of its Pyodide 0.28.3 contract.
+- Parity with pymupdf is measured instead of claimed (ROADMAP.md F3).
+  `api/pymupdf-parity.json` classifies the 948 public API entries of pymupdf
+  1.28.0, from module functions and constants grouped by prefix to the members
+  of 20 classes. 97 are available today and 659 are planned with their
+  ROADMAP.md milestone; 694 of these keep pymupdf's name and meaning, and 62
+  are replaced by a different pylopdf API with a migration hint. The other 192
+  are non-goals. The 66 entries that the API reset (M0) touches record its 37
+  changes. `tools/check_parity.py` runs in the test suite: available entries
+  must name a symbol in `api/public-api.json`, planned entries a milestone, and
+  replaced entries a hint, and it reports coverage per class and the M0
+  changes. The development-only
+  `tools/pymupdf_inventory.py` lists pymupdf's API from the `bench` group so
+  that the manifest stays complete.
 
 ### Fixed
 - Whole-document operations now work for documents of any page count instead
@@ -394,11 +440,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without `DocumentLimits.web()`. Every interpretation now first measures the
   colour spaces, shadings, and functions that its pages can reach with an
   iterative walk and raises `LimitError` with the new stable code
-  `resource_nesting_depth` for a chain deeper than 32 levels (colour space
+  `resource_nesting_depth` for a chain deeper than 16 levels (colour space
   arrays, functions, and profile streams each count one) and for a Type 4
   program that nests procedures deeper than 64 levels. The walk follows hayro's
   own cycle cut, so a self-reference or a short ring still renders, and a group
-  of more than 32 objects that all reach one another is refused. It reads each
+  of more than 16 objects that all reach one another is refused. It reads each
   object once however many entries name it, so a file that names one large
   array, dictionary, or string from thousands of places costs milliseconds
   where reading it for each entry would cost minutes, and it leaves other pages
@@ -462,6 +508,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   near 2**32 took about 19 seconds per `tobytes()` or `save()`. Objects
   numbered above 8,388,607 now move below that bound at load, as described
   under Fixed.
+- The content nesting check and the colour space and function check now
+  follow every appearance state of a check box or radio button. hayro 0.8
+  draws the state that `/AS` selects from an `/AP /N` state dictionary, which
+  the checks did not read, so a state appearance could reach hayro's
+  unbounded colour space and function recursion and end the process. Every
+  state is checked, not only the one `/AS` selects.
+- hayro 0.8.0 panics on some malformed colour data: a Separation or DeviceN
+  tint transform that returns the wrong number of components, an image in
+  such a space, or a shading in a Pattern colour space
+  ([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546));
+  hayro 0.7 drew the same pages. Every operation that lets hayro interpret a
+  page now catches such a panic and raises `PdfError` instead of PyO3's
+  `PanicException`, a `BaseException` that escapes `except Exception`, and
+  drops the renderer state as an edit does, so the document stays usable.
+  Rust still prints the panic message to standard error.
+- The colour space and function chain bound is 16 levels. hayro 0.8's
+  ICCBased fallback spends about 4 KiB of stack per space in the thin-LTO
+  build, so the deepest chain a 32-level bound accepted needed a 116 KiB
+  thread, against 52 KiB with hayro 0.7 and the 128 KiB that musl gives
+  spawned threads; at 16 levels it needs 68 KiB, and every other accepted
+  structure the 52 KiB of a plain page. Real documents nest at most about six.
 
 ### Performance
 - Freshly opened documents no longer reread every installed locale fallback

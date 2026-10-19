@@ -179,7 +179,7 @@ latency나 isolate resident-memory 측정은 아닙니다.
 
 - 이 Emscripten build에는 rayon worker pool이 없습니다.
   `render_pages(workers=...)`는 같은 인수를 받지만 serial로 실행합니다.
-- `clip=`은 반환 pixel을 줄이지만 hayro는 내부에서 전체 page를 rasterize합니다.
+- `clip=`은 선택한 영역만 rasterize하지만 hayro는 여전히 전체 page를 해석하며 전체 page 크기 제한도 그대로 적용됩니다.
 - 현재 renderer는 전체 raster output을 buffer하므로 큰 page나 높은 DPI는 PDF file이
   작아도 memory를 지배할 수 있습니다.
 - native OCR와 별도 OCR model package는 WebAssembly 호환 계약에 포함되지 않습니다.
