@@ -31,7 +31,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
-| `batch(*, max_text_size=64 MiB)` | 기존 페이지(`page(pno, overlay=)`)와 끝에 추가하는 페이지(`new_page(width, height)`)에 텍스트와 도형을 한 번의 생성으로 그리는 `DrawingBatch`. `Font`마다 한 번만 포함. `with`를 벗어날 때나 `commit()`으로 확정 |
+| `batch(*, max_text_size=64 MiB, max_image_size=512 MiB)` | 기존 페이지(`page(pno, overlay=)`)와 끝에 추가하는 페이지(`new_page(width, height)`)에 텍스트, 도형, 이미지를 한 번의 생성으로 그리는 `DrawingBatch`. `Font`와 같은 이미지는 각각 한 번만 포함. `with`를 벗어날 때나 `commit()`으로 확정 |
 | `get_toc()` / `set_toc(toc)` | 대규모 manual에 맞춘, cycle을 처리하는 제한된 목차（페이지는 1부터, 65,536 entry/node, 131,072 edge, 깊이64, text 16 MiB, named destination은`get_links()`와 같음） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
@@ -137,6 +137,17 @@ canvas를 만들 때와 같은지, 페이지 내용이 그리기를 더 받을 �
 `draw_rect()`, `draw_circle()`, `draw_polyline()`은 한 페이지 묶음으로 도형 하나를
 그립니다.
 
+`Canvas.insert_image(rect, filename= / stream= / pixmap=, rotate=,
+keep_proportion=)`는 `Page.insert_image`와 똑같이 이미지를 배치하고 그리기 순서 안의
+위치를 유지하므로, 사진 다음에 그린 표시, 메모, 화살표는 사진 위에 겹칩니다. 이미지는
+krilla가 아니라 pylopdf의 이미지 경로로 포함됩니다. JPEG는 그대로, PNG 투명도는 soft
+mask가 되며, `Pixmap`은 픽셀에서 포함됩니다. 이미지는 기록할 때 디코딩하고 상한 기본값도
+같으므로(입력 64 MiB, 64,000,000픽셀, `image_input_size`, `image_pixel_count`),
+지원하지 않거나 너무 큰 이미지는 그 호출에서 예외가 납니다. 같은 이미지는 묶음 전체에서
+한 번만 포함되며, 묶음이 확정할 때까지 보관하는 이미지 데이터는 `max_image_size`바이트
+까지입니다(`image_input_size`, 기본 512 MiB). 이미지가 있는 canvas는 생성한 텍스트,
+도형과 이미지를 그리기 순서대로 겹친 Form XObject 하나로 배치됩니다.
+
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
 또는 `fontbuffer`를 지정해 서브셋 내장합니다. 설치된script／locale provider는
@@ -170,7 +181,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot용`max_interpretation_size`와 위치layout용`max_text_glyphs`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, `has_glyph`를 가진 재사용 가능한 OpenType 글꼴／패밀리 이름과 굵기로 찾을 수 있게 하는 등록 |
-| `DrawingBatch` / `Canvas` | `Document.batch()`가 반환하는 여러 페이지 그리기 묶음／한 페이지의 canvas. `insert_text`(이어 쓸 위치 반환), `insert_textbox`, `draw_line`, `draw_rect`, `draw_circle`, `draw_polyline`, `width`, `height`, `rect` |
+| `DrawingBatch` / `Canvas` | `Document.batch()`가 반환하는 여러 페이지 그리기 묶음／한 페이지의 canvas. `insert_text`(이어 쓸 위치 반환), `insert_textbox`, `insert_image`, `draw_line`, `draw_rect`, `draw_circle`, `draw_polyline`, `width`, `height`, `rect` |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |

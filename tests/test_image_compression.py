@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import functools
 import itertools
 import zlib
@@ -10,23 +9,11 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import GRAY_GRADIENT_JPEG, build_pdf, build_raw_pdf
 
 import pylopdf
 
 ASSETS = Path(__file__).parent / "assets" / "real_world"
-# Generated 64x64 grayscale linear-gradient JPEG, kept inline to avoid a
-# test-only image-library dependency.
-GRAY_GRADIENT_JPEG = base64.b64decode(
-    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAME"
-    "BgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/wAALCABAAEABAREA"
-    "/8QAFgABAQEAAAAAAAAAAAAAAAAAAAgJ/8QAGhAAAgMBAQAAAAAAAAAAAAAAABcBZKFT"
-    "kf/aAAgBAQAAPwDD5axwkLWOEhaxwkLWOEhaxwkLWOEhaxwkLWOElAravgW1fAtq+Bb"
-    "V8C2r4FtXwLavgW1fCgFtXwLavgW1fAtq+BbV8C2r4FtXwLavhQC2r4FtXwLavgW1fA"
-    "tq+BbV8C2r4FtXwoBbV8C2r4FtXwLavgW1fAtq+BbV8C2r4UAtq+BbV8C2r4FtXwLav"
-    "gW1fAtq+BbV8KAW1fAtq+BbV8C2r4FtXwLavgW1fAtq+FALeOEeBbxwjwLeOEeBbxwj"
-    "wLeOEeBbxwjwLeOEeBbxwjw//9k="
-)
 
 
 @functools.cache

@@ -615,11 +615,24 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     }
 
 
+def _solid_rgba_png(width: int, height: int, pixel: bytes) -> bytes:
+    """Build one solid 8-bit RGBA PNG without an image library."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    raw = b"".join(b"\x00" + pixel * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
 def _batch_results(font: bytes) -> dict[str, Any]:
-    """Draw text and shapes on two new pages in one batch and embed the face once."""
+    """Draw text, shapes, and one shared image on two new pages in one batch."""
     import pylopdf  # noqa: PLC0415
 
     face = pylopdf.Font(fontbuffer=font)
+    photo = _solid_rgba_png(4, 4, b"\x00\x80\x00\xc0")
     document = pylopdf.Document()
     with document.batch() as batch:
         for number in range(1, 3):
@@ -627,19 +640,29 @@ def _batch_results(font: bytes) -> dict[str, Any]:
             end = canvas.insert_text((20, 40), _JAPANESE, font=face, fontsize=14)
             canvas.insert_text(end, f" {number}", font=face, fontsize=14)
             canvas.draw_rect((10, 10, 190, 110), width=0.5)
-            canvas.draw_circle((170, 30), 6, color=None, fill=(0.8, 0.2, 0.1))
+            canvas.insert_image((120, 50, 180, 100), stream=photo, keep_proportion=False)
+            canvas.draw_circle((150, 75), 6, color=None, fill=(0.8, 0.2, 0.1))
             canvas.draw_polyline([(20, 90), (60, 90), (40, 60)], closed=True, fill=(0.2, 0.4, 0.8))
     serialized = document.tobytes()
     _require(serialized.count(b"/FontFile") == 1, "a batch embedded its face more than once")
+    _require(serialized.count(b"/SMask") == 1, "a batch embedded its image more than once")
     reopened = pylopdf.Document(stream=serialized)
     texts = [reopened.get_page_text(index).strip() for index in range(reopened.page_count)]
     _require(texts == [f"{_JAPANESE} 1", f"{_JAPANESE} 2"], "batch text did not round-trip")
     drawing_types = [drawing["type"] for drawing in reopened[0].get_drawings()]
     _require(drawing_types == ["s", "f", "fs"], "batch shapes did not round-trip")
+    images = reopened[0].get_images()
+    _require(len(images) == 1, "a batch image did not round-trip")
+    image_bbox = [round(value, 3) for value in images[0]["bbox"]]
+    _require(image_bbox == [120, 50, 180, 100], "a batch image moved")
+    marker = reopened[0].get_pixmap(background=(255, 255, 255))
+    offset = 75 * marker.stride + 150 * 4
+    _require(marker.samples[offset : offset + 3] == bytes((204, 51, 26)), "a marker drawn after an image is not on top")
     return {
         "pages": reopened.page_count,
         "text_sha256": [_digest(text) for text in texts],
         "drawing_types": drawing_types,
+        "image_bbox": image_bbox,
     }
 
 

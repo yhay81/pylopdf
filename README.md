@@ -154,7 +154,7 @@ default, and resource boundary.
   (`show_pdf_page`), HarfRust-shaped `insert_text` / `insert_textbox` with
   subset embedding and UAX #14 wrapping, reusable `Font` faces whose
   `text_length` is the drawn width, multi-page drawing batches that embed each
-  font once, vector shapes (`draw_rect` / `draw_line` / `draw_circle` /
+  font and image once and keep images in drawing order, vector shapes (`draw_rect` / `draw_line` / `draw_circle` /
   `draw_polyline`), highlight and link annotations,
   AcroForm filling with regenerated appearances, bounded simple-font text
   replacement

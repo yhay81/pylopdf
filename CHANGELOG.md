@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`text_input_size`), and 1,048,576 path points (`path_point_count`).
 - `Page.draw_line()`, `draw_rect()`, `draw_circle()`, and `draw_polyline()`
   draw one vector shape per call, above or below existing content.
+- `Canvas.insert_image()` places JPEG, PNG, and `Pixmap` images in a drawing
+  batch exactly as `Page.insert_image` does and keeps their place in drawing
+  order, so markers and notes drawn after a photo stay on top of it. Images
+  keep pylopdf's image path: JPEG passes through, PNG transparency becomes a
+  soft mask, images are decoded when they are recorded, and identical images
+  are embedded once for the whole batch. `Document.batch(max_image_size=)`
+  bounds the image data a batch stores until its commit, 512 MiB by default
+  (`image_input_size`).
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing

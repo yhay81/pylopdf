@@ -32,7 +32,7 @@ Password input stops at 127 UTF-8 bytes.
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management; select/delete entries are bounded by the larger of the page count and 4,096, `insert_pdf` accepts any complete source range, and navigation cleanup and link import share the TOC and named-destination limits |
-| `batch(*, max_text_size=64 MiB)` | `DrawingBatch` that draws text and shapes on existing pages (`page(pno, overlay=)`) and appended pages (`new_page(width, height)`) in one generation pass, embedding each `Font` once; commits on leaving a `with` block or with `commit()` |
+| `batch(*, max_text_size=64 MiB, max_image_size=512 MiB)` | `DrawingBatch` that draws text, shapes, and images on existing pages (`page(pno, overlay=)`) and appended pages (`new_page(width, height)`) in one generation pass, embedding each `Font` and each distinct image once; commits on leaving a `with` block or with `commit()` |
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines sized for large manuals (1-based pages; 65,536 entries/nodes, 131,072 edges, 64 levels, 16 MiB text; named destinations as in `get_links()`) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input |
@@ -211,6 +211,19 @@ Form XObject. A batch records at most 4,096 pages (`batch_page_count`),
 (`path_point_count`). `Page.draw_line()`, `draw_rect()`, `draw_circle()`, and
 `draw_polyline()` draw one shape through a one-page batch.
 
+`Canvas.insert_image(rect, filename= / stream= / pixmap=, rotate=,
+keep_proportion=)` places an image exactly as `Page.insert_image` does and
+keeps its place in drawing order, so markers, notes, and arrows drawn after a
+photo stay on top of it. Images use pylopdf's image path, not krilla: JPEG is
+embedded unchanged, PNG transparency becomes a soft mask, and a `Pixmap` is
+embedded from its pixels. An image is decoded when it is recorded, with the
+same 64 MiB input and 64,000,000-pixel defaults (`image_input_size`,
+`image_pixel_count`), so an unsupported or oversized image raises at the call.
+Identical images are embedded once for the whole batch, and a batch stores at
+most `max_image_size` bytes of image data until its commit (`image_input_size`,
+512 MiB by default). A canvas with images is placed as one Form XObject that
+layers its generated text and shapes and its images in drawing order.
+
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
 `fontfile` or `fontbuffer` for subset-embedded Unicode. Installed locale/script
@@ -246,7 +259,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph` / registration that makes a face available to family and weight lookups |
-| `DrawingBatch` / `Canvas` | multi-page drawing batch from `Document.batch()` / one page's canvas with `insert_text` (returns the point after the run), `insert_textbox`, `draw_line`, `draw_rect`, `draw_circle`, `draw_polyline`, `width`, `height`, and `rect` |
+| `DrawingBatch` / `Canvas` | multi-page drawing batch from `Document.batch()` / one page's canvas with `insert_text` (returns the point after the run), `insert_textbox`, `insert_image`, `draw_line`, `draw_rect`, `draw_circle`, `draw_polyline`, `width`, `height`, and `rect` |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |

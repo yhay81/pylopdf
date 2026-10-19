@@ -1,14 +1,19 @@
-//! Drawing batches: text and vector shapes recorded for several pages and
-//! generated as one krilla document.
+//! Drawing batches: text, vector shapes, and images recorded for several
+//! pages, with text and shapes generated as one krilla document.
 //!
 //! Generating every canvas of a batch in one document lets krilla embed one
 //! subset of each font for the whole batch, where `insert_text` embeds one
 //! per call. Text is shaped and laid out while it is recorded, with the
 //! functions that `insert_text` and `insert_textbox` use, so a missing glyph
 //! raises at the call that drew it and measurements match the drawing.
-//! `_Document::commit_batch` imports the generated pages once and places one
-//! Form XObject per canvas.
+//! Images stay on lopdf's image path, as for `insert_image`: they are decoded
+//! when recorded, identical images are stored once, and an image splits the
+//! canvas's text and shapes into separately generated pages so that drawing
+//! order survives. `_Document::commit_batch` imports the generated pages once
+//! and places one Form XObject per canvas.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use krilla::Document;
@@ -22,10 +27,15 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::bundled_font_cache::FontBytes;
-use crate::document::{_Document, PdfError, limit_err};
+use crate::document::{
+    _Document, DEFAULT_MAX_IMAGE_INPUT_SIZE, DEFAULT_MAX_IMAGE_PIXELS, PdfError, limit_err,
+    read_image_input, validate_image_input,
+};
+use crate::draw::{self, ImageParts};
 use crate::font::_Font;
 use crate::generate::{self, GlyphRun};
 use crate::layout::MAX_GENERATED_TEXT_LINES;
+use crate::pixmap::Pixmap;
 
 /// Canvases one batch may draw on.
 const MAX_BATCH_CANVASES: usize = 4096;
@@ -33,6 +43,8 @@ const MAX_BATCH_CANVASES: usize = 4096;
 const MAX_BATCH_PATH_POINTS: usize = 1_048_576;
 /// Default bound on the UTF-8 text that one batch records.
 const DEFAULT_MAX_BATCH_TEXT_SIZE: usize = 64 * 1024 * 1024;
+/// Default bound on the image data that one batch stores until its commit.
+const DEFAULT_MAX_BATCH_IMAGE_SIZE: usize = 512 * 1024 * 1024;
 /// Bezier control-point distance for a quarter circle of unit radius.
 const CIRCLE_KAPPA: f64 = 0.552_284_749_830_793_4;
 
@@ -72,13 +84,74 @@ enum DrawOp {
         fill: Option<(f64, f64, f64)>,
         stroke: Option<((f64, f64, f64), f32)>,
     },
+    Image(ImagePlacement),
 }
 
-/// A generated batch: one PDF page per canvas that records drawing.
+/// One recorded image placed into a display rectangle of its canvas.
+#[derive(Clone, Copy)]
+pub(crate) struct ImagePlacement {
+    /// Index of the stored image in the batch.
+    pub(crate) image: usize,
+    pub(crate) rect: [f64; 4],
+    pub(crate) rotation: i64,
+    pub(crate) keep_proportion: bool,
+}
+
+/// One decoded image, stored once however many canvases draw it.
+pub(crate) struct BatchImage {
+    pub(crate) parts: ImageParts,
+    fingerprint: u64,
+}
+
+impl BatchImage {
+    fn new(parts: ImageParts) -> Self {
+        let mut hasher = DefaultHasher::new();
+        parts.width.hash(&mut hasher);
+        parts.height.hash(&mut hasher);
+        parts.color_space.hash(&mut hasher);
+        parts.filter.hash(&mut hasher);
+        parts.data.hash(&mut hasher);
+        parts.alpha.hash(&mut hasher);
+        Self {
+            fingerprint: hasher.finish(),
+            parts,
+        }
+    }
+
+    fn same_as(&self, other: &Self) -> bool {
+        let (left, right) = (&self.parts, &other.parts);
+        self.fingerprint == other.fingerprint
+            && (left.width, left.height, left.color_space, left.filter)
+                == (right.width, right.height, right.color_space, right.filter)
+            && left.data == right.data
+            && left.alpha == right.alpha
+    }
+
+    /// Bytes that the batch keeps for this image until its commit.
+    fn stored_size(&self) -> usize {
+        self.parts
+            .data
+            .len()
+            .saturating_add(self.parts.alpha.as_ref().map_or(0, Vec::len))
+    }
+}
+
+/// One layer of a canvas, drawn in order at commit.
+#[derive(Clone, Copy)]
+pub(crate) enum CanvasPart {
+    /// A run of text and shapes, generated as one page of the batch PDF.
+    Drawing(usize),
+    /// A stored image placed by lopdf.
+    Image(ImagePlacement),
+}
+
+/// A generated batch: the PDF of every run of text and shapes, and the
+/// layers of each canvas in drawing order.
 pub(crate) struct GeneratedBatch {
-    pub(crate) pdf: Vec<u8>,
-    /// The canvas that each PDF page draws, in page order.
-    pub(crate) canvases: Vec<usize>,
+    /// `None` when no canvas records text or shapes.
+    pub(crate) pdf: Option<Vec<u8>>,
+    /// The layers of each canvas, indexed like the canvases.
+    pub(crate) parts: Vec<Vec<CanvasPart>>,
 }
 
 /// Text and shapes recorded for several pages before one generation pass.
@@ -90,6 +163,9 @@ pub struct _Batch {
     text_size: usize,
     max_text_size: Option<usize>,
     path_points: usize,
+    images: Vec<BatchImage>,
+    image_size: usize,
+    max_image_size: Option<usize>,
 }
 
 impl _Batch {
@@ -202,9 +278,62 @@ impl _Batch {
         Ok(())
     }
 
-    /// Generate every canvas that records drawing as one krilla document,
-    /// or return `None` when no canvas records anything.
-    pub(crate) fn generate(&self) -> Result<Option<GeneratedBatch>, String> {
+    /// Store a decoded image, or find an identical one, and record its placement.
+    fn push_image(
+        &mut self,
+        canvas: usize,
+        parts: ImageParts,
+        rect: (f64, f64, f64, f64),
+        rotation: i64,
+        keep_proportion: bool,
+    ) -> PyResult<()> {
+        self.canvas_mut(canvas)?;
+        let image = BatchImage::new(parts);
+        let slot = match self.images.iter().position(|known| known.same_as(&image)) {
+            Some(slot) => slot,
+            None => {
+                let total = self
+                    .image_size
+                    .checked_add(image.stored_size())
+                    .filter(|total| self.max_image_size.is_none_or(|limit| *total <= limit))
+                    .ok_or_else(|| {
+                        limit_err(
+                            "image_input_size",
+                            format!(
+                                "image data exceeds the {}-byte limit of the drawing batch",
+                                self.max_image_size.unwrap_or(usize::MAX)
+                            ),
+                        )
+                    })?;
+                self.images.try_reserve(1).map_err(|error| {
+                    PdfError::new_err(format!("failed to grow the drawing batch images: {error}"))
+                })?;
+                self.images.push(image);
+                self.image_size = total;
+                self.images.len() - 1
+            }
+        };
+        self.push_op(
+            canvas,
+            DrawOp::Image(ImagePlacement {
+                image: slot,
+                rect: [rect.0, rect.1, rect.2, rect.3],
+                rotation,
+                keep_proportion,
+            }),
+        )
+    }
+
+    /// Hand the stored images to the commit, which embeds each once.
+    pub(crate) fn take_images(&mut self) -> Vec<BatchImage> {
+        std::mem::take(&mut self.images)
+    }
+
+    /// Generate the text and shapes of every canvas as one krilla document.
+    ///
+    /// Each run of text and shapes between two images of a canvas becomes
+    /// one page, so that the commit can layer images between them.
+    pub(crate) fn generate(&self) -> Result<GeneratedBatch, String> {
         let mut fonts = Vec::new();
         fonts
             .try_reserve_exact(self.fonts.len())
@@ -215,68 +344,100 @@ impl _Batch {
                     .ok_or_else(|| format!("font data or collection index {index} is invalid"))?,
             );
         }
-        let mut pages = Vec::new();
         let mut document = Document::new();
-        for (canvas_index, canvas) in self.canvases.iter().enumerate() {
-            if canvas.ops.is_empty() {
-                continue;
-            }
-            let width = generate::finite_f32(canvas.size.0, "page width")?;
-            let height = generate::finite_f32(canvas.size.1, "page height")?;
-            let settings = PageSettings::from_wh(width, height)
-                .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-            let mut page = document.start_page_with(settings);
-            let mut surface = page.surface();
-            for op in &canvas.ops {
-                match op {
-                    DrawOp::Text {
-                        font,
-                        size,
-                        color,
-                        runs,
-                    } => {
-                        // A stroke would also outline the glyphs, so text
-                        // never inherits one from a preceding shape.
-                        surface.set_stroke(None);
-                        surface.set_fill(Some(generate::solid_fill(*color)));
-                        generate::draw_runs(&mut surface, runs, &fonts[*font], *size);
-                    }
-                    DrawOp::Path { path, fill, stroke } => {
-                        surface.set_fill(fill.map(generate::solid_fill));
-                        surface.set_stroke(stroke.map(|(color, width)| {
-                            Stroke {
-                                paint: rgb::Color::new(
-                                    generate::channel_to_u8(color.0),
-                                    generate::channel_to_u8(color.1),
-                                    generate::channel_to_u8(color.2),
-                                )
-                                .into(),
-                                width,
-                                ..Stroke::default()
-                            }
-                        }));
-                        surface.draw_path(path);
-                    }
+        let mut pages = 0;
+        let mut all_parts = Vec::new();
+        all_parts
+            .try_reserve_exact(self.canvases.len())
+            .map_err(|error| format!("failed to allocate batch canvas layers: {error}"))?;
+        for canvas in &self.canvases {
+            let mut parts = Vec::new();
+            let mut start = 0;
+            while start < canvas.ops.len() {
+                parts
+                    .try_reserve(1)
+                    .map_err(|error| format!("failed to allocate canvas layers: {error}"))?;
+                if let DrawOp::Image(placement) = &canvas.ops[start] {
+                    parts.push(CanvasPart::Image(*placement));
+                    start += 1;
+                    continue;
                 }
+                let end = canvas.ops[start..]
+                    .iter()
+                    .position(|op| matches!(op, DrawOp::Image(_)))
+                    .map_or(canvas.ops.len(), |offset| start + offset);
+                draw_page(&mut document, canvas.size, &canvas.ops[start..end], &fonts)?;
+                parts.push(CanvasPart::Drawing(pages));
+                pages += 1;
+                start = end;
             }
-            surface.finish();
-            page.finish();
-            pages
-                .try_reserve(1)
-                .map_err(|error| format!("failed to allocate generated batch pages: {error}"))?;
-            pages.push(canvas_index);
+            all_parts.push(parts);
         }
-        if pages.is_empty() {
-            return Ok(None);
-        }
-        let bytes = document
-            .finish()
-            .map_err(|error| format!("krilla drawing generation failed: {error}"))?;
-        Ok(Some(GeneratedBatch {
-            pdf: bytes,
-            canvases: pages,
-        }))
+        let pdf = if pages == 0 {
+            None
+        } else {
+            Some(
+                document
+                    .finish()
+                    .map_err(|error| format!("krilla drawing generation failed: {error}"))?,
+            )
+        };
+        Ok(GeneratedBatch {
+            pdf,
+            parts: all_parts,
+        })
     }
+}
+
+/// Draw one run of text and shapes as a page of the batch document.
+fn draw_page(
+    document: &mut Document,
+    size: (f64, f64),
+    ops: &[DrawOp],
+    fonts: &[Font],
+) -> Result<(), String> {
+    let width = generate::finite_f32(size.0, "page width")?;
+    let height = generate::finite_f32(size.1, "page height")?;
+    let settings = PageSettings::from_wh(width, height)
+        .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
+    let mut page = document.start_page_with(settings);
+    let mut surface = page.surface();
+    for op in ops {
+        match op {
+            DrawOp::Text {
+                font,
+                size,
+                color,
+                runs,
+            } => {
+                // A stroke would also outline the glyphs, so text never
+                // inherits one from a preceding shape.
+                surface.set_stroke(None);
+                surface.set_fill(Some(generate::solid_fill(*color)));
+                generate::draw_runs(&mut surface, runs, &fonts[*font], *size);
+            }
+            DrawOp::Path { path, fill, stroke } => {
+                surface.set_fill(fill.map(generate::solid_fill));
+                surface.set_stroke(stroke.map(|(color, width)| {
+                    Stroke {
+                        paint: rgb::Color::new(
+                            generate::channel_to_u8(color.0),
+                            generate::channel_to_u8(color.1),
+                            generate::channel_to_u8(color.2),
+                        )
+                        .into(),
+                        width,
+                        ..Stroke::default()
+                    }
+                }));
+                surface.draw_path(path);
+            }
+            DrawOp::Image(_) => {}
+        }
+    }
+    surface.finish();
+    page.finish();
+    Ok(())
 }
 
 /// Convert validated display coordinates for krilla's f32 path geometry.
@@ -290,12 +451,20 @@ fn point(x: f64, y: f64) -> PyResult<(f32, f32)> {
 #[pymethods]
 impl _Batch {
     #[new]
-    #[pyo3(signature = (max_text_size=Some(DEFAULT_MAX_BATCH_TEXT_SIZE)))]
-    fn new(max_text_size: Option<usize>) -> PyResult<Self> {
-        if max_text_size == Some(0) {
-            return Err(PyValueError::new_err(
-                "max_text_size must be a positive integer or None",
-            ));
+    #[pyo3(signature = (
+        max_text_size=Some(DEFAULT_MAX_BATCH_TEXT_SIZE),
+        max_image_size=Some(DEFAULT_MAX_BATCH_IMAGE_SIZE)
+    ))]
+    fn new(max_text_size: Option<usize>, max_image_size: Option<usize>) -> PyResult<Self> {
+        for (name, value) in [
+            ("max_text_size", max_text_size),
+            ("max_image_size", max_image_size),
+        ] {
+            if value == Some(0) {
+                return Err(PyValueError::new_err(format!(
+                    "{name} must be a positive integer or None"
+                )));
+            }
         }
         Ok(Self {
             canvases: Vec::new(),
@@ -303,6 +472,9 @@ impl _Batch {
             text_size: 0,
             max_text_size,
             path_points: 0,
+            images: Vec::new(),
+            image_size: 0,
+            max_image_size,
         })
     }
 
@@ -584,5 +756,102 @@ impl _Batch {
             fill,
             color.map(|color| (color, width)),
         )
+    }
+
+    /// Decode bounded JPEG or PNG input and record it into a display rectangle.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        canvas,
+        rect,
+        data,
+        rotation,
+        keep_proportion,
+        max_size=Some(DEFAULT_MAX_IMAGE_INPUT_SIZE),
+        max_pixels=Some(DEFAULT_MAX_IMAGE_PIXELS)
+    ))]
+    fn insert_image(
+        &mut self,
+        py: Python<'_>,
+        canvas: usize,
+        rect: (f64, f64, f64, f64),
+        data: Vec<u8>,
+        rotation: i64,
+        keep_proportion: bool,
+        max_size: Option<usize>,
+        max_pixels: Option<u64>,
+    ) -> PyResult<()> {
+        self.canvas_mut(canvas)?;
+        validate_image_input(&data, max_size, max_pixels)?;
+        let parts = py.detach(|| {
+            draw::parse_image(data)
+                .map_err(PdfError::new_err)?
+                .ok_or_else(|| {
+                    PdfError::new_err(
+                        "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
+                    )
+                })
+        })?;
+        self.push_image(canvas, parts, rect, rotation, keep_proportion)
+    }
+
+    /// Read bounded JPEG or PNG input from a path and record it.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        canvas,
+        rect,
+        path,
+        rotation,
+        keep_proportion,
+        max_size=Some(DEFAULT_MAX_IMAGE_INPUT_SIZE),
+        max_pixels=Some(DEFAULT_MAX_IMAGE_PIXELS)
+    ))]
+    fn insert_image_file(
+        &mut self,
+        py: Python<'_>,
+        canvas: usize,
+        rect: (f64, f64, f64, f64),
+        path: &str,
+        rotation: i64,
+        keep_proportion: bool,
+        max_size: Option<usize>,
+        max_pixels: Option<u64>,
+    ) -> PyResult<()> {
+        if max_size == Some(0) {
+            return Err(PyValueError::new_err(
+                "max_size must be a positive integer or None",
+            ));
+        }
+        self.canvas_mut(canvas)?;
+        let data = py.detach(|| read_image_input(path, max_size))?;
+        self.insert_image(
+            py,
+            canvas,
+            rect,
+            data,
+            rotation,
+            keep_proportion,
+            max_size,
+            max_pixels,
+        )
+    }
+
+    /// Record a rendered RGBA8 Pixmap without a PNG round trip.
+    fn insert_pixmap(
+        &mut self,
+        py: Python<'_>,
+        canvas: usize,
+        rect: (f64, f64, f64, f64),
+        pixmap: PyRef<'_, Pixmap>,
+        rotation: i64,
+        keep_proportion: bool,
+    ) -> PyResult<()> {
+        self.canvas_mut(canvas)?;
+        let (width, height) = (pixmap.width, pixmap.height);
+        let data = Arc::clone(&pixmap.data);
+        drop(pixmap);
+        let parts = py
+            .detach(|| draw::rgba_parts(width, height, &data))
+            .map_err(PdfError::new_err)?;
+        self.push_image(canvas, parts, rect, rotation, keep_proportion)
     }
 }

@@ -1392,6 +1392,15 @@ overview.
   `max_text_size` bytes of text (`text_input_size`, 64 MiB by default), 4,096
   lines per text call, and 1,048,576 path points (`path_point_count`).
   `Page.draw_*` draw one shape through a one-page batch.
+  Batch images stay on lopdf's image path (krilla's `raster-images` feature
+  remains disabled): `Canvas.insert_image` decodes through
+  `draw::parse_image`/`rgba_parts` with `insert_image`'s limits when called,
+  and identical decoded images are stored once, bounded by `max_image_size`
+  (512 MiB by default, `image_input_size`). An image splits its canvas's text
+  and shapes into separately generated pages; a canvas with more than one
+  layer is placed as a composed Form XObject that draws its generated pages
+  unscaled and its images through `draw::image_placement_matrix` in recording
+  order, so drawing order survives overlay and underlay alike.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

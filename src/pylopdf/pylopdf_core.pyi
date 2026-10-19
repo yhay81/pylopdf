@@ -37,7 +37,7 @@ class _OcrEngine:
     ) -> list[tuple[float, float, float, float, str, float]]: ...
 
 class _Batch:
-    def __init__(self, max_text_size: int | None = 67108864) -> None: ...
+    def __init__(self, max_text_size: int | None = 67108864, max_image_size: int | None = 536870912) -> None: ...
     def add_page_canvas(self, document: _Document, page_number: int, overlay: bool) -> tuple[int, float, float]: ...
     def add_new_canvas(self, width: float, height: float) -> tuple[int, float, float]: ...
     def insert_text(
@@ -93,6 +93,34 @@ class _Batch:
         color: tuple[float, float, float] | None,
         fill: tuple[float, float, float] | None,
         width: float,
+    ) -> None: ...
+    def insert_image(
+        self,
+        canvas: int,
+        rect: tuple[float, float, float, float],
+        data: bytes,
+        rotation: int,
+        keep_proportion: bool,
+        max_size: int | None = 67108864,
+        max_pixels: int | None = 64000000,
+    ) -> None: ...
+    def insert_image_file(
+        self,
+        canvas: int,
+        rect: tuple[float, float, float, float],
+        path: str,
+        rotation: int,
+        keep_proportion: bool,
+        max_size: int | None = 67108864,
+        max_pixels: int | None = 64000000,
+    ) -> None: ...
+    def insert_pixmap(
+        self,
+        canvas: int,
+        rect: tuple[float, float, float, float],
+        pixmap: Pixmap,
+        rotation: int,
+        keep_proportion: bool,
     ) -> None: ...
 
 class _Font:

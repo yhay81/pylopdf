@@ -27,7 +27,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
-use crate::batch::{_Batch, CanvasTarget, GeneratedBatch};
+use crate::batch::{_Batch, CanvasPart, CanvasTarget, GeneratedBatch};
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
@@ -136,8 +136,8 @@ const DEFAULT_MAX_SEARCH_HITS: usize = 4_096;
 const MAX_PASSWORD_INPUT_BYTES: usize = 127;
 
 /// Default public boundaries for encoded and decoded image insertion input.
-const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
-const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
+pub(crate) const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
+pub(crate) const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 pub(crate) const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
 pub(crate) const DEFAULT_MAX_GENERATED_TEXT_SIZE: usize = 1024 * 1024;
 
@@ -1456,7 +1456,7 @@ fn validate_text_glyph_limit(max_text_glyphs: Option<usize>) -> PyResult<()> {
 }
 
 /// Read encoded image input without admitting more than one byte beyond its budget.
-fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
+pub(crate) fn read_image_input(path: &str, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     read_bounded_input(
         path,
         max_size,
@@ -1673,7 +1673,7 @@ fn validate_password_input(password: Option<&str>, label: &str) -> PyResult<()> 
     Ok(())
 }
 
-fn validate_image_input(
+pub(crate) fn validate_image_input(
     data: &[u8],
     max_size: Option<usize>,
     max_pixels: Option<u64>,
@@ -6279,16 +6279,18 @@ impl _Document {
 
     /// Generate, import, and place a recorded drawing batch.
     ///
-    /// Every canvas that records drawing becomes one page of one krilla
+    /// The text and shapes of every canvas become pages of one krilla
     /// document, imported once, so each font is embedded once for the whole
-    /// batch. Canvases over existing pages receive a Form placed like
-    /// `insert_text` output; canvases for new pages become blank pages
-    /// appended in order, then receive theirs. Everything that can fail on
-    /// the input is checked before the document changes: a missing page, a
-    /// page whose display size changed since its canvas was created, page
-    /// content or resources that cannot take another drawing, generation,
-    /// and the import plan. Return the number of appended pages.
-    fn commit_drawing_batch(&mut self, py: Python<'_>, batch: &_Batch) -> PyResult<usize> {
+    /// batch. Each stored image becomes one Image XObject, however many
+    /// canvases draw it. A canvas is placed as one Form XObject, like
+    /// `insert_text` output: its generated page itself, or a Form that layers
+    /// the canvas's generated pages and images in drawing order. Canvases for
+    /// new pages become blank pages appended in order first. Everything that
+    /// can fail on the input is checked before the document changes: a
+    /// missing page, a page whose display size changed since its canvas was
+    /// created, page content or resources that cannot take another drawing,
+    /// generation, and the import plan. Return the number of appended pages.
+    fn commit_drawing_batch(&mut self, py: Python<'_>, batch: &mut _Batch) -> PyResult<usize> {
         let canvases = batch.canvases();
         let new_count = canvases
             .iter()
@@ -6319,23 +6321,26 @@ impl _Document {
                 self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
             }
         }
-        let generated = py.detach(|| batch.generate()).map_err(PdfError::new_err)?;
-        let import = match generated {
-            Some(GeneratedBatch {
-                pdf: bytes,
-                canvases: drawn_canvases,
-            }) => {
+        let recorded: &_Batch = batch;
+        let GeneratedBatch { pdf, parts } = py
+            .detach(|| recorded.generate())
+            .map_err(PdfError::new_err)?;
+        let import = match pdf {
+            Some(bytes) => {
                 let source = generated_pdf::load(&bytes).map_err(|error| {
                     lopdf_err(Some("failed to import generated drawing"), &error)
                 })?;
-                let source_pages = (1..=drawn_canvases.len())
+                let drawings = parts
+                    .iter()
+                    .flatten()
+                    .filter(|part| matches!(part, CanvasPart::Drawing(_)))
+                    .count();
+                let source_pages = (1..=drawings)
                     .map(u32::try_from)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| PdfError::new_err(error.to_string()))?;
                 let target_max_id = self.doc.max_id;
-                let plan =
-                    py.detach(|| prepare_pages_form_import(target_max_id, source, &source_pages))?;
-                Some((plan, drawn_canvases))
+                Some(py.detach(|| prepare_pages_form_import(target_max_id, source, &source_pages))?)
             }
             None => None,
         };
@@ -6346,15 +6351,26 @@ impl _Document {
         } else {
             None
         };
+        let images = batch.take_images();
+        let mut image_xobjects = Vec::new();
+        image_xobjects
+            .try_reserve_exact(images.len())
+            .map_err(|error| {
+                PdfError::new_err(format!("failed to allocate batch images: {error}"))
+            })?;
 
         self.invalidate_hayro_pdf();
-        let placed = match import {
-            Some((plan, drawn_canvases)) => Some((
-                commit_pages_form_import(&mut self.doc, plan)?,
-                drawn_canvases,
-            )),
-            None => None,
+        let forms = match import {
+            Some(plan) => commit_pages_form_import(&mut self.doc, plan)?,
+            None => Vec::new(),
         };
+        for image in images {
+            let (width, height) = (image.parts.width, image.parts.height);
+            let id =
+                draw::add_image_xobject(&mut self.doc, image.parts).map_err(PdfError::new_err)?;
+            image_xobjects.push((id, width, height));
+        }
+        let canvases = batch.canvases();
         let mut new_page_ids = Vec::new();
         new_page_ids.try_reserve_exact(new_count).map_err(|error| {
             PdfError::new_err(format!("failed to allocate new batch pages: {error}"))
@@ -6386,27 +6402,21 @@ impl _Document {
             self.rebuild_page_tree(pages_id, order)?;
         }
 
-        if let Some((forms, drawn_canvases)) = placed {
+        if drawn {
             let page_numbers = page_numbers_by_id(self.doc.page_ids()?)?;
             let mut new_pages = new_page_ids.iter();
-            let mut new_page_of = Vec::new();
-            new_page_of
-                .try_reserve_exact(canvases.len())
-                .map_err(|error| {
-                    PdfError::new_err(format!("failed to allocate batch page lookup: {error}"))
-                })?;
-            for canvas in canvases {
-                new_page_of.push(match canvas.target {
+            for (canvas, layers) in canvases.iter().zip(&parts) {
+                let new_page = match canvas.target {
                     CanvasTarget::NewPage => new_pages.next().copied(),
                     CanvasTarget::Page { .. } => None,
-                });
-            }
-            for (form, canvas_index) in forms.into_iter().zip(drawn_canvases) {
-                let canvas = &canvases[canvas_index];
+                };
+                if layers.is_empty() {
+                    continue;
+                }
                 let (page_id, overlay) = match canvas.target {
                     CanvasTarget::Page { id, overlay } => (id, overlay),
                     CanvasTarget::NewPage => (
-                        new_page_of[canvas_index]
+                        new_page
                             .ok_or_else(|| PdfError::new_err("a new batch page was not created"))?,
                         true,
                     ),
@@ -6414,6 +6424,10 @@ impl _Document {
                 let page_number = *page_numbers.get(&page_id).ok_or_else(|| {
                     PdfError::new_err("a page that a drawing batch draws on no longer exists")
                 })?;
+                let form = match layers.as_slice() {
+                    [CanvasPart::Drawing(page)] => forms[*page],
+                    _ => self.compose_canvas_form(canvas.size, layers, &forms, &image_xobjects)?,
+                };
                 let (_, plan) =
                     self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
                 let geometry = self.resolve_display_geometry(page_id)?;
@@ -6428,6 +6442,65 @@ impl _Document {
             prune_unreachable_objects(&mut self.doc)?;
         }
         Ok(new_count)
+    }
+
+    /// Add a Form that draws a canvas's generated pages and images in order.
+    ///
+    /// The Form uses the coordinate space of the canvas's generated pages, so
+    /// those pages are drawn unscaled and images are placed into display
+    /// rectangles of an unrotated page of the canvas's size.
+    fn compose_canvas_form(
+        &mut self,
+        size: (f64, f64),
+        layers: &[CanvasPart],
+        forms: &[(ObjectId, [f64; 4], i64)],
+        images: &[(ObjectId, u32, u32)],
+    ) -> PyResult<(ObjectId, [f64; 4], i64)> {
+        let crop = [0.0, 0.0, f64::from(size.0 as f32), f64::from(size.1 as f32)];
+        let mut content = Vec::new();
+        let mut xobjects = Dictionary::new();
+        for (index, layer) in layers.iter().enumerate() {
+            let (name, id, matrix) = match layer {
+                CanvasPart::Drawing(page) => (
+                    format!("PyloS{index}"),
+                    forms[*page].0,
+                    [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                ),
+                CanvasPart::Image(placement) => {
+                    let (id, width, height) = images[placement.image];
+                    let matrix = draw::image_placement_matrix(
+                        crop,
+                        0,
+                        placement.rect,
+                        width,
+                        height,
+                        placement.keep_proportion,
+                        placement.rotation,
+                    );
+                    (format!("PyloI{index}"), id, matrix)
+                }
+            };
+            let ops = draw::draw_ops(matrix, &name);
+            content.try_reserve(ops.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to grow the canvas Form content: {error}"))
+            })?;
+            content.extend_from_slice(&ops);
+            xobjects.set(name, Object::Reference(id));
+        }
+        let form = Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "FormType" => 1,
+                "BBox" => Object::Array(
+                    crop.iter().map(|&value| Object::Real(value as f32)).collect(),
+                ),
+                "Resources" => dictionary! { "XObject" => xobjects },
+            },
+            content,
+        )
+        .with_compression(false);
+        Ok((self.doc.add_object(form), crop, 0))
     }
 
     /// Draw validated subset-embedded text; see `insert_embedded_text`.
@@ -11816,8 +11889,8 @@ impl _Document {
     /// Generate, import, and place a recorded drawing batch; see
     /// `commit_drawing_batch`. Return the number of appended pages.
     fn commit_batch(&mut self, py: Python<'_>, batch: &Bound<'_, _Batch>) -> PyResult<usize> {
-        let batch = batch.borrow();
-        self.commit_drawing_batch(py, &batch)
+        let mut batch = batch.borrow_mut();
+        self.commit_drawing_batch(py, &mut batch)
     }
 
     /// Draw subset-embedded text with a loaded `Font`.

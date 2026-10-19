@@ -261,6 +261,65 @@
           "kind": "property",
           "returns": "float"
         },
+        "insert_image": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "str | os.PathLike[str] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "filename"
+              },
+              {
+                "annotation": "bytes | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "stream"
+              },
+              {
+                "annotation": "Pixmap | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "pixmap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "rotate"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "keep_proportion"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 64000000,
+                "kind": "keyword_only",
+                "name": "max_pixels"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "insert_text": {
           "kind": "method",
           "signature": {
@@ -517,6 +576,12 @@
                 "default": 67108864,
                 "kind": "keyword_only",
                 "name": "max_text_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 536870912,
+                "kind": "keyword_only",
+                "name": "max_image_size"
               }
             ],
             "returns": "DrawingBatch"
@@ -1654,6 +1719,11 @@
             "annotation": "int | None",
             "kind": "positional_or_keyword",
             "name": "max_text_size"
+          },
+          {
+            "annotation": "int | None",
+            "kind": "positional_or_keyword",
+            "name": "max_image_size"
           }
         ],
         "returns": "None"

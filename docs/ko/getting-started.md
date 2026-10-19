@@ -131,6 +131,7 @@ with doc.batch() as batch:                                   # 글꼴은 모든 
         for row, line in enumerate(lines):
             canvas.insert_text((56, 110 + 16 * row), line, font=regular, fontsize=10.5)
         canvas.draw_rect((40, 40, 555, 802), color=(0.6, 0.7, 0.8), width=0.5)
+        canvas.insert_image((300, 420, 539, 760), filename="photo.jpg")  # 나중에 그린 표시는 위에 겹침
         canvas.draw_circle((520, 70), 7, color=None, fill=(0.83, 0.26, 0.05))
         canvas.draw_polyline([(500, 90), (540, 90), (520, 120)], closed=True, fill=(0.9, 0.9, 0.9))
 doc.save("report.pdf")

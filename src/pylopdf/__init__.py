@@ -2005,6 +2005,8 @@ def _validate_font_choice(
 
 #: Default bound on the UTF-8 text that one drawing batch records.
 _DEFAULT_MAX_BATCH_TEXT_SIZE = 64 * 1024 * 1024
+#: Default bound on the image data that one drawing batch stores until its commit.
+_DEFAULT_MAX_BATCH_IMAGE_SIZE = 512 * 1024 * 1024
 #: Path points that one drawing batch may record across all of its shapes.
 _MAX_BATCH_PATH_POINTS = 1_048_576
 _MIN_POLYLINE_POINTS = 2
@@ -2246,13 +2248,61 @@ class Canvas:
             raise ValueError(msg)
         core.draw_polyline(self._index, validated, closed, stroke, filled, line_width)
 
+    def insert_image(  # noqa: PLR0913 - mirrors Page.insert_image.
+        self,
+        rect: Sequence[float],
+        *,
+        filename: str | os.PathLike[str] | None = None,
+        stream: bytes | None = None,
+        pixmap: Pixmap | None = None,
+        rotate: int = 0,
+        keep_proportion: bool = True,
+        max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
+        max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
+    ) -> None:
+        """Draw an image into ``rect`` as :meth:`Page.insert_image` does.
+
+        The image keeps its place in drawing order: text and shapes drawn
+        after it, such as markers on a photo, appear on top of it. JPEG is
+        embedded unchanged, PNG transparency becomes a soft mask, and a
+        :class:`Pixmap` is embedded from its pixels. The image is decoded
+        when it is recorded, so an unsupported or oversized image raises at
+        the call, and identical images are embedded once for the whole batch.
+        ``filename`` and ``stream`` input defaults to 64 MiB and decoded PNG
+        input to 64,000,000 pixels (``image_input_size``,
+        ``image_pixel_count``); the batch stores at most its
+        ``max_image_size`` of image data.
+        """
+        core = self._core()
+        _validate_optional_positive_int("max_size", max_size)
+        _validate_optional_positive_int("max_pixels", max_pixels)
+        rotation = _validate_image_rotation(rotate)
+        source = _resolve_image_source(filename, stream, pixmap)
+        if isinstance(source, bytes) and max_size is not None and len(source) > max_size:
+            raise _image_input_limit_error(len(source), max_size)
+        x0, y0, x1, y1 = _validate_rect(rect)
+        if isinstance(source, Pixmap):
+            core.insert_pixmap(self._index, (x0, y0, x1, y1), source, rotation, keep_proportion)
+        elif isinstance(source, Path):
+            core.insert_image_file(
+                self._index,
+                (x0, y0, x1, y1),
+                os.fspath(source),
+                rotation,
+                keep_proportion,
+                max_size,
+                max_pixels,
+            )
+        else:
+            core.insert_image(self._index, (x0, y0, x1, y1), source, rotation, keep_proportion, max_size, max_pixels)
+
     def __repr__(self) -> str:
         """Return the canvas size."""
         return f"Canvas(width={self._width}, height={self._height})"
 
 
 class DrawingBatch:
-    """Text and shapes drawn on several pages with one subset per font.
+    """Text, shapes, and images drawn on several pages with one subset per font.
 
     Create one with :meth:`Document.batch`. :meth:`page` returns the canvas
     of an existing page and :meth:`new_page` the canvas of a blank page that
@@ -2261,18 +2311,19 @@ class DrawingBatch:
 
     The commit generates every canvas in one pass and imports it once, so
     each :class:`Font` is embedded once for the whole batch where
-    :meth:`Page.insert_text` embeds a subset per call. Each canvas is placed
-    as one Form XObject, above existing content or below it with
+    :meth:`Page.insert_text` embeds a subset per call; identical images are
+    embedded once as well. Each canvas is placed as one Form XObject that
+    keeps its drawing order, above existing content or below it with
     ``overlay=False``. The commit checks pages, page content, generation, and
     the import before it changes the document; a page that was deleted or
     whose rotation or crop box changed after its canvas was created raises
     :class:`PdfError`. A batch is used once.
     """
 
-    def __init__(self, document: Document, max_text_size: int | None) -> None:
+    def __init__(self, document: Document, max_text_size: int | None, max_image_size: int | None) -> None:
         """Start an empty batch; create batches through :meth:`Document.batch`."""
         self._document = document
-        self._core = _Batch(max_text_size)
+        self._core = _Batch(max_text_size, max_image_size)
         self._max_text_size = max_text_size
         self._canvases: dict[int, Canvas] = {}
         self._closed = False
@@ -4475,18 +4526,27 @@ class Document:
         self._bump_generation()
         return self[index]
 
-    def batch(self, *, max_text_size: int | None = _DEFAULT_MAX_BATCH_TEXT_SIZE) -> DrawingBatch:
+    def batch(
+        self,
+        *,
+        max_text_size: int | None = _DEFAULT_MAX_BATCH_TEXT_SIZE,
+        max_image_size: int | None = _DEFAULT_MAX_BATCH_IMAGE_SIZE,
+    ) -> DrawingBatch:
         """Start a :class:`DrawingBatch` that draws on several pages at once.
 
-        A batch embeds each :class:`Font` once for all of its pages, so use it
-        to generate new documents or to stamp text on many pages. It records
-        at most ``max_text_size`` bytes of UTF-8 text, 64 MiB by default;
-        ``None`` explicitly opts trusted input out, and refusal raises
-        :class:`LimitError` with code ``text_input_size``.
+        A batch embeds each :class:`Font` and each distinct image once for all
+        of its pages, so use it to generate new documents or to stamp text on
+        many pages. It records at most ``max_text_size`` bytes of UTF-8 text,
+        64 MiB by default, and stores at most ``max_image_size`` bytes of
+        decoded image data until its commit, 512 MiB by default. ``None``
+        explicitly opts trusted input out of either bound, and refusal raises
+        :class:`LimitError` with code ``text_input_size`` or
+        ``image_input_size``.
         """
         self._ensure_open()
         _validate_optional_positive_int("max_text_size", max_text_size)
-        return DrawingBatch(self, max_text_size)
+        _validate_optional_positive_int("max_image_size", max_image_size)
+        return DrawingBatch(self, max_text_size, max_image_size)
 
     def copy_page(self, pno: int, to: int = -1) -> None:
         """Copy page ``pno`` to insertion position ``to``; -1 appends.

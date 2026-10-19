@@ -31,7 +31,7 @@ password input上限为127个UTF-8 byte。
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围，navigation清理与link导入共享TOC和named destination上限 |
-| `batch(*, max_text_size=64 MiB)` | 在一次生成中向已有页面（`page(pno, overlay=)`）与追加页面（`new_page(width, height)`）绘制文本和图形的`DrawingBatch`；每个`Font`只嵌入一次；离开`with`块或调用`commit()`时提交 |
+| `batch(*, max_text_size=64 MiB, max_image_size=512 MiB)` | 在一次生成中向已有页面（`page(pno, overlay=)`）与追加页面（`new_page(width, height)`）绘制文本、图形与图像的`DrawingBatch`；每个`Font`与每张相同图像只嵌入一次；离开`with`块或调用`commit()`时提交 |
 | `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
@@ -124,6 +124,16 @@ Regular并发出`PylopdfWarning`。每次绘制调用仍会嵌入该调用所用
 （`path_point_count`）。`Page.draw_line()`、`draw_rect()`、`draw_circle()`与
 `draw_polyline()`通过单页批处理绘制一个图形。
 
+`Canvas.insert_image(rect, filename= / stream= / pixmap=, rotate=,
+keep_proportion=)`与`Page.insert_image`完全相同地放置图像，并保持其在绘制顺序中的位置，
+因此在照片之后绘制的标记、注释与箭头会叠在照片之上。图像经由pylopdf的图像路径而非
+krilla嵌入：JPEG原样嵌入，PNG透明度成为soft mask，`Pixmap`按像素嵌入。图像在记录时
+解码，默认上限也相同（输入64 MiB、64,000,000像素，`image_input_size`、
+`image_pixel_count`），因此不支持或过大的图像会在该调用时抛出异常。相同图像在整个
+批处理中只嵌入一次，批处理在提交前保存的图像数据最多为`max_image_size`字节
+（`image_input_size`，默认512 MiB）。含图像的canvas作为一个Form XObject放置，按绘制
+顺序叠放生成的文本、图形与图像。
+
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
 已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
@@ -154,7 +164,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`与`has_glyph`的可复用OpenType字体／使字体可按家族名与字重查找的注册 |
-| `DrawingBatch` / `Canvas` | `Document.batch()`返回的多页绘制批处理／单页canvas：`insert_text`（返回续写位置）、`insert_textbox`、`draw_line`、`draw_rect`、`draw_circle`、`draw_polyline`、`width`、`height`、`rect` |
+| `DrawingBatch` / `Canvas` | `Document.batch()`返回的多页绘制批处理／单页canvas：`insert_text`（返回续写位置）、`insert_textbox`、`insert_image`、`draw_line`、`draw_rect`、`draw_circle`、`draw_polyline`、`width`、`height`、`rect` |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |

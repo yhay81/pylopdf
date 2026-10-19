@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import struct
+import zlib
 from collections.abc import Iterator
 
 import pytest
@@ -24,6 +26,33 @@ def _no_generated_pdf_mismatch() -> Iterator[None]:
     mismatched = _Document.generated_pdf_loads()[2]
     yield
     assert _Document.generated_pdf_loads()[2] == mismatched, "sequential generated-PDF parse differs from lopdf"
+
+
+# Generated 64x64 grayscale linear-gradient JPEG, kept inline to avoid a
+# test-only image-library dependency.
+GRAY_GRADIENT_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAME"
+    "BgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/wAALCABAAEABAREA"
+    "/8QAFgABAQEAAAAAAAAAAAAAAAAAAAgJ/8QAGhAAAgMBAQAAAAAAAAAAAAAAABcBZKFT"
+    "kf/aAAgBAQAAPwDD5axwkLWOEhaxwkLWOEhaxwkLWOEhaxwkLWOElAravgW1fAtq+Bb"
+    "V8C2r4FtXwLavgW1fCgFtXwLavgW1fAtq+BbV8C2r4FtXwLavhQC2r4FtXwLavgW1fA"
+    "tq+BbV8C2r4FtXwoBbV8C2r4FtXwLavgW1fAtq+BbV8C2r4UAtq+BbV8C2r4FtXwLav"
+    "gW1fAtq+BbV8KAW1fAtq+BbV8C2r4FtXwLavgW1fAtq+FALeOEeBbxwjwLeOEeBbxwj"
+    "wLeOEeBbxwjwLeOEeBbxwjw//9k="
+)
+
+
+def solid_png(width: int, height: int, rgb: tuple[int, int, int], alpha: int | None = None) -> bytes:
+    """Build a solid 8-bit PNG, RGBA with ``alpha`` and RGB without it."""
+    color_type, pixel = (2, bytes(rgb)) if alpha is None else (6, bytes((*rgb, alpha)))
+    raw = b"".join(b"\x00" + pixel * width for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
 
 
 def with_weight_class(data: bytes, weight: int) -> bytes:
