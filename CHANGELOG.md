@@ -557,6 +557,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   swept the complete target after each placement, from 106 s to 0.16 s.
   Results are unchanged apart from the unreachable objects that placement no
   longer removes.
+- A document with a very large object stream is now read from the serialized
+  graph instead of its original bytes. hayro parses the member table of an
+  object stream, the pairs of object number and offset that head it, again for
+  every lookup of a member, at about 15 ns per member, so reading the members
+  of one stream costs time quadratic in its size: once in hayro and once in
+  the nesting check's pass over a page's annotations. The first text
+  extraction of pdf.js `bug1978317.pdf`, a page whose 32,768 annotations are
+  all members of one 65,542-member stream, took 61 to 77 s, half of it in each
+  pass, and now takes 0.19 to 0.24 s. A 723-page, 4.9 MB book whose objects
+  share one 14,947-member stream took 0.66 to 0.83 s for its first page and 16
+  to 20 s for all pages, and now takes 0.03 to 0.05 s and 1.5 to 1.9 s. A
+  graph that lopdf writes has no object streams. The choice moves only what
+  hayro reads and never what the nesting check scans, and applies only when
+  the largest stream holds at least 4,096 members and the squares of all
+  member counts sum to at least eight times the input length: 3 of 5,707 local
+  PDFs and none of the bundled corpus. The original bytes remain the fallback
+  when `max_interpretation_size` refuses the serialization. Text, words,
+  drawings, and images of the first three pages were identical on both
+  snapshots for all three; pixmaps at scale 0.5 were identical for two, and
+  differed on the book's cover page in 3,495 of 124,740 pixels along thin
+  lines (identical at scale 1.0), where lopdf's `f32` numbers shift edges by a
+  fraction of a pixel, as in every edited document. An upstream hayro fix that
+  keeps the table makes the same files 0.17 s and 1.5 s on the original bytes;
+  this choice can go once the pinned hayro has it.
 
 ## [0.14.0] - 2026-10-13
 

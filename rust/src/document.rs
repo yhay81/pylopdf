@@ -35,6 +35,7 @@ use crate::generate;
 use crate::generated_pdf;
 use crate::image_compression;
 use crate::object_recovery;
+use crate::object_stream_work;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
@@ -5606,8 +5607,14 @@ pub struct _Document {
     /// checks: otherwise hayro could resolve different objects from the bytes
     /// than the graph that edits and saves use. That excludes input whose
     /// cross-reference data lopdf recovered, which hayro would recover
-    /// independently.
+    /// independently. Input whose object streams would make hayro rebuild
+    /// thousands of member tables is used only when the serialized graph
+    /// cannot be built, as `object_stream_work` decides.
     hayro_source: HayroSource,
+    /// Whether the current hayro snapshot was parsed from the original input
+    /// rather than from a serialization of the graph; meaningful only while
+    /// `hayro_pdf` is set. Tests read it through `snapshot_source`.
+    hayro_pdf_from_original: bool,
     /// Content streams of the current hayro snapshot that were cleared for
     /// array and dictionary nesting before hayro could interpret them.
     ///
@@ -5685,6 +5692,7 @@ impl _Document {
             fallback_fonts: FallbackFonts::default(),
             hayro_pdf: None,
             hayro_source,
+            hayro_pdf_from_original: false,
             content_guard: ContentGuard::default(),
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
@@ -7370,12 +7378,25 @@ impl _Document {
                     HayroSource::Unavailable => {}
                 }
             }
-            let source_pdf = (!prepare_appearances)
+            // hayro rebuilds an object stream's member table for every member
+            // it looks up, so a document with a very large container reads
+            // faster from its serialized graph, which has none. The original
+            // bytes stay the fallback when the serialization is refused or
+            // lists other pages.
+            let serialized_pdf = (!prepare_appearances && self.prefers_serialized_graph())
+                .then(|| self.render_snapshot(&state_appearances, None, None).ok())
+                .flatten()
+                .filter(|pdf| hayro_pages_match(pdf, &page_ids));
+            if serialized_pdf.is_some() {
+                self.hayro_source = HayroSource::Unavailable;
+            }
+            let source_pdf = (!prepare_appearances && serialized_pdf.is_none())
                 .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
-            let pdf = match source_pdf {
+            self.hayro_pdf_from_original = source_pdf.is_some();
+            let pdf = match serialized_pdf.or(source_pdf) {
                 Some(pdf) => pdf,
                 None => {
                     let pdf =
@@ -7410,6 +7431,16 @@ impl _Document {
             .hayro_pdf
             .as_ref()
             .expect("constructed immediately before"))
+    }
+
+    /// Whether the retained original input should give way to a serialization
+    /// of the graph, because rebuilding hayro's member tables would cost more.
+    fn prefers_serialized_graph(&self) -> bool {
+        matches!(
+            &self.hayro_source,
+            HayroSource::Bytes(data)
+                if object_stream_work::MemberTables::of(&self.doc).prefer_serialized_graph(data.len())
+        )
     }
 
     /// Return the hayro view after clearing `pages` for nesting.
@@ -9169,6 +9200,18 @@ impl _Document {
     #[staticmethod]
     fn compare_generated_pdf_load(data: &[u8]) -> Option<bool> {
         generated_pdf::compare_with_lopdf(data)
+    }
+
+    /// Report which input the current hayro snapshot was parsed from
+    /// (`"original"` bytes, a `"serialized"` graph, or `"none"` before the
+    /// first render or extraction and after an edit), so tests can pin when
+    /// the original bytes give way to the serialization.
+    fn snapshot_source(&self) -> &'static str {
+        match (&self.hayro_pdf, self.hayro_pdf_from_original) {
+            (None, _) => "none",
+            (Some(_), true) => "original",
+            (Some(_), false) => "serialized",
+        }
     }
 
     /// Clear all CJK fallback-font configuration.

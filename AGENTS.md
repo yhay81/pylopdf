@@ -367,9 +367,10 @@ overview.
   leave a partial edit.
 - Rendering caches a hayro snapshot in `_Document.hayro_pdf`. An unedited,
   unencrypted load without cross-reference recovery first consumes its original
-  input bytes when `object_recovery` keeps them, as described below, and falls
-  back to a lopdf serialization when hayro rejects them or resolves other pages
-  than the page-tree walker, compared by object ID in page order. When the
+  input bytes when `object_recovery` keeps them, as described below, unless the
+  next bullet prefers the serialization, and falls back to a lopdf
+  serialization when hayro rejects them or resolves other pages than the
+  page-tree walker, compared by object ID in page order. When the
   serialization still disagrees, rendering uses a copy whose root lists
   exactly the walker's pages with inherited attributes materialized: hayro 0.7
   ends `/Kids` at the first entry that is not a dictionary and reads untyped
@@ -390,6 +391,59 @@ overview.
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- hayro-syntax 0.7 and 0.8 (and its `main` of 2026-10-18) parse an object
+  stream's member table, the pairs of object number and offset that head its
+  data, anew for every lookup of a member and keep nothing, at about 15 ns per
+  member of the container. Reading most of the members of a container of N
+  therefore costs about N² of those, in `Pdf::new` (every page lookup), in the
+  content guard's walk, and in hayro's interpretation. Measured on macOS arm64
+  with the thin-LTO build: pdf.js `bug1978317.pdf` (one page, 32,768
+  annotations that are all members of one 65,542-member container) took 61 to
+  77 s for its first `get_text`, and a 723-page, 4.9 MB book whose objects
+  share one 14,947-member container spent 0.68 s in `Pdf::new` alone, took
+  0.66 to 0.83 s for its first page, and 16 to 20 s for all pages (2.8 s of
+  them in the walk); the ranges are run-to-run variation on a busy machine. A
+  graph written by lopdf has no object streams, so hayro finds every member in
+  constant time: 0.19 to 0.24 s, 0.03 to 0.05 s, and 1.5 to 1.9 s for the same
+  three calls, and 1.7 s against 0.17 s for the 74 pages of the 7,421-member
+  manual. `rust/src/object_stream_work.rs` reads the declared `/N` of every
+  object stream, and `hayro_view` serializes the graph first, within
+  `max_interpretation_size`, and parses that when the largest is at least
+  4,096 (every lookup then costs about 60 µs, many times the lookup itself)
+  and the squares of all of them sum to at least eight times the input length
+  (15 ns per rebuilt entry against about 7 ns per byte to serialize, with only
+  some members looked up). The retained original bytes stay the fallback when
+  the serialization is refused or lists other pages than the walker, so a
+  document that parsed before still parses. Of 5,707 distinct local PDFs three
+  qualify (the two above and a 74-page manual with a 7,421-member container).
+  The other 5,704, among them 758 with a container of more than 100 members
+  and 18 of more than 1,000, keep their original bytes, as does the bundled
+  corpus (at most 149 members per object stream). The largest-container
+  condition keeps a tagged PDF of 101 containers of 500 members on its
+  original bytes: its squares sum to those of one 5,000-member container, yet
+  it costs hayro no measurable time, because each lookup rebuilds only 500
+  entries and most of its members are never looked up. Text, words, drawings,
+  and images of the first three pages were identical on both snapshots for all
+  33 local files with a container of 580 to 14,947 members, and the serialized
+  snapshot was never slower for the first page or for 100 pages (1.0 to 18 and
+  1.0 to 9.7 times faster). Pixmaps at scale 0.5 differed for two of them: one
+  pixel by one level, and 3,495 of 124,740 pixels by up to 255 along the thin
+  lines of the book's cover page, identical at scale 1.0. lopdf reads reals as
+  `f32`, as for every edited, recovered, or encrypted document. The choice
+  changes only what hayro reads, never what the guard checks, because the walk
+  follows the snapshot that hayro will interpret; the trace oracle below
+  agrees. Cold first calls on the bundled corpus (`get_text`, `to_markdown`,
+  `render_pages`, and `get_drawings`; 15 interleaved rounds of CPU-time
+  minimums, the same extras installed) took 757.4 ms on `main` and 754.9 ms
+  with this choice, so reading every document's object stream counts once
+  costs nothing measurable. `_Document.snapshot_source()` reports `"none"`,
+  `"original"`, or `"serialized"` so that tests can pin the choice, which
+  `tests/test_object_stream_snapshot.py` does at 4,095 and 4,096 members, for
+  a hundred containers of 500, and on either side of the input-length
+  condition. An upstream fix is a contribution candidate: keeping the table
+  per object stream in `XRef` (about 50 lines) made the first `get_text` of
+  `bug1978317.pdf` 0.17 s and of the book 1.5 s on the original bytes. Remove
+  `object_stream_work.rs` and its tests once the pinned hayro keeps the table.
 - `rust/src/object_recovery.rs` decides at load whether the original bytes
   describe lopdf's graph. hayro resolves those bytes through the
   cross-reference data: it reads a number that no entry lists as null, and the
@@ -479,13 +533,33 @@ overview.
   Annotations show the cost of the walk alone only when they are hidden
   (`/F 2`): hayro reads the `/AP /N` of every annotation it draws and resolves
   every `/Annots` element itself, so the walk costs about as much as
-  interpreting the page there, and the `/Annots` loop is left as it was. That
-  doubles the first call of a page with thousands of annotations in one object
-  stream, because hayro-syntax rebuilds an object stream's index on every lookup
-  and both passes are quadratic: pdf.js `bug1978317.pdf` (1.5 MB, 40 pages)
-  takes 65 s, 33 s of it in the walk's `/Annots` loop and 31 s in hayro's own
-  interpretation. A role is what the walk does with the object, never where it
-  was found, and a reference is skipped only in the role it was followed for. A
+  interpreting the page there, and the `/Annots` loop is left as it was.
+  hayro-syntax rebuilds an object stream's member table on every lookup of a
+  member (see the snapshot bullet above), so a page with thousands of
+  annotations in one large container is quadratic in both passes: pdf.js
+  `bug1978317.pdf` (1.5 MB, one page) lists 32,768 annotations that are all
+  members of one 65,542-member stream, and its first `get_text` took 61 to
+  77 s, half of it in the walk's `/Annots` loop (33.8 s of 67.7 s in the run
+  that timed the walk) and half in hayro's own interpretation. A generated page
+  whose N annotations are members of one N-member stream shows the same shape:
+  at N = 4,096, 8,000, and 16,000 the first `get_text` took 0.6, 2.2, and 8.6 s
+  of CPU time, the walk alone 0.3, 1.1, and 4.3 s, each time four times the
+  step before. Such a document now reads from its serialized graph, which has
+  no object streams, and takes 0.19 to 0.24 s (0.02, 0.04, and 0.07 s for the
+  generated pages, the walk alone 0.01, 0.01, and 0.03 s). The loop keeps
+  resolving every element through hayro and not through
+  lopdf's graph, although the graph holds the same dictionaries without a
+  rebuild: `object_recovery` verifies only that a compressed entry exists, not
+  the container and index that hayro reads, and the object streams' contents
+  could be parsed differently by lopdf, so a walk that took `/AP` from the
+  graph could leave unscanned a stream that hayro interprets. Reading the
+  elements through a table of its own would speed up only the walk's half and
+  would have to replicate hayro's table parser and xref lookup exactly. Refusing
+  a page after its last annotation measures the walk alone, because the
+  refusal comes before hayro interprets anything; poison the last appearance
+  and time the refusal to separate the two passes. A role is what the walk does
+  with the object, never where it was found, and a reference is skipped only in
+  the role it was followed for. A
   stream that was cleared as content from a tiling pattern entry says nothing
   about the colour space it gives an image: the first version of the `/XObject`
   loop skipped any stream that was already cleared, so a 20,000-deep chain
@@ -606,7 +680,14 @@ overview.
   against the mistake that rewrite could make. The resource walk's harness
   (below) gave the same verdict on `main` and on the rewrite for each of
   1,500,000 random documents (1,000,000 as generated and 500,000 with only
-  well-typed slots), compared through a hash of every verdict.
+  well-typed slots), compared through a hash of every verdict. Moving large
+  object streams to the serialized graph (the snapshot bullet above) passed
+  the stream oracle as well: hayro interpreted 9,732 streams in the first six
+  pages of 700 real documents, 98 in the 15 openable corpus files, 91 in the
+  three documents that choice selects, 11 in eight generated pages with
+  4,096 to 20,000 members, and 21,720 in 11,000 mutated graphs (8,000 from the
+  test placements, 3,000 with the corpus as extra seeds), and the guard had
+  scanned every one.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
