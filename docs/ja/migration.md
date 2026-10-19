@@ -48,15 +48,17 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
 | `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | ドキュメント単位。テキスト／選択／checkbox／radioのネイティブ外観 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`によるオフライン純Rust PP-OCR。任意の位置付き結果には`insert_ocr_text_layer`も利用可能 |
+| `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 同じ | 確定1回につきForm XObject 1つで、書体は1度だけ埋め込む。`with page.new_shape() as shape:`は正常に抜けると確定。`finish()`で仕上げていない経路の`commit()`と、何も描かない`finish()`は例外。`morph=`と`oc=`は使えない |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` などの`draw_*` | 同じ | 線や色の指定はキーワード専用で、終点の`Point`を返す。`morph=`と`oc=`は使えない |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内蔵・MIT |
 
 ## 挙動の違い { #behavioral-differences }
 
 - **座標系**はどちらも左上原点の表示空間。pylopdf では回転ページでも
   抽出・検索・描き込み・レンダリングが一貫して同じ座標になります。
-- **型**: `Rect` は不変の `NamedTuple`（`x0, y0, x1, y1` + `width` / `height`）。
-  `Point` / `Matrix` / `Quad` クラスは無く、API は素のタプルと `scale=` / `dpi=`
-  を受けます。
+- **型**: `Rect` は不変の `NamedTuple`（`x0, y0, x1, y1` + `width` / `height`）、
+  `Point` は `x, y` の `NamedTuple` で、`draw_*` が返します。`Matrix` / `Quad`
+  クラスは無く、API は素のタプル（quad は4点）と `scale=` / `dpi=` を受けます。
 - **古い Page**: 構造変更（削除・挿入・並べ替え）後に古い `Page` を使うと、
   黙って別ページを指す代わりに `StalePageError` になります。`doc[i]` で
   取得し直してください。

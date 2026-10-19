@@ -116,6 +116,12 @@ hebrew = pylopdf.Font(language="he", is_bold=True)          # 가변 글꼴인 p
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 직접 준비한 가변 글꼴은 축 위의 어떤 굵기든 선택
 page.insert_text((40, 200), "제목", font=semibold, fontsize=16)
+with page.new_shape() as shape:                              # Form 하나, 글꼴은 한 번만 포함
+    shape.draw_rect((36, 220, 400, 320), radius=0.1)
+    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+    shape.insert_text((48, 250), "보고", font=bold, fontsize=16)
+    shape.insert_textbox((48, 260, 390, 310), "본문 단락.", fontsize=11)
+page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf의 draw_*
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

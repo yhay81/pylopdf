@@ -47,15 +47,18 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
 | `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | 문서 수준, 텍스트／선택／checkbox／radio 네이티브 appearance |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`의 오프라인 순수 Rust PP-OCR, 임의의 위치 결과에는 `insert_ocr_text_layer`도 사용 가능 |
+| `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 같음 | 확정 한 번에 Form XObject 하나, 글꼴은 한 번만 포함. `with page.new_shape() as shape:`는 정상 종료 시 확정. `finish()`로 마무리하지 않은 경로의 `commit()`과 아무것도 그리지 않는 `finish()`는 예외. `morph=`와 `oc=`는 쓸 수 없음 |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` 등 `draw_*` | 같음 | 선과 색 지정은 키워드 전용이며 끝점 `Point`를 반환. `morph=`와 `oc=`는 쓸 수 없음 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 내장, MIT |
 
 ## 동작 차이 { #behavioral-differences }
 
 - **좌표**는 두 라이브러리 모두 왼쪽 위 원점의 표시 공간을 사용합니다. pylopdf는
   회전된 페이지에서도 추출, 검색, 그리기, 렌더링에 일관되게 적용합니다.
-- **타입**: `Rect`는 불변 `NamedTuple`(`x0, y0, x1, y1`과 `width` / `height`)입니다.
-  `Point` / `Matrix` / `Quad` 클래스는 없으며, API는 일반 튜플과 `scale=` / `dpi=`
-  키워드를 받습니다.
+- **타입**: `Rect`는 불변 `NamedTuple`(`x0, y0, x1, y1`과 `width` / `height`)이고,
+  `Point`는 `x, y`의 `NamedTuple`로 `draw_*`가 반환합니다. `Matrix` / `Quad`
+  클래스는 없으며, API는 일반 튜플(quad는 네 점)과 `scale=` / `dpi=` 키워드를
+  받습니다.
 - **오래된 페이지 객체**: 삭제, 삽입, 재정렬 같은 구조 변경 후 이전에 얻은 `Page`
   객체는 다른 페이지를 조용히 가리키는 대신 `StalePageError`를 발생시킵니다.
   `doc[i]`로 다시 가져오세요.

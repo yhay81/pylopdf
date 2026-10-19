@@ -687,6 +687,35 @@ pub(crate) fn fmt(v: f64) -> String {
     }
 }
 
+/// A device colour with channels from 0 to 1: gray, RGB, or CMYK, which
+/// pymupdf selects by the number of components.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum DeviceColor {
+    Gray(f64),
+    Rgb(f64, f64, f64),
+    Cmyk(f64, f64, f64, f64),
+}
+
+impl DeviceColor {
+    /// Return the operator that selects this colour for filling, such as
+    /// `0.2 0.4 0.6 rg`.
+    pub(crate) fn fill_operator(self) -> String {
+        match self {
+            Self::Gray(gray) => format!("{} g", fmt(gray)),
+            Self::Rgb(red, green, blue) => {
+                format!("{} {} {} rg", fmt(red), fmt(green), fmt(blue))
+            }
+            Self::Cmyk(cyan, magenta, yellow, black) => format!(
+                "{} {} {} {} k",
+                fmt(cyan),
+                fmt(magenta),
+                fmt(yellow),
+                fmt(black)
+            ),
+        }
+    }
+}
+
 /// Build text operators with display-space `point` as the baseline origin.
 ///
 /// `lines` contains WinAnsi/cp1252 bytes, one item per line. `Tm` receives
@@ -699,7 +728,7 @@ pub fn text_ops(
     lines: &[Vec<u8>],
     font: &str,
     size: f64,
-    color: (f64, f64, f64),
+    color: DeviceColor,
 ) -> Vec<u8> {
     let (ox, oy) = display_to_pdf(crop, rotation, point.0, point.1);
     let (rx, ry) = {
@@ -711,11 +740,9 @@ pub fn text_ops(
         (p.0 - ox, p.1 - oy)
     };
     let mut out = format!(
-        "q\nBT\n/{font} {} Tf\n{} {} {} rg\n{} {} {} {} {} {} Tm\n{} TL\n",
+        "q\nBT\n/{font} {} Tf\n{}\n{} {} {} {} {} {} Tm\n{} TL\n",
         fmt(size),
-        fmt(color.0),
-        fmt(color.1),
-        fmt(color.2),
+        color.fill_operator(),
         fmt(rx),
         fmt(ry),
         fmt(ux),
@@ -783,14 +810,12 @@ pub fn textbox_text_ops(
     align: u8,
     font: &str,
     size: f64,
-    color: (f64, f64, f64),
+    color: DeviceColor,
 ) -> Result<Vec<u8>, String> {
     let mut out = format!(
-        "q\nBT\n/{font} {} Tf\n{} {} {} rg\n",
+        "q\nBT\n/{font} {} Tf\n{}\n",
         fmt(size),
-        fmt(color.0),
-        fmt(color.1),
-        fmt(color.2),
+        color.fill_operator(),
     )
     .into_bytes();
     let box_width = rect[2] - rect[0];
@@ -924,7 +949,7 @@ pub(crate) fn base14_font(name: &str) -> Option<Base14Font> {
     })
 }
 
-fn encode_cp1252(text: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_cp1252(text: &str) -> Result<Vec<u8>, String> {
     let mut encoded = Vec::new();
     encoded
         .try_reserve_exact(text.len())

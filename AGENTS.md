@@ -1532,6 +1532,37 @@ overview.
   at the weights measured. The Pyodide contract has no font extras; it
   covers instancing through `Font(fontbuffer=..., weight=...)` with the
   repository's Noto Sans Hebrew, and native tests cover the extras.
+- `Shape` (`rust/src/shape.rs`, recorded by `_Shape`) keeps pymupdf's
+  drawing order: every path in the order of its `finish()`, then every text
+  item in insertion order. `draw_*` geometry runs in Python as pymupdf's
+  code computes it, in display coordinates, and `finish()` hands the path
+  operators and style to `_Shape`; tests pin pymupdf's end points and
+  bounds. `_Document.commit_shape` generates the paths and the text in
+  embedded fonts with krilla and places one Form XObject. `ShapePlan` puts
+  the paths and the faces drawn as given in one krilla document, and each
+  variable face at a weight away from its default location in a document of
+  its own, because `GenerationFace::name_subset` renames every font of a
+  document after the instance it embeds; each face is therefore embedded
+  once per commit. A run of consecutive items of one document is one page,
+  and `prepare_pages_form_import` imports each document's pages with shared
+  objects, numbering each document after the previous one and its Forms.
+  When there is more than one page, or Standard 14 text, which krilla cannot
+  draw, a composed Form draws the pages and the Standard 14 text operators
+  in order; a single page is placed as `insert_text` places its text.
+  Generation, the import plans, the composed content, and the page's drawing
+  targets are prepared before the document changes. `commit()` refuses
+  drawing that `finish()` did not style, and `finish()` refuses a style that
+  draws nothing, where pymupdf drops the path or strokes it in black (R2.7). Python charges path points as they are
+  added and `_Shape.add_path` repeats the 1,048,576-point bound
+  (`path_point_count`). krilla writes a path that is one rectangle as `re`
+  in its own corner order and skips the fill of a zero-area path, so
+  `get_drawings` can list such a path differently from pymupdf's output
+  while it renders the same. `morph=` and `oc=` wait for `Matrix` (F4) and
+  layers (M5). `Shape.width`, `height`, `x`, `y`, `pctm`, and `ipctm`
+  describe pymupdf's unrotated space, so the parity manifest lists them as
+  non-goals under G1; `shape.page.rect` gives the drawing area. `breadth` on
+  the wavy lines and `fullSector` on `Shape.draw_sector` keep pymupdf's
+  positions (R2.3).
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature
@@ -1900,7 +1931,10 @@ overview.
   platform-sensitive raster bytes. It must combine explicit content/structure
   assertions with full text/Markdown hashes rather than relying on either
   alone. The Python 3.10 CI job uploads the native baseline, and the Pyodide
-  job must compare it exactly. Coverage includes bytes input, PDF 2.0,
+  job must compare it exactly. Results must survive a JSON round trip
+  unchanged, which `run_suite` checks on both sides: the baseline arrives as
+  JSON, so a tuple compares unequal to its list and fails with an empty diff.
+  Coverage includes bytes input, PDF 2.0,
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, weight instances of a variable font

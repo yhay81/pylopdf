@@ -69,6 +69,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document; placing a page of an unedited `src` again shares its Form XObject |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
+| `new_shape()` | pymupdf's `Shape` for paths and text drawn in one step; see [Shapes](#shapes) |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth` on the wavy lines, which also follows the points positionally as in pymupdf |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
@@ -206,7 +208,47 @@ and never searches system font directories. It never imitates a weight by stroki
 `allow_regular_fallback=True` explicitly accepts the extra's face with a
 `PylopdfWarning`. `is_bold`, `is_italic`, and `is_serif` raise with `fontname`
 and font files, where pymupdf would ignore them. Each drawing call still embeds a subset of its own
-glyphs.
+glyphs; draw through a [shape](#shapes) to embed each font once per commit.
+
+### Shapes { #shapes }
+
+`page.new_shape()` returns pymupdf's `Shape`. `draw_line`, `draw_polyline`,
+`draw_rect` (`radius=` rounds the corners), `draw_quad`, `draw_circle`,
+`draw_oval`, `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, and
+`draw_zigzag` add path segments in display coordinates and return pymupdf's
+end point; a segment that starts where the previous one ended continues its
+subpath. `finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0,
+dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`
+strokes and fills everything drawn since the previous `finish`, with gray,
+RGB, or CMYK colours from 0 to 1 and a PDF dash pattern such as `"[3 4] 0"`.
+`insert_text` and `insert_textbox` take the font options of `Page.insert_text`
+and `Page.insert_textbox`, `font=` included. `insert_text` returns the line
+count, and `insert_textbox` the unused height, negative when the text does not
+fit and nothing is added. `commit(overlay=True)` draws the shape: the finished
+paths in order and all text above them, as pymupdf does.
+
+```python
+with page.new_shape() as shape:
+    shape.draw_rect((50, 50, 545, 792))
+    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
+    shape.draw_circle((80, 140), 7)
+    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
+    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
+    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
+```
+
+A commit places one Form XObject. The paths and the text in embedded fonts
+are generated together, so each font is embedded once per commit however many
+lines use it; draw a page's text through one shape to embed each face once per
+page. The `with` block commits when it ends normally and draws nothing after
+an exception, and a shape discarded with drawing that was never committed
+emits a `ResourceWarning`. Where pymupdf silently drops or blackens drawing,
+pylopdf raises `PdfError`: `commit()` refuses drawing that `finish()` did not
+style, and `finish()` refuses a style that draws nothing (no fill, and
+`color=None` or `width=0`). `morph=` and `oc=` are not available. A shape holds
+at most 1,048,576 path points until it is committed; more raise `LimitError`
+with code `path_point_count`. The `Page.draw_*` methods take the same options
+as keyword arguments and draw one finished shape each.
 
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
@@ -247,6 +289,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`; `weight=` also selects an instance of a variable font file |
+| `Shape(page)` | pymupdf's builder for paths and text drawn in one step; `page.new_shape()` creates one |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |

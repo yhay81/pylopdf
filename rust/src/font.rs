@@ -187,6 +187,21 @@ impl _Font {
             Face::Standard(..) => None,
         }
     }
+
+    /// What drawing needs from this face.
+    pub(crate) fn draw_face(&self) -> DrawFace<'_> {
+        match &self.face {
+            Face::OpenType(face) => DrawFace::Embedded(&face.generation),
+            Face::Standard(_, name) => DrawFace::Standard(name),
+        }
+    }
+}
+
+/// What drawing needs from a `_Font`: the face that generation embeds, or the
+/// PostScript name of a Standard 14 font, which is drawn without embedding.
+pub(crate) enum DrawFace<'a> {
+    Embedded(&'a GenerationFace),
+    Standard(&'static str),
 }
 
 #[pymethods]

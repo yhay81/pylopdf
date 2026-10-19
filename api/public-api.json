@@ -46,6 +46,7 @@
     "RawTextPage",
     "RawTextSpan",
     "Rect",
+    "Shape",
     "StalePageError",
     "TEXT_ALIGN_CENTER",
     "TEXT_ALIGN_JUSTIFY",
@@ -1866,6 +1867,894 @@
           "kind": "property",
           "returns": "Rect"
         },
+        "draw_bezier": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p3"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p4"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "closePath"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_circle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "radius"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_curve": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p3"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "closePath"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_line": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_oval": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[Any]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_polyline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[Sequence[float]]",
+                "kind": "positional_or_keyword",
+                "name": "points"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "closePath"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_quad": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[Any]",
+                "kind": "positional_or_keyword",
+                "name": "quad"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_rect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              },
+              {
+                "annotation": "float | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "radius"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_sector": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "beta"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "fullSector"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "closePath"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_squiggle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "positional_or_keyword",
+                "name": "breadth"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_zigzag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "positional_or_keyword",
+                "name": "breadth"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "overlay"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
         "find_tables": {
           "kind": "method",
           "signature": {
@@ -2339,6 +3228,18 @@
         "mediabox": {
           "kind": "property",
           "returns": "Rect"
+        },
+        "new_shape": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Shape"
+          }
         },
         "number": {
           "kind": "property",
@@ -2879,6 +3780,641 @@
             "name": "y1"
           }
         ]
+      }
+    },
+    "Shape": {
+      "annotations": {
+        "doc": "Document",
+        "last_point": "Point | None",
+        "page": "Page",
+        "rect": "Rect | None"
+      },
+      "kind": "class",
+      "members": {
+        "__enter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__exit__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "type[BaseException] | None",
+                "kind": "positional_or_keyword",
+                "name": "exc_type"
+              },
+              {
+                "annotation": "BaseException | None",
+                "kind": "positional_or_keyword",
+                "name": "exc"
+              },
+              {
+                "annotation": "TracebackType | None",
+                "kind": "positional_or_keyword",
+                "name": "traceback"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "commit": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "positional_or_keyword",
+                "name": "overlay"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "draw_bezier": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p3"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p4"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_circle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "radius"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_curve": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p3"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_line": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_oval": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[Any]",
+                "kind": "positional_or_keyword",
+                "name": "tetra"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_polyline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Iterable[Sequence[float]]",
+                "kind": "positional_or_keyword",
+                "name": "points"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_quad": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[Any]",
+                "kind": "positional_or_keyword",
+                "name": "quad"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_rect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "rect"
+              },
+              {
+                "annotation": "float | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "radius"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_sector": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "center"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "point"
+              },
+              {
+                "annotation": "float",
+                "kind": "positional_or_keyword",
+                "name": "beta"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "positional_or_keyword",
+                "name": "fullSector"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_squiggle": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "positional_or_keyword",
+                "name": "breadth"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "draw_zigzag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p1"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p2"
+              },
+              {
+                "annotation": "float",
+                "default": 2,
+                "kind": "positional_or_keyword",
+                "name": "breadth"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "finish": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "width"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": [
+                  0
+                ],
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fill"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineCap"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "lineJoin"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dashes"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "even_odd"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "closePath"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "fill_opacity"
+              },
+              {
+                "annotation": "float",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "stroke_opacity"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "horizontal_angle": {
+          "kind": "staticmethod",
+          "signature": {
+            "parameters": [
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "C"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "P"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "insert_text": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_only",
+                "name": "point"
+              },
+              {
+                "annotation": "str | Sequence[str]",
+                "kind": "positional_only",
+                "name": "text"
+              },
+              {
+                "annotation": "float",
+                "default": 11,
+                "kind": "keyword_only",
+                "name": "fontsize"
+              },
+              {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
+                "annotation": "str",
+                "default": "helv",
+                "kind": "keyword_only",
+                "name": "fontname"
+              },
+              {
+                "annotation": "str | os.PathLike[str] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fontfile"
+              },
+              {
+                "annotation": "bytes | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fontbuffer"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "fontindex"
+              },
+              {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font_language"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "insert_textbox": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_only",
+                "name": "rect"
+              },
+              {
+                "annotation": "str | Sequence[str]",
+                "kind": "positional_only",
+                "name": "text"
+              },
+              {
+                "annotation": "float",
+                "default": 11,
+                "kind": "keyword_only",
+                "name": "fontsize"
+              },
+              {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
+                "annotation": "str",
+                "default": "helv",
+                "kind": "keyword_only",
+                "name": "fontname"
+              },
+              {
+                "annotation": "str | os.PathLike[str] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fontfile"
+              },
+              {
+                "annotation": "bytes | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "fontbuffer"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "fontindex"
+              },
+              {
+                "annotation": "FontLanguage | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font_language"
+              },
+              {
+                "annotation": "Sequence[float] | float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "align"
+              },
+              {
+                "annotation": "int",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "expandtabs"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "lineheight"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_font_size"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "updateRect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          }
+        ],
+        "returns": "None"
       }
     },
     "StalePageError": {

@@ -120,6 +120,12 @@ hebrew = pylopdf.Font(language="he", is_bold=True)          # 可変フォント
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 手元の可変フォントは軸上の任意の太さを選べる
 page.insert_text((40, 200), "見出し", font=semibold, fontsize=16)
+with page.new_shape() as shape:                              # Form 1つ。書体は1度だけ埋め込む
+    shape.draw_rect((36, 220, 400, 320), radius=0.1)
+    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+    shape.insert_text((48, 250), "報告", font=bold, fontsize=16)
+    shape.insert_textbox((48, 260, 390, 310), "本文の段落。", fontsize=11)
+page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdfのdraw_*
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

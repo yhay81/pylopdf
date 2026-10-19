@@ -90,7 +90,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
 `image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
-`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
+`path_point_count`、`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
 `decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、
 `resource_nesting_depth`のいずれかです。同じ値を`error.args[0]`でも取得できます。
@@ -234,6 +234,11 @@ Rustが標準エラー出力に書き出します。
   text operator拡張もfallibleです。Standard 14の幅検査はencoded text copyを
   確保しません。allocation refusalは`PdfError`を返し、挿入は非mutationのまま、
   form fillは原子的にrollbackします。
+- `Shape.insert_text()`と`Shape.insert_textbox()`は、呼び出しごとに同じtextと
+  書体の上限を適用します。1つの図形が確定までに持てる経路の点は1,048,576個までで、
+  点を足すときとRust境界の両方で検査し、拒否codeは`path_point_count`です。確定は
+  描画の生成、取り込みの計画、頁の描画先の準備を頁を変える前に終えるので、拒否
+  されたときdocumentは変わりません。
 - `search_for()`の検索語はUTF-8 4,096 byte、返却geometryは既定4,096件が上限です。
   PythonはPyO3 copy前に検索語を拒否し、Rust境界も両方の上限を再検査します。
   信頼できる結果集合は`max_hits=None`で明示解除でき、拒否codeは
