@@ -101,7 +101,6 @@ __all__ = [
     "WordEntry",
     "open",
     "peek_metadata",
-    "register_font",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
 
@@ -1661,81 +1660,64 @@ def _form_generation_font(
     return None
 
 
-#: Weight names that :class:`Font` lookups accept, as OS/2 weight classes.
-_FONT_WEIGHT_NAMES: dict[str, int] = {"regular": 400, "bold": 700}
+#: Standard 14 names that :class:`Font` accepts: pymupdf's short aliases and
+#: the PostScript names, matched without regard to case.
+_BASE14_FONT_NAMES: dict[str, str] = {
+    **_BASE14_FONTS,
+    **{name.lower(): name for name in _BASE14_FONTS.values()},
+}
+_SYMBOLIC_BASE14_NAMES = frozenset({"Symbol", "ZapfDingbats"})
+
+#: Family names of the faces that each font extra installs: sans, then serif.
+_FONT_EXTRA_FAMILIES: dict[FontLanguage, tuple[str, str]] = {
+    "ar": ("Noto Sans Arabic", "Noto Naskh Arabic"),
+    "he": ("Noto Sans Hebrew", "Noto Serif Hebrew"),
+    "hi": ("Noto Sans Devanagari", "Noto Serif Devanagari"),
+    "ja": ("Noto Sans JP", "Noto Serif JP"),
+    "ko": ("Noto Sans KR", "Noto Serif KR"),
+    "th": ("Noto Sans Thai", "Noto Serif Thai"),
+    "zh-CN": ("Noto Sans SC", "Noto Serif SC"),
+    "zh-TW": ("Noto Sans TC", "Noto Serif TC"),
+}
 _REGULAR_FONT_WEIGHT = 400
+_MIN_BOLD_FONT_WEIGHT = 600
+_BOLD_FONT_WEIGHT = 700
 _MAX_FONT_WEIGHT = 1000
-
-#: Faces from :func:`register_font`, keyed by case-folded family name, OS/2
-#: weight class, and italic flag. A variable face is keyed by ``None`` in place
-#: of the weight class and provides every weight on its weight axis.
-#: Registration lasts for the process.
-_REGISTERED_FONTS: dict[tuple[str, int | None, bool], Font] = {}
-_REGISTERED_FONTS_LOCK = threading.Lock()
+_MAX_UNICODE_CODEPOINT = 0x10FFFF
 
 
-def _font_weight(weight: object) -> int | None:
-    """Normalize a ``weight`` argument to an OS/2 weight class, or ``None`` when omitted."""
+def _validate_font_weight(weight: object) -> int | None:
+    """Validate an optional OS/2 weight class."""
     if weight is None:
         return None
-    if isinstance(weight, str):
-        resolved = _FONT_WEIGHT_NAMES.get(weight)
-        if resolved is not None:
-            return resolved
-    elif isinstance(weight, bool) or not isinstance(weight, int):
-        msg = f"weight must be 'regular', 'bold', an integer from 1 through {_MAX_FONT_WEIGHT}, or None: {weight!r}"
+    if isinstance(weight, bool) or not isinstance(weight, int):
+        msg = f"weight must be an OS/2 weight class from 1 through {_MAX_FONT_WEIGHT} or None: {weight!r}"
         raise TypeError(msg)
-    elif 1 <= weight <= _MAX_FONT_WEIGHT:
-        return weight
-    msg = f"weight must be 'regular', 'bold', an integer from 1 through {_MAX_FONT_WEIGHT}, or None: {weight!r}"
-    raise ValueError(msg)
+    if not 1 <= weight <= _MAX_FONT_WEIGHT:
+        msg = f"weight must be an OS/2 weight class from 1 through {_MAX_FONT_WEIGHT} or None: {weight!r}"
+        raise ValueError(msg)
+    return weight
 
 
-def _describe_face(weight: int, *, italic: bool) -> str:
-    """Describe a looked-up face for error and warning messages."""
-    name = {_REGULAR_FONT_WEIGHT: "regular", 700: "bold"}.get(weight, f"weight-{weight}")
+def _describe_face(weight: int | None, *, italic: bool) -> str:
+    """Describe a requested face for error and warning messages."""
+    name = {None: "regular", 400: "regular", _BOLD_FONT_WEIGHT: "bold"}.get(weight, f"weight-{weight}")
     return f"{name} italic" if italic else name
 
 
-def _axis_provides(face: _Font, weight: int) -> bool:
-    """Return whether ``weight`` lies on the weight axis of a variable face."""
-    weight_range = face.weight_range
-    return weight_range is not None and weight_range[0] <= weight <= weight_range[2]
-
-
-def _registered_font(family: str, weight: int, *, italic: bool) -> _Font | None:
-    """Return a registered face of one family, weight, and style.
-
-    A face registered at that weight takes precedence over the weight axis of
-    a registered variable face, which provides the instance at that weight.
-    """
-    key = family.casefold()
-    with _REGISTERED_FONTS_LOCK:
-        face = _REGISTERED_FONTS.get((key, weight, italic))
-        variable = _REGISTERED_FONTS.get((key, None, italic))
-    if face is not None:
-        return face._font
-    if variable is not None and _axis_provides(variable._font, weight):
-        return variable._font.with_weight(weight)
-    return None
-
-
-def _registered_axis_note(family: str, *, italic: bool) -> str:
-    """Describe the weights that a registered variable face of a family provides."""
-    with _REGISTERED_FONTS_LOCK:
-        variable = _REGISTERED_FONTS.get((family.casefold(), None, italic))
-    weight_range = None if variable is None else variable._font.weight_range
-    if weight_range is None:
-        return ""
-    low, _, high = weight_range
-    return f", and its registered variable face provides weights {low:g} through {high:g}"
-
-
-def _warn_regular_fallback(family: str, weight: int, *, italic: bool) -> None:
-    """Report an explicitly allowed regular face in place of a missing one."""
-    msg = f"{family!r} has no registered {_describe_face(weight, italic=italic)} face; using its regular face"
-    # Point at the caller of Font(): this helper, the lookup, and __init__ sit between.
-    _warnings.warn(msg, PylopdfWarning, stacklevel=4)
+def _standard_font_name(fontname: str) -> str:
+    """Resolve a Standard 14 alias or name to its PostScript name."""
+    if not isinstance(fontname, str):
+        msg = f"fontname must be a string: {fontname!r}"
+        raise TypeError(msg)
+    name = _BASE14_FONT_NAMES.get(fontname) or _BASE14_FONT_NAMES.get(fontname.lower())
+    if name is None:
+        msg = (
+            f"fontname must be a Standard 14 name or alias such as 'helv' or 'Times-Roman': {fontname!r}; "
+            "pymupdf's other built-in fonts are not available, so pass fontfile, fontbuffer, or language"
+        )
+        raise PdfError(msg)
+    return name
 
 
 def _load_font(
@@ -1754,83 +1736,102 @@ def _load_font(
     return _Font.from_bytes(cast("bytes", source), fontindex, max_font_size)
 
 
-def _family_font(family: str, weight: int, *, italic: bool, allow_regular_fallback: bool) -> _Font:
-    """Select a registered face by family, weight, and style."""
+def _named_or_loaded_font(
+    fontname: str | None,
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    fontindex: int,
+    max_font_size: int | None,
+) -> _Font:
+    """Return a Standard 14 font by name, or load a face from a file or buffer."""
+    if fontname is None:
+        return _load_font(fontfile, fontbuffer, fontindex, max_font_size)
+    if fontindex != 0:
+        msg = "fontindex requires fontfile or fontbuffer"
+        raise PdfError(msg)
+    return _Font.standard(_standard_font_name(fontname))
+
+
+def _requested_font_weight(weight: int | None, *, is_bold: bool) -> int | None:
+    """Combine ``weight`` and ``is_bold`` into the weight class a lookup must match."""
+    if not is_bold:
+        return weight
+    if weight is None:
+        return _BOLD_FONT_WEIGHT
+    if weight < _MIN_BOLD_FONT_WEIGHT:
+        msg = f"weight={weight} contradicts is_bold=True"
+        raise PdfError(msg)
+    return weight
+
+
+def _font_extra_family(family: str) -> tuple[FontLanguage, bool]:
+    """Return the font extra and style that install a family."""
     if not isinstance(family, str):
         msg = f"family must be a string: {family!r}"
         raise TypeError(msg)
-    match = _registered_font(family, weight, italic=italic)
-    if match is not None:
-        return match
-    missing = f"no {_describe_face(weight, italic=italic)} face"
-    if allow_regular_fallback and (weight, italic) != (_REGULAR_FONT_WEIGHT, False):
-        regular = _registered_font(family, _REGULAR_FONT_WEIGHT, italic=False)
-        if regular is not None:
-            _warn_regular_fallback(family, weight, italic=italic)
-            return regular
-        missing = f"neither a {_describe_face(weight, italic=italic)} nor a regular face"
-    msg = (
-        f"{missing} of {family!r} is registered{_registered_axis_note(family, italic=italic)}; "
-        "load one with pylopdf.register_font() or pass fontfile or fontbuffer"
-    )
-    raise ValueError(msg)
+    for language, names in _FONT_EXTRA_FAMILIES.items():
+        for serif, name in enumerate(names):
+            if name.casefold() == family.casefold():
+                return language, bool(serif)
+    msg = f"no pylopdf font extra installs the family {family!r}; pass its font as fontfile or fontbuffer"
+    raise PdfError(msg)
 
 
-def _language_font(  # noqa: PLR0913 - the lookup keeps every Font argument explicit.
-    language: str,
-    weight: int,
+def _font_extra_face(  # noqa: PLR0913 - the lookup keeps every Font argument explicit.
+    language: FontLanguage,
     *,
     serif: bool,
+    weight: int | None,
     italic: bool,
     allow_regular_fallback: bool,
     max_font_size: int | None,
 ) -> _Font:
-    """Select a face of an installed font extra, or a registered face of its family.
+    """Select the face that an installed font extra provides for one style.
 
-    The extras install one face per style. A variable face, which the ``ar``,
+    An extra installs one face per style. A variable face, which the ``ar``,
     ``he``, ``hi``, and ``th`` extras install, provides every weight on its
-    weight axis as an instance and is drawn at the regular weight by default.
-    Any other weight or style comes from a registered face whose family
-    matches the extra's face; a registered face, static or variable, also
-    takes precedence over the weight axis.
+    weight axis as an instance and is drawn at the regular weight when no
+    weight is requested. A static face must match a requested weight, and
+    any face must match a requested italic.
     """
-    normalized = cast("FontLanguage", _normalize_font_language(language))
-    extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == normalized)
-    provider = _provider_for_language(normalized)
+    extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == language)
+    provider = _provider_for_language(language)
     if provider is None:
-        msg = f"language={normalized!r} requires pylopdf[{extra}]; pass fontfile or fontbuffer instead"
-        raise ValueError(msg)
+        msg = f"language={language!r} requires pylopdf[{extra}]; pass fontfile or fontbuffer instead"
+        raise PdfError(msg)
     kind = "serif" if serif else "sans"
     source = provider.serif if serif else provider.sans
     if isinstance(source, Path):
-        face = _Font.from_file(os.fspath(source), 0, max_font_size, (normalized, kind))
+        face = _Font.from_file(os.fspath(source), 0, max_font_size, (language, kind))
     else:
         face = _Font.from_bytes(source, 0, max_font_size)
     weight_range = face.weight_range
-    if (weight, italic) == (_REGULAR_FONT_WEIGHT, False):
-        return _regular_instance(face)
-    family = face.family or f"pylopdf[{extra}] {kind}"
-    match = None if face.family is None else _registered_font(face.family, weight, italic=italic)
-    if match is not None:
-        return match
-    if not italic and _axis_provides(face, weight):
-        return face.with_weight(weight)
+    if not italic:
+        if weight is None:
+            return _regular_instance(face)
+        if weight_range is None and weight == face.weight:
+            return face
+        if weight_range is not None and weight_range[0] <= weight <= weight_range[2]:
+            return face.with_weight(weight)
+    family = face.family or _FONT_EXTRA_FAMILIES[language][serif]
     if allow_regular_fallback:
-        _warn_regular_fallback(family, weight, italic=italic)
+        msg = f"pylopdf[{extra}] has no {_describe_face(weight, italic=italic)} {family!r} face; using its own face"
+        # Point at the caller of Font(): this helper and __init__ sit between.
+        _warnings.warn(msg, PylopdfWarning, stacklevel=3)
         return _regular_instance(face)
     described = _describe_face(weight, italic=italic)
     if weight_range is not None and not italic:
         low, _, high = weight_range
         msg = (
             f"pylopdf[{extra}] installs {family!r} with weights {low:g} through {high:g}; "
-            f"register its {described} face with pylopdf.register_font() or pass fontfile or fontbuffer"
+            f"pass its {described} face as fontfile or fontbuffer, or set allow_regular_fallback=True"
         )
     else:
         msg = (
-            f"pylopdf[{extra}] installs one {family!r} face; register its {described} "
-            "face with pylopdf.register_font() or pass fontfile or fontbuffer"
+            f"pylopdf[{extra}] installs one {family!r} face; pass its {described} "
+            "face as fontfile or fontbuffer, or set allow_regular_fallback=True"
         )
-    raise ValueError(msg)
+    raise PdfError(msg)
 
 
 def _regular_instance(face: _Font) -> _Font:
@@ -1860,7 +1861,7 @@ def _face_at_weight(face: _Font, weight: int) -> _Font:
         f"the font has no weight axis, and its only face is {current}, not {requested}; "
         f"load the {requested} face's file instead"
     )
-    raise ValueError(msg)
+    raise PdfError(msg)
 
 
 def _package_face_weight(package_font: tuple[FontLanguage, str] | None) -> int | None:
@@ -1873,106 +1874,128 @@ def _package_face_weight(package_font: tuple[FontLanguage, str] | None) -> int |
 
 
 class Font:
-    """An OpenType face for generated text and its measurement.
+    """A font for generated text and its measurement, as pymupdf's ``Font``.
 
-    Pass exactly one source. ``fontfile`` or ``fontbuffer`` loads that face,
-    and ``fontindex`` selects a face in a TrueType/OpenType collection.
-    ``language`` selects the face of an installed font extra such as
-    ``pylopdf[jp]`` (``serif=True`` for its serif face), and ``family``
-    selects a face registered with :func:`register_font`.
+    Pass exactly one source. ``fontname`` names a Standard 14 font by its
+    PostScript name or pymupdf alias, such as ``"Times-Bold"`` or ``"helv"``.
+    ``fontfile`` or ``fontbuffer`` loads an OpenType face, with ``fontindex``
+    selecting a face in a collection. ``language`` selects the face of an
+    installed font extra such as ``pylopdf[jp]`` (``is_serif=True`` for its
+    serif face), and ``family`` selects an installed extra's face by family
+    name, such as ``"Noto Sans JP"``. pylopdf has no default font and keeps no
+    font registry; load any other face, such as a bold weight, from its file.
 
-    ``weight`` is ``"regular"``, ``"bold"``, or a weight class from 1 through
-    1000. A variable font provides the weights on its weight axis as
-    instances; any other face has one weight, its OS/2 weight class. Without
-    ``weight``, ``fontfile`` and ``fontbuffer`` load the face as given, a
-    variable font at its default instance, and the lookups select the regular
-    face. With ``weight``, ``fontfile`` and ``fontbuffer`` load the instance at
-    that weight of a variable font, and refuse a weight that a static face
-    does not have.
+    A face from ``fontfile`` or ``fontbuffer`` is used as given, a variable
+    font at its default instance, which need not be regular: the variable
+    Noto Sans CJK JP defaults to Thin. ``weight``, a weight class from 1
+    through 1000, selects the instance at that weight on a variable font's
+    weight axis instead and refuses a weight outside the axis, so
+    ``weight=400`` differs from an omitted weight for such a font. A static
+    face must already have the requested weight class.
 
-    For the two lookups, ``weight`` and ``italic`` must match a face exactly;
-    ``italic``, ``serif``, and ``allow_regular_fallback`` apply only to them.
-    The font extras install one face per style. The ``ar``, ``he``, ``hi``,
-    and ``th`` extras install variable faces (weights 100 through 900, or 400
-    through 700 for the Noto Naskh Arabic serif face), which are drawn at the
-    regular weight unless another is requested. Other weights and styles come
-    from registered faces of the same family, such as Noto Sans JP Bold for
-    ``pylopdf[jp]``, and a registered face takes precedence over the weight
-    axis of an installed face. A face that the font does not define, including
-    a weight outside a weight axis, raises ``ValueError``; pylopdf never
-    imitates a weight by stroking or overprinting glyphs.
-    ``allow_regular_fallback=True`` makes a lookup use the family's regular
-    face instead and emit a :class:`PylopdfWarning`.
+    For ``language`` and ``family``, ``is_bold`` and ``is_italic`` request a
+    style and ``weight`` a weight class. The extras install one face per
+    style. The ``ar``, ``he``, ``hi``, and ``th`` extras
+    install variable faces, which provide the weights on their weight axis as
+    instances (100 through 900, or 400 through 700 for the Noto Naskh Arabic
+    serif face) and are drawn at the regular weight unless another is
+    requested; ``is_bold=True`` selects the bold instance. A request that the
+    installed face does not provide, including a weight outside its axis,
+    raises :class:`PdfError` instead of imitating a weight by stroking or
+    overprinting glyphs; ``allow_regular_fallback=True`` explicitly uses the
+    extra's regular face and emits a :class:`PylopdfWarning`. Apart from
+    ``weight`` with ``fontfile`` and ``fontbuffer``, these options do not
+    apply to the other sources and raise there, where pymupdf would ignore
+    them.
 
     A Font reads its input once. Pass it as ``font`` to
     :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
     and share it between threads. :meth:`text_length` measures with the
     shaping and advances that drawing uses, so a measured line is as wide as
-    the drawn line. Font input defaults to a 64 MiB boundary;
+    the drawn line. Standard 14 fonts are drawn without embedding and measure
+    with Adobe's AFM widths. Font input defaults to a 64 MiB boundary;
     ``max_font_size=None`` opts trusted input out, and refusal raises
     :class:`LimitError` with code ``font_input_size``.
     """
 
-    def __init__(  # noqa: PLR0913 - face sources and lookup criteria are keyword-only.
+    def __init__(  # noqa: PLR0913 - pymupdf's sources plus keyword-only lookup options.
         self,
+        fontname: str | None = None,
         fontfile: str | os.PathLike[str] | None = None,
-        *,
         fontbuffer: bytes | None = None,
+        *,
+        language: FontLanguage | None = None,
+        is_bold: bool = False,
+        is_italic: bool = False,
+        is_serif: bool = False,
+        weight: int | None = None,
         fontindex: int = 0,
         family: str | None = None,
-        language: FontLanguage | None = None,
-        serif: bool = False,
-        weight: Literal["regular", "bold"] | int | None = None,
-        italic: bool = False,
         allow_regular_fallback: bool = False,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
     ) -> None:
-        """Load a face from a file or buffer, or select an installed or registered face."""
+        """Select a Standard 14 font, load a face, or select an installed extra's face."""
         _validate_optional_positive_int("max_font_size", max_font_size)
-        resolved_weight = _font_weight(weight)
-        if sum(source is not None for source in (fontfile, fontbuffer, family, language)) != 1:
-            msg = "specify exactly one of fontfile, fontbuffer, family, or language"
-            raise ValueError(msg)
-        if family is None and language is None:
-            if italic or serif or allow_regular_fallback:
+        resolved_weight = _validate_font_weight(weight)
+        sources = [
+            name
+            for name, value in (
+                ("fontname", fontname),
+                ("fontfile", fontfile),
+                ("fontbuffer", fontbuffer),
+                ("family", family),
+                ("language", language),
+            )
+            if value is not None
+        ]
+        if not sources:
+            msg = "pylopdf has no default font; pass fontname, fontfile, fontbuffer, family, or language"
+            raise PdfError(msg)
+        if len(sources) > 1:
+            msg = f"pass one font source, not {' and '.join(sources)}"
+            raise PdfError(msg)
+        if fontname is not None or fontfile is not None or fontbuffer is not None:
+            if is_bold or is_italic or is_serif or allow_regular_fallback:
                 msg = (
-                    "italic, serif, and allow_regular_fallback select an installed or registered face; "
-                    "fontfile and fontbuffer load the face they are given"
+                    "is_bold, is_italic, is_serif, and allow_regular_fallback select the face of an installed "
+                    "font extra; fontname names one Standard 14 variant and a font file is used as given, "
+                    "or at the instance that weight selects on a variable font"
                 )
-                raise ValueError(msg)
-            face = _load_font(fontfile, fontbuffer, fontindex, max_font_size)
+                raise PdfError(msg)
+            if fontname is not None and resolved_weight is not None:
+                msg = "weight selects an instance of a variable font file; fontname names one Standard 14 variant"
+                raise PdfError(msg)
+            face = _named_or_loaded_font(fontname, fontfile, fontbuffer, fontindex, max_font_size)
             self._font = face if resolved_weight is None else _face_at_weight(face, resolved_weight)
             return
         if fontindex != 0:
             msg = "fontindex requires fontfile or fontbuffer"
-            raise ValueError(msg)
-        lookup_weight = _REGULAR_FONT_WEIGHT if resolved_weight is None else resolved_weight
+            raise PdfError(msg)
+        requested = _requested_font_weight(resolved_weight, is_bold=bool(is_bold))
         if family is not None:
-            if serif:
-                msg = "serif selects the face of an installed font extra and cannot be combined with family"
-                raise ValueError(msg)
-            self._font = _family_font(
-                family,
-                lookup_weight,
-                italic=italic,
-                allow_regular_fallback=allow_regular_fallback,
-            )
-            return
-        self._font = _language_font(
-            cast("str", language),
-            lookup_weight,
+            if is_serif:
+                msg = "is_serif cannot be combined with family, which already names the face"
+                raise PdfError(msg)
+            extra_language, serif = _font_extra_family(family)
+        else:
+            extra_language = cast("FontLanguage", _normalize_font_language(language))
+            serif = bool(is_serif)
+        self._font = _font_extra_face(
+            extra_language,
             serif=serif,
-            italic=italic,
+            weight=requested,
+            italic=bool(is_italic),
             allow_regular_fallback=allow_regular_fallback,
             max_font_size=max_font_size,
         )
 
     @property
     def name(self) -> str | None:
-        """The PostScript name, or ``None`` when the face has none.
+        """The full name of an OpenType face or the PostScript name of a Standard 14 font.
 
-        An instance of a variable face has the name of that instance, such as
-        ``NotoSansHebrew-Bold``, and generated text embeds it under that name.
+        An instance of a variable face takes its style from the instance, as in
+        ``Noto Sans Hebrew Bold``; generated text embeds it under the
+        instance's PostScript name, ``NotoSansHebrew-Bold``.
         """
         return self._font.name
 
@@ -1986,10 +2009,15 @@ class Font:
         """The weight: 400 for regular and 700 for bold faces.
 
         An instance selected on a variable face's weight axis reports the axis
-        value it is drawn at; a face loaded as given reports its OS/2 weight
+        value it is drawn at; a face used as given reports its OS/2 weight
         class.
         """
         return self._font.weight
+
+    @property
+    def is_bold(self) -> bool:
+        """Whether the face is bold by its weight class or style flags."""
+        return self._font.bold
 
     @property
     def is_italic(self) -> bool:
@@ -1997,17 +2025,23 @@ class Font:
         return self._font.italic
 
     @property
+    def is_serif(self) -> bool:
+        """Whether the face has serifs, by its PANOSE class or family name."""
+        return self._font.serif
+
+    @property
     def units_per_em(self) -> int:
-        """The design units per em of the face."""
+        """The design units per em of the face; 1000 for Standard 14 fonts."""
         return self._font.units_per_em
 
     @property
     def ascender(self) -> float:
         """Ascent above the baseline as a positive fraction of the font size.
 
-        This is the OS/2 typographic ascender, or the ``hhea`` ascender when
-        the typographic metrics are unusable: the value that
-        :meth:`Page.insert_textbox` places its first baseline with.
+        This is the value that :meth:`Page.insert_textbox` places its first
+        baseline with: the OS/2 typographic ascender, or the ``hhea``
+        ascender when the typographic metrics are unusable, and the AFM font
+        bounding box for Standard 14 fonts.
         """
         return self._font.ascender
 
@@ -2019,16 +2053,17 @@ class Font:
     def text_length(
         self,
         text: str,
-        fontsize: float = 11.0,
+        fontsize: float = 11,
         *,
         max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     ) -> float:
         """Return the width of one line of ``text`` at ``fontsize`` in PDF units.
 
-        The text is shaped with HarfRust exactly as drawing shapes it, so the
-        result is the advance that :meth:`Page.insert_text` draws, including
-        kerning and ligatures. Measure each line separately: line breaks raise
-        ``ValueError``. A character the face has no glyph for raises
+        OpenType text is shaped with HarfRust exactly as drawing shapes it, so
+        the result is the advance that :meth:`Page.insert_text` draws,
+        including kerning and ligatures; Standard 14 text sums the AFM widths
+        of its WinAnsi characters. Measure each line separately: line breaks
+        raise :class:`PdfError`. A character the font has no glyph for raises
         :class:`PdfError`, as drawing does. Text input defaults to a 1 MiB
         UTF-8 boundary; ``max_text_size=None`` opts trusted input out, and
         refusal raises :class:`LimitError` with code ``text_input_size``.
@@ -2039,7 +2074,7 @@ class Font:
         _validate_utf8_text_input(text, max_text_size)
         if "\n" in text or "\r" in text:
             msg = "text_length measures one line; split text at line breaks first"
-            raise ValueError(msg)
+            raise PdfError(msg)
         try:
             size = float(fontsize)
         except (TypeError, ValueError) as exc:
@@ -2050,58 +2085,44 @@ class Font:
             raise ValueError(msg)
         return self._font.text_length(text, size, max_text_size)
 
-    def has_glyph(self, char: str) -> bool:
-        """Return whether the face's character map has a glyph for ``char``."""
-        if not isinstance(char, str):
-            msg = f"char must be a one-character string: {char!r}"
+    def has_glyph(self, chr: int | str) -> int:  # noqa: A002 - pymupdf's parameter name.
+        """Return the glyph number of the code point ``chr``, or 0 when the font has none.
+
+        ``chr`` is an integer code point, as in pymupdf, or a one-character
+        string. A Standard 14 font has no glyph numbers because it is not
+        embedded; for it, the number is the character's code in the font's
+        encoding.
+        """
+        if isinstance(chr, str):
+            if len(chr) != 1:
+                msg = f"chr must be a code point or a one-character string: {chr!r}"
+                raise ValueError(msg)
+            codepoint = ord(chr)
+        elif isinstance(chr, int) and not isinstance(chr, bool):
+            if not 0 <= chr <= _MAX_UNICODE_CODEPOINT:
+                msg = f"chr must be a Unicode code point: {chr!r}"
+                raise ValueError(msg)
+            codepoint = chr
+        else:
+            msg = f"chr must be a code point or a one-character string: {chr!r}"
             raise TypeError(msg)
-        if len(char) != 1:
-            msg = f"char must be a one-character string: {char!r}"
-            raise ValueError(msg)
-        return self._font.has_glyph(ord(char))
+        return self._font.has_glyph(codepoint)
 
     def __repr__(self) -> str:
-        """Return the face's name, family, and weight."""
-        return f"Font(name={self.name!r}, family={self.family!r}, weight={self.weight})"
+        """Return the font's name."""
+        return f"Font({self.name!r})"
 
 
-def register_font(
-    fontfile: str | os.PathLike[str] | None = None,
-    *,
-    fontbuffer: bytes | None = None,
-    fontindex: int = 0,
-    max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
-) -> Font:
-    """Load a face and register it for :class:`Font` lookups by family and weight.
-
-    The family name (OpenType name ID 16, else 1), weights, and italic flag
-    come from the font. A static face provides its OS/2 weight class. A
-    variable face provides every weight on its weight axis: after registering
-    the variable Noto Sans Hebrew, ``Font(family="Noto Sans Hebrew",
-    weight=600)`` selects its SemiBold instance. A face registered at the
-    requested weight takes precedence over a variable face's axis.
-    Registering another face with the same family, weight, and style, or
-    another variable face with the same family and style, replaces the
-    earlier one. Registration lasts for the process and is shared by all
-    threads. pylopdf never searches system font directories, so generated
-    output depends only on the faces passed in.
-
-    Registering a face whose family matches an installed font extra adds its
-    weights to the extra: after registering Noto Sans JP Bold,
-    ``Font(language="ja", weight="bold")`` selects it. Return the loaded
-    :class:`Font`, a variable face at its default instance. A face without a
-    family name cannot be registered; pass it to drawing calls as ``font``
-    instead.
-    """
-    font = Font(fontfile, fontbuffer=fontbuffer, fontindex=fontindex, max_font_size=max_font_size)
-    family = font.family
-    if family is None:
-        msg = "the font has no family name to register under; pass it to drawing calls as font= instead"
-        raise ValueError(msg)
-    weight = None if font._font.weight_range is not None else font.weight
-    with _REGISTERED_FONTS_LOCK:
-        _REGISTERED_FONTS[(family.casefold(), weight, font.is_italic)] = font
-    return font
+def _require_winansi(text: str) -> None:
+    """Refuse text that a Standard 14 font cannot print."""
+    try:
+        text.encode("cp1252")
+    except UnicodeEncodeError as exc:
+        msg = (
+            "Standard 14 fonts can only print WinAnsi (Latin-1-equivalent) characters; "
+            "pass an OpenType Font for other text"
+        )
+        raise ValueError(msg) from exc
 
 
 def _validate_font_choice(
@@ -2603,6 +2624,14 @@ class Page:
         boundary for trusted workloads. Refusals raise :class:`LimitError` with
         code ``image_input_size`` or ``image_pixel_count``. The limits do not
         apply to an already bounded :class:`Pixmap`.
+
+        Input identical to an earlier placement in this document, encoded
+        bytes or Pixmap samples, places the image XObject and soft mask of that
+        placement again, whatever the rectangle and rotation, instead of
+        embedding another copy. :meth:`Document.compress_images`,
+        :meth:`replace_text`, :meth:`Document.set_form_field`, and
+        ``deflate=True`` saves end this sharing, so the next placement embeds
+        the input again. A reopened document shares only its new placements.
         """
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
@@ -2662,6 +2691,14 @@ class Page:
         CropBox are resolved visually to fit ``rect``. ``src`` may be the same
         document; pylopdf imports from a pre-edit snapshot so the source page,
         including the target page itself, remains stable during placement.
+
+        Placing a page of ``src`` again places the Form XObject of the earlier
+        placement, with its fonts and images, instead of importing another
+        copy, as long as ``src`` has not been edited since; any edit of ``src``
+        makes the next placement import the page again. Edits that end
+        image sharing, as described in :meth:`insert_image`, end this sharing
+        too. A same-document source page stays shared across consecutive
+        placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
         src_number = src[pno]._page_number()
@@ -2715,7 +2752,7 @@ class Page:
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
         including shaped CJK and RTL scripts. A variable font is drawn at its
-        default instance; ``font=Font(fontfile, weight=...)`` draws another
+        default instance; ``font=Font(fontfile=..., weight=...)`` draws another
         instance on its weight axis. Script extras ``pylopdf[ar]``,
         ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
         ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
@@ -2767,15 +2804,29 @@ class Page:
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         _validate_generated_text_lines(normalized, max_text_size)
         if font is not None:
-            self._document._doc.insert_font_text(
-                self._page_number(),
+            core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
+            standard_name = core_font.standard_name
+            if standard_name is None:
+                self._document._doc.insert_font_text(
+                    self._page_number(),
+                    (x, y),
+                    normalized.split("\n"),
+                    core_font,
+                    float(fontsize),
+                    (red, green, blue),
+                    overlay,
+                    max_text_size,
+                )
+                return
+            _require_winansi(normalized)
+            self._insert_standard_text(
                 (x, y),
-                normalized.split("\n"),
-                _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language),
-                float(fontsize),
-                (red, green, blue),
-                overlay,
-                max_text_size,
+                normalized,
+                base_font=standard_name,
+                fontsize=float(fontsize),
+                color=(red, green, blue),
+                overlay=overlay,
+                max_text_size=max_text_size,
             )
             return
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
@@ -2818,16 +2869,37 @@ class Page:
             )
             return
 
-        base_font = cast("str", base_font)
-        lines = [line.encode("cp1252") for line in normalized.split("\n")]
+        self._insert_standard_text(
+            (x, y),
+            normalized,
+            base_font=cast("str", base_font),
+            fontsize=float(fontsize),
+            color=(red, green, blue),
+            overlay=overlay,
+            max_text_size=max_text_size,
+        )
+
+    def _insert_standard_text(  # noqa: PLR0913 - the validated insert_text arguments.
+        self,
+        point: tuple[float, float],
+        text: str,
+        *,
+        base_font: str,
+        fontsize: float,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_text_size: int | None,
+    ) -> None:
+        """Draw validated WinAnsi text in a Standard 14 font."""
+        lines = [line.encode("cp1252") for line in text.split("\n")]
         self._document._doc.insert_page_text(
             self._page_number(),
-            (x, y),
+            point,
             lines,
             base_font,
-            fontname not in _SYMBOLIC_FONTS,
-            float(fontsize),
-            (red, green, blue),
+            base_font not in _SYMBOLIC_BASE14_NAMES,
+            fontsize,
+            color,
             overlay,
             max_text_size,
         )
@@ -2902,12 +2974,28 @@ class Page:
         )
         if not normalized:
             return y1 - y0
-        if core_font is not None:
+        standard_name = None if core_font is None else core_font.standard_name
+        if core_font is not None and standard_name is None:
             return self._document._doc.insert_font_textbox(
                 page_number,
                 (x0, y0, x1, y1),
                 normalized,
                 core_font,
+                resolved_fontsize,
+                resolved_lineheight,
+                align,
+                (red, green, blue),
+                overlay,
+                max_text_size,
+            )
+        if standard_name is not None:
+            _require_winansi(normalized)
+            return self._document._doc.insert_page_textbox(
+                page_number,
+                (x0, y0, x1, y1),
+                normalized,
+                standard_name,
+                standard_name not in _SYMBOLIC_BASE14_NAMES,
                 resolved_fontsize,
                 resolved_lineheight,
                 align,
@@ -3255,9 +3343,8 @@ class Page:
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
-        not intersect the page raises :class:`PdfError`. hayro currently lacks
-        an offset viewport, so clipping reduces the returned pixel data but not
-        the full-page rasterization cost or render-size limits.
+        not intersect the page raises :class:`PdfError`. Only the clipped
+        region is rasterized, but full-page render-size limits still apply.
         """
         if dpi is not None:
             if scale != 1.0:

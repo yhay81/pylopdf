@@ -171,7 +171,7 @@ latency 或 isolate resident-memory 测量。参见
 
 - 本 Emscripten build 没有 rayon worker pool。`render_pages(workers=...)` 接受相同参数，
   但会串行执行。
-- `clip=` 会减少返回 pixel，但 hayro 内部仍会 rasterize 整页。
+- `clip=` 只 rasterize 所选区域，但 hayro 仍会解释整页，整页尺寸上限也依然适用。
 - 当前 renderer 会缓冲完整 raster output；大页面或高 DPI 即使源 PDF 很小也可能主导内存。
 - native OCR 和独立 OCR model package 不在 WebAssembly 兼容契约内。
 - 不覆盖外部 CJK fallback font 自动发现。已验证 embedded CJK，应用也可显式传入 font bytes。

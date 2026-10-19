@@ -1,10 +1,10 @@
 //! Iterative brace-depth scan for Type 4 (PostScript calculator) functions.
 //!
-//! hayro 0.7 parses a Type 4 function with `parse_procedure_inner`, which calls
-//! itself for every `{` it meets between two operators and has no depth bound
-//! (hayro 0.8 has none either). A program such as `"{" * 300_000 + "}" *
-//! 300_000` overflows the stack of the interpreting thread, and a stack
-//! overflow kills the process instead of raising. The same nesting drives
+//! hayro 0.7 and 0.8 parse a Type 4 function with `parse_procedure_inner`,
+//! which calls itself for every `{` it meets between two operators and has no
+//! depth bound. A program such as `"{" * 300_000 + "}" * 300_000` overflows
+//! the stack of the interpreting thread, and a stack overflow kills the
+//! process instead of raising. The same nesting drives
 //! recursion when hayro evaluates the parsed program and when it drops it.
 //! [`exceeds_depth`] decides, without recursing itself, whether hayro's parser
 //! can be driven deeper than [`MAX_BRACE_DEPTH`] by the given bytes.

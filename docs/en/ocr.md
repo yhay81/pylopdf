@@ -97,9 +97,9 @@ words = page.get_text_ocr(
 )
 ```
 
-`clip` reduces OCR detector input and recognition work, but hayro 0.7 still
-renders the full page before cropping. Returned boxes remain in full-page
-display coordinates.
+`clip` reduces the rasterized area, OCR detector input, and recognition work.
+hayro still interprets the whole page, and the full-page render-size limit
+still applies. Returned boxes remain in full-page display coordinates.
 
 An `OcrEngine` is immutable and reusable across distinct documents. Its
 `max_concurrent=1` default serializes each complete render-and-recognize call,

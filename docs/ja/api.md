@@ -63,8 +63,8 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 上限付きPNG / UTF-8 SVG rendering。`clip`は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
+| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい。編集していない`src`の同じページを再配置するとForm XObjectを共有 |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
@@ -102,42 +102,38 @@ Devanagari runなど、並べ替えやcontext依存のclusterは再open後の抽
 `TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォント
 resourceは追加されません。
 
-`Font`はOpenTypeの書体を一度だけ読み込み、`insert_text(font=)`と
-`insert_textbox(font=)`で使います。計測は描画と同じshapingで行うので、
-`font.text_length(text, fontsize)`はその行を描いたときの送り幅（カーニングと合字を含む）
-と一致し、描く書体の幅で折り返し・揃え・頁割りを計算できます。`ascender`と
-`descender`は`insert_textbox`が行を置くときのemに対する比率で、`has_glyph`は
-文字マップを引きます。
-
-`Font(fontfile=)`と`Font(fontbuffer=)`は渡した書体をそのまま読み込み、可変フォントは
-既定のインスタンスで使います。既定のインスタンスがRegularとは限らず、可変フォントの
-Noto Sans CJK JPはThinです。`weight=`を渡すと可変フォントの太さの軸から別のインスタンスを
-選びます。`Font("NotoSansCJKjp-VF.otf", weight="bold")`はBoldのインスタンスの送り幅で測り、
-`NotoSansCJKjp-Bold`という固有の名前で埋め込みます。`weight=650`も選べます。このため
-こうした書体では、`weight="regular"`を明示した場合と省略した場合で結果が異なります。
-軸の範囲外の太さは`ValueError`になり、静的な書体が持たない太さも同じです。
-`insert_text`・`insert_textbox`・`set_form_field`に渡す`fontfile`と`fontbuffer`は、
-従来どおり既定のインスタンスで描きます。
-
-`Font(language="ja")`は導入済みの書体extraの書体を選びます
-（`serif=True`で明朝体）。extraが入れる書体はスタイルごとに1つだけなので、ほかの太さは
-必要になったときに足します。`register_font(path)`は書体から書体名・太さ・斜体を読み、
-以後`Font(family="Noto Sans JP", weight="bold")`でその書体を選べます。この書体は
-`pylopdf[jp]`が入れる書体と同じファミリーなので、`Font(language="ja", weight="bold")`
-でも選ばれます。可変フォントを登録すると軸上のすべての太さを選べるようになり、
-求める太さで登録された書体があれば軸よりそちらを優先します。
-一方`pylopdf[ar]`・`[he]`・`[hi]`・`[th]`は可変フォントを入れるため、
-`Font(language="he", weight="bold")`は別のファイルなしに太さの軸からBoldのインスタンスを
-選び、そのインスタンスの送り幅で測り、`NotoSansHebrew-Bold`という固有の名前で埋め込みます。
-太さの範囲は100から900で、`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは
-400から700です。同じファミリーの書体が登録されていれば、軸よりそちらを優先します。
-導入済みの可変フォントは、`insert_text`・`insert_textbox`・`set_form_field`が自動で
-選ぶ場合も含めてRegularの太さで描きます。Noto Sans Hebrewの既定のインスタンスはThinだからです。
-pylopdfはOSの書体フォルダを探しません。指定した書体がなければ
-`ValueError`にし、輪郭線や重ね塗りで太さを真似ることはしません。
-`allow_regular_fallback=True`を明示したときだけ、そのファミリーのRegularを使い
-`PylopdfWarning`を出します。描画の呼び出しごとに、その呼び出しで使う字のサブセットを
-埋め込む点は変わりません。
+`Font`はpymupdfの`Font(fontname=None, fontfile=None, fontbuffer=None)`に
+従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。`Font("helv")`や
+`Font("Times-Bold")`はStandard 14の書体を指し、埋め込まずに描き、AdobeのAFMの幅で
+測ります。pymupdfのほかの内蔵書体は使えません。`Font(fontfile=)`と`Font(fontbuffer=)`
+はOpenTypeの書体をそのまま読み込み、可変フォントは既定のインスタンスで使います。既定の
+インスタンスがRegularとは限らず、可変フォントのNoto Sans CJK JPはThinです。`weight=`を
+渡すと可変フォントの太さの軸から別のインスタンスを選びます。
+`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`はBoldのインスタンスの送り幅で測り、
+`NotoSansCJKjp-Bold`として埋め込みます。`weight=650`も選べるので、こうした書体では
+`weight=400`と省略した場合とで結果が異なります。軸の範囲外の太さは`PdfError`になり、
+静的な書体が持たない太さも同じです。`insert_text`・`insert_textbox`・`set_form_field`に
+渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。
+`Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を
+選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じ
+shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
+計算できます。`ascender`と`descender`は`insert_textbox`が行を置くときのemに対する
+比率で、`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。
+CJKのextraが入れる静的な書体はスタイルごとに1つだけなので、書体と合わない
+`is_bold`、`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Bold
+のようなほかの太さはファイルから読み込みます。一方`pylopdf[ar]`・`[he]`・`[hi]`・
+`[th]`は可変フォントを入れるため、`Font(language="he", is_bold=True)`は別のファイル
+なしに太さの軸からBoldのインスタンスを選び、そのインスタンスの送り幅で測り、
+`NotoSansHebrew-Bold`というPostScript名で埋め込みます。太さの範囲は100から900で、
+`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは400から700です。軸の外の
+太さや斜体の指定は`PdfError`になります。導入済みの可変フォントは、`insert_text`・
+`insert_textbox`・`set_form_field`が自動で選ぶ場合も含めてRegularの太さで描きます。
+Noto Sans Hebrewの既定のインスタンスはThinだからです。pylopdfは書体の登録表を持たず、OSの書体
+フォルダも探しません。輪郭線や重ね塗りで太さを真似ることはせず、
+`allow_regular_fallback=True`を明示したときだけextraの書体を使い
+`PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイル
+と一緒に`is_bold`・`is_italic`・`is_serif`を渡すと例外になります。描画の呼び出しごとに、その呼び出しで
+使う字のサブセットを埋め込む点は変わりません。
 
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
@@ -171,7 +167,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot用`max_interpretation_size`と位置付きlayout用`max_text_glyphs`を含む、信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`、`has_glyph`を持つ再利用可能なOpenType書体（可変フォントは`weight=`で選んだインスタンス）／書体名と太さで引けるようにする登録（可変フォントは軸上のすべての太さ） |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体。`weight=`は可変フォントのファイルのインスタンスも選ぶ |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |

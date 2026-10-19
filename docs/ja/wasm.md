@@ -176,7 +176,7 @@ resident memoryの測定ではありません。詳細は
 
 - このEmscripten buildにはrayon worker poolがありません。
   `render_pages(workers=...)`は通常の引数を受けますがserial実行します。
-- `clip=`は返却pixelを減らしますが、hayroは内部でpage全体をrasterizeします。
+- `clip=`は選んだ領域だけをrasterizeしますが、hayroはpage全体を解釈し、page全体のsize上限も適用されます。
 - 現在のrendererは完全なraster outputをbufferするため、大きなpageや高DPIではPDF file
   sizeが小さくてもmemoryを大きく使います。
 - native OCRと別配布のOCR model packageはWebAssembly互換契約外です。
