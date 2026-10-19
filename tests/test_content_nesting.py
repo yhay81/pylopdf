@@ -1,10 +1,11 @@
 """Content streams that nest arrays or dictionaries too deeply for hayro.
 
-hayro 0.7 reads arrays and dictionaries in content streams by unbounded
-recursion (LaurenzV/hayro#1347). A stream with a few hundred thousand nested
-`[` overflows the stack, and a stack overflow kills the process instead of
-raising, so those cases run in a child interpreter. Every path that lets hayro
-interpret a page must refuse such a stream with `LimitError` instead.
+hayro 0.7 read arrays and dictionaries in content streams by unbounded
+recursion (LaurenzV/hayro#1347), so a stream with a few hundred thousand nested
+`[` overflowed the stack and killed the process instead of raising; those cases
+still run in a child interpreter. hayro 0.8 stops at 64 levels and silently
+leaves out the deeper operands. Every path that lets hayro interpret a page
+must refuse such a stream with `LimitError` instead.
 """
 
 from __future__ import annotations
@@ -499,7 +500,7 @@ def _refusal(call: Callable[[], object]) -> pylopdf.LimitError:
 def test_no_nesting_depth_crashes_any_operation(placement: str, tmp_path: Path) -> None:
     """Refuse content nested 300,000 deep wherever hayro interprets it.
 
-    hayro 0.7 killed the interpreter with SIGSEGV here, whatever the operation.
+    hayro 0.7 killed the interpreter with SIGSEGV here, whatever the operation; hayro 0.8 would truncate the stream.
     """
     path = tmp_path / f"{placement}.pdf"
     path.write_bytes(PLACEMENTS[placement](CRASH_DEPTH))

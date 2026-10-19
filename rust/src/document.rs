@@ -7415,11 +7415,13 @@ impl _Document {
 
     /// Return the hayro view after clearing `pages` for nesting.
     ///
-    /// hayro 0.7 overflows its stack, and kills the process, on arrays or
-    /// dictionaries nested hundreds of thousands deep in a content stream, on
-    /// Type 4 function braces nested as deeply, and on chains of thousands of
-    /// colour spaces or functions that name each other. Every path that lets
-    /// hayro interpret a page therefore starts here; a refusal raises
+    /// hayro 0.7 and 0.8 overflow their stack, and kill the process, on Type 4
+    /// function braces nested hundreds of thousands deep and on chains of
+    /// thousands of colour spaces or functions that name each other. hayro 0.7
+    /// did on arrays or dictionaries nested as deeply in a content stream,
+    /// which hayro 0.8 truncates at 64 levels, and hayro 0.8 cannot read a
+    /// page dictionary nested more than 64 levels deep at all. Every path that
+    /// lets hayro interpret a page therefore starts here; a refusal raises
     /// `LimitError` before any interpretation or cache insertion.
     fn hayro_view_for(&mut self, pages: PageSelection<'_>) -> PyResult<&Arc<Pdf>> {
         self.hayro_view()?;

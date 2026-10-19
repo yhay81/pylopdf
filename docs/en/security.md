@@ -113,8 +113,9 @@ validation and complexity inspection grow their iterative traversal stack
 fallibly, so allocation refusal raises `PdfError` without partial facts.
 
 `max_interpretation_size` applies when hayro first consumes retained input and
-whenever pylopdf must serialize current state after editing, decryption, or
-AcroForm state selection. The bounded writer refuses the crossing write and
+whenever pylopdf must serialize current state after editing or decryption, or
+to prepare a rendering copy, for example with synthesized text-markup
+appearances. The bounded writer refuses the crossing write and
 does not install a partial renderer/extractor cache. Its default is `None` for
 compatibility; `DocumentLimits.web()` sets 64 MiB.
 
@@ -165,21 +166,23 @@ bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
 cannot make recovery quadratic. Real damaged files carry at most one truncated
 stream in that position.
 
-hayro 0.7 reads arrays and dictionaries in content streams by unbounded
+hayro 0.7 read arrays and dictionaries in content streams by unbounded
 recursion, so one stream that opens hundreds of thousands of `[` used to
-overflow the stack and end the Python process instead of raising. Before text
+overflow the stack and end the Python process instead of raising. hayro 0.8
+stops at 64 levels and silently leaves out the deeper operands. Before text
 extraction, layout, tables, search, drawings, image reads, rendering (PNG,
 pixmap, SVG), Markdown conversion, or image compression interprets a page,
 pylopdf decodes the content streams that page can reach: its `/Contents`, the
-Form XObjects in its resources, annotation and widget appearances, soft-mask
-groups, tiling patterns, and Type 3 glyph procedures. It refuses the page with
-`content_nesting_depth` when they nest arrays or dictionaries deeper than 64
-levels, embed a stream object, or hide an inline image boundary it cannot
-check. The bound is fixed, applies with or without `DocumentLimits`, and leaves
-other pages usable. Each page is checked once per document snapshot, and an
-edit clears the result. Entries that a page's resource dictionaries list count
-even when no operator draws them, because hayro resolves names through every
-enclosing dictionary.
+Form XObjects in its resources, annotation and widget appearances (every state
+of a check box or radio button, of which hayro draws the one that `/AS`
+selects), soft-mask groups, tiling patterns, and Type 3 glyph procedures. It
+refuses the page with `content_nesting_depth` when they nest arrays or
+dictionaries deeper than 64 levels, embed a stream object, or hide an inline
+image boundary it cannot check. The bound is fixed, applies with or without
+`DocumentLimits`, and leaves other pages usable. Each page is checked once per
+document snapshot, and an edit clears the result. Entries that a page's
+resource dictionaries list count even when no operator draws them, because the
+check does not work out which names the content uses.
 
 hayro builds colour spaces, shadings, and functions by the same kind of
 unbounded recursion (hayro 0.7 and 0.8 alike): an Indexed or Pattern space from
@@ -193,15 +196,38 @@ dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns, image
 XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer functions of its
 graphics states and soft masks reach, and refuses the page with
 `resource_nesting_depth` when a chain of colour spaces and functions is deeper
-than 32 levels or a Type 4 function nests procedures deeper than 64. A chain
+than 16 levels or a Type 4 function nests procedures deeper than 64. A chain
 counts its colour space arrays, functions, and profile streams, hayro's own cut
-lets a self-reference or a short ring still render, a group of more than 32
+lets a self-reference or a short ring still render, a group of more than 16
 objects that all reach one another is refused, and shared sub-graphs are
 measured once, so the check reads each object once however many entries name it.
 The bounds are fixed, apply with or without `DocumentLimits`, and leave other
 pages usable. They limit stack use, not time: hayro can need exponential CPU for
 graphs that stay under them, such as a function named twice per level or nested
 Separation spaces, so keep enforcing CPU deadlines in the host.
+
+hayro 0.8 reads no array or dictionary nested more than 64 levels deep,
+counting the object that holds it, and treats the whole object as absent;
+hayro 0.7 read such objects by recursion, and lopdf reads them up to 100 levels
+deep. A page whose dictionary, with the attributes it inherits from the page
+tree, nests deeper is refused with `object_depth` whenever an operation
+interprets it, and the other pages stay usable. A trailer, catalog, or root
+page-tree node nested that deeply no longer keeps the document from rendering:
+rendering and extraction read a copy without the entries that nest too deeply,
+while the editable and saved document keep them. Any other object nested that
+deeply reads as absent, as it does in hayro. `DocumentLimits.web()` already
+refuses such documents with `object_depth` when they open.
+
+hayro 0.8 panics on some malformed colour data, such as a Separation or DeviceN
+tint transform that returns the wrong number of components or a shading in a
+Pattern colour space
+([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)); hayro
+0.7 drew the same pages. Every operation that lets hayro interpret a page
+catches such a panic and raises `PdfError` instead of PyO3's `PanicException`,
+which derives from `BaseException` and would escape `except Exception`. The
+renderer state is dropped as an edit drops it, so later calls start over and
+the document stays usable. Rust still prints the panic message to standard
+error.
 
 - Rendering is capped at 64 megapixels per page.
 - Page deletion and selection clean navigation to excluded pages before
@@ -263,7 +289,7 @@ Separation spaces, so keep enforcing CPU deadlines in the host.
   save rejection occurs before document mutation or output creation.
 - `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
-  `max_size=None` explicitly opts out. hayro-svg 0.7 materializes one internal
+  `max_size=None` explicitly opts out. hayro-svg 0.8 materializes one internal
   Rust string before pylopdf can enforce this boundary.
 - Drawing insertions preflight raw page `/Contents` arrays and reference chains
   before cache invalidation, input decoding, or dependent object creation. Raw

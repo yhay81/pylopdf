@@ -59,7 +59,7 @@ def _shading_with_function(objects: dict[int, bytes | str]) -> bytes:
 
 
 def _function_chain(length: int) -> bytes:
-    """Stitching functions that each name the next one, which hayro 0.7 builds by recursion."""
+    """Stitching functions that each name the next one, which hayro 0.7 and 0.8 build by recursion."""
     objects: dict[int, bytes | str] = {
         number: f"<< /FunctionType 3 /Domain [0 1] /Functions [{number + 1} 0 R] /Bounds [] /Encode [0 1] >>"
         for number in range(6, 6 + length - 1)
@@ -125,7 +125,7 @@ def generate(output: Path) -> None:
     inline_image_resume = b"BI /W 1 /H 1 ID \x00 EITJ " + b"<<" * 100_000
     # hayro reads a dictionary behind every `BI` it meets while it searches for the image end.
     inline_image_search = b"BI /W 1 /H 1 ID \xff EI (BI /A " + b"<<" * 100_000
-    # hayro 0.7 parses the braces of a Type 4 function by recursion.
+    # hayro 0.7 and 0.8 parse the braces of a Type 4 function by recursion.
     deep_program = b"{" * 100_000 + b"}" * 100_000
     type4_header = f"<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length {len(deep_program)} >>"
     cases = {

@@ -1,34 +1,41 @@
 //! Check the content streams of a page before hayro interprets it.
 //!
-//! hayro 0.7 parses arrays and dictionaries in content streams by unbounded
-//! recursion, so one stream with a few hundred thousand nested `[` kills the
-//! process (LaurenzV/hayro#1347). Nothing can catch that overflow, and lopdf
-//! never parses content at load, so `DocumentLimits.max_object_depth` does not
-//! cover it. [`ContentGuard`] decodes every stream that hayro may interpret for
-//! a page with hayro's own decoder, so the bytes are exactly the ones its
-//! parser will see, and refuses the page with `LimitError` code
-//! `content_nesting_depth` when [`crate::content_scan::scan`] cannot clear one.
+//! hayro 0.7 parsed arrays and dictionaries in content streams by unbounded
+//! recursion, so one stream with a few hundred thousand nested `[` killed the
+//! process (LaurenzV/hayro#1347). hayro 0.8 stops at 64 levels and silently
+//! leaves out what lies deeper. lopdf never parses content at load, so
+//! `DocumentLimits.max_object_depth` covers neither. [`ContentGuard`] decodes
+//! every stream that hayro may interpret for a page with hayro's own decoder,
+//! so the bytes are exactly the ones its parser will see, and refuses the page
+//! with `LimitError` code `content_nesting_depth` when
+//! [`crate::content_scan::scan`] cannot clear one, instead of letting hayro
+//! truncate it.
 //!
-//! hayro 0.7 parses content operators at four places, which this walk mirrors:
+//! hayro parses content operators at four places, which this walk mirrors:
 //!
 //! * the page's `/Contents`, which `Page::page_stream` joins and caches, so the
 //!   interpreter later reuses the very decode the scan paid for;
 //! * Form XObjects, whether drawn by `Do`, as an annotation or widget
-//!   appearance `/AP /N`, or as an ExtGState soft-mask group `/SMask /G`;
+//!   appearance, or as an ExtGState soft-mask group `/SMask /G`. An appearance
+//!   is the `/AP /N` stream, or, when `/N` is a dictionary of states, the
+//!   state that `/AS` names, else `/Off`;
 //! * tiling pattern streams;
 //! * Type 3 glyph procedures in `/CharProcs`, including fonts that only an
 //!   ExtGState `/Font` entry selects.
 //!
-//! Each stream's `/Resources` leads to more of them. hayro resolves a name
-//! through the resources of every enclosing stream and the page, so the walk
-//! visits all entries of every reachable resource dictionary instead of only
-//! the names the content uses. The check is lazy: a page costs one walk, and
-//! streams and dictionaries shared with an earlier page are skipped. A
-//! dictionary counts as seen only in the role that was walked, because one
-//! object may serve as several resource categories, and a font is identified
-//! by its own bytes, because the object number of a direct dictionary names
-//! its container. Only streams are decoded, never the whole document, and a
-//! decode that hayro's interpreter would perform anyway is the only extra work.
+//! Each stream's `/Resources` leads to more of them. hayro 0.8 resolves a name
+//! in the `/Resources` of the stream it interprets; a form or glyph procedure
+//! without any uses the resources it is drawn with (a glyph procedure tries
+//! its font's first), and a pattern has only its own. hayro 0.7 also fell back
+//! through every enclosing stream and the page. Either way the walk visits all
+//! entries of every reachable resource dictionary instead of only the names
+//! the content uses. The check is lazy: a page costs one walk, and streams and
+//! dictionaries shared with an earlier page are skipped. A dictionary counts
+//! as seen only in the role that was walked, because one object may serve as
+//! several resource categories, and a font is identified by its own bytes,
+//! because the object number of a direct dictionary names its container. Only
+//! streams are decoded, never the whole document, and a decode that hayro's
+//! interpreter would perform anyway is the only extra work.
 //!
 //! The walk resolves every reference through a fresh reader context
 //! ([`Fresh`]). hayro keeps the chain of objects being read in a dictionary's
@@ -39,10 +46,11 @@
 //! when it draws.
 //!
 //! The same walk reaches the colour spaces, shadings, and functions that hayro
-//! builds by recursion over the objects they name, which overflows its stack
-//! just as deeply nested content does: a chain of thousands of indirect objects
-//! that name each other, or a Type 4 function with hundreds of thousands of
-//! nested braces. [`GraphGuard`] measures what each root reaches and refuses the
+//! 0.7 and 0.8 build by recursion over the objects they name, with no bound,
+//! which overflows the stack just as deeply nested content did: a chain of
+//! thousands of indirect objects that name each other, or a Type 4 function
+//! with hundreds of thousands of nested braces. [`GraphGuard`] measures what
+//! each root reaches and refuses the
 //! page with `LimitError` code `resource_nesting_depth`. The roots are the
 //! `/ColorSpace` and `/Shading` entries of every reachable resource dictionary,
 //! shading patterns, the colour space of image XObjects and of soft-mask groups,

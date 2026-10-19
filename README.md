@@ -244,7 +244,7 @@ uv sync --all-extras --group bench && uv run python bench/run.py
 pylopdf.Document (Python, pymupdf-style API)
    └─ _Document (PyO3)
         ├─ lopdf 0.45   … editing: open → modify → save
-        ├─ hayro 0.7    … rendering and positioned extraction
+        ├─ hayro 0.8    … rendering and positioned extraction
         └─ krilla 0.8 + HarfRust 0.14
                          … shaped, subset-embedded text and form appearances
 ```
