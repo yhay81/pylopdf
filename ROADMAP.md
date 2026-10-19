@@ -412,13 +412,25 @@ release.
   `compress_images` takes `rewrite_images`' name and meaning; `render_svg`
   becomes `get_svg_image`; a missing file raises `FileNotFoundError`, and
   `FileDataError` and `EmptyFileError` exist as `PdfError` subclasses;
-  `Permissions` members take pymupdf's names.
+  `Permissions` members take pymupdf's names. Side-by-side runs against
+  pymupdf added: the `Document` constructor's positional `filetype`,
+  `authenticate` return codes, `set_metadata` round trips, pymupdf's page-box
+  convention and `set_mediabox` side effects, return values of `insert_text`,
+  `insert_image`, and `show_pdf_page`, full Standard 14 font names,
+  `Pixmap.save(filename)`, clamped `Rect` widths, and geometric operators. The
+  authoritative list is section 15 of `api/DESIGN.md`.
+- Make encryption explicit: `save(encryption=)` takes pymupdf's
+  `PDF_ENCRYPT_*` values with pymupdf's `PDF_ENCRYPT_NONE` default, and a
+  password without an encrypting method raises instead of being ignored as
+  in pymupdf or implying AES-256 as today.
 - Remove pylopdf's own synonyms: `Document.render_page`, `Page.render`,
   `Document.render_page_svg`, and the duplicate OCR entry points.
 - Redesign existing capabilities under new names: `embfile_*` becomes a
   `doc.attachments` mapping of attachment handles, and `get_toc`/`set_toc`
-  become zero-based outline entries. `get_form_fields` and `set_form_field`
-  remain until M3 replaces them.
+  become zero-based outline entries. Today's `copy_page`, which makes an
+  independent copy, becomes pymupdf's `fullcopy_page`, because pylopdf never
+  shares page objects. `get_form_fields` and `set_form_field` remain until M3
+  replaces them.
 - Publish codemod rules and hints for every change (F9).
 
 Acceptance: the manifest has no `reset` entries; `api/public-api.json`, the
@@ -669,9 +681,8 @@ Workstream G. Depends on F5, F6, and F8.
 
 - `save` and `tobytes` gain `clean=`, `deflate_images=`, `deflate_fonts=`,
   `ascii=`, `expand=`, `pretty=`, `no_new_id=`, `preserve_metadata=`,
-  `compression_effort=`, `incremental=`, and `encryption=` with pymupdf's
-  constants, together with `ez_save()`, `saveIncr()`, and
-  `can_save_incrementally()`.
+  `compression_effort=`, and `incremental=`, together with `ez_save()`,
+  `saveIncr()`, and `can_save_incrementally()`.
 - Incremental save: retain the original bytes, track dirty objects centrally
   (F1 makes the write paths enumerable), and append through lopdf
   `IncrementalDocument`. Existing signatures stay valid, which a pyHanko
@@ -689,13 +700,15 @@ Workstream G. Depends on F5, F6, and F8.
   as the oracle, and let hayro read lopdf's serialization, so editing, saving,
   and rendering cannot disagree. Report the result through `is_repaired` and a
   warning.
-- Encryption: verify reading of RC4 40/128-bit and AES-128/256, and write
-  AES-128 and AES-256. `PDF_ENCRYPT_KEEP` preserves a supported input handler.
+- Encryption: verify reading of RC4 40/128-bit and AES-128/256, and add
+  `PDF_ENCRYPT_AES_128` and `PDF_ENCRYPT_KEEP` to the `encryption=` option
+  that M0 introduces; `PDF_ENCRYPT_KEEP` preserves a supported input handler.
   Writing RC4 raises, while reading stays supported.
-- Journal: `journal_enable`, `journal_start_op`, `journal_stop_op`,
-  `journal_undo`, `journal_redo`, `journal_can_do`, `journal_position`,
-  `journal_op_name`, `journal_save`, and `journal_load`, built from
-  object-level snapshots per operation under a memory budget.
+- Journal: `journal_enable`, `journal_undo`, `journal_redo`,
+  `journal_can_do`, `journal_position`, `journal_op_name`, `journal_save`, and
+  `journal_load`, with `with doc.transaction(name):` replacing
+  `journal_start_op` and `journal_stop_op`, built from object-level snapshots
+  per operation under a memory budget.
 - `rewrite_images` parity: lossless recompression, bitonal and grayscale
   targets, and `set_to_gray`, completing the `rewrite_images` that M0 aligns
   with pymupdf's meaning.
@@ -789,7 +802,8 @@ answer.
   typst for new documents; `get_pdfa_claim` stays.
 - **MuPDF internals without PDF-level meaning**: `DisplayList`,
   `Page.run(device)`, store and anti-aliasing controls in `TOOLS` (reassess
-  anti-aliasing if vello_cpu exposes it), standalone `Colorspace` objects,
+  anti-aliasing if vello_cpu exposes it), colorspace management beyond
+  `Colorspace(name, n)` values and the `cs*` and `CS_*` constants,
   `Pixmap.warp`, and `Pixmap.pdfocr_*`. Images-to-PDF plus native OCR covers
   the last case.
 - **Compatibility layers**: no `fitz` module, no aliases for redesigned APIs,
