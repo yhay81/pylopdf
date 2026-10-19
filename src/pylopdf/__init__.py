@@ -3643,6 +3643,22 @@ class Document:
         including named destinations, become explicit destinations or are
         omitted when their target page is not imported; source name trees share
         the :meth:`Page.get_links` limits.
+
+        AcroForm fields with a widget on an imported page join this document's
+        form with their values and appearances, so :meth:`get_form_fields` and
+        :meth:`set_form_field` reach them. A top-level field name that this
+        document already uses gains the smallest unused ``+N`` suffix, so
+        importing one form twice yields ``name`` and ``name+1``; names are
+        compared within the 1 MiB name budget of :meth:`get_form_fields`, and
+        JavaScript that names a renamed field is not rewritten. Source default
+        resources join ``/DR``: an identical resource is shared, and a different
+        one under a name already in use gains the smallest unused ``_N`` suffix
+        that imported default appearance strings follow. A partial range omits
+        widgets of the other pages and the fields left without a widget, and
+        raises :class:`PdfError` without changing this document when the source
+        field tree exceeds the :meth:`get_form_fields` limits. A complete import
+        keeps every field without walking the tree. The source ``/XFA`` and
+        ``/SigFlags`` are not copied.
         """
         self._ensure_open()
         if other is self:

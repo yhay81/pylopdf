@@ -32,7 +32,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
 | `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | |
+| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | 取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` は bool |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256のみ。各passwordはUTF-8 127 byte上限 |
@@ -87,6 +87,12 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   指定するかscript／locale font extraを導入します。地域別の漢字字形は
   `font_language=`で指定します。combテキスト欄は継承された`MaxLen`と
   整列を尊重します。リッチテキスト、pushbutton、署名は対象外です。
+- **フォームの結合**では、`insert_pdf()`がpymupdfの既定`widgets=True`と同様に
+  取り込んだページのフィールドを常に登録します。取り込み先で既に使われている
+  最上位の名前はqpdfと同じく未使用で最小の`name+N`になり、同じフォームを結合した
+  各コピーは独立した値を持ちます。それらを1つのフィールドに結合する
+  `join_duplicates=`はありません。ページ範囲を指定すると、他のページのwidgetと、
+  widgetがなくなったフィールドは取り込みません。
 - **CJK 縦書き**は保守的に検出し、列内を上から下、列間を右から左へ読みます。
   ルビ、割注、縦中横などの混在組版は解釈しません。
 

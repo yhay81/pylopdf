@@ -341,6 +341,12 @@ error.
   values are charged per returned leaf, and fills enforce the same tree plus
   1 MiB caller name/value input atomically. Caller input stops before font
   discovery, button lookup, or file reads with `form_field_input_size`.
+- Before it changes the receiving document, `insert_pdf()` compares top-level
+  field names within the 1 MiB name budget and, for a partial range, walks the
+  source field tree under the same node, edge, widget, and level limits. A
+  complete import copies the field tree without walking it. Comparing two
+  default resources for sharing reads at most 4,096 objects and 1 MiB; a
+  larger pair is renamed instead.
 - AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
   state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
   state-name text. Fills budget missing `Off` and on-state keys before mutation.

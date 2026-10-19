@@ -29,7 +29,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
 | `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | |
+| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | 注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage`为bool |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256；每个password上限127 UTF-8 byte |
@@ -79,6 +79,11 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   extra。地区汉字可用`font_language=`指定。comb文本字段遵循继承的`MaxLen`与
   对齐方式。富文本、pushbutton和签名仍
   不在API范围内。
+- **合并表单**时，`insert_pdf()`与pymupdf默认的`widgets=True`一样始终注册导入
+  页面的字段。接收文档已使用的顶层名称会像qpdf那样变为未使用的最小`name+N`，
+  因此同一表单合并后的各副本保持独立的值；没有把它们合并为一个字段的
+  `join_duplicates=`。指定页面范围时，不导入其他页面的widget以及因此不再有
+  widget的字段。
 - **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。
   尚不解释注音、夹注及横竖混排等复杂排版。
 
