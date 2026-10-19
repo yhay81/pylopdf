@@ -4,11 +4,16 @@
 //! A commit keeps pymupdf's drawing order: every finished path in the order
 //! of its `finish()`, then every text item in insertion order. krilla draws
 //! the paths and the text in embedded OpenType fonts and embeds one subset of
-//! each font for the whole commit. Standard 14 text is not embedded, so it
-//! becomes content operators, as `insert_text` writes it. When Standard 14
-//! text comes between other items, the krilla drawing is split into pages of
-//! one document, which share their font subsets, and a composed Form draws
-//! the pieces in order.
+//! each face for the whole commit. Standard 14 text is not embedded, so it
+//! becomes content operators, as `insert_text` writes it.
+//!
+//! The drawing is generated as krilla documents: one for the paths and the
+//! faces drawn as given, and one for each variable face drawn at a weight
+//! away from its default location, because `GenerationFace::name_subset`
+//! renames every font of a document after the instance it embeds. Each
+//! document holds the pages of its runs of consecutive items, which share the
+//! document's subsets. When the drawing has more than one such page, or
+//! Standard 14 text, a composed Form draws the pieces in order.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -19,17 +24,15 @@ use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
 use krilla::paint::{Fill, FillRule, LineCap, LineJoin, Stroke, StrokeDash};
 use krilla::surface::Surface;
-use krilla::text::Font;
 use pyo3::prelude::*;
 
-use crate::bundled_font_cache::FontBytes;
 use crate::document::{
     DEFAULT_MAX_GENERATED_TEXT_SIZE, PdfError, generated_text_err, limit_err,
     validate_generated_text_input, validate_generated_text_line_count,
 };
 use crate::draw::{self, DeviceColor};
 use crate::font::{_Font, DrawFace};
-use crate::generate::{self, GlyphRun};
+use crate::generate::{self, GenerationFace, GlyphRun};
 use crate::layout::{MAX_GENERATED_TEXT_LINES, TextBoxLayout};
 
 /// Path points that one shape may hold until it is committed.
@@ -74,9 +77,9 @@ enum StandardContent {
 
 /// One recorded text item.
 enum ShapeText {
-    /// Shaped lines in an embedded font, by slot in `_Shape::fonts`.
+    /// Shaped lines in an embedded face, by slot in `_Shape::faces`.
     Embedded {
-        font: usize,
+        face: usize,
         size: f32,
         color: DeviceColor,
         runs: Vec<GlyphRun>,
@@ -93,28 +96,45 @@ enum ShapeText {
 /// A piece of a committed shape, in drawing order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Segment {
-    /// A zero-based page of the generated krilla document.
-    Drawing(usize),
+    /// A zero-based page of a zero-based generated krilla document.
+    Drawing { document: usize, page: usize },
     /// A recorded Standard 14 text item, by index.
     Standard(usize),
 }
 
-/// What one generated krilla page draws.
+/// What one generated krilla page draws: the paths, and a run of
+/// consecutive text items.
 struct PagePlan {
     paths: bool,
     texts: Range<usize>,
 }
 
-/// The pieces of a commit: drawing order and the krilla pages to generate.
-pub(crate) struct ShapePlan {
-    pub(crate) segments: Vec<Segment>,
+/// One krilla document of a commit.
+struct DocumentPlan {
+    /// The face slot whose instance names every font of the document, or
+    /// `None` for the document of the paths and the faces drawn as given.
+    instance: Option<usize>,
     pages: Vec<PagePlan>,
 }
 
+/// The pieces of a commit: drawing order and the krilla documents to generate.
+pub(crate) struct ShapePlan {
+    pub(crate) segments: Vec<Segment>,
+    documents: Vec<DocumentPlan>,
+}
+
 impl ShapePlan {
-    pub(crate) fn page_count(&self) -> usize {
-        self.pages.len()
+    /// The number of pages of each generated document, in document order.
+    pub(crate) fn page_counts(&self) -> impl Iterator<Item = usize> + '_ {
+        self.documents.iter().map(|document| document.pages.len())
     }
+}
+
+/// One generated krilla document of a commit.
+pub(crate) struct GeneratedDocument {
+    pub(crate) pdf: Vec<u8>,
+    /// The face whose instance names the document's fonts, if any.
+    pub(crate) instance: Option<usize>,
 }
 
 /// The paths and text recorded for one page before a commit.
@@ -122,8 +142,8 @@ impl ShapePlan {
 pub struct _Shape {
     paths: Vec<ShapePath>,
     texts: Vec<ShapeText>,
-    /// Distinct embedded faces, by shared bytes and collection index.
-    fonts: Vec<(FontBytes, u32)>,
+    /// Distinct embedded faces: shared bytes, collection index, and weight.
+    faces: Vec<GenerationFace>,
     path_points: usize,
 }
 
@@ -132,20 +152,27 @@ impl _Shape {
         self.paths.is_empty() && self.texts.is_empty()
     }
 
+    /// Return the face in a slot.
+    pub(crate) fn face(&self, slot: usize) -> Option<&GenerationFace> {
+        self.faces.get(slot)
+    }
+
     /// Return the slot of an embedded face, adding it on first use.
-    fn font_slot(&mut self, data: FontBytes, index: u32) -> PyResult<usize> {
-        if let Some(slot) = self
-            .fonts
-            .iter()
-            .position(|(known, known_index)| Arc::ptr_eq(known, &data) && *known_index == index)
-        {
+    fn face_slot(&mut self, face: &GenerationFace) -> PyResult<usize> {
+        let (data, index) = face.source();
+        if let Some(slot) = self.faces.iter().position(|known| {
+            let (known_data, known_index) = known.source();
+            Arc::ptr_eq(&known_data, &data)
+                && known_index == index
+                && known.weight() == face.weight()
+        }) {
             return Ok(slot);
         }
-        self.fonts.try_reserve(1).map_err(|error| {
+        self.faces.try_reserve(1).map_err(|error| {
             PdfError::new_err(format!("failed to grow the shape's fonts: {error}"))
         })?;
-        self.fonts.push((data, index));
-        Ok(self.fonts.len() - 1)
+        self.faces.push(face.clone());
+        Ok(self.faces.len() - 1)
     }
 
     fn push_text(&mut self, text: ShapeText) -> PyResult<()> {
@@ -157,109 +184,163 @@ impl _Shape {
     }
 
     /// Split the recorded drawing into the pieces that a commit draws in
-    /// order: krilla pages for the paths and runs of embedded text, and the
-    /// Standard 14 text items between them.
+    /// order: pages of krilla documents for the paths and runs of embedded
+    /// text, and the Standard 14 text items between them.
     pub(crate) fn plan(&self) -> Result<ShapePlan, String> {
-        let mut segments = Vec::new();
-        segments
-            .try_reserve_exact(self.texts.len() + 1)
-            .map_err(|error| format!("failed to allocate the shape's segments: {error}"))?;
-        let mut pages: Vec<PagePlan> = Vec::new();
-        pages
-            .try_reserve_exact(self.texts.len() + 1)
-            .map_err(|error| format!("failed to allocate the shape's pages: {error}"))?;
-        let mut open = false;
+        fn grow<T>(items: &mut Vec<T>, label: &str) -> Result<(), String> {
+            items
+                .try_reserve(1)
+                .map_err(|error| format!("failed to grow the shape's {label}: {error}"))
+        }
+
+        let mut segments: Vec<Segment> = Vec::new();
+        let mut documents: Vec<DocumentPlan> = Vec::new();
+        // The document that each slot draws in, created on first use; the
+        // shared document is `None`'s entry.
+        let mut shared: Option<usize> = None;
+        let mut instance_documents: Vec<Option<usize>> = Vec::new();
+        instance_documents
+            .try_reserve_exact(self.faces.len())
+            .map_err(|error| format!("failed to allocate the shape's documents: {error}"))?;
+        instance_documents.resize(self.faces.len(), None);
+        // The segment that the next item may extend.
+        let mut open: Option<(usize, usize)> = None;
         if !self.paths.is_empty() {
-            segments.push(Segment::Drawing(0));
-            pages.push(PagePlan {
+            grow(&mut documents, "documents")?;
+            documents.push(DocumentPlan {
+                instance: None,
+                pages: Vec::new(),
+            });
+            shared = Some(0);
+            grow(&mut documents[0].pages, "pages")?;
+            documents[0].pages.push(PagePlan {
                 paths: true,
                 texts: 0..0,
             });
-            open = true;
+            grow(&mut segments, "segments")?;
+            segments.push(Segment::Drawing {
+                document: 0,
+                page: 0,
+            });
+            open = Some((0, 0));
         }
         for (index, text) in self.texts.iter().enumerate() {
-            match text {
-                ShapeText::Embedded { .. } => match pages.last_mut() {
-                    Some(page) if open => {
-                        if page.texts.is_empty() {
-                            page.texts = index..index + 1;
-                        } else {
-                            page.texts.end = index + 1;
-                        }
+            let ShapeText::Embedded { face, .. } = text else {
+                grow(&mut segments, "segments")?;
+                segments.push(Segment::Standard(index));
+                open = None;
+                continue;
+            };
+            let named = self.faces[*face].instance_postscript_name().is_some();
+            let known = if named {
+                instance_documents[*face]
+            } else {
+                shared
+            };
+            let document = match known {
+                Some(document) => document,
+                None => {
+                    grow(&mut documents, "documents")?;
+                    documents.push(DocumentPlan {
+                        instance: named.then_some(*face),
+                        pages: Vec::new(),
+                    });
+                    let document = documents.len() - 1;
+                    if named {
+                        instance_documents[*face] = Some(document);
+                    } else {
+                        shared = Some(document);
                     }
-                    _ => {
-                        segments.push(Segment::Drawing(pages.len()));
-                        pages.push(PagePlan {
-                            paths: false,
-                            texts: index..index + 1,
-                        });
-                        open = true;
+                    document
+                }
+            };
+            match open {
+                Some((open_document, page)) if open_document == document => {
+                    let texts = &mut documents[document].pages[page].texts;
+                    if texts.start == texts.end {
+                        texts.start = index;
                     }
-                },
-                ShapeText::Standard { .. } => {
-                    segments.push(Segment::Standard(index));
-                    open = false;
+                    texts.end = index + 1;
+                }
+                _ => {
+                    let pages = &mut documents[document].pages;
+                    grow(pages, "pages")?;
+                    pages.push(PagePlan {
+                        paths: false,
+                        texts: index..index + 1,
+                    });
+                    let page = pages.len() - 1;
+                    grow(&mut segments, "segments")?;
+                    segments.push(Segment::Drawing { document, page });
+                    open = Some((document, page));
                 }
             }
         }
-        Ok(ShapePlan { segments, pages })
+        Ok(ShapePlan {
+            segments,
+            documents,
+        })
     }
 
-    /// Generate the krilla pages of `plan` as one document whose pages have
-    /// the display `size`, or return `None` when the plan has no such page.
+    /// Generate the krilla documents of `plan`, whose pages have the display
+    /// `size`, in document order.
     pub(crate) fn generate(
         &self,
         plan: &ShapePlan,
         size: (f64, f64),
-    ) -> Result<Option<Vec<u8>>, String> {
-        if plan.pages.is_empty() {
-            return Ok(None);
-        }
+    ) -> Result<Vec<GeneratedDocument>, String> {
         let width = generate::finite_f32(size.0, "page width")?;
         let height = generate::finite_f32(size.1, "page height")?;
         let mut fonts = Vec::new();
         fonts
-            .try_reserve_exact(self.fonts.len())
+            .try_reserve_exact(self.faces.len())
             .map_err(|error| format!("failed to allocate the shape's fonts: {error}"))?;
-        for (data, index) in &self.fonts {
-            fonts.push(
-                Font::new(Arc::clone(data).into(), *index)
-                    .ok_or_else(|| format!("font data or collection index {index} is invalid"))?,
-            );
+        for face in &self.faces {
+            fonts.push(face.embedding_font()?);
         }
-        let mut document = Document::new();
-        for page_plan in &plan.pages {
-            let settings = PageSettings::from_wh(width, height)
-                .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-            let mut page = document.start_page_with(settings);
-            let mut surface = page.surface();
-            if page_plan.paths {
-                for path in &self.paths {
-                    draw_path(&mut surface, path);
+        let mut generated = Vec::new();
+        generated
+            .try_reserve_exact(plan.documents.len())
+            .map_err(|error| format!("failed to allocate the shape's documents: {error}"))?;
+        for document_plan in &plan.documents {
+            let mut document = Document::new();
+            for page_plan in &document_plan.pages {
+                let settings = PageSettings::from_wh(width, height).ok_or_else(|| {
+                    "page dimensions are outside krilla's supported range".to_owned()
+                })?;
+                let mut page = document.start_page_with(settings);
+                let mut surface = page.surface();
+                if page_plan.paths {
+                    for path in &self.paths {
+                        draw_path(&mut surface, path);
+                    }
                 }
-            }
-            for text in &self.texts[page_plan.texts.clone()] {
-                if let ShapeText::Embedded {
-                    font,
-                    size,
-                    color,
-                    runs,
-                } = text
-                {
-                    // A stroke would also outline the glyphs, so text never
-                    // keeps one from a preceding path.
-                    surface.set_stroke(None);
-                    surface.set_fill(Some(generate::solid_fill(*color)));
-                    generate::draw_runs(&mut surface, runs, &fonts[*font], *size);
+                for text in &self.texts[page_plan.texts.clone()] {
+                    if let ShapeText::Embedded {
+                        face,
+                        size,
+                        color,
+                        runs,
+                    } = text
+                    {
+                        // A stroke would also outline the glyphs, so text never
+                        // keeps one from a preceding path.
+                        surface.set_stroke(None);
+                        surface.set_fill(Some(generate::solid_fill(*color)));
+                        generate::draw_runs(&mut surface, runs, &fonts[*face], *size);
+                    }
                 }
+                surface.finish();
+                page.finish();
             }
-            surface.finish();
-            page.finish();
+            generated.push(GeneratedDocument {
+                pdf: document
+                    .finish()
+                    .map_err(|error| format!("krilla shape generation failed: {error}"))?,
+                instance: document_plan.instance,
+            });
         }
-        document
-            .finish()
-            .map(Some)
-            .map_err(|error| format!("krilla shape generation failed: {error}"))
+        Ok(generated)
     }
 
     /// Return the PostScript name of a recorded Standard 14 text item.
@@ -390,7 +471,7 @@ impl _Shape {
         Self {
             paths: Vec::new(),
             texts: Vec::new(),
-            fonts: Vec::new(),
+            faces: Vec::new(),
             path_points: 0,
         }
     }
@@ -405,7 +486,7 @@ impl _Shape {
     fn clear(&mut self) {
         self.paths = Vec::new();
         self.texts = Vec::new();
-        self.fonts = Vec::new();
+        self.faces = Vec::new();
         self.path_points = 0;
     }
 
@@ -567,18 +648,14 @@ impl _Shape {
         let color = device_color(&color)?;
         let face = font.get();
         let text = match face.draw_face() {
-            DrawFace::Embedded {
-                data,
-                index,
-                shaping,
-            } => {
+            DrawFace::Embedded(face) => {
                 let size =
                     generate::finite_f32(fontsize, "font size").map_err(PdfError::new_err)?;
                 let runs = py
-                    .detach(|| generate::text_runs(shaping, point, &lines, fontsize))
+                    .detach(|| generate::text_runs(face.shaping_font(), point, &lines, fontsize))
                     .map_err(PdfError::new_err)?;
                 ShapeText::Embedded {
-                    font: self.font_slot(data, index)?,
+                    face: self.face_slot(face)?,
                     size,
                     color,
                     runs,
@@ -640,17 +717,13 @@ impl _Shape {
         let max_lines = max_text_size.map(|_| MAX_GENERATED_TEXT_LINES);
         let face = font.get();
         match face.draw_face() {
-            DrawFace::Embedded {
-                data,
-                index,
-                shaping,
-            } => {
+            DrawFace::Embedded(face) => {
                 let size =
                     generate::finite_f32(fontsize, "font size").map_err(PdfError::new_err)?;
                 let (runs, spare_height) = py
                     .detach(|| {
                         generate::textbox_runs(
-                            shaping,
+                            face.shaping_font(),
                             rect,
                             text,
                             fontsize,
@@ -661,9 +734,9 @@ impl _Shape {
                     })
                     .map_err(generated_text_err)?;
                 if let Some(runs) = runs {
-                    let font = self.font_slot(data, index)?;
+                    let face = self.face_slot(face)?;
                     self.push_text(ShapeText::Embedded {
-                        font,
+                        face,
                         size,
                         color,
                         runs,

@@ -15,7 +15,10 @@ use krilla::page::PageSettings;
 use krilla::paint::{Fill, Paint};
 use krilla::surface::Surface;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
+use lopdf::Object;
 use read_fonts::TableProvider;
+use read_fonts::tables::fvar::InstanceRecord;
+use read_fonts::types::{Fixed, NameId, Tag};
 
 use crate::draw::DeviceColor;
 use crate::form;
@@ -163,6 +166,290 @@ pub(crate) fn solid_fill(color: DeviceColor) -> Fill {
     }
 }
 
+/// The tag of the OpenType weight axis.
+const WEIGHT_AXIS: Tag = Tag::new(b"wght");
+
+/// The longest PostScript name that krilla keeps beside its six-letter subset
+/// tag, the `+`, and a `-Identity-H` suffix within PDF's 127-byte name limit.
+const MAX_POSTSCRIPT_NAME_LEN: usize = 127 - (6 + 1 + 1 + "Identity-H".len());
+
+/// The user-space range of a variable face's weight axis.
+#[derive(Clone, Copy)]
+pub(crate) struct WeightAxis {
+    pub(crate) min: f32,
+    pub(crate) default: f32,
+    pub(crate) max: f32,
+}
+
+/// One face and the weight that generation draws it at.
+///
+/// A variable face is drawn at one instance. krilla's subsetter instantiates
+/// the outlines and advances at the variation coordinates that krilla is
+/// given, and HarfRust must shape at the same coordinates so that every
+/// advance it returns is one that krilla draws. A static face, a face drawn
+/// as given, and a variable face at its default location carry no
+/// coordinates, so krilla, HarfRust, and the subsetter read the font exactly
+/// as they do without this type, and the output does not change.
+#[derive(Clone)]
+pub(crate) struct GenerationFace {
+    data: Arc<Vec<u8>>,
+    index: u32,
+    /// The font that HarfRust shapes and that vertical metrics come from, at
+    /// the selected instance. It shares `data` with krilla instead of copying it.
+    shaping: ShapingFont,
+    /// The value of the weight axis that a variable face was selected at.
+    weight: Option<u16>,
+    /// What a selected weight away from the default location adds.
+    instance: Option<WeightInstance>,
+}
+
+/// The coordinate and names of an instance away from the default location.
+#[derive(Clone)]
+struct WeightInstance {
+    weight: f32,
+    /// `None` when the font has no name to derive one from.
+    postscript_name: Option<String>,
+    /// The subfamily name of the named instance at this location, else the
+    /// axis value, as in `650wght`.
+    style_name: String,
+}
+
+impl GenerationFace {
+    /// Select a face, at `weight` on its weight axis when it has one.
+    ///
+    /// A face without a weight axis, or one opened without a weight, is drawn
+    /// as given. A weight outside the axis fails, because krilla and HarfRust
+    /// would silently clamp it to the nearest end and draw another weight.
+    pub(crate) fn new(data: Arc<Vec<u8>>, index: u32, weight: Option<u16>) -> Result<Self, String> {
+        let source: Arc<dyn AsRef<[u8]> + Send + Sync> = data.clone();
+        let font = ShapingFont::new(source, index)
+            .ok_or_else(|| format!("font data or collection index {index} is invalid"))?;
+        let Some((weight, axis)) = weight.zip(weight_axis(&font)) else {
+            return Ok(Self {
+                data,
+                index,
+                shaping: font,
+                weight: None,
+                instance: None,
+            });
+        };
+        let value = f32::from(weight);
+        if !(axis.min..=axis.max).contains(&value) {
+            return Err(format!(
+                "weight {weight} is outside the font's weight axis, which runs from {} through {}",
+                axis.min, axis.max
+            ));
+        }
+        let shaping = font
+            .instance_builder()
+            .variations([(WEIGHT_AXIS, value)])
+            .build();
+        // read-fonts normalizes the value through `avar` exactly as krilla's
+        // skrifa does, so both agree on whether it is the default location.
+        let instance = (!shaping.normalized_coords().is_empty()).then(|| {
+            let named = named_instance(&font, weight);
+            WeightInstance {
+                weight: value,
+                postscript_name: instance_postscript_name(&font, named.as_ref(), weight),
+                style_name: named
+                    .and_then(|instance| name_text(&font, instance.subfamily_name_id))
+                    .filter(|style| !style.is_empty())
+                    .unwrap_or_else(|| format!("{weight}wght")),
+            }
+        });
+        Ok(Self {
+            data,
+            index,
+            shaping,
+            weight: Some(weight),
+            instance,
+        })
+    }
+
+    /// The shared font bytes and collection index.
+    pub(crate) fn source(&self) -> (Arc<Vec<u8>>, u32) {
+        (Arc::clone(&self.data), self.index)
+    }
+
+    /// The weight-axis value a variable face was selected at.
+    pub(crate) fn weight(&self) -> Option<u16> {
+        self.weight
+    }
+
+    /// The PostScript name of an instance away from the default location.
+    pub(crate) fn instance_postscript_name(&self) -> Option<&str> {
+        self.instance
+            .as_ref()
+            .and_then(|instance| instance.postscript_name.as_deref())
+    }
+
+    /// The style name of an instance away from the default location.
+    pub(crate) fn instance_style_name(&self) -> Option<&str> {
+        self.instance
+            .as_ref()
+            .map(|instance| instance.style_name.as_str())
+    }
+
+    /// The font that HarfRust shapes, at this face's instance.
+    ///
+    /// Vertical metrics come from the same font's unvaried tables.
+    pub(crate) fn shaping_font(&self) -> &ShapingFont {
+        &self.shaping
+    }
+
+    /// Open the font that krilla embeds, at this face's instance.
+    pub(crate) fn embedding_font(&self) -> Result<Font, String> {
+        let data = Arc::clone(&self.data).into();
+        match &self.instance {
+            Some(instance) => Font::new_variable(
+                data,
+                self.index,
+                &[(krilla::text::Tag::new(b"wght"), instance.weight)],
+            ),
+            None => Font::new(data, self.index),
+        }
+        .ok_or_else(|| format!("font data or collection index {} is invalid", self.index))
+    }
+
+    /// Name the subset in a generated document after the instance it embeds.
+    ///
+    /// krilla names a subset after name ID 6, the PostScript name of the
+    /// default instance, whatever location it draws: a regular instance of
+    /// Noto Sans Hebrew would be named `NotoSansHebrew-Thin`. Renaming the
+    /// Type0 font, its CID font, and their descriptor keeps the subset tag and
+    /// lets extraction and viewers report the instance drawn, including the
+    /// bold flag that extraction infers from the name. A face at its default
+    /// location keeps krilla's name.
+    pub(crate) fn name_subset(&self, document: &mut lopdf::Document) {
+        let Some(name) = self.instance_postscript_name() else {
+            return;
+        };
+        for object in document.objects.values_mut() {
+            let Ok(dictionary) = object.as_dict_mut() else {
+                continue;
+            };
+            let key: &[u8] = match dictionary.get(b"Type").and_then(Object::as_name) {
+                Ok(b"Font") => b"BaseFont",
+                Ok(b"FontDescriptor") => b"FontName",
+                _ => continue,
+            };
+            if let Ok(Object::Name(current)) = dictionary.get_mut(key) {
+                let tag_end = current
+                    .iter()
+                    .position(|&byte| byte == b'+')
+                    .map_or(0, |plus| plus + 1);
+                current.truncate(tag_end);
+                current.extend_from_slice(name.as_bytes());
+            }
+        }
+    }
+}
+
+/// Return the range of a face's weight axis, or `None` for a static face.
+pub(crate) fn weight_axis(font: &ShapingFont) -> Option<WeightAxis> {
+    let fvar = font.tables().fvar().ok()?;
+    let axis = fvar
+        .axes()
+        .ok()?
+        .iter()
+        .find(|axis| axis.axis_tag() == WEIGHT_AXIS)?;
+    let (min, default, max) = (
+        axis.min_value().to_f32(),
+        axis.default_value().to_f32(),
+        axis.max_value().to_f32(),
+    );
+    // fvar requires min <= default <= max; an axis that breaks it is unusable.
+    (min <= default && default <= max).then_some(WeightAxis { min, default, max })
+}
+
+/// Read a name record, preferring English.
+fn name_text(font: &ShapingFont, id: NameId) -> Option<String> {
+    font.names()
+        .get(id)
+        .english_or_first()
+        .map(|localized| localized.name().to_string())
+}
+
+/// Return the named instance at `weight` on the weight axis with every other
+/// axis at its default value.
+fn named_instance(font: &ShapingFont, weight: u16) -> Option<InstanceRecord<'_>> {
+    let fvar = font.tables().fvar().ok()?;
+    let axes = fvar.axes().ok()?;
+    let location = Fixed::from_f64(f64::from(weight));
+    fvar.instances()
+        .ok()?
+        .iter()
+        .filter_map(Result::ok)
+        .find(|instance| {
+            instance.coordinates.len() == axes.len()
+                && axes.iter().zip(instance.coordinates).all(|(axis, value)| {
+                    value.get()
+                        == if axis.axis_tag() == WEIGHT_AXIS {
+                            location
+                        } else {
+                            axis.default_value()
+                        }
+                })
+        })
+}
+
+/// Derive the PostScript name of a face's instance at `weight`.
+///
+/// This follows Adobe Technical Note #5902. A named instance at that location
+/// uses its own PostScript name, or joins the variations PostScript name
+/// prefix (name ID 25, else the family name) and its subfamily name with a
+/// hyphen, as in `NotoSansHebrew-Bold`. Any other location appends the axis
+/// value, as in `NotoSansHebrew_650wght`.
+fn instance_postscript_name(
+    font: &ShapingFont,
+    named: Option<&InstanceRecord<'_>>,
+    weight: u16,
+) -> Option<String> {
+    let text = |id: NameId| name_text(font, id);
+    if let Some(name) = named
+        .and_then(|instance| instance.post_script_name_id)
+        .and_then(text)
+        .map(|name| postscript_characters(&name, |_| true))
+        .filter(|name| !name.is_empty())
+    {
+        return Some(truncate_postscript_name(name));
+    }
+    let prefix = text(NameId::VARIATIONS_POSTSCRIPT_NAME_PREFIX)
+        .map(|prefix| postscript_characters(&prefix, |_| true))
+        .filter(|prefix| !prefix.is_empty())
+        .or_else(|| {
+            text(NameId::TYPOGRAPHIC_FAMILY_NAME)
+                .or_else(|| text(NameId::FAMILY_NAME))
+                .map(|family| postscript_characters(&family, |byte| byte.is_ascii_alphanumeric()))
+                .filter(|family| !family.is_empty())
+        })?;
+    let subfamily = named
+        .and_then(|instance| text(instance.subfamily_name_id))
+        .map(|subfamily| postscript_characters(&subfamily, |byte| byte.is_ascii_alphanumeric()))
+        .filter(|subfamily| !subfamily.is_empty());
+    Some(truncate_postscript_name(match subfamily {
+        Some(subfamily) => format!("{prefix}-{subfamily}"),
+        None => format!("{prefix}_{weight}wght"),
+    }))
+}
+
+/// Keep the characters of `text` that a PostScript name may contain and that
+/// `keep` accepts: printable ASCII other than `[](){}<>/%`.
+fn postscript_characters(text: &str, keep: impl Fn(u8) -> bool) -> String {
+    text.bytes()
+        .filter(|&byte| {
+            (b'!'..=b'~').contains(&byte) && !b"[](){}<>/%".contains(&byte) && keep(byte)
+        })
+        .map(char::from)
+        .collect()
+}
+
+fn truncate_postscript_name(mut name: String) -> String {
+    // The name is ASCII, so any byte length is a character boundary.
+    name.truncate(MAX_POSTSCRIPT_NAME_LEN);
+    name
+}
+
 /// Generate one transparent page containing subset-embedded OpenType text.
 ///
 /// Coordinates use krilla's top-left-origin page surface. `point` is the first
@@ -171,8 +458,7 @@ pub fn embedded_text_page(
     page_size: (f64, f64),
     point: (f64, f64),
     lines: &[String],
-    font_data: Arc<Vec<u8>>,
-    font_index: u32,
+    face: &GenerationFace,
     font_size: f64,
     color: (f64, f64, f64),
 ) -> Result<Vec<u8>, String> {
@@ -181,10 +467,8 @@ pub fn embedded_text_page(
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = open_shaping_font(&font_data, font_index)?;
-    let runs = text_runs(&shaping_font, point, lines, font_size)?;
-    let font = Font::new(font_data.into(), font_index)
-        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let runs = text_runs(face.shaping_font(), point, lines, font_size)?;
+    let font = face.embedding_font()?;
 
     let mut document = Document::new();
     let mut page = document.start_page_with(page_settings);
@@ -207,8 +491,7 @@ pub fn embedded_textbox_page(
     page_size: (f64, f64),
     rect: [f64; 4],
     text: &str,
-    font_data: Arc<Vec<u8>>,
-    font_index: u32,
+    face: &GenerationFace,
     font_size: f64,
     line_height: f64,
     align: u8,
@@ -220,9 +503,8 @@ pub fn embedded_textbox_page(
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = open_shaping_font(&font_data, font_index)?;
     let (runs, spare_height) = textbox_runs(
-        &shaping_font,
+        face.shaping_font(),
         rect,
         text,
         font_size,
@@ -233,8 +515,7 @@ pub fn embedded_textbox_page(
     let Some(runs) = runs else {
         return Ok((None, spare_height));
     };
-    let font = Font::new(font_data.into(), font_index)
-        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let font = face.embedding_font()?;
 
     let mut document = Document::new();
     let mut page = document.start_page_with(page_settings);
@@ -260,8 +541,7 @@ pub fn embedded_widget_text_page(
     page_size: (f64, f64),
     rect: [f64; 4],
     text: &str,
-    font_data: Arc<Vec<u8>>,
-    font_index: u32,
+    face: &GenerationFace,
     multiline: bool,
     align: u8,
     color: (f64, f64, f64),
@@ -270,9 +550,9 @@ pub fn embedded_widget_text_page(
     let height = finite_f32(page_size.1, "page height")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = open_shaping_font(&font_data, font_index)?;
-    let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper = LineShaper::new(&shaping_font);
+    let shaping_font = face.shaping_font();
+    let (ascent, descent) = font_vertical_metrics(shaping_font)?;
+    let shaper = LineShaper::new(shaping_font);
     let normalized = if multiline {
         copy_text(text)?
     } else {
@@ -306,8 +586,7 @@ pub fn embedded_widget_text_page(
     };
 
     let shaped_lines = shape_lines(layout.lines.iter().map(|line| line.text.as_str()), &shaper)?;
-    let font = Font::new(font_data.into(), font_index)
-        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let font = face.embedding_font()?;
     let size = finite_f32(font_size, "font size")?;
 
     let mut document = Document::new();
@@ -358,8 +637,7 @@ pub fn embedded_widget_comb_text_page(
     text: &str,
     max_len: usize,
     align: u8,
-    font_data: Arc<Vec<u8>>,
-    font_index: u32,
+    face: &GenerationFace,
     color: (f64, f64, f64),
 ) -> Result<Vec<u8>, String> {
     form::validate_comb_text(text, max_len)?;
@@ -367,9 +645,9 @@ pub fn embedded_widget_comb_text_page(
     let height = finite_f32(page_size.1, "page height")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = open_shaping_font(&font_data, font_index)?;
-    let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper = LineShaper::new(&shaping_font);
+    let shaping_font = face.shaping_font();
+    let (ascent, descent) = font_vertical_metrics(shaping_font)?;
+    let shaper = LineShaper::new(shaping_font);
     let normalized = normalized_single_line(text)?;
     let graphemes = collect_graphemes(&normalized)?;
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
@@ -401,8 +679,7 @@ pub fn embedded_widget_comb_text_page(
         }
     };
 
-    let font = Font::new(font_data.into(), font_index)
-        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
+    let font = face.embedding_font()?;
     let size = finite_f32(font_size, "font size")?;
     let unused = max_len - graphemes.len();
     let start_slot = match align {
@@ -446,18 +723,6 @@ pub fn embedded_widget_comb_text_page(
     document
         .finish()
         .map_err(|error| format!("krilla form appearance generation failed: {error}"))
-}
-
-/// Open the font that HarfRust shapes and that vertical metrics come from.
-///
-/// The font shares `font_data` with krilla instead of copying it.
-pub(crate) fn open_shaping_font(
-    font_data: &Arc<Vec<u8>>,
-    font_index: u32,
-) -> Result<ShapingFont, String> {
-    let source: Arc<dyn AsRef<[u8]> + Send + Sync> = font_data.clone();
-    ShapingFont::new(source, font_index)
-        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))
 }
 
 /// Return the width of one line of text as generation advances it.

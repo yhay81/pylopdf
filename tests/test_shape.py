@@ -562,6 +562,42 @@ def test_installed_fonts_are_selected_for_unicode_text() -> None:
     assert _font_files(doc) == 1
 
 
+def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
+    pytest.importorskip("pylopdf_fonts_he")
+    # Noto Sans Hebrew is variable, and its default instance is Thin.
+    doc, page = _new_page(400, 300)
+    regular = pylopdf.Font(language="he")
+    bold = pylopdf.Font(language="he", is_bold=True)
+    thin = pylopdf.Font(language="he", weight=100)
+    with page.new_shape() as shape:
+        shape.draw_line((20, 20), (380, 20))
+        shape.finish()
+        shape.insert_text((20, 60), "שלום", font=regular, fontsize=20)
+        shape.insert_text((20, 100), "שלום", font=bold, fontsize=20)
+        shape.insert_text((20, 140), "Standard", fontsize=12)
+        shape.insert_text((20, 180), "עולם", font=bold, fontsize=20)
+        shape.insert_text((20, 220), "שלום", font=thin, fontsize=20)
+        shape.insert_text((20, 260), "עולם", font=regular, fontsize=20)
+    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    by_line = {round(span["origin"][1]): span["font"] for span in spans if span["text"].strip() != "Standard"}
+    assert by_line == {
+        60: "NotoSansHebrew-Regular",
+        100: "NotoSansHebrew-Bold",
+        180: "NotoSansHebrew-Bold",
+        220: "NotoSansHebrew-Thin",
+        260: "NotoSansHebrew-Regular",
+    }
+    # Each instance is embedded once, however many lines use it.
+    assert _font_files(doc) == 3
+    # An installed extra chosen for the text is drawn at the regular weight,
+    # as Page.insert_text draws it, and a new commit embeds it again.
+    with page.new_shape() as automatic:
+        automatic.insert_text((200, 60), "עולם", fontsize=20)
+    spans = [span for block in page.get_text("dict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    assert {span["font"] for span in spans if span["origin"][0] >= 200} == {"NotoSansHebrew-Regular"}
+    assert _font_files(doc) == 4
+
+
 def test_path_points_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     _, page = _new_page()
     monkeypatch.setattr(pylopdf, "_MAX_SHAPE_PATH_POINTS", 8)

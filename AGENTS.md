@@ -1486,24 +1486,59 @@ overview.
   output depends only on the fonts passed in. A face that does not match
   `is_bold`, `is_italic`, or `weight` raises unless `allow_regular_fallback`
   is set, which warns; never synthesize a weight by stroking, overprinting, or
-  render-mode changes. Variable fonts load at their default instance; the
-  `ar`, `he`, `hi`, and `th` extras ship variable fonts, and the default
+  render-mode changes. `fontfile`, `fontbuffer`, and `Font(fontfile=)` load a
+  variable font at its default instance.
+- The `ar`, `he`, `hi`, and `th` extras ship variable fonts with `wght` axes
+  (100 through 900; Noto Naskh Arabic 400 through 700), and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
+  `generate::GenerationFace` is the face and weight that every generation path
+  draws: krilla embeds it through `Font::new_variable` and HarfRust shapes it
+  through `instance_builder().variations()` at the same user-space `wght`
+  value, so subsetter 0.2.6 instantiates the outlines and advances that
+  HarfRust measures. Both normalize through read-fonts'
+  `fvar.user_to_normalized` (skrifa 0.42 through read-fonts 0.39, HarfRust
+  through 0.45), which agree for `avar` 1.0; re-check after a krilla, skrifa,
+  or HarfRust upgrade. A static face, a face drawn as given, and a variable
+  face at its default location carry no coordinates, so their output stays
+  byte-identical, and a weight outside the axis fails instead of being
+  clamped by krilla and HarfRust. Python passes the regular weight for faces
+  of installed extras on every drawing path, path or bytes, and
+  `Font(language=...)` and `Font(family=...)` select another weight, from
+  `weight=` or `is_bold=True`, with `_Font.with_weight`, which shares the
+  face's bytes and package slot. An instance reports its axis value as
+  `weight`, counts as bold from 600, and takes its named instance's style
+  in `name` (`Noto Sans Hebrew Bold`, else `650wght`). krilla names a subset
+  after name ID 6, the default instance's PostScript name, so
+  `GenerationFace::name_subset` renames an instance's Type0 font, CID font,
+  and descriptor after loading the generated PDF, following Adobe TN #5902
+  (the named instance's `postScriptNameID`, else name ID 25 or the family
+  plus its subfamily, else `NotoSansHebrew_650wght`); extraction infers the
+  bold flag from that name. The embedded program's name table and the
+  descriptor's `/StemV` still describe the default instance. skrifa
+  truncates HVAR deltas where HarfRust rounds them, so a `/W` width could
+  differ from the shaped advance by one font unit while glyph positions
+  follow HarfRust; every Hebrew and Thai letter of the bundled faces matched
+  at the weights measured. The Pyodide contract has no font extras, so
+  native tests cover instancing.
 - `Shape` (`rust/src/shape.rs`, recorded by `_Shape`) keeps pymupdf's
   drawing order: every path in the order of its `finish()`, then every text
   item in insertion order. `draw_*` geometry runs in Python as pymupdf's
   code computes it, in display coordinates, and `finish()` hands the path
   operators and style to `_Shape`; tests pin pymupdf's end points and
   bounds. `_Document.commit_shape` generates the paths and the text in
-  embedded fonts with krilla as one document, so each face is embedded once
-  per commit, and places one Form XObject. Standard 14 text cannot be drawn
-  by krilla: when it separates other items, `ShapePlan` splits the drawing
-  into krilla pages of one document, `prepare_pages_form_import` imports
-  them with shared objects, and a composed Form draws the pages and the
-  Standard 14 text operators in order. A single krilla page is placed as
-  `insert_text` places its text. Generation, the import plan, the composed
-  content, and the page's drawing targets are prepared before the document
-  changes. `commit()` refuses drawing that `finish()` did not style, and
+  embedded fonts with krilla and places one Form XObject. `ShapePlan` puts
+  the paths and the faces drawn as given in one krilla document, and each
+  variable face at a weight away from its default location in a document of
+  its own, because `GenerationFace::name_subset` renames every font of a
+  document after the instance it embeds; each face is therefore embedded
+  once per commit. A run of consecutive items of one document is one page,
+  and `prepare_pages_form_import` imports each document's pages with shared
+  objects, numbering each document after the previous one and its Forms.
+  When there is more than one page, or Standard 14 text, which krilla cannot
+  draw, a composed Form draws the pages and the Standard 14 text operators
+  in order; a single page is placed as `insert_text` places its text.
+  Generation, the import plans, the composed content, and the page's drawing
+  targets are prepared before the document changes. `commit()` refuses drawing that `finish()` did not style, and
   `finish()` refuses a style that draws nothing, where pymupdf drops the
   path or strokes it in black (R2.7). Python charges path points as they are
   added and `_Shape.add_path` repeats the 1,048,576-point bound
