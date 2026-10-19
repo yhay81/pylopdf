@@ -200,10 +200,16 @@ enum Role {
     SelectedFont,
     /// The `/AP` dictionary of an annotation.
     Appearances,
+    /// The `/N` entry of an `/AP` dictionary: an appearance stream to queue,
+    /// or a dictionary of appearance states whose streams are queued.
+    NormalAppearance,
+    /// A dictionary of appearance states, the `/N` of a check box or radio
+    /// button.
+    AppearanceStates,
     /// The `/CharProcs` dictionary of a Type 3 font.
     GlyphProcedures,
     /// A stream that hayro interprets as content and that nothing else reads:
-    /// the `/N` appearance of an annotation or an entry of `/CharProcs`.
+    /// an appearance state or an entry of `/CharProcs`.
     ContentStream,
 }
 
@@ -592,7 +598,7 @@ impl ContentGuard {
             .map_err(|refusal| graph_error(page, refusal))
     }
 
-    /// Queue an annotation's or widget's normal appearance stream.
+    /// Queue an annotation's or widget's normal appearance.
     ///
     /// hayro reads the appearance of every annotation it draws, so this costs
     /// about as much as interpreting the page does, plus the annotations it
@@ -607,8 +613,36 @@ impl ContentGuard {
         else {
             return Ok(());
         };
-        if let Some(stream) = self.follow_stream(fresh, Role::ContentStream, &appearances, N)? {
-            push(work, Work::Content(stream))?;
+        match self.follow_object(fresh, Role::NormalAppearance, &appearances, N)? {
+            Some(Object::Stream(stream)) => push(work, Work::Content(stream))?,
+            Some(Object::Dict(states)) => self.visit_appearance_states(fresh, &states, work)?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Queue every stream of a dictionary of appearance states.
+    ///
+    /// hayro draws the state that the annotation's `/AS` names, or `/Off` when
+    /// that is no stream. Every state is queued instead, so that the walk need
+    /// not read `/AS` nor resolve it the way hayro's reader chain does: a
+    /// superset of hayro's choice, which costs real forms nothing because a
+    /// check box or radio button has two states.
+    fn visit_appearance_states<'a>(
+        &mut self,
+        fresh: Fresh<'a>,
+        states: &Dict<'a>,
+        work: &mut Vec<Work<'a>>,
+    ) -> PyResult<()> {
+        if !self.first_visit(Role::AppearanceStates, states)? {
+            return Ok(());
+        }
+        for key in states.keys() {
+            if let Some(stream) =
+                self.follow_stream(fresh, Role::ContentStream, states, key.as_ref())?
+            {
+                push(work, Work::Content(stream))?;
+            }
         }
         Ok(())
     }

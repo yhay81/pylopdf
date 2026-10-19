@@ -437,6 +437,23 @@ def widget_scope(parts: Parts, resources: str, content: str) -> bytes:
     return annotation_scope(parts, resources, content, "/Subtype /Widget /FT /Tx /T (name) /V (value)")
 
 
+def appearance_state_scope(parts: Parts, resources: str, content: str, state: str = "/On") -> bytes:
+    """Draw from the state of a check box's `/AP /N` dictionary that hayro selects: `/AS`, else `/Off`."""
+    form = "/Type /XObject /Subtype /Form /BBox [0 0 190 50] "
+    drawn = parts.add(_stream(content, form + f"/Resources << {resources}>> "))
+    other = parts.add(_stream("0 0 m", form))
+    names = ("/Off", "/On") if state == "/Gone" else ("/On", "/Off")
+    annotation = parts.add(
+        f"<< /Type /Annot /Subtype /Widget /FT /Btn /T (box) /AS {state} /Rect [10 150 200 200] "
+        f"/AP << /N << {names[0]} {drawn} 0 R {names[1]} {other} 0 R >> >> >>"
+    )
+    return parts.build("", "0 0 m", page=f"/Annots [{annotation} 0 R] ")
+
+
+def off_state_scope(parts: Parts, resources: str, content: str) -> bytes:
+    return appearance_state_scope(parts, resources, content, "/Gone")
+
+
 def tiling_pattern_scope(parts: Parts, resources: str, content: str) -> bytes:
     attributes = "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 "
     pattern = parts.add(_stream(content, attributes + f"/Resources << {resources}>> "))
@@ -469,6 +486,8 @@ SCOPES: dict[str, Callable[[Parts, str, str], bytes]] = {
     "nested-form": nested_form_scope,
     "annotation": annotation_scope,
     "widget": widget_scope,
+    "appearance-state": appearance_state_scope,
+    "off-state": off_state_scope,
     "tiling-pattern": tiling_pattern_scope,
     "glyph": glyph_scope,
     "soft-mask": soft_mask_scope,
