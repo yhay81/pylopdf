@@ -211,6 +211,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the CJK extras, for variable faces whose default instance is already
   regular, and for explicit `fontfile` and `fontbuffer` input, which is still
   drawn as given, is byte-identical.
+- `insert_pdf()` registers the AcroForm fields of the imported pages in the
+  receiving document. It used to copy their widgets but not the source
+  `/AcroForm`, so `get_form_fields()` and `set_form_field()` found none of
+  them: inserting `f1040.pdf` into an empty document listed 0 of its 199
+  fields. Imported top-level fields now join the receiving `/Fields` with their
+  values and appearances, following qpdf's page-copy conventions. A top-level
+  partial name that the receiving document already uses gains the smallest
+  unused `+N` suffix, one per distinct name, so inserting one form twice
+  yields `name` and `name+1`; JavaScript that names a renamed field is not
+  rewritten. Source default resources join `/DR`: one that equals the
+  receiving resource of its name is shared, and a different one gains the
+  smallest unused `_N` suffix that every imported `/DA` string follows. The
+  source's document-wide `/DA` and `/Q` move onto imported top-level fields
+  that relied on them when the receiving defaults differ, `/NeedAppearances`
+  carries over when true, and `/CO` keeps the imported entries; `/XFA` and
+  `/SigFlags` describe the source document as a whole and are not copied. A partial range omits widgets of pages that are not
+  imported, their entries in a button field's `/Opt`, and fields left without
+  a widget, and points a kept widget's stale `/P` at the imported page that
+  lists it; a widget that no page lists, such as an invisible signature,
+  follows its `/P`. It walks the source field tree under the
+  `get_form_fields()` limits (4,096 nodes and widgets, 8,192 edges, 64 levels)
+  and raises `PdfError` beyond them before changing the receiving document. A
+  complete import keeps every field without walking the tree, so the size of
+  a field tree never refuses it; an import into a form compares top-level
+  names within the 1 MiB name budget. `/Fields` entries that are no field
+  dictionaries, such as the 35,200 link annotations of pdf.js
+  `issue19281.pdf`, are skipped. Of the 312 pdf.js corpus files with an
+  AcroForm that open, `get_form_fields()` reads 311, and a complete import
+  into an empty document reproduced its result, also after saving and
+  reopening, for 310 of them; `pdf.pdf` is refused by the existing
+  named-destination limit of link import. Single-page imports of the first six
+  pages of each multi-page source (338, plus two more of `pdf.pdf` refused the
+  same way) listed only fields of the complete import, and together every
+  field of each source with up to six pages.
 - Whole-document operations now work for documents of any page count instead
   of raising `ValueError` above 4,096 pages: `get_text()`, `to_markdown()`, and
   `render_pages()` with `pages=None`, and `insert_pdf()` of a complete source.

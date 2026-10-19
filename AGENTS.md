@@ -1646,6 +1646,39 @@ overview.
   Appearance synchronization must budget missing `Off`/on keys before mutation
   so a successful fill remains readable under the same limits. Resolve indirect
   field `/Kids` arrays consistently.
+- `insert_pdf` registers the AcroForm fields of imported pages through
+  `rust/src/acroform_import.rs`, following qpdf's page-copy conventions.
+  `transplant_pages` takes the source `/AcroForm` out of the disposable
+  renumbered copy, edits that copy, and reserves receiving capacity before the
+  imported objects move in; `merge_pages` commits after the page-tree rebuild
+  and before pruning, and the commit only moves prepared values into reserved
+  space. Imported top-level fields join the receiving `/Fields`, and a
+  top-level partial name that the receiving form already uses gains the
+  smallest unused `+N` suffix, one per distinct name, appended in the name's
+  own text encoding. Source `/DR` entries are shared when they structurally
+  equal the receiving entry of their name (both graphs followed, at most
+  4,096 objects and 1 MiB compared; more counts as different) and otherwise
+  gain the smallest unused `_N`; every imported `/DA` string, wherever a
+  dictionary of the copy holds one, then renames the operand of `Tf`, `gs`,
+  `cs`/`CS`, and `scn`/`SCN` and copies every other byte. When the receiving
+  document-wide `/DA` or effective `/Q` differs from the source's, the source
+  value moves onto imported top-level fields without their own. A new
+  receiving form takes the source `/DR`, `/DA`, and `/Q` as they are;
+  `/NeedAppearances` carries over when true, `/CO` keeps imported entries, and
+  `/XFA` and `/SigFlags` never move. `/Fields` entries that are no field
+  dictionaries (no `/FT`, `/T`, `/Kids`, or `/Subtype /Widget`) are skipped,
+  as are page-tree and catalog dictionaries. A partial range reads every
+  source page's `/Annots`: a widget is imported when an imported page lists
+  it, or when no page lists it and its `/P` names an imported page. It then
+  walks the field tree with the field-tree reader's node, edge, widget, and
+  level limits and type inheritance, removes non-imported widgets and fields
+  whose widgets are all elsewhere from every walked `/Kids`, removes the same
+  indices from a button field's own `/Opt` when its length matches, keeps
+  widgetless fields below a kept parent, drops top-level fields without an
+  imported widget, and points a kept widget whose `/P` names no imported page
+  at the imported page that lists it. A complete import does not walk the
+  tree, so only the 1 MiB top-level name budget, which every import shares
+  when the receiving document has a form, can refuse one.
 - Page annotation and link reads borrow direct/indirect `/Annots` arrays,
   release the GIL, and reject complete results above 4,096 array entries or
   1 MiB of aggregate encoded/returned subtype, Contents, URI, file, and

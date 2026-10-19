@@ -251,6 +251,10 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   引用cycle只访问一次，继承值按每个返回leaf计入预算；填写也原子地执行相同的
   tree上限与1 MiB caller名称／值上限。caller输入会在font发现、button lookup或
   file读取前以`form_field_input_size`拒绝。
+- `insert_pdf()`会在修改接收文档前，于1 MiB名称预算内比较顶层field名称；指定
+  页面范围时，还以相同的node、edge、widget与层数上限遍历源field tree。导入全部
+  页面时不遍历field tree而直接复制。为共享而比较两个默认资源时最多读取4,096个
+  object与1 MiB，更大的组合会改名。
 - AcroForm button field会拒绝超过4,096个widget、8,192个normal appearance
   state entry、4,096个唯一返回state name或1 MiB encoded/returned state-name文本。
   填写会在修改前计入缺少的`Off`/on state key。
