@@ -598,6 +598,89 @@ def test_form_font_input_boundary_preserves_field() -> None:
     assert {field["name"]: field["value"] for field in doc.get_form_fields()}["customer"] == "updated"
 
 
+def test_form_font_parameter_draws_the_same_bytes_as_font_input() -> None:
+    """A loaded Font draws text and comb appearances exactly as its file or bytes do."""
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    by_font, by_file, by_buffer = (pylopdf.open(stream=_build_form_pdf()) for _ in range(3))
+
+    for name, value in (("customer", "山田 太郎"), ("code", "日Á")):
+        by_font.set_form_field(name, value, font=face)
+        by_file.set_form_field(name, value, fontfile=NOTO_SANS_JP)
+        by_buffer.set_form_field(name, value, fontbuffer=NOTO_SANS_JP.read_bytes())
+
+    saved = by_font.tobytes()
+    assert saved == by_file.tobytes() == by_buffer.tobytes()
+    assert b"/NeedAppearances false" in saved
+    reopened = pylopdf.open(stream=saved)
+    fields = {field["name"]: field["value"] for field in reopened.get_form_fields()}
+    assert (fields["customer"], fields["code"]) == ("山田 太郎", "日Á")
+    assert _opaque_pixels(reopened, (45, 67, 255, 97)) > 0
+
+
+def test_form_font_parameter_fills_buttons_and_empty_values() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+
+    doc.set_form_field("agree", True, font=face)
+    doc.set_form_field("plan", "Pro", font=face)
+    doc.set_form_field("customer", "", font=face)
+
+    fields = {field["name"]: field["value"] for field in doc.get_form_fields()}
+    assert (fields["agree"], fields["plan"], fields["customer"]) == ("Yes", "Pro", "")
+    # Only drawn text embeds the face.
+    assert b"/FontFile" not in doc.tobytes()
+
+
+def test_form_font_parameter_failures_leave_the_document_unchanged() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    doc.set_form_field("code", "A12", font=face)
+    before = doc.tobytes()
+
+    with pytest.raises(pylopdf.PdfError, match="exceeding MaxLen 6"):
+        doc.set_form_field("code", "1234567", font=face)
+    with pytest.raises(pylopdf.PdfError, match=r"no glyph for U\+1F980"):
+        doc.set_form_field("customer", "\U0001f980", font=face)
+
+    assert doc.tobytes() == before
+
+
+def test_form_font_parameter_rejects_other_font_sources() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
+    before = doc.tobytes()
+
+    for extra in (
+        {"fontfile": NOTO_SANS_JP},
+        {"fontbuffer": b"font"},
+        {"fontindex": 1},
+        {"font_language": "ja"},
+    ):
+        with pytest.raises(ValueError, match="font cannot be combined"):
+            doc.set_form_field("customer", "x", font=face, **extra)  # ty: ignore[invalid-argument-type]
+        with pytest.raises(ValueError, match="font cannot be combined"):
+            doc.set_form_field("agree", True, font=face, **extra)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match=r"pylopdf\.Font"):
+        doc.set_form_field("customer", "x", font="helv")  # ty: ignore[invalid-argument-type]
+
+    assert doc.tobytes() == before
+
+
+def test_form_font_parameter_refuses_standard_14_fonts() -> None:
+    """Form appearances embed an OpenType face; WinAnsi text without ``font`` uses Helvetica."""
+    doc = pylopdf.open(stream=_build_form_pdf())
+    before = doc.tobytes()
+
+    for name, value in (("customer", "x"), ("agree", True)):
+        with pytest.raises(pylopdf.PdfError, match="not the Standard 14 font 'Times-Roman'"):
+            doc.set_form_field(name, value, font=pylopdf.Font("tiro"))
+    # The core entry point refuses one as well.
+    with pytest.raises(pylopdf.PdfError, match="not a Standard 14 font"):
+        doc._doc.set_form_field_font("customer", "x", pylopdf.Font("helv")._font)  # noqa: SLF001
+
+    assert doc.tobytes() == before
+
+
 def test_form_errors() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     with pytest.raises(pylopdf.PdfError, match="not found"):

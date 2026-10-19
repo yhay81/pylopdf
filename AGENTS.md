@@ -1477,9 +1477,12 @@ overview.
   glyph krilla draws and that textbox and form layout wrap with, and Standard
   14 text with `draw::standard_text_width`, which Standard 14 layout uses;
   keep generation and measurement on those so a measured line stays the drawn
-  width. Drawing with an OpenType `font=` passes the same bytes and index as
-  `fontbuffer` and produces byte-identical output; a Standard 14 `font=`
-  follows the `fontname` path. `language=` and `family=` look up only the
+  width. Drawing with an OpenType `font=` (`insert_text`, `insert_textbox`,
+  and `set_form_field`) passes the same bytes and index as `fontbuffer`, and
+  a face loaded without `weight` produces byte-identical output. A Standard
+  14 `font=` follows the `fontname` path of `insert_text` and
+  `insert_textbox`; `set_form_field` refuses it, because its Standard 14
+  path draws Helvetica only. `language=` and `family=` look up only the
   faces of installed font extras, by the family names in
   `_FONT_EXTRA_FAMILIES`. There is no font registry or other process-global
   font state (F0 G6), and pylopdf never scans system font directories, so
@@ -1598,7 +1601,11 @@ overview.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
-  14 or krilla generation paths. When the bounded `/Parent` walk finds no `/Q`,
+  14 or krilla generation paths. `FormFont` is either font bytes, which each
+  widget that draws text opens, so a button state or empty value never reads
+  them, or the OpenType face of a loaded `Font`, which every such widget
+  clones at the instance it selected; both keep `GenerationFace::name_subset`
+  renaming and the same layout. When the bounded `/Parent` walk finds no `/Q`,
   `field_quadding` uses the AcroForm dictionary's document-wide `/Q`
   (ISO 32000-2 Table 225), read through `inheritable_field_value`, and
   otherwise aligns left. A field's own or inherited `/Q`, including `/Q 0` and

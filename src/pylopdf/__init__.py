@@ -1911,11 +1911,12 @@ class Font:
     them.
 
     A Font reads its input once. Pass it as ``font`` to
-    :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
-    and share it between threads. :meth:`text_length` measures with the
-    shaping and advances that drawing uses, so a measured line is as wide as
-    the drawn line. Standard 14 fonts are drawn without embedding and measure
-    with Adobe's AFM widths. Font input defaults to a 64 MiB boundary;
+    :meth:`Page.insert_text` and :meth:`Page.insert_textbox`, and an OpenType
+    face also to :meth:`Document.set_form_field`, on any document, and share
+    it between threads. :meth:`text_length` measures with the shaping and
+    advances that drawing uses, so a measured line is as wide as the drawn
+    line. Standard 14 fonts are drawn without embedding and measure with
+    Adobe's AFM widths. Font input defaults to a 64 MiB boundary;
     ``max_font_size=None`` opts trusted input out, and refusal raises
     :class:`LimitError` with code ``font_input_size``.
     """
@@ -2142,6 +2143,30 @@ def _validate_font_choice(
         msg = "font cannot be combined with fontfile, fontbuffer, fontindex, or font_language"
         raise ValueError(msg)
     return font._font
+
+
+def _validate_form_font(
+    font: Font | None,
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    fontindex: int,
+    font_language: str | None,
+) -> _Font | None:
+    """Return the OpenType face of a form ``font`` argument, or ``None`` without one.
+
+    Form appearances embed the face they draw; the Standard 14 path of form
+    filling draws Helvetica only.
+    """
+    if font is None:
+        return None
+    core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
+    if core_font.standard_name is not None:
+        msg = (
+            f"set_form_field draws with an OpenType Font, not the Standard 14 font {core_font.standard_name!r}; "
+            "omit font to draw WinAnsi text in Helvetica"
+        )
+        raise PdfError(msg)
+    return core_font
 
 
 #: Path points that one :class:`Shape` may hold until it is committed.
@@ -4894,6 +4919,7 @@ class Document:
         name: str,
         value: str | bool,  # noqa: FBT001 - Match pymupdf's bool API.
         *,
+        font: Font | None = None,
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
@@ -4921,7 +4947,14 @@ class Document:
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font, a variable
-        font at its default instance. Locale font extras can supply Unicode
+        font at its default instance. Pass a :class:`Font` with an OpenType
+        face as ``font`` to draw with a face loaded once, such as the bold
+        instance that ``Font(fontfile=..., weight=700)`` selects on a variable
+        font's weight axis; text is fitted, aligned, and placed in comb
+        positions with the advances that :meth:`Font.text_length` returns.
+        ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
+        ``fontindex``, or ``font_language``, and a Standard 14 :class:`Font`
+        raises :class:`PdfError`. Locale font extras can supply Unicode
         appearances automatically; use ``font_language`` for ambiguous Han
         text. Otherwise the value is still
         stored with ``NeedAppearances`` for viewer compatibility, but its
@@ -4956,6 +4989,7 @@ class Document:
                 limit_code="form_field_input_size",
                 input_label="form field value",
             )
+        core_font = _validate_form_font(font, fontfile, fontbuffer, fontindex, font_language)
         normalized_font_language = _normalize_font_language(font_language)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         package_font: tuple[FontLanguage, str] | None = None
@@ -4978,10 +5012,13 @@ class Document:
                 resolved = "Off"
         else:
             resolved = value
-            if font_data is None:
+            if font_data is None and core_font is None:
                 bundled_font = _form_generation_font(resolved, normalized_font_language)
                 if bundled_font is not None:
                     font_data, package_font = bundled_font
+        if core_font is not None:
+            self._doc.set_form_field_font(name, resolved, core_font)
+            return
         weight = _package_face_weight(package_font)
         if isinstance(font_data, Path):
             self._doc.set_form_field_file(

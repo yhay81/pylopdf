@@ -579,7 +579,7 @@
     "Widget.script_format": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.script_format", "milestone": "M3"},
     "Widget.script_stroke": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.script_stroke", "milestone": "M3"},
     "Widget.text_color": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_color", "milestone": "M3"},
-    "Widget.text_font": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_font", "milestone": "M3"},
+    "Widget.text_font": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_font", "milestone": "M3", "note": "Document.set_form_field(font=) draws a field's text with a loaded OpenType Font today."},
     "Widget.text_fontsize": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_fontsize", "milestone": "M3"},
     "Widget.text_format": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_format", "milestone": "M3"},
     "Widget.text_maxlen": {"kind": "attribute", "status": "planned", "relation": "same", "pylopdf": "Widget.text_maxlen", "milestone": "M3"},

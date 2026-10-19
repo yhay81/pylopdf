@@ -33,7 +33,7 @@ password inputはUTF-8 127 byteが上限です。
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/deleteのentryはpage数と4,096の大きい方まで、`insert_pdf`は取り込み元の全範囲を受け付けて取り込んだページのフォームフィールドを登録し、navigationのcleanupとlink取り込みはTOC・named destinationの上限を共有 |
 | `get_toc()` / `set_toc(toc)` | 大規模manualに対応するcycle対応・上限付きのしおり（1始まり。65,536 entry/node、131,072 edge、深さ64、text 16 MiB。named destinationは`get_links()`と同じ） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
+| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入。`font`には読み込み済みのOpenTypeの`Font`を渡せる |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
@@ -105,7 +105,8 @@ Devanagari runなど、並べ替えやcontext依存のclusterは再open後の抽
 resourceは追加されません。
 
 `Font`はpymupdfの`Font(fontname=None, fontfile=None, fontbuffer=None)`に
-従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。`Font("helv")`や
+従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。OpenTypeの書体は
+`set_form_field(font=)`にも渡せます。`Font("helv")`や
 `Font("Times-Bold")`はStandard 14の書体を指し、埋め込まずに描き、AdobeのAFMの幅で
 測ります。pymupdfのほかの内蔵書体は使えません。`Font(fontfile=)`と`Font(fontbuffer=)`
 はOpenTypeの書体をそのまま読み込み、可変フォントは既定のインスタンスで使います。既定の
@@ -115,7 +116,8 @@ resourceは追加されません。
 `NotoSansCJKjp-Bold`として埋め込みます。`weight=650`も選べるので、こうした書体では
 `weight=400`と省略した場合とで結果が異なります。軸の範囲外の太さは`PdfError`になり、
 静的な書体が持たない太さも同じです。`insert_text`・`insert_textbox`・`set_form_field`に
-渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。
+渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。選んだインスタンスで描くには、
+その`Font`を`font=`に渡します。
 `Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を
 選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じ
 shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
@@ -178,7 +180,10 @@ pylopdfは`PdfError`を出します。`commit()`は`finish()`で仕上げてい�
 
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
-`fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。
+`fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。可変フォントの
+Boldのインスタンスなど、読み込み済みのOpenTypeの`Font`を`font`に渡すこともできます。
+`Font`では`text_length`が測る送り幅で縮小・整列し、comb欄の各位置の中央に置きます。
+`font`はほかのフォント指定と併用できず、Standard 14の`Font`は`PdfError`になります。
 導入済みscript／locale providerは`insert_text`と同じ規則で選ばれ、曖昧な漢字は
 `font_language`で指定します。既存の
 空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
