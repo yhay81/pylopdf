@@ -95,7 +95,8 @@ repeated source pages before mutation.
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
-`search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
+`path_point_count`, `search_input_size`, `search_hit_count`,
+`password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
 `decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`, or
 `resource_nesting_depth`. The same code is also
@@ -278,6 +279,12 @@ error.
   input-derived text-operator growth are fallible; Standard 14 width checks do
   not allocate an encoded text copy. Allocation refusal returns `PdfError`;
   insertion remains nonmutating and form filling rolls back atomically.
+- `Shape.insert_text()` and `Shape.insert_textbox()` apply the same text and
+  font boundaries to every call. One shape holds at most 1,048,576 path points
+  until it is committed, checked as points are added and again at the Rust
+  boundary; refusal uses `path_point_count`. A commit generates its drawing,
+  plans the import, and prepares the page's drawing targets before the page
+  changes, so a refusal leaves the document unchanged.
 - `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
   returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
   copying and the Rust boundary repeats both limits. `max_hits=None` explicitly

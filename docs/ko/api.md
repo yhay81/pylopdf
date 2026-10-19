@@ -67,6 +67,8 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨; 편집하지 않은 `src`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
+| `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth=`가 있음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
@@ -114,7 +116,45 @@ Sans KR Bold 같은 다른 굵기는 파일에서 불러옵니다. pylopdf는 �
 `allow_regular_fallback=True`를 명시한 경우에만 extra의 글꼴을 쓰고 `PylopdfWarning`을
 냅니다. pymupdf라면 무시하는 경우에도 `fontname`이나 글꼴 파일과 함께 스타일 지정을
 전달하면 예외가 납니다. 그리기 호출마다 그 호출이 쓰는 글자의 subset을 포함하는 점은
-그대로입니다.
+그대로입니다. [도형](#shapes)으로 그리면 글꼴은 확정 한 번마다 한 번만 포함됩니다.
+
+### 도형 { #shapes }
+
+`page.new_shape()`는 pymupdf의 `Shape`를 반환합니다. `draw_line`, `draw_polyline`,
+`draw_rect`(`radius=`로 모서리를 둥글게), `draw_quad`, `draw_circle`, `draw_oval`,
+`draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, `draw_zigzag`는 표시
+좌표로 경로를 더하고 pymupdf와 같은 끝점을 반환합니다. 앞 선의 끝점에서 시작하는
+선은 같은 하위 경로를 이어 갑니다. `finish(*, width=1, color=(0,), fill=None,
+lineCap=0, lineJoin=0, dashes=None, even_odd=False, closePath=True,
+fill_opacity=1, stroke_opacity=1)`는 앞의 `finish` 이후 그린 경로를 선과 채우기로
+마무리합니다. 색은 0~1의 회색, RGB, CMYK이며, `dashes`는 `"[3 4] 0"` 같은 PDF
+점선 지정입니다. `insert_text`와 `insert_textbox`는 `Page.insert_text`,
+`Page.insert_textbox`와 같은 글꼴 지정을(`font=` 포함) 받습니다. `insert_text`는
+줄 수를, `insert_textbox`는 남은 높이를 반환하며, 들어가지 않으면 음수를 반환하고
+아무것도 더하지 않습니다. `commit(overlay=True)`로 페이지에 그립니다. pymupdf와
+마찬가지로 마무리한 경로를 순서대로 그리고 그 위에 모든 글자를 그립니다.
+
+```python
+with page.new_shape() as shape:
+    shape.draw_rect((50, 50, 545, 792))
+    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
+    shape.draw_circle((80, 140), 7)
+    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
+    shape.insert_text((56, 80), "현장 조사 보고서", font=bold, fontsize=18)
+    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
+```
+
+확정 한 번에 Form XObject 하나를 둡니다. 경로와 포함 글꼴의 글자를 함께 생성하므로,
+몇 줄을 쓰든 글꼴은 확정 한 번마다 한 번만 포함됩니다. 한 페이지의 글자를 도형
+하나로 그리면 글꼴은 페이지마다 한 번만 포함됩니다. `with` 블록은 정상적으로 끝나면
+확정하고, 예외가 나면 아무것도 그리지 않습니다. 확정하지 않은 채 버린 도형은
+`ResourceWarning`을 냅니다. pymupdf가 조용히 버리거나 검정으로 그리는 경우
+pylopdf는 `PdfError`를 냅니다. `commit()`은 `finish()`로 마무리하지 않은 경로를
+받지 않고, `finish()`는 아무것도 그리지 않는 지정(채우기가 없고 `color=None` 또는
+`width=0`)을 받지 않습니다. `morph=`와 `oc=`는 쓸 수 없습니다. 확정 전까지 도형이
+가질 수 있는 경로 점은 1,048,576개까지이며, 넘으면 `LimitError`(code
+`path_point_count`)가 됩니다. `Page.draw_*`는 같은 지정을 키워드 인수로 받아
+마무리한 도형 하나를 그립니다.
 
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
@@ -149,6 +189,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot용`max_interpretation_size`와 위치layout용`max_text_glyphs`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴 |
+| `Shape(page)` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. `page.new_shape()`로도 만들 수 있음 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |

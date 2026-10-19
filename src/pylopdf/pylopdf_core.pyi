@@ -71,6 +71,39 @@ class _Font:
     def text_length(self, text: str, fontsize: float, max_text_size: int | None = 1048576) -> float: ...
     def has_glyph(self, codepoint: int) -> int: ...
 
+class _Shape:
+    def __init__(self) -> None: ...
+    def is_empty(self) -> bool: ...
+    def clear(self) -> None: ...
+    def add_path(
+        self,
+        operators: str,
+        coordinates: list[float],
+        close: bool,
+        fill: tuple[list[float], bool, float] | None,
+        stroke: tuple[list[float], float, int, int, tuple[list[float], float] | None, float] | None,
+    ) -> None: ...
+    def insert_text(
+        self,
+        point: tuple[float, float],
+        lines: list[str],
+        font: _Font,
+        fontsize: float,
+        color: list[float],
+        max_text_size: int | None = 1048576,
+    ) -> int: ...
+    def insert_textbox(
+        self,
+        rect: tuple[float, float, float, float],
+        text: str,
+        font: _Font,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: list[float],
+        max_text_size: int | None = 1048576,
+    ) -> float: ...
+
 class Pixmap:
     @property
     def width(self) -> int: ...
@@ -433,6 +466,7 @@ class _Document:
         max_text_size: int | None = 1048576,
         package_font: tuple[str, str] | None = None,
     ) -> None: ...
+    def commit_shape(self, page_number: int, shape: _Shape, overlay: bool) -> None: ...
     def insert_font_text(
         self,
         page_number: int,

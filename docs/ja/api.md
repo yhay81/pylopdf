@@ -67,6 +67,8 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい。編集していない`src`の同じページを再配置するとForm XObjectを共有 |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
+| `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth=`がある |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
@@ -119,7 +121,46 @@ extraが入れる書体はスタイルごとに1つだけなので、書体と�
 `allow_regular_fallback=True`を明示したときだけextraの書体を使い
 `PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイル
 と一緒にスタイルの指定を渡すと例外になります。描画の呼び出しごとに、その呼び出しで
-使う字のサブセットを埋め込む点は変わりません。
+使う字のサブセットを埋め込む点は変わりません。[図形](#shapes)で描けば、書体は確定1回につき1度だけ
+埋め込まれます。
+
+### 図形 { #shapes }
+
+`page.new_shape()`はpymupdfの`Shape`を返します。`draw_line`、`draw_polyline`、
+`draw_rect`（`radius=`で角を丸める）、`draw_quad`、`draw_circle`、`draw_oval`、
+`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`、`draw_zigzag`は
+表示座標で経路を足し、pymupdfと同じ終点を返します。前の線の終点から始まる線は
+同じ部分経路を続けます。`finish(*, width=1, color=(0,), fill=None, lineCap=0,
+lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1,
+stroke_opacity=1)`は、前の`finish`以降に描いた経路を線と塗りで仕上げます。色は
+0〜1のグレー、RGB、CMYKで、`dashes`は`"[3 4] 0"`のようなPDFの破線の指定です。
+`insert_text`と`insert_textbox`は、`Page.insert_text`と`Page.insert_textbox`と
+同じ書体の指定を（`font=`も含めて）受け取ります。`insert_text`は行数を返し、
+`insert_textbox`は余った高さを返します。収まらないときは負の値を返し、何も
+足しません。`commit(overlay=True)`で頁に描きます。pymupdfと同じく、仕上げた
+経路を順に描き、その上にすべての文字を描きます。
+
+```python
+with page.new_shape() as shape:
+    shape.draw_rect((50, 50, 545, 792))
+    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
+    shape.draw_circle((80, 140), 7)
+    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
+    shape.insert_text((56, 80), "現地調査報告書", font=bold, fontsize=18)
+    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
+```
+
+1回の確定で1つのForm XObjectを置きます。経路と埋め込み書体の文字はまとめて
+生成されるので、何行使っても書体は確定1回につき1度だけ埋め込まれます。頁の文字を
+1つの図形で描けば、書体は頁ごとに1度だけ埋め込まれます。`with`の区画は正常に
+抜けると確定し、例外のときは何も描きません。確定しないまま捨てた図形は
+`ResourceWarning`を出します。pymupdfが黙って捨てたり黒で描いたりするところでは、
+pylopdfは`PdfError`を出します。`commit()`は`finish()`で仕上げていない経路を
+受け付けず、`finish()`は何も描かない指定（塗りがなく、`color=None`または
+`width=0`）を受け付けません。`morph=`と`oc=`は使えません。確定までに持てる
+経路の点は1,048,576個までで、超えると`LimitError`（コード`path_point_count`）に
+なります。`Page.draw_*`は同じ指定をキーワード引数で受け取り、仕上げた図形を
+1つ描きます。
 
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
@@ -154,6 +195,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot用`max_interpretation_size`と位置付きlayout用`max_text_glyphs`を含む、信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体 |
+| `Shape(page)` | 経路と文字を1回で描くpymupdfの`Shape`。`page.new_shape()`でも作れる |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |

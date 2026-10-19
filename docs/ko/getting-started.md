@@ -112,6 +112,12 @@ page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansKR-Regular.o
 bold = pylopdf.Font(fontfile="NotoSansKR-Bold.otf")         # extra에 없는 굵기는 파일에서 불러옴
 width = bold.text_length("제목", fontsize=16)                  # 그렸을 때의 폭과 일치
 page.insert_text((page.rect.width - 40 - width, 140), "제목", font=bold, fontsize=16)
+with page.new_shape() as shape:                              # Form 하나, 글꼴은 한 번만 포함
+    shape.draw_rect((36, 160, 400, 260), radius=0.1)
+    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+    shape.insert_text((48, 190), "보고", font=bold, fontsize=16)
+    shape.insert_textbox((48, 200, 390, 250), "본문 단락.", fontsize=11)
+page.draw_line((36, 280), (400, 280), width=0.5, dashes="[3 2] 0")  # pymupdf의 draw_*
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

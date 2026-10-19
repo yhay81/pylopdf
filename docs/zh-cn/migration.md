@@ -45,14 +45,17 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
 | `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | 通过`pylopdf[ocr]`使用离线纯Rust PP-OCR；任意带坐标结果仍可传给`insert_ocr_text_layer` |
+| `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 相同 | 每次提交一个Form XObject，每种字体只嵌入一次；`with page.new_shape() as shape:`在正常结束时提交；未经`finish()`完成的路径执行`commit()`，以及不绘制任何内容的`finish()`都会抛出异常；`morph=`与`oc=`不可用 |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()`等`draw_*` | 相同 | 选项仅限关键字参数，返回终点`Point`；`morph=`与`oc=`不可用 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内置，MIT |
 
 ## 行为差异 { #behavioral-differences }
 
 - **坐标**：两者均使用左上角原点的显示空间。pylopdf在提取、搜索、绘制和渲染中，
   对旋转页面也始终保持同一坐标系。
-- **类型**：`Rect`是不可变`NamedTuple`（`x0, y0, x1, y1`以及`width` / `height`）。
-  没有`Point` / `Matrix` / `Quad`类；API使用普通元组和`scale=` / `dpi=`关键字。
+- **类型**：`Rect`是不可变`NamedTuple`（`x0, y0, x1, y1`以及`width` / `height`），
+  `Point`是含`x, y`的`NamedTuple`，由`draw_*`返回。没有`Matrix` / `Quad`类；API
+  使用普通元组（quad为四个点）和`scale=` / `dpi=`关键字。
 - **过期Page**：删除、插入或重排等结构变更后，先前获取的`Page`会抛出
   `StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
 - **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、

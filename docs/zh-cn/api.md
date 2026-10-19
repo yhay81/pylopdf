@@ -65,6 +65,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档；再次放置未编辑`src`的同一页面时共享其Form XObject |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
+| `new_shape()` | 一次绘制路径和文字的pymupdf `Shape`；参见[图形](#shapes) |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth=` |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
@@ -105,7 +107,42 @@ OpenType字体（可变字体使用其默认实例），`Font(language="zh-CN")`
 加载。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
 字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出
 `PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入样式选项也会
-抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集。
+抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集；通过[图形](#shapes)绘制，则每次提交
+只嵌入一次字体。
+
+### 图形 { #shapes }
+
+`page.new_shape()`返回pymupdf的`Shape`。`draw_line`、`draw_polyline`、
+`draw_rect`（`radius=`使角变圆）、`draw_quad`、`draw_circle`、`draw_oval`、
+`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`和`draw_zigzag`在
+显示坐标中添加路径，并返回与pymupdf相同的终点；从上一段终点开始的线段会延续同一
+子路径。`finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0,
+dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`
+以描边和填充完成上一次`finish`之后绘制的路径；颜色为0到1的灰度、RGB或CMYK，
+`dashes`是`"[3 4] 0"`这样的PDF虚线模式。`insert_text`与`insert_textbox`接受与
+`Page.insert_text`、`Page.insert_textbox`相同的字体选项（包括`font=`）。
+`insert_text`返回行数，`insert_textbox`返回剩余高度；放不下时返回负值且不添加
+任何内容。`commit(overlay=True)`将图形绘制到页面：与pymupdf相同，先按顺序绘制
+已完成的路径，再在其上绘制全部文字。
+
+```python
+with page.new_shape() as shape:
+    shape.draw_rect((50, 50, 545, 792))
+    shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
+    shape.draw_circle((80, 140), 7)
+    shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
+    shape.insert_text((56, 80), "现场调查报告", font=bold, fontsize=18)
+    shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
+```
+
+每次提交放置一个Form XObject。路径和嵌入字体的文字一起生成，因此无论使用多少行，
+每次提交每种字体只嵌入一次；用一个图形绘制一页的文字，则每页每种字体只嵌入一次。
+`with`块正常结束时提交，发生异常时不绘制任何内容；含有未提交绘制的图形被丢弃时
+会发出`ResourceWarning`。在pymupdf静默丢弃或以黑色绘制的情况下，pylopdf会抛出
+`PdfError`：`commit()`拒绝未经`finish()`完成的路径，`finish()`拒绝不绘制任何内容
+的样式（无填充，且`color=None`或`width=0`）。`morph=`与`oc=`不可用。提交前一个
+图形最多容纳1,048,576个路径点，超出时抛出`LimitError`（code为`path_point_count`）。
+`Page.draw_*`以关键字参数接受相同选项，各绘制一个已完成的图形。
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
@@ -137,6 +174,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体 |
+| `Shape(page)` | 一次绘制路径和文字的pymupdf `Shape`；也可用`page.new_shape()`创建 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |

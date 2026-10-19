@@ -63,7 +63,7 @@ pub fn standard_text_ops(
         align,
         font_resource,
         font_size,
-        (0.0, 0.0, 0.0),
+        draw::DeviceColor::Rgb(0.0, 0.0, 0.0),
     )
 }
 
@@ -150,7 +150,7 @@ pub fn standard_comb_text_ops(
             1,
             font_resource,
             font_size,
-            (0.0, 0.0, 0.0),
+            draw::DeviceColor::Rgb(0.0, 0.0, 0.0),
         )?;
         out.try_reserve(text_ops.len())
             .map_err(|error| format!("failed to grow comb field text operators: {error}"))?;

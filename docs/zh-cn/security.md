@@ -81,7 +81,7 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
 `pdf_output_size`、`image_input_size`、`image_pixel_count`、
-`font_input_size`、`text_input_size`、`text_line_count`、`search_input_size`、`search_hit_count`、
+`font_input_size`、`text_input_size`、`text_line_count`、`path_point_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`、
 `content_nesting_depth`、`resource_nesting_depth`之一；
@@ -202,6 +202,10 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   grapheme引用、shaped line／glyph collection、WinAnsi输出与输入派生的text operator
   扩展也采用fallible处理。Standard 14宽度检查不会分配encoded text copy。
   allocation refusal返回`PdfError`；插入保持不修改文档，form fill则原子rollback。
+- `Shape.insert_text()`与`Shape.insert_textbox()`对每次调用应用相同的text与字体
+  上限。一个图形在提交前最多容纳1,048,576个路径点，添加点时与Rust边界都会检查，
+  拒绝code为`path_point_count`。提交会在修改页面前完成绘制生成、导入计划与页面
+  绘制目标的准备，因此被拒绝时document保持不变。
 - `search_for()`将搜索词限制为4,096 UTF-8 byte，返回geometry默认限制为4,096项。
   Python在PyO3 copy前拒绝超限搜索词，Rust边界再次检查两项限制。可信结果集可用
   `max_hits=None`显式取消；拒绝code为`search_input_size`或

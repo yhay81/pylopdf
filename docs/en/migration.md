@@ -48,6 +48,8 @@ deliberately does not implement.
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
 | `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | document-level; native text/choice/checkbox/radio appearances |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | offline pure-Rust PP-OCR through `pylopdf[ocr]`; arbitrary positioned results still work with `insert_ocr_text_layer` |
+| `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | same | one Form XObject per commit embeds each font once; `with page.new_shape() as shape:` commits on a clean exit; `commit()` raises for drawing that `finish()` did not style, and `finish()` raises for a style that draws nothing; `morph=` and `oc=` are not available |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` and the other `draw_*` | same | options are keyword-only and return the end `Point`; `morph=` and `oc=` are not available |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
 ## Behavioral differences { #behavioral-differences }
@@ -56,8 +58,9 @@ deliberately does not implement.
   pylopdf this includes rotated pages consistently across extraction, search,
   drawing and rendering.
 - **Types**: `Rect` is an immutable `NamedTuple` (`x0, y0, x1, y1`, plus
-  `width` / `height`). There are no `Point` / `Matrix` / `Quad` classes — APIs
-  take plain tuples and `scale=` / `dpi=` keywords.
+  `width` / `height`), and `Point` is one with `x, y`, which the `draw_*`
+  methods return. There are no `Matrix` / `Quad` classes — APIs take plain
+  tuples, a quad as four points, and `scale=` / `dpi=` keywords.
 - **Stale pages**: after structural changes (delete / insert / reorder),
   previously fetched `Page` objects raise `StalePageError` instead of silently
   pointing at a different page. Re-fetch with `doc[i]`.

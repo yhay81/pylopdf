@@ -654,6 +654,42 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     }
 
 
+def _shape_results(font: bytes) -> dict[str, Any]:
+    """Draw paths and mixed-font text with one Shape and record what it placed."""
+    import pylopdf  # noqa: PLC0415
+
+    face = pylopdf.Font(fontbuffer=font)
+    document = pylopdf.Document()
+    page = document.new_page(width=300, height=200)
+    page.set_rotation(90)
+    with page.new_shape() as shape:
+        ends = [
+            shape.draw_rect((20, 20, 180, 120), radius=0.1),
+            shape.draw_circle((100, 160), 20),
+            shape.draw_sector((60, 250), (90, 250), 135),
+            shape.draw_zigzag((20, 280), (180, 280), breadth=4),
+        ]
+        shape.finish(color=(0.2, 0.4, 0.6), fill=(0.9, 0.95, 1), width=1.5, dashes="[3 2] 0")
+        lines = [
+            shape.insert_text((30, 50), _JAPANESE, font=face, fontsize=14),
+            shape.insert_text((30, 80), "Standard 14\nsecond line", fontsize=10, color=(0.5,)),
+            shape.insert_text((30, 110), _JAPANESE + "AVA", font=face, fontsize=12, color=(0, 1, 0, 0)),
+        ]
+        spare = shape.insert_textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, fontsize=10)
+    drawings = page.get_drawings()
+    _require(len(drawings) == 1, "a finished shape did not draw one path")
+    data = document.tobytes()
+    _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
+    words = [(word[4], round(word[0], 2), round(word[1], 2)) for word in page.get_text("words")]
+    return {
+        "ends": [[round(value, 6) for value in point] for point in ends],
+        "drawing": [drawings[0]["type"], [round(value, 2) for value in drawings[0]["rect"]]],
+        "lines": lines,
+        "spare": round(spare, 4),
+        "words": words,
+    }
+
+
 def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415
 
@@ -727,6 +763,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "empty_pages": 0,
         "roundtrip_pages": document.page_count,
         "font": font_results,
+        "shape": _shape_results(font),
         "text_sha256": [_digest(text) for text in texts],
         "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
         "batch_render_sizes": render_sizes,

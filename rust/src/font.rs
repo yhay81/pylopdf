@@ -175,6 +175,30 @@ impl _Font {
             Face::Standard(..) => None,
         }
     }
+
+    /// What drawing needs from this face.
+    pub(crate) fn draw_face(&self) -> DrawFace<'_> {
+        match &self.face {
+            Face::OpenType(face) => DrawFace::Embedded {
+                data: Arc::clone(&face.data),
+                index: face.index,
+                shaping: &face.shaping,
+            },
+            Face::Standard(_, name) => DrawFace::Standard(name),
+        }
+    }
+}
+
+/// What drawing needs from a `_Font`: the bytes, collection index, and
+/// shaping font of an embedded face, or the PostScript name of a Standard 14
+/// font, which is drawn without embedding.
+pub(crate) enum DrawFace<'a> {
+    Embedded {
+        data: FontBytes,
+        index: u32,
+        shaping: &'a ShapingFont,
+    },
+    Standard(&'static str),
 }
 
 #[pymethods]

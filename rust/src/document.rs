@@ -50,6 +50,7 @@ use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
+use crate::shape::{_Shape, Segment};
 use crate::text_replace::{self, TextReplacementError};
 use crate::unallocated::normalize_object_numbers;
 use indexed::IndexedDocument;
@@ -1636,7 +1637,7 @@ pub(crate) fn validate_generated_text_input<'a>(
     Ok(())
 }
 
-fn validate_generated_text_line_count(
+pub(crate) fn validate_generated_text_line_count(
     line_count: usize,
     max_text_size: Option<usize>,
 ) -> PyResult<()> {
@@ -1652,7 +1653,7 @@ fn validate_generated_text_line_count(
     Ok(())
 }
 
-fn generated_text_err(error: String) -> PyErr {
+pub(crate) fn generated_text_err(error: String) -> PyErr {
     if error == crate::layout::TEXT_LINE_LIMIT_ERROR {
         limit_err(
             "text_line_count",
@@ -2775,9 +2776,46 @@ fn collect_form_page_content(doc: &Document, page_id: ObjectId) -> PyResult<Vec<
 /// Prepare one source page as an unplaced Form without mutating the target.
 fn prepare_page_form_import(
     target_max_id: u32,
-    mut source: Document,
+    source: Document,
     page_number: u32,
 ) -> PyResult<FormImportPlan> {
+    let mut plan = prepare_pages_form_import(target_max_id, source, &[page_number])?;
+    let form = plan
+        .forms
+        .pop()
+        .ok_or_else(|| PdfError::new_err("Form import prepared no Form"))?;
+    Ok(FormImportPlan {
+        objects: plan.objects,
+        form: form.stream,
+        new_max_id: plan.new_max_id,
+        crop: form.crop,
+        rotation: form.rotation,
+    })
+}
+
+/// One prepared Form and the display metadata of the page it came from.
+struct PreparedForm {
+    stream: Stream,
+    crop: [f64; 4],
+    rotation: i64,
+}
+
+/// Source objects shared by several prepared Forms, imported together.
+struct PagesFormImportPlan {
+    objects: Vec<(ObjectId, Object)>,
+    forms: Vec<PreparedForm>,
+    new_max_id: u32,
+}
+
+/// Prepare source pages as unplaced Forms without mutating the target.
+///
+/// The source is renumbered once and every object that any Form reaches is
+/// imported once, so Forms that draw with the same font share its objects.
+fn prepare_pages_form_import(
+    target_max_id: u32,
+    mut source: Document,
+    page_numbers: &[u32],
+) -> PyResult<PagesFormImportPlan> {
     if source.objects.len() > MAX_FORM_IMPORT_OBJECTS {
         return Err(PdfError::new_err(format!(
             "Form import exceeds the {MAX_FORM_IMPORT_OBJECTS}-object safety limit"
@@ -2792,50 +2830,70 @@ fn prepare_page_form_import(
     let starting_id = target_max_id
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-    let missing_page = |_| PdfError::new_err(format!("source page {page_number} does not exist"));
+    let missing_page =
+        |page_number: u32| PdfError::new_err(format!("source page {page_number} does not exist"));
     let mut source_pages = collect_page_ids(&source, None, None)?;
-    page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
+    for &page_number in page_numbers {
+        page_id_from_index(&source_pages, page_number).map_err(|_| missing_page(page_number))?;
+    }
     renumber_objects(&mut source, starting_id, &mut source_pages)?;
-    let source_id = page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
-    let source_dict = resolve_inherited_page_dict(&source, source_id)?;
-    let source_crop = resolve_box(&source, &source_dict, b"CropBox")
-        .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
-        .unwrap_or([0.0, 0.0, 595.0, 842.0]);
-    let source_rotation = source_dict
-        .get(b"Rotate")
-        .ok()
-        .and_then(|object| resolve_i64(&source, object))
-        .unwrap_or(0)
-        .rem_euclid(360);
 
-    let form_content = collect_form_page_content(&source, source_id)?;
-    let mut form_dict = dictionary! {
-        "Type" => "XObject",
-        "Subtype" => "Form",
-        "FormType" => 1,
-        "BBox" => Object::Array(
-            source_crop
-                .iter()
-                .map(|&value| Object::Real(value as f32))
-                .collect(),
-        ),
-    };
-    if let Ok(resources) = source_dict.get(b"Resources") {
-        form_dict.set("Resources", resources.clone());
-    }
-    if let Ok(group) = source_dict.get(b"Group") {
-        form_dict.set("Group", group.clone());
+    let mut forms = Vec::new();
+    forms
+        .try_reserve_exact(page_numbers.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate prepared Forms: {error}"))
+        })?;
+    for &page_number in page_numbers {
+        let source_id = page_id_from_index(&source_pages, page_number)
+            .map_err(|_| missing_page(page_number))?;
+        let source_dict = resolve_inherited_page_dict(&source, source_id)?;
+        let source_crop = resolve_box(&source, &source_dict, b"CropBox")
+            .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
+            .unwrap_or([0.0, 0.0, 595.0, 842.0]);
+        let source_rotation = source_dict
+            .get(b"Rotate")
+            .ok()
+            .and_then(|object| resolve_i64(&source, object))
+            .unwrap_or(0)
+            .rem_euclid(360);
+
+        let form_content = collect_form_page_content(&source, source_id)?;
+        let mut form_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => Object::Array(
+                source_crop
+                    .iter()
+                    .map(|&value| Object::Real(value as f32))
+                    .collect(),
+            ),
+        };
+        if let Ok(resources) = source_dict.get(b"Resources") {
+            form_dict.set("Resources", resources.clone());
+        }
+        if let Ok(group) = source_dict.get(b"Group") {
+            form_dict.set("Group", group.clone());
+        }
+        forms.push(PreparedForm {
+            stream: Stream::new(form_dict, form_content).with_compression(false),
+            crop: source_crop,
+            rotation: source_rotation,
+        });
     }
 
-    // Move only the source objects that the Form can reach. The page tree
+    // Move only the source objects that the Forms can reach. The page tree
     // stays behind, so a reference into it dangles, and outlines,
-    // annotations, attachments, metadata, and the page's original content
+    // annotations, attachments, metadata, and the pages' original content
     // streams would be unreachable in the target. Pruning the complete
     // target after the import found the same objects, but walked every
     // target object for each placement.
     let reachable = reachable_object_ids(
         &source,
-        form_dict.iter().map(|(_, value)| value),
+        forms
+            .iter()
+            .flat_map(|form| form.stream.dict.iter().map(|(_, value)| value)),
         |object| !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page")),
     )?;
     let new_max_id = source.max_id;
@@ -2850,12 +2908,10 @@ fn prepare_page_form_import(
             objects.push((id, object));
         }
     }
-    Ok(FormImportPlan {
+    Ok(PagesFormImportPlan {
         objects,
-        form: Stream::new(form_dict, form_content).with_compression(false),
+        forms,
         new_max_id,
-        crop: source_crop,
-        rotation: source_rotation,
     })
 }
 
@@ -2885,6 +2941,22 @@ fn commit_page_form_import(
     target.insert_new_objects(plan.objects, plan.new_max_id);
     let form_id = target.add_object(plan.form);
     (form_id, plan.crop, plan.rotation)
+}
+
+/// Commit several prepared Forms that share one import, in their order, and
+/// return each Form with its content length.
+fn commit_pages_form_import(
+    target: &mut impl FormImportTarget,
+    plan: PagesFormImportPlan,
+) -> Vec<(ObjectId, usize)> {
+    target.insert_new_objects(plan.objects, plan.new_max_id);
+    plan.forms
+        .into_iter()
+        .map(|form| {
+            let len = form.stream.content.len();
+            (target.add_object(form.stream), len)
+        })
+        .collect()
 }
 
 /// Import a page as an unplaced Form XObject and return its display metadata.
@@ -6244,6 +6316,164 @@ impl _Document {
         if remember && let Some(added) = added {
             self.placements.remember_image(digest, added);
         }
+        Ok(())
+    }
+
+    /// Generate, import, and place a recorded shape; see `commit_shape`.
+    fn place_shape(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        shape: &_Shape,
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
+        let page_size = if matches!(rotation, 90 | 270) {
+            (pdf_height, pdf_width)
+        } else {
+            (pdf_width, pdf_height)
+        };
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let plan = shape.plan().map_err(PdfError::new_err)?;
+        let generated = py
+            .detach(|| shape.generate(&plan, page_size))
+            .map_err(PdfError::new_err)?;
+        let source = generated
+            .map(|bytes| {
+                generated_pdf::load(&bytes)
+                    .map_err(|error| lopdf_err(Some("failed to import a generated shape"), &error))
+            })
+            .transpose()?;
+        let placement = PagePlacement {
+            rect: [0.0, 0.0, page_size.0, page_size.1],
+            keep_proportion: false,
+        };
+        if let ([Segment::Drawing(0)], Some(source)) = (plan.segments.as_slice(), source.as_ref()) {
+            // One generated page is placed as `insert_text` places its text.
+            let source = source.clone();
+            let form_plan = py.detach(|| prepare_page_form_import(self.doc.max_id, source, 1))?;
+            self.invalidate_hayro_pdf_keeping_placements();
+            py.detach(|| {
+                self.place_pdf_page(
+                    page_id,
+                    (crop, rotation),
+                    PageForm::Import(form_plan),
+                    placement,
+                    drawing_plan,
+                )
+            })?;
+            return Ok(());
+        }
+
+        // Otherwise a composed Form draws the generated pages and the
+        // Standard 14 text in order. It uses the generated pages' coordinate
+        // space, so they are drawn unscaled and Standard 14 text is placed on
+        // an unrotated page of the same size.
+        let form_crop = [
+            0.0,
+            0.0,
+            f64::from(page_size.0 as f32),
+            f64::from(page_size.1 as f32),
+        ];
+        let import = match source {
+            Some(source) => {
+                let page_numbers = (1..=plan.page_count())
+                    .map(u32::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| PdfError::new_err(error.to_string()))?;
+                let target_max_id = self.doc.max_id;
+                Some(py.detach(|| prepare_pages_form_import(target_max_id, source, &page_numbers))?)
+            }
+            None => None,
+        };
+        let mut content = Vec::new();
+        let mut standard_fonts: Vec<&'static str> = Vec::new();
+        for segment in &plan.segments {
+            let ops = match *segment {
+                Segment::Drawing(page) => {
+                    draw::draw_ops([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], &format!("PyloK{page}"))
+                }
+                Segment::Standard(index) => {
+                    let font = shape.standard_font(index).map_err(PdfError::new_err)?;
+                    let slot = match standard_fonts.iter().position(|known| *known == font) {
+                        Some(slot) => slot,
+                        None => {
+                            standard_fonts.try_reserve(1).map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to grow the shape's Standard 14 fonts: {error}"
+                                ))
+                            })?;
+                            standard_fonts.push(font);
+                            standard_fonts.len() - 1
+                        }
+                    };
+                    shape
+                        .standard_ops(index, form_crop, &format!("PyloS{slot}"))
+                        .map_err(PdfError::new_err)?
+                }
+            };
+            content.try_reserve(ops.len()).map_err(|error| {
+                PdfError::new_err(format!("failed to grow the shape's content: {error}"))
+            })?;
+            content.extend_from_slice(&ops);
+        }
+
+        self.invalidate_hayro_pdf_keeping_placements();
+        py.detach(|| {
+            let mut xobjects = Dictionary::new();
+            if let Some(import) = import {
+                for (page, (form_id, _)) in commit_pages_form_import(&mut self.doc, import)
+                    .into_iter()
+                    .enumerate()
+                {
+                    xobjects.set(format!("PyloK{page}"), Object::Reference(form_id));
+                }
+            }
+            let mut fonts = Dictionary::new();
+            for (slot, font) in standard_fonts.iter().enumerate() {
+                let mut font_dict = dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => Object::Name(font.as_bytes().to_vec()),
+                };
+                if !matches!(*font, "Symbol" | "ZapfDingbats") {
+                    font_dict.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+                }
+                let font_id = self.doc.add_object(font_dict);
+                fonts.set(format!("PyloS{slot}"), Object::Reference(font_id));
+            }
+            let mut resources = Dictionary::new();
+            if !xobjects.is_empty() {
+                resources.set("XObject", xobjects);
+            }
+            if !fonts.is_empty() {
+                resources.set("Font", fonts);
+            }
+            let len = content.len();
+            let form = Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "FormType" => 1,
+                    "BBox" => Object::Array(
+                        form_crop.iter().map(|&value| Object::Real(value as f32)).collect(),
+                    ),
+                    "Resources" => resources,
+                },
+                content,
+            )
+            .with_compression(false);
+            let form_id = self.doc.add_object(form);
+            self.place_pdf_page(
+                page_id,
+                (crop, rotation),
+                PageForm::Placed(PlacedForm::new(form_id, len, form_crop, 0)),
+                placement,
+                drawing_plan,
+            )
+        })?;
         Ok(())
     }
 
@@ -11562,7 +11792,7 @@ impl _Document {
                 &lines,
                 drawing_plan.resource.name(),
                 fontsize,
-                color,
+                draw::DeviceColor::Rgb(color.0, color.1, color.2),
             );
             self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
             self.push_page_content(page_id, ops, drawing_plan.content)
@@ -11643,7 +11873,7 @@ impl _Document {
                 align,
                 drawing_plan.resource.name(),
                 fontsize,
-                color,
+                draw::DeviceColor::Rgb(color.0, color.1, color.2),
             )
             .map_err(PdfError::new_err)?;
             self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
@@ -11749,6 +11979,25 @@ impl _Document {
             color,
             overlay,
         )
+    }
+
+    /// Draw a recorded shape over a one-based page as one Form XObject.
+    ///
+    /// Everything that can fail on the input, generation and the import
+    /// plan included, is checked before the document changes. An empty shape
+    /// leaves the document unchanged.
+    fn commit_shape(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        shape: &Bound<'_, _Shape>,
+        overlay: bool,
+    ) -> PyResult<()> {
+        let shape = shape.borrow();
+        if shape.is_empty() {
+            return Ok(());
+        }
+        self.place_shape(py, page_number, &shape, overlay)
     }
 
     /// Draw subset-embedded text with a loaded `Font`.

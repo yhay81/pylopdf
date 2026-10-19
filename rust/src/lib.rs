@@ -30,12 +30,14 @@ mod read_depth;
 mod recovery;
 mod render_cache;
 mod renumber;
+mod shape;
 mod text_replace;
 mod unallocated;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use font::_Font;
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;
+use shape::_Shape;
 
 #[pymodule(gil_used = false)]
 fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -43,6 +45,7 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_Font>()?;
     m.add_class::<_OcrEngine>()?;
     m.add_class::<Pixmap>()?;
+    m.add_class::<_Shape>()?;
     m.add("PdfError", m.py().get_type::<PdfError>())?;
     m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("PasswordError", m.py().get_type::<PasswordError>())?;

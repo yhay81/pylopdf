@@ -37,6 +37,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PylopdfWarning`. These options raise with `fontname` and font files, where
   pymupdf ignores them.
 
+- `Page.new_shape()` returns pymupdf's `Shape`, which draws paths and text on
+  a page in one step. `draw_line`, `draw_polyline`, `draw_rect` (with rounded
+  corners through `radius=`), `draw_quad`, `draw_circle`, `draw_oval`,
+  `draw_sector`, `draw_curve`, `draw_bezier`, `draw_squiggle`, and
+  `draw_zigzag` return pymupdf's end points, and `finish()` strokes and fills
+  with gray, RGB, or CMYK colours, line width, caps and joins, PDF dash
+  patterns, the even-odd rule, and opacity. `insert_text()` and
+  `insert_textbox()` take `Page.insert_text()`'s fonts, `font=` included. A
+  commit places one Form XObject, the finished paths in order and all text
+  above them, as pymupdf draws them, and embeds each font once however many
+  lines use it. `with page.new_shape() as shape:` commits on a clean exit and
+  draws nothing after an exception, and an uncommitted shape emits a
+  `ResourceWarning` when it is collected. Where pymupdf drops or blackens
+  drawing silently, `commit()` refuses drawing that `finish()` did not style
+  and `finish()` refuses a style that draws nothing. A shape holds at most
+  1,048,576 path points until it is committed, with the new `LimitError` code
+  `path_point_count`.
+- `Page.draw_line()`, `draw_polyline()`, `draw_rect()`, `draw_quad()`,
+  `draw_circle()`, `draw_oval()`, `draw_sector()`, `draw_curve()`,
+  `draw_bezier()`, `draw_squiggle()`, and `draw_zigzag()` draw one finished
+  shape each with pymupdf's options, which are keyword-only; `morph=` and
+  `oc=` are not available.
+
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing
   characters in the error, for example `no glyph for U+1F980 ('🦀')`.

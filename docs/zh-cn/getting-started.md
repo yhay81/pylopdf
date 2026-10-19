@@ -108,6 +108,12 @@ page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansSC-Regular.o
 bold = pylopdf.Font(fontfile="NotoSansSC-Bold.otf")         # extra未包含的字重从文件加载
 width = bold.text_length("标题", fontsize=16)                  # 与绘制宽度一致
 page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
+with page.new_shape() as shape:                              # 一个Form；每种字体只嵌入一次
+    shape.draw_rect((36, 160, 400, 260), radius=0.1)
+    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+    shape.insert_text((48, 190), "报告", font=bold, fontsize=16)
+    shape.insert_textbox((48, 200, 390, 250), "正文段落。", fontsize=11, font_language="zh-CN")
+page.draw_line((36, 280), (400, 280), width=0.5, dashes="[3 2] 0")  # pymupdf的draw_*
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

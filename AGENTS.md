@@ -1489,6 +1489,30 @@ overview.
   render-mode changes. Variable fonts load at their default instance; the
   `ar`, `he`, `hi`, and `th` extras ship variable fonts, and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
+- `Shape` (`rust/src/shape.rs`, recorded by `_Shape`) keeps pymupdf's
+  drawing order: every path in the order of its `finish()`, then every text
+  item in insertion order. `draw_*` geometry runs in Python as pymupdf's
+  code computes it, in display coordinates, and `finish()` hands the path
+  operators and style to `_Shape`; tests pin pymupdf's end points and
+  bounds. `_Document.commit_shape` generates the paths and the text in
+  embedded fonts with krilla as one document, so each face is embedded once
+  per commit, and places one Form XObject. Standard 14 text cannot be drawn
+  by krilla: when it separates other items, `ShapePlan` splits the drawing
+  into krilla pages of one document, `prepare_pages_form_import` imports
+  them with shared objects, and a composed Form draws the pages and the
+  Standard 14 text operators in order. A single krilla page is placed as
+  `insert_text` places its text. Generation, the import plan, the composed
+  content, and the page's drawing targets are prepared before the document
+  changes. `commit()` refuses drawing that `finish()` did not style, and
+  `finish()` refuses a style that draws nothing, where pymupdf drops the
+  path or strokes it in black (R2.7). Python charges path points as they are
+  added and `_Shape.add_path` repeats the 1,048,576-point bound
+  (`path_point_count`). krilla writes a path that is one rectangle as `re`
+  in its own corner order and skips the fill of a zero-area path, so
+  `get_drawings` can list such a path differently from pymupdf's output
+  while it renders the same. `morph=` and `oc=` wait for `Matrix` (F4) and
+  layers (M5); `Shape.width`, `height`, `x`, `y`, `pctm`, and `ipctm`
+  describe pymupdf's unrotated space and are not provided.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

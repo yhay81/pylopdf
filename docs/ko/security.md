@@ -89,7 +89,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
-`search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
+`path_point_count`, `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
 `decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
 `resource_nesting_depth` 중 하나이며 같은 값은`error.args[0]`에도 있습니다.
@@ -235,6 +235,11 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   fallible합니다. Standard 14 너비 검사는encoded text copy를 할당하지 않습니다.
   allocation refusal은`PdfError`를 반환하며 삽입은non-mutating이고 form fill은
   원자적으로rollback합니다.
+- `Shape.insert_text()`와 `Shape.insert_textbox()`는 호출마다 같은 text와 글꼴
+  상한을 적용합니다. 도형 하나가 확정 전까지 가질 수 있는 경로 점은 1,048,576개까지이며,
+  점을 더할 때와 Rust 경계에서 모두 검사하고 거부code는`path_point_count`입니다.
+  확정은 페이지를 바꾸기 전에 그리기 생성, 가져오기 계획, 페이지 그리기 대상 준비를
+  마치므로 거부되면 document는 바뀌지 않습니다.
 - `search_for()`의 검색어는UTF-8 4,096 byte, 반환geometry는 기본4,096건으로
   제한됩니다. Python은PyO3 copy 전에 초과 검색어를 거부하고Rust 경계도 두 제한을
   다시 검사합니다. 신뢰 가능한 결과 집합은`max_hits=None`으로 명시적으로 해제할

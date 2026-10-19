@@ -116,6 +116,12 @@ page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
 bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # extraにない太さはファイルから読む
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+with page.new_shape() as shape:                              # Form 1つ。書体は1度だけ埋め込む
+    shape.draw_rect((36, 160, 400, 260), radius=0.1)
+    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+    shape.insert_text((48, 190), "報告", font=bold, fontsize=16)
+    shape.insert_textbox((48, 200, 390, 250), "本文の段落。", fontsize=11)
+page.draw_line((36, 280), (400, 280), width=0.5, dashes="[3 2] 0")  # pymupdfのdraw_*
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
