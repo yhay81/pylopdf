@@ -115,6 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ascender apart, and returns the spare height left by `lineheight` times the
   font size per line plus one descender, as pymupdf does. Form-field
   appearances keep their layout.
+- `Page.insert_textbox()` and `Shape.insert_textbox()` raise `PdfError`, which
+  is a `ValueError`, instead of a plain `ValueError` for a `fontsize`,
+  `lineheight`, `align`, or `expandtabs` they do not accept, as the new
+  `lineheight=` of `insert_text()` does.
 - An embedded generation font that lacks a glyph now names the missing
   characters in the error, for example `no glyph for U+1F980 ('🦀')`.
 - Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers

@@ -292,8 +292,33 @@ def test_insert_textbox_fits_text_as_pymupdf_does(via: str, bottom: float, spare
 def test_insert_text_rejects_a_lineheight_that_is_not_positive(via: str, lineheight: object) -> None:
     page = _page()
 
-    with pytest.raises(ValueError, match="lineheight must be a positive number or None"):
+    with pytest.raises(pylopdf.PdfError, match="lineheight must be a positive number or None"):
         _insert_text(page, via, LATIN, lineheight=lineheight)
+    assert _baselines(page) == []
+
+
+@pytest.mark.parametrize("via", ["page", "shape"])
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        pytest.param({"fontsize": 0}, "fontsize must be a positive number", id="fontsize"),
+        pytest.param({"fontsize": "large"}, "fontsize must be a positive number", id="fontsize-type"),
+        pytest.param({"lineheight": -1}, "lineheight must be a positive number or None", id="lineheight"),
+        pytest.param({"align": 4}, "align must be one of", id="align"),
+        pytest.param({"expandtabs": -1}, "expandtabs must be a non-negative integer", id="expandtabs"),
+    ],
+)
+def test_insert_textbox_raises_pdf_error_for_unsupported_options(
+    via: str,
+    options: dict[str, Any],
+    message: str,
+) -> None:
+    page = _page()
+
+    # PdfError is a ValueError, so code that catches ValueError keeps working.
+    with pytest.raises(pylopdf.PdfError, match=message) as error:
+        _insert_textbox(page, via, RECT, LATIN, **options)
+    assert isinstance(error.value, ValueError)
     assert _baselines(page) == []
 
 

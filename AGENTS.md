@@ -1613,7 +1613,8 @@ overview.
   `LinePlacement::Stacked`, so their output did not change. pymupdf splits
   `insert_text` text with `str.splitlines()`, so a trailing line break adds no
   line, and leaves out the lines whose baseline falls below the page, counting
-  only the lines it drew; pylopdf does neither yet.
+  only the lines it drew; pylopdf does neither yet, and section 15 of
+  `api/DESIGN.md` lists both as M0 work.
 - `Page.insert_textbox` completes layout before mutating the PDF and returns
   negative spare height without drawing on overflow. Standard 14 measurement
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust

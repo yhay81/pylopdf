@@ -1230,10 +1230,10 @@ def _validate_lineheight(lineheight: float | None) -> float | None:
         resolved = float(lineheight)
     except (TypeError, ValueError) as exc:
         msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise ValueError(msg) from exc
+        raise PdfError(msg) from exc
     if not (math.isfinite(resolved) and resolved > 0):
         msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     return resolved
 
 
@@ -1248,17 +1248,17 @@ def _validate_textbox_options(
         resolved_fontsize = float(fontsize)
     except (TypeError, ValueError) as exc:
         msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise ValueError(msg) from exc
+        raise PdfError(msg) from exc
     if not (math.isfinite(resolved_fontsize) and resolved_fontsize > 0):
         msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     resolved_lineheight = _validate_lineheight(lineheight)
     if isinstance(align, bool) or not isinstance(align, int) or not TEXT_ALIGN_LEFT <= align <= TEXT_ALIGN_JUSTIFY:
         msg = f"align must be one of 0, 1, 2, or 3: {align!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     if isinstance(expandtabs, bool) or not isinstance(expandtabs, int) or expandtabs < 0:
         msg = f"expandtabs must be a non-negative integer: {expandtabs!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     return resolved_fontsize, resolved_lineheight
 
 
