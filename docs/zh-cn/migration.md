@@ -39,7 +39,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；返回负值时不绘制 |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`是`insert_textbox`排列行的数值 |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`是`insert_textbox`排列行的数值 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
 | `doc.embfile_add / names / get / del` | 相同 | |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |

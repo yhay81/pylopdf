@@ -103,8 +103,15 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 따르며 `insert_text(font=)`와 `insert_textbox(font=)`에 전달합니다.
 `Font("helv")`나 `Font("Times-Bold")`는 Standard 14 글꼴을 가리키며, 포함하지 않고
 그리고 Adobe AFM 폭으로 측정합니다. pymupdf의 다른 내장 글꼴은 쓸 수 없습니다.
-`Font(fontfile=)`와 `Font(fontbuffer=)`는 OpenType 글꼴을 그대로 불러오고(가변 글꼴은
-기본 인스턴스로 사용), `Font(language="ko")`나 `Font(family="Noto Sans KR")`는 설치된
+`Font(fontfile=)`와 `Font(fontbuffer=)`는 OpenType 글꼴을 그대로 불러오며, 가변 글꼴은
+기본 인스턴스로 사용합니다. 기본 인스턴스가 Regular라는 보장은 없으며, 가변 글꼴인
+Noto Sans CJK JP의 기본 인스턴스는 Thin입니다. `weight=`를 전달하면 가변 글꼴의 굵기 축에서
+다른 인스턴스를 선택합니다. `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`는 Bold
+인스턴스의 advance로 측정하고 `NotoSansCJKjp-Bold`로 포함하며, `weight=650`도 선택할 수
+있으므로 이런 글꼴에서는 `weight=400`과 생략한 경우의 결과가 다릅니다. 축 범위를 벗어난
+굵기는 `PdfError`가 되며, 정적 글꼴에 없는 굵기도 마찬가지입니다. `insert_text`,
+`insert_textbox`, `set_form_field`에 전달하는 `fontfile`과 `fontbuffer`는 기본 인스턴스로
+그립니다. `Font(language="ko")`나 `Font(family="Noto Sans KR")`는 설치된
 글꼴 extra의 글꼴을 선택합니다(`is_serif=True`이면 세리프). `font.text_length(text,
 fontsize)`는 그리기와 같은 shaping으로 커닝과 합자를 포함해 측정하므로, 그리는 글꼴의
 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다. `ascender`와 `descender`는
@@ -121,8 +128,8 @@ fontsize)`는 그리기와 같은 shaping으로 커닝과 합자를 포함해 �
 Regular 굵기로 그립니다. Noto Sans Hebrew의 기본 인스턴스가 Thin이기 때문입니다. pylopdf는 글꼴 등록표를 두지 않고 OS
 글꼴 폴더도 찾지 않습니다. 윤곽선이나 덧칠로 굵기를 흉내 내지 않으며,
 `allow_regular_fallback=True`를 명시한 경우에만 extra의 글꼴을 쓰고 `PylopdfWarning`을
-냅니다. pymupdf라면 무시하는 경우에도 `fontname`이나 글꼴 파일과 함께 스타일 지정을
-전달하면 예외가 납니다. 그리기 호출마다 그 호출이 쓰는 글자의 subset을 포함하는 점은
+냅니다. pymupdf라면 무시하는 경우에도 `fontname`이나 글꼴 파일과 함께 `is_bold`,
+`is_italic`, `is_serif`를 전달하면 예외가 납니다. 그리기 호출마다 그 호출이 쓰는 글자의 subset을 포함하는 점은
 그대로입니다. [도형](#shapes)으로 그리면 글꼴은 확정 한 번마다 한 번만 포함됩니다.
 
 ### 도형 { #shapes }
@@ -195,7 +202,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot용`max_interpretation_size`와 위치layout용`max_text_glyphs`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
-| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴 |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴. `weight=`는 가변 글꼴 파일의 인스턴스도 선택 |
 | `Shape(page)` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. `page.new_shape()`로도 만들 수 있음 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |

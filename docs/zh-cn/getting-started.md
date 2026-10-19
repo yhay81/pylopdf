@@ -110,12 +110,14 @@ width = bold.text_length("标题", fontsize=16)                  # 与绘制宽�
 page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
 hebrew = pylopdf.Font(language="he", is_bold=True)          # 可变字体pylopdf[he]无需添加文件即可选择Bold
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 自备的可变字体可选择其字重轴上的任意字重
+page.insert_text((40, 200), "标题", font=semibold, fontsize=16)
 with page.new_shape() as shape:                              # 一个Form；每种字体只嵌入一次
-    shape.draw_rect((36, 190, 400, 290), radius=0.1)
+    shape.draw_rect((36, 220, 400, 320), radius=0.1)
     shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
-    shape.insert_text((48, 220), "报告", font=bold, fontsize=16)
-    shape.insert_textbox((48, 230, 390, 280), "正文段落。", fontsize=11, font_language="zh-CN")
-page.draw_line((36, 310), (400, 310), width=0.5, dashes="[3 2] 0")  # pymupdf的draw_*
+    shape.insert_text((48, 250), "报告", font=bold, fontsize=16)
+    shape.insert_textbox((48, 260, 390, 310), "正文段落。", fontsize=11, font_language="zh-CN")
+page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf的draw_*
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

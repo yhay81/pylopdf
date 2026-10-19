@@ -118,12 +118,14 @@ width = bold.text_length("見出し", fontsize=16)                # exactly the 
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
 hebrew = pylopdf.Font(language="he", is_bold=True)          # variable pylopdf[he]: bold without an added file
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # any weight on the axis of a variable font you supply
+page.insert_text((40, 200), "見出し", font=semibold, fontsize=16)
 with page.new_shape() as shape:                              # one Form; each font embedded once
-    shape.draw_rect((36, 190, 400, 290), radius=0.1)
+    shape.draw_rect((36, 220, 400, 320), radius=0.1)
     shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
-    shape.insert_text((48, 220), "報告", font=bold, fontsize=16)
-    shape.insert_textbox((48, 230, 390, 280), "本文の段落。", fontsize=11)
-page.draw_line((36, 310), (400, 310), width=0.5, dashes="[3 2] 0")  # pymupdf's draw_* helpers
+    shape.insert_text((48, 250), "報告", font=bold, fontsize=16)
+    shape.insert_textbox((48, 260, 390, 310), "本文の段落。", fontsize=11)
+page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf's draw_* helpers
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

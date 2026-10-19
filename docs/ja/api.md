@@ -108,7 +108,14 @@ resourceは追加されません。
 従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。`Font("helv")`や
 `Font("Times-Bold")`はStandard 14の書体を指し、埋め込まずに描き、AdobeのAFMの幅で
 測ります。pymupdfのほかの内蔵書体は使えません。`Font(fontfile=)`と`Font(fontbuffer=)`
-はOpenTypeの書体をそのまま読み込み（可変フォントは既定のインスタンスで使います）、
+はOpenTypeの書体をそのまま読み込み、可変フォントは既定のインスタンスで使います。既定の
+インスタンスがRegularとは限らず、可変フォントのNoto Sans CJK JPはThinです。`weight=`を
+渡すと可変フォントの太さの軸から別のインスタンスを選びます。
+`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`はBoldのインスタンスの送り幅で測り、
+`NotoSansCJKjp-Bold`として埋め込みます。`weight=650`も選べるので、こうした書体では
+`weight=400`と省略した場合とで結果が異なります。軸の範囲外の太さは`PdfError`になり、
+静的な書体が持たない太さも同じです。`insert_text`・`insert_textbox`・`set_form_field`に
+渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。
 `Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を
 選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じ
 shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
@@ -127,7 +134,7 @@ Noto Sans Hebrewの既定のインスタンスはThinだからです。pylopdf�
 フォルダも探しません。輪郭線や重ね塗りで太さを真似ることはせず、
 `allow_regular_fallback=True`を明示したときだけextraの書体を使い
 `PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイル
-と一緒にスタイルの指定を渡すと例外になります。描画の呼び出しごとに、その呼び出しで
+と一緒に`is_bold`・`is_italic`・`is_serif`を渡すと例外になります。描画の呼び出しごとに、その呼び出しで
 使う字のサブセットを埋め込む点は変わりません。[図形](#shapes)で描けば、書体は確定1回につき1度だけ
 埋め込まれます。
 
@@ -201,7 +208,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot用`max_interpretation_size`と位置付きlayout用`max_text_glyphs`を含む、信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
-| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体 |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体。`weight=`は可変フォントのファイルのインスタンスも選ぶ |
 | `Shape(page)` | 経路と文字を1回で描くpymupdfの`Shape`。`page.new_shape()`でも作れる |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |

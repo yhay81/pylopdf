@@ -42,7 +42,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.show_pdf_page(rect, src, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要。編集していない取り込み元の再配置はForm XObjectを共有 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | sourceなしは標準14 / WinAnsi、または導入済みscript／locale provider。その他は明示fontを字形処理してsubset埋め込み |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。負の戻り値なら描画しない |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ | Standard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extra。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えない。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になる。書体は`insert_text` / `insert_textbox`に`font=`で渡す。`text_length`はカーニングを含み、`ascender`／`descender`は`insert_textbox`が行を置く値 |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ | Standard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extra。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えない。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になる。keyword-onlyの`weight=`は、可変フォントのファイルの太さの軸からインスタンスも選ぶ。書体は`insert_text` / `insert_textbox`に`font=`で渡す。`text_length`はカーニングを含み、`ascender`／`descender`は`insert_textbox`が行を置く値 |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
