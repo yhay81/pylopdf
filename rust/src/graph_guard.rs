@@ -1,7 +1,7 @@
 //! Bound the depth of the colour space and function graphs that hayro builds.
 //!
-//! hayro 0.7 builds a colour space and a function by recursion over the
-//! objects they name, with no depth bound (hayro 0.8 has none either):
+//! hayro 0.7 and 0.8 build a colour space and a function by recursion over the
+//! objects they name, with no depth bound:
 //!
 //! * an Indexed or Pattern colour space names a base space, a Separation or
 //!   DeviceN space an alternate space and a tint transform, and an ICCBased
@@ -70,10 +70,11 @@ use crate::postscript_scan;
 /// Real documents stay far below it: hayro's builders nested at most three deep
 /// while it interpreted 54,088 pages of 5,683 real PDFs, and a node here is at
 /// most twice a builder, because an ICCBased space is an array plus its profile
-/// stream. The bound equals the 32 indirections that pylopdf follows elsewhere,
-/// and hayro's frames for one level measured 0.9 to 1.4 KiB, so the limit costs
-/// under 45 KiB of stack.
-pub(crate) const MAX_CHAIN_DEPTH: usize = 32;
+/// stream. hayro 0.8 spends about 4 KiB of stack per ICCBased space in the
+/// thin-LTO build, so a 32-node chain needed a 116 KiB thread, close to the
+/// 128 KiB that musl gives spawned threads, where 16 nodes need 68 KiB and
+/// every other accepted structure stays within the 56 KiB of a plain page.
+pub(crate) const MAX_CHAIN_DEPTH: usize = 16;
 
 /// How the walk names an object.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -32,7 +32,7 @@ CRASH_BRACES = 300_000
 CRASH_CHAIN = 20_000
 #: The deepest braces and chain that reach hayro's recursive builders.
 BRACE_LIMIT = 64
-CHAIN_LIMIT = 32
+CHAIN_LIMIT = 16
 SOME_OPERATIONS = ["get_page_text", "get_pixmap", "render_page_svg"]
 
 
@@ -853,7 +853,7 @@ def test_refusals_name_where_the_structure_is() -> None:
     chain = pylopdf.Document(stream=CASES["stitching-shading"](CHAIN_LIMIT + 1))
     message = str(_refusal(lambda: chain.get_page_text(0)))
     assert "chain of colour spaces and functions that starts at" in message
-    assert "reachable from page 1 is deeper than the 32-level limit" in message
+    assert f"reachable from page 1 is deeper than the {CHAIN_LIMIT}-level limit" in message
 
     program = pylopdf.Document(stream=CASES["type4-shading"](BRACE_LIMIT + 1))
     assert "Type 4 function 5 0 R reachable from page 1 nests procedures deeper than the 64-level limit" in str(
@@ -914,22 +914,25 @@ def _two_pages(parts: Parts, first: str, second: str) -> bytes:
     )
 
 
+RING = 5
+
+
 @pytest.mark.parametrize("order", [(0, 1), (1, 0)])
 @pytest.mark.parametrize(
     ("above", "refused"),
     [
-        ((20, 5), ()),
-        ((22, 22), ()),
-        ((23, 5), (0,)),
-        ((5, 23), (1,)),
+        ((CHAIN_LIMIT - RING - 3, 3), ()),
+        ((CHAIN_LIMIT - RING, CHAIN_LIMIT - RING), ()),
+        ((CHAIN_LIMIT - RING + 1, 3), (0,)),
+        ((3, CHAIN_LIMIT - RING + 1), (1,)),
     ],
 )
 def test_roots_that_share_a_cycle_are_measured_alike_in_any_order(
     above: tuple[int, int], refused: tuple[int, ...], order: tuple[int, int]
 ) -> None:
-    """A ring of ten costs ten levels below any chain that names it, whichever page is checked first."""
+    """A ring of five costs five levels below any chain that names it, whichever page is checked first."""
     parts = Parts(first=6)
-    member = ring(parts, 10)
+    member = ring(parts, RING)
     resources = [
         f"/Shading << /Sh1 << {SHADING}/Function {chain_into(parts, length, member)} >> >> " for length in above
     ]
@@ -1052,15 +1055,15 @@ def test_an_object_that_many_entries_name_is_read_once(name: str) -> None:
 
 
 def test_shared_sub_graphs_are_measured_once() -> None:
-    """Thirty levels that each name the next one twice have a billion paths and a depth of thirty."""
+    """Sixteen levels that each name the next one four times have a billion paths and a depth of sixteen."""
     parts = Parts()
-    first = parts.reserve(30)
-    for index in range(30):
+    first = parts.reserve(CHAIN_LIMIT)
+    for index in range(CHAIN_LIMIT):
         number = first + index
-        if index < 29:
+        if index < CHAIN_LIMIT - 1:
             parts.objects[number] = (
-                f"<< /FunctionType 3 /Domain [0 1] /Functions [{number + 1} 0 R {number + 1} 0 R] "
-                "/Bounds [0.5] /Encode [0 1 0 1] >>"
+                f"<< /FunctionType 3 /Domain [0 1] /Functions [{f'{number + 1} 0 R ' * 4}] "
+                "/Bounds [0.25 0.5 0.75] /Encode [0 1 0 1 0 1 0 1] >>"
             )
         else:
             parts.objects[number] = TYPE2
@@ -1450,15 +1453,15 @@ def test_wide_stitching_functions_are_not_deep() -> None:
     assert doc[0].get_pixmap().width == 300
 
 
-@pytest.mark.parametrize("levels", [15, 16])
+@pytest.mark.parametrize("levels", [CHAIN_LIMIT // 2 - 1, CHAIN_LIMIT // 2])
 def test_an_indirect_functions_array_is_a_level_of_its_own(levels: int) -> None:
     """A `/Functions` array that is an object of its own is a node, so each level of the chain is two."""
     parts = Parts()
     resources, _ = shading(parts, stitching_through_arrays(parts, levels), 3)
     doc = pylopdf.Document(stream=page_scope(parts, resources, "0 0 m"))
 
-    # Fifteen levels are 31 nodes with the Type 2 function at the end, sixteen are 33.
-    if levels > 15:
+    # Seven levels are 15 nodes with the Type 2 function at the end, eight are 17.
+    if levels >= CHAIN_LIMIT // 2:
         assert _refusal(partial(doc.get_page_text, 0)).code == CODE
     else:
         assert doc.get_page_text(0) is not None
