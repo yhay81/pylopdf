@@ -359,6 +359,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested Separation spaces, so keep enforcing deadlines in the host. A sweep of
   5,707 varied PDFs refused none, no corpus page renders or extracts
   differently, and the walk adds no measurable cost to the content check.
+- The content nesting check no longer parses an object once for every entry
+  that names it. Its walk lists every entry of every resource dictionary
+  whether or not content draws it, and it recorded a form, font, tiling
+  pattern, or glyph procedure only when it processed the queued copy, after
+  each entry had parsed the object and queued another copy. A file whose 3,000
+  entries name one object of 20,000 keys (0.23 MB) kept the first text
+  extraction busy for 3.3 seconds (a font), 3.8 (a form), or 5.8 (a tiling
+  pattern) and held all 3,000 parsed copies at once, a peak of 3.0 GB for the
+  form and 3.3 GB for the font. Both costs grow with the product of the two
+  sizes, so a few megabytes took minutes and exhausted the memory of a small
+  host, where the same files take milliseconds and 41 to 47 MB. The walk now
+  records every reference by purpose before it parses the object it names, so
+  each `/XObject`, `/Pattern`, `/Font`, and `/ExtGState` entry, each
+  `/Resources` and resource category dictionary, each `/CharProcs` dictionary
+  and glyph procedure, each appearance dictionary and stream, each soft mask
+  with its group and group attributes, and each graphics state `/Font` array
+  with the font it selects is parsed once, however many entries name it. Fifteen
+  deadline tests pin these shapes; each failed by a factor of 3.7 to 12 before.
+- A stream that is a tiling pattern and an image at once no longer hides the
+  image's colour space from the colour space check. The walk skipped an
+  `/XObject` entry whose stream it had already cleared as content, so a chain of
+  20,000 colour spaces behind such an image, named from the resources of a
+  nested form, still overflowed the stack and ended the process with SIGSEGV on
+  the first text extraction. Entries are now skipped only in the role they were
+  followed for, and such a document is refused with `resource_nesting_depth`.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered
