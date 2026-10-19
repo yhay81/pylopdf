@@ -2738,9 +2738,8 @@ class Page:
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
-        not intersect the page raises :class:`PdfError`. hayro currently lacks
-        an offset viewport, so clipping reduces the returned pixel data but not
-        the full-page rasterization cost or render-size limits.
+        not intersect the page raises :class:`PdfError`. Only the clipped
+        region is rasterized, but full-page render-size limits still apply.
         """
         if dpi is not None:
             if scale != 1.0:

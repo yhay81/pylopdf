@@ -12,10 +12,13 @@ use std::sync::{Arc, Mutex};
 use hayro::hayro_interpret::InterpreterCache;
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
-use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning};
+use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning, TransformExt};
 use hayro::hayro_syntax::Pdf;
+use hayro::kurbo::Affine;
 use hayro::vello_cpu::color::AlphaColor;
-use hayro::{RenderCache, RenderSettings, render};
+use hayro::vello_cpu::peniko::ImageAlphaType;
+use hayro::vello_cpu::{RasterizerSettings, RenderContext, Resources, TargetInit};
+use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
 use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
@@ -2943,30 +2946,24 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Convert a hayro Pixmap to straight-alpha RGBA8 bytes.
-fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
-    let pixels = pixmap.take_unpremultiplied();
-    let output_len = pixels
-        .len()
-        .checked_mul(4)
-        .ok_or_else(|| "rendered RGBA buffer size overflowed".to_owned())?;
-    let mut out = Vec::new();
-    out.try_reserve_exact(output_len)
-        .map_err(|error| format!("failed to allocate rendered RGBA buffer: {error}"))?;
-    for px in pixels {
-        out.extend_from_slice(&[px.r, px.g, px.b, px.a]);
-    }
-    Ok(out)
+/// Convert a hayro Pixmap to straight-alpha RGBA8 bytes in place.
+///
+/// vello_cpu unpremultiplies its own buffer and reinterprets it as bytes, so
+/// this conversion allocates nothing.
+fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
+    pixmap.take_rgba8(ImageAlphaType::Alpha)
 }
 
-/// Convert only a display-coordinate crop of a hayro Pixmap to RGBA8 bytes.
-fn cropped_rgba_bytes(
-    pixmap: hayro::vello_cpu::Pixmap,
-    width: u32,
-    height: u32,
+/// Pixel viewport of a display-coordinate clip on the scaled page raster.
+///
+/// The clip is intersected with the page and rounded outward to pixel
+/// boundaries. Returns the viewport origin and size in pixels.
+fn clip_viewport(
+    page_width: u16,
+    page_height: u16,
     scale: f32,
     clip: (f64, f64, f64, f64),
-) -> Result<(u32, u32, Vec<u8>), String> {
+) -> Result<(f64, f64, u16, u16), String> {
     if ![clip.0, clip.1, clip.2, clip.3]
         .into_iter()
         .all(f64::is_finite)
@@ -2976,53 +2973,16 @@ fn cropped_rgba_bytes(
         return Err("clip must be a finite rectangle with x0 < x1 and y0 < y1".to_owned());
     }
     let scale = f64::from(scale);
-    let pixel_x0 = (clip.0 * scale).floor().clamp(0.0, f64::from(width)) as u32;
-    let pixel_y0 = (clip.1 * scale).floor().clamp(0.0, f64::from(height)) as u32;
-    let pixel_x1 = (clip.2 * scale).ceil().clamp(0.0, f64::from(width)) as u32;
-    let pixel_y1 = (clip.3 * scale).ceil().clamp(0.0, f64::from(height)) as u32;
-    if pixel_x0 >= pixel_x1 || pixel_y0 >= pixel_y1 {
+    let (width, height) = (f64::from(page_width), f64::from(page_height));
+    let x0 = (clip.0 * scale).floor().clamp(0.0, width);
+    let y0 = (clip.1 * scale).floor().clamp(0.0, height);
+    let x1 = (clip.2 * scale).ceil().clamp(0.0, width);
+    let y1 = (clip.3 * scale).ceil().clamp(0.0, height);
+    if x0 >= x1 || y0 >= y1 {
         return Err("clip does not intersect the rendered page".to_owned());
     }
-
-    let cropped_width = pixel_x1 - pixel_x0;
-    let cropped_height = pixel_y1 - pixel_y0;
-    let source_width =
-        usize::try_from(width).map_err(|_| "rendered page width is too large".to_owned())?;
-    let source_x0 =
-        usize::try_from(pixel_x0).map_err(|_| "cropped page offset is too large".to_owned())?;
-    let source_x1 =
-        usize::try_from(pixel_x1).map_err(|_| "cropped page offset is too large".to_owned())?;
-    let capacity = usize::try_from(cropped_width)
-        .ok()
-        .and_then(|width| {
-            usize::try_from(cropped_height)
-                .ok()
-                .and_then(|height| width.checked_mul(height))
-        })
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "cropped page is too large".to_owned())?;
-    let pixels = pixmap.take_unpremultiplied();
-    let mut cropped = Vec::new();
-    cropped
-        .try_reserve_exact(capacity)
-        .map_err(|error| format!("failed to allocate cropped RGBA buffer: {error}"))?;
-    for y in pixel_y0..pixel_y1 {
-        let row_start = usize::try_from(y)
-            .ok()
-            .and_then(|value| value.checked_mul(source_width))
-            .and_then(|value| value.checked_add(source_x0))
-            .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        let row_end = row_start
-            .checked_add(source_x1 - source_x0)
-            .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        for px in pixels
-            .get(row_start..row_end)
-            .ok_or_else(|| "cropped page exceeds the rendered image".to_owned())?
-        {
-            cropped.extend_from_slice(&[px.r, px.g, px.b, px.a]);
-        }
-    }
-    Ok((cropped_width, cropped_height, cropped))
+    // Both extents are bounded by the u16 page raster, so the casts are exact.
+    Ok((x0, y0, (x1 - x0) as u16, (y1 - y0) as u16))
 }
 
 /// Validate one page and return its raster pixel count.
@@ -3059,7 +3019,11 @@ fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Result<u64, St
     Ok(total_pixels)
 }
 
-/// Render one page from an immutable hayro snapshot and caller-owned cache.
+/// Render one page, or one display-coordinate clip of it, from an immutable
+/// hayro snapshot and caller-owned cache.
+///
+/// A clip renders through an offset viewport, so only its pixels are
+/// rasterized and allocated. Full-page render-size limits still apply.
 fn render_pdf_page<'a>(
     pdf: &'a Pdf,
     cache: &RenderCache<'a>,
@@ -3067,6 +3031,7 @@ fn render_pdf_page<'a>(
     page_number: u32,
     scale: f32,
     background: Option<(u8, u8, u8, u8)>,
+    clip: Option<(f64, f64, f64, f64)>,
 ) -> Result<hayro::vello_cpu::Pixmap, String> {
     render_pixel_count(pdf, page_number, scale)?;
     let pages = pdf.pages();
@@ -3074,22 +3039,46 @@ fn render_pdf_page<'a>(
         .checked_sub(1)
         .and_then(|index| pages.get(index as usize))
         .ok_or_else(|| format!("page {page_number} does not exist"))?;
-    let mut render_settings = RenderSettings {
-        x_scale: scale,
-        y_scale: scale,
-        ..Default::default()
+    let (page_width, page_height) = page.render_dimensions();
+    // Match hayro::render, which truncates the scaled page size.
+    let (width, height) = ((page_width * scale) as u16, (page_height * scale) as u16);
+    let (x0, y0, width, height) = match clip {
+        Some(clip) => clip_viewport(width, height, scale, clip)?,
+        None => (0.0, 0.0, width, height),
     };
-    if let Some((r, g, b, a)) = background {
-        render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
-    }
-    Ok(render(page, cache, interpreter_settings, &render_settings))
+    let transform = Affine::translate((-x0, -y0))
+        * Affine::scale(f64::from(scale))
+        * page.initial_transform(true).to_kurbo();
+    let mut context = RenderContext::new(width, height);
+    render_into(
+        page,
+        cache,
+        interpreter_settings,
+        &RenderSettings::default(),
+        &mut context,
+        transform,
+    );
+    context.flush();
+    let bg_color = background.map_or(PixmapSettings::default().bg_color, |(r, g, b, a)| {
+        AlphaColor::from_rgba8(r, g, b, a)
+    });
+    let mut pixmap = hayro::vello_cpu::Pixmap::new(width, height);
+    context.render_with(
+        &mut pixmap,
+        &mut Resources::default(),
+        RasterizerSettings {
+            target_init: TargetInit::Clear(bg_color),
+            ..Default::default()
+        },
+    );
+    Ok(pixmap)
 }
 
 /// Convert a rendered pixmap into the bounded fast PNG representation used publicly.
 fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
+    let data = rgba_bytes(pixmap);
     match crate::extract::encode_png_bounded(
         width,
         height,
@@ -3197,7 +3186,7 @@ fn rendered_batch_png(
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
+    let data = rgba_bytes(pixmap);
     let mut output = BatchPngOutput::new(max_size, output_bytes);
     let result = crate::extract::write_png(
         &mut output,
@@ -3240,6 +3229,7 @@ impl BatchRenderer<'_> {
             page_number,
             self.scale,
             self.background,
+            None,
         )
         .map_err(PdfError::new_err)?;
         match self.max_output_size {
@@ -3306,61 +3296,6 @@ fn form_text_string(text: &str) -> Object {
         encoded.extend_from_slice(&unit.to_be_bytes());
     }
     Object::String(encoded, StringFormat::Hexadecimal)
-}
-
-/// Resolve annotation state dictionaries to their selected stream for hayro.
-///
-/// PDF permits `/AP /N` to be a state-name dictionary selected by `/AS`.
-/// hayro 0.7 only consumes a direct normal stream, so rendering uses a clone
-/// with the selected entry substituted while the editable PDF stays canonical.
-fn selected_state_appearance<'a>(
-    doc: &'a Document,
-    object: &'a Object,
-) -> Option<(&'a Dictionary, &'a Object)> {
-    let annotation = object.as_dict().ok()?;
-    let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
-    let appearance = deref_dict_ref(doc, annotation.get(b"AP").ok()?)?;
-    let normal = deref_dict_ref(doc, appearance.get(b"N").ok()?)?;
-    let selected = normal.get(state).ok()?;
-    deref_object(doc, selected).as_stream().ok()?;
-    Some((appearance, selected))
-}
-
-/// Preflight render-only state substitutions without cloning every object ID.
-fn state_appearance_ids(doc: &Document) -> PyResult<Vec<ObjectId>> {
-    let mut object_ids = Vec::new();
-    for (&object_id, object) in &doc.objects {
-        if selected_state_appearance(doc, object).is_none() {
-            continue;
-        }
-        object_ids.try_reserve(1).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to grow render state-appearance plan: {error}"
-            ))
-        })?;
-        object_ids.push(object_id);
-    }
-    Ok(object_ids)
-}
-
-fn normalize_state_appearances_for_render(doc: &mut Document, object_ids: &[ObjectId]) -> bool {
-    let mut changed = false;
-    for &object_id in object_ids {
-        let Some((mut appearance, selected)) = doc
-            .get_object(object_id)
-            .ok()
-            .and_then(|object| selected_state_appearance(doc, object))
-            .map(|(appearance, selected)| (appearance.clone(), selected.clone()))
-        else {
-            continue;
-        };
-        appearance.set("N", selected);
-        if let Ok(annotation) = doc.get_object_mut(object_id).and_then(Object::as_dict_mut) {
-            annotation.set("AP", Object::Dictionary(appearance));
-            changed = true;
-        }
-    }
-    changed
 }
 
 struct TextMarkupAppearancePlan {
@@ -3452,7 +3387,7 @@ fn text_markup_segment_count(kind: draw::TextMarkupKind, quad: [(f64, f64); 4]) 
 /// Collect bounded text-markup annotations that need a render-only appearance.
 ///
 /// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
-/// but hayro 0.7 requires `/AP /N`. Keep this compatibility work outside the
+/// but hayro 0.8 requires `/AP /N`. Keep this compatibility work outside the
 /// editable document and refuse aggregate geometry amplification.
 fn missing_text_markup_appearance_plans(
     doc: &Document,
@@ -7356,12 +7291,10 @@ impl _Document {
     fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
             let page_ids = self.doc.owned_page_ids()?;
-            let state_appearances = state_appearance_ids(&self.doc)?;
             let text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
-            let prepare_appearances = !state_appearances.is_empty()
-                || text_markup_appearances
-                    .as_ref()
-                    .is_some_and(|plans| !plans.is_empty());
+            let prepare_appearances = text_markup_appearances
+                .as_ref()
+                .is_some_and(|plans| !plans.is_empty());
             if !prepare_appearances {
                 match &self.hayro_source {
                     HayroSource::TooLarge { actual, limit } => {
@@ -7384,7 +7317,7 @@ impl _Document {
             // bytes stay the fallback when the serialization is refused or
             // lists other pages.
             let serialized_pdf = (!prepare_appearances && self.prefers_serialized_graph())
-                .then(|| self.render_snapshot(&state_appearances, None, None).ok())
+                .then(|| self.render_snapshot(None, None).ok())
                 .flatten()
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             if serialized_pdf.is_some() {
@@ -7400,7 +7333,7 @@ impl _Document {
                 Some(pdf) => pdf,
                 None => {
                     let pdf =
-                        self.render_snapshot(&state_appearances, text_markup_appearances, None)?;
+                        self.render_snapshot(text_markup_appearances, None)?;
                     if hayro_pages_match(&pdf, &page_ids) {
                         pdf
                     } else {
@@ -7410,11 +7343,8 @@ impl _Document {
                         // walker's pages in a rendering copy.
                         let text_markup_appearances =
                             missing_text_markup_appearance_plans(&self.doc)?;
-                        let pdf = self.render_snapshot(
-                            &state_appearances,
-                            text_markup_appearances,
-                            Some(&page_ids),
-                        )?;
+                        let pdf =
+                            self.render_snapshot(text_markup_appearances, Some(&page_ids))?;
                         if !hayro_pages_match(&pdf, &page_ids) {
                             return Err(PdfError::new_err(
                                 "the renderer could not resolve the document page tree",
@@ -7468,12 +7398,10 @@ impl _Document {
     /// page-tree node. None of this changes the editable or saved document.
     fn render_snapshot(
         &mut self,
-        state_appearances: &[ObjectId],
         text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
         flattened_pages: Option<&[ObjectId]>,
     ) -> PyResult<Pdf> {
-        let normalize = !state_appearances.is_empty()
-            || text_markup_appearances
+        let normalize = text_markup_appearances
                 .as_ref()
                 .is_some_and(|plans| !plans.is_empty())
             || flattened_pages.is_some();
@@ -7489,7 +7417,6 @@ impl _Document {
             } else {
                 self.doc.clone()
             };
-            normalize_state_appearances_for_render(&mut doc, state_appearances);
             if let Some(plans) = text_markup_appearances {
                 synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
             }
@@ -7748,6 +7675,12 @@ impl _Document {
                     "encountered an unsupported font format; some glyphs could not be processed"
                 }
                 InterpreterWarning::ImageDecodeFailure => "failed to decode an image",
+                // hayro also reports a check box whose `/AS /Off` has no Off
+                // stream. ISO 32000 makes that appearance optional, and forms
+                // such as f1040 omit it for every unchecked box, so this
+                // warning would fire on valid input during every operation.
+                InterpreterWarning::UnresolvedAnnotationAppearance => return,
+                _ => "encountered an unsupported PDF construct during interpretation",
             };
             if let Ok(mut pending) = sink.lock()
                 && !pending.iter().any(|m| m == message)
@@ -7765,6 +7698,7 @@ impl _Document {
         page_number: u32,
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
+        clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         let interpreter_settings = self.interpreter_settings();
         py.detach(|| {
@@ -7782,6 +7716,7 @@ impl _Document {
                         page_number,
                         scale,
                         background,
+                        clip,
                     )
                 })
                 .map_err(PdfError::new_err)
@@ -9860,7 +9795,7 @@ impl _Document {
                 "max_output_size must be a positive integer or None",
             ));
         }
-        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background, None)?;
         // PNG encoding can cost more than rasterization, so release the GIL and
         // use Fast/fdeflate. Balanced is tens of times slower for about 10%
         // smaller output and made PNG the dominant render cost in benchmarks.
@@ -10011,16 +9946,11 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<crate::pixmap::Pixmap> {
-        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background, clip)?;
         let width = u32::from(pixmap.width());
         let height = u32::from(pixmap.height());
-        // Release the GIL: unpremultiplication, conversion, and cropping are costly.
-        let (width, height, data) = py
-            .detach(|| match clip {
-                Some(clip) => cropped_rgba_bytes(pixmap, width, height, scale, clip),
-                None => Ok((width, height, rgba_bytes(pixmap)?)),
-            })
-            .map_err(PdfError::new_err)?;
+        // Release the GIL: unpremultiplication touches every rendered pixel.
+        let data = py.detach(|| rgba_bytes(pixmap));
         Ok(crate::pixmap::Pixmap {
             width,
             height,
@@ -10046,7 +9976,7 @@ impl _Document {
 
     /// Render a one-based page to an SVG string.
     ///
-    /// hayro-svg 0.7 materializes its internal String before returning, so the
+    /// hayro-svg 0.8 materializes its internal String before returning, so the
     /// limit prevents conversion to a second Python string rather than bounding
     /// the converter's temporary allocation.
     fn render_page_svg(

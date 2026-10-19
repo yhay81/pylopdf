@@ -307,11 +307,14 @@ impl ContentGuard {
                 .map_err(|refusal| refusal_error(&Subject::Page(number), refusal))?;
         }
         let mut work = Vec::new();
-        let mut level = Some(page.resources());
-        while let Some(resources) = level {
-            self.visit_resources(fresh, resources, &mut work)?;
-            level = resources.parent();
-        }
+        // hayro 0.8 resolves a page's names only in its own `/Resources`, or
+        // the nearest one it inherits from the page tree, and never falls back
+        // to an ancestor's dictionary. A form or Type 3 glyph procedure with
+        // its own `/Resources` (or, for a glyph, its font's) uses only that
+        // dictionary, and one without uses the resources it is drawn with; a
+        // pattern uses only its own. The walk visits every one of these
+        // dictionaries below.
+        self.visit_resources(fresh, page.resources(), &mut work)?;
         if let Some(annotations) = fresh.array(page.raw(), ANNOTS) {
             // Iterate the way hayro does, which also ends at the first element
             // that is not a dictionary. `Array::raw_iter` unwraps the read of
