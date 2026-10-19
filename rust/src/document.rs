@@ -35,6 +35,7 @@ use crate::acroform_import::AcroFormImport;
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
+use crate::font::_Font;
 use crate::form;
 use crate::generate;
 use crate::generated_pdf;
@@ -143,8 +144,8 @@ const MAX_PASSWORD_INPUT_BYTES: usize = 127;
 /// Default public boundaries for encoded and decoded image insertion input.
 const DEFAULT_MAX_IMAGE_INPUT_SIZE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
-const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
-const DEFAULT_MAX_GENERATED_TEXT_SIZE: usize = 1024 * 1024;
+pub(crate) const DEFAULT_MAX_FONT_INPUT_SIZE: usize = 64 * 1024 * 1024;
+pub(crate) const DEFAULT_MAX_GENERATED_TEXT_SIZE: usize = 1024 * 1024;
 
 /// Bound and materialize page drawing resources before dependent objects exist.
 const MAX_PAGE_RESOURCE_ENTRIES: usize = 4_096;
@@ -1549,7 +1550,7 @@ pub(crate) fn read_font_file(
 /// A face Python selected from an installed font package shares its bytes
 /// through `bundled_font_cache`; explicit font paths are read on every call.
 /// Both apply the same `font_input_size` boundary before using any bytes.
-fn load_generation_font(
+pub(crate) fn load_generation_font(
     py: Python<'_>,
     path: &str,
     package_font: Option<(String, String)>,
@@ -1582,7 +1583,10 @@ pub(crate) fn font_file_metadata(
     Ok(metadata)
 }
 
-fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyResult<()> {
+pub(crate) fn validate_font_input(
+    data: Option<&[u8]>,
+    max_font_size: Option<usize>,
+) -> PyResult<()> {
     if max_font_size == Some(0) {
         return Err(PyValueError::new_err(
             "max_font_size must be a positive integer or None",
@@ -1602,7 +1606,7 @@ fn validate_font_input(data: Option<&[u8]>, max_font_size: Option<usize>) -> PyR
     Ok(())
 }
 
-fn validate_generated_text_input<'a>(
+pub(crate) fn validate_generated_text_input<'a>(
     chunks: impl IntoIterator<Item = &'a [u8]>,
     max_text_size: Option<usize>,
 ) -> PyResult<()> {
@@ -11744,6 +11748,100 @@ impl _Document {
             fontsize,
             color,
             overlay,
+        )
+    }
+
+    /// Draw subset-embedded text with a loaded `Font`.
+    ///
+    /// The face's bytes were bounded when it was loaded, so only the text
+    /// budgets apply here; drawing then follows `insert_embedded_text`.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        point,
+        lines,
+        font,
+        fontsize,
+        color,
+        overlay,
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+    ))]
+    fn insert_font_text(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        point: (f64, f64),
+        lines: Vec<String>,
+        font: &Bound<'_, _Font>,
+        fontsize: f64,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_text_size: Option<usize>,
+    ) -> PyResult<()> {
+        validate_generated_text_line_count(lines.len(), max_text_size)?;
+        validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
+        let (data, font_index) = font.get().source().ok_or_else(|| {
+            PdfError::new_err("a Standard 14 Font draws through the Standard 14 text path")
+        })?;
+        self.draw_embedded_text(
+            py,
+            page_number,
+            point,
+            &lines,
+            data,
+            font_index,
+            fontsize,
+            color,
+            overlay,
+        )
+    }
+
+    /// Lay out and draw subset-embedded text with a loaded `Font`.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        page_number,
+        rect,
+        text,
+        font,
+        fontsize,
+        line_height,
+        align,
+        color,
+        overlay,
+        max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
+    ))]
+    fn insert_font_textbox(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        text: &str,
+        font: &Bound<'_, _Font>,
+        fontsize: f64,
+        line_height: f64,
+        align: u8,
+        color: (f64, f64, f64),
+        overlay: bool,
+        max_text_size: Option<usize>,
+    ) -> PyResult<f64> {
+        validate_generated_text_line_count(text.split('\n').count(), max_text_size)?;
+        validate_generated_text_input(std::iter::once(text.as_bytes()), max_text_size)?;
+        let (data, font_index) = font.get().source().ok_or_else(|| {
+            PdfError::new_err("a Standard 14 Font draws through the Standard 14 text path")
+        })?;
+        self.draw_embedded_textbox(
+            py,
+            page_number,
+            rect,
+            text,
+            data,
+            font_index,
+            fontsize,
+            line_height,
+            align,
+            color,
+            overlay,
+            max_text_size,
         )
     }
 

@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use harfrust::{Buffer, Direction, Font as ShapingFont, ShapeOptions, ShaperFont};
+pub(crate) use harfrust::Font as ShapingFont;
+use harfrust::{Buffer, Direction, ShapeOptions, ShaperFont};
 use krilla::Document;
 use krilla::color::rgb;
 use krilla::geom::Point;
@@ -108,14 +109,7 @@ pub fn embedded_textbox_page(
         descent,
         align == 3,
         max_lines,
-        |line| {
-            let glyphs = shape_line(line, &shaper)?;
-            Ok(glyphs
-                .iter()
-                .map(|glyph| f64::from(glyph.x_advance) * font_size)
-                .sum::<f64>()
-                .abs())
-        },
+        |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
     )?;
     if !layout.fits() {
         return Ok((None, layout.spare_height));
@@ -217,14 +211,7 @@ pub fn embedded_widget_text_page(
             descent,
             false,
             Some(crate::layout::MAX_GENERATED_TEXT_LINES),
-            |line| {
-                let glyphs = shape_line(line, &shaper)?;
-                Ok(glyphs
-                    .iter()
-                    .map(|glyph| f64::from(glyph.x_advance) * font_size)
-                    .sum::<f64>()
-                    .abs())
-            },
+            |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
         )?;
         if candidate.fits() && (multiline || candidate.lines.len() <= 1) {
             break candidate;
@@ -316,11 +303,7 @@ pub fn embedded_widget_comb_text_page(
             .map_err(|error| format!("failed to allocate shaped comb field collection: {error}"))?;
         for grapheme in &graphemes {
             let glyphs = shape_line(grapheme, &shaper)?;
-            let glyph_width = glyphs
-                .iter()
-                .map(|glyph| f64::from(glyph.x_advance) * font_size)
-                .sum::<f64>()
-                .abs();
+            let glyph_width = line_width(&glyphs, font_size);
             candidates.push((glyphs, glyph_width));
         }
         if candidates
@@ -385,10 +368,36 @@ pub fn embedded_widget_comb_text_page(
 /// Open the font that HarfRust shapes and that vertical metrics come from.
 ///
 /// The font shares `font_data` with krilla instead of copying it.
-fn open_shaping_font(font_data: &Arc<Vec<u8>>, font_index: u32) -> Result<ShapingFont, String> {
+pub(crate) fn open_shaping_font(
+    font_data: &Arc<Vec<u8>>,
+    font_index: u32,
+) -> Result<ShapingFont, String> {
     let source: Arc<dyn AsRef<[u8]> + Send + Sync> = font_data.clone();
     ShapingFont::new(source, font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))
+}
+
+/// Return the width of one line of text as generation advances it.
+///
+/// krilla places each glyph at the sum of the shaped advances before it, and
+/// textbox and form layout measure their lines with the same sum, so this is
+/// the width that drawing the line covers.
+pub(crate) fn shaped_line_width(
+    font: &ShapingFont,
+    text: &str,
+    font_size: f64,
+) -> Result<f64, String> {
+    let shaper = LineShaper::new(font);
+    Ok(line_width(&shape_line(text, &shaper)?, font_size))
+}
+
+/// Sum the shaped advances of one line in PDF units.
+fn line_width(glyphs: &[KrillaGlyph], font_size: f64) -> f64 {
+    glyphs
+        .iter()
+        .map(|glyph| f64::from(glyph.x_advance) * font_size)
+        .sum::<f64>()
+        .abs()
 }
 
 /// A font prepared for shaping, with the em size that scales its positions.
@@ -406,7 +415,9 @@ impl<'a> LineShaper<'a> {
     }
 }
 
-fn font_vertical_metrics(font: &ShapingFont) -> Result<(f64, f64), String> {
+/// Return the ascent and descent, as positive fractions of the em, that
+/// textbox and form layout place lines with.
+pub(crate) fn font_vertical_metrics(font: &ShapingFont) -> Result<(f64, f64), String> {
     let font = font.tables();
     let units_per_em = f64::from(
         font.head()
@@ -491,10 +502,6 @@ fn shape_line(text: &str, shaper: &LineShaper<'_>) -> Result<Vec<KrillaGlyph>, S
         .map_err(|error| format!("failed to allocate shaped glyph collection: {error}"))?;
 
     for (index, (info, position)) in infos.iter().zip(positions).enumerate() {
-        if info.glyph_id == 0 {
-            return Err("font does not contain all glyphs needed for text".to_owned());
-        }
-
         let start = info.cluster as usize;
         let end_index = if matches!(direction, Direction::LeftToRight | Direction::TopToBottom) {
             let mut next = index.checked_add(1);
@@ -526,6 +533,13 @@ fn shape_line(text: &str, shaper: &LineShaper<'_>) -> Result<Vec<KrillaGlyph>, S
         let end = end_index
             .and_then(|other_index| infos.get(other_index))
             .map_or(text.len(), |other_info| other_info.cluster as usize);
+        if info.glyph_id == 0 {
+            let cluster = text
+                .get(start..end)
+                .or_else(|| text.get(start..))
+                .unwrap_or_default();
+            return Err(missing_glyph_error(cluster));
+        }
 
         glyphs.push(KrillaGlyph::new(
             GlyphId::new(info.glyph_id),
@@ -539,6 +553,34 @@ fn shape_line(text: &str, shaper: &LineShaper<'_>) -> Result<Vec<KrillaGlyph>, S
     }
 
     Ok(glyphs)
+}
+
+/// Characters of a cluster that a missing-glyph error names.
+const MISSING_GLYPH_REPORTED_CHARS: usize = 8;
+
+/// Name the code points of a cluster that the font has no glyph for.
+///
+/// A cluster can be arbitrarily long, so the message names at most
+/// `MISSING_GLYPH_REPORTED_CHARS` of its characters.
+fn missing_glyph_error(cluster: &str) -> String {
+    let mut message = String::from("font does not contain all glyphs needed for text");
+    let mut characters = cluster.chars();
+    for (position, character) in characters
+        .by_ref()
+        .take(MISSING_GLYPH_REPORTED_CHARS)
+        .enumerate()
+    {
+        message.push_str(if position == 0 {
+            ": no glyph for "
+        } else {
+            " "
+        });
+        message.push_str(&format!("U+{:04X} ({character:?})", u32::from(character)));
+    }
+    if characters.next().is_some() {
+        message.push_str(" ...");
+    }
+    message
 }
 
 fn finite_f32(value: f64, label: &str) -> Result<f32, String> {

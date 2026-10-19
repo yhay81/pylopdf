@@ -50,6 +50,9 @@ repos:
         exclude: ^tests/assets/
       # - id: no-commit-to-branch
       - id: pretty-format-json
+        # tools/check_parity.py owns the manifest's one-entry-per-line format,
+        # and the parity manifest test checks it in CI.
+        exclude: ^api/pymupdf-parity\.json$
       - id: requirements-txt-fixer
       - id: sort-simple-yaml
       - id: trailing-whitespace

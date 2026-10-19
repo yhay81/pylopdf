@@ -113,6 +113,9 @@ page.show_pdf_page(page.rect, letterhead)                    # vector overlay; s
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "社外秘", fontsize=18)             # auto-subset with pylopdf[jp]
 page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
+bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # load a weight the extra does not bundle
+width = bold.text_length("見出し", fontsize=16)                # exactly the drawn width
+page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
