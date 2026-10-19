@@ -1842,29 +1842,27 @@ it.
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) is the canonical medium-term plan, based on the
-2026-07-22 market and upstream survey plus the 2026-07-23 deeper review of
-out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
-integrations, a watchlist, and explicit non-goals.
+[ROADMAP.md](ROADMAP.md) is the canonical medium-term plan. Its 2026-10-19
+rewrite organizes the pymupdf parity program: the goal and baseline,
+principles, a definition of done for every feature pull request, workstreams
+with module ownership, waves, foundations F1–F8, milestones M1–M8, v1.0
+criteria, non-goals, the watchlist, and a dated evidence log. The pre-rewrite
+plan, with its release narratives and 2026-07 surveys, remains in Git history
+(`git show a233814:ROADMAP.md`).
 
-- Current phase: v0.14.0 release preparation on 2026-10-13. The review prioritizes
-  page geometry/navigation correctness, predictable rejection before mutation,
-  supported-floor typing/rebuilds, and GitHub-hosted verification that finishes.
-  `ROADMAP.md` lists stabilization, real-document quality, maintainability, and
-  v1.0 readiness in execution order. The 0.13 line completes the fallible-allocation and
-  bounded-traversal campaign across the public surface, so allocator refusal
-  surfaces as `PdfError` without partial results, unifies public page indexing
-  behind one bounded iterative walker, and recovers narrow-column reading
-  order with drift-following gutters, raising the bundled 1880 patent
-  similarity proxy from 0.320 to 0.581. The documented 0.13 candidate API
-  surface is checked deterministically across every native Python test lane,
-  with the post-v1.0 SemVer and deprecation contract published in four
-  languages. The separately versioned OCR model package remains independently
-  gated. Incremental save was rejected after OSS analysis and remains on the
-  watchlist. v1.0 has no target date: continue the 0.x line until sustained
-  field feedback, meaningful external adoption with roughly 1,000 GitHub stars
-  as an indicative signal, and further product refinement justify the API
-  freeze. Stars are not a mechanical release trigger.
+- Current phase: wave 0 of the parity program (2026-10-19). The hayro 0.8
+  migration, AcroForm registration on `insert_pdf`, XObject reuse for repeated
+  insertion (#231), save-time merging of identical objects, CPython 3.15
+  support (#230), and the F3 parity manifest are in flight. The F1 module
+  split runs alone after they merge; foundations F2 and F4–F8 then proceed
+  with one owner per workstream.
+- Every feature pull request meets the definition of done in ROADMAP.md.
+  Concurrent pull requests stay inside one workstream's modules.
+- Incremental save is scheduled in milestone M7 instead of the watchlist.
+- v1.0 has no target date. It requires a complete parity manifest, independent
+  field reports across the new surfaces, and the published stability policy.
+  Roughly 1,000 GitHub stars is an indicative adoption signal, not a
+  mechanical release trigger.
 - lopdf 0.45 includes the upstream lopdf#535 fix (lopdf#537). pylopdf has
   extracted through hayro since v0.7, so the fix matters only to lopdf's own
   content parser.
