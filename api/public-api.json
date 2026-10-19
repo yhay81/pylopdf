@@ -1371,8 +1371,8 @@
             "name": "serif"
           },
           {
-            "annotation": "Literal['regular', 'bold'] | int",
-            "default": "regular",
+            "annotation": "Literal['regular', 'bold'] | int | None",
+            "default": null,
             "kind": "keyword_only",
             "name": "weight"
           },

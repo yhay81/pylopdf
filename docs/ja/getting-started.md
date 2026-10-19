@@ -118,6 +118,8 @@ width = bold.text_length("見出し", fontsize=16)                # 描いたと
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
 hebrew = pylopdf.Font(language="he", weight="bold")          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
+semibold = pylopdf.Font("NotoSansCJKjp-VF.otf", weight=600)  # 手元の可変フォントは軸上の任意の太さを選べる
+page.insert_text((40, 200), "見出し", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

@@ -173,14 +173,28 @@ content or font resource is added in that case.
 including kerning and ligatures, so layout code can wrap, align, and paginate
 with the face it draws. `ascender` and `descender` are the em fractions that
 `insert_textbox` places lines with, and `has_glyph` reads the character map.
-`Font(fontfile=)` and `Font(fontbuffer=)` load a face as given (a variable
-font at its default instance), and `Font(language="ja")` selects the face of an installed font extra
+
+`Font(fontfile=)` and `Font(fontbuffer=)` load a face as given, a variable
+font at its default instance, which need not be regular: the variable Noto Sans
+CJK JP defaults to Thin. `weight=` selects another instance on a variable
+font's weight axis: `Font("NotoSansCJKjp-VF.otf", weight="bold")` measures
+with the bold instance's advances and embeds it under its own name,
+`NotoSansCJKjp-Bold`, and `weight=650` works as well. An explicit
+`weight="regular"` therefore differs from an omitted weight on such a font. A
+weight outside the axis raises `ValueError`, and so does a weight that a
+static face does not declare. `fontfile` and `fontbuffer` passed to
+`insert_text`, `insert_textbox`, and `set_form_field` still draw the default
+instance.
+
+`Font(language="ja")` selects the face of an installed font extra
 (`serif=True` for its serif face). Each extra installs one face per style, so
 other weights are added when an application needs them: `register_font(path)`
-reads the family, weight, and style from the font, after which
+reads the family, weights, and style from the font, after which
 `Font(family="Noto Sans JP", weight="bold")` selects that face, and so does
 `Font(language="ja", weight="bold")` because the face belongs to the family
-that `pylopdf[jp]` installs. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]`
+that `pylopdf[jp]` installs. A registered variable font provides every weight
+on its axis, and a face registered at the requested weight takes precedence
+over that axis. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]`
 extras install variable faces instead: `Font(language="he", weight="bold")`
 selects the bold instance on the face's weight axis without another file,
 measures with that instance's advances, and embeds it under its own name,
@@ -230,7 +244,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph` / registration that makes a face available to family and weight lookups |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph`, at the instance that `weight=` selects on a variable font / registration that makes a face, or every weight on a variable font's axis, available to family and weight lookups |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |

@@ -36,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports together with its bold flag. A weight outside the axis raises
   `ValueError` instead of being clamped to the nearest end, and a registered
   face of the same family takes precedence over the axis.
+- `Font(fontfile=..., weight=...)` and `Font(fontbuffer=..., weight=...)`
+  select an instance of a variable font that the application supplies, such as
+  `Font("NotoSansCJKjp-VF.otf", weight="bold")` or `weight=650`, through the
+  same instancing as the script extras: `text_length` is the drawn width, and
+  the subset is named after the instance, `NotoSansCJKjp-Bold`. Without
+  `weight`, the face is still loaded as given, a variable font at its default
+  instance, which need not be regular (that of Noto Sans CJK JP is Thin), so
+  `weight` now defaults to `None`; family and language lookups read an omitted
+  weight as regular. A weight outside the axis raises `ValueError`, and so does
+  a weight that a static face does not declare. `register_font()` of a
+  variable font makes every weight on its axis available to
+  `Font(family=..., weight=...)`, and to `Font(language=..., weight=...)` for
+  the family of an installed extra; a face registered at the requested weight
+  takes precedence over the axis. The `fontfile` and `fontbuffer` arguments of
+  `insert_text`, `insert_textbox`, and `set_form_field` still draw the default
+  instance, and their output is byte-identical.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing

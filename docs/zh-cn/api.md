@@ -95,13 +95,22 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 测量与绘制使用相同的shaping，因此`font.text_length(text, fontsize)`等于绘制该行时的
 前进宽度（含字距调整与连字），可以按实际绘制的字体计算换行、对齐与分页。
 `ascender`与`descender`是`insert_textbox`排列行时使用的相对em比例，`has_glyph`
-查询字符映射。`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载传入的字体（可变字体
-使用其默认实例），
+查询字符映射。
+
+`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载传入的字体，可变字体使用其默认实例。
+默认实例不一定是Regular：可变字体Noto Sans CJK JP的默认实例是Thin。传入`weight=`即可从
+可变字体的字重轴选择其他实例：`Font("NotoSansCJKjp-VF.otf", weight="bold")`按Bold实例的
+前进宽度测量，并以其自身的名称`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用。因此对这类
+字体，显式传入`weight="regular"`与省略`weight`的结果不同。超出字重轴范围的字重会抛出
+`ValueError`，静态字体不具备的字重也一样。传给`insert_text`、`insert_textbox`与
+`set_form_field`的`fontfile`和`fontbuffer`仍以默认实例绘制。
+
 `Font(language="zh-CN")`选择已安装字体extra的字体（`serif=True`为衬线体）。
 每个extra的每种样式只安装一个字体，其他字重在需要时再添加：`register_font(path)`从字体读取家族名、
 字重与斜体，此后可用`Font(family="Noto Sans SC", weight="bold")`选择该字体；
 由于它与`pylopdf[zh-cn]`安装的字体属于同一家族，`Font(language="zh-CN", weight="bold")`
-也会选择它。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
+也会选择它。注册可变字体后，其字重轴上的所有字重都可选择；若已按所请求的字重注册了字体，
+则优先于字重轴。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
 `Font(language="he", weight="bold")`无需其他文件即可从字体的字重轴选择Bold实例，按该实例的
 前进宽度测量，并以其自身的名称`NotoSansHebrew-Bold`嵌入。字重范围为100到900，
 `pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；同一家族已注册的字体优先于字重轴。
@@ -139,7 +148,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`与`has_glyph`的可复用OpenType字体／使字体可按家族名与字重查找的注册 |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`与`has_glyph`的可复用OpenType字体（可变字体为`weight=`所选实例）／使字体可按家族名与字重查找的注册（可变字体为其字重轴上的所有字重） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |

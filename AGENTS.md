@@ -1362,15 +1362,24 @@ overview.
   measured line stays the drawn width. Drawing with `font=` passes the same
   bytes and index as `fontbuffer` and produces byte-identical output; each call
   still embeds its own subset. `register_font` keeps a process-wide registry
-  keyed by case-folded family name, OS/2 weight class, and italic flag.
-  Lookups match exactly; the font extras install one face per style, and
+  keyed by case-folded family name, OS/2 weight class, and italic flag. A
+  variable face is keyed by `None` in place of the weight class and provides
+  every weight on its axis through `_Font.with_weight`; a face registered at
+  the requested weight takes precedence over that axis, and either takes
+  precedence over the axis of an installed extra. Lookups match exactly; the
+  font extras install one face per style, and
   `Font(language=..., weight=...)` uses a registered face of the extra's
   family. A missing face raises `ValueError` unless `allow_regular_fallback`
   is set, which warns. Never synthesize a weight by stroking, overprinting,
   or render-mode changes, and never scan system font directories: output must
-  depend only on the faces passed in. `fontfile`, `fontbuffer`,
-  `Font(fontfile=)`, and `register_font` load a variable font at its default
-  instance.
+  depend only on the faces passed in. The `fontfile` and `fontbuffer` drawing
+  arguments, and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`,
+  load a variable font at its default instance, which need not be regular
+  (Noto Sans CJK JP's is Thin). `Font`'s `weight` therefore defaults to
+  `None`: lookups read it as regular, while an explicit weight on a loaded
+  face, `"regular"` included, selects that instance with `_Font.with_weight`
+  and refuses a weight outside the axis. A static face must already declare
+  the requested weight class; never relabel it.
 - The `ar`, `he`, `hi`, and `th` extras ship variable fonts with `wght` axes
   (100 through 900; Noto Naskh Arabic 400 through 700), and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
@@ -1399,7 +1408,9 @@ overview.
   rounds them, so a `/W` width could differ from the shaped advance by one
   font unit while glyph positions follow HarfRust; every Hebrew and Thai
   letter of the bundled faces matched at the weights measured. The Pyodide
-  contract has no font extras, so native tests cover instancing.
+  contract has no font extras; it covers instancing through
+  `Font(fontbuffer=..., weight=...)` with the repository's Noto Sans Hebrew,
+  and native tests cover the extras.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature
@@ -1705,7 +1716,8 @@ overview.
   job must compare it exactly. Coverage includes bytes input, PDF 2.0,
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
-  subset-embedded OpenType generation, textbox layout, pixmaps,
+  subset-embedded OpenType generation, weight instances of a variable font
+  passed as bytes, textbox layout, pixmaps,
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
   error recovery, lopdf cross-reference recovery reporting, and unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page

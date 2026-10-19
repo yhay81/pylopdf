@@ -32,6 +32,7 @@ _ASSETS = (
     "tests/assets/real_world/bunka-kokugo-series-019-p4.pdf",
     "tests/assets/encrypted/user-aes-256.pdf",
     "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf",
+    "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf",
 )
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _EXPECTED_TWO_PAGES = 2
@@ -43,6 +44,7 @@ _RIGHT_COLUMN = "\u53f3\u5074\u5217"
 _LEFT_COLUMN = "\u5de6\u5074\u5217"
 _CASE_LAW = "\u88c1\u5224\u4f8b"
 _JAPANESE = "\u65e5\u672c\u8a9e"
+_HEBREW = "\u05e9\u05dc\u05d5\u05dd"
 
 
 def _require(condition: bool, message: str) -> None:  # noqa: FBT001
@@ -615,6 +617,36 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     }
 
 
+def _variable_font_results(font: bytes) -> dict[str, Any]:
+    """Select weights of a variable font from bytes and require the bold instance to draw its measured width.
+
+    Noto Sans Hebrew's default instance is Thin, so an omitted weight and an
+    explicit regular weight load different instances.
+    """
+    import pylopdf  # noqa: PLC0415
+
+    as_given = pylopdf.Font(fontbuffer=font)
+    regular = pylopdf.Font(fontbuffer=font, weight="regular")
+    bold = pylopdf.Font(fontbuffer=font, weight="bold")
+    measured = bold.text_length(_HEBREW, 18)
+    document = pylopdf.Document()
+    page = document.new_page(width=240, height=80)
+    page.insert_text((20, 50), _HEBREW, fontsize=18, font=bold)
+    spans = [span for block in page.get_text("rawdict")["blocks"] for line in block["lines"] for span in line["spans"]]
+    _require(len(spans) == 1, "a variable-font instance did not extract as one span")
+    _require(spans[0]["font"] == bold.name, "a variable-font instance was embedded under another name")
+    _require(
+        abs(max(char["bbox"][2] for char in spans[0]["chars"]) - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
+        "a variable-font instance's text_length differs from the drawn advance",
+    )
+    return {
+        "faces": [[face.name, face.weight] for face in (as_given, regular, bold)],
+        "advances": [face.text_length(_HEBREW, 1000) for face in (as_given, regular, bold)],
+        "text_length": measured,
+        "outside_axis": _exception_name(lambda: pylopdf.Font(fontbuffer=font, weight=1000)),
+    }
+
+
 def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415
 
@@ -688,6 +720,9 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "empty_pages": 0,
         "roundtrip_pages": document.page_count,
         "font": font_results,
+        "variable_font": _variable_font_results(
+            (root / "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf").read_bytes(),
+        ),
         "text_sha256": [_digest(text) for text in texts],
         "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
         "batch_render_sizes": render_sizes,

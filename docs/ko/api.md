@@ -102,13 +102,26 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 `font.text_length(text, fontsize)`는 그 줄을 그렸을 때의 advance(커닝과 합자 포함)와
 같고, 그리는 글꼴의 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다.
 `ascender`와 `descender`는 `insert_textbox`가 줄을 배치할 때 쓰는 em 대비 비율이고,
-`has_glyph`는 문자 맵을 조회합니다. `Font(fontfile=)`와 `Font(fontbuffer=)`는 전달한
-글꼴을 그대로 불러오고(가변 글꼴은 기본 인스턴스로 사용), `Font(language="ko")`는 설치된 글꼴 extra의 글꼴을
+`has_glyph`는 문자 맵을 조회합니다.
+
+`Font(fontfile=)`와 `Font(fontbuffer=)`는 전달한 글꼴을 그대로 불러오며, 가변 글꼴은
+기본 인스턴스로 사용합니다. 기본 인스턴스가 Regular라는 보장은 없으며, 가변 글꼴인
+Noto Sans CJK JP의 기본 인스턴스는 Thin입니다. `weight=`를 전달하면 가변 글꼴의 굵기 축에서
+다른 인스턴스를 선택합니다. `Font("NotoSansCJKjp-VF.otf", weight="bold")`는 Bold 인스턴스의
+advance로 측정하고 `NotoSansCJKjp-Bold`라는 고유 이름으로 포함하며, `weight=650`도 선택할 수
+있습니다. 따라서 이런 글꼴에서는 `weight="regular"`를 명시한 경우와 생략한 경우의 결과가
+다릅니다. 축 범위를 벗어난 굵기는 `ValueError`를 발생시키며, 정적 글꼴에 없는 굵기도
+마찬가지입니다. `insert_text`, `insert_textbox`, `set_form_field`에 전달하는 `fontfile`과
+`fontbuffer`는 이전과 같이 기본 인스턴스로 그립니다.
+
+`Font(language="ko")`는 설치된 글꼴 extra의 글꼴을
 선택합니다(`serif=True`이면 명조/세리프). extra는 스타일마다 글꼴 하나만 설치하므로 다른
 굵기는 필요할 때 추가합니다. `register_font(path)`는 글꼴에서 패밀리 이름, 굵기, 기울임 여부를
 읽으며, 이후 `Font(family="Noto Sans KR", weight="bold")`로 그 글꼴을 선택할 수 있습니다.
 이 글꼴은 `pylopdf[ko]`가 설치하는 글꼴과 같은 패밀리이므로
-`Font(language="ko", weight="bold")`로도 선택됩니다. 반면 `pylopdf[ar]`, `[he]`, `[hi]`,
+`Font(language="ko", weight="bold")`로도 선택됩니다. 가변 글꼴을 등록하면 축 위의 모든 굵기를
+선택할 수 있고, 요청한 굵기로 등록된 글꼴이 있으면 축보다 그 글꼴을 우선합니다.
+반면 `pylopdf[ar]`, `[he]`, `[hi]`,
 `[th]`는 가변 글꼴을 설치하므로 `Font(language="he", weight="bold")`는 다른 파일 없이
 글꼴의 굵기 축에서 Bold 인스턴스를 선택하고, 그 인스턴스의 advance로 측정하며,
 `NotoSansHebrew-Bold`라는 고유 이름으로 포함합니다. 굵기 범위는 100부터 900까지이고,
@@ -153,7 +166,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot용`max_interpretation_size`와 위치layout용`max_text_glyphs`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, `has_glyph`를 가진 재사용 가능한 OpenType 글꼴／패밀리 이름과 굵기로 찾을 수 있게 하는 등록 |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, `has_glyph`를 가진 재사용 가능한 OpenType 글꼴(가변 글꼴은 `weight=`로 선택한 인스턴스)／패밀리 이름과 굵기로 찾을 수 있게 하는 등록(가변 글꼴은 축 위의 모든 굵기) |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |

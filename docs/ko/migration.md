@@ -41,7 +41,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | source가 없으면 Standard-14 / WinAnsi 또는 설치된script／locale provider. 다른 source는 shaping 후 subset 내장 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 음수 반환 시 그리지 않음 |
-| `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / 동일 / 동일 | `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 그리기와 같은 HarfRust shaping으로 측정. `ascender`／`descender`는 OS/2 typographic metrics. `is_bold=`로 가까운 글꼴을 찾지 않으며 `weight=`는 설치된 글꼴 또는 `register_font()`의 글꼴을 정확히 일치하는 것으로 선택 |
+| `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / 동일 / 동일 | `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 그리기와 같은 HarfRust shaping으로 측정. `ascender`／`descender`는 OS/2 typographic metrics. `is_bold=`로 가까운 글꼴을 찾지 않으며 `weight=`는 가변 글꼴의 굵기 축 위 인스턴스, 또는 설치된 글꼴이나 `register_font()`의 글꼴을 정확히 일치하는 것으로 선택 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |

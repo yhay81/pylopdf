@@ -111,6 +111,8 @@ width = bold.text_length("标题", fontsize=16)                  # 与绘制宽�
 page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
 hebrew = pylopdf.Font(language="he", weight="bold")          # 可变字体pylopdf[he]无需添加文件即可选择Bold
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
+semibold = pylopdf.Font("NotoSansCJKjp-VF.otf", weight=600)  # 自备的可变字体可选择其字重轴上的任意字重
+page.insert_text((40, 200), "标题", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

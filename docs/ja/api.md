@@ -107,13 +107,26 @@ resourceは追加されません。
 `font.text_length(text, fontsize)`はその行を描いたときの送り幅（カーニングと合字を含む）
 と一致し、描く書体の幅で折り返し・揃え・頁割りを計算できます。`ascender`と
 `descender`は`insert_textbox`が行を置くときのemに対する比率で、`has_glyph`は
-文字マップを引きます。`Font(fontfile=)`と`Font(fontbuffer=)`は渡した書体をそのまま
-読み込み（可変フォントは既定のインスタンスで使います）、`Font(language="ja")`は導入済みの書体extraの書体を選びます
+文字マップを引きます。
+
+`Font(fontfile=)`と`Font(fontbuffer=)`は渡した書体をそのまま読み込み、可変フォントは
+既定のインスタンスで使います。既定のインスタンスがRegularとは限らず、可変フォントの
+Noto Sans CJK JPはThinです。`weight=`を渡すと可変フォントの太さの軸から別のインスタンスを
+選びます。`Font("NotoSansCJKjp-VF.otf", weight="bold")`はBoldのインスタンスの送り幅で測り、
+`NotoSansCJKjp-Bold`という固有の名前で埋め込みます。`weight=650`も選べます。このため
+こうした書体では、`weight="regular"`を明示した場合と省略した場合で結果が異なります。
+軸の範囲外の太さは`ValueError`になり、静的な書体が持たない太さも同じです。
+`insert_text`・`insert_textbox`・`set_form_field`に渡す`fontfile`と`fontbuffer`は、
+従来どおり既定のインスタンスで描きます。
+
+`Font(language="ja")`は導入済みの書体extraの書体を選びます
 （`serif=True`で明朝体）。extraが入れる書体はスタイルごとに1つだけなので、ほかの太さは
 必要になったときに足します。`register_font(path)`は書体から書体名・太さ・斜体を読み、
 以後`Font(family="Noto Sans JP", weight="bold")`でその書体を選べます。この書体は
 `pylopdf[jp]`が入れる書体と同じファミリーなので、`Font(language="ja", weight="bold")`
-でも選ばれます。一方`pylopdf[ar]`・`[he]`・`[hi]`・`[th]`は可変フォントを入れるため、
+でも選ばれます。可変フォントを登録すると軸上のすべての太さを選べるようになり、
+求める太さで登録された書体があれば軸よりそちらを優先します。
+一方`pylopdf[ar]`・`[he]`・`[hi]`・`[th]`は可変フォントを入れるため、
 `Font(language="he", weight="bold")`は別のファイルなしに太さの軸からBoldのインスタンスを
 選び、そのインスタンスの送り幅で測り、`NotoSansHebrew-Bold`という固有の名前で埋め込みます。
 太さの範囲は100から900で、`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは
@@ -158,7 +171,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata出力／部分更新／高速probeの契約 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot用`max_interpretation_size`と位置付きlayout用`max_text_glyphs`を含む、信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`、`has_glyph`を持つ再利用可能なOpenType書体／書体名と太さで引けるようにする登録 |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`、`has_glyph`を持つ再利用可能なOpenType書体（可変フォントは`weight=`で選んだインスタンス）／書体名と太さで引けるようにする登録（可変フォントは軸上のすべての太さ） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
