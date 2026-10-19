@@ -80,8 +80,11 @@ TYPE2 = "<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [1 0.5 0] /N 1 >>"
 
 
 def _valid_program(depth: int) -> str:
-    """Write a program that nests `depth` levels of braces and still evaluates to three values."""
-    return "{ " + "dup 0.5 gt { " * (depth - 1) + "dup " + "} if " * (depth - 1) + "dup dup }"
+    """Write a program that nests `depth` levels of braces and evaluates to three values for every input.
+
+    The innermost procedure leaves the stack as it found it, so the values do not depend on which branches run.
+    """
+    return "{ " + "dup 0.5 gt { " * (depth - 1) + "1 mul " + "} if " * (depth - 1) + "dup dup }"
 
 
 def type4_program(parts: Parts, depth: int) -> str:
@@ -155,9 +158,13 @@ def icc_chain(parts: Parts, depth: int) -> str:
 
 
 def pattern_nesting(parts: Parts, depth: int) -> str:
-    """Direct Pattern spaces inside one another: `depth` nodes, none of them an object of its own."""
+    """Direct Pattern spaces inside one another: `depth` nodes, none of them an object of its own.
+
+    The innermost base is DeviceRGB, which hayro also takes when it reads one name too many in `[/Pattern /DeviceGray]`
+    (LaurenzV/hayro#1546), so every reading delivers three components.
+    """
     del parts
-    return "[/Pattern " * depth + "/DeviceGray" + "]" * depth
+    return "[/Pattern " * depth + "/DeviceRGB" + "]" * depth
 
 
 def ring(parts: Parts, depth: int) -> str:
@@ -217,7 +224,7 @@ COLOUR_SPACES = {
     "separation": Structure(separation_chain),
     "devicen": Structure(devicen_chain, components=2),
     "icc": Structure(icc_chain),
-    "pattern": Structure(pattern_nesting),
+    "pattern": Structure(pattern_nesting, components=3),
 }
 
 
@@ -307,8 +314,9 @@ def indirect_tint_transform(parts: Parts, function: str, _: int) -> tuple[str, s
 
 
 def devicen_tint_transform(parts: Parts, function: str, _: int) -> tuple[str, str]:
-    space = parts.add(f"[/DeviceN [/A /B] /DeviceRGB {function}]")
-    return f"/ColorSpace << /Cs1 {space} 0 R >> ", "/Cs1 cs " + _fill(2)
+    """Name one colourant: every function structure takes one input, and a Type 4 program cannot count its inputs."""
+    space = parts.add(f"[/DeviceN [/A] /DeviceRGB {function}]")
+    return f"/ColorSpace << /Cs1 {space} 0 R >> ", "/Cs1 cs " + _fill(1)
 
 
 def _image(parts: Parts, space: str, components: int) -> tuple[str, str]:
