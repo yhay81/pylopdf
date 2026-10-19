@@ -628,8 +628,10 @@ impl _Shape {
 
     /// Record lines placed as `insert_text` places them: the first baseline
     /// starts at `point` and later lines follow at `lineheight` times the
-    /// font size, or at the font's default line height. Return the number of
-    /// lines.
+    /// font size, or at the font's default line height. Lines whose baseline
+    /// would fall below a page `page_height` points high are left out, as
+    /// `LineMetrics::lines_on_page` decides, although every line is checked
+    /// against the font. Return the number of lines recorded.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         point,
@@ -638,6 +640,7 @@ impl _Shape {
         fontsize,
         lineheight,
         color,
+        page_height,
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
     fn insert_text(
@@ -649,23 +652,26 @@ impl _Shape {
         fontsize: f64,
         lineheight: Option<f64>,
         color: Vec<f64>,
+        page_height: f64,
         max_text_size: Option<usize>,
     ) -> PyResult<usize> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         let color = device_color(&color)?;
         let face = font.get();
-        let leading = face
-            .line_metrics()
+        let metrics = face.line_metrics();
+        let leading = metrics
             .leading(fontsize, lineheight)
             .map_err(PdfError::new_err)?;
+        let drawn = metrics.lines_on_page(lines.len(), page_height - point.1, fontsize, lineheight);
         let text = match face.draw_face() {
             DrawFace::Embedded(face) => {
                 let size =
                     generate::finite_f32(fontsize, "font size").map_err(PdfError::new_err)?;
-                let runs = py
+                let mut runs = py
                     .detach(|| generate::text_runs(face.shaping_font(), point, &lines, leading))
                     .map_err(PdfError::new_err)?;
+                runs.truncate(drawn);
                 ShapeText::Embedded {
                     face: self.face_slot(face)?,
                     size,
@@ -681,6 +687,7 @@ impl _Shape {
                 for line in &lines {
                     encoded.push(draw::encode_cp1252(line).map_err(PdfError::new_err)?);
                 }
+                encoded.truncate(drawn);
                 ShapeText::Standard {
                     font: name,
                     size: fontsize,
@@ -694,7 +701,7 @@ impl _Shape {
             }
         };
         self.push_text(text)?;
-        Ok(lines.len())
+        Ok(drawn)
     }
 
     /// Lay out text inside a display rectangle as `insert_textbox` does and

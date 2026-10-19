@@ -85,7 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with gray, RGB, or CMYK colours, line width, caps and joins, PDF dash
   patterns, the even-odd rule, and opacity. `insert_text()` and
   `insert_textbox()` take `Page.insert_text()`'s fonts, `font=` included, and
-  `lineheight=`, and place lines as the `Page` methods do. A
+  `lineheight=`, and place lines as the `Page` methods do; `insert_text()` also
+  splits text and leaves out the lines below the page as `Page.insert_text()`
+  does. A
   commit places one Form XObject, the finished paths in order and all text
   above them, as pymupdf draws them, and embeds each font once however many
   lines use it. `with page.new_shape() as shape:` commits on a clean exit and
@@ -109,12 +111,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sets lines the font's `ascender` minus its `descender` apart, or 1.2 times
   the font size when that difference is at most 1, instead of always 1.2
   times: at size 10, Helvetica lines now lie 13.74 points apart and Noto Sans
-  JP lines 14.48, as in pymupdf 1.28.2. `insert_textbox()` defaults
+  JP lines 14.48, as in pymupdf 1.28.2. As in pymupdf, the difference is
+  compared in the single-precision metrics that MuPDF reports, in which an
+  ascender of 0.8 and a descender of -0.2 span just over 1 em, so such a face
+  keeps its lines 1 em apart. `insert_textbox()` defaults
   `lineheight` the same way instead of to 1.2, places the first baseline one
   ascender below the top of the box and later ones `lineheight` times the
   ascender apart, and returns the spare height left by `lineheight` times the
   font size per line plus one descender, as pymupdf does. Form-field
   appearances keep their layout.
+- `Page.insert_text()` and `Shape.insert_text()` decide which lines to draw
+  and how many to count as pymupdf 1.28.2 does, another item of the API reset
+  (M0). A string is split with `str.splitlines()`, so a trailing line break
+  adds no line (`"Aa\n"` is one line, not two) and `\v`, `\f`, `\x1c` to
+  `\x1e`, `\x85`, `\u2028`, and `\u2029` break lines as `\n` and `\r` do; a
+  list or tuple of lines, which `Page.insert_text()` now accepts too, is used
+  as given. The first line is always drawn, and each later one only while its
+  baseline does not fall below the page, so on a page 130 points high
+  `insert_text((72, 100), "A\nB\nC\nD", fontsize=10)` draws three lines
+  instead of four. pymupdf measures that room in unrotated space down to
+  user-space y = 0; pylopdf measures it in display coordinates down to the
+  bottom of `page.rect`, which agrees on unrotated pages whose visible area
+  ends at y = 0 and keeps one coordinate space on rotated and cropped pages
+  (DESIGN.md G1). `Page.insert_text()` returns the number of lines drawn
+  instead of `None`, and text with nothing to draw, such as `""` or `"\n"`,
+  inserts nothing and returns 0 instead of raising `ValueError`. The font
+  still checks every line, and the 4,096-line limit counts lines as
+  `str.splitlines()` does.
 - `Page.insert_textbox()` and `Shape.insert_textbox()` raise `PdfError`, which
   is a `ValueError`, instead of a plain `ValueError` for a `fontsize`,
   `lineheight`, `align`, or `expandtabs` they do not accept, as the new

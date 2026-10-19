@@ -266,10 +266,11 @@ error.
   read through the bounded, GIL-released Rust path. `max_font_size=None`
   explicitly opts trusted workloads out.
 - `insert_text()` and `insert_textbox()` default generated text input to
-  1 MiB of UTF-8 and 4,096 physical or final wrapped lines. Python checks
-  physical input before PyO3 copying, the Rust boundary repeats it and stops
-  wrapped layout before mutation, and textbox tab expansion is preflighted
-  before allocating the expanded string. `max_text_size=None` explicitly opts
+  1 MiB of UTF-8 and 4,096 physical or final wrapped lines; `insert_text()`
+  counts lines as `str.splitlines()` splits them, or one per list item. Python
+  checks physical input before splitting and PyO3 copying, the Rust boundary
+  repeats it and stops wrapped layout before mutation, and textbox tab
+  expansion is preflighted before allocating the expanded string. `max_text_size=None` explicitly opts
   trusted insertion input out; refusals use `text_input_size` or
   `text_line_count`. AcroForm text and choice appearances retain the fixed
   4,096-line layout cap. UAX #14 and grapheme indexes, line collections, and

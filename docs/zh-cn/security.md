@@ -193,7 +193,8 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   显式／自动OpenType input默认限制为64 MiB。buffer在PyO3 copy前拒绝，filename
   通过释放GIL的有界Rust path读取。可信workload可用`max_font_size=None`显式取消。
 - `insert_text()`与`insert_textbox()`的生成文本输入默认限制为1 MiB UTF-8，
-  物理行与换行后layout限制为4,096行。Python在PyO3 copy前检查物理行，Rust边界
+  物理行与换行后layout限制为4,096行；`insert_text()`按`str.splitlines()`分出的行
+  计数，列表则每项计为一行。Python在分行与PyO3 copy前检查物理行，Rust边界
   再次检查并在mutation前停止换行layout；textbox会在分配展开后的string前预检tab
   展开量。可信插入input可用`max_text_size=None`显式取消，拒绝code为
   `text_input_size`或`text_line_count`。AcroForm文本／选项外观保留固定4,096行上限。

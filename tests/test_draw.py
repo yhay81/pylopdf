@@ -1377,7 +1377,9 @@ def test_insert_text_bounds_utf8_input_atomically() -> None:
 def test_generated_text_bounds_physical_lines_atomically(method: str) -> None:
     doc = _new_page_doc()
     before = doc.complexity
-    text = "\n" * 4096
+    # 4,097 lines, both for insert_text, which splits text with
+    # str.splitlines(), and for insert_textbox, which splits it at "\n".
+    text = "\n" * 4096 + "x"
 
     def call() -> None:
         if method == "insert_text":

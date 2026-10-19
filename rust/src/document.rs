@@ -6375,12 +6375,7 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
+        let page_size = draw::display_size(crop, rotation);
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
         let plan = shape.plan().map_err(PdfError::new_err)?;
@@ -6567,17 +6562,12 @@ impl _Document {
         lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
-        let generated = py.detach(|| {
+        let page_size = draw::display_size(crop, rotation);
+        let (generated, drawn) = py.detach(|| {
             generate::embedded_text_page(
                 page_size, point, lines, &face, fontsize, lineheight, color,
             )
@@ -6602,7 +6592,7 @@ impl _Document {
                 drawing_plan,
             )
         })?;
-        Ok(())
+        Ok(drawn)
     }
 
     /// Lay out and draw validated subset-embedded text inside a display rectangle.
@@ -6624,12 +6614,7 @@ impl _Document {
         max_text_size: Option<usize>,
     ) -> PyResult<f64> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (pdf_width, pdf_height) = (crop[2] - crop[0], crop[3] - crop[1]);
-        let page_size = if matches!(rotation, 90 | 270) {
-            (pdf_height, pdf_width)
-        } else {
-            (pdf_width, pdf_height)
-        };
+        let page_size = draw::display_size(crop, rotation);
         let rect_array = [rect.0, rect.1, rect.2, rect.3];
         let (generated, spare_height) = py.detach(|| {
             generate::embedded_textbox_page(
@@ -10783,6 +10768,13 @@ impl _Document {
             .set_page_entry(page_number, "Rotate", Object::Integer(rotation))
     }
 
+    /// Return the rotation-resolved display width and height of a one-based
+    /// page, from the normalized box that drawing maps coordinates with.
+    fn page_display_size(&self, page_number: u32) -> PyResult<(f64, f64)> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        Ok(draw::display_size(crop, rotation))
+    }
+
     /// Return a resolved page box such as MediaBox/CropBox, or None when absent.
     fn get_page_box(&self, page_number: u32, key: &str) -> PyResult<Option<(f64, f64, f64, f64)>> {
         self.resolve_page_box(self.page_id(page_number)?, key)
@@ -11849,10 +11841,13 @@ impl _Document {
         })
     }
 
-    /// Draw text from display-coordinate baseline `point` on a one-based page.
+    /// Draw text from display-coordinate baseline `point` on a one-based page
+    /// and return the number of lines drawn.
     ///
     /// `lines` contains WinAnsi bytes, one per line; Python validates and
     /// converts cp1252. `base_font` is a Standard 14 name and is not embedded.
+    /// Lines whose baseline would fall below the page are left out, as
+    /// `LineMetrics::lines_on_page` decides.
     // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
@@ -11872,7 +11867,7 @@ impl _Document {
         py: Python<'_>,
         page_number: u32,
         point: (f64, f64),
-        lines: Vec<Vec<u8>>,
+        mut lines: Vec<Vec<u8>>,
         base_font: &str,
         winansi: bool,
         fontsize: f64,
@@ -11880,16 +11875,25 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_text_size: Option<usize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
         let font = draw::base14_font(base_font).ok_or_else(|| {
             PdfError::new_err(format!("unsupported Standard 14 font: {base_font}"))
         })?;
-        let leading = draw::standard_line_metrics(font)
+        let metrics = draw::standard_line_metrics(font);
+        let leading = metrics
             .leading(fontsize, lineheight)
             .map_err(PdfError::new_err)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (_, page_height) = draw::display_size(crop, rotation);
+        lines.truncate(metrics.lines_on_page(
+            lines.len(),
+            page_height - point.1,
+            fontsize,
+            lineheight,
+        ));
+        let drawn = lines.len();
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
         self.invalidate_hayro_pdf_keeping_placements();
@@ -11915,7 +11919,8 @@ impl _Document {
             );
             self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
             self.push_page_content(page_id, ops, drawing_plan.content)
-        })
+        })?;
+        Ok(drawn)
     }
 
     /// Lay out and draw Standard 14 text inside a display-coordinate rectangle.
@@ -12001,12 +12006,15 @@ impl _Document {
         })
     }
 
-    /// Draw subset-embedded OpenType text through a krilla-generated Form.
+    /// Draw subset-embedded OpenType text through a krilla-generated Form and
+    /// return the number of lines drawn.
     ///
     /// The temporary source page uses the target page's rotation-resolved
     /// display size and coordinate system, then follows `show_pdf_page`'s
-    /// existing object-import and placement path. `weight` draws a variable
-    /// face at that weight-axis value; see `generation_face`.
+    /// existing object-import and placement path. Lines whose baseline would
+    /// fall below the page are left out; see `generate::embedded_text_page`.
+    /// `weight` draws a variable face at that weight-axis value; see
+    /// `generation_face`.
     // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
@@ -12038,7 +12046,7 @@ impl _Document {
         max_font_size: Option<usize>,
         max_text_size: Option<usize>,
         weight: Option<u16>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         validate_font_input(Some(&font_data), max_font_size)?;
@@ -12094,7 +12102,7 @@ impl _Document {
         max_text_size: Option<usize>,
         package_font: Option<(String, String)>,
         weight: Option<u16>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         let data = load_generation_font(py, path, package_font, max_font_size)?;
@@ -12159,7 +12167,7 @@ impl _Document {
         color: (f64, f64, f64),
         overlay: bool,
         max_text_size: Option<usize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<usize> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         let face = font.get().face().ok_or_else(|| {

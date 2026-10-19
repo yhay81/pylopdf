@@ -65,7 +65,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨; 편집하지 않은 `src`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
-| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 문자열은 `str.splitlines()`로 줄을 나누고 리스트는 항목 하나를 한 줄로 쓰며, 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. 페이지 아래로 벗어나는 줄은 그리지 않고 그린 줄 수를 반환. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 줄은 pymupdf와 같은 위치에 배치. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth`가 있음(pymupdf처럼 점 뒤에 위치 인수로도 전달 가능) |
@@ -102,10 +102,23 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 두 메서드 모두 pymupdf와 같은 위치에 줄을 배치합니다. `insert_text`는 각 줄을 앞 줄보다
 `fontsize`의 `lineheight`배만큼 아래에 놓습니다. `lineheight`를 생략하면 배율은 글꼴의
 `ascender`에서 `descender`를 뺀 값이고, 그 차가 1 이하이면 1.2입니다. 예를 들어
-10포인트 Helvetica의 줄 간격은 13.74포인트입니다. `insert_textbox`도 같은 기본값을
+10포인트 Helvetica의 줄 간격은 13.74포인트입니다. pymupdf와 같이 이 차는 MuPDF가
+보고하는 단정밀도 메트릭으로 비교하므로, ascender가 0.8이고 descender가 -0.2인 글꼴은
+1 em을 약간 넘어 줄 간격이 1 em으로 유지됩니다. `insert_textbox`도 같은 기본값을
 쓰며, 첫 기준선을 `rect` 위쪽 가장자리에서 ascender 하나만큼 아래에 두고, 이후 줄은
 ascender의 `lineheight`배씩 아래에 둡니다. 텍스트가 들어가는지 판단하고 남은 높이를
 반환할 때는 줄마다 `fontsize`의 `lineheight`배와 descender 하나를 셉니다.
+
+`insert_text`는 어떤 줄을 그릴지도 pymupdf와 같이 정합니다. 문자열은
+`str.splitlines()`로 줄을 나누므로 끝의 줄바꿈은 줄을 늘리지 않으며, `\v`, `\f`,
+`\x1c`~`\x1e`, `\x85`, `\u2028`, `\u2029`도 `\n`, `\r`, `\r\n`과 같이 줄을
+나눕니다. 리스트나 튜플은 항목 하나를 한 줄로 그대로 씁니다. 첫 줄은 항상 그리고,
+이후 줄은 기준선이 `page.rect`의 아래쪽 가장자리보다 아래로 내려가지 않는 동안만
+그립니다. 반환값은 그린 줄 수이며, `""`나 `"\n"`처럼 그릴 것이 없는 텍스트는 아무것도
+더하지 않고 0을 반환합니다. pymupdf는 회전 전 좌표에서 사용자 공간의 y = 0까지 남은
+공간을 재고, pylopdf는 표시 좌표에서 `page.rect`의 아래쪽 가장자리까지 잽니다. 둘은
+회전하지 않았고 보이는 영역이 y = 0에서 끝나는 페이지에서 일치합니다. 페이지 아래로
+벗어나는 줄도 글꼴로 그릴 수 있는지 검사합니다.
 
 `Font`는 pymupdf의 `Font(fontname=None, fontfile=None, fontbuffer=None)`을
 따르며 `insert_text(font=)`와 `insert_textbox(font=)`에 전달합니다. OpenType 글꼴은
@@ -157,9 +170,9 @@ fill_opacity=1, stroke_opacity=1)`는 앞의 `finish` 이후 그린 경로를 �
 마무리합니다. 색은 0~1의 회색, RGB, CMYK이며, `dashes`는 `"[3 4] 0"` 같은 PDF
 점선 지정입니다. `insert_text`와 `insert_textbox`는 `Page.insert_text`,
 `Page.insert_textbox`와 같은 글꼴 지정을(`font=`와 `lineheight=` 포함) 받고 같은
-위치에 줄을 배치합니다. `insert_text`는
-줄 수를, `insert_textbox`는 남은 높이를 반환하며, 들어가지 않으면 음수를 반환하고
-아무것도 더하지 않습니다. `commit(overlay=True)`로 페이지에 그립니다. pymupdf와
+위치에 줄을 배치합니다. `insert_text`는 `Page.insert_text`와 같이 줄을 나누고
+페이지 아래로 벗어나는 줄을 빼며 더한 줄 수를 반환합니다. `insert_textbox`는 남은
+높이를 반환하며, 들어가지 않으면 음수를 반환하고 아무것도 더하지 않습니다. `commit(overlay=True)`로 페이지에 그립니다. pymupdf와
 마찬가지로 마무리한 경로를 순서대로 그리고 그 위에 모든 글자를 그립니다.
 
 ```python

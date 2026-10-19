@@ -3037,7 +3037,7 @@
                 "name": "point"
               },
               {
-                "annotation": "str",
+                "annotation": "str | Sequence[str]",
                 "kind": "positional_or_keyword",
                 "name": "text"
               },
@@ -3118,7 +3118,7 @@
                 "name": "max_text_size"
               }
             ],
-            "returns": "None"
+            "returns": "int"
           }
         },
         "insert_textbox": {

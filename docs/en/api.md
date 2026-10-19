@@ -67,7 +67,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps; identical input placed again shares one image XObject |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document; placing a page of an unedited `src` again shares its Form XObject |
-| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; lines are `lineheight` times `fontsize` apart, by default the font's `ascender` minus `descender`, as in pymupdf; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; as in pymupdf, a string is split with `str.splitlines()` and a list holds one line per item, lines are `lineheight` times `fontsize` apart, by default the font's `ascender` minus `descender`, lines below the page are left out, and the number of lines drawn is returned; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; lines are placed as pymupdf places them; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `new_shape()` | pymupdf's `Shape` for paths and text drawn in one step; see [Shapes](#shapes) |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth` on the wavy lines, which also follows the points positionally as in pymupdf |
@@ -173,10 +173,25 @@ Both methods place lines as pymupdf does. `insert_text` starts each line
 `lineheight` times `fontsize` below the previous one; without `lineheight`, the
 multiplier is the font's `ascender` minus its `descender`, or 1.2 when that
 difference is at most 1, so Helvetica lines at size 10 lie 13.74 points apart.
+As in pymupdf, the difference is compared in the single-precision metrics that
+MuPDF reports, in which an ascender of 0.8 and a descender of -0.2 span just
+over 1 em and keep their lines 1 em apart.
 `insert_textbox` takes the same default, sets the first baseline one ascender
 below the top of `rect` and each later one `lineheight` times the ascender
 lower, and counts `lineheight` times `fontsize` per line plus one descender to
 decide whether the text fits and to report the spare height.
+
+`insert_text` also decides which lines to draw as pymupdf does. A string is
+split with `str.splitlines()`, so a trailing line break adds no line, and `\v`,
+`\f`, `\x1c` to `\x1e`, `\x85`, `\u2028`, and `\u2029` break lines as `\n`,
+`\r`, and `\r\n` do; a list or tuple holds one line per item, used as given.
+The first line is always drawn, and each later line only while its baseline
+does not fall below the bottom of `page.rect`. The return value counts the
+lines drawn, and text with nothing to draw, such as `""` or `"\n"`, inserts
+nothing and returns 0. pymupdf measures the room in unrotated space down to
+user-space y = 0, and pylopdf in display coordinates down to the bottom of
+`page.rect`; the two agree on unrotated pages whose visible area ends at
+y = 0. The font still checks every line, also those below the page.
 
 `Font` follows pymupdf's `Font(fontname=None, fontfile=None, fontbuffer=None)`
 and is passed as `insert_text(font=)` and `insert_textbox(font=)`, and an
@@ -236,9 +251,10 @@ strokes and fills everything drawn since the previous `finish`, with gray,
 RGB, or CMYK colours from 0 to 1 and a PDF dash pattern such as `"[3 4] 0"`.
 `insert_text` and `insert_textbox` take the font options of `Page.insert_text`
 and `Page.insert_textbox`, `font=` and `lineheight=` included, and place lines
-as those methods do. `insert_text` returns the line
-count, and `insert_textbox` the unused height, negative when the text does not
-fit and nothing is added. `commit(overlay=True)` draws the shape: the finished
+as those methods do. `insert_text` also splits text and leaves out the lines
+below the page as `Page.insert_text` does, and returns the number of lines it
+added; `insert_textbox` returns the unused height, negative when the text does
+not fit and nothing is added. `commit(overlay=True)` draws the shape: the finished
 paths in order and all text above them, as pymupdf does.
 
 ```python

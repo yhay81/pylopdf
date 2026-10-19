@@ -451,11 +451,15 @@ fn truncate_postscript_name(mut name: String) -> String {
     name
 }
 
-/// Generate one transparent page containing subset-embedded OpenType text.
+/// Generate one transparent page containing subset-embedded OpenType text,
+/// and return it with the number of lines it draws.
 ///
 /// Coordinates use krilla's top-left-origin page surface. `point` is the first
 /// line's baseline-left point; later lines follow at `lineheight` times the
-/// font size, or at the face's default line height.
+/// font size, or at the face's default line height, and those whose baseline
+/// would fall below the page are left out, as
+/// [`LineMetrics::lines_on_page`] decides. Every line is still shaped, so a
+/// glyph that the face lacks is refused wherever its line lies.
 pub fn embedded_text_page(
     page_size: (f64, f64),
     point: (f64, f64),
@@ -464,14 +468,17 @@ pub fn embedded_text_page(
     font_size: f64,
     lineheight: Option<f64>,
     color: (f64, f64, f64),
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, usize), String> {
     let width = finite_f32(page_size.0, "page width")?;
     let height = finite_f32(page_size.1, "page height")?;
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let leading = font_line_metrics(face.shaping_font())?.leading(font_size, lineheight)?;
-    let runs = text_runs(face.shaping_font(), point, lines, leading)?;
+    let metrics = font_line_metrics(face.shaping_font())?;
+    let leading = metrics.leading(font_size, lineheight)?;
+    let mut runs = text_runs(face.shaping_font(), point, lines, leading)?;
+    let drawn = metrics.lines_on_page(lines.len(), page_size.1 - point.1, font_size, lineheight);
+    runs.truncate(drawn);
     let font = face.embedding_font()?;
 
     let mut document = Document::new();
@@ -483,9 +490,10 @@ pub fn embedded_text_page(
     draw_runs(&mut surface, &runs, &font, size);
     surface.finish();
     page.finish();
-    document
+    let pdf = document
         .finish()
-        .map_err(|error| format!("krilla text generation failed: {error}"))
+        .map_err(|error| format!("krilla text generation failed: {error}"))?;
+    Ok((pdf, drawn))
 }
 
 /// Lay out and generate subset-embedded OpenType text inside a display-space

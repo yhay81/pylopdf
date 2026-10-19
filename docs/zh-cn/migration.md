@@ -37,7 +37,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.rect / rotation / set_rotation` | 相同 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换；相同输入共享同一图像XObject，无需`xref=`复用 |
 | `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
-| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入；行的位置与pymupdf相同 |
+| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入；分行、行的位置以及省略超出页面底边的行均与pymupdf相同，并返回绘制的行数；页面底边为显示坐标中`page.rect`的底边，pymupdf则在未旋转的坐标中测量 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；行的位置与是否放得下的判断与pymupdf相同；返回负值时不绘制 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`与pymupdf的值相同，`insert_text`与`insert_textbox`用它们排列行 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
