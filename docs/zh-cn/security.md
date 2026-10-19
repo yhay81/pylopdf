@@ -95,8 +95,9 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 直接深度验证与complexity检查的迭代遍历stack采用fallible扩展，因此allocation
 refusal会抛出`PdfError`，而不会暴露部分facts。
 
-`max_interpretation_size`在hayro首次读取保留input，以及pylopdf在编辑、解密或
-AcroForm state选择后serialize当前状态时生效。有界writer会拒绝越界write，且不会
+`max_interpretation_size`在hayro首次读取保留input，以及pylopdf在编辑或解密后、或为
+准备rendering副本（例如合成text markup appearance）而serialize当前状态时生效。有界
+writer会拒绝越界write，且不会
 安装不完整的renderer／extractor cache。为保持兼容，默认值为`None`；
 `DocumentLimits.web()`使用64 MiB。
 
@@ -126,15 +127,17 @@ byte 64 byte再加64 MiB时以`recovery_scan_size`拒绝，防止恶意输入使
 复杂度。真实损坏文件在该位置最多只有一个被截断的stream。
 
 hayro 0.7以不限深度的递归读取内容流中的array和dictionary，因此只要有一个流打开数十万个
-`[`，就会在不抛出异常的情况下耗尽栈并终止Python进程。pylopdf在文本提取、布局、表格、
-搜索、绘图、图像读取、渲染（PNG、pixmap、SVG）、Markdown转换和图像压缩解释页面之前，
-会先解码该页面可达的内容流（`/Contents`、资源中的Form XObject、注释和控件的
-appearance、soft-mask group、tiling pattern和Type 3 glyph procedure）。当array或
+`[`，就会在不抛出异常的情况下耗尽栈并终止Python进程。hayro 0.8读到64层便停止，并静默
+省略更深的operand。pylopdf在文本提取、布局、表格、搜索、绘图、图像读取、渲染（PNG、
+pixmap、SVG）、Markdown转换和图像压缩解释页面之前，会先解码该页面可达的内容流
+（`/Contents`、资源中的Form XObject、注释和控件的appearance（check box和radio button
+的所有状态，hayro只绘制`/AS`选中的那一个）、soft-mask group、tiling pattern和Type 3
+glyph procedure）。当array或
 dictionary嵌套超过64层、嵌入了stream对象，或存在无法检查的inline image边界时，会以
 `content_nesting_depth`拒绝该页面。该上限固定不变，无论是否设置`DocumentLimits`都适用，
-其他页面仍可使用。每个页面在每个文档snapshot中只检查一次，编辑会清除结果。hayro会沿
-所有外层dictionary解析名称，因此即使没有operator绘制，页面资源dictionary中列出的条目
-也在检查范围内。
+其他页面仍可使用。每个页面在每个文档snapshot中只检查一次，编辑会清除结果。检查不会分析
+内容使用了哪些名称，因此即使没有operator绘制，页面资源dictionary中列出的条目也在检查
+范围内。
 
 hayro构建colour space、shading和function时同样使用不限深度的递归（hayro 0.7与0.8都是如此）：
 Indexed或Pattern colour space由其base构建，Separation或DeviceN colour space由其
@@ -144,13 +147,29 @@ Type 4 function则以递归方式解析`{ }` procedure。约2万个互相引用�
 或30万层嵌套的花括号，会耗尽栈并终止进程。pylopdf在解释页面之前，会测量该页面资源
 dictionary的`/ColorSpace`与`/Shading`条目、shading pattern、image XObject、soft-mask
 group，以及graphics state和soft mask的传递函数（`/TR`、`/TR2`）所能到达的对象；当
-colour space与function的链深度超过32层，或Type 4 function的procedure嵌套超过64层时，
+colour space与function的链深度超过16层，或Type 4 function的procedure嵌套超过64层时，
 以`resource_nesting_depth`拒绝该页面。链的深度计入colour space的array、function和
-profile stream；hayro自身会切断环路，因此自引用或很短的环仍可渲染，但互相可达的对象超过32个
+profile stream；hayro自身会切断环路，因此自引用或很短的环仍可渲染，但互相可达的对象超过16个
 的环会被拒绝；共享的子图只测量一次，对象无论被多少个条目引用都只读取一次。这些上限固定不变，无论是否设置`DocumentLimits`都适用，
 其他页面仍可使用。它们限制的是栈的使用而不是时间：对于仍在上限以内但经过构造的图
 （每层两次引用同一个function、嵌套Separation等），hayro可能需要指数级CPU时间，因此
 仍需在宿主中强制执行CPU deadline。
+
+hayro 0.8不读取（连同容纳它的对象在内）嵌套超过64层的array或dictionary，并把整个对象
+视为不存在；hayro 0.7以递归读取这类对象，lopdf可读取至100层。若页面的dictionary连同
+从page tree继承的属性嵌套得更深，每当有操作解释该页面时都会以`object_depth`拒绝它，
+其他页面仍可使用。trailer、catalog或page tree的根节点嵌套到这种深度时，不再妨碍文档
+渲染：渲染和提取读取去掉过深条目的副本，而可编辑和保存的文档仍保留这些条目。其他嵌套
+到这种深度的对象会像在hayro中一样被视为不存在。`DocumentLimits.web()`在打开时就会以
+`object_depth`拒绝这类文档。
+
+hayro 0.8在某些畸形颜色数据上会panic，例如返回分量数不符的Separation或DeviceN tint
+transform，或Pattern colour space中的shading
+（[LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)）；hayro 0.7
+能够渲染同样的页面。所有让hayro解释页面的操作都会捕获这种panic，并抛出`PdfError`，
+而不是PyO3的`PanicException`（它派生自`BaseException`，会绕过`except Exception`）。
+renderer state会像编辑时一样被丢弃，因此之后的调用会从头开始，文档仍可继续使用。Rust
+仍会把panic消息写到标准错误输出。
 
 - 每页渲染上限为6400万像素。
 - `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG
@@ -192,7 +211,7 @@ profile stream；hayro自身会切断环路，因此自引用或很短的环仍�
   `password_input_size`，保存拒绝发生在document mutation或创建output之前。
 - `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
-  hayro-svg 0.7只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
+  hayro-svg 0.8只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
   不受此限制。
 - 绘图插入会在cache失效、输入decode或创建dependent object前检查page
   `/Contents`的raw array和引用chain。raw array上限为4,096个entry，chain深度为

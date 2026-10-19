@@ -47,22 +47,38 @@ risky. When processing untrusted files:
   with `text_size`.
 - Before hayro interprets a page, pylopdf decodes the content streams that
   page can reach (its `/Contents`, Form XObjects, annotation and widget
-  appearances, soft-mask groups, tiling patterns, and Type 3 glyph procedures)
-  and refuses it with `content_nesting_depth` when arrays or dictionaries nest
-  deeper than 64 levels, a stream object is embedded in content, or inline
-  image boundaries are too ambiguous to check. hayro 0.7 parses such nesting by
-  unbounded recursion, so hundreds of thousands of nested `[` used to overflow
-  the stack and end the process. The bound is fixed, applies with or without
-  limits, and stays page-granular: other pages remain usable.
+  appearances including every state of a check box or radio button, soft-mask
+  groups, tiling patterns, and Type 3 glyph procedures) and refuses it with
+  `content_nesting_depth` when arrays or dictionaries nest deeper than 64
+  levels, a stream object is embedded in content, or inline image boundaries
+  are too ambiguous to check. hayro 0.7 parsed such nesting by unbounded
+  recursion, so hundreds of thousands of nested `[` used to overflow the stack
+  and end the process; hayro 0.8 stops at 64 levels and silently leaves out the
+  rest, which the check turns into a refusal. The bound is fixed, applies with
+  or without limits, and stays page-granular: other pages remain usable.
 - The same check measures the colour spaces, shadings, and functions that the
   page's resources reach (Indexed, Pattern, Separation, DeviceN, ICCBased, and
   stitching and Type 4 functions, found through `/ColorSpace` and `/Shading`
   entries, shading patterns, images, soft-mask groups, and `/TR` transfer
   functions) and refuses them with `resource_nesting_depth` when a chain is
-  deeper than 32 levels or a Type 4 function nests procedures deeper than 64.
+  deeper than 16 levels or a Type 4 function nests procedures deeper than 64.
   hayro 0.7 and 0.8 build them by unbounded recursion, so about 20,000 chained
   objects or 300,000 nested braces used to overflow the stack and end the
   process. The bounds stop stack overflows, not CPU use.
+- hayro 0.8 reads no array or dictionary nested more than 64 levels deep and
+  treats the whole object as absent. A page whose dictionary, with the
+  attributes it inherits, nests deeper is refused with `object_depth` whenever
+  an operation interprets it, and other pages remain usable. A trailer,
+  catalog, or root page-tree node nested that deeply no longer keeps the
+  document from rendering, while other objects nested that deeply read as
+  absent. `DocumentLimits.web()` already refuses such documents when they open.
+- hayro 0.8 panics on some malformed colour data, such as a tint transform that
+  returns the wrong number of components
+  ([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)).
+  Every operation that lets hayro interpret a page catches the panic and raises
+  `PdfError` instead of PyO3's `PanicException`, a `BaseException`, and drops
+  the renderer state as an edit does, so the document stays usable. Rust still
+  prints the panic message to standard error.
 - Page batches cover every page by default. Explicit page sequences stop at the
   first entry beyond the larger of the page count and 4,096 with
   `page_entry_count`, so repetition never costs more than one complete document

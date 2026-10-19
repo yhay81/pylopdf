@@ -236,6 +236,36 @@ def _limit_results(
             },
         }
     )
+    deep_page = pylopdf.Document(
+        stream=_build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R /PieceInfo " + "[" * 80 + "0" + "]" * 80 + " >>",
+            }
+        )
+    )
+    pattern_shading = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Shading << /Sh1 5 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 7 >>\nstream\n/Sh1 sh\nendstream",
+            5: "<< /ShadingType 2 /ColorSpace /Pattern /Coords [0 0 100 0] "
+            "/Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >>",
+        }
+    )
+
+    def renderer_error(callback: Callable[[], object]) -> list[object]:
+        try:
+            callback()
+        except pylopdf.PdfError as error:
+            return [type(error).__name__, "malformed input" in str(error)]
+        msg = "malformed rendering unexpectedly succeeded"
+        raise RuntimeError(msg)
+
     unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
     cyclic = pylopdf.Document(
         stream=_build_reference_cycle_pdf(),
@@ -272,11 +302,15 @@ def _limit_results(
                 limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
             )
         ),
-        # hayro 0.7 overflows its stack on this stream; the guard refuses it first.
+        # hayro 0.7 overflowed its stack on this stream and hayro 0.8 truncates it; the guard refuses it first.
         "content_nesting": limit_code(lambda: pylopdf.Document(stream=nested_content).get_page_text(0)),
         # Neither recursion is a content stream, and hayro 0.7 and 0.8 overflow their stacks on both.
         "resource_nesting_program": limit_code(lambda: pylopdf.Document(stream=deep_functions).get_page_text(0)),
         "resource_nesting_chain": limit_code(lambda: pylopdf.Document(stream=deep_chain).get_page_text(0)),
+        # hayro 0.8 reads no page dictionary nested more than 64 levels deep; only that page is refused.
+        "page_object_depth": [limit_code(lambda: deep_page.get_page_text(1)), deep_page.get_page_text(0)],
+        # hayro 0.8 panics on a shading in a Pattern space (LaurenzV/hayro#1546); the unwind becomes PdfError.
+        "renderer_panic": renderer_error(pylopdf.Document(stream=pattern_shading)[0].get_pixmap),
         "reference_cycle_pages": cyclic.page_count,
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,
@@ -369,7 +403,7 @@ def _consistency_results() -> dict[str, Any]:
             f"/Length {len(form)} >>\nstream\n{form}\nendstream",
         }
     )
-    # The page-tree walker skips kid 8; hayro 0.7 ended the page list there.
+    # The page-tree walker skips kid 8, an integer; hayro 0.7 ended the page list there, and hayro 0.8 skips it.
     non_page_kid = _build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",

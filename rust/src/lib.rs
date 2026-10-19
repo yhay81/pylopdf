@@ -23,6 +23,7 @@ mod page_cleanup;
 mod pixmap;
 mod postscript_scan;
 mod prune;
+mod read_depth;
 mod recovery;
 mod render_cache;
 mod renumber;

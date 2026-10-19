@@ -6,16 +6,20 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use hayro::hayro_interpret::InterpreterCache;
 use hayro::hayro_interpret::font::{FallbackFontQuery, FontData, FontQuery};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
-use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning};
+use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning, TransformExt};
 use hayro::hayro_syntax::Pdf;
+use hayro::kurbo::Affine;
 use hayro::vello_cpu::color::AlphaColor;
-use hayro::{RenderCache, RenderSettings, render};
+use hayro::vello_cpu::peniko::ImageAlphaType;
+use hayro::vello_cpu::{RasterizerSettings, RenderContext, Resources, TargetInit};
+use hayro::{PixmapSettings, RenderCache, RenderSettings, render_into};
 use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
 use lopdf::encryption::{EncryptionState, EncryptionVersion, Permissions};
 use lopdf::{
@@ -40,6 +44,7 @@ use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
 use crate::prune::{prune_unreachable_objects, reachable_object_ids};
+use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
@@ -2943,30 +2948,24 @@ fn xmp_value(xmp: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Convert a hayro Pixmap to straight-alpha RGBA8 bytes.
-fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Result<Vec<u8>, String> {
-    let pixels = pixmap.take_unpremultiplied();
-    let output_len = pixels
-        .len()
-        .checked_mul(4)
-        .ok_or_else(|| "rendered RGBA buffer size overflowed".to_owned())?;
-    let mut out = Vec::new();
-    out.try_reserve_exact(output_len)
-        .map_err(|error| format!("failed to allocate rendered RGBA buffer: {error}"))?;
-    for px in pixels {
-        out.extend_from_slice(&[px.r, px.g, px.b, px.a]);
-    }
-    Ok(out)
+/// Convert a hayro Pixmap to straight-alpha RGBA8 bytes in place.
+///
+/// vello_cpu unpremultiplies its own buffer and reinterprets it as bytes, so
+/// this conversion allocates nothing.
+fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
+    pixmap.take_rgba8(ImageAlphaType::Alpha)
 }
 
-/// Convert only a display-coordinate crop of a hayro Pixmap to RGBA8 bytes.
-fn cropped_rgba_bytes(
-    pixmap: hayro::vello_cpu::Pixmap,
-    width: u32,
-    height: u32,
+/// Pixel viewport of a display-coordinate clip on the scaled page raster.
+///
+/// The clip is intersected with the page and rounded outward to pixel
+/// boundaries. Returns the viewport origin and size in pixels.
+fn clip_viewport(
+    page_width: u16,
+    page_height: u16,
     scale: f32,
     clip: (f64, f64, f64, f64),
-) -> Result<(u32, u32, Vec<u8>), String> {
+) -> Result<(f64, f64, u16, u16), String> {
     if ![clip.0, clip.1, clip.2, clip.3]
         .into_iter()
         .all(f64::is_finite)
@@ -2976,53 +2975,16 @@ fn cropped_rgba_bytes(
         return Err("clip must be a finite rectangle with x0 < x1 and y0 < y1".to_owned());
     }
     let scale = f64::from(scale);
-    let pixel_x0 = (clip.0 * scale).floor().clamp(0.0, f64::from(width)) as u32;
-    let pixel_y0 = (clip.1 * scale).floor().clamp(0.0, f64::from(height)) as u32;
-    let pixel_x1 = (clip.2 * scale).ceil().clamp(0.0, f64::from(width)) as u32;
-    let pixel_y1 = (clip.3 * scale).ceil().clamp(0.0, f64::from(height)) as u32;
-    if pixel_x0 >= pixel_x1 || pixel_y0 >= pixel_y1 {
+    let (width, height) = (f64::from(page_width), f64::from(page_height));
+    let x0 = (clip.0 * scale).floor().clamp(0.0, width);
+    let y0 = (clip.1 * scale).floor().clamp(0.0, height);
+    let x1 = (clip.2 * scale).ceil().clamp(0.0, width);
+    let y1 = (clip.3 * scale).ceil().clamp(0.0, height);
+    if x0 >= x1 || y0 >= y1 {
         return Err("clip does not intersect the rendered page".to_owned());
     }
-
-    let cropped_width = pixel_x1 - pixel_x0;
-    let cropped_height = pixel_y1 - pixel_y0;
-    let source_width =
-        usize::try_from(width).map_err(|_| "rendered page width is too large".to_owned())?;
-    let source_x0 =
-        usize::try_from(pixel_x0).map_err(|_| "cropped page offset is too large".to_owned())?;
-    let source_x1 =
-        usize::try_from(pixel_x1).map_err(|_| "cropped page offset is too large".to_owned())?;
-    let capacity = usize::try_from(cropped_width)
-        .ok()
-        .and_then(|width| {
-            usize::try_from(cropped_height)
-                .ok()
-                .and_then(|height| width.checked_mul(height))
-        })
-        .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "cropped page is too large".to_owned())?;
-    let pixels = pixmap.take_unpremultiplied();
-    let mut cropped = Vec::new();
-    cropped
-        .try_reserve_exact(capacity)
-        .map_err(|error| format!("failed to allocate cropped RGBA buffer: {error}"))?;
-    for y in pixel_y0..pixel_y1 {
-        let row_start = usize::try_from(y)
-            .ok()
-            .and_then(|value| value.checked_mul(source_width))
-            .and_then(|value| value.checked_add(source_x0))
-            .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        let row_end = row_start
-            .checked_add(source_x1 - source_x0)
-            .ok_or_else(|| "cropped page offset is too large".to_owned())?;
-        for px in pixels
-            .get(row_start..row_end)
-            .ok_or_else(|| "cropped page exceeds the rendered image".to_owned())?
-        {
-            cropped.extend_from_slice(&[px.r, px.g, px.b, px.a]);
-        }
-    }
-    Ok((cropped_width, cropped_height, cropped))
+    // Both extents are bounded by the u16 page raster, so the casts are exact.
+    Ok((x0, y0, (x1 - x0) as u16, (y1 - y0) as u16))
 }
 
 /// Validate one page and return its raster pixel count.
@@ -3059,7 +3021,11 @@ fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Result<u64, St
     Ok(total_pixels)
 }
 
-/// Render one page from an immutable hayro snapshot and caller-owned cache.
+/// Render one page, or one display-coordinate clip of it, from an immutable
+/// hayro snapshot and caller-owned cache.
+///
+/// A clip renders through an offset viewport, so only its pixels are
+/// rasterized and allocated. Full-page render-size limits still apply.
 fn render_pdf_page<'a>(
     pdf: &'a Pdf,
     cache: &RenderCache<'a>,
@@ -3067,6 +3033,7 @@ fn render_pdf_page<'a>(
     page_number: u32,
     scale: f32,
     background: Option<(u8, u8, u8, u8)>,
+    clip: Option<(f64, f64, f64, f64)>,
 ) -> Result<hayro::vello_cpu::Pixmap, String> {
     render_pixel_count(pdf, page_number, scale)?;
     let pages = pdf.pages();
@@ -3074,22 +3041,46 @@ fn render_pdf_page<'a>(
         .checked_sub(1)
         .and_then(|index| pages.get(index as usize))
         .ok_or_else(|| format!("page {page_number} does not exist"))?;
-    let mut render_settings = RenderSettings {
-        x_scale: scale,
-        y_scale: scale,
-        ..Default::default()
+    let (page_width, page_height) = page.render_dimensions();
+    // Match hayro::render, which truncates the scaled page size.
+    let (width, height) = ((page_width * scale) as u16, (page_height * scale) as u16);
+    let (x0, y0, width, height) = match clip {
+        Some(clip) => clip_viewport(width, height, scale, clip)?,
+        None => (0.0, 0.0, width, height),
     };
-    if let Some((r, g, b, a)) = background {
-        render_settings.bg_color = AlphaColor::from_rgba8(r, g, b, a);
-    }
-    Ok(render(page, cache, interpreter_settings, &render_settings))
+    let transform = Affine::translate((-x0, -y0))
+        * Affine::scale(f64::from(scale))
+        * page.initial_transform(true).to_kurbo();
+    let mut context = RenderContext::new(width, height);
+    render_into(
+        page,
+        cache,
+        interpreter_settings,
+        &RenderSettings::default(),
+        &mut context,
+        transform,
+    );
+    context.flush();
+    let bg_color = background.map_or(PixmapSettings::default().bg_color, |(r, g, b, a)| {
+        AlphaColor::from_rgba8(r, g, b, a)
+    });
+    let mut pixmap = hayro::vello_cpu::Pixmap::new(width, height);
+    context.render_with(
+        &mut pixmap,
+        &mut Resources::default(),
+        RasterizerSettings {
+            target_init: TargetInit::Clear(bg_color),
+            ..Default::default()
+        },
+    );
+    Ok(pixmap)
 }
 
 /// Convert a rendered pixmap into the bounded fast PNG representation used publicly.
 fn rendered_png(pixmap: hayro::vello_cpu::Pixmap, max_size: Option<usize>) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
+    let data = rgba_bytes(pixmap);
     match crate::extract::encode_png_bounded(
         width,
         height,
@@ -3197,7 +3188,7 @@ fn rendered_batch_png(
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap).map_err(PdfError::new_err)?;
+    let data = rgba_bytes(pixmap);
     let mut output = BatchPngOutput::new(max_size, output_bytes);
     let result = crate::extract::write_png(
         &mut output,
@@ -3240,6 +3231,7 @@ impl BatchRenderer<'_> {
             page_number,
             self.scale,
             self.background,
+            None,
         )
         .map_err(PdfError::new_err)?;
         match self.max_output_size {
@@ -3306,61 +3298,6 @@ fn form_text_string(text: &str) -> Object {
         encoded.extend_from_slice(&unit.to_be_bytes());
     }
     Object::String(encoded, StringFormat::Hexadecimal)
-}
-
-/// Resolve annotation state dictionaries to their selected stream for hayro.
-///
-/// PDF permits `/AP /N` to be a state-name dictionary selected by `/AS`.
-/// hayro 0.7 only consumes a direct normal stream, so rendering uses a clone
-/// with the selected entry substituted while the editable PDF stays canonical.
-fn selected_state_appearance<'a>(
-    doc: &'a Document,
-    object: &'a Object,
-) -> Option<(&'a Dictionary, &'a Object)> {
-    let annotation = object.as_dict().ok()?;
-    let state = annotation.get(b"AS").and_then(Object::as_name).ok()?;
-    let appearance = deref_dict_ref(doc, annotation.get(b"AP").ok()?)?;
-    let normal = deref_dict_ref(doc, appearance.get(b"N").ok()?)?;
-    let selected = normal.get(state).ok()?;
-    deref_object(doc, selected).as_stream().ok()?;
-    Some((appearance, selected))
-}
-
-/// Preflight render-only state substitutions without cloning every object ID.
-fn state_appearance_ids(doc: &Document) -> PyResult<Vec<ObjectId>> {
-    let mut object_ids = Vec::new();
-    for (&object_id, object) in &doc.objects {
-        if selected_state_appearance(doc, object).is_none() {
-            continue;
-        }
-        object_ids.try_reserve(1).map_err(|error| {
-            PdfError::new_err(format!(
-                "failed to grow render state-appearance plan: {error}"
-            ))
-        })?;
-        object_ids.push(object_id);
-    }
-    Ok(object_ids)
-}
-
-fn normalize_state_appearances_for_render(doc: &mut Document, object_ids: &[ObjectId]) -> bool {
-    let mut changed = false;
-    for &object_id in object_ids {
-        let Some((mut appearance, selected)) = doc
-            .get_object(object_id)
-            .ok()
-            .and_then(|object| selected_state_appearance(doc, object))
-            .map(|(appearance, selected)| (appearance.clone(), selected.clone()))
-        else {
-            continue;
-        };
-        appearance.set("N", selected);
-        if let Ok(annotation) = doc.get_object_mut(object_id).and_then(Object::as_dict_mut) {
-            annotation.set("AP", Object::Dictionary(appearance));
-            changed = true;
-        }
-    }
-    changed
 }
 
 struct TextMarkupAppearancePlan {
@@ -3452,7 +3389,7 @@ fn text_markup_segment_count(kind: draw::TextMarkupKind, quad: [(f64, f64); 4]) 
 /// Collect bounded text-markup annotations that need a render-only appearance.
 ///
 /// PDF viewers may synthesize a normal appearance from `/QuadPoints` and `/C`,
-/// but hayro 0.7 requires `/AP /N`. Keep this compatibility work outside the
+/// but hayro 0.8 requires `/AP /N`. Keep this compatibility work outside the
 /// editable document and refuse aggregate geometry amplification.
 fn missing_text_markup_appearance_plans(
     doc: &Document,
@@ -5620,6 +5557,10 @@ pub struct _Document {
     ///
     /// Dropped with the snapshot, so edits never leave a stale verdict.
     content_guard: ContentGuard,
+    /// One-based pages, ascending, whose dictionary nests deeper than hayro
+    /// reads, so that the current snapshot holds a cut copy of it. Every
+    /// operation that interprets one of them is refused.
+    pages_too_deep: Vec<u32>,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
@@ -5694,6 +5635,7 @@ impl _Document {
             hayro_source,
             hayro_pdf_from_original: false,
             content_guard: ContentGuard::default(),
+            pages_too_deep: Vec::new(),
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
             table_pages: HashMap::new(),
@@ -5860,6 +5802,7 @@ impl _Document {
         self.hayro_pdf = None;
         self.hayro_source = HayroSource::Unavailable;
         self.content_guard.reset();
+        self.pages_too_deep.clear();
         self.link_resolution = None;
         self.invalidate_interpreted_pages();
     }
@@ -7356,12 +7299,10 @@ impl _Document {
     fn hayro_view(&mut self) -> PyResult<&Arc<Pdf>> {
         if self.hayro_pdf.is_none() {
             let page_ids = self.doc.owned_page_ids()?;
-            let state_appearances = state_appearance_ids(&self.doc)?;
             let text_markup_appearances = missing_text_markup_appearance_plans(&self.doc)?;
-            let prepare_appearances = !state_appearances.is_empty()
-                || text_markup_appearances
-                    .as_ref()
-                    .is_some_and(|plans| !plans.is_empty());
+            let prepare_appearances = text_markup_appearances
+                .as_ref()
+                .is_some_and(|plans| !plans.is_empty());
             if !prepare_appearances {
                 match &self.hayro_source {
                     HayroSource::TooLarge { actual, limit } => {
@@ -7378,53 +7319,82 @@ impl _Document {
                     HayroSource::Unavailable => {}
                 }
             }
+            // hayro cannot open a document whose trailer or catalog nests too
+            // deeply, and lists pages without their inherited attributes when
+            // the root page-tree node does, so such a document reads from the
+            // rendering copy that cuts them.
+            let readable_roots =
+                !read_depth::roots_too_deep(&self.doc, page_tree_root(&self.doc).ok())?;
+            let copy_needed = prepare_appearances || !readable_roots;
             // hayro rebuilds an object stream's member table for every member
             // it looks up, so a document with a very large container reads
             // faster from its serialized graph, which has none. The original
             // bytes stay the fallback when the serialization is refused or
             // lists other pages.
-            let serialized_pdf = (!prepare_appearances && self.prefers_serialized_graph())
-                .then(|| self.render_snapshot(&state_appearances, None, None).ok())
+            let serialized_pdf = (!copy_needed && self.prefers_serialized_graph())
+                .then(|| self.render_snapshot(None, None).ok())
                 .flatten()
+                .and_then(|(data, _)| Pdf::new(data).ok())
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             if serialized_pdf.is_some() {
                 self.hayro_source = HayroSource::Unavailable;
             }
-            let source_pdf = (!prepare_appearances && serialized_pdf.is_none())
+            let source_pdf = (!copy_needed && serialized_pdf.is_none())
                 .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             self.hayro_pdf_from_original = source_pdf.is_some();
-            let pdf = match serialized_pdf.or(source_pdf) {
-                Some(pdf) => pdf,
+            let (pdf, pages_too_deep) = match serialized_pdf.or(source_pdf) {
+                Some(pdf) => (pdf, Vec::new()),
                 None => {
-                    let pdf =
-                        self.render_snapshot(&state_appearances, text_markup_appearances, None)?;
-                    if hayro_pages_match(&pdf, &page_ids) {
-                        pdf
+                    let plain = if readable_roots {
+                        let (data, _) = self.render_snapshot(text_markup_appearances, None)?;
+                        Pdf::new(data).ok()
                     } else {
-                        // hayro 0.7 stops at the first page-tree kid that is
-                        // not a dictionary and reads untyped kids as pages,
-                        // while the walker skips both, so list only the
-                        // walker's pages in a rendering copy.
-                        let text_markup_appearances =
-                            missing_text_markup_appearance_plans(&self.doc)?;
-                        let pdf = self.render_snapshot(
-                            &state_appearances,
-                            text_markup_appearances,
-                            Some(&page_ids),
-                        )?;
-                        if !hayro_pages_match(&pdf, &page_ids) {
-                            return Err(PdfError::new_err(
-                                "the renderer could not resolve the document page tree",
-                            ));
+                        None
+                    };
+                    match plain {
+                        Some(pdf) if hayro_pages_match(&pdf, &page_ids) => (pdf, Vec::new()),
+                        _ => {
+                            // hayro 0.8 reads untyped page-tree kids as pages,
+                            // which the walker skips, and leaves out a kid it
+                            // cannot read, such as one nested more than 64
+                            // levels deep. It cannot open a document whose
+                            // trailer or catalog is nested that deeply. List
+                            // only the walker's pages in a rendering copy and
+                            // cut what hayro could not read.
+                            let text_markup_appearances =
+                                missing_text_markup_appearance_plans(&self.doc)?;
+                            let (data, cut) =
+                                self.render_snapshot(text_markup_appearances, Some(&page_ids))?;
+                            let pdf = Pdf::new(data).map_err(|e| {
+                                PdfError::new_err(format!(
+                                    "failed to parse PDF for rendering: {e:?}"
+                                ))
+                            })?;
+                            if !hayro_pages_match(&pdf, &page_ids) {
+                                return Err(PdfError::new_err(
+                                    "the renderer could not resolve the document page tree",
+                                ));
+                            }
+                            (pdf, cut)
                         }
-                        pdf
                     }
                 }
             };
             self.content_guard.reset();
+            self.pages_too_deep.clear();
+            self.pages_too_deep
+                .try_reserve_exact(pages_too_deep.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to record pages nested too deeply: {error}"))
+                })?;
+            for index in pages_too_deep {
+                let number = u32::try_from(index + 1)
+                    .map_err(|_| PdfError::new_err("page number exceeds the platform limit"))?;
+                self.pages_too_deep.push(number);
+            }
             self.hayro_pdf = Some(Arc::new(pdf));
         }
         Ok(self
@@ -7445,14 +7415,30 @@ impl _Document {
 
     /// Return the hayro view after clearing `pages` for nesting.
     ///
-    /// hayro 0.7 overflows its stack, and kills the process, on arrays or
-    /// dictionaries nested hundreds of thousands deep in a content stream, on
-    /// Type 4 function braces nested as deeply, and on chains of thousands of
-    /// colour spaces or functions that name each other. Every path that lets
-    /// hayro interpret a page therefore starts here; a refusal raises
+    /// hayro 0.7 and 0.8 overflow their stack, and kill the process, on Type 4
+    /// function braces nested hundreds of thousands deep and on chains of
+    /// thousands of colour spaces or functions that name each other. hayro 0.7
+    /// did on arrays or dictionaries nested as deeply in a content stream,
+    /// which hayro 0.8 truncates at 64 levels, and hayro 0.8 cannot read a
+    /// page dictionary nested more than 64 levels deep at all. Every path that
+    /// lets hayro interpret a page therefore starts here; a refusal raises
     /// `LimitError` before any interpretation or cache insertion.
     fn hayro_view_for(&mut self, pages: PageSelection<'_>) -> PyResult<&Arc<Pdf>> {
         self.hayro_view()?;
+        let too_deep = |number: &u32| self.pages_too_deep.binary_search(number).is_ok();
+        let refused = match pages {
+            PageSelection::One(number) => too_deep(&number).then_some(number),
+            PageSelection::Many(numbers) => numbers.iter().copied().find(too_deep),
+            PageSelection::All => self.pages_too_deep.first().copied(),
+        };
+        if let Some(number) = refused {
+            return Err(limit_err(
+                "object_depth",
+                format!(
+                    "page {number} nests arrays or dictionaries deeper than the {MAX_READ_DEPTH} levels that rendering and extraction read"
+                ),
+            ));
+        }
         let pdf = self
             .hayro_pdf
             .as_ref()
@@ -7461,21 +7447,52 @@ impl _Document {
         Ok(pdf)
     }
 
-    /// Parse a serialized snapshot, normalizing a rendering copy when
-    /// appearances or the page tree need it.
+    /// Run an operation that lets hayro read or interpret pages, and turn a
+    /// panic in it into `PdfError`.
+    ///
+    /// hayro 0.8 panics on some malformed colour data, such as a tint
+    /// transform that returns the wrong number of components
+    /// (LaurenzV/hayro#1546), and a panic that reached PyO3 would raise
+    /// `PanicException`, which derives from `BaseException`. hayro may leave
+    /// its snapshot and caches half-built when it panics, so everything an
+    /// edit drops is dropped here too, and the next operation builds a new
+    /// snapshot from the graph.
+    fn contain_renderer_panics<R>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> PyResult<R>,
+    ) -> PyResult<R> {
+        match catch_unwind(AssertUnwindSafe(|| operation(&mut *self))) {
+            Ok(result) => result,
+            Err(payload) => {
+                self.invalidate_hayro_pdf();
+                let message = payload
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("no message");
+                Err(PdfError::new_err(format!(
+                    "the renderer failed on malformed input: {message}"
+                )))
+            }
+        }
+    }
+
+    /// Serialize a snapshot, normalizing a rendering copy when appearances or
+    /// the page tree need it.
     ///
     /// `flattened_pages` lists the walker's pages directly under the root
-    /// page-tree node. None of this changes the editable or saved document.
+    /// page-tree node and fits that copy to the nesting hayro reads, which
+    /// returns the zero-based indexes of the pages it cut. None of this
+    /// changes the editable or saved document.
     fn render_snapshot(
         &mut self,
-        state_appearances: &[ObjectId],
         text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
         flattened_pages: Option<&[ObjectId]>,
-    ) -> PyResult<Pdf> {
-        let normalize = !state_appearances.is_empty()
-            || text_markup_appearances
-                .as_ref()
-                .is_some_and(|plans| !plans.is_empty())
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut cut = Vec::new();
+        let normalize = text_markup_appearances
+            .as_ref()
+            .is_some_and(|plans| !plans.is_empty())
             || flattened_pages.is_some();
         let data = if normalize {
             let mut doc = if self.max_interpretation_size.is_some() {
@@ -7489,13 +7506,13 @@ impl _Document {
             } else {
                 self.doc.clone()
             };
-            normalize_state_appearances_for_render(&mut doc, state_appearances);
             if let Some(plans) = text_markup_appearances {
                 synthesize_missing_text_markup_appearances_for_render(&mut doc, plans)?;
             }
             if let Some(pages) = flattened_pages {
                 let pages_id = page_tree_root(&doc)?;
                 rebuild_flat_page_tree(&mut doc, pages_id, pages, None)?;
+                cut = read_depth::fit_rendering_copy(&mut doc, pages_id, pages)?;
             }
             serialize_pdf_with_limit(
                 &mut doc,
@@ -7507,8 +7524,7 @@ impl _Document {
         } else {
             self.current_bytes()?
         };
-        Pdf::new(data)
-            .map_err(|e| PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
+        Ok((data, cut))
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
@@ -7748,6 +7764,12 @@ impl _Document {
                     "encountered an unsupported font format; some glyphs could not be processed"
                 }
                 InterpreterWarning::ImageDecodeFailure => "failed to decode an image",
+                // hayro also reports a check box whose `/AS /Off` has no Off
+                // stream. ISO 32000 makes that appearance optional, and forms
+                // such as f1040 omit it for every unchecked box, so this
+                // warning would fire on valid input during every operation.
+                InterpreterWarning::UnresolvedAnnotationAppearance => return,
+                _ => "encountered an unsupported PDF construct during interpretation",
             };
             if let Ok(mut pending) = sink.lock()
                 && !pending.iter().any(|m| m == message)
@@ -7765,26 +7787,30 @@ impl _Document {
         page_number: u32,
         scale: f32,
         background: Option<(u8, u8, u8, u8)>,
+        clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
         let interpreter_settings = self.interpreter_settings();
-        py.detach(|| {
-            self.hayro_view_for(PageSelection::One(page_number))?;
-            let pdf = self
-                .hayro_pdf
-                .as_ref()
-                .expect("hayro view was built immediately before");
-            self.render_cache
-                .with_cache(pdf, &[page_number], |pdf, cache| {
-                    render_pdf_page(
-                        pdf,
-                        cache,
-                        &interpreter_settings,
-                        page_number,
-                        scale,
-                        background,
-                    )
-                })
-                .map_err(PdfError::new_err)
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.hayro_view_for(PageSelection::One(page_number))?;
+                let pdf = this
+                    .hayro_pdf
+                    .as_ref()
+                    .expect("hayro view was built immediately before");
+                this.render_cache
+                    .with_cache(pdf, &[page_number], |pdf, cache| {
+                        render_pdf_page(
+                            pdf,
+                            cache,
+                            &interpreter_settings,
+                            page_number,
+                            scale,
+                            background,
+                            clip,
+                        )
+                    })
+                    .map_err(PdfError::new_err)
+            })
         })
     }
 
@@ -9414,35 +9440,37 @@ impl _Document {
             return Ok(String::new());
         }
         let settings = self.interpreter_settings();
-        py.detach(|| {
-            self.hayro_view_for(PageSelection::Many(&page_numbers))?;
-            let pdf = self
-                .hayro_pdf
-                .take()
-                .expect("hayro view was built immediately before");
-            // Share one interpreter cache per bounded chunk so fonts reused by
-            // several pages parse once per chunk instead of once per page,
-            // while whole-document batches never retain every parsed font.
-            // The output budget spans the complete call, not one chunk.
-            let mut out = String::new();
-            let mut extracted = Ok(());
-            for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
-                let cache = InterpreterCache::new();
-                extracted = self.extract_text_batch(
-                    &pdf,
-                    &cache,
-                    chunk,
-                    max_output_size,
-                    &settings,
-                    &mut out,
-                );
-                drop(cache);
-                if extracted.is_err() {
-                    break;
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.hayro_view_for(PageSelection::Many(&page_numbers))?;
+                let pdf = this
+                    .hayro_pdf
+                    .take()
+                    .expect("hayro view was built immediately before");
+                // Share one interpreter cache per bounded chunk so fonts reused by
+                // several pages parse once per chunk instead of once per page,
+                // while whole-document batches never retain every parsed font.
+                // The output budget spans the complete call, not one chunk.
+                let mut out = String::new();
+                let mut extracted = Ok(());
+                for chunk in page_numbers.chunks(PAGE_BATCH_CHUNK) {
+                    let cache = InterpreterCache::new();
+                    extracted = this.extract_text_batch(
+                        &pdf,
+                        &cache,
+                        chunk,
+                        max_output_size,
+                        &settings,
+                        &mut out,
+                    );
+                    drop(cache);
+                    if extracted.is_err() {
+                        break;
+                    }
                 }
-            }
-            self.hayro_pdf = Some(pdf);
-            extracted.map(|()| out)
+                this.hayro_pdf = Some(pdf);
+                extracted.map(|()| out)
+            })
         })
     }
 
@@ -9458,10 +9486,12 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<(f64, f64, Vec<crate::extract::BlockTuple>)> {
         let settings = self.interpreter_settings();
-        py.detach(|| {
-            self.text_page(page_number, settings)?
-                .layout()
-                .map_err(text_page_limit_err)
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.text_page(page_number, settings)?
+                    .layout()
+                    .map_err(text_page_limit_err)
+            })
         })
     }
 
@@ -9478,10 +9508,12 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<(f64, f64, Vec<crate::extract::RawBlockTuple>)> {
         let settings = self.interpreter_settings();
-        py.detach(|| {
-            self.text_page(page_number, settings)?
-                .raw_layout()
-                .map_err(text_page_limit_err)
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.text_page(page_number, settings)?
+                    .raw_layout()
+                    .map_err(text_page_limit_err)
+            })
         })
     }
 
@@ -9502,10 +9534,12 @@ impl _Document {
             }
         };
         let settings = self.interpreter_settings();
-        py.detach(|| {
-            self.table_page(page_number, settings)?
-                .tables(text_strategy, clip)
-                .map_err(text_page_limit_err)
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.table_page(page_number, settings)?
+                    .tables(text_strategy, clip)
+                    .map_err(text_page_limit_err)
+            })
         })
     }
 
@@ -9518,14 +9552,18 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<crate::extract::ImageTuple>> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
-        py.detach(|| {
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::extract_page_images(pdf, page, settings).map_err(PdfError::new_err)
+        self.contain_renderer_panics(|this| {
+            let pdf = this.hayro_view_for(PageSelection::One(page_number))?;
+            py.detach(|| {
+                let pages = pdf.pages();
+                let page = page_number
+                    .checked_sub(1)
+                    .and_then(|index| pages.get(index as usize))
+                    .ok_or_else(|| {
+                        PdfError::new_err(format!("page {page_number} does not exist"))
+                    })?;
+                crate::extract::extract_page_images(pdf, page, settings).map_err(PdfError::new_err)
+            })
         })
     }
 
@@ -9536,14 +9574,19 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<crate::extract::DrawingTuple>> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
-        py.detach(|| {
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            crate::extract::extract_page_drawings(pdf, page, settings).map_err(PdfError::new_err)
+        self.contain_renderer_panics(|this| {
+            let pdf = this.hayro_view_for(PageSelection::One(page_number))?;
+            py.detach(|| {
+                let pages = pdf.pages();
+                let page = page_number
+                    .checked_sub(1)
+                    .and_then(|index| pages.get(index as usize))
+                    .ok_or_else(|| {
+                        PdfError::new_err(format!("page {page_number} does not exist"))
+                    })?;
+                crate::extract::extract_page_drawings(pdf, page, settings)
+                    .map_err(PdfError::new_err)
+            })
         })
     }
 
@@ -9555,10 +9598,11 @@ impl _Document {
         quality: u8,
     ) -> PyResult<image_compression::CompressionResult> {
         let settings = self.interpreter_settings();
-        let pdf = self.hayro_view_for(PageSelection::All)?;
-        let usages = py
-            .detach(|| crate::extract::collect_image_usages(pdf, settings))
-            .map_err(PdfError::new_err)?;
+        let usages = self.contain_renderer_panics(|this| {
+            let pdf = this.hayro_view_for(PageSelection::All)?;
+            py.detach(|| crate::extract::collect_image_usages(pdf, settings))
+                .map_err(PdfError::new_err)
+        })?;
         let mut edited = self.doc.clone();
         let result = py
             .detach(|| {
@@ -9602,19 +9646,23 @@ impl _Document {
             ));
         }
         let settings = self.interpreter_settings();
-        py.detach(|| {
-            self.text_page(page_number, settings)?
-                .search(needle, max_hits)
-                .map_err(|error| match error {
-                    crate::extract::SearchError::TooManyHits => {
-                        let limit = max_hits.expect("bounded search hit count");
-                        limit_err(
-                            "search_hit_count",
-                            format!("search results exceed the {limit}-hit safety limit"),
-                        )
-                    }
-                    crate::extract::SearchError::Allocation(message) => PdfError::new_err(message),
-                })
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.text_page(page_number, settings)?
+                    .search(needle, max_hits)
+                    .map_err(|error| match error {
+                        crate::extract::SearchError::TooManyHits => {
+                            let limit = max_hits.expect("bounded search hit count");
+                            limit_err(
+                                "search_hit_count",
+                                format!("search results exceed the {limit}-hit safety limit"),
+                            )
+                        }
+                        crate::extract::SearchError::Allocation(message) => {
+                            PdfError::new_err(message)
+                        }
+                    })
+            })
         })
     }
 
@@ -9860,7 +9908,7 @@ impl _Document {
                 "max_output_size must be a positive integer or None",
             ));
         }
-        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background, None)?;
         // PNG encoding can cost more than rasterization, so release the GIL and
         // use Fast/fdeflate. Balanced is tens of times slower for about 10%
         // smaller output and made PNG the dominant render cost in benchmarks.
@@ -9885,120 +9933,126 @@ impl _Document {
         }
         self.check_page_entries(page_numbers.len(), "render")?;
         let interpreter_settings = self.interpreter_settings();
-        py.detach(|| {
-            self.hayro_view_for(PageSelection::Many(&page_numbers))?;
-            let pdf = self
-                .hayro_pdf
-                .as_ref()
-                .expect("hayro view was built immediately before");
-            let max_pixels = page_numbers
-                .iter()
-                .try_fold(0u64, |maximum, &page_number| {
-                    render_pixel_count(pdf, page_number, scale).map(|pixels| maximum.max(pixels))
-                })
-                .map_err(PdfError::new_err)?;
-            let output_bytes = AtomicUsize::new(0);
-            let renderer = BatchRenderer {
-                interpreter_settings: &interpreter_settings,
-                scale,
-                background,
-                max_output_size,
-                output_bytes: &output_bytes,
-            };
-            // A serial batch starts from the document's retained cache, so
-            // fonts parsed by earlier single-page or batch calls are reused.
-            let render_serial = || renderer.render_serial(pdf, &self.render_cache, &page_numbers);
-            #[cfg(target_os = "emscripten")]
-            let rendered = {
-                let _ = max_pixels;
-                render_serial()
-            };
-            #[cfg(not(target_os = "emscripten"))]
-            let rendered: PyResult<Vec<Vec<u8>>> = {
-                let estimated_page_bytes =
-                    max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
-                let memory_limited_workers =
-                    usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
-                        .unwrap_or(usize::MAX);
-                let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
-                if worker_count == 1 {
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                this.hayro_view_for(PageSelection::Many(&page_numbers))?;
+                let pdf = this
+                    .hayro_pdf
+                    .as_ref()
+                    .expect("hayro view was built immediately before");
+                let max_pixels = page_numbers
+                    .iter()
+                    .try_fold(0u64, |maximum, &page_number| {
+                        render_pixel_count(pdf, page_number, scale)
+                            .map(|pixels| maximum.max(pixels))
+                    })
+                    .map_err(PdfError::new_err)?;
+                let output_bytes = AtomicUsize::new(0);
+                let renderer = BatchRenderer {
+                    interpreter_settings: &interpreter_settings,
+                    scale,
+                    background,
+                    max_output_size,
+                    output_bytes: &output_bytes,
+                };
+                // A serial batch starts from the document's retained cache, so
+                // fonts parsed by earlier single-page or batch calls are reused.
+                let render_serial =
+                    || renderer.render_serial(pdf, &this.render_cache, &page_numbers);
+                #[cfg(target_os = "emscripten")]
+                let rendered = {
+                    let _ = max_pixels;
                     render_serial()
-                } else {
-                    let pool = rayon::ThreadPoolBuilder::new()
-                        .num_threads(worker_count)
-                        .thread_name(|index| format!("pylopdf-render-{index}"))
-                        .build()
-                        .map_err(|error| {
-                            PdfError::new_err(format!(
-                                "failed to create render worker pool: {error}"
-                            ))
-                        })?;
-                    let next_page = AtomicUsize::new(0);
-                    let indexed = pool.install(|| {
-                        (0..worker_count)
-                            .into_par_iter()
-                            .map(|_| {
-                                let mut cache = RenderCache::new();
-                                let mut cached_pages = 0usize;
-                                let mut rendered = Vec::new();
-                                loop {
-                                    let index = next_page.fetch_add(1, Ordering::Relaxed);
-                                    let Some(&page_number) = page_numbers.get(index) else {
-                                        break;
-                                    };
-                                    // Bound each worker cache like a serial chunk.
-                                    if cached_pages == PAGE_BATCH_CHUNK {
-                                        cache = RenderCache::new();
-                                        cached_pages = 0;
+                };
+                #[cfg(not(target_os = "emscripten"))]
+                let rendered: PyResult<Vec<Vec<u8>>> = {
+                    let estimated_page_bytes =
+                        max_pixels.saturating_mul(ESTIMATED_RENDER_BYTES_PER_PIXEL);
+                    let memory_limited_workers =
+                        usize::try_from((MAX_PARALLEL_RENDER_BYTES / estimated_page_bytes).max(1))
+                            .unwrap_or(usize::MAX);
+                    let worker_count = workers.min(page_numbers.len()).min(memory_limited_workers);
+                    if worker_count == 1 {
+                        render_serial()
+                    } else {
+                        let pool = rayon::ThreadPoolBuilder::new()
+                            .num_threads(worker_count)
+                            .thread_name(|index| format!("pylopdf-render-{index}"))
+                            .build()
+                            .map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to create render worker pool: {error}"
+                                ))
+                            })?;
+                        let next_page = AtomicUsize::new(0);
+                        let indexed = pool.install(|| {
+                            (0..worker_count)
+                                .into_par_iter()
+                                .map(|_| {
+                                    let mut cache = RenderCache::new();
+                                    let mut cached_pages = 0usize;
+                                    let mut rendered = Vec::new();
+                                    loop {
+                                        let index = next_page.fetch_add(1, Ordering::Relaxed);
+                                        let Some(&page_number) = page_numbers.get(index) else {
+                                            break;
+                                        };
+                                        // Bound each worker cache like a serial chunk.
+                                        if cached_pages == PAGE_BATCH_CHUNK {
+                                            cache = RenderCache::new();
+                                            cached_pages = 0;
+                                        }
+                                        cached_pages += 1;
+                                        rendered.try_reserve(1).map_err(|error| {
+                                            PdfError::new_err(format!(
+                                                "failed to grow worker render results: {error}"
+                                            ))
+                                        })?;
+                                        rendered.push((
+                                            index,
+                                            renderer.render(pdf, &cache, page_number)?,
+                                        ));
                                     }
-                                    cached_pages += 1;
-                                    rendered.try_reserve(1).map_err(|error| {
+                                    Ok::<_, PyErr>(rendered)
+                                })
+                                .try_reduce(Vec::new, |mut left, mut right| {
+                                    left.try_reserve(right.len()).map_err(|error| {
                                         PdfError::new_err(format!(
-                                            "failed to grow worker render results: {error}"
+                                            "failed to merge worker render results: {error}"
                                         ))
                                     })?;
-                                    rendered
-                                        .push((index, renderer.render(pdf, &cache, page_number)?));
-                                }
-                                Ok::<_, PyErr>(rendered)
-                            })
-                            .try_reduce(Vec::new, |mut left, mut right| {
-                                left.try_reserve(right.len()).map_err(|error| {
-                                    PdfError::new_err(format!(
-                                        "failed to merge worker render results: {error}"
-                                    ))
-                                })?;
-                                left.append(&mut right);
-                                Ok(left)
-                            })
-                    });
-                    let mut ordered = Vec::new();
-                    ordered
-                        .try_reserve_exact(page_numbers.len())
-                        .map_err(|error| {
-                            PdfError::new_err(format!(
-                                "failed to allocate ordered render results: {error}"
-                            ))
-                        })?;
-                    ordered.resize_with(page_numbers.len(), || None);
-                    for (index, png) in indexed? {
-                        ordered[index] = Some(png);
+                                    left.append(&mut right);
+                                    Ok(left)
+                                })
+                        });
+                        let mut ordered = Vec::new();
+                        ordered
+                            .try_reserve_exact(page_numbers.len())
+                            .map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to allocate ordered render results: {error}"
+                                ))
+                            })?;
+                        ordered.resize_with(page_numbers.len(), || None);
+                        for (index, png) in indexed? {
+                            ordered[index] = Some(png);
+                        }
+                        let mut rendered = Vec::new();
+                        rendered
+                            .try_reserve_exact(page_numbers.len())
+                            .map_err(|error| {
+                                PdfError::new_err(format!(
+                                    "failed to allocate final render results: {error}"
+                                ))
+                            })?;
+                        for png in ordered {
+                            rendered.push(png.expect("every claimed page is rendered"));
+                        }
+                        Ok(rendered)
                     }
-                    let mut rendered = Vec::new();
-                    rendered
-                        .try_reserve_exact(page_numbers.len())
-                        .map_err(|error| {
-                            PdfError::new_err(format!(
-                                "failed to allocate final render results: {error}"
-                            ))
-                        })?;
-                    for png in ordered {
-                        rendered.push(png.expect("every claimed page is rendered"));
-                    }
-                    Ok(rendered)
-                }
-            };
-            rendered
+                };
+                rendered
+            })
         })
     }
 
@@ -10011,16 +10065,11 @@ impl _Document {
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<crate::pixmap::Pixmap> {
-        let pixmap = self.render_pixmap_impl(py, page_number, scale, background)?;
+        let pixmap = self.render_pixmap_impl(py, page_number, scale, background, clip)?;
         let width = u32::from(pixmap.width());
         let height = u32::from(pixmap.height());
-        // Release the GIL: unpremultiplication, conversion, and cropping are costly.
-        let (width, height, data) = py
-            .detach(|| match clip {
-                Some(clip) => cropped_rgba_bytes(pixmap, width, height, scale, clip),
-                None => Ok((width, height, rgba_bytes(pixmap)?)),
-            })
-            .map_err(PdfError::new_err)?;
+        // Release the GIL: unpremultiplication touches every rendered pixel.
+        let data = py.detach(|| rgba_bytes(pixmap));
         Ok(crate::pixmap::Pixmap {
             width,
             height,
@@ -10046,7 +10095,7 @@ impl _Document {
 
     /// Render a one-based page to an SVG string.
     ///
-    /// hayro-svg 0.7 materializes its internal String before returning, so the
+    /// hayro-svg 0.8 materializes its internal String before returning, so the
     /// limit prevents conversion to a second Python string rather than bounding
     /// the converter's temporary allocation.
     fn render_page_svg(
@@ -10056,25 +10105,29 @@ impl _Document {
         max_output_size: Option<usize>,
     ) -> PyResult<String> {
         let interpreter_settings = self.interpreter_settings();
-        py.detach(|| {
-            let pdf = self.hayro_view_for(PageSelection::One(page_number))?;
-            let pages = pdf.pages();
-            let page = page_number
-                .checked_sub(1)
-                .and_then(|index| pages.get(index as usize))
-                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
-            let cache = hayro_svg::RenderCache::new();
-            let settings = hayro_svg::SvgRenderSettings::default();
-            let svg = hayro_svg::convert(page, &cache, &interpreter_settings, &settings);
-            if let Some(limit) = max_output_size
-                && svg.len() > limit
-            {
-                return Err(limit_err(
-                    "svg_output_size",
-                    format!("rendered SVG exceeds the {limit}-byte UTF-8 output limit"),
-                ));
-            }
-            Ok(svg)
+        self.contain_renderer_panics(|this| {
+            py.detach(|| {
+                let pdf = this.hayro_view_for(PageSelection::One(page_number))?;
+                let pages = pdf.pages();
+                let page = page_number
+                    .checked_sub(1)
+                    .and_then(|index| pages.get(index as usize))
+                    .ok_or_else(|| {
+                        PdfError::new_err(format!("page {page_number} does not exist"))
+                    })?;
+                let cache = hayro_svg::RenderCache::new();
+                let settings = hayro_svg::SvgRenderSettings::default();
+                let svg = hayro_svg::convert(page, &cache, &interpreter_settings, &settings);
+                if let Some(limit) = max_output_size
+                    && svg.len() > limit
+                {
+                    return Err(limit_err(
+                        "svg_output_size",
+                        format!("rendered SVG exceeds the {limit}-byte UTF-8 output limit"),
+                    ));
+                }
+                Ok(svg)
+            })
         })
     }
 
