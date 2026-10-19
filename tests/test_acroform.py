@@ -574,6 +574,16 @@ def test_invalid_embedded_font_does_not_partially_update_field() -> None:
     assert _opaque_pixels(doc, (45, 67, 255, 97)) == 0
 
 
+def test_form_font_input_is_opened_only_to_draw_text() -> None:
+    doc = pylopdf.open(stream=_build_form_pdf())
+
+    doc.set_form_field("agree", True, fontbuffer=b"not a font")
+    doc.set_form_field("customer", "", fontbuffer=b"not a font")
+
+    fields = {field["name"]: field["value"] for field in doc.get_form_fields()}
+    assert (fields["agree"], fields["customer"]) == ("Yes", "")
+
+
 def test_form_font_input_boundary_preserves_field() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
     font_size = NOTO_SANS_JP.stat().st_size

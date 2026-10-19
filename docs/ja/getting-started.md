@@ -116,6 +116,8 @@ pylopdf.register_font("NotoSansJP-Bold.otf")                 # extraにない太
 bold = pylopdf.Font(language="ja", weight="bold")            # なければValueError。擬似太字にしない
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+hebrew = pylopdf.Font(language="he", weight="bold")          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
+page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

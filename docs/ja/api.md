@@ -113,7 +113,14 @@ resourceは追加されません。
 必要になったときに足します。`register_font(path)`は書体から書体名・太さ・斜体を読み、
 以後`Font(family="Noto Sans JP", weight="bold")`でその書体を選べます。この書体は
 `pylopdf[jp]`が入れる書体と同じファミリーなので、`Font(language="ja", weight="bold")`
-でも選ばれます。pylopdfはOSの書体フォルダを探しません。指定した書体がなければ
+でも選ばれます。一方`pylopdf[ar]`・`[he]`・`[hi]`・`[th]`は可変フォントを入れるため、
+`Font(language="he", weight="bold")`は別のファイルなしに太さの軸からBoldのインスタンスを
+選び、そのインスタンスの送り幅で測り、`NotoSansHebrew-Bold`という固有の名前で埋め込みます。
+太さの範囲は100から900で、`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは
+400から700です。同じファミリーの書体が登録されていれば、軸よりそちらを優先します。
+導入済みの可変フォントは、`insert_text`・`insert_textbox`・`set_form_field`が自動で
+選ぶ場合も含めてRegularの太さで描きます。Noto Sans Hebrewの既定のインスタンスはThinだからです。
+pylopdfはOSの書体フォルダを探しません。指定した書体がなければ
 `ValueError`にし、輪郭線や重ね塗りで太さを真似ることはしません。
 `allow_regular_fallback=True`を明示したときだけ、そのファミリーのRegularを使い
 `PylopdfWarning`を出します。描画の呼び出しごとに、その呼び出しで使う字のサブセットを

@@ -180,7 +180,17 @@ other weights are added when an application needs them: `register_font(path)`
 reads the family, weight, and style from the font, after which
 `Font(family="Noto Sans JP", weight="bold")` selects that face, and so does
 `Font(language="ja", weight="bold")` because the face belongs to the family
-that `pylopdf[jp]` installs. pylopdf never searches system font directories.
+that `pylopdf[jp]` installs. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]`
+extras install variable faces instead: `Font(language="he", weight="bold")`
+selects the bold instance on the face's weight axis without another file,
+measures with that instance's advances, and embeds it under its own name,
+`NotoSansHebrew-Bold`. Their weights run from 100 through 900, or from 400
+through 700 for Noto Naskh Arabic, the serif face of `pylopdf[ar]`, and a
+registered face of the same family takes precedence over the axis. Installed
+variable faces are drawn at the regular weight, also when `insert_text`,
+`insert_textbox`, and `set_form_field` select them automatically, because the
+default instance of Noto Sans Hebrew is Thin. pylopdf never searches system
+font directories.
 A face that is not available raises `ValueError` instead of being imitated by
 stroking or overprinting glyphs; `allow_regular_fallback=True` explicitly
 accepts the family's regular face and emits a `PylopdfWarning`. Each drawing

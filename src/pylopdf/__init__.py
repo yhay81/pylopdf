@@ -1752,8 +1752,12 @@ def _language_font(  # noqa: PLR0913 - the lookup keeps every Font argument expl
 ) -> _Font:
     """Select a face of an installed font extra, or a registered face of its family.
 
-    The extras install one face per style. Any other weight or style comes
-    from a registered face whose family matches the extra's face.
+    The extras install one face per style. A variable face, which the ``ar``,
+    ``he``, ``hi``, and ``th`` extras install, provides every weight on its
+    weight axis as an instance and is drawn at the regular weight by default.
+    Any other weight or style comes from a registered face whose family
+    matches the extra's face; a registered face also takes precedence over the
+    weight axis.
     """
     normalized = cast("FontLanguage", _normalize_font_language(language))
     extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == normalized)
@@ -1764,23 +1768,52 @@ def _language_font(  # noqa: PLR0913 - the lookup keeps every Font argument expl
     kind = "serif" if serif else "sans"
     source = provider.serif if serif else provider.sans
     if isinstance(source, Path):
-        regular = _Font.from_file(os.fspath(source), 0, max_font_size, (normalized, kind))
+        face = _Font.from_file(os.fspath(source), 0, max_font_size, (normalized, kind))
     else:
-        regular = _Font.from_bytes(source, 0, max_font_size)
+        face = _Font.from_bytes(source, 0, max_font_size)
+    weight_range = face.weight_range
     if (weight, italic) == (_REGULAR_FONT_WEIGHT, False):
-        return regular
-    family = regular.family or f"pylopdf[{extra}] {kind}"
-    match = None if regular.family is None else _registered_font(regular.family, weight, italic=italic)
+        return _regular_instance(face)
+    family = face.family or f"pylopdf[{extra}] {kind}"
+    match = None if face.family is None else _registered_font(face.family, weight, italic=italic)
     if match is not None:
         return match._font
+    if weight_range is not None and not italic and weight_range[0] <= weight <= weight_range[2]:
+        return face.with_weight(weight)
     if allow_regular_fallback:
         _warn_regular_fallback(family, weight, italic=italic)
-        return regular
-    msg = (
-        f"pylopdf[{extra}] installs one {family!r} face; register its {_describe_face(weight, italic=italic)} "
-        "face with pylopdf.register_font() or pass fontfile or fontbuffer"
-    )
+        return _regular_instance(face)
+    described = _describe_face(weight, italic=italic)
+    if weight_range is not None and not italic:
+        low, _, high = weight_range
+        msg = (
+            f"pylopdf[{extra}] installs {family!r} with weights {low:g} through {high:g}; "
+            f"register its {described} face with pylopdf.register_font() or pass fontfile or fontbuffer"
+        )
+    else:
+        msg = (
+            f"pylopdf[{extra}] installs one {family!r} face; register its {described} "
+            "face with pylopdf.register_font() or pass fontfile or fontbuffer"
+        )
     raise ValueError(msg)
+
+
+def _regular_instance(face: _Font) -> _Font:
+    """Return a face at the regular weight when it has a weight axis.
+
+    The default instance of a variable face need not be regular: that of
+    Noto Sans Hebrew in ``pylopdf[he]`` is Thin.
+    """
+    return face if face.weight_range is None else face.with_weight(_REGULAR_FONT_WEIGHT)
+
+
+def _package_face_weight(package_font: tuple[FontLanguage, str] | None) -> int | None:
+    """Return the weight that drawing selects on an installed package face.
+
+    A face of an installed font extra is drawn at the regular weight, as
+    ``Font(language=...)`` selects it; any other font input is drawn as given.
+    """
+    return None if package_font is None else _REGULAR_FONT_WEIGHT
 
 
 class Font:
@@ -1793,14 +1826,19 @@ class Font:
     ``pylopdf[jp]`` (``serif=True`` for its serif face), and ``family``
     selects a face registered with :func:`register_font`.
 
-    For the two lookups, ``weight`` (``"regular"``, ``"bold"``, or an OS/2
-    weight class from 1 through 1000) and ``italic`` must match a face
-    exactly. The font extras install one face per style, so a bold
-    ``language`` face comes from a registered face of the same family, such as
-    Noto Sans JP Bold for ``pylopdf[jp]``. A missing face raises
-    ``ValueError``; pylopdf never imitates a weight by stroking or
-    overprinting glyphs. ``allow_regular_fallback=True`` uses the family's
-    regular face instead and emits a :class:`PylopdfWarning`.
+    For the two lookups, ``weight`` (``"regular"``, ``"bold"``, or a weight
+    class from 1 through 1000) and ``italic`` must match a face exactly. The
+    font extras install one face per style. The ``ar``, ``he``, ``hi``, and
+    ``th`` extras install variable faces, which provide the weights on their
+    weight axis as instances (100 through 900, or 400 through 700 for the Noto
+    Naskh Arabic serif face) and are drawn at the regular weight unless another
+    is requested. Other weights and styles come from a registered face of the
+    same family, such as Noto Sans JP Bold for ``pylopdf[jp]``, and a
+    registered face takes precedence over a weight axis. A missing face,
+    including a weight outside the axis, raises ``ValueError``; pylopdf never
+    imitates a weight by stroking or overprinting glyphs.
+    ``allow_regular_fallback=True`` uses the family's regular face instead and
+    emits a :class:`PylopdfWarning`.
 
     A Font reads its input once. Pass it as ``font`` to
     :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
@@ -1865,7 +1903,11 @@ class Font:
 
     @property
     def name(self) -> str | None:
-        """The PostScript name, or ``None`` when the face has none."""
+        """The PostScript name, or ``None`` when the face has none.
+
+        An instance of a variable face has the name of that instance, such as
+        ``NotoSansHebrew-Bold``, and generated text embeds it under that name.
+        """
         return self._font.name
 
     @property
@@ -1875,7 +1917,11 @@ class Font:
 
     @property
     def weight(self) -> int:
-        """The OS/2 weight class: 400 for regular and 700 for bold faces."""
+        """The weight: 400 for regular and 700 for bold faces.
+
+        A variable face that ``language`` selects reports the weight-axis value
+        it is drawn at; any other face reports its OS/2 weight class.
+        """
         return self._font.weight
 
     @property
@@ -2676,6 +2722,7 @@ class Page:
                 max_font_size,
                 max_text_size,
                 package_font,
+                _package_face_weight(package_font),
             )
             return
         if isinstance(font_data, bytes):
@@ -2690,6 +2737,7 @@ class Page:
                 overlay,
                 max_font_size,
                 max_text_size,
+                _package_face_weight(package_font),
             )
             return
 
@@ -2812,6 +2860,7 @@ class Page:
                 max_font_size,
                 max_text_size,
                 package_font,
+                _package_face_weight(package_font),
             )
         if isinstance(font_data, bytes):
             return self._document._doc.insert_embedded_textbox(
@@ -2827,6 +2876,7 @@ class Page:
                 overlay,
                 max_font_size,
                 max_text_size,
+                _package_face_weight(package_font),
             )
 
         base_font = cast("str", base_font)
@@ -3594,10 +3644,13 @@ class Document:
                 bundled_font = _form_generation_font(resolved, normalized_font_language)
                 if bundled_font is not None:
                     font_data, package_font = bundled_font
+        weight = _package_face_weight(package_font)
         if isinstance(font_data, Path):
-            self._doc.set_form_field_file(name, resolved, str(font_data), fontindex, max_font_size, package_font)
+            self._doc.set_form_field_file(
+                name, resolved, str(font_data), fontindex, max_font_size, package_font, weight
+            )
         else:
-            self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size)
+            self._doc.set_form_field(name, resolved, font_data, fontindex, max_font_size, weight)
 
     def get_page_labels(self) -> list[PageLabelInfo]:
         """Read page-label definitions.

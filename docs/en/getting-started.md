@@ -117,6 +117,8 @@ pylopdf.register_font("NotoSansJP-Bold.otf")                 # add a weight the 
 bold = pylopdf.Font(language="ja", weight="bold")            # ValueError if missing; never faked
 width = bold.text_length("見出し", fontsize=16)                # exactly the drawn width
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+hebrew = pylopdf.Font(language="he", weight="bold")          # variable pylopdf[he]: bold without an added file
+page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("important"))       # search & mark
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

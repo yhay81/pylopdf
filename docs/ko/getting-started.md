@@ -112,6 +112,8 @@ pylopdf.register_font("NotoSansKR-Bold.otf")                 # extra에 없는 �
 bold = pylopdf.Font(language="ko", weight="bold")            # 없으면 ValueError, 흉내 내지 않음
 width = bold.text_length("제목", fontsize=16)                  # 그렸을 때의 폭과 일치
 page.insert_text((page.rect.width - 40 - width, 140), "제목", font=bold, fontsize=16)
+hebrew = pylopdf.Font(language="he", weight="bold")          # 가변 글꼴인 pylopdf[he]는 파일 없이 Bold를 선택
+page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

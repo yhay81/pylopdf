@@ -109,6 +109,8 @@ pylopdf.register_font("NotoSansSC-Bold.otf")                 # 之后再添加ex
 bold = pylopdf.Font(language="zh-CN", weight="bold")         # 不存在时ValueError，不模仿字重
 width = bold.text_length("标题", fontsize=16)                  # 与绘制宽度一致
 page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
+hebrew = pylopdf.Font(language="he", weight="bold")          # 可变字体pylopdf[he]无需添加文件即可选择Bold
+page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

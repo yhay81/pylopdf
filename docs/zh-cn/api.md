@@ -101,7 +101,12 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 每个extra的每种样式只安装一个字体，其他字重在需要时再添加：`register_font(path)`从字体读取家族名、
 字重与斜体，此后可用`Font(family="Noto Sans SC", weight="bold")`选择该字体；
 由于它与`pylopdf[zh-cn]`安装的字体属于同一家族，`Font(language="zh-CN", weight="bold")`
-也会选择它。pylopdf不会搜索操作系统的字体目录。请求的字体不存在时抛出`ValueError`，
+也会选择它。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
+`Font(language="he", weight="bold")`无需其他文件即可从字体的字重轴选择Bold实例，按该实例的
+前进宽度测量，并以其自身的名称`NotoSansHebrew-Bold`嵌入。字重范围为100到900，
+`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；同一家族已注册的字体优先于字重轴。
+已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`自动选择时）以Regular
+字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不会搜索操作系统的字体目录。请求的字体不存在时抛出`ValueError`，
 不会用描边或叠印模仿字重；只有显式传入`allow_regular_fallback=True`时，才使用该家族的
 Regular并发出`PylopdfWarning`。每次绘制调用仍会嵌入该调用所用字形的子集。
 

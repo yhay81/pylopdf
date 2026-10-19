@@ -108,8 +108,15 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 굵기는 필요할 때 추가합니다. `register_font(path)`는 글꼴에서 패밀리 이름, 굵기, 기울임 여부를
 읽으며, 이후 `Font(family="Noto Sans KR", weight="bold")`로 그 글꼴을 선택할 수 있습니다.
 이 글꼴은 `pylopdf[ko]`가 설치하는 글꼴과 같은 패밀리이므로
-`Font(language="ko", weight="bold")`로도 선택됩니다. pylopdf는 OS 글꼴 폴더를 찾지
-않습니다. 요청한 글꼴이 없으면 윤곽선이나 덧칠로 굵기를 흉내 내지 않고 `ValueError`를
+`Font(language="ko", weight="bold")`로도 선택됩니다. 반면 `pylopdf[ar]`, `[he]`, `[hi]`,
+`[th]`는 가변 글꼴을 설치하므로 `Font(language="he", weight="bold")`는 다른 파일 없이
+글꼴의 굵기 축에서 Bold 인스턴스를 선택하고, 그 인스턴스의 advance로 측정하며,
+`NotoSansHebrew-Bold`라는 고유 이름으로 포함합니다. 굵기 범위는 100부터 900까지이고,
+`pylopdf[ar]`의 세리프 글꼴인 Noto Naskh Arabic은 400부터 700까지입니다. 같은 패밀리의
+글꼴이 등록되어 있으면 축보다 그 글꼴을 우선합니다. 설치된 가변 글꼴은 `insert_text`,
+`insert_textbox`, `set_form_field`가 자동으로 선택하는 경우를 포함해 Regular 굵기로
+그립니다. Noto Sans Hebrew의 기본 인스턴스가 Thin이기 때문입니다. pylopdf는 OS 글꼴
+폴더를 찾지 않습니다. 요청한 글꼴이 없으면 윤곽선이나 덧칠로 굵기를 흉내 내지 않고 `ValueError`를
 발생시킵니다. `allow_regular_fallback=True`를 명시한 경우에만 그 패밀리의 Regular를
 사용하고 `PylopdfWarning`을 냅니다. 그리기 호출마다 그 호출이 쓰는 글자의 subset을
 포함하는 점은 그대로입니다.

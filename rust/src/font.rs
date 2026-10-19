@@ -1,10 +1,11 @@
 //! OpenType faces that Python loads once and reuses for generation.
 //!
-//! `pylopdf.Font` wraps a `_Font`: shared font bytes plus the HarfRust font
-//! that shapes them. `text_length` measures with
+//! `pylopdf.Font` wraps a `_Font`: a `generate::GenerationFace` plus the
+//! HarfRust font that shapes it. `text_length` measures with
 //! `generate::shaped_line_width`, the sum that places every glyph generation
 //! draws, so a measured width is the drawn width. Drawing passes the same
-//! bytes and collection index to the generation paths that `fontbuffer` uses.
+//! face to the generation paths that `fontbuffer` uses. `with_weight` selects
+//! another instance of a variable face, which shares the face's bytes.
 
 use std::sync::Arc;
 
@@ -15,12 +16,11 @@ use read_fonts::tables::head::MacStyle;
 use read_fonts::tables::os2::SelectionFlags;
 use read_fonts::types::NameId;
 
-use crate::bundled_font_cache::FontBytes;
 use crate::document::{
     DEFAULT_MAX_FONT_INPUT_SIZE, DEFAULT_MAX_GENERATED_TEXT_SIZE, PdfError, load_generation_font,
     validate_font_input, validate_generated_text_input,
 };
-use crate::generate::{self, ShapingFont};
+use crate::generate::{self, GenerationFace, WeightAxis};
 
 /// The OS/2 weight class of a face that has no OS/2 table: Regular.
 const DEFAULT_WEIGHT_CLASS: u16 = 400;
@@ -28,15 +28,14 @@ const DEFAULT_WEIGHT_CLASS: u16 = 400;
 /// One OpenType face prepared for shaping, measurement, and embedding.
 #[pyclass(frozen, module = "pylopdf.pylopdf_core")]
 pub struct _Font {
-    data: FontBytes,
-    index: u32,
-    shaping: ShapingFont,
+    face: GenerationFace,
     postscript_name: Option<String>,
     family: Option<String>,
     weight: u16,
     italic: bool,
     ascent: f64,
     descent: f64,
+    weight_axis: Option<WeightAxis>,
 }
 
 impl _Font {
@@ -44,20 +43,24 @@ impl _Font {
     ///
     /// krilla must accept the face as well as HarfRust, so a font that
     /// generation could not embed fails here rather than at its first use.
-    fn open(data: FontBytes, index: u32) -> PyResult<Self> {
-        let shaping = generate::open_shaping_font(&data, index).map_err(PdfError::new_err)?;
-        krilla::text::Font::new(Arc::clone(&data).into(), index).ok_or_else(|| {
+    fn open(face: GenerationFace) -> PyResult<Self> {
+        let shaping = face.shaping_font();
+        face.embedding_font().map_err(|_| {
             PdfError::new_err(format!(
-                "font data or collection index {index} cannot be embedded"
+                "font data or collection index {} cannot be embedded",
+                face.source().1
             ))
         })?;
         let (ascent, descent) =
-            generate::font_vertical_metrics(&shaping).map_err(PdfError::new_err)?;
+            generate::font_vertical_metrics(shaping).map_err(PdfError::new_err)?;
         let tables = shaping.tables();
         let os2 = tables.os2().ok();
-        let weight = os2
-            .as_ref()
-            .map_or(DEFAULT_WEIGHT_CLASS, |os2| os2.us_weight_class());
+        // A selected instance's weight is its axis value; OS/2 describes the
+        // default instance only.
+        let weight = face.weight().unwrap_or_else(|| {
+            os2.as_ref()
+                .map_or(DEFAULT_WEIGHT_CLASS, |os2| os2.us_weight_class())
+        });
         let italic = os2.as_ref().is_some_and(|os2| {
             os2.fs_selection()
                 .intersects(SelectionFlags::ITALIC | SelectionFlags::OBLIQUE)
@@ -72,24 +75,28 @@ impl _Font {
                 .map(|localized| localized.name().to_string())
                 .filter(|text| !text.is_empty())
         };
-        let postscript_name = name(NameId::POSTSCRIPT_NAME);
+        // Generation renames an instance's subset to the same name.
+        let postscript_name = face
+            .instance_postscript_name()
+            .map(str::to_owned)
+            .or_else(|| name(NameId::POSTSCRIPT_NAME));
         let family = name(NameId::TYPOGRAPHIC_FAMILY_NAME).or_else(|| name(NameId::FAMILY_NAME));
+        let weight_axis = generate::weight_axis(shaping);
         Ok(Self {
-            data,
-            index,
-            shaping,
+            face,
             postscript_name,
             family,
             weight,
             italic,
             ascent,
             descent,
+            weight_axis,
         })
     }
 
-    /// The shared bytes and collection index that generation embeds.
-    pub(crate) fn source(&self) -> (FontBytes, u32) {
-        (Arc::clone(&self.data), self.index)
+    /// The face that generation draws.
+    pub(crate) fn face(&self) -> GenerationFace {
+        self.face.clone()
     }
 }
 
@@ -105,7 +112,9 @@ impl _Font {
         max_font_size: Option<usize>,
     ) -> PyResult<Self> {
         validate_font_input(Some(&data), max_font_size)?;
-        py.detach(|| Self::open(Arc::new(data), index))
+        py.detach(|| {
+            Self::open(GenerationFace::new(Arc::new(data), index, None).map_err(PdfError::new_err)?)
+        })
     }
 
     /// Open a face from a bounded font file.
@@ -128,7 +137,34 @@ impl _Font {
         package_font: Option<(String, String)>,
     ) -> PyResult<Self> {
         let data = load_generation_font(py, path, package_font, max_font_size)?;
-        py.detach(|| Self::open(data, index))
+        py.detach(|| Self::open(GenerationFace::new(data, index, None).map_err(PdfError::new_err)?))
+    }
+
+    /// Return the instance at `weight` on this face's weight axis.
+    ///
+    /// The instance shares this face's bytes. A face without a weight axis
+    /// and a weight outside the axis raise `ValueError`: pylopdf draws only
+    /// weights that the font defines.
+    fn with_weight(&self, py: Python<'_>, weight: u16) -> PyResult<Self> {
+        if self.weight_axis.is_none() {
+            return Err(PyValueError::new_err(
+                "the face has no weight axis to select another weight on",
+            ));
+        }
+        let (data, index) = self.face.source();
+        py.detach(|| {
+            Self::open(
+                GenerationFace::new(data, index, Some(weight)).map_err(PyValueError::new_err)?,
+            )
+        })
+    }
+
+    /// The `(min, default, max)` user values of the weight axis, or `None`
+    /// for a face without one.
+    #[getter]
+    fn weight_range(&self) -> Option<(f32, f32, f32)> {
+        self.weight_axis
+            .map(|axis| (axis.min, axis.default, axis.max))
     }
 
     /// The PostScript name, or `None` when the face has none.
@@ -143,7 +179,8 @@ impl _Font {
         self.family.as_deref()
     }
 
-    /// The OS/2 weight class, 400 when the face has no OS/2 table.
+    /// The selected weight-axis value of an instance, else the OS/2 weight
+    /// class, 400 when the face has no OS/2 table.
     #[getter]
     fn weight(&self) -> u16 {
         self.weight
@@ -157,7 +194,7 @@ impl _Font {
 
     #[getter]
     fn units_per_em(&self) -> u16 {
-        self.shaping.units_per_em()
+        self.face.shaping_font().units_per_em()
     }
 
     /// Ascent as a positive fraction of the em.
@@ -192,13 +229,14 @@ impl _Font {
                 "fontsize must be a positive number: {fontsize}"
             )));
         }
-        py.detach(|| generate::shaped_line_width(&self.shaping, text, fontsize))
+        py.detach(|| generate::shaped_line_width(self.face.shaping_font(), text, fontsize))
             .map_err(PdfError::new_err)
     }
 
     /// Return whether the character map assigns a glyph to `codepoint`.
     fn has_glyph(&self, codepoint: u32) -> bool {
-        self.shaping
+        self.face
+            .shaping_font()
             .charmap()
             .map_unicode(codepoint)
             .is_some_and(|glyph| glyph.to_u32() != 0)
