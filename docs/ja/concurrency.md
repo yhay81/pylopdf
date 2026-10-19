@@ -1,20 +1,21 @@
 ---
 title: 並行実行とfree-threaded Python
-description: Document、Page、Pixmap、並列レンダリング、CPython 3.14tでサポートするスレッド境界。
+description: Document、Page、Pixmap、並列レンダリング、CPython 3.14tと3.15tでサポートするスレッド境界。
 ---
 
 # 並行実行とfree-threaded Python
 
-v0.10以降のpylopdfは、GILありCPython 3.10–3.14向けのプラットフォーム別`abi3`
-wheelに加え、free-threaded CPython 3.14向けの`cp314-cp314t` wheelを公開します。
-後者をimportしてもGILは再有効化されません。
+pylopdfは、GILありCPython 3.10–3.15向けのプラットフォーム別`abi3` wheelに加え、
+free-threaded CPython向けにPythonのバージョンごとのwheelを公開します。
+`cp314-cp314t`はv0.10以降、`cp315-cp315t`はv0.14.0より後のリリースで提供します。
+free-threaded wheelをimportしてもGILは再有効化されません。
 
 ## サポート契約 { #support-contract }
 
 | 利用方法 | サポート |
 |---|---|
-| GILありCPython 3.10–3.14 | `abi3-py310` wheelでサポート |
-| free-threaded CPython 3.14t | `cp314-cp314t` wheelでサポートし、GIL無効の状態でテスト |
+| GILありCPython 3.10–3.15 | `abi3-py310` wheelでサポート |
+| free-threaded CPython 3.14tと3.15t | `cp314-cp314t`と`cp315-cp315t` wheelでサポートし、GIL無効の状態でテスト |
 | 異なる`Document`に対する並行操作 | サポート。load、save、render、抽出、merge、圧縮の重い処理はGILを解放 |
 | 同じ`Document`に対する並行呼び出し・編集 | 非サポート。ロックで直列化するか、独立したDocumentを使用 |
 | 1つのDocumentでの`Document.render_pages(workers=...)` | サポート。同一Document内での境界付き並列レンダリング手段 |

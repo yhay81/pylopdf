@@ -1,20 +1,21 @@
 ---
 title: Concurrency and free-threaded Python
-description: The supported threading boundaries for Documents, Pages, Pixmaps, parallel rendering and CPython 3.14t.
+description: The supported threading boundaries for Documents, Pages, Pixmaps, parallel rendering and CPython 3.14t and 3.15t.
 ---
 
 # Concurrency and free-threaded Python
 
-Starting with v0.10, pylopdf publishes both one `abi3` wheel per platform for
-GIL-enabled CPython 3.10–3.14 and a version-specific `cp314-cp314t` wheel for
-free-threaded CPython 3.14. Importing the latter does not re-enable the GIL.
+pylopdf publishes one `abi3` wheel per platform for GIL-enabled CPython
+3.10–3.15 and version-specific wheels for free-threaded CPython:
+`cp314-cp314t` since v0.10 and `cp315-cp315t` in releases after v0.14.0.
+Importing a free-threaded wheel does not re-enable the GIL.
 
 ## Support contract { #support-contract }
 
 | Use | Support |
 |---|---|
-| GIL-enabled CPython 3.10–3.14 | Supported by the `abi3-py310` wheel |
-| Free-threaded CPython 3.14t | Supported by the `cp314-cp314t` wheel and tested with the GIL disabled |
+| GIL-enabled CPython 3.10–3.15 | Supported by the `abi3-py310` wheel |
+| Free-threaded CPython 3.14t and 3.15t | Supported by the `cp314-cp314t` and `cp315-cp315t` wheels and tested with the GIL disabled |
 | Concurrent operations on distinct `Document` objects | Supported; heavy load, save, render, extraction, merge and compression work releases the GIL |
 | Concurrent calls or edits on the same `Document` | Not supported; serialize access with a lock or use independent documents |
 | `Document.render_pages(workers=...)` on one document | Supported; it is the bounded same-document parallel rendering boundary |
@@ -68,8 +69,8 @@ other threads and parallel `render_pages()` workers use call-scoped caches.
 
 ## Pixmap buffers { #pixmap-buffers }
 
-The free-threaded wheel exposes the immutable RGBA8 storage through a read-only,
-one-dimensional, zero-copy buffer:
+The free-threaded wheels expose the immutable RGBA8 storage through a
+read-only, one-dimensional, zero-copy buffer:
 
 ```python
 view = memoryview(page.get_pixmap())
