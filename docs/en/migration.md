@@ -32,7 +32,7 @@ deliberately does not implement.
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | |
+| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` is a bool |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only; each password stops at 127 UTF-8 bytes |
@@ -93,6 +93,12 @@ deliberately does not implement.
   `font_language=` for locale-specific Han typography. Comb fields
   honor inherited `MaxLen` and alignment. Rich text, pushbuttons, and signatures
   remain outside the API.
+- **Merging forms**: `insert_pdf()` always registers the fields of imported
+  pages, like pymupdf's default `widgets=True`. A top-level name that the
+  receiving document already uses becomes the smallest unused `name+N`, as
+  qpdf names it, so merged copies of one form keep independent values; there
+  is no `join_duplicates=` option that merges them into one field. A partial
+  range drops the widgets of the other pages and the fields left without one.
 - **Vertical CJK writing** is detected conservatively and read top-to-bottom,
   with columns ordered right-to-left. Ruby, warichu and mixed-orientation
   typography are not interpreted.

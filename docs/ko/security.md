@@ -292,6 +292,11 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   거부합니다. 참조cycle은 한 번만 방문하고 상속값은 반환leaf마다 예산에 포함합니다.
   입력도 같은tree 상한과1 MiB caller 이름／값 상한을 원자적으로 적용하며 font 탐색,
   button lookup 또는file 읽기 전 거부에는`form_field_input_size`를 사용합니다.
+- `insert_pdf()`는 받는 문서를 바꾸기 전에 최상위field 이름을1 MiB name 예산
+  안에서 비교하고, 페이지 범위를 지정하면 같은node·edge·widget·깊이 상한으로
+  원본field tree를 순회합니다. 전체 페이지 가져오기는field tree를 순회하지 않고
+  복사합니다. 공유를 위한 기본 리소스 두 개의 비교는4,096 object·1 MiB까지이며,
+  그보다 큰 쌍은 이름을 바꿉니다.
 - AcroForm button field는4,096 widget, 8,192 normal appearance state entry,
   4,096 unique returned state name 또는encoded/returned state-name text 1 MiB를
   넘으면 거부합니다. 입력은 누락된`Off`/on state key를 변경 전에 예산에 포함합니다.
