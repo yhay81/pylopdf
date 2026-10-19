@@ -951,6 +951,7 @@ dependencies = [
  "rten",
  "rten-tensor",
  "self_cell",
+ "sha2",
  "unicode-bidi",
  "unicode-linebreak",
  "unicode-segmentation",

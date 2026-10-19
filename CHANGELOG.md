@@ -68,6 +68,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `garbage=True` save or a structural edit, as after the other drawing
   edits. Form-field appearances no longer keep the generated page's two
   unreachable objects, about 1 KB per filled field.
+- `Page.insert_image()` and `Page.show_pdf_page()` place an image or page that
+  the document already holds again instead of embedding another copy. Image
+  input is identified by the SHA-256 digest of its encoded bytes, or of a
+  Pixmap's dimensions and RGBA samples, so the rectangle and rotation may
+  differ; a page is identified by its source document and page number while
+  that source stays unedited, and a repeated placement no longer clones the
+  source. Placing one 200×120 RGBA PNG on 200 new pages and saving with
+  `garbage=True` wrote 13.7 MB with 400 image objects, an image and a soft
+  mask per page, and now writes 122 KB with two, in 0.048 s instead of
+  0.29 s. Placing page 0 of `bill-hr815.pdf` on 50 pages wrote 1.92 MB with
+  50 Form XObjects and 250 embedded font files, and now writes 52 KB with one
+  Form and five font files, in 4.1 ms instead of 21 ms. Stamping the first
+  page of the 27-page `usrguide.pdf` on each of its other pages wrote 5.61 MB
+  with 26 Forms and now writes 775 KB with one, in 1.8 ms instead of 25.5 ms;
+  the document alone is 574 KB. Computing the digest costs the first
+  placement of a large image 5–8%: a 6.7 MB PNG took 97.7 ms instead of
+  93.2 ms, and a 2000×2000 Pixmap 138 ms instead of 128 ms. A single page
+  placement is unchanged within noise. These are minimums of three
+  interleaved runs of five rounds with thin-LTO builds on macOS arm64. Any
+  edit of a source document makes the next placement of its pages import
+  them again, while a page of the same document stays shared across
+  consecutive placements on its other pages. Edits that may change a placed
+  object end sharing, so the next placement embeds its input again:
+  `compress_images()`, `replace_text()`, `set_form_field()`, and saves with
+  `deflate=True`. Each open document remembers at most 4,096 images and
+  4,096 pages, nothing is remembered across save and reopen, and generated
+  text and form-field appearances still embed their own subset fonts. The
+  digest uses the `sha2` crate that lopdf already links; the macOS arm64
+  extension grew by 1.3 KB.
 - Type checking uses ty instead of mypy. `uv run ty check` covers `src` and
   `tests` at the Python 3.10 floor that `requires-python` declares, and CI and
   the pre-commit hook run the ty version that `uv.lock` pins. mypy's

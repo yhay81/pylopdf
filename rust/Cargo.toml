@@ -58,6 +58,9 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 # lopdf reports cross-reference recovery only through log records; capture them
 # per load so repaired documents stay visible. lopdf already links this crate.
 log = "0.4.33"
+# Identify repeated image input so drawing places one XObject again. lopdf
+# already links this crate, with the same features, for AES-256 encryption.
+sha2 = "0.11.1"
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 # Expose the already-linked rayon runtime for supported batch rendering.
 rayon = "1"

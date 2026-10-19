@@ -39,6 +39,7 @@ use crate::object_stream_work;
 use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
+use crate::placement_reuse::{self, FormSource, PlacedForm, PlacedImage, PlacementReuse};
 use crate::prune::{prune_unreachable_objects, reachable_object_ids};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
@@ -486,6 +487,60 @@ struct FormImportPlan {
     new_max_id: u32,
     crop: [f64; 4],
     rotation: i64,
+}
+
+/// A page Form to place: one placed before, or a prepared import.
+enum PageForm {
+    Placed(PlacedForm),
+    Import(FormImportPlan),
+}
+
+/// Image input whose XObject a document may already have placed.
+enum ImageInput {
+    /// Accepted JPEG or PNG bytes.
+    Encoded(Vec<u8>),
+    /// A Pixmap's straight-alpha RGBA8 samples.
+    Rgba {
+        width: u32,
+        height: u32,
+        data: Arc<Vec<u8>>,
+    },
+}
+
+impl ImageInput {
+    fn digest(&self) -> placement_reuse::ImageDigest {
+        match self {
+            Self::Encoded(data) => placement_reuse::encoded_image_digest(data),
+            Self::Rgba {
+                width,
+                height,
+                data,
+            } => placement_reuse::rgba_image_digest(*width, *height, data),
+        }
+    }
+
+    fn parse(self) -> PyResult<draw::ImageParts> {
+        match self {
+            Self::Encoded(data) => draw::parse_image(data)
+                .map_err(PdfError::new_err)?
+                .ok_or_else(|| {
+                    PdfError::new_err(
+                        "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
+                    )
+                }),
+            Self::Rgba {
+                width,
+                height,
+                data,
+            } => draw::rgba_parts(width, height, &data).map_err(PdfError::new_err),
+        }
+    }
+}
+
+/// An image to place: one placed before, or new XObject data.
+enum PageImage {
+    Placed(PlacedImage),
+    New(draw::ImageParts),
 }
 
 /// One EmbeddedFiles name-tree item: display name and FileSpec object.
@@ -5647,6 +5702,12 @@ pub struct _Document {
     interpreted_glyph_total: usize,
     /// Pages whose existing contents were isolated during this document lifetime.
     isolated_content_pages: HashSet<ObjectId>,
+    /// Process-unique identity of the current content, replaced by every
+    /// edit, so a Form imported from this document is reused only while the
+    /// document is unchanged.
+    revision: u64,
+    /// Images and pages placed in this document that drawing places again.
+    placements: PlacementReuse,
     /// Render cache generation retained across calls on the creating thread.
     render_cache: crate::render_cache::DocumentRenderCache,
     /// Whether lenient loading recovered damaged cross-reference data.
@@ -5707,6 +5768,8 @@ impl _Document {
             interpreted_text_total: 0,
             interpreted_glyph_total: 0,
             isolated_content_pages: HashSet::new(),
+            revision: placement_reuse::next_revision(),
+            placements: PlacementReuse::default(),
             render_cache: crate::render_cache::DocumentRenderCache::new(),
             is_repaired: recovery.is_some(),
             pending_warnings: Arc::new(Mutex::new(pending)),
@@ -5798,7 +5861,7 @@ impl _Document {
                 .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
         }
 
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let info_id = match existing_id {
             Some(id) => id,
             None => {
@@ -5856,7 +5919,25 @@ impl _Document {
     }
 
     /// Drop cached views; call at the start of every editing method.
+    ///
+    /// The edit also forgets the images and pages that drawing placed, since
+    /// it may change them. An edit that cannot calls
+    /// `invalidate_hayro_pdf_keeping_placements` instead.
     fn invalidate_hayro_pdf(&mut self) {
+        self.placements.clear();
+        self.invalidate_hayro_pdf_keeping_placements();
+    }
+
+    /// Drop cached views for an edit that leaves every placed object as it is.
+    ///
+    /// Such an edit only adds objects; replaces page dictionaries; rewrites
+    /// the page tree, the catalog, the document information dictionary, or
+    /// navigation structures (outlines, name trees, and annotations); or
+    /// removes unreachable objects. Placement reuse checks that an object
+    /// still exists, which covers the removal. Like every edit, it gives the
+    /// document a new revision.
+    fn invalidate_hayro_pdf_keeping_placements(&mut self) {
+        self.revision = placement_reuse::next_revision();
         self.hayro_pdf = None;
         self.hayro_source = HayroSource::Unavailable;
         self.content_guard.reset();
@@ -6126,19 +6207,27 @@ impl _Document {
         Ok(())
     }
 
-    /// Import and place a page from an owned source snapshot.
+    /// Place a page Form, committing its prepared import first if it has one,
+    /// and return the placed Form.
     fn place_pdf_page(
         &mut self,
         page_id: ObjectId,
         target_geometry: ([f64; 4], i64),
-        form_plan: FormImportPlan,
+        form: PageForm,
         placement: PagePlacement,
         drawing_plan: PageDrawingPlan,
-    ) -> PyResult<()> {
-        let (form_id, src_crop, src_rotation) = commit_page_form_import(&mut self.doc, form_plan);
+    ) -> PyResult<PlacedForm> {
+        let form = match form {
+            PageForm::Placed(form) => form,
+            PageForm::Import(plan) => {
+                let len = plan.form.content.len();
+                let (form_id, crop, rotation) = commit_page_form_import(&mut self.doc, plan);
+                PlacedForm::new(form_id, len, crop, rotation)
+            }
+        };
         let content = draw::PlacedContent::Form {
-            crop: src_crop,
-            rotation: src_rotation,
+            crop: form.crop(),
+            rotation: form.rotation(),
         };
         let matrix = draw::placement_matrix(
             target_geometry.0,
@@ -6148,8 +6237,65 @@ impl _Document {
             placement.keep_proportion,
         );
         let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
-        self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
-        self.push_page_content(page_id, ops, drawing_plan.content)
+        self.commit_drawing_resource(page_id, drawing_plan.resource, form.id())?;
+        self.push_page_content(page_id, ops, drawing_plan.content)?;
+        Ok(form)
+    }
+
+    /// Draw an image into display `rect`, placing the XObject of identical
+    /// earlier input again instead of adding another.
+    #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
+    fn place_image(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+        rect: (f64, f64, f64, f64),
+        input: ImageInput,
+        image_rotation: i64,
+        keep_proportion: bool,
+        overlay: bool,
+    ) -> PyResult<()> {
+        let (crop, rotation) = self.page_display_geometry(page_number)?;
+        let (page_id, drawing_plan) =
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let digest = py.detach(|| input.digest());
+        let image = match self.placements.image(&self.doc, &digest) {
+            Some(placed) => PageImage::Placed(placed),
+            None => PageImage::New(py.detach(|| input.parse())?),
+        };
+        let (width, height) = match &image {
+            PageImage::Placed(placed) => (placed.width(), placed.height()),
+            PageImage::New(parts) => (parts.width, parts.height),
+        };
+        let matrix = draw::image_placement_matrix(
+            crop,
+            rotation,
+            [rect.0, rect.1, rect.2, rect.3],
+            width,
+            height,
+            keep_proportion,
+            image_rotation,
+        );
+        let remember = matches!(image, PageImage::New(_)) && self.placements.reserve_image();
+        self.invalidate_hayro_pdf_keeping_placements();
+        let added = py.detach(|| -> PyResult<_> {
+            let (xobj_id, added) = match image {
+                PageImage::Placed(placed) => (placed.id(), None),
+                PageImage::New(parts) => {
+                    let id =
+                        draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
+                    (id, PlacedImage::read(&self.doc, id))
+                }
+            };
+            let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
+            self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
+            self.push_page_content(page_id, ops, drawing_plan.content)?;
+            Ok(added)
+        })?;
+        if remember && let Some(added) = added {
+            self.placements.remember_image(digest, added);
+        }
+        Ok(())
     }
 
     /// Draw validated subset-embedded text; see `insert_embedded_text`.
@@ -6189,16 +6335,17 @@ impl _Document {
         };
         let form_plan =
             py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                form_plan,
+                PageForm::Import(form_plan),
                 placement,
                 drawing_plan,
             )
-        })
+        })?;
+        Ok(())
     }
 
     /// Lay out and draw validated subset-embedded text inside a display rectangle.
@@ -6256,12 +6403,12 @@ impl _Document {
         };
         let form_plan =
             py.detach(|| prepare_page_form_import(self.doc.max_id, generated_doc, 1))?;
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             self.place_pdf_page(
                 page_id,
                 (crop, rotation),
-                form_plan,
+                PageForm::Import(form_plan),
                 placement,
                 drawing_plan,
             )
@@ -9261,7 +9408,7 @@ impl _Document {
     /// lopdf raises the version and changes xref type, mutating document state,
     /// so invalidate the rendering cache.
     fn save_with_object_streams(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             write_pdf_file_stably(&mut self.doc, path, Some(modern_save_options()))
                 .map_err(|e| PdfError::new_err(format!("failed to save {path}: {e}")))
@@ -9275,7 +9422,7 @@ impl _Document {
         py: Python<'_>,
         max_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| serialize_pdf(&mut self.doc, Some(modern_save_options()), max_size))
     }
 
@@ -9383,7 +9530,7 @@ impl _Document {
         let cleanup = PageCleanupPlan::prepare(&self.doc, &retained, &deleted)?;
         self.rebuild_page_tree_with_cleanup(pages_id, retained, Some(&cleanup))?;
         cleanup.apply(&mut self.doc);
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         prune_unreachable_objects(&mut self.doc)?;
         Ok(())
     }
@@ -9669,7 +9816,7 @@ impl _Document {
             // Reserve Pages/Catalog IDs in an empty target to avoid source collisions.
             let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
             let new_ids = self.transplant_pages(other, source_pages, &page_numbers, pages_id)?;
-            self.invalidate_hayro_pdf();
+            self.invalidate_hayro_pdf_keeping_placements();
             let order = Self::spliced_page_order(existing_pages, new_ids, position)?;
             self.rebuild_page_tree(pages_id, order)?;
             // transplant_pages initially moves all non-page objects. Prune
@@ -9689,7 +9836,7 @@ impl _Document {
         }
         let existing_pages = self.doc.owned_page_ids()?;
         self.preflight_page_tree_rebuild(&existing_pages)?;
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let media_box = Object::Array(vec![
             Object::Real(0.0),
@@ -9722,7 +9869,7 @@ impl _Document {
         let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
         let mut dict = resolve_inherited_page_dict(&self.doc, source_id)?;
         dict.set("Parent", pages_id);
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let new_id = self.doc.add_object(Object::Dictionary(dict));
         let order = Self::spliced_page_order(existing_pages, vec![new_id], position)?;
         self.rebuild_page_tree(pages_id, order)?;
@@ -9820,7 +9967,7 @@ impl _Document {
             resolved_pages.push((use_id, dict));
         }
 
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let pages_id = match existing_pages_id {
             Some(pages_id) => pages_id,
             None => self.ensure_page_tree().map_err(to_py_err)?,
@@ -10159,7 +10306,7 @@ impl _Document {
         })?;
         self.doc.catalog().map_err(to_py_err)?;
 
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         // Discard existing outlines and construction state.
         self.doc.bookmarks.clear();
         self.doc.bookmark_table.clear();
@@ -10255,7 +10402,7 @@ impl _Document {
 
     /// Set rotation for a one-based page; Python validates the value.
     fn set_page_rotation(&mut self, page_number: u32, rotation: i64) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         self.doc
             .set_page_entry(page_number, "Rotate", Object::Integer(rotation))
     }
@@ -10275,7 +10422,7 @@ impl _Document {
         x1: f64,
         y1: f64,
     ) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let x0 = checked_pdf_real(x0, "x0")?;
         let y0 = checked_pdf_real(y0, "y0")?;
         let x1 = checked_pdf_real(x1, "x1")?;
@@ -10306,7 +10453,7 @@ impl _Document {
 
     /// Remove unreferenced objects.
     fn prune_objects(&mut self) -> PyResult<()> {
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         prune_unreachable_objects(&mut self.doc)
     }
 
@@ -10314,6 +10461,7 @@ impl _Document {
     ///
     /// `rect` uses top-left-origin page display space, including rotation.
     /// Drawing only adds a content stream and never rewrites existing content.
+    /// Bytes identical to an earlier placement place its XObject again.
     #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
     #[pyo3(signature = (
         page_number,
@@ -10338,34 +10486,15 @@ impl _Document {
         max_pixels: Option<u64>,
     ) -> PyResult<()> {
         validate_image_input(&data, max_size, max_pixels)?;
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let (parts, matrix) = py.detach(|| -> PyResult<_> {
-            let parts = draw::parse_image(data).map_err(PdfError::new_err)?.ok_or_else(|| {
-                PdfError::new_err(
-                    "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
-                )
-            })?;
-            let matrix = draw::image_placement_matrix(
-                crop,
-                rotation,
-                [rect.0, rect.1, rect.2, rect.3],
-                parts.width,
-                parts.height,
-                keep_proportion,
-                image_rotation,
-            );
-            Ok((parts, matrix))
-        })?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            let xobj_id =
-                draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
-            let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
-            self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
-            self.push_page_content(page_id, ops, drawing_plan.content)
-        })
+        self.place_image(
+            py,
+            page_number,
+            rect,
+            ImageInput::Encoded(data),
+            image_rotation,
+            keep_proportion,
+            overlay,
+        )
     }
 
     /// Read and draw bounded JPEG/PNG input from a filesystem path.
@@ -10419,6 +10548,7 @@ impl _Document {
     /// Draw a rendered RGBA8 Pixmap directly into display `rect`.
     ///
     /// This avoids a PNG encode/decode round trip while preserving alpha.
+    /// Samples identical to an earlier placement place its XObject again.
     #[allow(clippy::too_many_arguments)] // Mirrors Python's keyword-oriented drawing API.
     fn insert_pixmap(
         &mut self,
@@ -10430,40 +10560,28 @@ impl _Document {
         keep_proportion: bool,
         overlay: bool,
     ) -> PyResult<()> {
-        let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
-        let width = pixmap.width;
-        let height = pixmap.height;
-        let data = Arc::clone(&pixmap.data);
+        let input = ImageInput::Rgba {
+            width: pixmap.width,
+            height: pixmap.height,
+            data: Arc::clone(&pixmap.data),
+        };
         drop(pixmap);
-        let (parts, matrix) = py.detach(|| -> PyResult<_> {
-            let parts = draw::rgba_parts(width, height, &data).map_err(PdfError::new_err)?;
-            let matrix = draw::image_placement_matrix(
-                crop,
-                rotation,
-                [rect.0, rect.1, rect.2, rect.3],
-                width,
-                height,
-                keep_proportion,
-                image_rotation,
-            );
-            Ok((parts, matrix))
-        })?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            let xobj_id =
-                draw::add_image_xobject(&mut self.doc, parts).map_err(PdfError::new_err)?;
-            let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
-            self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
-            self.push_page_content(page_id, ops, drawing_plan.content)
-        })
+        self.place_image(
+            py,
+            page_number,
+            rect,
+            input,
+            image_rotation,
+            keep_proportion,
+            overlay,
+        )
     }
 
     /// Import a one-based page from `other` as a Form XObject into display `rect`.
     ///
     /// Renumber source objects as in merge and wrap page content in a Form
-    /// XObject to preserve vectors.
+    /// XObject to preserve vectors. The Form of an earlier placement of the
+    /// same page is placed again while `other` is unchanged, without cloning it.
     // This boundary mirrors the Python signature, so the argument count is intentional.
     #[allow(clippy::too_many_arguments)]
     fn show_pdf_page(
@@ -10483,22 +10601,30 @@ impl _Document {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
         };
-        let form_plan = py.detach(|| {
-            prepare_page_form_import(self.doc.max_id, other.doc.clone(), src_page_number)
+        let source = FormSource {
+            revision: other.revision,
+            page: src_page_number,
+        };
+        let form = match self.placements.form(&self.doc, source) {
+            Some(form) => PageForm::Placed(form),
+            None => PageForm::Import(py.detach(|| {
+                prepare_page_form_import(self.doc.max_id, other.doc.clone(), src_page_number)
+            })?),
+        };
+        let remember = matches!(form, PageForm::Import(_)) && self.placements.reserve_form();
+        self.invalidate_hayro_pdf_keeping_placements();
+        let form = py.detach(|| {
+            self.place_pdf_page(page_id, (crop, rotation), form, placement, drawing_plan)
         })?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })
+        if remember {
+            self.placements.remember_form(source, form);
+        }
+        Ok(())
     }
 
     /// Import a page from this document's pre-edit snapshot as a Form XObject.
+    ///
+    /// Consecutive placements of one source page on other pages place one Form.
     fn show_pdf_page_self(
         &mut self,
         py: Python<'_>,
@@ -10515,20 +10641,34 @@ impl _Document {
             rect: [rect.0, rect.1, rect.2, rect.3],
             keep_proportion,
         };
-        let form_plan = py.detach(|| {
-            let source = self.doc.clone();
-            prepare_page_form_import(self.doc.max_id, source, src_page_number)
+        let source = FormSource {
+            revision: self.revision,
+            page: src_page_number,
+        };
+        let form = match self.placements.form(&self.doc, source) {
+            Some(form) => PageForm::Placed(form),
+            None => PageForm::Import(py.detach(|| {
+                let source = self.doc.clone();
+                prepare_page_form_import(self.doc.max_id, source, src_page_number)
+            })?),
+        };
+        // This edit replaces the revision. Placing on another page leaves the
+        // source page and everything it reaches as they were, so its Form stays
+        // reusable under the new revision; a page placed on itself has changed.
+        self.placements.forget_form(source);
+        let remember = src_page_number != page_number && self.placements.reserve_form();
+        self.invalidate_hayro_pdf_keeping_placements();
+        let form = py.detach(|| {
+            self.place_pdf_page(page_id, (crop, rotation), form, placement, drawing_plan)
         })?;
-        self.invalidate_hayro_pdf();
-        py.detach(|| {
-            self.place_pdf_page(
-                page_id,
-                (crop, rotation),
-                form_plan,
-                placement,
-                drawing_plan,
-            )
-        })
+        if remember {
+            let source = FormSource {
+                revision: self.revision,
+                page: src_page_number,
+            };
+            self.placements.remember_form(source, form);
+        }
+        Ok(())
     }
 
     /// Read annotations from a one-based page.
@@ -10702,7 +10842,7 @@ impl _Document {
         }
 
         // Appearance BBox equals annotation Rect and draws in page space.
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let gs_id = self.doc.add_object(dictionary! {
             "Type" => "ExtGState",
             "BM" => Object::Name(b"Multiply".to_vec()),
@@ -10772,7 +10912,7 @@ impl _Document {
                 "URI" => Object::string_literal(uri),
             },
         };
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         let annot_id = self.doc.add_object(annotation);
         self.commit_page_annotation_append(page_id, annotation_append, annot_id)
     }
@@ -10894,7 +11034,7 @@ impl _Document {
         } else {
             catalog.set("PageLabels", dictionary! { "Nums" => Object::Array(nums) });
         }
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         Ok(())
     }
 
@@ -11205,7 +11345,7 @@ impl _Document {
             Ok(())
         });
         if result.is_ok() {
-            self.invalidate_hayro_pdf();
+            self.invalidate_hayro_pdf_keeping_placements();
         }
         result
     }
@@ -11225,7 +11365,7 @@ impl _Document {
             write_embedded_files(&mut self.doc, remaining, target)
         });
         if result.is_ok() {
-            self.invalidate_hayro_pdf();
+            self.invalidate_hayro_pdf_keeping_placements();
         }
         result
     }
@@ -11284,7 +11424,7 @@ impl _Document {
 
         // From this point onward malformed page/resource state could leave a
         // partial edit, so invalidate before the first PDF object is added.
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             let font_id = ocr::add_ocr_font(&mut self.doc, to_unicode);
             debug_assert_eq!(font_id.0, expected_font_number);
@@ -11328,7 +11468,7 @@ impl _Document {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             let mut font_dict = dictionary! {
                 "Type" => "Font",
@@ -11408,7 +11548,7 @@ impl _Document {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
-        self.invalidate_hayro_pdf();
+        self.invalidate_hayro_pdf_keeping_placements();
         py.detach(|| {
             let mut font_dict = dictionary! {
                 "Type" => "Font",

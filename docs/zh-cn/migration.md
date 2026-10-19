@@ -35,8 +35,8 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256；每个password上限127 UTF-8 byte |
 | `doc.needs_pass` / `authenticate()` | 相同 | 返回值语义相同（0/1/2/4/6） |
 | `page.rect / rotation / set_rotation` | 相同 | |
-| `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换 |
-| `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制 |
+| `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换；相同输入共享同一图像XObject，无需`xref=`复用 |
+| `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；返回负值时不绘制 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |

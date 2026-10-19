@@ -2132,6 +2132,14 @@ class Page:
         boundary for trusted workloads. Refusals raise :class:`LimitError` with
         code ``image_input_size`` or ``image_pixel_count``. The limits do not
         apply to an already bounded :class:`Pixmap`.
+
+        Input identical to an earlier placement in this document, encoded
+        bytes or Pixmap samples, places the image XObject and soft mask of that
+        placement again, whatever the rectangle and rotation, instead of
+        embedding another copy. :meth:`Document.compress_images`,
+        :meth:`replace_text`, :meth:`Document.set_form_field`, and
+        ``deflate=True`` saves end this sharing, so the next placement embeds
+        the input again. A reopened document shares only its new placements.
         """
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
@@ -2191,6 +2199,14 @@ class Page:
         CropBox are resolved visually to fit ``rect``. ``src`` may be the same
         document; pylopdf imports from a pre-edit snapshot so the source page,
         including the target page itself, remains stable during placement.
+
+        Placing a page of ``src`` again places the Form XObject of the earlier
+        placement, with its fonts and images, instead of importing another
+        copy, as long as ``src`` has not been edited since; any edit of ``src``
+        makes the next placement import the page again. Edits that end
+        image sharing, as described in :meth:`insert_image`, end this sharing
+        too. A same-document source page stays shared across consecutive
+        placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
         src_number = src[pno]._page_number()
