@@ -101,7 +101,9 @@ overview.
   hits, including trusted `max_hits=None` searches.
   CJK fallback configuration also applies to extraction, including invisible OCR
   text. Glyphs hayro delivers without any Unicode mapping (for example a Type 3
-  font with no ToUnicode CMap, upstream gap LaurenzV/hayro#1331) are skipped;
+  font with no ToUnicode CMap, upstream gap LaurenzV/hayro#1331, which hayro
+  `main` narrows after 0.8.0 with a glyph-name fallback, LaurenzV/hayro#1512)
+  are skipped;
   each fresh page interpretation with such glyphs surfaces one deduplicated
   static `PylopdfWarning` through the pending-warnings sink, and
   `pdfium-type3.pdf` pins the extraction gap as an upstream-linked expected
@@ -351,8 +353,9 @@ overview.
   tie-breakers. Same-Document restrictions still apply. `Page.apply_ocr` skips
   pages with extractable text by default so repeated runs are idempotent. With
   `clip=`, only intersecting text triggers the skip and result boxes remain in
-  full-page display coordinates. Clipping reduces OCR detector input but not
-  hayro's current full-page rendering cost. The first engine returns
+  full-page display coordinates. Clipping reduces the rasterized area and the
+  OCR detector input; hayro still interprets the complete page. The first
+  engine returns
   axis-aligned boxes only;
   `rotation=90 / 180 / 270` turns the rendered OCR input clockwise, maps boxes
   back to the unmodified display space, and makes `apply_ocr` orient its
@@ -374,26 +377,54 @@ overview.
   next bullet prefers the serialization, and falls back to a lopdf
   serialization when hayro rejects them or resolves other pages than the
   page-tree walker, compared by object ID in page order. When the
-  serialization still disagrees, rendering uses a copy whose root lists
-  exactly the walker's pages with inherited attributes materialized: hayro 0.7
-  ends `/Kids` at the first entry that is not a dictionary and reads untyped
-  or direct kids as pages, which the walker skips. The editable and saved page
-  tree never change for this. A recovered load retains no original bytes:
+  serialization still disagrees, or when hayro could not read the trailer,
+  catalog, or root page-tree node (the next bullet), rendering uses a copy
+  whose root lists exactly the walker's pages with inherited attributes
+  materialized: hayro 0.8 reads untyped or direct kids as pages, which the
+  walker skips, and leaves out a kid it cannot read, and hayro 0.7 also ended
+  `/Kids` at the first entry that is not a dictionary. The editable and saved
+  page tree never change for this. A recovered load retains no original bytes:
   hayro would recover the damaged input independently and can disagree, for
   example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
-  always be reflected in rendering and link reads. The page index needs no
+  always be reflected in rendering and link reads. An edit that cannot change
+  an object that drawing placed calls `invalidate_hayro_pdf_keeping_placements`
+  instead, as described with placement reuse below. The page index needs no
   call: mutable document access drops it, as described with the walker below.
   `DocumentLimits.max_interpretation_size` bounds both retained original input
-  and the complete reserialization after edits, decryption, or
-  state-appearance normalization. Under a finite limit, serialize before
-  constructing the state-normalized render copy. The bounded writer must not
+  and the complete reserialization after edits or decryption, or for a
+  rendering copy (missing text-markup appearances, the flattened page tree, or
+  the cut nesting). Under a finite limit, serialize before constructing the
+  rendering copy. The bounded writer must not
   install a partial hayro cache. Original input above a finite limit retains
   only its size and limit until first-interpretation refusal; admitted
   in-memory input copies use fallible exact allocation. Failures use
   `interpretation_size`. Its
   compatible default is `None`, while `DocumentLimits.web()` sets 64 MiB.
+- hayro-syntax 0.8 reads no array or dictionary nested more than 64 levels
+  deep, counting the object that holds it (`MAX_OBJECT_NESTING_DEPTH`), and
+  treats the whole object as absent; hayro 0.7 recursed without a bound, and
+  lopdf reads objects nested up to 100 levels. A page dictionary nested that
+  deeply drops out of hayro's page list, a trailer or catalog keeps hayro from
+  opening the document, and a root page-tree node makes hayro collect pages by
+  scanning every object, which can list the walker's pages in order without
+  the attributes they inherit (hayro alone renders the 300-point pages of such
+  a test document as A4). `rust/src/read_depth.rs` sends a document whose
+  trailer, catalog, or root nests that deeply straight to the flattened
+  rendering copy, and that copy drops every entry that nests one of them or a
+  page too deeply, counting levels as hayro does: the dictionary is the first,
+  a container inside it the second, and a scalar or reference no level.
+  `_Document.pages_too_deep` records the pages that lost an entry, and
+  `hayro_view_for` refuses every selection that includes one with `LimitError`
+  code `object_depth`, the code of `DocumentLimits.max_object_depth`, before
+  the content guard runs. Other pages stay usable, and the editable and saved
+  document keep everything lopdf read. Any other object nested that deeply
+  reads as absent, as in hayro, and the guards see it as hayro does.
+  `DocumentLimits.web()` already refuses such documents at load, because
+  `max_object_depth` counts a scalar as a level. `tests/test_read_depth.py`
+  pins the 64-level boundary and the trailer, catalog, root, and
+  inherited-resource cases.
 - hayro-syntax 0.7 and 0.8 (and its `main` of 2026-10-18) parse an object
   stream's member table, the pairs of object number and offset that head its
   data, anew for every lookup of a member and keep nothing, at about 15 ns per
@@ -470,22 +501,26 @@ overview.
   lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
   stay only when the walk meets no recovered object, no object that no entry
   locates, and no in-use entry that lopdf could not load. lopdf skips objects
-  nested deeper than 100 levels, so a reachable one also keeps them from hayro
-  0.7's unbounded recursive parser. Audit and recovery buffers grow fallibly,
+  nested deeper than 100 levels, so a reachable one also kept them from hayro
+  0.7's unbounded recursive parser; hayro 0.8 reads none deeper than 64.
+  Audit and recovery buffers grow fallibly,
   and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
   and already render from the graph. The pass runs before
   `normalize_object_numbers`, because it compares lopdf's numbers with the
   cross-reference entries; a renumbering load also renders from the graph, and
   dropping unreachable debris first spares most such loads the move.
 - Content streams are cleared for nesting depth before hayro interprets them.
-  hayro 0.7 skips and reads arrays and dictionaries in content streams by
-  unbounded recursion (LaurenzV/hayro#1347; hayro 0.8 stops at 64 levels), so a
-  stream with about 300,000 nested `[` overflowed the stack and killed the
-  process on the first extraction, rendering, drawing or image read, search,
-  Markdown conversion, or image compression. It did so in page content, Form
-  XObjects, annotation and widget appearances, tiling patterns, Type 3 glyph
-  procedures, and soft-mask groups, and `DocumentLimits.web()` did not help
-  because lopdf never parses content at load. Every path that lets hayro
+  hayro 0.7 skipped and read arrays and dictionaries in content streams by
+  unbounded recursion (LaurenzV/hayro#1347), so a stream with about 300,000
+  nested `[` overflowed the stack and killed the process on the first
+  extraction, rendering, drawing or image read, search, Markdown conversion, or
+  image compression. It did so in page content, Form XObjects, annotation and
+  widget appearances, tiling patterns, Type 3 glyph procedures, and soft-mask
+  groups, and `DocumentLimits.web()` did not help because lopdf never parses
+  content at load. hayro 0.8 stops at 64 levels and silently leaves out the
+  deeper operands, so the check now turns that truncation into a typed
+  refusal, and its walk still finds the roots of the colour space and function
+  check below, which hayro 0.8 needs as much as 0.7 did. Every path that lets hayro
   interpret a page must start with `_Document::hayro_view_for`, which builds the
   snapshot and has `ContentGuard::check` (`rust/src/content_guard.rs`) clear
   the pages first: `One`, `Many` for explicit batches, `All` for
@@ -493,19 +528,28 @@ overview.
   `content_nesting_depth` before any interpretation, cache insertion, or
   output. The bound is `MAX_NESTING_DEPTH` = 64 levels of arrays and
   dictionaries, the one hayro 0.8 uses, and is unconditional rather than a
-  `DocumentLimits` field because it prevents a crash instead of bounding
-  resource use.
+  `DocumentLimits` field: it prevented a crash on hayro 0.7 and prevents a
+  silent truncation on 0.8, rather than bounding resource use.
   The guard decodes with hayro's own `Stream::decoded`, never with lopdf: the
   two decoders and stream-extent rules can disagree on damaged input, and only
   hayro's bytes reach its parser. Page content comes from `Page::page_stream`,
   which hayro caches, so interpretation reuses that decode; other streams
-  decode once more. The walk mirrors the four places where hayro 0.7 parses
-  content operators: the joined `/Contents`, Form XObjects (`Do`, annotation
-  `/AP /N`, ExtGState `/SMask /G`), tiling pattern streams, and Type 3
-  `/CharProcs`, including fonts that only an ExtGState `/Font` entry selects.
-  hayro resolves a name through the resources of every enclosing stream and
-  the page, so the walk visits every entry of every reachable resource
-  dictionary instead of the names a stream uses; only `/Subtype /Form`
+  decode once more. The walk mirrors the four places where hayro 0.7 and 0.8
+  parse content operators: the joined `/Contents`, Form XObjects (`Do`,
+  annotation `/AP /N`, ExtGState `/SMask /G`), tiling pattern streams, and
+  Type 3 `/CharProcs`, including fonts that only an ExtGState `/Font` entry
+  selects. hayro 0.8 draws an `/AP /N` state dictionary as the state that
+  `/AS` names, else `/Off`. The walk follows `/N` as `NormalAppearance` and
+  queues every stream of a state dictionary (`AppearanceStates`, each state as
+  `ContentStream`): a superset of hayro's choice that needs neither `/AS` nor
+  hayro's reader chain to resolve it, and costs real forms nothing because a
+  check box or radio button has two states. hayro 0.8 resolves a name in the
+  `/Resources` of the stream it interprets; a form or glyph procedure without
+  any falls back to the resources it is drawn with (a glyph procedure to its
+  font's first), and a pattern has only its own, where hayro 0.7 fell back
+  through every enclosing stream and the page. Either way the walk visits
+  every entry of every reachable resource dictionary instead of the names a
+  stream uses; only `/Subtype /Form`
   entries of `/XObject` count, because images are costly to decode and never
   content. The check is lazy and per page. Streams, fonts, graphics states,
   and dictionaries shared with an earlier page are skipped. A dictionary is
@@ -627,7 +671,11 @@ overview.
   (repeated `BI ID`, `BI/`, or `EI`, endless comments after `>>`) scan in under
   two seconds, so keep every search bounded by the next scheduled position.
   The model was validated against hayro-syntax 0.7.2 itself with scratch
-  harnesses, not stored in the repository. They include `content_scan.rs` by
+  harnesses, not stored in the repository. hayro-syntax 0.8.0 tokenizes
+  content as 0.7.2 does apart from its 64-level bound and how it reads a
+  number with more digits than an `i64` holds, so the model still applies; the
+  scanner oracles were not rerun against 0.8.0, whose own bound turns a gap
+  into a truncation rather than a crash. They include `content_scan.rs` by
   path and a vendored copy of the crate whose recursive container parses
   (`Array::skip`, `Dict::skip`, and `<<` dictionary reads) count their depth in
   a thread-local, and they require that any stream whose parse reaches 65
@@ -690,7 +738,15 @@ overview.
   three documents that choice selects, 11 in eight generated pages with
   4,096 to 20,000 members, and 21,720 in 11,000 mutated graphs (8,000 from the
   test placements, 3,000 with the corpus as extra seeds), and the guard had
-  scanned every one.
+  scanned every one. The hayro 0.8 port reran the stream oracle with a copy of
+  hayro-interpret 0.8.0 that logs every non-blank content stream it starts,
+  rendering the first six pages of each document from its original bytes:
+  hayro started 189,858 such interpretations in 2,641 pages of the 1,437
+  pdf.js corpus files it opens and 1,417 in the bundled corpus and the 691
+  documents that the nesting tests build, and the guard had scanned every
+  stream; a guard that skips `/AP /N` state dictionaries left 113 of those
+  1,417 unscanned, so the oracle has power against the gap the port closed.
+  The mutated-graph harness was not rerun.
   Keep a deterministic Python regression for each construct a harness found.
   The Python regressions in `tests/test_content_nesting.py` cover each place
   hayro interprets content, every public operation, the 64-level boundary, the
@@ -700,13 +756,10 @@ overview.
   streams, 99 of which hold inline images, was refused.
   On a hayro upgrade, re-read every `TypedIter::new`, `UntypedIter::new`, and
   `Stream::decoded` call site; a new content-parsing site must join the walk.
-  hayro 0.8 bounds nesting itself, but rendering the first two pages of every
-  corpus file with 0.7.1 and 0.8.0 side by side changed 6 of 20 pages (large
-  scans and one Type 3 page, 60 to 113,965 pixels each, channel deltas up to
-  30), so it needs its own reviewed migration; the guard then becomes a typed
-  refusal on top of hayro's silent truncation. The structures that are not
-  content streams but recurse without a bound in hayro 0.7 and 0.8 alike are
-  guarded by the next bullet.
+  hayro 0.8.0 parses content at the same four places as 0.7 and adds only the
+  `/AP /N` state selection above. The structures that are not content streams
+  but recurse without a bound in hayro 0.7 and 0.8 alike are guarded by the
+  next bullet.
 - Colour spaces, shadings, and functions are cleared for chain depth and Type 4
   nesting before hayro builds them. hayro 0.7 and 0.8 build a colour space
   (`ColorSpaceType::new_inner`) and a function (`Function::new`) by recursion
@@ -726,22 +779,27 @@ overview.
   a Type 4 stream goes to `rust/src/postscript_scan.rs`. A refusal raises
   `LimitError` with the stable code `resource_nesting_depth` before any
   interpretation, cache insertion, or output. The bounds are unconditional,
-  like the content bound: `MAX_CHAIN_DEPTH` = 32 nodes and `MAX_BRACE_DEPTH` =
+  like the content bound: `MAX_CHAIN_DEPTH` = 16 nodes and `MAX_BRACE_DEPTH` =
   64 levels. Real documents stay far below both: while hayro interpreted the
   first 40 pages of 5,683 real PDFs (54,088 pages, 1,453 of them the pdf.js
   corpus), its colour space and function builders nested at most 3 deep and
   its Type 4 procedures at most 3, and the node count here is at most about
   twice the builder count because an ICCBased space is an array plus its
-  profile stream. 32 equals the indirection bound that pylopdf follows
-  elsewhere. hayro 0.7 spends 1.4 KiB of stack per stitching level, 1.0 per
-  Indexed, 0.9 per Separation or ICCBased node, and 0.43 per brace (the deepest
-  chain that survives a 512 KiB thread; identical on the fast and the thin-LTO
-  build), so the limits cost under 45 KiB and 28 KiB. The deepest accepted
-  structures build and draw on 64 to 96 KiB threads, and a plain page needs
-  under 64 KiB, where musl gives spawned threads 128 KiB; the regression runs
-  them on 256 KiB. Re-measure after a hayro upgrade: hayro 0.8.0 spends about
-  5.8 KiB per ICCBased level (two nodes here), which would be 93 KiB at the
-  limit.
+  profile stream. The chain bound was 32, the indirection bound that pylopdf
+  follows elsewhere, until hayro 0.8, whose ICCBased fallback spends about
+  4 KiB of stack per space in the thin-LTO build: the deepest accepted 32-node
+  ICCBased chain needed a 116 KiB thread with hayro 0.8 against 52 KiB with
+  0.7, close to the 128 KiB that musl gives spawned threads. At 16 nodes the
+  ICCBased chain builds and draws on a 68 KiB thread and every other deepest
+  accepted structure on the 52 KiB that a plain page needs (thin-LTO builds,
+  macOS arm64, Python 3.13, 4 KiB steps); the regression runs them on
+  256 KiB. With hayro alone and cargo's default release profile, the deepest
+  chain that survives a 512 KiB thread puts hayro 0.8.0 at 1.55 KiB of stack
+  per stitching level, 0.94 per Indexed, 0.87 per Separation, 5.69 per
+  ICCBased space, and 0.36 per brace, against 2.10, 1.02, 0.93, 5.75, and
+  0.36 for 0.7.1, so how pylopdf's build inlines hayro matters as much as the
+  version. Re-measure through pylopdf's own build after a hayro upgrade or a
+  profile change.
   The roots are every colour space and function that interpretation can
   build: the `/ColorSpace` and `/Shading` entries of every reachable resource
   dictionary, the `/Shading` of shading patterns (dictionary entries of
@@ -802,10 +860,10 @@ overview.
   the deepest node that the component names outside it, and a node outside
   every cycle is a component of one with its exact depth. A component's bound
   depends on the graph alone, never on the order in which roots were walked,
-  and is remembered like an exact depth. The walk refuses a path of 33 nodes
-  at once and a component whose bound passes 32, which is over-conservative
-  only for malformed cyclic graphs: a hub that 33 spokes name and that names
-  each spoke back is 3 deep but one component of 34.
+  and is remembered like an exact depth. The walk refuses a path of 17 nodes
+  at once and a component whose bound passes 16, which is over-conservative
+  only for malformed cyclic graphs: a hub that 17 spokes name and that names
+  each spoke back is 3 deep but one component of 18.
   A walk must never read an object twice. A document can name one large array,
   dictionary, or string from thousands of places, and the check lists every
   entry of every resource dictionary whether or not content draws it, so
@@ -898,6 +956,9 @@ overview.
   painting through nested Separation spaces takes about 3^levels (a 16-level
   chain needs 0.2 s for one rectangle, 18 levels 1.5 s), so tests list such
   chains without painting. Hosts must keep enforcing CPU deadlines.
+  hayro-interpret 0.8.0 builds colour spaces and functions with the same code,
+  apart from renamed enum payloads, and at the same construction sites, so the
+  validation below carries over; it was not rerun against 0.8.0.
   The model was validated against hayro itself with a scratch harness that
   is not stored in the repository: a copy of hayro-interpret 0.7.0 whose
   `ColorSpaceType::new_inner`, `Function::new`, and `parse_procedure_inner`
@@ -908,8 +969,8 @@ overview.
   functions, soft masks, images, and shading patterns in spines, cycles,
   shared graphs, inline nests, mistyped slots, missing objects, and Type 4
   programs with comments and stray braces. A document is a violation when the
-  guard accepted it and hayro's builders nested deeper than 33 (the limit
-  plus the name frame) or its procedures deeper than 64. Count the depth
+  guard accepted it and hayro's builders nested deeper than the limit plus
+  the name frame (33 while the limit was 32) or its procedures deeper than 64. Count the depth
   rather than watch for overflow, as for content: depth is exact and fast.
   The first run found the name frame. 11,500,000 documents (6,000,000 on
   earlier versions of the walk and 5,500,000 on the final one, of which
@@ -945,6 +1006,26 @@ overview.
   re-read every
   `Function::new`, `ColorSpace::new`, and `parse_procedure_inner` call site; a
   new construction site must join the walk.
+- hayro and hayro-svg 0.8.0 replaced 0.7 on 2026-10-19 (the rendering,
+  extraction, and guard changes are described in the bullets above). Measured
+  against the hayro 0.7 build of the preceding commit, both thin-LTO wheels on
+  macOS arm64: rendering every page of the bundled corpus (19 documents, 165
+  pages, scale 1 over white) changed 14 pages, 540,222 of 110,838,393 pixels,
+  by at most 30 per channel on scanned pages (image resampling), at most 3 on
+  vector pages (anti-aliasing), and up to 15 in 60 pixels of the Type 3
+  fixture. Text, words, dict, rawdict, Markdown, tables, drawings, and images
+  hashed identically. hayro-svg 0.8 writes rectangles as `<rect>` and reuses
+  each glyph outline through a transform, so the corpus's SVG shrank from
+  322 MB to 48 MB, 6 to 8 times on text-heavy pages, with image-only pages
+  unchanged. The abi3 wheel grew from 7,179,543 to 7,479,319 bytes (+4.2%)
+  and the unstripped extension from 16,962,880 to 17,580,944 bytes (+3.6%),
+  mostly through skrifa 0.46 and read-fonts 0.43, a third read-fonts beside
+  krilla's 0.39 and HarfRust's 0.45. Cold first calls on the bundled corpus
+  (`get_text`, `to_markdown`, `render_pages`, and per-page `get_drawings` on
+  freshly opened documents; 15 interleaved rounds of CPU-time minimums, one
+  process per round, no extras) fell from 2,309.0 ms to 1,727.6 ms in total
+  (−25.2%): `get_text` −27.3%, `to_markdown` −16.8%, `render_pages` −29.9%,
+  and `get_drawings` −30.1%.
 - Raster rendering reuses one hayro `RenderCache` across calls through
   `rust/src/render_cache.rs`. hayro's cache borrows its `Pdf` snapshot and
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
@@ -995,17 +1076,17 @@ overview.
   `pixmap_output_size`.
 - `Document.render_page_svg` and `Page.render_svg` default to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
-  creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.7
+  creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.8
   returns only a completed `String`, so this boundary does not cap the
   converter's one internal Rust allocation.
 - `Page.get_pixmap(clip=)` accepts rotation-resolved display coordinates,
   intersects them with the page, and rounds outward to pixel boundaries.
-  hayro 0.7 lacks an offset viewport, so clipping crops a full-page raster and
-  does not relax the full-page render-size limits. Straight-alpha conversion
-  and cropped output reserve their RGBA buffers fallibly. A clip converts only
-  its selected hayro pixels rather than first materializing complete-page RGBA.
-  The completed `Vec<u8>` moves into an `Arc<Vec<u8>>` without copying the
-  complete raster.
+  hayro 0.8's `render_into` draws into a target of the clip's size through a
+  transform shifted by the clip origin, so only the clipped region is
+  rasterized; hayro still interprets the complete page, and the full-page
+  render-size limits still apply. `Pixmap::take_rgba8` converts the raster to
+  straight alpha and hands over its buffer, and the completed `Vec<u8>` moves
+  into an `Arc<Vec<u8>>` without copying the raster.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.
@@ -1067,6 +1148,39 @@ overview.
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
+- `rust/src/placement_reuse.rs` places an image or page that a document
+  already holds again instead of embedding another copy. `insert_image` keys
+  Image XObjects by the SHA-256 digest of the accepted encoded bytes, or of a
+  Pixmap's dimensions and RGBA samples; the rectangle and rotation stay in the
+  placement matrix. `show_pdf_page` keys Form XObjects by the source
+  document's revision and one-based page. Every `_Document` takes a
+  process-unique revision at construction and a new one on every edit, so a
+  Form is reused only while its source is unchanged and never for another
+  document, including the one that `authenticate` or a reopen creates. A hit
+  places the remembered XObject without parsing the input or cloning the
+  source. Before a hit, the remembered image, soft mask, or Form stream must
+  still exist with its subtype and content length: pruning is the only change
+  that the keeping edits below make to a placed object, and a Form that
+  survives pruning was reachable, as are the objects it reaches.
+  `invalidate_hayro_pdf` forgets every placement, so it stays the safe default
+  for an editing method. Edits that only add objects; replace page
+  dictionaries; rewrite the page tree, the catalog, the information
+  dictionary, or navigation structures (outlines, name trees, annotations); or
+  remove unreachable objects call `invalidate_hayro_pdf_keeping_placements`:
+  drawing, annotations, page geometry, structural edits, outline, label,
+  attachment, and metadata edits, `prune_objects` for `garbage=True`, and
+  object-stream saves. `compress`, `decompress`, `compress_images`,
+  `replace_text`, and `set_form_field` forget. Both replace the revision.
+  Classify a new editing method before giving it the keeping variant. A
+  same-document `show_pdf_page` re-keys its Form under the revision of its own
+  edit unless it placed the source page on itself, so consecutive placements
+  of one page on other pages share one Form; any other edit imports the page
+  again. Each document remembers at most 4,096 images and 4,096 Forms, and a
+  full map starts over, which keeps output deterministic. Room for an entry is
+  reserved before mutation, and a refused allocation leaves the placement
+  unremembered instead of failing the edit. Nothing is remembered across save
+  and reopen, and generated text and widget appearances import their own
+  Forms. `tests/test_placement_reuse.py` pins each of these behaviors.
 - lopdf numbers new objects above `Document::max_id`, so a loaded reference to
   a higher number would resolve to whatever a later import or edit adds.
   `_Document.load` and `load_bytes`, which `authenticate` reuses, therefore
@@ -1348,39 +1462,43 @@ overview.
   round-trip through extraction in logical Unicode order; the broader
   mixed-direction boundary remains in producer visual order. krilla emits
   `/ActualText` for complex glyph-to-Unicode mappings.
-  Generated PDFs retain it for compliant viewers, but hayro 0.7 does not expose
-  that property to extraction devices, so some reordered or context-dependent
+  Generated PDFs retain it for compliant viewers, but hayro 0.8.0 does not
+  expose that property to extraction devices (hayro `main` does since
+  LaurenzV/hayro#1513), so some reordered or context-dependent
   complex-script clusters remain an explicit pylopdf extraction limitation.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
-- `pylopdf.Font` wraps `_Font` (`rust/src/font.rs`): shared font bytes plus
-  the HarfRust font that shapes them, opened once and checked by krilla as
-  well. `text_length` measures with `generate::shaped_line_width`, the sum of
-  shaped advances that places every glyph krilla draws and that textbox and
-  form layout wrap with; keep generation and measurement on that one sum so a
-  measured line stays the drawn width. Drawing with `font=` (`insert_text`,
-  `insert_textbox`, and `set_form_field`) passes the same bytes and index as
-  `fontbuffer`, and a face loaded without `weight` produces byte-identical
-  output; each call still embeds its own subset. `register_font` keeps a
-  process-wide registry keyed by case-folded family name, OS/2 weight class,
-  and italic flag. A variable face is keyed by `None` in place of the weight
-  class and provides every weight on its axis through `_Font.with_weight`; a
-  face registered at the requested weight takes precedence over that axis, and
-  either takes precedence over the axis of an installed extra. Lookups match
-  exactly; the font extras install one face per style, and
-  `Font(language=..., weight=...)` uses a registered face of the extra's
-  family. A missing face raises `ValueError` unless `allow_regular_fallback`
-  is set, which warns. Never synthesize a weight by stroking, overprinting, or
-  render-mode changes, and never scan system font directories: output must
-  depend only on the faces passed in. The `fontfile` and `fontbuffer` drawing
-  arguments, and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`,
-  load a variable font at its default instance, which need not be regular
-  (Noto Sans CJK JP's is Thin). `Font`'s `weight` therefore defaults to
-  `None`: lookups read it as regular, while an explicit weight on a loaded
-  face, `"regular"` included, selects that instance with `_Font.with_weight`
-  and refuses a weight outside the axis. A static face must already declare
-  the requested weight class; never relabel it.
+- `pylopdf.Font` follows pymupdf's `Font(fontname, fontfile, fontbuffer)` and
+  wraps `_Font` (`rust/src/font.rs`): either an OpenType face, held as shared
+  bytes plus the HarfRust font that shapes them and checked by krilla as
+  well, or a Standard 14 font. `text_length` measures OpenType text with
+  `generate::shaped_line_width`, the sum of shaped advances that places every
+  glyph krilla draws and that textbox and form layout wrap with, and Standard
+  14 text with `draw::standard_text_width`, which Standard 14 layout uses;
+  keep generation and measurement on those so a measured line stays the drawn
+  width. Drawing with an OpenType `font=` (`insert_text`, `insert_textbox`,
+  and `set_form_field`) passes the same bytes and index as `fontbuffer`, and
+  a face loaded without `weight` produces byte-identical output. A Standard
+  14 `font=` follows the `fontname` path of `insert_text` and
+  `insert_textbox`; `set_form_field` refuses it, because its Standard 14
+  path draws Helvetica only. `language=` and `family=` look up only the
+  faces of installed font extras, by the family names in
+  `_FONT_EXTRA_FAMILIES`. There is no font registry or other process-global
+  font state (F0 G6), and pylopdf never scans system font directories, so
+  output depends only on the fonts passed in. A face that does not match
+  `is_bold`, `is_italic`, or `weight` raises unless `allow_regular_fallback`
+  is set, which warns; never synthesize a weight by stroking, overprinting, or
+  render-mode changes. The `fontfile` and `fontbuffer` drawing arguments,
+  and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`, load a
+  variable font at its default instance, which need not be regular (Noto
+  Sans CJK JP's is Thin). The keyword-only `weight` extends a loaded face
+  (F0 R2.5): `_face_at_weight` selects that instance with
+  `_Font.with_weight`, so `weight=400` differs from an omitted weight, and
+  refuses a weight outside the axis; a static face must already declare the
+  requested weight class, and pylopdf never relabels it. `is_bold`,
+  `is_italic`, and `is_serif` keep pymupdf's lookup meaning and raise with
+  `fontname` and font files (R2.7) instead of selecting an instance there.
 - The `ar`, `he`, `hi`, and `th` extras ship variable fonts with `wght` axes
   (100 through 900; Noto Naskh Arabic 400 through 700), and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
@@ -1396,22 +1514,24 @@ overview.
   byte-identical, and a weight outside the axis fails instead of being
   clamped by krilla and HarfRust. Python passes the regular weight for faces
   of installed extras on every drawing path, path or bytes, and
-  `Font(language=...)` selects other weights with `_Font.with_weight`, which
-  shares the face's bytes and package slot; a registered face of the family
-  takes precedence over the axis. krilla names a subset after name ID 6, the
-  default instance's PostScript name, so `GenerationFace::name_subset` renames
-  an instance's Type0 font, CID font, and descriptor after loading the
-  generated PDF, following Adobe TN #5902 (the named instance's
-  `postScriptNameID`, else name ID 25 or the family plus its subfamily, else
-  `NotoSansHebrew_650wght`); extraction infers the bold flag from that name.
-  The embedded program's name table and the descriptor's `/StemV` still
-  describe the default instance. skrifa truncates HVAR deltas where HarfRust
-  rounds them, so a `/W` width could differ from the shaped advance by one
-  font unit while glyph positions follow HarfRust; every Hebrew and Thai
-  letter of the bundled faces matched at the weights measured. The Pyodide
-  contract has no font extras; it covers instancing through
-  `Font(fontbuffer=..., weight=...)` with the repository's Noto Sans Hebrew,
-  and native tests cover the extras.
+  `Font(language=...)` and `Font(family=...)` select another weight, from
+  `weight=` or `is_bold=True`, with `_Font.with_weight`, which shares the
+  face's bytes and package slot. An instance reports its axis value as
+  `weight`, counts as bold from 600, and takes its named instance's style
+  in `name` (`Noto Sans Hebrew Bold`, else `650wght`). krilla names a subset
+  after name ID 6, the default instance's PostScript name, so
+  `GenerationFace::name_subset` renames an instance's Type0 font, CID font,
+  and descriptor after loading the generated PDF, following Adobe TN #5902
+  (the named instance's `postScriptNameID`, else name ID 25 or the family
+  plus its subfamily, else `NotoSansHebrew_650wght`); extraction infers the
+  bold flag from that name. The embedded program's name table and the
+  descriptor's `/StemV` still describe the default instance. skrifa
+  truncates HVAR deltas where HarfRust rounds them, so a `/W` width could
+  differ from the shaped advance by one font unit while glyph positions
+  follow HarfRust; every Hebrew and Thai letter of the bundled faces matched
+  at the weights measured. The Pyodide contract has no font extras; it
+  covers instancing through `Font(fontbuffer=..., weight=...)` with the
+  repository's Noto Sans Hebrew, and native tests cover the extras.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature
@@ -1455,9 +1575,9 @@ overview.
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
   14 or krilla generation paths. `FormFont` is either font bytes, which each
   widget that draws text opens, so a button state or empty value never reads
-  them, or the face of a loaded `Font`, which every such widget clones at the
-  instance it selected; both keep `GenerationFace::name_subset` renaming and
-  the same layout. When the bounded `/Parent` walk finds no `/Q`,
+  them, or the OpenType face of a loaded `Font`, which every such widget
+  clones at the instance it selected; both keep `GenerationFace::name_subset`
+  renaming and the same layout. When the bounded `/Parent` walk finds no `/Q`,
   `field_quadding` uses the AcroForm dictionary's document-wide `/Q`
   (ISO 32000-2 Table 225), read through `inheritable_field_value`, and
   otherwise aligns left. A field's own or inherited `/Q`, including `/Q 0` and
@@ -1467,10 +1587,13 @@ overview.
   combinations. Preserve non-empty authored button states and synthesize only
   missing/empty Off/on states. Widget `/MK /R`, `/BG`, `/BC`, `/BS /W`, and
   legacy `/Border` feed the appearance. Keep updates atomic by restoring the
-  document clone on error. hayro 0.7 cannot select an `/AP /N` state
-  dictionary, so the rendering snapshot substitutes any resolvable widget `/AS`
-  stream; the editable/saved PDF remains canonical. Retain the original-byte
-  fast path when no selected state stream can be resolved.
+  document clone on error. hayro 0.8 draws an `/AP /N` state dictionary as the
+  state that `/AS` names, else `/Off`, so the rendering snapshot no longer
+  substitutes the selected state stream as it did for hayro 0.7, and an
+  unedited form keeps the original-byte fast path. hayro reports a missing
+  state appearance, such as a check box with `/AS /Off` and no `/Off` stream,
+  which ISO 32000 allows, as `UnresolvedAnnotationAppearance`; pylopdf drops
+  that warning.
 - AcroForm field-tree reads borrow object shapes, visit indirect cycles once,
   release the GIL, and reject complete results above 4,096 entries/nodes, 8,192
   edges, 64 levels, 1 MiB of encoded/decoded/materialized names or values, or
@@ -1628,8 +1751,13 @@ overview.
   Run `uv run python tools/check_api_surface.py`; refresh with `--update` only
   after reviewing runtime, typing, documentation, and SemVer impact. The
   snapshot detects changes but does not decide compatibility.
-- GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
-  Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
+- GIL-enabled CPython 3.10–3.15 uses one `abi3-py310` wheel per platform.
+  Free-threaded CPython 3.14 and 3.15 use version-specific `cp314-cp314t` and
+  `cp315-cp315t` wheels. CI runs the full suite on 3.10, on 3.14 on all three
+  operating systems, on 3.15, and on 3.14t and 3.15t; release CI smoke-tests
+  each abi3 wheel on 3.14 and 3.15 and each free-threaded wheel on its own
+  interpreter. `tests/test_ci_policy.py` requires CI lanes for the oldest and
+  newest classified CPython and for every free-threaded release interpreter.
   All CI, documentation, fuzz, and release jobs use standard GitHub-hosted
   runners. Native wheels must install and execute on all five supported
   architecture-matched targets before publication. Set deadlines for each
@@ -1637,11 +1765,32 @@ overview.
   no global one-minute cap. Skipped checks do not constitute validation.
   Do not add personal infrastructure details to this public repository.
   Run actionlint after workflow changes.
-  Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
-  3.14t breaks maturin's cross-compilation config by raising the implied
-  minimum interpreter version. Add size-increasing dependencies cautiously;
-  thin-LTO abi3 wheels built from v0.14.0 sources are 6.4–7.4 MiB depending on
-  platform, versus 6.8–7.9 MiB for the published v0.14.0 wheels.
+  Keep PyO3's `abi3t-py315` feature off. PEP 803's `abi3t` stable ABI, new in
+  CPython 3.15, loads in GIL-enabled and free-threaded builds alike, and PyO3
+  0.30.1 with maturin 1.15.0 builds pylopdf as a `cp315-abi3.abi3t` wheel that
+  passed `tools/smoke_artifact.py` on CPython 3.15.0 and 3.15.0t, with the GIL
+  still disabled and the zero-copy Pixmap buffer intact. But `cp315-abi3`
+  outranks `cp310-abi3` on GIL-enabled 3.15+, so publishing that wheel would
+  move those installs to the abi3t binary, which no GIL-enabled CI lane builds
+  and whose cost there is unmeasured. Enabling the feature in `Cargo.toml`
+  would also tie each build's ABI to its interpreters. Since 1.14.1, maturin
+  builds one stable ABI per invocation, abi3t whenever a CPython 3.15+
+  interpreter takes part, and version-specific wheels for the others:
+  `-i python3.14 -i python3.15` produced `cp315-abi3.abi3t` and `cp314-cp314`
+  and no `cp310-abi3`. The abi3 release jobs pass no `-i`. maturin 1.15.0
+  discovers interpreters only up to 3.14 (`MAXIMUM_PYTHON_MINOR`), so the
+  manylinux job found CPython 3.10–3.14 although its image ships 3.15 and
+  3.15t, and the macOS jobs build with the runner's default `python3`; a
+  maturin or runner image that finds 3.15 would silently replace those jobs'
+  `cp310-abi3` wheels. Adopting abi3t therefore needs the feature passed to
+  the free-threaded 3.15 build alone, CI lanes for that binary on GIL-enabled
+  and free-threaded 3.15, and a measurement of its cost on GIL-enabled builds;
+  one such wheel would then also serve every later free-threaded release. The
+  July 2026 reason, a maturin cross-compilation failure for 3.14t, no longer
+  applies because every release target builds natively. Add size-increasing
+  dependencies cautiously; thin-LTO abi3 wheels built from v0.14.0 sources are
+  6.4–7.4 MiB depending on platform, versus 6.8–7.9 MiB for the published
+  v0.14.0 wheels.
 - Native wheels and sdist builds share `rust/Cargo.toml`'s release profile:
   thin LTO, one codegen unit, and `panic = "unwind"`, which PyO3 needs to turn
   Rust panics into Python exceptions. The 2026-10-17 comparison against Cargo's
@@ -1851,21 +2000,36 @@ overview.
   must keep its headroom. Loading renumbers objects above 8,388,607 for that
   reason; never set `max_id` from untrusted input elsewhere. Checked
   allocation upstream is a contribution candidate.
-- hayro 0.7's typed array iteration ends at the first element that does not
-  resolve to the requested type, so `/Kids` and `/Contents` stop at a missing,
-  null, or mistyped entry. hayro 0.8 skips such page-tree kids but still ends
-  `/Contents` there. hayro also answers the first mismatched or unparseable
+- hayro's typed array iteration ends at the first element that does not
+  resolve to the requested type, so `/Contents` stops at a missing, null, or
+  mistyped entry. hayro 0.7 ended `/Kids` there as well; hayro 0.8 skips such
+  page-tree kids, reads untyped ones as pages, and leaves out a kid it cannot
+  read. hayro also answers the first mismatched or unparseable
   cross-reference entry it reads by rebuilding its whole table. Keep the
   page-identity check and `object_recovery` until upstream changes both.
-  hayro 0.7 parses nested arrays and dictionaries recursively without a bound,
-  so deep nesting overflows the stack and kills the process
-  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347), fixed
-  in hayro 0.8). `object_recovery` keeps indirect objects that lopdf skips
-  from it, and `ContentGuard` checks the content streams that pylopdf never
-  parses at load before every interpretation. hayro 0.7 and 0.8 also build
-  colour spaces and functions, and parse Type 4 braces, by recursion with no
-  bound at all; `GraphGuard` and `postscript_scan` bound them before every
-  interpretation, and nothing else in hayro stops them.
+  hayro 0.7 parsed nested arrays and dictionaries recursively without a bound,
+  so deep nesting overflowed the stack and killed the process
+  ([LaurenzV/hayro#1347](https://github.com/LaurenzV/hayro/issues/1347));
+  hayro 0.8 reads none deeper than 64 levels, treating the object as absent
+  and truncating content, which `read_depth` and `ContentGuard` turn into
+  page-level refusals. hayro 0.7 and 0.8 also build colour spaces and
+  functions, and parse Type 4 braces, by recursion with no bound at all;
+  `GraphGuard` and `postscript_scan` bound them before every interpretation,
+  and nothing else in hayro stops them.
+- hayro 0.8.0 panics in `DeviceRgb::convert` when colour values reach a
+  conversion with a different number of components than the colour space
+  that converts them, such as a Separation or DeviceN tint transform with the
+  wrong number of outputs or a shading in a Pattern colour space
+  ([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546),
+  filed with a tested fix); hayro 0.7 drew the same pages. hayro has had panics
+  on malformed input before, and some remain open upstream. Every operation
+  that lets hayro read or interpret pages therefore runs inside
+  `_Document::contain_renderer_panics`, which catches the unwind, drops
+  everything an edit drops, and raises `PdfError` instead of PyO3's
+  `PanicException`, a `BaseException`. Rust's panic hook still prints the
+  message to standard error. A new entry point that reaches hayro must run
+  inside it too; `tests/test_renderer_panics.py` pins the cases of #1546 and
+  the Pyodide contract checks the containment under Emscripten.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
@@ -1880,8 +2044,8 @@ overview.
 1. Update the version in all three locations, add the changelog entry, commit,
    and push.
 2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
-3. GitHub Actions (`release.yml`) builds abi3 and cp314t wheels plus the sdist
-   for five platforms and publishes through PyPI Trusted Publishing.
+3. GitHub Actions (`release.yml`) builds abi3, cp314t, and cp315t wheels plus
+   the sdist for five platforms and publishes through PyPI Trusted Publishing.
 
 Locale/script font wheels have a separate release process. Update the selected
 `fonts/pylopdf-fonts-{locale}/pyproject.toml`, then push a
@@ -1905,29 +2069,33 @@ it.
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) is the canonical medium-term plan, based on the
-2026-07-22 market and upstream survey plus the 2026-07-23 deeper review of
-out-of-scope areas. It includes strategy, the v0.6–v1.0 release plan, ecosystem
-integrations, a watchlist, and explicit non-goals.
+[ROADMAP.md](ROADMAP.md) is the canonical medium-term plan. Its 2026-10-19
+rewrite organizes the pymupdf parity program: the goal and baseline,
+principles, a definition of done for every feature pull request, workstreams
+with module ownership, waves, foundations F0–F9, the M0 API reset, milestones
+M1–M8, v1.0 criteria, non-goals, the watchlist, and a dated evidence log. The
+pre-rewrite plan, with its release narratives and 2026-07 surveys, remains in
+Git history (`git show a233814:ROADMAP.md`).
 
-- Current phase: v0.14.0 release preparation on 2026-10-13. The review prioritizes
-  page geometry/navigation correctness, predictable rejection before mutation,
-  supported-floor typing/rebuilds, and GitHub-hosted verification that finishes.
-  `ROADMAP.md` lists stabilization, real-document quality, maintainability, and
-  v1.0 readiness in execution order. The 0.13 line completes the fallible-allocation and
-  bounded-traversal campaign across the public surface, so allocator refusal
-  surfaces as `PdfError` without partial results, unifies public page indexing
-  behind one bounded iterative walker, and recovers narrow-column reading
-  order with drift-following gutters, raising the bundled 1880 patent
-  similarity proxy from 0.320 to 0.581. The documented 0.13 candidate API
-  surface is checked deterministically across every native Python test lane,
-  with the post-v1.0 SemVer and deprecation contract published in four
-  languages. The separately versioned OCR model package remains independently
-  gated. Incremental save was rejected after OSS analysis and remains on the
-  watchlist. v1.0 has no target date: continue the 0.x line until sustained
-  field feedback, meaningful external adoption with roughly 1,000 GitHub stars
-  as an indicative signal, and further product refinement justify the API
-  freeze. Stars are not a mechanical release trigger.
+- API rule: one API, in which the same name means the same thing. A
+  pymupdf-named API keeps pymupdf's meaning; a redesign takes a new name and
+  leaves the pymupdf name out. Do not add aliases, synonyms, or compatibility
+  layers; migration is served by the parity manifest and its tools (F9). There
+  are no deprecation windows before 1.0.
+- Current phase: wave 0 of the parity program (2026-10-19). The hayro 0.8
+  migration (#233), AcroForm registration on `insert_pdf` (#234), XObject
+  reuse for repeated insertion (#231), save-time merging of identical
+  objects, CPython 3.15 support (#230), the F3 parity manifest (#235), and
+  the F0 API design draft are in flight. The F1 module split runs alone after
+  they merge; the M0 API reset follows F0 approval.
+- Every feature pull request meets the definition of done in ROADMAP.md and
+  implements against the F0 API design. Concurrent pull requests stay inside
+  one workstream's modules.
+- Incremental save is scheduled in milestone M7 instead of the watchlist.
+- v1.0 has no target date. It requires a complete parity manifest, independent
+  field reports across the new surfaces, and the published stability policy.
+  Roughly 1,000 GitHub stars is an indicative adoption signal, not a
+  mechanical release trigger.
 - lopdf 0.45 includes the upstream lopdf#535 fix (lopdf#537). pylopdf has
   extracted through hayro since v0.7, so the fix matters only to lopdf's own
   content parser.

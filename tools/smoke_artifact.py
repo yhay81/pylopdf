@@ -22,7 +22,7 @@ def _require(*, condition: bool, message: str) -> None:
 
 
 def _check_free_threaded_pixmap(pixmap: object, expected: bytes) -> None:
-    """Verify the cp314t wheel's no-GIL declaration and zero-copy buffer."""
+    """Verify a free-threaded wheel's no-GIL declaration and zero-copy buffer."""
     if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
         return
     is_gil_enabled = getattr(sys, "_is_gil_enabled", None)

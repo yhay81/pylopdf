@@ -5,11 +5,12 @@
 //! content-stream comments (lopdf#535), predefined CMaps such as 90ms-RKSJ-H,
 //! and invisible text such as OCR layers using `Tr 3`.
 
-use hayro::hayro_interpret::font::Glyph;
+use hayro::hayro_interpret::font::{Glyph, GlyphRun};
 use hayro::hayro_interpret::hayro_cmap::BfString;
 use hayro::hayro_interpret::{
-    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, ImageData, InterpreterCache,
-    InterpreterSettings, LumaData, Paint, PathDrawMode, SoftMask, TransformExt, interpret_page,
+    BlendMode, ClipPath, Context, Device, DrawMode, DrawProps, FillRule, Image, ImageData,
+    ImageDrawProps, InterpreterCache, InterpreterSettings, LumaData, Paint, SoftMask, StrokeProps,
+    TransformExt, interpret_page,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -278,23 +279,19 @@ impl TextCollector {
 }
 
 impl Device<'_> for TextCollector {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
-    fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(
-        &mut self,
-        path: &kurbo::BezPath,
-        transform: Affine,
-        _: &Paint<'_>,
-        mode: &PathDrawMode,
-    ) {
+    fn draw_path(&mut self, path: &kurbo::BezPath, props: DrawProps<'_>, mode: &DrawMode) {
         if !self.collect_rules || self.rules.len() >= MAX_TABLE_RULES || self.limit_error.is_some()
         {
             return;
         }
-        if matches!(mode, PathDrawMode::Fill(_)) {
-            if let Some(rule) = filled_rule(path, transform) {
-                self.push_rule(rule);
-            }
+        let transform = props.transform;
+        if matches!(mode, DrawMode::Fill(_) | DrawMode::FillAndStroke(..))
+            && let Some(rule) = filled_rule(path, transform)
+            && !self.push_rule(rule)
+        {
+            return;
+        }
+        if !matches!(mode, DrawMode::Stroke(_) | DrawMode::FillAndStroke(..)) {
             return;
         }
         for segment in path.segments() {
@@ -338,18 +335,23 @@ impl Device<'_> for TextCollector {
     }
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
-    fn pop_clip_path(&mut self) {}
+    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {}
+    fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 
-    fn draw_glyph(
-        &mut self,
-        glyph: &Glyph<'_>,
-        transform: Affine,
-        glyph_transform: Affine,
-        _: &Paint<'_>,
-        _: &GlyphDrawMode,
-    ) {
+    fn draw_glyph_run(&mut self, run: &GlyphRun<'_, '_>, props: DrawProps<'_>, _: &DrawMode) {
+        for glyph in run.glyphs() {
+            if self.limit_error.is_some() {
+                return;
+            }
+            self.collect_glyph(glyph, props.transform * glyph.transform());
+        }
+    }
+}
+
+impl TextCollector {
+    /// Record one glyph whose combined transform maps glyph space to display space.
+    fn collect_glyph(&mut self, glyph: &Glyph<'_>, combined: Affine) {
         if self.limit_error.is_some() {
             return;
         }
@@ -404,7 +406,6 @@ impl Device<'_> for TextCollector {
             )));
             return;
         }
-        let combined = transform * glyph_transform;
         let origin = combined * Point::ZERO;
         // Font size is the transformed y-basis length × 1000. Hayro normalizes
         // glyph space to 1000 upem, so the transform factor is actual size / 1000.
@@ -4104,26 +4105,16 @@ impl ImageUsageCollector {
 }
 
 impl Device<'_> for ImageUsageCollector {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
-    fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(&mut self, _: &kurbo::BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+    fn draw_path(&mut self, _: &kurbo::BezPath, _: DrawProps<'_>, _: &DrawMode) {}
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_glyph(
-        &mut self,
-        _: &Glyph<'_>,
-        _: Affine,
-        _: Affine,
-        _: &Paint<'_>,
-        _: &GlyphDrawMode,
-    ) {
-    }
-    fn pop_clip_path(&mut self) {}
+    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {}
+    fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 
-    fn draw_image(&mut self, image: Image<'_, '_>, transform: Affine) {
+    fn draw_image(&mut self, image: Image<'_, '_>, props: ImageDrawProps<'_>) {
         if self.error.is_none() {
-            self.collect(image, transform);
+            self.collect(image, props.transform);
         }
     }
 }
@@ -4517,29 +4508,19 @@ impl ImageCollector {
 }
 
 impl Device<'_> for ImageCollector {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
-    fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(&mut self, _: &kurbo::BezPath, _: Affine, _: &Paint<'_>, _: &PathDrawMode) {}
+    fn draw_path(&mut self, _: &kurbo::BezPath, _: DrawProps<'_>, _: &DrawMode) {}
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_glyph(
-        &mut self,
-        _: &Glyph<'_>,
-        _: Affine,
-        _: Affine,
-        _: &Paint<'_>,
-        _: &GlyphDrawMode,
-    ) {
-    }
-    fn pop_clip_path(&mut self) {}
+    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {}
+    fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 
-    fn draw_image(&mut self, image: Image<'_, '_>, transform: Affine) {
+    fn draw_image(&mut self, image: Image<'_, '_>, props: ImageDrawProps<'_>) {
         if self.error.is_some() || !self.admit(image.width(), image.height()) {
             return;
         }
         let bbox = image_bbox(
-            transform,
+            props.transform,
             f64::from(image.width()),
             f64::from(image.height()),
         );
@@ -4941,20 +4922,26 @@ fn drawing_geometry(
     }))
 }
 
+/// One paint callback; combined fill-and-stroke is split into fill then stroke.
+enum DrawingMode<'a> {
+    Fill(FillRule),
+    Stroke(&'a StrokeProps),
+}
+
 impl DrawingCollector {
     fn collect(
         &mut self,
         path: &kurbo::BezPath,
         transform: Affine,
         paint: &Paint<'_>,
-        mode: &PathDrawMode,
+        mode: DrawingMode<'_>,
     ) {
         if self.error.is_some() {
             return;
         }
         let dash_values = match mode {
-            PathDrawMode::Fill(_) => 0,
-            PathDrawMode::Stroke(stroke) => stroke.dash_array.len(),
+            DrawingMode::Fill(_) => 0,
+            DrawingMode::Stroke(stroke) => stroke.dash_array.len(),
         };
         let Some(dash_value_count) = self.dash_value_count.checked_add(dash_values) else {
             self.error = Some("drawing extraction dash value count overflowed".to_owned());
@@ -4976,20 +4963,20 @@ impl DrawingCollector {
         let (color, opacity) = drawing_paint(paint);
         let scale = drawing_scale(transform);
         let mut record = match mode {
-            PathDrawMode::Fill(rule) => DrawingRecord {
+            DrawingMode::Fill(rule) => DrawingRecord {
                 geometry,
                 kind: "f",
                 stroke_color: None,
                 fill_color: color,
                 stroke_opacity: None,
                 fill_opacity: opacity,
-                even_odd: Some(matches!(rule, hayro::hayro_interpret::FillRule::EvenOdd)),
+                even_odd: Some(matches!(rule, FillRule::EvenOdd)),
                 width: None,
                 line_cap: None,
                 line_join: None,
                 dashes: None,
             },
-            PathDrawMode::Stroke(stroke) => {
+            DrawingMode::Stroke(stroke) => {
                 let cap = drawing_cap(stroke.line_cap);
                 DrawingRecord {
                     geometry,
@@ -5051,30 +5038,25 @@ impl DrawingCollector {
 }
 
 impl Device<'_> for DrawingCollector {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'_>>) {}
-    fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(
-        &mut self,
-        path: &kurbo::BezPath,
-        transform: Affine,
-        paint: &Paint<'_>,
-        mode: &PathDrawMode,
-    ) {
-        self.collect(path, transform, paint, mode);
+    fn draw_path(&mut self, path: &kurbo::BezPath, props: DrawProps<'_>, mode: &DrawMode) {
+        let (transform, paint) = (props.transform, &props.paint);
+        match mode {
+            DrawMode::Fill(rule) => self.collect(path, transform, paint, DrawingMode::Fill(*rule)),
+            DrawMode::Stroke(stroke) => {
+                self.collect(path, transform, paint, DrawingMode::Stroke(stroke));
+            }
+            DrawMode::FillAndStroke(rule, stroke) => {
+                self.collect(path, transform, paint, DrawingMode::Fill(*rule));
+                self.collect(path, transform, paint, DrawingMode::Stroke(stroke));
+            }
+            DrawMode::Invisible => {}
+        }
     }
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_glyph(
-        &mut self,
-        _: &Glyph<'_>,
-        _: Affine,
-        _: Affine,
-        _: &Paint<'_>,
-        _: &GlyphDrawMode,
-    ) {
-    }
-    fn draw_image(&mut self, _: Image<'_, '_>, _: Affine) {}
-    fn pop_clip_path(&mut self) {}
+    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {}
+    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {}
+    fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 }
 

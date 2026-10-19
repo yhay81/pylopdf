@@ -29,9 +29,10 @@ CJKの4 extraは、非埋め込みAdobe CJK fontの描画fallbackとsubset埋め
 合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択します。汎用CJK extraはありません。
 
 release CIは各native platform wheelをarchitectureが一致するrunnerへinstallし、PDFの
-生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。5つの
-`abi3-py310`と5つのCPython 3.14t artifactをすべて対象にし、sdistとPyEmscripten
-wheelにはそれぞれのenvironment専用gateがあります。
+生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。CPython
+3.14と3.15で検証する5つの`abi3-py310` artifactと、CPython 3.14tと3.15tの10個の
+artifactをすべて対象にし、sdistとPyEmscripten wheelにはそれぞれのenvironment専用
+gateがあります。
 
 ## 開く・調べる・保存する { #open-inspect-save }
 
@@ -112,13 +113,12 @@ page.show_pdf_page(page.rect, letterhead)                    # ベクタのま�
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[jp]から自動subset
 page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
-pylopdf.register_font("NotoSansJP-Bold.otf")                 # extraにない太さを後から足す
-bold = pylopdf.Font(language="ja", weight="bold")            # なければValueError。擬似太字にしない
+bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # extraにない太さはファイルから読む
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
-hebrew = pylopdf.Font(language="he", weight="bold")          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
+hebrew = pylopdf.Font(language="he", is_bold=True)          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
-semibold = pylopdf.Font("NotoSansCJKjp-VF.otf", weight=600)  # 手元の可変フォントは軸上の任意の太さを選べる
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 手元の可変フォントは軸上の任意の太さを選べる
 page.insert_text((40, 200), "見出し", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")

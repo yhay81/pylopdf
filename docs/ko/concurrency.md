@@ -1,20 +1,21 @@
 ---
 title: 동시성과 free-threaded Python
-description: Document, Page, Pixmap, 병렬 렌더링 및 CPython 3.14t에서 지원하는 스레드 경계입니다.
+description: Document, Page, Pixmap, 병렬 렌더링 및 CPython 3.14t와 3.15t에서 지원하는 스레드 경계입니다.
 ---
 
 # 동시성과 free-threaded Python
 
-v0.10부터 pylopdf는 GIL이 있는 CPython 3.10–3.14용 플랫폼별 `abi3` wheel과
-free-threaded CPython 3.14용 `cp314-cp314t` wheel을 모두 배포합니다. 후자를
+pylopdf는 GIL이 있는 CPython 3.10–3.15용 플랫폼별 `abi3` wheel과 free-threaded
+CPython용 Python 버전별 wheel을 배포합니다. `cp314-cp314t`는 v0.10부터,
+`cp315-cp315t`는 v0.14.0 이후 릴리스부터 제공합니다. free-threaded wheel을
 import해도 GIL이 다시 활성화되지 않습니다.
 
 ## 지원 계약 { #support-contract }
 
 | 사용 방식 | 지원 |
 |---|---|
-| GIL이 있는 CPython 3.10–3.14 | `abi3-py310` wheel로 지원 |
-| free-threaded CPython 3.14t | `cp314-cp314t` wheel로 지원하며 GIL이 꺼진 상태에서 테스트 |
+| GIL이 있는 CPython 3.10–3.15 | `abi3-py310` wheel로 지원 |
+| free-threaded CPython 3.14t와 3.15t | `cp314-cp314t`와 `cp315-cp315t` wheel로 지원하며 GIL이 꺼진 상태에서 테스트 |
 | 서로 다른 `Document` 객체의 동시 작업 | 지원. load, save, render, 추출, merge, 압축의 무거운 작업은 GIL을 해제 |
 | 같은 `Document`의 동시 호출 또는 편집 | 지원하지 않음. lock으로 직렬화하거나 독립된 Document를 사용 |
 | 한 Document의 `Document.render_pages(workers=...)` | 지원. 같은 Document 안에서 경계가 정해진 병렬 렌더링 방식 |

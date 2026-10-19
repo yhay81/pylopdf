@@ -193,8 +193,9 @@ Cloudflare request latency or isolate resident-memory measurements. See the
 - Emscripten has no rayon worker pool in this build.
   `render_pages(workers=...)` accepts the normal public arguments but executes
   serially. Native builds keep bounded rayon parallelism.
-- Rendering limits are unchanged. `clip=` reduces returned pixels but hayro
-  still rasterizes the complete page internally.
+- Rendering limits are unchanged. `clip=` rasterizes only the selected
+  region, but hayro still interprets the complete page and the full-page size
+  limit still applies.
 - The current renderer buffers complete raster output. Large pages or high DPI
   can dominate memory even when the PDF file itself is small.
 - Native OCR and the separately distributed OCR model package are outside the

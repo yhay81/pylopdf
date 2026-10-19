@@ -37,7 +37,7 @@ hide:
         <li>MIT licensed</li>
         <li>6.7–7.8 MB wheels</li>
         <li>No mandatory Python dependencies</li>
-        <li>Python 3.10–3.14</li>
+        <li>Python 3.10–3.15</li>
       </ul>
     </div>
 
@@ -113,8 +113,8 @@ hide:
         <span class="living-evidence__label">Mandatory Python dependencies. Compiled Rust components ship in the wheel.</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">3.10–3.14</span>
-        <span class="living-evidence__label">A single abi3 wheel line covers five Python generations.</span>
+        <span class="living-evidence__value">3.10–3.15</span>
+        <span class="living-evidence__label">A single abi3 wheel line covers six Python generations.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">MIT</span>

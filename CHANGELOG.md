@@ -7,60 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `pylopdf.Font` loads an OpenType face once for generated text and measures
-  it with the shaping that drawing uses. `Font.text_length(text, fontsize)`
-  returns the advance that drawing the line covers, including kerning and
-  ligatures, so layout code can wrap, align, and paginate with the face it
-  draws. `ascender` and `descender` are the em fractions that
-  `insert_textbox` places lines with, and `units_per_em`, `name`, `family`,
-  `weight`, `is_italic`, and `has_glyph` describe the face.
-  `Page.insert_text(font=)` and `Page.insert_textbox(font=)` draw with it and
-  produce the same bytes as passing the face's data as `fontbuffer`; each call
-  still embeds its own subset.
-- `pylopdf.register_font()` makes a face available to family and weight
-  lookups, so an application can add weights that the font extras do not
-  bundle without making the extras larger. After registering Noto Sans JP
-  Bold, `Font(family="Noto Sans JP", weight="bold")` and
-  `Font(language="ja", weight="bold")` select it. A requested face that is not
-  available raises `ValueError`; pylopdf never imitates a weight by stroking or
-  overprinting glyphs. `allow_regular_fallback=True` explicitly accepts the
-  family's regular face and emits a `PylopdfWarning`. pylopdf does not search
-  system font directories, so output depends only on the faces passed in.
-- `Font(language=..., weight=...)` selects a weight of the variable faces that
-  the `ar`, `he`, `hi`, and `th` extras install, as an instance on the face's
-  weight axis, without another font file: weights 100 through 900, or 400
-  through 700 for Noto Naskh Arabic, the serif face of `pylopdf[ar]`. krilla's
-  subsetter embeds the instance's outlines and advances, and HarfRust shapes
-  at the same coordinates, so `text_length` stays the drawn width. The subset
-  is named after the instance, such as `NotoSansHebrew-Bold`, which extraction
-  reports together with its bold flag. A weight outside the axis raises
-  `ValueError` instead of being clamped to the nearest end, and a registered
-  face of the same family takes precedence over the axis.
+- CPython 3.15 support. The existing `abi3-py310` wheel covers GIL-enabled
+  3.15, which the package metadata now declares; CI runs the full suite on
+  3.15, and release CI smoke-tests every abi3 wheel on 3.15 as well as 3.14.
+  Free-threaded CPython 3.15 gets a version-specific `cp315-cp315t` wheel on
+  all five release targets next to `cp314t`, tested in CI with the GIL
+  disabled. The PEP 803 `abi3t` stable ABI stays disabled, because a
+  `cp315-abi3.abi3t` wheel would also take precedence over `cp310-abi3` on
+  GIL-enabled CPython 3.15 and later.
+- `pylopdf.Font` follows pymupdf's `Font(fontname=None, fontfile=None,
+  fontbuffer=None)`: a Standard 14 font by name or alias, an OpenType face
+  from a file or buffer, or, through the keyword-only `language=` and
+  `family=`, the face of an installed font extra. `Font.text_length(text,
+  fontsize)` measures with the shaping that drawing uses, including kerning
+  and ligatures, so layout code can wrap, align, and paginate with the font it
+  draws; Standard 14 fonts measure with Adobe's AFM widths. `has_glyph(chr)`
+  returns pymupdf's glyph number, and `name`, `ascender`, `descender`,
+  `is_bold`, `is_italic`, and `is_serif` keep pymupdf's meaning, with
+  `family`, `weight`, and `units_per_em` as extensions. `Page.insert_text(font=)`
+  and `Page.insert_textbox(font=)` draw with it; an OpenType face produces the
+  same bytes as passing its data as `fontbuffer`, and each call still embeds
+  its own subset.
+- `is_bold=`, `is_italic=`, `is_serif=`, and an exact OS/2 `weight=` select a
+  font extra's face. The extras install one face per style, so a face they do
+  not have raises `PdfError` and is loaded from its file instead, such as
+  Noto Sans JP Bold; pylopdf keeps no font registry, never searches system
+  font directories, and never imitates a weight by stroking or overprinting
+  glyphs. `allow_regular_fallback=True` explicitly uses the extra's face with a
+  `PylopdfWarning`. `is_bold=`, `is_italic=`, `is_serif=`, and
+  `allow_regular_fallback=` raise with `fontname` and font files, where
+  pymupdf ignores them, and `weight=` raises with `fontname`.
+- `Font(language=...)` and `Font(family=...)` select a weight of the variable
+  faces that the `ar`, `he`, `hi`, and `th` extras install, from `weight=` or
+  `is_bold=True`, as an instance on the face's weight axis without another
+  font file: weights 100 through 900, or 400 through 700 for Noto Naskh
+  Arabic, the serif face of `pylopdf[ar]`. krilla's subsetter embeds the
+  instance's outlines and advances, and HarfRust shapes at the same
+  coordinates, so `text_length` stays the drawn width. The instance reports
+  its axis value as `weight` and its style in `name`, such as `Noto Sans
+  Hebrew Bold`, and the subset is embedded under the instance's PostScript
+  name, `NotoSansHebrew-Bold`, which extraction reports together with its bold
+  flag. A weight outside the axis raises `PdfError` instead of being clamped
+  to the nearest end.
 - `Font(fontfile=..., weight=...)` and `Font(fontbuffer=..., weight=...)`
   select an instance of a variable font that the application supplies, such as
-  `Font("NotoSansCJKjp-VF.otf", weight="bold")` or `weight=650`, through the
-  same instancing as the script extras: `text_length` is the drawn width, and
-  the subset is named after the instance, `NotoSansCJKjp-Bold`. Without
+  `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` or `weight=650`, through
+  the same instancing as the script extras: `text_length` is the drawn width,
+  and the subset is named after the instance, `NotoSansCJKjp-Bold`. Without
   `weight`, the face is still loaded as given, a variable font at its default
   instance, which need not be regular (that of Noto Sans CJK JP is Thin), so
-  `weight` now defaults to `None`; family and language lookups read an omitted
-  weight as regular. A weight outside the axis raises `ValueError`, and so does
-  a weight that a static face does not declare. `register_font()` of a
-  variable font makes every weight on its axis available to
-  `Font(family=..., weight=...)`, and to `Font(language=..., weight=...)` for
-  the family of an installed extra; a face registered at the requested weight
-  takes precedence over the axis. The `fontfile` and `fontbuffer` arguments of
-  `insert_text`, `insert_textbox`, and `set_form_field` still draw the default
-  instance, and their output is byte-identical.
+  `weight=400` differs from an omitted weight on such a font. A weight outside
+  the axis raises `PdfError`, and so does a weight that a static face does not
+  declare. The `fontfile` and `fontbuffer` arguments of `insert_text`,
+  `insert_textbox`, and `set_form_field` still draw the default instance, and
+  their output is byte-identical.
 - `Document.set_form_field(font=)` draws text and choice appearances with a
-  loaded `Font`, such as the bold instance that
-  `Font("NotoSansCJKjp-VF.otf", weight="bold")` selects on a variable font's
-  weight axis. Auto-fitting, alignment, and comb positions use the advances
-  that `text_length` measures, and each widget embeds a subset named after the
-  instance, such as `NotoSansCJKjp-Bold`. `font` cannot be combined with
-  `fontfile`, `fontbuffer`, `fontindex`, or `font_language`. A `Font` loaded
-  without `weight` fills fields with the same bytes as its `fontfile` or
-  `fontbuffer`, and calls without `font` are unchanged.
+  loaded OpenType `Font`, such as the bold instance that
+  `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` selects on a variable
+  font's weight axis. Auto-fitting, alignment, and comb positions use the
+  advances that `text_length` measures, and each widget embeds a subset named
+  after the instance, such as `NotoSansCJKjp-Bold`. `font` cannot be combined
+  with `fontfile`, `fontbuffer`, `fontindex`, or `font_language`, and a
+  Standard 14 `Font` raises `PdfError`. A `Font` loaded without `weight` fills
+  fields with the same bytes as its `fontfile` or `fontbuffer`, and calls
+  without `font` are unchanged.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing
@@ -103,6 +113,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raw-dylib since 0.29, so the deprecated `generate-import-lib` feature is no
   longer enabled. RTen 0.27 deprecates the `.rten` model format that
   `pylopdf-ocr-models` ships; pylopdf keeps enabling it explicitly.
+- Upgrade hayro and hayro-svg from 0.7 to 0.8.0. On the bundled corpus (19
+  documents, 165 pages), text, words, `dict`, `rawdict`, Markdown, tables,
+  drawings, and images are unchanged. Rendering changed 14 pages, 0.5% of
+  their pixels: scanned pages by at most 30 levels per channel through image
+  resampling, vector pages by at most 3 through anti-aliasing. SVG output is
+  6 to 8 times smaller on text-heavy pages, because hayro-svg 0.8 writes
+  rectangles as `<rect>` and reuses each glyph outline; the corpus's SVG fell
+  from 322 MB to 48 MB. Cold first calls on the corpus take 25% less CPU time
+  in total (`get_text` −27%, `to_markdown` −17%, `render_pages` −30%,
+  `get_drawings` −30%). The macOS arm64 abi3 wheel grows by 0.29 MiB (4.2%),
+  mostly for skrifa 0.46 and read-fonts 0.43.
+- `Page.get_pixmap(clip=)` and OCR with `clip=` now rasterize only the clipped
+  region, through hayro 0.8's `render_into` with a shifted viewport, instead
+  of cropping a full-page raster. hayro still interprets the whole page, and
+  the full-page render-size limits still apply.
+- hayro 0.8 draws the state of a check box or radio button that `/AS`
+  selects from an `/AP /N` state dictionary, else `/Off`, so rendering no
+  longer substitutes the state in a serialized copy, and an unedited form
+  renders from its original bytes. hayro 0.8 also reports an annotation whose
+  appearance it cannot select, which includes every check box whose `/AS /Off`
+  has no `/Off` appearance, as ISO 32000 allows; pylopdf raises no
+  `PylopdfWarning` for that report.
+- hayro 0.8 reads no array or dictionary nested more than 64 levels deep and
+  treats the whole object as absent, where hayro 0.7 read such objects by
+  recursion. A page whose dictionary, with the attributes it inherits, nests
+  deeper is now refused with `LimitError` code `object_depth` whenever an
+  operation interprets it; other pages stay usable. A trailer, catalog, or
+  root page-tree node nested that deeply still renders: rendering and
+  extraction read a copy without the entries that nest too deeply, so hayro
+  neither fails to open the document nor lists its pages without their
+  inherited attributes, and the saved document keeps those entries. Other
+  objects nested that deeply read as absent. `DocumentLimits.web()` already
+  refused such documents when they opened.
 - `bench/run.py` now splits first-page rendering into end-to-end time, cold
   and warm Pixmap rasterization, and PNG encoding time and size for both
   pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
@@ -126,6 +169,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `garbage=True` save or a structural edit, as after the other drawing
   edits. Form-field appearances no longer keep the generated page's two
   unreachable objects, about 1 KB per filled field.
+- `Page.insert_image()` and `Page.show_pdf_page()` place an image or page that
+  the document already holds again instead of embedding another copy. Image
+  input is identified by the SHA-256 digest of its encoded bytes, or of a
+  Pixmap's dimensions and RGBA samples, so the rectangle and rotation may
+  differ; a page is identified by its source document and page number while
+  that source stays unedited, and a repeated placement no longer clones the
+  source. Placing one 200×120 RGBA PNG on 200 new pages and saving with
+  `garbage=True` wrote 13.7 MB with 400 image objects, an image and a soft
+  mask per page, and now writes 122 KB with two, in 0.048 s instead of
+  0.29 s. Placing page 0 of `bill-hr815.pdf` on 50 pages wrote 1.92 MB with
+  50 Form XObjects and 250 embedded font files, and now writes 52 KB with one
+  Form and five font files, in 4.1 ms instead of 21 ms. Stamping the first
+  page of the 27-page `usrguide.pdf` on each of its other pages wrote 5.61 MB
+  with 26 Forms and now writes 775 KB with one, in 1.8 ms instead of 25.5 ms;
+  the document alone is 574 KB. Computing the digest costs the first
+  placement of a large image 5–8%: a 6.7 MB PNG took 97.7 ms instead of
+  93.2 ms, and a 2000×2000 Pixmap 138 ms instead of 128 ms. A single page
+  placement is unchanged within noise. These are minimums of three
+  interleaved runs of five rounds with thin-LTO builds on macOS arm64. Any
+  edit of a source document makes the next placement of its pages import
+  them again, while a page of the same document stays shared across
+  consecutive placements on its other pages. Edits that may change a placed
+  object end sharing, so the next placement embeds its input again:
+  `compress_images()`, `replace_text()`, `set_form_field()`, and saves with
+  `deflate=True`. Each open document remembers at most 4,096 images and
+  4,096 pages, nothing is remembered across save and reopen, and generated
+  text and form-field appearances still embed their own subset fonts. The
+  digest uses the `sha2` crate that lopdf already links; the macOS arm64
+  extension grew by 1.3 KB.
 - Type checking uses ty instead of mypy. `uv run ty check` covers `src` and
   `tests` at the Python 3.10 floor that `requires-python` declares, and CI and
   the pre-commit hook run the ty version that `uv.lock` pins. mypy's
@@ -139,13 +211,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays at 3.0.0 because 3.1 publishes only x86-64 Linux wheels, and the
   Pyodide build keeps Rust 1.95.0, maturin 1.14.1, and pyodide-build 0.30.7 as
   part of its Pyodide 0.28.3 contract.
+- Parity with pymupdf is measured instead of claimed (ROADMAP.md F3).
+  `api/pymupdf-parity.json` classifies the 948 public API entries of pymupdf
+  1.28.0, from module functions and constants grouped by prefix to the members
+  of 20 classes. 97 are available today and 659 are planned with their
+  ROADMAP.md milestone; 694 of these keep pymupdf's name and meaning, and 62
+  are replaced by a different pylopdf API with a migration hint. The other 192
+  are non-goals. The 66 entries that the API reset (M0) touches record its 37
+  changes. `tools/check_parity.py` runs in the test suite: available entries
+  must name a symbol in `api/public-api.json`, planned entries a milestone, and
+  replaced entries a hint, and it reports coverage per class and the M0
+  changes. The development-only
+  `tools/pymupdf_inventory.py` lists pymupdf's API from the `bench` group so
+  that the manifest stays complete.
 
 ### Fixed
 - Hebrew text generated with `pylopdf[he]` was drawn in Thin, the default
   instance of the variable Noto Sans Hebrew, and extraction reported its font
   as `NotoSansHebrew-Thin`. `insert_text`, `insert_textbox`, `set_form_field`,
   and `Font(language="he")` now draw installed variable faces at the regular
-  weight (400), named `NotoSansHebrew-Regular`. Output for static faces such
+  weight (400), embedded as `NotoSansHebrew-Regular`. Output for static faces such
   as the CJK extras, for variable faces whose default instance is already
   regular, and for explicit `fontfile` and `fontbuffer` input, which is still
   drawn as given, is byte-identical.
@@ -431,11 +516,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without `DocumentLimits.web()`. Every interpretation now first measures the
   colour spaces, shadings, and functions that its pages can reach with an
   iterative walk and raises `LimitError` with the new stable code
-  `resource_nesting_depth` for a chain deeper than 32 levels (colour space
+  `resource_nesting_depth` for a chain deeper than 16 levels (colour space
   arrays, functions, and profile streams each count one) and for a Type 4
   program that nests procedures deeper than 64 levels. The walk follows hayro's
   own cycle cut, so a self-reference or a short ring still renders, and a group
-  of more than 32 objects that all reach one another is refused. It reads each
+  of more than 16 objects that all reach one another is refused. It reads each
   object once however many entries name it, so a file that names one large
   array, dictionary, or string from thousands of places costs milliseconds
   where reading it for each entry would cost minutes, and it leaves other pages
@@ -499,6 +584,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   near 2**32 took about 19 seconds per `tobytes()` or `save()`. Objects
   numbered above 8,388,607 now move below that bound at load, as described
   under Fixed.
+- The content nesting check and the colour space and function check now
+  follow every appearance state of a check box or radio button. hayro 0.8
+  draws the state that `/AS` selects from an `/AP /N` state dictionary, which
+  the checks did not read, so a state appearance could reach hayro's
+  unbounded colour space and function recursion and end the process. Every
+  state is checked, not only the one `/AS` selects.
+- hayro 0.8.0 panics on some malformed colour data: a Separation or DeviceN
+  tint transform that returns the wrong number of components, an image in
+  such a space, or a shading in a Pattern colour space
+  ([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546));
+  hayro 0.7 drew the same pages. Every operation that lets hayro interpret a
+  page now catches such a panic and raises `PdfError` instead of PyO3's
+  `PanicException`, a `BaseException` that escapes `except Exception`, and
+  drops the renderer state as an edit does, so the document stays usable.
+  Rust still prints the panic message to standard error.
+- The colour space and function chain bound is 16 levels. hayro 0.8's
+  ICCBased fallback spends about 4 KiB of stack per space in the thin-LTO
+  build, so the deepest chain a 32-level bound accepted needed a 116 KiB
+  thread, against 52 KiB with hayro 0.7 and the 128 KiB that musl gives
+  spawned threads; at 16 levels it needs 68 KiB, and every other accepted
+  structure the 52 KiB of a plain page. Real documents nest at most about six.
 
 ### Performance
 - Freshly opened documents no longer reread every installed locale fallback

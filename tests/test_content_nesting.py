@@ -1,10 +1,11 @@
 """Content streams that nest arrays or dictionaries too deeply for hayro.
 
-hayro 0.7 reads arrays and dictionaries in content streams by unbounded
-recursion (LaurenzV/hayro#1347). A stream with a few hundred thousand nested
-`[` overflows the stack, and a stack overflow kills the process instead of
-raising, so those cases run in a child interpreter. Every path that lets hayro
-interpret a page must refuse such a stream with `LimitError` instead.
+hayro 0.7 read arrays and dictionaries in content streams by unbounded
+recursion (LaurenzV/hayro#1347), so a stream with a few hundred thousand nested
+`[` overflowed the stack and killed the process instead of raising; those cases
+still run in a child interpreter. hayro 0.8 stops at 64 levels and silently
+leaves out the deeper operands. Every path that lets hayro interpret a page
+must refuse such a stream with `LimitError` instead.
 """
 
 from __future__ import annotations
@@ -184,6 +185,33 @@ def annotation(content: str, subtype: str = "/Subtype /FreeText /Contents (note)
 
 def widget(content: str) -> bytes:
     return annotation(content, "/Subtype /Widget /FT /Tx /T (name) /V (value)")
+
+
+def appearance_state(content: str, state: str = "/On", *, indirect: bool = False, holder: str = "") -> bytes:
+    """Put `content` in one state of a check box's `/AP /N` dictionary, by default the one hayro draws.
+
+    hayro draws the state that `/AS` names, or `/Off` when that is no stream, so `/AS /Gone` reaches
+    `/Off`. `holder` puts `content` in the other state instead. With `indirect`, the state dictionary and
+    `/AS` are objects of their own.
+    """
+    form = "/Type /XObject /Subtype /Form /BBox [0 0 190 50] /Resources << /Font << /F1 4 0 R >> >> "
+    holder = holder or ("/Off" if state == "/Gone" else state)
+    other = "/On" if holder == "/Off" else "/Off"
+    states = f"<< {holder} 7 0 R {other} 8 0 R >>"
+    objects: dict[int, str | bytes] = {
+        5: _stream(SHOW),
+        7: _stream(content, form),
+        8: _stream("0 0 m", form),
+    }
+    if indirect:
+        objects[9] = states
+        objects[10] = state
+        states, state = "9 0 R", "10 0 R"
+    objects[6] = (
+        f"<< /Type /Annot /Subtype /Widget /FT /Btn /T (box) /AS {state} /Rect [10 150 200 200] "
+        f"/AP << /N {states} >> >>"
+    )
+    return _page(objects, extra="/Annots [6 0 R] ")
 
 
 def tiling_pattern(content: str) -> bytes:
@@ -415,6 +443,9 @@ PLACEMENTS: dict[str, Callable[[int], bytes]] = {
     "nested-form": lambda depth: nested_form(_show(_arrays(depth))),
     "annotation": lambda depth: annotation(_show(_arrays(depth))),
     "widget": lambda depth: widget(_show(_arrays(depth))),
+    "appearance-state": lambda depth: appearance_state(_show(_arrays(depth))),
+    "appearance-off-state": lambda depth: appearance_state(_show(_arrays(depth)), "/Gone"),
+    "indirect-appearance-states": lambda depth: appearance_state(_show(_arrays(depth)), indirect=True),
     "tiling-pattern": lambda depth: tiling_pattern(_show(_arrays(depth))),
     "glyph-procedure": lambda depth: glyph_procedure(_show(_arrays(depth))),
     "soft-mask-group": lambda depth: soft_mask_group(_show(_arrays(depth))),
@@ -469,7 +500,7 @@ def _refusal(call: Callable[[], object]) -> pylopdf.LimitError:
 def test_no_nesting_depth_crashes_any_operation(placement: str, tmp_path: Path) -> None:
     """Refuse content nested 300,000 deep wherever hayro interprets it.
 
-    hayro 0.7 killed the interpreter with SIGSEGV here, whatever the operation.
+    hayro 0.7 killed the interpreter with SIGSEGV here, whatever the operation; hayro 0.8 would truncate the stream.
     """
     path = tmp_path / f"{placement}.pdf"
     path.write_bytes(PLACEMENTS[placement](CRASH_DEPTH))
@@ -767,6 +798,16 @@ def test_listing_a_deep_form_is_enough_to_refuse_the_page() -> None:
     deep = _stream(_show(_arrays(LIMIT + 1)), FORM + "/Resources << /Font << /F1 3 0 R >> >> ")
     doc = pylopdf.Document(stream=_document([SHOW], [deep], "/XObject << /Fm0 {0} 0 R >> "))
 
+    assert _refusal(lambda: doc.get_page_text(0)).code == CODE
+
+
+def test_every_appearance_state_is_checked() -> None:
+    """Read every state of a check box, of which hayro draws one, without asking which."""
+    drawn = pylopdf.Document(stream=appearance_state("0 0 1 rg 0 0 190 50 re f"))
+    assert tuple(drawn[0].get_pixmap(clip=(20, 110, 40, 130)).samples[:3]) == (0, 0, 255)
+
+    # `/AS` selects the shallow `/On`, the only state hayro draws, and `/Off` holds the deep content.
+    doc = pylopdf.Document(stream=appearance_state(_show(_arrays(LIMIT + 1)), holder="/Off"))
     assert _refusal(lambda: doc.get_page_text(0)).code == CODE
 
 

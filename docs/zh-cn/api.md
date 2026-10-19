@@ -33,7 +33,7 @@ password input上限为127个UTF-8 byte。
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围，navigation清理与link导入共享TOC和named destination上限 |
 | `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
-| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的`Font` |
+| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
@@ -61,8 +61,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 有上限的PNG / UTF-8 SVG渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转；再次放置相同输入时共享同一图像XObject |
+| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档；再次放置未编辑`src`的同一页面时共享其Form XObject |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
@@ -91,41 +91,40 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 `TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
 垂直空间不足，此时不会添加页面内容或字体resource。
 
-`Font`只加载一次OpenType字体，供`insert_text(font=)`、`insert_textbox(font=)`与
-`set_form_field(font=)`使用。
-测量与绘制使用相同的shaping，因此`font.text_length(text, fontsize)`等于绘制该行时的
-前进宽度（含字距调整与连字），可以按实际绘制的字体计算换行、对齐与分页。
-`ascender`与`descender`是`insert_textbox`排列行时使用的相对em比例，`has_glyph`
-查询字符映射。
-
-`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载传入的字体，可变字体使用其默认实例。
-默认实例不一定是Regular：可变字体Noto Sans CJK JP的默认实例是Thin。传入`weight=`即可从
-可变字体的字重轴选择其他实例：`Font("NotoSansCJKjp-VF.otf", weight="bold")`按Bold实例的
-前进宽度测量，并以其自身的名称`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用。因此对这类
-字体，显式传入`weight="regular"`与省略`weight`的结果不同。超出字重轴范围的字重会抛出
-`ValueError`，静态字体不具备的字重也一样。传给`insert_text`、`insert_textbox`与
-`set_form_field`的`fontfile`和`fontbuffer`仍以默认实例绘制；要以所选实例绘制，请将该`Font`
-传给`font=`。
-
-`Font(language="zh-CN")`选择已安装字体extra的字体（`serif=True`为衬线体）。
-每个extra的每种样式只安装一个字体，其他字重在需要时再添加：`register_font(path)`从字体读取家族名、
-字重与斜体，此后可用`Font(family="Noto Sans SC", weight="bold")`选择该字体；
-由于它与`pylopdf[zh-cn]`安装的字体属于同一家族，`Font(language="zh-CN", weight="bold")`
-也会选择它。注册可变字体后，其字重轴上的所有字重都可选择；若已按所请求的字重注册了字体，
-则优先于字重轴。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
-`Font(language="he", weight="bold")`无需其他文件即可从字体的字重轴选择Bold实例，按该实例的
-前进宽度测量，并以其自身的名称`NotoSansHebrew-Bold`嵌入。字重范围为100到900，
-`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；同一家族已注册的字体优先于字重轴。
-已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`自动选择时）以Regular
-字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不会搜索操作系统的字体目录。请求的字体不存在时抛出`ValueError`，
-不会用描边或叠印模仿字重；只有显式传入`allow_regular_fallback=True`时，才使用该家族的
-Regular并发出`PylopdfWarning`。每次绘制调用仍会嵌入该调用所用字形的子集。
+`Font`遵循pymupdf的`Font(fontname=None, fontfile=None, fontbuffer=None)`，并以
+`insert_text(font=)`与`insert_textbox(font=)`传入；OpenType字体也可以传给
+`set_form_field(font=)`。`Font("helv")`或
+`Font("Times-Bold")`指定Standard 14字体，不嵌入即可绘制，并按Adobe AFM宽度测量；
+pymupdf的其他内置字体不可用。`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载
+OpenType字体，可变字体使用其默认实例。默认实例不一定是Regular：可变字体Noto Sans CJK JP
+的默认实例是Thin。传入`weight=`即可从可变字体的字重轴选择其他实例：
+`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`按Bold实例的前进宽度测量，并以
+`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用，因此对这类字体，`weight=400`与省略
+`weight`的结果不同。超出字重轴范围的字重会抛出`PdfError`，静态字体不具备的字重也一样。
+传给`insert_text`、`insert_textbox`与`set_form_field`的`fontfile`和`fontbuffer`以默认
+实例绘制；要以所选实例绘制，请将该`Font`传给`font=`。`Font(language="zh-CN")`或
+`Font(family="Noto Sans SC")`选择已安装字体extra的字体（`is_serif=True`为衬线体）。
+`font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此
+可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是
+`insert_textbox`排列行时使用的相对em比例，`has_glyph(chr)`返回码位的字形编号
+（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的
+`is_bold`、`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重
+请从文件加载。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
+`Font(language="he", is_bold=True)`无需其他文件即可从字体的字重轴选择Bold实例，按该
+实例的前进宽度测量，并以PostScript名称`NotoSansHebrew-Bold`嵌入。字重范围为100到
+900，`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；轴外的字重或斜体会抛出
+`PdfError`。已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`
+自动选择时）以Regular字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
+字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出
+`PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入`is_bold`、
+`is_italic`或`is_serif`也会抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集。
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode，
-也可以将已加载的`Font`（例如可变字体的Bold实例）传给`font`。使用`Font`时，按
+也可以将已加载的OpenType `Font`（例如可变字体的Bold实例）传给`font`。使用`Font`时，按
 `text_length`测量的前进宽度缩小与对齐文本，并将其置于comb字段各位置的中央；`font`不能与
-其他字体参数同时使用。已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
+其他字体参数同时使用，Standard 14的`Font`会抛出`PdfError`。
+已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
 `font_language`指定。已有且非空的按钮外观
 会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
 所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的
@@ -152,11 +151,11 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`与`has_glyph`的可复用OpenType字体（可变字体为`weight=`所选实例）／使字体可按家族名与字重查找的注册（可变字体为其字重轴上的所有字重） |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体；`weight=`也可选择可变字体文件的实例 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
-| `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 流式写入且失败时保留现有file的PNG专用`save(path)`；cp314t还支持只读、零复制的`memoryview()` |
+| `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 流式写入且失败时保留现有file的PNG专用`save(path)`；cp314t和cp315t还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 可恢复的解释警告（xref修复、字体解析、图像解码） |
 
 `TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。

@@ -238,6 +238,36 @@ def _limit_results(
             },
         }
     )
+    deep_page = pylopdf.Document(
+        stream=_build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
+                3: "<< /Type /Page /Parent 2 0 R >>",
+                4: "<< /Type /Page /Parent 2 0 R /PieceInfo " + "[" * 80 + "0" + "]" * 80 + " >>",
+            }
+        )
+    )
+    pattern_shading = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Shading << /Sh1 5 0 R >> >> "
+            "/Contents 4 0 R >>",
+            4: b"<< /Length 7 >>\nstream\n/Sh1 sh\nendstream",
+            5: "<< /ShadingType 2 /ColorSpace /Pattern /Coords [0 0 100 0] "
+            "/Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >>",
+        }
+    )
+
+    def renderer_error(callback: Callable[[], object]) -> list[object]:
+        try:
+            callback()
+        except pylopdf.PdfError as error:
+            return [type(error).__name__, "malformed input" in str(error)]
+        msg = "malformed rendering unexpectedly succeeded"
+        raise RuntimeError(msg)
+
     unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
     cyclic = pylopdf.Document(
         stream=_build_reference_cycle_pdf(),
@@ -274,11 +304,15 @@ def _limit_results(
                 limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
             )
         ),
-        # hayro 0.7 overflows its stack on this stream; the guard refuses it first.
+        # hayro 0.7 overflowed its stack on this stream and hayro 0.8 truncates it; the guard refuses it first.
         "content_nesting": limit_code(lambda: pylopdf.Document(stream=nested_content).get_page_text(0)),
         # Neither recursion is a content stream, and hayro 0.7 and 0.8 overflow their stacks on both.
         "resource_nesting_program": limit_code(lambda: pylopdf.Document(stream=deep_functions).get_page_text(0)),
         "resource_nesting_chain": limit_code(lambda: pylopdf.Document(stream=deep_chain).get_page_text(0)),
+        # hayro 0.8 reads no page dictionary nested more than 64 levels deep; only that page is refused.
+        "page_object_depth": [limit_code(lambda: deep_page.get_page_text(1)), deep_page.get_page_text(0)],
+        # hayro 0.8 panics on a shading in a Pattern space (LaurenzV/hayro#1546); the unwind becomes PdfError.
+        "renderer_panic": renderer_error(pylopdf.Document(stream=pattern_shading)[0].get_pixmap),
         "reference_cycle_pages": cyclic.page_count,
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,
@@ -371,7 +405,7 @@ def _consistency_results() -> dict[str, Any]:
             f"/Length {len(form)} >>\nstream\n{form}\nendstream",
         }
     )
-    # The page-tree walker skips kid 8; hayro 0.7 ended the page list there.
+    # The page-tree walker skips kid 8, an integer; hayro 0.7 ended the page list there, and hayro 0.8 skips it.
     non_page_kid = _build_raw_pdf(
         {
             1: "<< /Type /Catalog /Pages 2 0 R >>",
@@ -607,34 +641,39 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
         abs(drawn[0]["chars"][-1]["bbox"][2] - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
         "Font.text_length differs from the drawn advance",
     )
+    standard = pylopdf.Font("helv")
     return {
         "name": face.name,
         "weight": face.weight,
+        "is_bold": face.is_bold,
+        "is_serif": face.is_serif,
         "units_per_em": face.units_per_em,
         "ascender": face.ascender,
         "descender": face.descender,
         "text_length": measured,
+        "glyphs": [face.has_glyph(ord(character)) for character in _JAPANESE],
+        "standard": [standard.name, standard.text_length("AVA", 18), standard.has_glyph(ord("A"))],
     }
 
 
 def _variable_font_results(font: bytes) -> dict[str, Any]:
     """Select weights of a variable font from bytes and require the bold instance to draw its measured width.
 
-    Noto Sans Hebrew's default instance is Thin, so an omitted weight and an
-    explicit regular weight load different instances.
+    Noto Sans Hebrew's default instance is Thin, so an omitted weight and
+    ``weight=400`` load different instances.
     """
     import pylopdf  # noqa: PLC0415
 
     as_given = pylopdf.Font(fontbuffer=font)
-    regular = pylopdf.Font(fontbuffer=font, weight="regular")
-    bold = pylopdf.Font(fontbuffer=font, weight="bold")
+    regular = pylopdf.Font(fontbuffer=font, weight=400)
+    bold = pylopdf.Font(fontbuffer=font, weight=700)
     measured = bold.text_length(_HEBREW, 18)
     document = pylopdf.Document()
     page = document.new_page(width=240, height=80)
     page.insert_text((20, 50), _HEBREW, fontsize=18, font=bold)
     spans = [span for block in page.get_text("rawdict")["blocks"] for line in block["lines"] for span in line["spans"]]
     _require(len(spans) == 1, "a variable-font instance did not extract as one span")
-    _require(spans[0]["font"] == bold.name, "a variable-font instance was embedded under another name")
+    _require(spans[0]["font"] == "NotoSansHebrew-Bold", "a variable-font instance was embedded under another name")
     _require(
         abs(max(char["bbox"][2] for char in spans[0]["chars"]) - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
         "a variable-font instance's text_length differs from the drawn advance",
@@ -644,6 +683,56 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
         "advances": [face.text_length(_HEBREW, 1000) for face in (as_given, regular, bold)],
         "text_length": measured,
         "outside_axis": _exception_name(lambda: pylopdf.Font(fontbuffer=font, weight=1000)),
+        "form": _variable_font_form_results(bold),
+    }
+
+
+def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - pylopdf imports lazily.
+    """Fill a right-aligned text field and a centered comb field with a bold instance.
+
+    Each widget's text area is inset 2 points, so the text field's area ends
+    at x = 278 and the six comb positions, 256 / 6 points each, start at
+    x = 22. Both values fit at the 12-point size that auto-fitting starts from.
+    """
+    import pylopdf  # noqa: PLC0415
+
+    document = pylopdf.Document(
+        stream=_build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 200] >>",
+                3: "<< /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R] >>",
+                4: "<< /FT /Tx /Q 2 /T (name) /Type /Annot /Subtype /Widget /Rect [20 140 280 170] /P 3 0 R /F 4 >>",
+                5: (
+                    "<< /FT /Tx /Ff 16777216 /MaxLen 6 /Q 1 /T (code) /Type /Annot /Subtype /Widget"
+                    " /Rect [20 80 280 110] /P 3 0 R /F 4 >>"
+                ),
+            },
+        ),
+    )
+    document.set_form_field("name", _HEBREW, font=bold)
+    document.set_form_field("code", "A12", font=bold)
+    lines = [line for block in document[0].get_text("rawdict")["blocks"] for line in block["lines"]]
+    _require(len(lines) == 2, "the filled fields did not extract as two lines")  # noqa: PLR2004 - two fields.
+    name, code = sorted(lines, key=lambda line: line["bbox"][1])
+    fonts = sorted({span["font"] for line in lines for span in line["spans"]})
+    _require(fonts == ["NotoSansHebrew-Bold"], "a form appearance embedded another instance")
+    _require(
+        abs(name["bbox"][0] - (278 - bold.text_length(_HEBREW, 12))) < 0.01,  # noqa: PLR2004 - PDF real precision.
+        "a right-aligned form appearance did not end its text at the measured advance",
+    )
+    cell = 256 / 6
+    origins = sorted(char["origin"][0] for span in code["spans"] for char in span["chars"])
+    expected = [22 + (1 + index) * cell + (cell - bold.text_length(char, 12)) / 2 for index, char in enumerate("A12")]
+    _require(
+        len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
+        "comb positions differ from the measured advances",
+    )
+    reopened = pylopdf.Document(stream=document.tobytes())
+    return {
+        "values": sorted([field["name"], field["value"]] for field in reopened.get_form_fields()),
+        "fonts": fonts,
+        "standard_font": _exception_name(lambda: document.set_form_field("code", "A1", font=pylopdf.Font("helv"))),
     }
 
 

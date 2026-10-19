@@ -758,18 +758,7 @@ pub fn standard_textbox_layout(
 ) -> Result<TextBoxLayout, String> {
     let font = base14_font(base_font)
         .ok_or_else(|| format!("unsupported Standard 14 font: {base_font}"))?;
-    let metrics = font.metrics();
-    // FontBBox is intentionally conservative: Core 14 viewers substitute
-    // different outlines, while the AFM ascender only covers typical letters.
-    let mut ascent = f64::from(metrics.font_bbox.ury.max(0.0)) / 1000.0;
-    let mut descent = f64::from((-metrics.font_bbox.lly).max(0.0)) / 1000.0;
-    if ascent + descent <= 0.0 {
-        ascent = f64::from(metrics.ascender.max(0.0)) / 1000.0;
-        descent = f64::from((-metrics.descender).max(0.0)) / 1000.0;
-    }
-    if ascent + descent <= 0.0 {
-        (ascent, descent) = (0.8, 0.2);
-    }
+    let (ascent, descent) = standard_vertical_metrics(font);
 
     layout_textbox(
         text,
@@ -855,7 +844,45 @@ pub fn textbox_text_ops(
     Ok(out)
 }
 
-fn standard_text_width(text: &str, font: Base14Font, font_size: f64) -> Result<f64, String> {
+/// Return the ascent and descent, as positive fractions of the em, that
+/// Standard 14 textbox layout places lines with.
+pub(crate) fn standard_vertical_metrics(font: Base14Font) -> (f64, f64) {
+    let metrics = font.metrics();
+    // FontBBox is intentionally conservative: Core 14 viewers substitute
+    // different outlines, while the AFM ascender only covers typical letters.
+    let mut ascent = f64::from(metrics.font_bbox.ury.max(0.0)) / 1000.0;
+    let mut descent = f64::from((-metrics.font_bbox.lly).max(0.0)) / 1000.0;
+    if ascent + descent <= 0.0 {
+        ascent = f64::from(metrics.ascender.max(0.0)) / 1000.0;
+        descent = f64::from((-metrics.descender).max(0.0)) / 1000.0;
+    }
+    if ascent + descent <= 0.0 {
+        (ascent, descent) = (0.8, 0.2);
+    }
+    (ascent, descent)
+}
+
+/// Return the code of a character in a Standard 14 font's encoding when the
+/// font has a glyph for it: WinAnsi for the text fonts and the built-in
+/// encoding, addressed through WinAnsi bytes, for Symbol and ZapfDingbats.
+pub(crate) fn standard_glyph_code(font: Base14Font, character: char) -> Option<u8> {
+    let byte = cp1252_byte(character)?;
+    let present = if matches!(font, Base14Font::Symbol | Base14Font::ZapfDingbats) {
+        font.metrics()
+            .character_metrics
+            .iter()
+            .any(|metric| metric.code == i32::from(byte))
+    } else {
+        font.winansi_width(byte).is_some()
+    };
+    present.then_some(byte)
+}
+
+pub(crate) fn standard_text_width(
+    text: &str,
+    font: Base14Font,
+    font_size: f64,
+) -> Result<f64, String> {
     let metrics = font.metrics();
     let symbolic = matches!(font, Base14Font::Symbol | Base14Font::ZapfDingbats);
     let mut units = 0.0;
@@ -877,7 +904,7 @@ fn standard_text_width(text: &str, font: Base14Font, font_size: f64) -> Result<f
     Ok(units * font_size / 1000.0)
 }
 
-fn base14_font(name: &str) -> Option<Base14Font> {
+pub(crate) fn base14_font(name: &str) -> Option<Base14Font> {
     Some(match name {
         "Helvetica" => Base14Font::Helvetica,
         "Helvetica-Bold" => Base14Font::HelveticaBold,

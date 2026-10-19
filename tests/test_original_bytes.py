@@ -283,12 +283,12 @@ def test_unreachable_recovered_object_keeps_original_bytes() -> None:
 
 
 def test_deeply_nested_object_that_lopdf_skips_never_reaches_hayro(tmp_path: Path) -> None:
-    """Keep a deep object that lopdf skips away from hayro 0.7's recursive parser.
+    """Keep a deep object that lopdf skips away from hayro's parser.
 
     hayro 0.7 parsed the original object until the stack overflowed
-    (LaurenzV/hayro#1347, fixed in hayro 0.8). lopdf skips objects nested more
-    than 100 levels deep, so the page now renders from the serialized graph. A
-    child process contains a crash.
+    (LaurenzV/hayro#1347); hayro 0.8 reads no object nested more than 64
+    levels deep. lopdf skips objects nested more than 100 levels deep, so the
+    page renders from the serialized graph. A child process contains a crash.
     """
     content = "q /GS0 gs BT /F1 20 Tf 20 100 Td (TARGET PAGE) Tj ET Q"
     nested = "[" * 300_000 + "]" * 300_000
@@ -385,9 +385,9 @@ def _two_page_tree(kids: str, extra: dict[int, str | None]) -> dict[int, str | N
 def test_every_view_lists_the_walker_pages(kids: str, extra: dict[int, str | None]) -> None:
     """Read the page-tree walker's pages in every view.
 
-    hayro 0.7 stopped at the first kid that was not a dictionary and read
-    untyped or direct kids as pages, which the walker skips. Page 2 then could
-    not be extracted or rendered, or showed another object.
+    hayro 0.7 stopped at the first kid that was not a dictionary, and hayro 0.7
+    and 0.8 read untyped or direct kids as pages, which the walker skips. Page 2
+    then could not be extracted or rendered, or showed another object.
     """
     data = _pdf(_two_page_tree(kids, extra))
 

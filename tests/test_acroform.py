@@ -600,7 +600,7 @@ def test_form_font_input_boundary_preserves_field() -> None:
 
 def test_form_font_parameter_draws_the_same_bytes_as_font_input() -> None:
     """A loaded Font draws text and comb appearances exactly as its file or bytes do."""
-    face = pylopdf.Font(NOTO_SANS_JP)
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
     by_font, by_file, by_buffer = (pylopdf.open(stream=_build_form_pdf()) for _ in range(3))
 
     for name, value in (("customer", "山田 太郎"), ("code", "日Á")):
@@ -619,7 +619,7 @@ def test_form_font_parameter_draws_the_same_bytes_as_font_input() -> None:
 
 def test_form_font_parameter_fills_buttons_and_empty_values() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
-    face = pylopdf.Font(NOTO_SANS_JP)
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
 
     doc.set_form_field("agree", True, font=face)
     doc.set_form_field("plan", "Pro", font=face)
@@ -633,7 +633,7 @@ def test_form_font_parameter_fills_buttons_and_empty_values() -> None:
 
 def test_form_font_parameter_failures_leave_the_document_unchanged() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
-    face = pylopdf.Font(NOTO_SANS_JP)
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
     doc.set_form_field("code", "A12", font=face)
     before = doc.tobytes()
 
@@ -647,7 +647,7 @@ def test_form_font_parameter_failures_leave_the_document_unchanged() -> None:
 
 def test_form_font_parameter_rejects_other_font_sources() -> None:
     doc = pylopdf.open(stream=_build_form_pdf())
-    face = pylopdf.Font(NOTO_SANS_JP)
+    face = pylopdf.Font(fontfile=NOTO_SANS_JP)
     before = doc.tobytes()
 
     for extra in (
@@ -662,6 +662,21 @@ def test_form_font_parameter_rejects_other_font_sources() -> None:
             doc.set_form_field("agree", True, font=face, **extra)  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match=r"pylopdf\.Font"):
         doc.set_form_field("customer", "x", font="helv")  # ty: ignore[invalid-argument-type]
+
+    assert doc.tobytes() == before
+
+
+def test_form_font_parameter_refuses_standard_14_fonts() -> None:
+    """Form appearances embed an OpenType face; WinAnsi text without ``font`` uses Helvetica."""
+    doc = pylopdf.open(stream=_build_form_pdf())
+    before = doc.tobytes()
+
+    for name, value in (("customer", "x"), ("agree", True)):
+        with pytest.raises(pylopdf.PdfError, match="not the Standard 14 font 'Times-Roman'"):
+            doc.set_form_field(name, value, font=pylopdf.Font("tiro"))
+    # The core entry point refuses one as well.
+    with pytest.raises(pylopdf.PdfError, match="not a Standard 14 font"):
+        doc._doc.set_form_field_font("customer", "x", pylopdf.Font("helv")._font)  # noqa: SLF001
 
     assert doc.tobytes() == before
 

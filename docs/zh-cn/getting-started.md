@@ -26,9 +26,9 @@ pip install "pylopdf[ar]"     # 阿拉伯语生成（另有he、hi、th）
 `zh-cn`或`zh-tw`；不提供通用CJK extra。
 
 release CI 会在architecture匹配的runner上安装每个native platform wheel，并验证PDF
-创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖全部五个
-`abi3-py310`和五个CPython 3.14t artifact；sdist与PyEmscripten wheel各有独立的
-environment-specific gate。
+创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖在CPython
+3.14和3.15上验证的全部五个`abi3-py310` artifact，以及CPython 3.14t和3.15t的十个
+artifact；sdist与PyEmscripten wheel各有独立的environment-specific gate。
 
 ## 打开、检查、保存 { #open-inspect-save }
 
@@ -105,13 +105,12 @@ page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # 直接RGB
 page.show_pdf_page(page.rect, letterhead)                    # 以矢量叠加；也可来自同一文档
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansSC-Regular.otf")
-pylopdf.register_font("NotoSansSC-Bold.otf")                 # 之后再添加extra未包含的字重
-bold = pylopdf.Font(language="zh-CN", weight="bold")         # 不存在时ValueError，不模仿字重
+bold = pylopdf.Font(fontfile="NotoSansSC-Bold.otf")         # extra未包含的字重从文件加载
 width = bold.text_length("标题", fontsize=16)                  # 与绘制宽度一致
 page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
-hebrew = pylopdf.Font(language="he", weight="bold")          # 可变字体pylopdf[he]无需添加文件即可选择Bold
+hebrew = pylopdf.Font(language="he", is_bold=True)          # 可变字体pylopdf[he]无需添加文件即可选择Bold
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
-semibold = pylopdf.Font("NotoSansCJKjp-VF.otf", weight=600)  # 自备的可变字体可选择其字重轴上的任意字重
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 自备的可变字体可选择其字重轴上的任意字重
 page.insert_text((40, 200), "标题", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")

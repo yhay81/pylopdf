@@ -28,8 +28,9 @@ pip install "pylopdf[ar]"     # 아랍어 생성(he, hi, th도 제공)
 
 release CI는 architecture가 일치하는 runner에 모든 native platform wheel을 설치하고
 PDF 생성, 저장, 다시 열기, extraction, rendering 및 immutable Pixmap storage를
-검증합니다. 5개의 `abi3-py310`과 5개의 CPython 3.14t artifact를 모두 포함하며 sdist와
-PyEmscripten wheel에는 각각 environment 전용 gate가 있습니다.
+검증합니다. CPython 3.14와 3.15에서 검증하는 5개의 `abi3-py310` artifact와 CPython
+3.14t 및 3.15t용 10개의 artifact를 모두 포함하며 sdist와 PyEmscripten wheel에는
+각각 environment 전용 gate가 있습니다.
 
 ## 열기, 확인, 저장 { #open-inspect-save }
 
@@ -108,13 +109,12 @@ page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBA 직�
 page.show_pdf_page(page.rect, letterhead)                    # 벡터로 겹치기; 같은 문서도 가능
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansKR-Regular.otf")
-pylopdf.register_font("NotoSansKR-Bold.otf")                 # extra에 없는 굵기를 나중에 추가
-bold = pylopdf.Font(language="ko", weight="bold")            # 없으면 ValueError, 흉내 내지 않음
+bold = pylopdf.Font(fontfile="NotoSansKR-Bold.otf")         # extra에 없는 굵기는 파일에서 불러옴
 width = bold.text_length("제목", fontsize=16)                  # 그렸을 때의 폭과 일치
 page.insert_text((page.rect.width - 40 - width, 140), "제목", font=bold, fontsize=16)
-hebrew = pylopdf.Font(language="he", weight="bold")          # 가변 글꼴인 pylopdf[he]는 파일 없이 Bold를 선택
+hebrew = pylopdf.Font(language="he", is_bold=True)          # 가변 글꼴인 pylopdf[he]는 파일 없이 Bold를 선택
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
-semibold = pylopdf.Font("NotoSansCJKjp-VF.otf", weight=600)  # 직접 준비한 가변 글꼴은 축 위의 어떤 굵기든 선택
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 직접 준비한 가변 글꼴은 축 위의 어떤 굵기든 선택
 page.insert_text((40, 200), "제목", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")

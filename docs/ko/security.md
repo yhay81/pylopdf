@@ -104,8 +104,9 @@ routing하는 데 사용할 수 있습니다. 구조 및 압축 해제 예산은
 직접 깊이 검증과complexity 검사의 반복 순회stack은 fallible하게 확장되므로
 allocation refusal은 부분facts가 아닌`PdfError`가 됩니다.
 
-`max_interpretation_size`는 hayro가 보관된 input을 처음 읽을 때와 pylopdf가 편집,
-복호화 또는 AcroForm state 선택 후 현재 상태를 serialize할 때 적용됩니다. 상한이 있는
+`max_interpretation_size`는 hayro가 보관된 input을 처음 읽을 때와 pylopdf가 편집이나
+복호화 후, 또는 text markup appearance 합성처럼 rendering용 사본을 준비하려고 현재 상태를
+serialize할 때 적용됩니다. 상한이 있는
 writer는 경계를 넘는 write를 거부하며 불완전한 renderer／extractor cache를 설치하지
 않습니다. 호환성을 위한 기본값은`None`이고`DocumentLimits.web()`은64 MiB입니다.
 
@@ -140,18 +141,20 @@ lopdf의 재구성은 뒤에`endstream`이 없는`stream` keyword마다 입력�
 `recovery_scan_size`로 거부하여 악의적인 입력이 복구를 이차 시간으로 만들지 못하게
 합니다. 실제 손상 파일에는 그 위치에 잘린 stream이 많아야 하나 있습니다.
 
-hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재귀로 읽기 때문에,
-수십만 개의 `[`를 여는 stream 하나가 예외를 던지는 대신 stack을 넘쳐 Python
-프로세스를 종료시켰습니다. pylopdf는 텍스트 추출, 레이아웃, 표, 검색, 드로잉, 이미지
-읽기, 렌더링(PNG, pixmap, SVG), Markdown 변환, 이미지 압축이 페이지를 해석하기 전에
-그 페이지가 도달할 수 있는 content stream(`/Contents`, 리소스의 Form XObject, 주석과
-위젯의 appearance, soft-mask group, tiling pattern, Type 3 glyph procedure)을
+hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재귀로 읽었기
+때문에, 수십만 개의 `[`를 여는 stream 하나가 예외를 던지는 대신 stack을 넘쳐 Python
+프로세스를 종료시켰습니다. hayro 0.8은 64단계에서 읽기를 멈추고 더 깊은 operand를
+조용히 생략합니다. pylopdf는 텍스트 추출, 레이아웃, 표, 검색, 드로잉, 이미지 읽기,
+렌더링(PNG, pixmap, SVG), Markdown 변환, 이미지 압축이 페이지를 해석하기 전에 그
+페이지가 도달할 수 있는 content stream(`/Contents`, 리소스의 Form XObject, 주석과
+위젯의 appearance(check box와 radio button은 모든 상태이며, hayro는 `/AS`가 고른
+하나만 그립니다), soft-mask group, tiling pattern, Type 3 glyph procedure)을
 디코딩합니다. array나 dictionary가 64단계보다 깊게 중첩되거나, stream object가
 포함되어 있거나, 검사할 수 없는 inline image 경계가 있으면 그 페이지를
 `content_nesting_depth`로 거부합니다. 이 한도는 고정이며 `DocumentLimits` 설정과
 관계없이 적용되고, 다른 페이지는 계속 사용할 수 있습니다. 각 페이지는 문서 snapshot마다
-한 번만 검사되고 편집하면 결과가 지워집니다. hayro는 이름을 바깥쪽 모든 dictionary를
-거쳐 해석하므로, 어떤 operator도 그리지 않는 리소스 dictionary의 항목도 검사
+한 번만 검사되고 편집하면 결과가 지워집니다. 검사는 content가 어떤 이름을 쓰는지
+분석하지 않으므로, 어떤 operator도 그리지 않는 리소스 dictionary의 항목도 검사
 대상입니다.
 
 hayro는 colour space, shading, function도 이름으로 참조하는 object를 따라가는 깊이
@@ -163,16 +166,35 @@ ICCBased colour space는 파싱할 수 없는 profile의 `/Alternate`로, stitch
 stack을 넘쳐 프로세스를 종료시켰습니다. pylopdf는 페이지를 해석하기 전에 그 페이지의
 리소스 dictionary에 있는 `/ColorSpace`와 `/Shading` 항목, shading pattern, image
 XObject, soft-mask group, graphics state와 soft mask의 전달 함수(`/TR`, `/TR2`)가
-도달하는 것을 측정하고, colour space와 function의 체인이 32단계보다 깊거나 Type 4
+도달하는 것을 측정하고, colour space와 function의 체인이 16단계보다 깊거나 Type 4
 function의 procedure가 64단계보다 깊게 중첩되면 그 페이지를 `resource_nesting_depth`로
 거부합니다. 체인에는 colour space의 array, function, profile stream이 포함됩니다.
 hayro가 스스로 순환을 끊기 때문에 자기 참조나 짧은 고리는 그대로 렌더링되지만, 서로 도달하는
-object가 32개를 넘는 순환은 거부되고, 공유되는 하위 그래프는 한 번만 측정되며, object는 몇 개의
+object가 16개를 넘는 순환은 거부되고, 공유되는 하위 그래프는 한 번만 측정되며, object는 몇 개의
 항목이 참조하든 한 번만 읽힙니다.
 이 한도는 고정이며 `DocumentLimits` 설정과 관계없이 적용되고, 다른 페이지는 계속 사용할 수
 있습니다. 제한하는 것은 stack 사용량이지 시간이 아닙니다. 각 단계에서 같은 function을 두 번
 참조하거나 Separation을 중첩하는 것처럼 한도 안이지만 정교하게 만든 그래프에서는
 hayro가 지수 시간의 CPU를 쓸 수 있으므로 호스트에서 CPU deadline을 계속 강제하십시오.
+
+hayro 0.8은 그것을 담은 object를 포함해 64단계보다 깊게 중첩된 array나 dictionary를
+읽지 않고 그 object 전체를 없는 것으로 취급합니다. hayro 0.7은 이런 object를 재귀로
+읽었고, lopdf는 100단계까지 읽습니다. page tree에서 상속하는 속성을 포함한 페이지의
+dictionary가 이보다 깊으면 그 페이지는 작업이 해석할 때마다 `object_depth`로 거부되고,
+다른 페이지는 계속 사용할 수 있습니다. trailer, catalog, page tree의 root node가 이
+깊이로 중첩되어 있어도 더 이상 문서 렌더링을 막지 않습니다. 렌더링과 추출은 지나치게 깊은
+항목을 뺀 사본을 읽고, 편집하고 저장하는 문서에는 그 항목이 남습니다. 그 밖에 이 깊이로
+중첩된 object는 hayro에서와 같이 없는 것으로 읽힙니다. `DocumentLimits.web()`은 이런
+문서를 열 때 이미 `object_depth`로 거부합니다.
+
+hayro 0.8은 성분 수가 맞지 않는 값을 돌려주는 Separation이나 DeviceN의 tint transform,
+Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic합니다
+([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)). hayro 0.7은
+같은 페이지를 렌더링할 수 있었습니다. hayro가 페이지를 해석하게 하는 모든 작업은 이 panic을
+잡아 PyO3의 `PanicException`(`BaseException`에서 파생되어 `except Exception`을
+빠져나갑니다) 대신 `PdfError`를 발생시킵니다. renderer state는 편집할 때와 같이 버려지므로
+이후 호출은 처음부터 다시 시작하고 문서는 계속 사용할 수 있습니다. panic 메시지는 Rust가
+표준 오류 출력에 씁니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
 - `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG
@@ -224,7 +246,7 @@ hayro가 지수 시간의 CPU를 쓸 수 있으므로 호스트에서 CPU deadli
   생성 전에 발생합니다.
 - `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
-  명시적으로 해제할 수 있습니다. hayro-svg 0.7은 완성된`String`만 반환하므로
+  명시적으로 해제할 수 있습니다. hayro-svg 0.8은 완성된`String`만 반환하므로
   pylopdf가 경계를 적용하기 전의 내부Rust string 하나는 이 제한의 대상이 아닙니다.
 - 그리기 삽입은cache 무효화, 입력decode 또는dependent object 생성 전에page
   `/Contents`의raw array와 참조chain을 검사합니다. raw array는4,096 entry,

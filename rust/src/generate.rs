@@ -16,6 +16,7 @@ use krilla::paint::Fill;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use lopdf::Object;
 use read_fonts::TableProvider;
+use read_fonts::tables::fvar::InstanceRecord;
 use read_fonts::types::{Fixed, NameId, Tag};
 
 use crate::form;
@@ -58,12 +59,15 @@ pub(crate) struct GenerationFace {
     instance: Option<WeightInstance>,
 }
 
-/// The coordinate and name of an instance away from the default location.
+/// The coordinate and names of an instance away from the default location.
 #[derive(Clone)]
 struct WeightInstance {
     weight: f32,
     /// `None` when the font has no name to derive one from.
     postscript_name: Option<String>,
+    /// The subfamily name of the named instance at this location, else the
+    /// axis value, as in `650wght`.
+    style_name: String,
 }
 
 impl GenerationFace {
@@ -98,9 +102,16 @@ impl GenerationFace {
             .build();
         // read-fonts normalizes the value through `avar` exactly as krilla's
         // skrifa does, so both agree on whether it is the default location.
-        let instance = (!shaping.normalized_coords().is_empty()).then(|| WeightInstance {
-            weight: value,
-            postscript_name: instance_postscript_name(&font, weight),
+        let instance = (!shaping.normalized_coords().is_empty()).then(|| {
+            let named = named_instance(&font, weight);
+            WeightInstance {
+                weight: value,
+                postscript_name: instance_postscript_name(&font, named.as_ref(), weight),
+                style_name: named
+                    .and_then(|instance| name_text(&font, instance.subfamily_name_id))
+                    .filter(|style| !style.is_empty())
+                    .unwrap_or_else(|| format!("{weight}wght")),
+            }
         });
         Ok(Self {
             data,
@@ -126,6 +137,13 @@ impl GenerationFace {
         self.instance
             .as_ref()
             .and_then(|instance| instance.postscript_name.as_deref())
+    }
+
+    /// The style name of an instance away from the default location.
+    pub(crate) fn instance_style_name(&self) -> Option<&str> {
+        self.instance
+            .as_ref()
+            .map(|instance| instance.style_name.as_str())
     }
 
     /// The font that HarfRust shapes, at this face's instance.
@@ -200,26 +218,25 @@ pub(crate) fn weight_axis(font: &ShapingFont) -> Option<WeightAxis> {
     (min <= default && default <= max).then_some(WeightAxis { min, default, max })
 }
 
-/// Derive the PostScript name of a face's instance at `weight`.
-///
-/// This follows Adobe Technical Note #5902. A named instance at that location
-/// uses its own PostScript name, or joins the variations PostScript name
-/// prefix (name ID 25, else the family name) and its subfamily name with a
-/// hyphen, as in `NotoSansHebrew-Bold`. Any other location appends the axis
-/// value, as in `NotoSansHebrew_650wght`.
-fn instance_postscript_name(font: &ShapingFont, weight: u16) -> Option<String> {
-    let names = font.names();
-    let text = |id: NameId| {
-        names
-            .get(id)
-            .english_or_first()
-            .map(|localized| localized.name().to_string())
-    };
+/// Read a name record, preferring English.
+fn name_text(font: &ShapingFont, id: NameId) -> Option<String> {
+    font.names()
+        .get(id)
+        .english_or_first()
+        .map(|localized| localized.name().to_string())
+}
+
+/// Return the named instance at `weight` on the weight axis with every other
+/// axis at its default value.
+fn named_instance(font: &ShapingFont, weight: u16) -> Option<InstanceRecord<'_>> {
     let fvar = font.tables().fvar().ok()?;
     let axes = fvar.axes().ok()?;
     let location = Fixed::from_f64(f64::from(weight));
-    let named = fvar.instances().ok().and_then(|instances| {
-        instances.iter().filter_map(Result::ok).find(|instance| {
+    fvar.instances()
+        .ok()?
+        .iter()
+        .filter_map(Result::ok)
+        .find(|instance| {
             instance.coordinates.len() == axes.len()
                 && axes.iter().zip(instance.coordinates).all(|(axis, value)| {
                     value.get()
@@ -230,9 +247,22 @@ fn instance_postscript_name(font: &ShapingFont, weight: u16) -> Option<String> {
                         }
                 })
         })
-    });
+}
+
+/// Derive the PostScript name of a face's instance at `weight`.
+///
+/// This follows Adobe Technical Note #5902. A named instance at that location
+/// uses its own PostScript name, or joins the variations PostScript name
+/// prefix (name ID 25, else the family name) and its subfamily name with a
+/// hyphen, as in `NotoSansHebrew-Bold`. Any other location appends the axis
+/// value, as in `NotoSansHebrew_650wght`.
+fn instance_postscript_name(
+    font: &ShapingFont,
+    named: Option<&InstanceRecord<'_>>,
+    weight: u16,
+) -> Option<String> {
+    let text = |id: NameId| name_text(font, id);
     if let Some(name) = named
-        .as_ref()
         .and_then(|instance| instance.post_script_name_id)
         .and_then(text)
         .map(|name| postscript_characters(&name, |_| true))
