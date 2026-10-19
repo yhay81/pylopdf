@@ -6,7 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `pylopdf.Font` follows pymupdf's `Font(fontname=None, fontfile=None,
+  fontbuffer=None)`: a Standard 14 font by name or alias, an OpenType face
+  from a file or buffer, or, through the keyword-only `language=` and
+  `family=`, the face of an installed font extra. `Font.text_length(text,
+  fontsize)` measures with the shaping that drawing uses, including kerning
+  and ligatures, so layout code can wrap, align, and paginate with the font it
+  draws; Standard 14 fonts measure with Adobe's AFM widths. `has_glyph(chr)`
+  returns pymupdf's glyph number, and `name`, `ascender`, `descender`,
+  `is_bold`, `is_italic`, and `is_serif` keep pymupdf's meaning, with
+  `family`, `weight`, and `units_per_em` as extensions. `Page.insert_text(font=)`
+  and `Page.insert_textbox(font=)` draw with it; an OpenType face produces the
+  same bytes as passing its data as `fontbuffer`, and each call still embeds
+  its own subset.
+- `is_bold=`, `is_italic=`, `is_serif=`, and an exact OS/2 `weight=` select a
+  font extra's face. The extras install one face per style, so a face they do
+  not have raises `PdfError` and is loaded from its file instead, such as
+  Noto Sans JP Bold; pylopdf keeps no font registry, never searches system
+  font directories, and never imitates a weight by stroking or overprinting
+  glyphs. `allow_regular_fallback=True` explicitly uses the extra's face with a
+  `PylopdfWarning`. These options raise with `fontname` and font files, where
+  pymupdf ignores them.
+
 ### Changed
+- An embedded generation font that lacks a glyph now names the missing
+  characters in the error, for example `no glyph for U+1F980 ('🦀')`.
 - Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers
   cross-reference damage that previously made files unopenable: lopdf moves a
   `startxref`, `/Prev`, or `/XRefStm` offset that misses by up to 64 bytes to

@@ -152,7 +152,8 @@ default, and resource boundary.
   background fills, ordered parallel `render_pages`
 - **Generation** — JPEG-passthrough/PNG image insertion, vector page overlays
   (`show_pdf_page`), HarfRust-shaped `insert_text` / `insert_textbox` with
-  subset embedding and UAX #14 wrapping, highlight and link annotations,
+  subset embedding and UAX #14 wrapping, reusable `Font` faces whose
+  `text_length` is the drawn width, highlight and link annotations,
   AcroForm filling with regenerated appearances, bounded simple-font text
   replacement
 - **OCR** — offline PP-OCRv6 engine (`[ocr]` extra), positioned words,

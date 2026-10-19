@@ -5,6 +5,7 @@ mod content_scan;
 mod document;
 mod draw;
 mod extract;
+mod font;
 mod form;
 mod generate;
 mod generated_pdf;
@@ -31,12 +32,14 @@ mod renumber;
 mod text_replace;
 mod unallocated;
 use document::{_Document, LimitError, PasswordError, PdfError};
+use font::_Font;
 use ocr_engine::{_OcrEngine, OcrError};
 use pixmap::Pixmap;
 
 #[pymodule(gil_used = false)]
 fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<_Document>()?;
+    m.add_class::<_Font>()?;
     m.add_class::<_OcrEngine>()?;
     m.add_class::<Pixmap>()?;
     m.add("PdfError", m.py().get_type::<PdfError>())?;

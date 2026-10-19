@@ -36,6 +36,41 @@ class _OcrEngine:
         rotation: int = 0,
     ) -> list[tuple[float, float, float, float, str, float]]: ...
 
+class _Font:
+    @staticmethod
+    def from_bytes(data: bytes, index: int, max_font_size: int | None = 67108864) -> _Font: ...
+    @staticmethod
+    def from_file(
+        path: str,
+        index: int,
+        max_font_size: int | None = 67108864,
+        package_font: tuple[str, str] | None = None,
+    ) -> _Font: ...
+    @staticmethod
+    def standard(name: str) -> _Font: ...
+    @property
+    def standard_name(self) -> str | None: ...
+    @property
+    def name(self) -> str | None: ...
+    @property
+    def family(self) -> str | None: ...
+    @property
+    def weight(self) -> int: ...
+    @property
+    def bold(self) -> bool: ...
+    @property
+    def italic(self) -> bool: ...
+    @property
+    def serif(self) -> bool: ...
+    @property
+    def units_per_em(self) -> int: ...
+    @property
+    def ascender(self) -> float: ...
+    @property
+    def descender(self) -> float: ...
+    def text_length(self, text: str, fontsize: float, max_text_size: int | None = 1048576) -> float: ...
+    def has_glyph(self, codepoint: int) -> int: ...
+
 class Pixmap:
     @property
     def width(self) -> int: ...
@@ -398,6 +433,30 @@ class _Document:
         max_text_size: int | None = 1048576,
         package_font: tuple[str, str] | None = None,
     ) -> None: ...
+    def insert_font_text(
+        self,
+        page_number: int,
+        point: tuple[float, float],
+        lines: list[str],
+        font: _Font,
+        fontsize: float,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_text_size: int | None = 1048576,
+    ) -> None: ...
+    def insert_font_textbox(
+        self,
+        page_number: int,
+        rect: tuple[float, float, float, float],
+        text: str,
+        font: _Font,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_text_size: int | None = 1048576,
+    ) -> float: ...
     def insert_page_textbox(
         self,
         page_number: int,
