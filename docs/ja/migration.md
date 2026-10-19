@@ -43,6 +43,8 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | sourceなしは標準14 / WinAnsi、または導入済みscript／locale provider。その他は明示fontを字形処理してsubset埋め込み |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。負の戻り値なら描画しない |
 | `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / 同じ / 同じ | `insert_text` / `insert_textbox`に`font=`で渡す。`text_length`は描画と同じHarfRustの字形処理で測る。`ascender`／`descender`はOS/2のtypographic metrics。`is_bold=`で近い書体を探すことはせず、`weight=`は導入済みまたは`register_font()`の書体を完全一致で選ぶ |
+| `page.draw_rect / draw_line / draw_circle / draw_polyline(..., color=, fill=, width=)` | 同じ。加えて`overlay=` | 色はRGBの0–1。`closePath=`の代わりに`closed=True`。`dashes=`・`morph=`・不透明度はない |
+| `Shape` / `TextWriter` / `doc.subset_fonts()` | `with doc.batch() as batch:`と`batch.page(pno)` / `batch.new_page()`のcanvas | 多数の頁と図形を一度に生成。`Font`は一括ごとに一度だけサブセット埋め込みされるので、別のサブセット化の手順はない |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |

@@ -13,11 +13,139 @@ use krilla::geom::Point;
 use krilla::num::NormalizedF32;
 use krilla::page::PageSettings;
 use krilla::paint::Fill;
+use krilla::surface::Surface;
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use read_fonts::TableProvider;
 
 use crate::form;
 use crate::layout::{collect_graphemes, copy_text, layout_textbox, normalized_single_line};
+
+/// One shaped line placed at its baseline-left point on a krilla page.
+pub(crate) struct GlyphRun {
+    pub(crate) origin: Point,
+    pub(crate) glyphs: Vec<KrillaGlyph>,
+    pub(crate) text: String,
+}
+
+/// Shape `lines` where `insert_text` places them: the first baseline-left
+/// point at `point` in top-left-origin page coordinates, then 1.2× font-size
+/// leading.
+pub(crate) fn text_runs(
+    font: &ShapingFont,
+    point: (f64, f64),
+    lines: &[String],
+    font_size: f64,
+) -> Result<Vec<GlyphRun>, String> {
+    let x = finite_f32(point.0, "text x")?;
+    let y = finite_f32(point.1, "text y")?;
+    let size = finite_f32(font_size, "font size")?;
+    let shaper = LineShaper::new(font);
+    let mut runs = Vec::new();
+    runs.try_reserve_exact(lines.len())
+        .map_err(|error| format!("failed to allocate shaped text line collection: {error}"))?;
+    for (line_number, line) in lines.iter().enumerate() {
+        let glyphs = shape_line(line, &shaper)?;
+        let baseline_y = y + line_number as f32 * size * 1.2;
+        runs.push(GlyphRun {
+            origin: Point::from_xy(x, baseline_y),
+            glyphs,
+            text: copy_text(line)?,
+        });
+    }
+    Ok(runs)
+}
+
+/// Lay out and shape text inside a display rectangle as `insert_textbox`
+/// does. Return the placed lines, or `None` when they do not fit, together
+/// with the spare height, which is negative on overflow.
+pub(crate) fn textbox_runs(
+    font: &ShapingFont,
+    rect: [f64; 4],
+    text: &str,
+    font_size: f64,
+    line_height: f64,
+    align: u8,
+    max_lines: Option<usize>,
+) -> Result<(Option<Vec<GlyphRun>>, f64), String> {
+    let (ascent, descent) = font_vertical_metrics(font)?;
+    let shaper = LineShaper::new(font);
+    let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
+    let layout = layout_textbox(
+        text,
+        box_size,
+        font_size,
+        line_height,
+        ascent,
+        descent,
+        align == 3,
+        max_lines,
+        |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
+    )?;
+    if !layout.fits() {
+        return Ok((None, layout.spare_height));
+    }
+
+    let (layout_ascent, leading, spare_height) =
+        (layout.ascent, layout.leading, layout.spare_height);
+    let mut runs = Vec::new();
+    runs.try_reserve_exact(layout.lines.len())
+        .map_err(|error| format!("failed to allocate shaped text line collection: {error}"))?;
+    let box_width = box_size.0;
+    for (line_number, line) in layout.lines.into_iter().enumerate() {
+        let mut glyphs = shape_line(&line.text, &shaper)?;
+        let x_offset = match align {
+            1 => (box_width - line.width) / 2.0,
+            2 => box_width - line.width,
+            _ => 0.0,
+        };
+        if line.justify {
+            justify_glyphs(
+                &mut glyphs,
+                &line.text,
+                (box_width - line.width).max(0.0) / font_size,
+            );
+        }
+        let baseline_x = finite_f32(rect[0] + x_offset.max(0.0), "text x")?;
+        let baseline_y = finite_f32(
+            rect[1] + layout_ascent * font_size + line_number as f64 * leading,
+            "text y",
+        )?;
+        runs.push(GlyphRun {
+            origin: Point::from_xy(baseline_x, baseline_y),
+            glyphs,
+            text: line.text,
+        });
+    }
+    Ok((Some(runs), spare_height))
+}
+
+/// Draw placed lines in one font, size, and fill.
+pub(crate) fn draw_runs(surface: &mut Surface<'_>, runs: &[GlyphRun], font: &Font, size: f32) {
+    for run in runs {
+        surface.draw_glyphs(
+            run.origin,
+            &run.glyphs,
+            font.clone(),
+            &run.text,
+            size,
+            false,
+        );
+    }
+}
+
+/// A solid, fully opaque RGB fill from 0–1 channels.
+pub(crate) fn solid_fill(color: (f64, f64, f64)) -> Fill {
+    Fill {
+        paint: rgb::Color::new(
+            channel_to_u8(color.0),
+            channel_to_u8(color.1),
+            channel_to_u8(color.2),
+        )
+        .into(),
+        opacity: NormalizedF32::ONE,
+        rule: Default::default(),
+    }
+}
 
 /// Generate one transparent page containing subset-embedded OpenType text.
 ///
@@ -34,41 +162,19 @@ pub fn embedded_text_page(
 ) -> Result<Vec<u8>, String> {
     let width = finite_f32(page_size.0, "page width")?;
     let height = finite_f32(page_size.1, "page height")?;
-    let x = finite_f32(point.0, "text x")?;
-    let y = finite_f32(point.1, "text y")?;
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
     let shaping_font = open_shaping_font(&font_data, font_index)?;
-    let shaper = LineShaper::new(&shaping_font);
-    let shaped_lines = shape_lines(lines.iter().map(String::as_str), &shaper)?;
+    let runs = text_runs(&shaping_font, point, lines, font_size)?;
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
 
     let mut document = Document::new();
     let mut page = document.start_page_with(page_settings);
     let mut surface = page.surface();
-    surface.set_fill(Some(Fill {
-        paint: rgb::Color::new(
-            channel_to_u8(color.0),
-            channel_to_u8(color.1),
-            channel_to_u8(color.2),
-        )
-        .into(),
-        opacity: NormalizedF32::ONE,
-        rule: Default::default(),
-    }));
-    for (line_number, (line, glyphs)) in lines.iter().zip(shaped_lines).enumerate() {
-        let baseline_y = y + line_number as f32 * size * 1.2;
-        surface.draw_glyphs(
-            Point::from_xy(x, baseline_y),
-            &glyphs,
-            font.clone(),
-            line,
-            size,
-            false,
-        );
-    }
+    surface.set_fill(Some(solid_fill(color)));
+    draw_runs(&mut surface, &runs, &font, size);
     surface.finish();
     page.finish();
     document
@@ -97,75 +203,32 @@ pub fn embedded_textbox_page(
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
     let shaping_font = open_shaping_font(&font_data, font_index)?;
-    let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper = LineShaper::new(&shaping_font);
-    let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
-    let layout = layout_textbox(
+    let (runs, spare_height) = textbox_runs(
+        &shaping_font,
+        rect,
         text,
-        box_size,
         font_size,
         line_height,
-        ascent,
-        descent,
-        align == 3,
+        align,
         max_lines,
-        |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
     )?;
-    if !layout.fits() {
-        return Ok((None, layout.spare_height));
-    }
-
-    let shaped_lines = shape_lines(layout.lines.iter().map(|line| line.text.as_str()), &shaper)?;
+    let Some(runs) = runs else {
+        return Ok((None, spare_height));
+    };
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
 
     let mut document = Document::new();
     let mut page = document.start_page_with(page_settings);
     let mut surface = page.surface();
-    surface.set_fill(Some(Fill {
-        paint: rgb::Color::new(
-            channel_to_u8(color.0),
-            channel_to_u8(color.1),
-            channel_to_u8(color.2),
-        )
-        .into(),
-        opacity: NormalizedF32::ONE,
-        rule: Default::default(),
-    }));
-    let box_width = box_size.0;
-    for (line_number, (line, mut glyphs)) in layout.lines.iter().zip(shaped_lines).enumerate() {
-        let x_offset = match align {
-            1 => (box_width - line.width) / 2.0,
-            2 => box_width - line.width,
-            _ => 0.0,
-        };
-        if line.justify {
-            justify_glyphs(
-                &mut glyphs,
-                &line.text,
-                (box_width - line.width).max(0.0) / font_size,
-            );
-        }
-        let baseline_x = finite_f32(rect[0] + x_offset.max(0.0), "text x")?;
-        let baseline_y = finite_f32(
-            rect[1] + layout.ascent * font_size + line_number as f64 * layout.leading,
-            "text y",
-        )?;
-        surface.draw_glyphs(
-            Point::from_xy(baseline_x, baseline_y),
-            &glyphs,
-            font.clone(),
-            &line.text,
-            size,
-            false,
-        );
-    }
+    surface.set_fill(Some(solid_fill(color)));
+    draw_runs(&mut surface, &runs, &font, size);
     surface.finish();
     page.finish();
     let bytes = document
         .finish()
         .map_err(|error| format!("krilla text generation failed: {error}"))?;
-    Ok((Some(bytes), layout.spare_height))
+    Ok((Some(bytes), spare_height))
 }
 
 /// Auto-fit and generate text for an AcroForm widget appearance.
@@ -392,7 +455,7 @@ pub(crate) fn shaped_line_width(
 }
 
 /// Sum the shaped advances of one line in PDF units.
-fn line_width(glyphs: &[KrillaGlyph], font_size: f64) -> f64 {
+pub(crate) fn line_width(glyphs: &[KrillaGlyph], font_size: f64) -> f64 {
     glyphs
         .iter()
         .map(|glyph| f64::from(glyph.x_advance) * font_size)
@@ -583,7 +646,7 @@ fn missing_glyph_error(cluster: &str) -> String {
     message
 }
 
-fn finite_f32(value: f64, label: &str) -> Result<f32, String> {
+pub(crate) fn finite_f32(value: f64, label: &str) -> Result<f32, String> {
     let narrowed = value as f32;
     if narrowed.is_finite() {
         Ok(narrowed)
@@ -592,6 +655,6 @@ fn finite_f32(value: f64, label: &str) -> Result<f32, String> {
     }
 }
 
-fn channel_to_u8(value: f64) -> u8 {
+pub(crate) fn channel_to_u8(value: f64) -> u8 {
     (value * 255.0).round() as u8
 }

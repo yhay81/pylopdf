@@ -27,6 +27,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
+use crate::batch::{_Batch, CanvasTarget, GeneratedBatch};
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
@@ -1591,7 +1592,7 @@ fn validate_generated_text_line_count(
     Ok(())
 }
 
-fn generated_text_err(error: String) -> PyErr {
+pub(crate) fn generated_text_err(error: String) -> PyErr {
     if error == crate::layout::TEXT_LINE_LIMIT_ERROR {
         limit_err(
             "text_line_count",
@@ -2641,6 +2642,32 @@ fn prepare_page_resource(
     Ok(PageResourcePlan { page, kind, name })
 }
 
+/// Display width and height of a crop box shown with a page rotation.
+fn display_size(crop: [f64; 4], rotation: i64) -> (f64, f64) {
+    let (width, height) = (crop[2] - crop[0], crop[3] - crop[1]);
+    if matches!(rotation, 90 | 270) {
+        (height, width)
+    } else {
+        (width, height)
+    }
+}
+
+/// Map each page object to its one-based page number.
+fn page_numbers_by_id(pages: &[ObjectId]) -> PyResult<HashMap<ObjectId, u32>> {
+    let mut numbers = HashMap::new();
+    numbers.try_reserve(pages.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate the page-number lookup: {error}"
+        ))
+    })?;
+    for (index, &page_id) in pages.iter().enumerate() {
+        let number = u32::try_from(index + 1)
+            .map_err(|_| PdfError::new_err("page number exceeds the PDF page-number range"))?;
+        numbers.insert(page_id, number);
+    }
+    Ok(numbers)
+}
+
 /// Read an indirect-capable box array as normalized `[x0, y0, x1, y1]`.
 fn resolve_box(doc: &Document, dict: &Dictionary, key: &[u8]) -> Option<[f64; 4]> {
     let obj = dict.get(key).ok()?;
@@ -2714,9 +2741,46 @@ fn collect_form_page_content(doc: &Document, page_id: ObjectId) -> PyResult<Vec<
 /// Prepare one source page as an unplaced Form without mutating the target.
 fn prepare_page_form_import(
     target_max_id: u32,
-    mut source: Document,
+    source: Document,
     page_number: u32,
 ) -> PyResult<FormImportPlan> {
+    let mut plan = prepare_pages_form_import(target_max_id, source, &[page_number])?;
+    let form = plan
+        .forms
+        .pop()
+        .ok_or_else(|| PdfError::new_err("Form import prepared no Form"))?;
+    Ok(FormImportPlan {
+        objects: plan.objects,
+        form: form.stream,
+        new_max_id: plan.new_max_id,
+        crop: form.crop,
+        rotation: form.rotation,
+    })
+}
+
+/// One prepared Form and the display metadata of the page it came from.
+struct PreparedForm {
+    stream: Stream,
+    crop: [f64; 4],
+    rotation: i64,
+}
+
+/// Source objects shared by several prepared Forms, imported together.
+struct PagesFormImportPlan {
+    objects: Vec<(ObjectId, Object)>,
+    forms: Vec<PreparedForm>,
+    new_max_id: u32,
+}
+
+/// Prepare source pages as unplaced Forms without mutating the target.
+///
+/// The source is renumbered once and every object that any Form reaches is
+/// imported once, so Forms that draw with the same font share its objects.
+fn prepare_pages_form_import(
+    target_max_id: u32,
+    mut source: Document,
+    page_numbers: &[u32],
+) -> PyResult<PagesFormImportPlan> {
     if source.objects.len() > MAX_FORM_IMPORT_OBJECTS {
         return Err(PdfError::new_err(format!(
             "Form import exceeds the {MAX_FORM_IMPORT_OBJECTS}-object safety limit"
@@ -2731,50 +2795,70 @@ fn prepare_page_form_import(
     let starting_id = target_max_id
         .checked_add(1)
         .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
-    let missing_page = |_| PdfError::new_err(format!("source page {page_number} does not exist"));
+    let missing_page =
+        |page_number: u32| PdfError::new_err(format!("source page {page_number} does not exist"));
     let mut source_pages = collect_page_ids(&source, None, None)?;
-    page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
+    for &page_number in page_numbers {
+        page_id_from_index(&source_pages, page_number).map_err(|_| missing_page(page_number))?;
+    }
     renumber_objects(&mut source, starting_id, &mut source_pages)?;
-    let source_id = page_id_from_index(&source_pages, page_number).map_err(missing_page)?;
-    let source_dict = resolve_inherited_page_dict(&source, source_id)?;
-    let source_crop = resolve_box(&source, &source_dict, b"CropBox")
-        .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
-        .unwrap_or([0.0, 0.0, 595.0, 842.0]);
-    let source_rotation = source_dict
-        .get(b"Rotate")
-        .ok()
-        .and_then(|object| resolve_i64(&source, object))
-        .unwrap_or(0)
-        .rem_euclid(360);
 
-    let form_content = collect_form_page_content(&source, source_id)?;
-    let mut form_dict = dictionary! {
-        "Type" => "XObject",
-        "Subtype" => "Form",
-        "FormType" => 1,
-        "BBox" => Object::Array(
-            source_crop
-                .iter()
-                .map(|&value| Object::Real(value as f32))
-                .collect(),
-        ),
-    };
-    if let Ok(resources) = source_dict.get(b"Resources") {
-        form_dict.set("Resources", resources.clone());
-    }
-    if let Ok(group) = source_dict.get(b"Group") {
-        form_dict.set("Group", group.clone());
+    let mut forms = Vec::new();
+    forms
+        .try_reserve_exact(page_numbers.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate prepared Forms: {error}"))
+        })?;
+    for &page_number in page_numbers {
+        let source_id = page_id_from_index(&source_pages, page_number)
+            .map_err(|_| missing_page(page_number))?;
+        let source_dict = resolve_inherited_page_dict(&source, source_id)?;
+        let source_crop = resolve_box(&source, &source_dict, b"CropBox")
+            .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
+            .unwrap_or([0.0, 0.0, 595.0, 842.0]);
+        let source_rotation = source_dict
+            .get(b"Rotate")
+            .ok()
+            .and_then(|object| resolve_i64(&source, object))
+            .unwrap_or(0)
+            .rem_euclid(360);
+
+        let form_content = collect_form_page_content(&source, source_id)?;
+        let mut form_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "FormType" => 1,
+            "BBox" => Object::Array(
+                source_crop
+                    .iter()
+                    .map(|&value| Object::Real(value as f32))
+                    .collect(),
+            ),
+        };
+        if let Ok(resources) = source_dict.get(b"Resources") {
+            form_dict.set("Resources", resources.clone());
+        }
+        if let Ok(group) = source_dict.get(b"Group") {
+            form_dict.set("Group", group.clone());
+        }
+        forms.push(PreparedForm {
+            stream: Stream::new(form_dict, form_content).with_compression(false),
+            crop: source_crop,
+            rotation: source_rotation,
+        });
     }
 
-    // Move only the source objects that the Form can reach. The page tree
+    // Move only the source objects that the Forms can reach. The page tree
     // stays behind, so a reference into it dangles, and outlines,
-    // annotations, attachments, metadata, and the page's original content
+    // annotations, attachments, metadata, and the pages' original content
     // streams would be unreachable in the target. Pruning the complete
     // target after the import found the same objects, but walked every
     // target object for each placement.
     let reachable = reachable_object_ids(
         &source,
-        form_dict.iter().map(|(_, value)| value),
+        forms
+            .iter()
+            .flat_map(|form| form.stream.dict.iter().map(|(_, value)| value)),
         |object| !matches!(object.type_name(), Ok(b"Catalog" | b"Pages" | b"Page")),
     )?;
     let new_max_id = source.max_id;
@@ -2789,12 +2873,10 @@ fn prepare_page_form_import(
             objects.push((id, object));
         }
     }
-    Ok(FormImportPlan {
+    Ok(PagesFormImportPlan {
         objects,
-        form: Stream::new(form_dict, form_content).with_compression(false),
+        forms,
         new_max_id,
-        crop: source_crop,
-        rotation: source_rotation,
     })
 }
 
@@ -2824,6 +2906,25 @@ fn commit_page_form_import(
     target.insert_new_objects(plan.objects, plan.new_max_id);
     let form_id = target.add_object(plan.form);
     (form_id, plan.crop, plan.rotation)
+}
+
+/// Commit several prepared Forms that share one import, in their order.
+fn commit_pages_form_import(
+    target: &mut impl FormImportTarget,
+    plan: PagesFormImportPlan,
+) -> PyResult<Vec<(ObjectId, [f64; 4], i64)>> {
+    let mut placed = Vec::new();
+    placed
+        .try_reserve_exact(plan.forms.len())
+        .map_err(|error| {
+            PdfError::new_err(format!("failed to allocate imported Forms: {error}"))
+        })?;
+    target.insert_new_objects(plan.objects, plan.new_max_id);
+    for form in plan.forms {
+        let form_id = target.add_object(form.stream);
+        placed.push((form_id, form.crop, form.rotation));
+    }
+    Ok(placed)
 }
 
 /// Import a page as an unplaced Form XObject and return its display metadata.
@@ -6139,7 +6240,20 @@ impl _Document {
         placement: PagePlacement,
         drawing_plan: PageDrawingPlan,
     ) -> PyResult<()> {
-        let (form_id, src_crop, src_rotation) = commit_page_form_import(&mut self.doc, form_plan);
+        let form = commit_page_form_import(&mut self.doc, form_plan);
+        self.place_form(page_id, target_geometry, form, placement, drawing_plan)
+    }
+
+    /// Place an imported Form, with the crop and rotation of the page it
+    /// came from, into a display rectangle of a page.
+    fn place_form(
+        &mut self,
+        page_id: ObjectId,
+        target_geometry: ([f64; 4], i64),
+        (form_id, src_crop, src_rotation): (ObjectId, [f64; 4], i64),
+        placement: PagePlacement,
+        drawing_plan: PageDrawingPlan,
+    ) -> PyResult<()> {
         let content = draw::PlacedContent::Form {
             crop: src_crop,
             rotation: src_rotation,
@@ -6154,6 +6268,166 @@ impl _Document {
         let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
         self.commit_drawing_resource(page_id, drawing_plan.resource, form_id)?;
         self.push_page_content(page_id, ops, drawing_plan.content)
+    }
+
+    /// Return the object and display size of a page that a canvas draws on.
+    pub(crate) fn canvas_target(&self, page_number: u32) -> PyResult<(ObjectId, (f64, f64))> {
+        let page_id = self.page_id(page_number)?;
+        let (crop, rotation) = self.resolve_display_geometry(page_id)?;
+        Ok((page_id, display_size(crop, rotation)))
+    }
+
+    /// Generate, import, and place a recorded drawing batch.
+    ///
+    /// Every canvas that records drawing becomes one page of one krilla
+    /// document, imported once, so each font is embedded once for the whole
+    /// batch. Canvases over existing pages receive a Form placed like
+    /// `insert_text` output; canvases for new pages become blank pages
+    /// appended in order, then receive theirs. Everything that can fail on
+    /// the input is checked before the document changes: a missing page, a
+    /// page whose display size changed since its canvas was created, page
+    /// content or resources that cannot take another drawing, generation,
+    /// and the import plan. Return the number of appended pages.
+    fn commit_drawing_batch(&mut self, py: Python<'_>, batch: &_Batch) -> PyResult<usize> {
+        let canvases = batch.canvases();
+        let new_count = canvases
+            .iter()
+            .filter(|canvas| matches!(canvas.target, CanvasTarget::NewPage))
+            .count();
+        let drawn = canvases.iter().any(|canvas| !canvas.is_empty());
+        if new_count == 0 && !drawn {
+            return Ok(0);
+        }
+
+        let page_numbers = page_numbers_by_id(self.doc.page_ids()?)?;
+        for canvas in canvases {
+            let CanvasTarget::Page { id, overlay } = canvas.target else {
+                continue;
+            };
+            let page_number = *page_numbers.get(&id).ok_or_else(|| {
+                PdfError::new_err("a page that a drawing batch draws on no longer exists")
+            })?;
+            let (crop, rotation) = self.resolve_display_geometry(id)?;
+            if display_size(crop, rotation) != canvas.size {
+                return Err(PdfError::new_err(
+                    "a page's display size changed after its drawing batch canvas was created",
+                ));
+            }
+            if !canvas.is_empty() {
+                // Validate now; the plan is prepared again after new pages
+                // rebuild the page tree, which rewrites page dictionaries.
+                self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+            }
+        }
+        let generated = py.detach(|| batch.generate()).map_err(PdfError::new_err)?;
+        let import = match generated {
+            Some(GeneratedBatch {
+                pdf: bytes,
+                canvases: drawn_canvases,
+            }) => {
+                let source = generated_pdf::load(&bytes).map_err(|error| {
+                    lopdf_err(Some("failed to import generated drawing"), &error)
+                })?;
+                let source_pages = (1..=drawn_canvases.len())
+                    .map(u32::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| PdfError::new_err(error.to_string()))?;
+                let target_max_id = self.doc.max_id;
+                let plan =
+                    py.detach(|| prepare_pages_form_import(target_max_id, source, &source_pages))?;
+                Some((plan, drawn_canvases))
+            }
+            None => None,
+        };
+        let existing_pages = if new_count > 0 {
+            let pages = self.doc.owned_page_ids()?;
+            self.preflight_page_tree_rebuild(&pages)?;
+            Some(pages)
+        } else {
+            None
+        };
+
+        self.invalidate_hayro_pdf();
+        let placed = match import {
+            Some((plan, drawn_canvases)) => Some((
+                commit_pages_form_import(&mut self.doc, plan)?,
+                drawn_canvases,
+            )),
+            None => None,
+        };
+        let mut new_page_ids = Vec::new();
+        new_page_ids.try_reserve_exact(new_count).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate new batch pages: {error}"))
+        })?;
+        if let Some(existing_pages) = existing_pages {
+            let pages_id = self.ensure_page_tree().map_err(to_py_err)?;
+            for canvas in canvases {
+                if !matches!(canvas.target, CanvasTarget::NewPage) {
+                    continue;
+                }
+                // New canvases hold sizes that f32 represents exactly.
+                let (width, height) = canvas.size;
+                let media_box = Object::Array(vec![
+                    Object::Real(0.0),
+                    Object::Real(0.0),
+                    Object::Real(width as f32),
+                    Object::Real(height as f32),
+                ]);
+                new_page_ids.push(self.doc.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => media_box.clone(),
+                    "CropBox" => media_box,
+                    "Rotate" => 0,
+                    "Resources" => Dictionary::new(),
+                }));
+            }
+            let order = Self::spliced_page_order(existing_pages, new_page_ids.clone(), None)?;
+            self.rebuild_page_tree(pages_id, order)?;
+        }
+
+        if let Some((forms, drawn_canvases)) = placed {
+            let page_numbers = page_numbers_by_id(self.doc.page_ids()?)?;
+            let mut new_pages = new_page_ids.iter();
+            let mut new_page_of = Vec::new();
+            new_page_of
+                .try_reserve_exact(canvases.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to allocate batch page lookup: {error}"))
+                })?;
+            for canvas in canvases {
+                new_page_of.push(match canvas.target {
+                    CanvasTarget::NewPage => new_pages.next().copied(),
+                    CanvasTarget::Page { .. } => None,
+                });
+            }
+            for (form, canvas_index) in forms.into_iter().zip(drawn_canvases) {
+                let canvas = &canvases[canvas_index];
+                let (page_id, overlay) = match canvas.target {
+                    CanvasTarget::Page { id, overlay } => (id, overlay),
+                    CanvasTarget::NewPage => (
+                        new_page_of[canvas_index]
+                            .ok_or_else(|| PdfError::new_err("a new batch page was not created"))?,
+                        true,
+                    ),
+                };
+                let page_number = *page_numbers.get(&page_id).ok_or_else(|| {
+                    PdfError::new_err("a page that a drawing batch draws on no longer exists")
+                })?;
+                let (_, plan) =
+                    self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+                let geometry = self.resolve_display_geometry(page_id)?;
+                let placement = PagePlacement {
+                    rect: [0.0, 0.0, canvas.size.0, canvas.size.1],
+                    keep_proportion: false,
+                };
+                self.place_form(page_id, geometry, form, placement, plan)?;
+            }
+        }
+        if new_count > 0 {
+            prune_unreachable_objects(&mut self.doc)?;
+        }
+        Ok(new_count)
     }
 
     /// Draw validated subset-embedded text; see `insert_embedded_text`.
@@ -11537,6 +11811,13 @@ impl _Document {
             color,
             overlay,
         )
+    }
+
+    /// Generate, import, and place a recorded drawing batch; see
+    /// `commit_drawing_batch`. Return the number of appended pages.
+    fn commit_batch(&mut self, py: Python<'_>, batch: &Bound<'_, _Batch>) -> PyResult<usize> {
+        let batch = batch.borrow();
+        self.commit_drawing_batch(py, &batch)
     }
 
     /// Draw subset-embedded text with a loaded `Font`.

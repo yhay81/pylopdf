@@ -1371,6 +1371,27 @@ overview.
   depend only on the faces passed in. Variable fonts load at their default
   instance; the `ar`, `he`, `hi`, and `th` extras ship variable fonts, and
   the default instance of Noto Sans Hebrew is Thin (weight class 100).
+- `Document.batch()` (`DrawingBatch` and `Canvas` in Python, `_Batch` in
+  `rust/src/batch.rs`) records text and paths per canvas and generates every
+  canvas that draws as one page of one krilla document, so krilla embeds one
+  subset per face for the whole batch. Text is shaped at record time through
+  `generate::text_runs` and `generate::textbox_runs`, the functions that
+  `insert_text` and `insert_textbox` use, which keeps placement and
+  `Font.text_length` identical to the per-call paths; keep both on them.
+  Before a text operation, generation resets the stroke, so text is never
+  outlined. `_Document::commit_drawing_batch` imports the generated pages with
+  one renumbering (`prepare_pages_form_import`, which also serves the
+  single-page import with unchanged output) and places one Form XObject per
+  canvas like `insert_text`. Canvases over existing pages hold the page object
+  and its display size; the commit refuses a missing page or a changed size,
+  validates each page's drawing plan, generates, and plans the import before
+  any mutation. It then commits the import, appends new pages with one
+  page-tree rebuild, and prepares each drawing plan again, because the rebuild
+  rewrites page dictionaries, before placing the Forms. A page has one canvas
+  per batch. A batch records at most 4,096 canvases (`batch_page_count`),
+  `max_text_size` bytes of text (`text_input_size`, 64 MiB by default), 4,096
+  lines per text call, and 1,048,576 path points (`path_point_count`).
+  `Page.draw_*` draw one shape through a one-page batch.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

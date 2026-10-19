@@ -28,6 +28,7 @@ from pylopdf.pylopdf_core import (
     PasswordError,
     PdfError,
     Pixmap,
+    _Batch,
     _Document,
     _Font,
     _OcrEngine,
@@ -54,12 +55,14 @@ __all__ = [
     "TEXT_ALIGN_RIGHT",
     "AnnotationInfo",
     "BlockEntry",
+    "Canvas",
     "CjkFontLanguage",
     "Document",
     "DocumentClosedError",
     "DocumentComplexity",
     "DocumentLimits",
     "DocumentMetadata",
+    "DrawingBatch",
     "DrawingInfo",
     "DrawingItem",
     "EncryptedDocumentError",
@@ -2000,6 +2003,355 @@ def _validate_font_choice(
     return font._font
 
 
+#: Default bound on the UTF-8 text that one drawing batch records.
+_DEFAULT_MAX_BATCH_TEXT_SIZE = 64 * 1024 * 1024
+#: Path points that one drawing batch may record across all of its shapes.
+_MAX_BATCH_PATH_POINTS = 1_048_576
+_MIN_POLYLINE_POINTS = 2
+_MIN_POLYGON_POINTS = 3
+
+_Color: TypeAlias = tuple[float, float, float]
+
+
+def _validate_point(point: Sequence[float], name: str = "point") -> tuple[float, float]:
+    """Validate an ``(x, y)`` point within PDF real-number range."""
+    try:
+        x, y = (float(value) for value in point)
+    except (TypeError, ValueError) as exc:
+        msg = f"{name} must be 2 numbers (x, y): {point!r}"
+        raise ValueError(msg) from exc
+    if not all(math.isfinite(value) and abs(value) <= _FLOAT32_MAX for value in (x, y)):
+        msg = f"{name} must have finite coordinates within PDF real-number range: {point!r}"
+        raise ValueError(msg)
+    return x, y
+
+
+def _validate_shape_paint(
+    color: Sequence[float] | None,
+    fill: Sequence[float] | None,
+    width: float,
+) -> tuple[_Color | None, _Color | None, float]:
+    """Validate a shape's stroke color, fill color, and line width."""
+    if color is None and fill is None:
+        msg = "color and fill cannot both be None"
+        raise ValueError(msg)
+    stroke = None if color is None else _validate_unit_rgb(color)
+    filled = None if fill is None else _validate_unit_rgb(fill)
+    try:
+        line_width = float(width)
+    except (TypeError, ValueError) as exc:
+        msg = f"width must be a positive number: {width!r}"
+        raise ValueError(msg) from exc
+    if not (math.isfinite(line_width) and 0 < line_width <= _FLOAT32_MAX):
+        msg = f"width must be a positive number: {width!r}"
+        raise ValueError(msg)
+    return stroke, filled, line_width
+
+
+def _validate_text_font(font: Font) -> _Font:
+    """Return the core face of a required ``font`` argument."""
+    if not isinstance(font, Font):
+        msg = f"font must be a pylopdf.Font, not {type(font).__name__}"
+        raise TypeError(msg)
+    return font._font
+
+
+class Canvas:
+    """The drawing of one page in a :class:`DrawingBatch`.
+
+    Coordinates are the page's top-left-origin display coordinates, the same
+    space as :meth:`Page.insert_text` and :meth:`Page.get_text`, and colors are
+    ``(r, g, b)`` tuples from 0 to 1. Operations draw in call order when the
+    batch is committed; until then the page is unchanged. Text needs a
+    :class:`Font`: it is shaped when it is recorded, so a missing glyph raises
+    at the call, and every face is embedded once for the whole batch.
+    """
+
+    def __init__(self, batch: DrawingBatch, index: int, width: float, height: float) -> None:
+        """Bind one canvas of a batch; create canvases through the batch."""
+        self._batch = batch
+        self._index = index
+        self._width = width
+        self._height = height
+
+    @property
+    def width(self) -> float:
+        """The page's display width in PDF units."""
+        return self._width
+
+    @property
+    def height(self) -> float:
+        """The page's display height in PDF units."""
+        return self._height
+
+    @property
+    def rect(self) -> Rect:
+        """The page's display rectangle, ``Rect(0, 0, width, height)``."""
+        return Rect(0.0, 0.0, self._width, self._height)
+
+    def _core(self) -> _Batch:
+        self._batch._ensure_open()
+        return self._batch._core
+
+    def insert_text(
+        self,
+        point: Sequence[float],
+        text: str,
+        *,
+        font: Font,
+        fontsize: float = 11.0,
+        color: Sequence[float] = (0.0, 0.0, 0.0),
+    ) -> Point:
+        r"""Draw text at ``point``, the first line's baseline-left point.
+
+        Lines and their placement match :meth:`Page.insert_text`: ``\n``
+        starts a new line at 1.2 times ``fontsize``. Return the point after
+        the last glyph of the last line, where a following run continues the
+        line, for example in another weight. A text call stops at 4,096
+        lines (``text_line_count``) and counts toward the batch's
+        ``max_text_size``.
+        """
+        core = self._core()
+        face = _validate_text_font(font)
+        x, y = _validate_point(point)
+        size = _validate_textbox_options(fontsize, None, TEXT_ALIGN_LEFT, 0)[0]
+        rgb = _validate_unit_rgb(color)
+        if not isinstance(text, str) or not text:
+            msg = "text must be a non-empty string"
+            raise ValueError(msg)
+        _validate_utf8_text_input(text, self._batch._max_text_size)
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        _validate_generated_text_lines(normalized, _DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        end_x, end_y = core.insert_text(self._index, (x, y), normalized.split("\n"), face, size, rgb)
+        return Point(end_x, end_y)
+
+    def insert_textbox(  # noqa: PLR0913 - mirrors Page.insert_textbox.
+        self,
+        rect: Sequence[float],
+        text: str,
+        *,
+        font: Font,
+        fontsize: float = 11.0,
+        color: Sequence[float] = (0.0, 0.0, 0.0),
+        align: int = TEXT_ALIGN_LEFT,
+        expandtabs: int = 8,
+        lineheight: float | None = None,
+    ) -> float:
+        """Wrap text inside ``rect`` as :meth:`Page.insert_textbox` does.
+
+        Return the unused vertical space. A negative value means the text
+        does not fit, and nothing is recorded. Empty text records nothing and
+        returns the rectangle's height.
+        """
+        core = self._core()
+        face = _validate_text_font(font)
+        x0, y0, x1, y1 = _validate_rect(rect)
+        size, leading = _validate_textbox_options(fontsize, lineheight, align, expandtabs)
+        rgb = _validate_unit_rgb(color)
+        if not isinstance(text, str):
+            msg = f"text must be a string: {text!r}"
+            raise TypeError(msg)
+        limit = self._batch._max_text_size
+        _validate_utf8_text_input(text, limit)
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        _validate_generated_text_lines(normalized, _DEFAULT_MAX_GENERATED_TEXT_SIZE)
+        _validate_utf8_text_input(normalized, limit, expandtabs=expandtabs)
+        normalized = normalized.expandtabs(expandtabs)
+        if not normalized:
+            return y1 - y0
+        return core.insert_textbox(self._index, (x0, y0, x1, y1), normalized, face, size, leading, align, rgb)
+
+    def draw_line(
+        self,
+        p1: Sequence[float],
+        p2: Sequence[float],
+        *,
+        color: Sequence[float] = (0.0, 0.0, 0.0),
+        width: float = 1.0,
+    ) -> None:
+        """Draw a straight line from ``p1`` to ``p2`` with butt caps."""
+        core = self._core()
+        start = _validate_point(p1, "p1")
+        end = _validate_point(p2, "p2")
+        stroke, _, line_width = _validate_shape_paint(color, None, width)
+        core.draw_line(self._index, start, end, cast("_Color", stroke), line_width)
+
+    def draw_rect(
+        self,
+        rect: Sequence[float],
+        *,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+    ) -> None:
+        """Draw a rectangle, outlined with ``color`` and filled with ``fill``.
+
+        Pass ``color=None`` for a fill without an outline.
+        """
+        core = self._core()
+        x0, y0, x1, y1 = _validate_rect(rect)
+        stroke, filled, line_width = _validate_shape_paint(color, fill, width)
+        core.draw_rect(self._index, (x0, y0, x1, y1), stroke, filled, line_width)
+
+    def draw_circle(
+        self,
+        center: Sequence[float],
+        radius: float,
+        *,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+    ) -> None:
+        """Draw a circle around ``center``, outlined and filled like :meth:`draw_rect`."""
+        core = self._core()
+        cx, cy = _validate_point(center, "center")
+        try:
+            resolved_radius = float(radius)
+        except (TypeError, ValueError) as exc:
+            msg = f"radius must be a positive number: {radius!r}"
+            raise ValueError(msg) from exc
+        if not (math.isfinite(resolved_radius) and 0 < resolved_radius <= _FLOAT32_MAX):
+            msg = f"radius must be a positive number: {radius!r}"
+            raise ValueError(msg)
+        stroke, filled, line_width = _validate_shape_paint(color, fill, width)
+        core.draw_circle(self._index, (cx, cy), resolved_radius, stroke, filled, line_width)
+
+    def draw_polyline(
+        self,
+        points: Iterable[Sequence[float]],
+        *,
+        closed: bool = False,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+    ) -> None:
+        """Draw straight segments through ``points``; ``closed=True`` draws a polygon.
+
+        An open polyline needs at least two points and a polygon three. A
+        fill paints the area the points enclose. A batch records at most
+        1,048,576 path points across all of its shapes (``path_point_count``).
+        """
+        core = self._core()
+        stroke, filled, line_width = _validate_shape_paint(color, fill, width)
+        validated: list[tuple[float, float]] = []
+        for point in points:
+            if len(validated) >= _MAX_BATCH_PATH_POINTS:
+                code = "path_point_count"
+                raise LimitError(code, f"a drawing batch exceeds the {_MAX_BATCH_PATH_POINTS}-point path safety limit")
+            validated.append(_validate_point(point))
+        minimum = _MIN_POLYGON_POINTS if closed else _MIN_POLYLINE_POINTS
+        if len(validated) < minimum:
+            shape = "a closed polyline" if closed else "a polyline"
+            msg = f"{shape} needs at least {minimum} points"
+            raise ValueError(msg)
+        core.draw_polyline(self._index, validated, closed, stroke, filled, line_width)
+
+    def __repr__(self) -> str:
+        """Return the canvas size."""
+        return f"Canvas(width={self._width}, height={self._height})"
+
+
+class DrawingBatch:
+    """Text and shapes drawn on several pages with one subset per font.
+
+    Create one with :meth:`Document.batch`. :meth:`page` returns the canvas
+    of an existing page and :meth:`new_page` the canvas of a blank page that
+    the commit appends. Leaving a ``with`` block commits the batch, and an
+    exception discards it; :meth:`commit` does the same explicitly.
+
+    The commit generates every canvas in one pass and imports it once, so
+    each :class:`Font` is embedded once for the whole batch where
+    :meth:`Page.insert_text` embeds a subset per call. Each canvas is placed
+    as one Form XObject, above existing content or below it with
+    ``overlay=False``. The commit checks pages, page content, generation, and
+    the import before it changes the document; a page that was deleted or
+    whose rotation or crop box changed after its canvas was created raises
+    :class:`PdfError`. A batch is used once.
+    """
+
+    def __init__(self, document: Document, max_text_size: int | None) -> None:
+        """Start an empty batch; create batches through :meth:`Document.batch`."""
+        self._document = document
+        self._core = _Batch(max_text_size)
+        self._max_text_size = max_text_size
+        self._canvases: dict[int, Canvas] = {}
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            msg = "this drawing batch was already committed or discarded"
+            raise PdfError(msg)
+        self._document._ensure_open()
+
+    def page(self, pno: int, *, overlay: bool = True) -> Canvas:
+        """Return the canvas that draws on page ``pno``.
+
+        ``overlay=False`` draws below the page's existing content. Asking for
+        the same page again returns the same canvas; asking with the other
+        ``overlay`` setting raises ``ValueError``. A batch draws on at most
+        4,096 pages (``batch_page_count``).
+        """
+        self._ensure_open()
+        page_number = self._document._lopdf_page_number(pno)
+        index, width, height = self._core.add_page_canvas(self._document._doc, page_number, overlay)
+        canvas = self._canvases.get(index)
+        if canvas is None:
+            canvas = Canvas(self, index, width, height)
+            self._canvases[index] = canvas
+        return canvas
+
+    def new_page(self, width: float = 595.0, height: float = 842.0) -> Canvas:
+        """Return the canvas of a blank page that the commit appends.
+
+        New pages are appended in the order their canvases were created, and
+        a new page is appended even when nothing is drawn on it.
+        """
+        self._ensure_open()
+        if (
+            not (math.isfinite(width) and math.isfinite(height))
+            or not (0 < width <= _FLOAT32_MAX)
+            or not (0 < height <= _FLOAT32_MAX)
+        ):
+            msg = f"width / height must be positive finite values within PDF real-number range: ({width!r}, {height!r})"
+            raise ValueError(msg)
+        index, stored_width, stored_height = self._core.add_new_canvas(float(width), float(height))
+        canvas = Canvas(self, index, stored_width, stored_height)
+        self._canvases[index] = canvas
+        return canvas
+
+    def commit(self) -> None:
+        """Generate the batch and draw it on the document.
+
+        The batch closes whether or not the commit succeeds.
+        """
+        self._ensure_open()
+        try:
+            added = self._document._doc.commit_batch(self._core)
+        finally:
+            self._closed = True
+        if added:
+            self._document._bump_generation()
+        self._document._emit_warnings()
+
+    def __enter__(self) -> Self:
+        """Return the batch for drawing inside a ``with`` block."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Commit on success and discard the batch after an exception."""
+        if self._closed:
+            return
+        if exc_type is None:
+            self.commit()
+        else:
+            self._closed = True
+
+
 #: Page-label numbering styles (`/S`); an empty value means prefix only.
 _PAGE_LABEL_STYLES = frozenset({"", "D", "R", "r", "A", "a"})
 
@@ -2842,6 +3194,73 @@ class Page:
             (red, green, blue),
             overlay,
             max_text_size,
+        )
+
+    def _draw_shape(self, overlay: bool, draw: Callable[[Canvas], None]) -> None:  # noqa: FBT001 - private helper.
+        """Draw one shape through a single-page batch."""
+        pno = self._page_number() - 1
+        batch = self._document.batch()
+        draw(batch.page(pno, overlay=overlay))
+        batch.commit()
+
+    def draw_line(
+        self,
+        p1: Sequence[float],
+        p2: Sequence[float],
+        *,
+        color: Sequence[float] = (0.0, 0.0, 0.0),
+        width: float = 1.0,
+        overlay: bool = True,
+    ) -> None:
+        """Draw a straight line in display coordinates; see :meth:`Canvas.draw_line`.
+
+        Each call adds one Form XObject. Draw many shapes, or shapes with
+        text, through :meth:`Document.batch`.
+        """
+        self._draw_shape(overlay, lambda canvas: canvas.draw_line(p1, p2, color=color, width=width))
+
+    def draw_rect(
+        self,
+        rect: Sequence[float],
+        *,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+        overlay: bool = True,
+    ) -> None:
+        """Draw a rectangle in display coordinates; see :meth:`Canvas.draw_rect`."""
+        self._draw_shape(overlay, lambda canvas: canvas.draw_rect(rect, color=color, fill=fill, width=width))
+
+    def draw_circle(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
+        self,
+        center: Sequence[float],
+        radius: float,
+        *,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+        overlay: bool = True,
+    ) -> None:
+        """Draw a circle in display coordinates; see :meth:`Canvas.draw_circle`."""
+        self._draw_shape(
+            overlay,
+            lambda canvas: canvas.draw_circle(center, radius, color=color, fill=fill, width=width),
+        )
+
+    def draw_polyline(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
+        self,
+        points: Iterable[Sequence[float]],
+        *,
+        closed: bool = False,
+        color: Sequence[float] | None = (0.0, 0.0, 0.0),
+        fill: Sequence[float] | None = None,
+        width: float = 1.0,
+        overlay: bool = True,
+    ) -> None:
+        """Draw a polyline or polygon in display coordinates; see :meth:`Canvas.draw_polyline`."""
+        self._draw_shape(
+            overlay,
+            lambda canvas: canvas.draw_polyline(points, closed=closed, color=color, fill=fill, width=width),
         )
 
     def insert_ocr_text_layer(
@@ -4055,6 +4474,19 @@ class Document:
         self._doc.new_page(position, width, height)
         self._bump_generation()
         return self[index]
+
+    def batch(self, *, max_text_size: int | None = _DEFAULT_MAX_BATCH_TEXT_SIZE) -> DrawingBatch:
+        """Start a :class:`DrawingBatch` that draws on several pages at once.
+
+        A batch embeds each :class:`Font` once for all of its pages, so use it
+        to generate new documents or to stamp text on many pages. It records
+        at most ``max_text_size`` bytes of UTF-8 text, 64 MiB by default;
+        ``None`` explicitly opts trusted input out, and refusal raises
+        :class:`LimitError` with code ``text_input_size``.
+        """
+        self._ensure_open()
+        _validate_optional_positive_int("max_text_size", max_text_size)
+        return DrawingBatch(self, max_text_size)
 
     def copy_page(self, pno: int, to: int = -1) -> None:
         """Copy page ``pno`` to insertion position ``to``; -1 appends.

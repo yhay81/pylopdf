@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import struct
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from conftest import with_weight_class
 
 import pylopdf
 
@@ -16,24 +16,6 @@ NOTO_SERIF_JP = FONT_ROOT / "pylopdf-fonts-jp" / "src" / "pylopdf_fonts_jp" / "N
 
 # Latin kerning pairs, a ligature candidate, and full-width CJK in one line.
 MIXED_LINE = "AVATAR office 見出し、本文。"
-
-
-def _with_weight_class(data: bytes, weight: int) -> bytes:
-    """Return font data whose OS/2 table declares another weight class.
-
-    The repository bundles regular faces only. Changing the two-byte
-    usWeightClass field gives a face of the same family that declares
-    ``weight`` without adding another font file.
-    """
-    table_count = struct.unpack_from(">H", data, 4)[0]
-    for index in range(table_count):
-        tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * index)
-        if tag == b"OS/2":
-            patched = bytearray(data)
-            struct.pack_into(">H", patched, offset + 4, weight)
-            return bytes(patched)
-    msg = "font has no OS/2 table"
-    raise AssertionError(msg)
 
 
 @pytest.fixture
@@ -51,7 +33,7 @@ def regular() -> pylopdf.Font:
 
 @pytest.fixture(scope="module")
 def bold_data() -> bytes:
-    return _with_weight_class(NOTO_SANS_JP.read_bytes(), 700)
+    return with_weight_class(NOTO_SANS_JP.read_bytes(), 700)
 
 
 def _new_page(width: float = 400, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:

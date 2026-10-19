@@ -615,6 +615,34 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
     }
 
 
+def _batch_results(font: bytes) -> dict[str, Any]:
+    """Draw text and shapes on two new pages in one batch and embed the face once."""
+    import pylopdf  # noqa: PLC0415
+
+    face = pylopdf.Font(fontbuffer=font)
+    document = pylopdf.Document()
+    with document.batch() as batch:
+        for number in range(1, 3):
+            canvas = batch.new_page(200, 120)
+            end = canvas.insert_text((20, 40), _JAPANESE, font=face, fontsize=14)
+            canvas.insert_text(end, f" {number}", font=face, fontsize=14)
+            canvas.draw_rect((10, 10, 190, 110), width=0.5)
+            canvas.draw_circle((170, 30), 6, color=None, fill=(0.8, 0.2, 0.1))
+            canvas.draw_polyline([(20, 90), (60, 90), (40, 60)], closed=True, fill=(0.2, 0.4, 0.8))
+    serialized = document.tobytes()
+    _require(serialized.count(b"/FontFile") == 1, "a batch embedded its face more than once")
+    reopened = pylopdf.Document(stream=serialized)
+    texts = [reopened.get_page_text(index).strip() for index in range(reopened.page_count)]
+    _require(texts == [f"{_JAPANESE} 1", f"{_JAPANESE} 2"], "batch text did not round-trip")
+    drawing_types = [drawing["type"] for drawing in reopened[0].get_drawings()]
+    _require(drawing_types == ["s", "f", "fs"], "batch shapes did not round-trip")
+    return {
+        "pages": reopened.page_count,
+        "text_sha256": [_digest(text) for text in texts],
+        "drawing_types": drawing_types,
+    }
+
+
 def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415
 
@@ -688,6 +716,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "empty_pages": 0,
         "roundtrip_pages": document.page_count,
         "font": font_results,
+        "batch": _batch_results(font),
         "text_sha256": [_digest(text) for text in texts],
         "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
         "batch_render_sizes": render_sizes,

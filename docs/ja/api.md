@@ -31,6 +31,7 @@ password inputはUTF-8 127 byteが上限です。
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1を区別する非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/deleteのentryはpage数と4,096の大きい方まで、`insert_pdf`は取り込み元の全範囲を受け付け、navigationのcleanupとlink取り込みはTOC・named destinationの上限を共有 |
+| `batch(*, max_text_size=64 MiB)` | 既存の頁（`page(pno, overlay=)`）と末尾に足す頁（`new_page(width, height)`）へ文字と図形を一度の生成で描く`DrawingBatch`。`Font`ごとに一度だけ埋め込む。`with`を抜けたときか`commit()`で確定 |
 | `get_toc()` / `set_toc(toc)` | 大規模manualに対応するcycle対応・上限付きのしおり（1始まり。65,536 entry/node、131,072 edge、深さ64、text 16 MiB。named destinationは`get_links()`と同じ） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入 |
@@ -67,6 +68,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
+| `draw_line(p1, p2, color=, width=)` / `draw_rect(rect, color=, fill=, width=)` / `draw_circle(center, radius, color=, fill=, width=)` / `draw_polyline(points, closed=, color=, fill=, width=)` | 表示座標で図形を1つ描く。既存内容の上、または`overlay=False`で下。多数の図形は`Document.batch()`で描く |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
@@ -119,6 +121,26 @@ resourceは追加されません。
 `PylopdfWarning`を出します。描画の呼び出しごとに、その呼び出しで使う字のサブセットを
 埋め込む点は変わりません。
 
+`Document.batch()`は複数の頁を一度の生成で描くので、`Font`はすべての頁で一度だけ
+埋め込まれます。A4の3頁に40行ずつ書いても、`insert_text`の呼び出しごとではなく
+書体ごとにサブセットが1つになります。`batch.page(pno)`は既存の頁のcanvasを返し、
+既存の内容の上、または`overlay=False`で下に描きます。`batch.new_page(width, height)`
+は、確定時に順に末尾へ足す白紙の頁のcanvasを返します。`Canvas`は頁の表示座標を使い、
+呼び出した順に描きます。`insert_text`と`insert_textbox`は`Font`を受け取り、
+`Page`のメソッドとまったく同じに配置し、記録した時点で字形処理するので、字がなければ
+その呼び出しで例外になります。`insert_text`は書いた文字の続きの位置を返すので、
+そこから別の太さで同じ行を続けられます。`draw_line`、`draw_rect`、`draw_circle`、
+`draw_polyline`（`closed=True`で多角形）は、RGBの線色`color`、塗り`fill`、線幅
+`width`を受け取ります。文字に輪郭線が付くことはありません。`with`を抜けると確定し、
+例外なら破棄し、`commit()`で明示的に確定します。一括は一度だけ使えます。確定では
+文書を変える前に、各頁がまだあり表示の大きさがcanvasを作ったときのままであること、
+頁の内容がさらに描画を受け付けること、生成と取り込みが成功することを確かめます。
+canvasはそれぞれ1つのForm XObjectとして置きます。一括で記録できるのは4,096頁
+（`batch_page_count`）、UTF-8で`max_text_size`バイトの文字（`text_input_size`、
+既定64 MiB）、1回の文字の呼び出しにつき4,096行（`text_line_count`）、
+1,048,576個の経路の点（`path_point_count`）までです。`Page.draw_line()`、
+`draw_rect()`、`draw_circle()`、`draw_polyline()`は1頁の一括で図形を1つ描きます。
+
 `set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
 外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
 `fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。
@@ -152,6 +174,7 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot用`max_interpretation_size`と位置付きlayout用`max_text_glyphs`を含む、信頼できない入力の不変な上限／軽量な構造TypedDict |
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`、`has_glyph`を持つ再利用可能なOpenType書体／書体名と太さで引けるようにする登録 |
+| `DrawingBatch` / `Canvas` | `Document.batch()`が返す複数頁の描画の一括／1頁分のcanvas。`insert_text`（続きを書く位置を返す）、`insert_textbox`、`draw_line`、`draw_rect`、`draw_circle`、`draw_polyline`、`width`、`height`、`rect` |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |

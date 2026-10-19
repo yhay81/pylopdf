@@ -116,6 +116,29 @@ page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
 
+## 문서 만들기 { #generate }
+
+```python
+regular = pylopdf.Font(language="ko")                        # pylopdf[ko]
+bold = pylopdf.Font(language="ko", weight="bold")            # register_font("NotoSansKR-Bold.otf") 이후
+doc = pylopdf.Document()
+with doc.batch() as batch:                                   # 글꼴은 모든 페이지에서 한 번만 포함
+    for number, lines in enumerate(chapters, start=1):
+        canvas = batch.new_page(595.28, 841.89)              # A4, 확정할 때 끝에 추가
+        end = canvas.insert_text((56, 72), "보고서", font=bold, fontsize=16)
+        canvas.insert_text(end, f" {number}장", font=regular, fontsize=16)  # 같은 줄을 이어 씀
+        canvas.draw_line((56, 82), (539, 82), color=(0.1, 0.2, 0.3), width=1.2)
+        for row, line in enumerate(lines):
+            canvas.insert_text((56, 110 + 16 * row), line, font=regular, fontsize=10.5)
+        canvas.draw_rect((40, 40, 555, 802), color=(0.6, 0.7, 0.8), width=0.5)
+        canvas.draw_circle((520, 70), 7, color=None, fill=(0.83, 0.26, 0.05))
+        canvas.draw_polyline([(500, 90), (540, 90), (520, 120)], closed=True, fill=(0.9, 0.9, 0.9))
+doc.save("report.pdf")
+```
+
+줄바꿈과 페이지 나누기는 `font.text_length(line, fontsize)`로 계산합니다. 같은
+`font`로 그렸을 때의 폭과 같습니다.
+
 ## 스캔 PDF, 폼, Markdown { #scans-forms-markdown }
 
 ```python

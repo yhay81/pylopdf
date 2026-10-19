@@ -91,6 +91,11 @@ impl _Font {
     pub(crate) fn source(&self) -> (FontBytes, u32) {
         (Arc::clone(&self.data), self.index)
     }
+
+    /// The HarfRust font that shapes and measures this face.
+    pub(crate) fn shaping(&self) -> &ShapingFont {
+        &self.shaping
+    }
 }
 
 #[pymethods]

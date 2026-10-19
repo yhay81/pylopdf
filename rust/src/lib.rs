@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+mod batch;
 mod bundled_font_cache;
 mod content_guard;
 mod content_scan;
@@ -29,6 +30,7 @@ mod render_cache;
 mod renumber;
 mod text_replace;
 mod unallocated;
+use batch::_Batch;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use font::_Font;
 use ocr_engine::{_OcrEngine, OcrError};
@@ -36,6 +38,7 @@ use pixmap::Pixmap;
 
 #[pymodule(gil_used = false)]
 fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<_Batch>()?;
     m.add_class::<_Document>()?;
     m.add_class::<_Font>()?;
     m.add_class::<_OcrEngine>()?;

@@ -36,6 +36,65 @@ class _OcrEngine:
         rotation: int = 0,
     ) -> list[tuple[float, float, float, float, str, float]]: ...
 
+class _Batch:
+    def __init__(self, max_text_size: int | None = 67108864) -> None: ...
+    def add_page_canvas(self, document: _Document, page_number: int, overlay: bool) -> tuple[int, float, float]: ...
+    def add_new_canvas(self, width: float, height: float) -> tuple[int, float, float]: ...
+    def insert_text(
+        self,
+        canvas: int,
+        point: tuple[float, float],
+        lines: list[str],
+        font: _Font,
+        fontsize: float,
+        color: tuple[float, float, float],
+    ) -> tuple[float, float]: ...
+    def insert_textbox(
+        self,
+        canvas: int,
+        rect: tuple[float, float, float, float],
+        text: str,
+        font: _Font,
+        fontsize: float,
+        line_height: float,
+        align: int,
+        color: tuple[float, float, float],
+    ) -> float: ...
+    def draw_line(
+        self,
+        canvas: int,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        color: tuple[float, float, float],
+        width: float,
+    ) -> None: ...
+    def draw_rect(
+        self,
+        canvas: int,
+        rect: tuple[float, float, float, float],
+        color: tuple[float, float, float] | None,
+        fill: tuple[float, float, float] | None,
+        width: float,
+    ) -> None: ...
+    def draw_circle(
+        self,
+        canvas: int,
+        center: tuple[float, float],
+        radius: float,
+        color: tuple[float, float, float] | None,
+        fill: tuple[float, float, float] | None,
+        width: float,
+    ) -> None: ...
+    def draw_polyline(
+        self,
+        canvas: int,
+        points: list[tuple[float, float]],
+        closed: bool,
+        color: tuple[float, float, float] | None,
+        fill: tuple[float, float, float] | None,
+        width: float,
+    ) -> None: ...
+
 class _Font:
     @staticmethod
     def from_bytes(data: bytes, index: int, max_font_size: int | None = 67108864) -> _Font: ...
@@ -425,6 +484,7 @@ class _Document:
         max_text_size: int | None = 1048576,
         package_font: tuple[str, str] | None = None,
     ) -> None: ...
+    def commit_batch(self, batch: _Batch) -> int: ...
     def insert_font_text(
         self,
         page_number: int,

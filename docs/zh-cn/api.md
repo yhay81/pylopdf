@@ -31,6 +31,7 @@ password input上限为127个UTF-8 byte。
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围，navigation清理与link导入共享TOC和named destination上限 |
+| `batch(*, max_text_size=64 MiB)` | 在一次生成中向已有页面（`page(pno, overlay=)`）与追加页面（`new_page(width, height)`）绘制文本和图形的`DrawingBatch`；每个`Font`只嵌入一次；离开`with`块或调用`commit()`时提交 |
 | `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
@@ -65,6 +66,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档 |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
+| `draw_line(p1, p2, color=, width=)` / `draw_rect(rect, color=, fill=, width=)` / `draw_circle(center, radius, color=, fill=, width=)` / `draw_polyline(points, closed=, color=, fill=, width=)` | 以显示坐标绘制一个图形，位于已有内容之上，或以`overlay=False`置于其下；大量图形请用`Document.batch()` |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
@@ -105,6 +107,23 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 不会用描边或叠印模仿字重；只有显式传入`allow_regular_fallback=True`时，才使用该家族的
 Regular并发出`PylopdfWarning`。每次绘制调用仍会嵌入该调用所用字形的子集。
 
+`Document.batch()`在一次生成中绘制多个页面，因此每个`Font`在所有页面中只嵌入一次：
+在3页A4上各写40行，也是每种字体一个子集，而不是每次`insert_text`调用一个。
+`batch.page(pno)`返回已有页面的canvas，绘制在已有内容之上，或以`overlay=False`
+置于其下；`batch.new_page(width, height)`返回提交时按顺序追加的空白页面的canvas。
+`Canvas`使用页面的显示坐标，并按调用顺序绘制。其`insert_text`与`insert_textbox`
+接受`Font`，排版与`Page`方法完全相同，并在记录时进行shaping，因此缺少字形会在该调用
+时抛出异常；`insert_text`返回文本之后的位置，可从那里用另一字重继续同一行。
+`draw_line`、`draw_rect`、`draw_circle`与`draw_polyline`（`closed=True`为多边形）
+接受RGB描边色`color`、填充`fill`与线宽`width`；文本永远不会被描边。离开`with`块即
+提交，发生异常则丢弃，也可调用`commit()`显式提交；一个批处理只能使用一次。提交会在
+修改文档之前确认各页面仍然存在且显示尺寸与创建canvas时相同、页面内容仍可接受绘制，
+以及生成与导入成功。每个canvas作为一个Form XObject放置。一个批处理最多记录4,096页
+（`batch_page_count`）、`max_text_size`字节的UTF-8文本（`text_input_size`，默认
+64 MiB）、每次文本调用4,096行（`text_line_count`）以及1,048,576个路径点
+（`path_point_count`）。`Page.draw_line()`、`draw_rect()`、`draw_circle()`与
+`draw_polyline()`通过单页批处理绘制一个图形。
+
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
 已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
@@ -135,6 +154,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`units_per_em`、`name`、`family`、`weight`、`is_italic`与`has_glyph`的可复用OpenType字体／使字体可按家族名与字重查找的注册 |
+| `DrawingBatch` / `Canvas` | `Document.batch()`返回的多页绘制批处理／单页canvas：`insert_text`（返回续写位置）、`insert_textbox`、`draw_line`、`draw_rect`、`draw_circle`、`draw_polyline`、`width`、`height`、`rect` |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |

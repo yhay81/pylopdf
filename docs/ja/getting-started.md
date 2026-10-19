@@ -120,6 +120,29 @@ page.add_highlight_annot(page.search_for("重要"))            # 検索してマ
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
 
+## 文書を作る { #generate }
+
+```python
+regular = pylopdf.Font(language="ja")                        # pylopdf[jp]
+bold = pylopdf.Font(language="ja", weight="bold")            # register_font("NotoSansJP-Bold.otf")の後
+doc = pylopdf.Document()
+with doc.batch() as batch:                                   # 書体は全頁で一度だけ埋め込む
+    for number, lines in enumerate(chapters, start=1):
+        canvas = batch.new_page(595.28, 841.89)              # A4。確定時に末尾へ足す
+        end = canvas.insert_text((56, 72), "報告書", font=bold, fontsize=16)
+        canvas.insert_text(end, f" 第{number}章", font=regular, fontsize=16)  # 同じ行を続ける
+        canvas.draw_line((56, 82), (539, 82), color=(0.1, 0.2, 0.3), width=1.2)
+        for row, line in enumerate(lines):
+            canvas.insert_text((56, 110 + 16 * row), line, font=regular, fontsize=10.5)
+        canvas.draw_rect((40, 40, 555, 802), color=(0.6, 0.7, 0.8), width=0.5)
+        canvas.draw_circle((520, 70), 7, color=None, fill=(0.83, 0.26, 0.05))
+        canvas.draw_polyline([(500, 90), (540, 90), (520, 120)], closed=True, fill=(0.9, 0.9, 0.9))
+doc.save("report.pdf")
+```
+
+折り返しと頁割りは`font.text_length(line, fontsize)`で計算します。同じ`font`で
+描いたときの幅と一致します。
+
 ## スキャン PDF・フォーム・Markdown { #scans-forms-markdown }
 
 ```python

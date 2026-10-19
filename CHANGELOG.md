@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overprinting glyphs. `allow_regular_fallback=True` explicitly accepts the
   family's regular face and emits a `PylopdfWarning`. pylopdf does not search
   system font directories, so output depends only on the faces passed in.
+- `Document.batch()` draws text and vector shapes on several pages in one
+  generation pass and embeds each `Font` once for the whole batch. Three A4
+  pages of 40 lines each previously embedded one subset per `insert_text`
+  call; a batch embeds one per face. `batch.page(pno, overlay=)` returns the
+  `Canvas` of an existing page and `batch.new_page(width, height)` the canvas
+  of a blank page appended on commit. A canvas lays out text exactly as
+  `Page.insert_text` and `Page.insert_textbox` do, returns the point after an
+  `insert_text` run so that a run in another weight continues the line, and
+  draws lines, rectangles, circles, polylines, and polygons with an RGB stroke,
+  fill, and line width. Text is never stroked. Leaving a `with` block commits,
+  an exception discards, and the commit checks pages, page content,
+  generation, and the import before it changes the document. A batch records
+  at most 4,096 pages (`batch_page_count`), 64 MiB of UTF-8 text by default
+  (`text_input_size`), and 1,048,576 path points (`path_point_count`).
+- `Page.draw_line()`, `draw_rect()`, `draw_circle()`, and `draw_polyline()`
+  draw one vector shape per call, above or below existing content.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing

@@ -89,7 +89,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
+`image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、`batch_page_count`、`path_point_count`、
 `search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
 `decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、

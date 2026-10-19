@@ -43,6 +43,8 @@ deliberately does not implement.
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` / `font_language=` | no source: standard-14 / WinAnsi or an installed script/locale font provider; other sources are shaped and subset-embedded |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` / `font_language=` | UAX #14 wrapping with the same optional provider selection; negative return means no drawing |
 | `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / same / same | pass it as `font=` to `insert_text` / `insert_textbox`; `text_length` uses the drawing's HarfRust shaping; `ascender` / `descender` are the OS/2 typographic metrics; there is no closest-match `is_bold=` search: `weight=` selects an installed or `register_font()` face exactly |
+| `page.draw_rect / draw_line / draw_circle / draw_polyline(..., color=, fill=, width=)` | same, plus `overlay=` | RGB 0–1 colors; `closed=True` instead of `closePath=`; no `dashes=`, `morph=`, or opacity |
+| `Shape` / `TextWriter` / `doc.subset_fonts()` | `with doc.batch() as batch:` and `batch.page(pno)` / `batch.new_page()` canvases | one generation pass for many pages and shapes; each `Font` is subset-embedded once per batch, so there is no separate subsetting step |
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
 | `doc.embfile_add / names / get / del` | same | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |

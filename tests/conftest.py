@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from collections.abc import Iterator
 
 import pytest
@@ -23,6 +24,24 @@ def _no_generated_pdf_mismatch() -> Iterator[None]:
     mismatched = _Document.generated_pdf_loads()[2]
     yield
     assert _Document.generated_pdf_loads()[2] == mismatched, "sequential generated-PDF parse differs from lopdf"
+
+
+def with_weight_class(data: bytes, weight: int) -> bytes:
+    """Return OpenType data whose OS/2 table declares another weight class.
+
+    The repository bundles regular faces only. Changing the two-byte
+    usWeightClass field gives a face of the same family that declares
+    ``weight`` without adding another font file.
+    """
+    table_count = struct.unpack_from(">H", data, 4)[0]
+    for index in range(table_count):
+        tag, _checksum, offset, _length = struct.unpack_from(">4sIII", data, 12 + 16 * index)
+        if tag == b"OS/2":
+            patched = bytearray(data)
+            struct.pack_into(">H", patched, offset + 4, weight)
+            return bytes(patched)
+    msg = "font has no OS/2 table"
+    raise AssertionError(msg)
 
 
 def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> bytes:

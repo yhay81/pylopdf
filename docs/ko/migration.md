@@ -42,6 +42,8 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | source가 없으면 Standard-14 / WinAnsi 또는 설치된script／locale provider. 다른 source는 shaping 후 subset 내장 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 음수 반환 시 그리지 않음 |
 | `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / 동일 / 동일 | `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 그리기와 같은 HarfRust shaping으로 측정. `ascender`／`descender`는 OS/2 typographic metrics. `is_bold=`로 가까운 글꼴을 찾지 않으며 `weight=`는 설치된 글꼴 또는 `register_font()`의 글꼴을 정확히 일치하는 것으로 선택 |
+| `page.draw_rect / draw_line / draw_circle / draw_polyline(..., color=, fill=, width=)` | 동일, 추가로 `overlay=` | 색은 RGB 0–1. `closePath=` 대신 `closed=True`. `dashes=`, `morph=`, 불투명도는 없음 |
+| `Shape` / `TextWriter` / `doc.subset_fonts()` | `with doc.batch() as batch:`와 `batch.page(pno)` / `batch.new_page()` canvas | 많은 페이지와 도형을 한 번에 생성. `Font`는 묶음마다 한 번만 subset 포함되므로 별도의 subset 단계가 없음 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del` | 동일 | |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |

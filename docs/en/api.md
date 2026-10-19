@@ -32,6 +32,7 @@ Password input stops at 127 UTF-8 bytes.
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management; select/delete entries are bounded by the larger of the page count and 4,096, `insert_pdf` accepts any complete source range, and navigation cleanup and link import share the TOC and named-destination limits |
+| `batch(*, max_text_size=64 MiB)` | `DrawingBatch` that draws text and shapes on existing pages (`page(pno, overlay=)`) and appended pages (`new_page(width, height)`) in one generation pass, embedding each `Font` once; commits on leaving a `with` block or with `commit()` |
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines sized for large manuals (1-based pages; 65,536 entries/nodes, 131,072 edges, 64 levels, 16 MiB text; named destinations as in `get_links()`) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input |
@@ -69,6 +70,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
+| `draw_line(p1, p2, color=, width=)` / `draw_rect(rect, color=, fill=, width=)` / `draw_circle(center, radius, color=, fill=, width=)` / `draw_polyline(points, closed=, color=, fill=, width=)` | one vector shape per call in display coordinates, above or below (`overlay=False`) existing content; draw many shapes with `Document.batch()` |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
@@ -186,6 +188,29 @@ stroking or overprinting glyphs; `allow_regular_fallback=True` explicitly
 accepts the family's regular face and emits a `PylopdfWarning`. Each drawing
 call still embeds a subset of its own glyphs.
 
+`Document.batch()` draws on several pages in one generation pass, which embeds
+each `Font` once for all of them: three A4 pages with 40 lines each embed one
+subset per face instead of one per `insert_text` call. `batch.page(pno)`
+returns the canvas of an existing page, drawn above its content or below it
+with `overlay=False`, and `batch.new_page(width, height)` the canvas of a blank
+page that the commit appends in order. A `Canvas` uses the page's display
+coordinates and draws in call order. Its `insert_text` and `insert_textbox`
+take a `Font`, lay out text exactly as the `Page` methods do, and shape it when
+it is recorded, so a missing glyph raises at the call; `insert_text` returns
+the point after the run, where a run in another weight continues the line.
+`draw_line`, `draw_rect`, `draw_circle`, and `draw_polyline` (`closed=True` for
+polygons) take an RGB stroke `color`, an RGB `fill`, and a line `width`; text is
+never stroked. Leaving a `with` block commits the batch, an exception discards
+it, and `commit()` commits explicitly; a batch is used once. Before the
+document changes, the commit checks that every page still exists with the
+display size its canvas was created with, that page content can take another
+drawing, and that generation and import succeed. Each canvas is placed as one
+Form XObject. A batch records at most 4,096 pages (`batch_page_count`),
+`max_text_size` bytes of UTF-8 text (`text_input_size`, 64 MiB by default),
+4,096 lines per text call (`text_line_count`), and 1,048,576 path points
+(`path_point_count`). `Page.draw_line()`, `draw_rect()`, `draw_circle()`, and
+`draw_polyline()` draw one shape through a one-page batch.
+
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
 `fontfile` or `fontbuffer` for subset-embedded Unicode. Installed locale/script
@@ -221,6 +246,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
 | `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph` / registration that makes a face available to family and weight lookups |
+| `DrawingBatch` / `Canvas` | multi-page drawing batch from `Document.batch()` / one page's canvas with `insert_text` (returns the point after the run), `insert_textbox`, `draw_line`, `draw_rect`, `draw_circle`, `draw_polyline`, `width`, `height`, and `rect` |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
