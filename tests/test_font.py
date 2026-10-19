@@ -262,13 +262,13 @@ def test_font_validates_sources_and_lookup_arguments() -> None:
     for fontname in ("figo", "cjk", "japan", "Arial"):
         with pytest.raises(pylopdf.PdfError, match="Standard 14"):
             pylopdf.Font(fontname)
-    for options in ({"is_bold": True}, {"is_italic": True}, {"is_serif": True}, {"weight": 700}):
+    for options in ({"is_bold": True}, {"is_italic": True}, {"is_serif": True}, {"allow_regular_fallback": True}):
         with pytest.raises(pylopdf.PdfError, match="as given"):
             pylopdf.Font("helv", **options)  # ty: ignore[invalid-argument-type]
         with pytest.raises(pylopdf.PdfError, match="as given"):
             pylopdf.Font(fontfile=NOTO_SANS_JP, **options)  # ty: ignore[invalid-argument-type]
-    with pytest.raises(pylopdf.PdfError, match="as given"):
-        pylopdf.Font(fontfile=NOTO_SANS_JP, allow_regular_fallback=True)
+    with pytest.raises(pylopdf.PdfError, match="fontname names one Standard 14 variant"):
+        pylopdf.Font("helv", weight=700)
     with pytest.raises(pylopdf.PdfError, match="fontindex requires"):
         pylopdf.Font("helv", fontindex=1)
     with pytest.raises(pylopdf.PdfError, match="fontindex requires"):
@@ -293,6 +293,26 @@ def test_font_validates_sources_and_lookup_arguments() -> None:
         pylopdf.Font(fontfile=NOTO_SANS_JP, fontindex=1)
     with pytest.raises(TypeError, match="fontname"):
         pylopdf.Font(NOTO_SANS_JP)  # ty: ignore[invalid-argument-type]
+
+
+def test_an_explicit_weight_must_match_a_static_face(regular: pylopdf.Font, bold_data: bytes) -> None:
+    """A static face has one weight; pylopdf refuses others rather than imitating them."""
+    as_given = _new_page()
+    as_given[1].insert_text((20, 60), MIXED_LINE, font=regular, fontsize=18)
+    for weight in (400, None):
+        face = pylopdf.Font(fontfile=NOTO_SANS_JP, weight=weight)
+        assert (face.name, face.weight) == ("Noto Sans JP Regular", 400)
+        drawn = _new_page()
+        drawn[1].insert_text((20, 60), MIXED_LINE, font=face, fontsize=18)
+        assert drawn[0].tobytes() == as_given[0].tobytes()
+    with pytest.raises(pylopdf.PdfError, match="no weight axis, and its only face is regular, not bold; load the bold"):
+        pylopdf.Font(fontfile=NOTO_SANS_JP, weight=700)
+    with pytest.raises(pylopdf.PdfError, match="its only face is regular, not weight-500"):
+        pylopdf.Font(fontbuffer=NOTO_SANS_JP.read_bytes(), weight=500)
+    # A face that declares weight 700 provides that weight and nothing else.
+    assert pylopdf.Font(fontbuffer=bold_data, weight=700).is_bold
+    with pytest.raises(pylopdf.PdfError, match="its only face is bold, not regular"):
+        pylopdf.Font(fontbuffer=bold_data, weight=400)
 
 
 def test_font_input_is_bounded() -> None:

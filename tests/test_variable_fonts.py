@@ -1,8 +1,9 @@
-"""Weight instances of the variable faces that the script font extras install."""
+"""Weight instances of variable faces, from the script font extras or passed in as files or bytes."""
 
 from __future__ import annotations
 
 import re
+import struct
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,21 @@ SCRIPT_FACES = [
     pytest.param("th", True, "ภาษาไทย", id="th-serif"),
 ]
 EXTRA_MODULES = {"ar": "pylopdf_fonts_ar", "he": "pylopdf_fonts_he", "hi": "pylopdf_fonts_hi", "th": "pylopdf_fonts_th"}
+# The repository file of each face, which tests also pass as fontfile or
+# fontbuffer, so those cases run without the extras installed.
+VARIABLE_FONT_FILES = {
+    ("ar", False): "NotoSansArabic-Variable.ttf",
+    ("ar", True): "NotoNaskhArabic-Variable.ttf",
+    ("he", False): "NotoSansHebrew-Variable.ttf",
+    ("he", True): "NotoSerifHebrew-Variable.ttf",
+    ("hi", False): "NotoSansDevanagari-Variable.ttf",
+    ("hi", True): "NotoSerifDevanagari-Variable.ttf",
+    ("th", False): "NotoSansThai-Variable.ttf",
+    ("th", True): "NotoSerifThai-Variable.ttf",
+}
+# Where a face comes from: Font(language=...), or its file as fontfile or fontbuffer.
+SOURCES = ["language", "fontfile", "fontbuffer"]
+EXPLICIT_SOURCES = ["fontfile", "fontbuffer"]
 BOLD_FLAG = 16
 # A subset name in a font or descriptor dictionary: a six-letter tag, then the face.
 SUBSET_NAME = re.compile(rb"/(?:BaseFont|FontName) */[A-Z]{6}\+([A-Za-z0-9_-]+)")
@@ -68,6 +84,64 @@ def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
 def _ink(page: pylopdf.Page) -> int:
     """Count the pixels that drawing covered on a transparent page."""
     return sum(alpha > 128 for alpha in page.get_pixmap(2).samples[3::4])
+
+
+def _variable_font_path(language: str, serif: bool) -> Path:  # noqa: FBT001
+    package = FONT_ROOT / f"pylopdf-fonts-{language}" / "src" / EXTRA_MODULES[language]
+    return package / VARIABLE_FONT_FILES[language, serif]
+
+
+def _variable_font(
+    source: str,
+    language: pylopdf.FontLanguage,
+    serif: bool,  # noqa: FBT001
+    weight: int | None = None,
+) -> pylopdf.Font:
+    """Load a script face from its installed extra, or its file as fontfile or fontbuffer.
+
+    A lookup reads an omitted weight as regular, and a file loads its default
+    instance.
+    """
+    if source == "language":
+        pytest.importorskip(EXTRA_MODULES[language])
+        return pylopdf.Font(language=language, is_serif=serif, weight=weight)
+    path = _variable_font_path(language, serif)
+    if source == "fontfile":
+        return pylopdf.Font(fontfile=path, weight=weight)
+    return pylopdf.Font(fontbuffer=path.read_bytes(), weight=weight)
+
+
+def _bold_font(source: str, language: pylopdf.FontLanguage, serif: bool) -> pylopdf.Font:  # noqa: FBT001
+    """Load the bold instance as each source requests it: is_bold for a lookup, weight for a file."""
+    if source == "language":
+        pytest.importorskip(EXTRA_MODULES[language])
+        return pylopdf.Font(language=language, is_serif=serif, is_bold=True)
+    return _variable_font(source, language, serif, weight=700)
+
+
+def _postscript_name(font: pylopdf.Font) -> str:
+    """Return the subset name that generation embeds for a face named "<family> <style>"."""
+    family = font.family or ""
+    style = (font.name or "").removeprefix(f"{family} ")
+    separator = "_" if style.endswith("wght") else "-"
+    return f"{family.replace(' ', '')}{separator}{style}"
+
+
+def _without_weight_axis(data: bytes) -> bytes:
+    """Return a variable font's data as a static face of its default instance.
+
+    Renaming the ``fvar`` table hides every axis from pylopdf, krilla, and
+    HarfRust; the new tag keeps the table directory sorted.
+    """
+    table_count = struct.unpack_from(">H", data, 4)[0]
+    for index in range(table_count):
+        record = 12 + 16 * index
+        if struct.unpack_from(">4s", data, record)[0] == b"fvar":
+            patched = bytearray(data)
+            struct.pack_into(">4s", patched, record, b"fvaz")
+            return bytes(patched)
+    msg = "font has no fvar table"
+    raise AssertionError(msg)
 
 
 def test_hebrew_generation_embeds_the_regular_instance() -> None:
@@ -124,17 +198,85 @@ def test_explicit_variable_font_input_keeps_its_default_instance() -> None:
     assert doc.page_count == 1
 
 
+@pytest.mark.parametrize("source", EXPLICIT_SOURCES)
+def test_an_explicit_weight_selects_an_instance_of_the_input(source: str) -> None:
+    """An omitted weight loads the face as given; an explicit one, even 400, selects that instance."""
+    as_given = _variable_font(source, "he", False)
+    regular = _variable_font(source, "he", False, weight=400)
+
+    assert (as_given.name, as_given.weight) == ("Noto Sans Hebrew Thin", 100)
+    assert (regular.name, regular.weight, regular.is_bold) == ("Noto Sans Hebrew Regular", 400, False)
+    for weight, advances in SHALOM_ADVANCES.items():
+        face = _variable_font(source, "he", False, weight=weight)
+        assert [face.text_length(char, 1000) for char in SHALOM] == pytest.approx(advances)
+    _doc, page = _new_page(500, 300)
+    page.insert_text((20, 150), SHALOM, fontsize=100, font=regular)
+    assert {span["font"] for span in _spans(page)} == {"NotoSansHebrew-Regular"}
+    widths = [char["bbox"][2] - char["bbox"][0] for char in _chars(page)]
+    assert widths == pytest.approx([advance / 10 for advance in SHALOM_ADVANCES[400]])
+
+
+@pytest.mark.parametrize("source", EXPLICIT_SOURCES)
 @pytest.mark.parametrize(("language", "serif", "text"), SCRIPT_FACES)
-def test_variable_extras_provide_named_weight_instances(
+def test_explicit_input_without_a_weight_draws_as_before(
+    source: str,
     language: pylopdf.FontLanguage,
     serif: bool,  # noqa: FBT001
     text: str,
 ) -> None:
-    pytest.importorskip(EXTRA_MODULES[language])
-    regular = pylopdf.Font(language=language, is_serif=serif)
-    bold = pylopdf.Font(language=language, is_serif=serif, is_bold=True)
-    semibold = pylopdf.Font(language=language, is_serif=serif, weight=600)
-    between = pylopdf.Font(language=language, is_serif=serif, weight=650)
+    """A face loaded without ``weight``, or at its default weight, draws what fontfile and fontbuffer draw."""
+    path = _variable_font_path(language, serif)
+    as_given = _variable_font(source, language, serif)
+    default_weight = _variable_font(source, language, serif, weight=as_given.weight)
+    drawn = []
+    for font in (as_given, default_weight, None):
+        doc, page = _new_page()
+        if font is not None:
+            page.insert_text((20, 60), text, fontsize=18, font=font)
+            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, font=font)
+        elif source == "fontfile":
+            page.insert_text((20, 60), text, fontsize=18, fontfile=path)
+            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, fontfile=path)
+        else:
+            page.insert_text((20, 60), text, fontsize=18, fontbuffer=path.read_bytes())
+            page.insert_textbox((20, 80, 380, 180), text, fontsize=14, fontbuffer=path.read_bytes())
+        drawn.append(doc.tobytes())
+
+    assert drawn[0] == drawn[1] == drawn[2]
+    assert default_weight.name == as_given.name
+    # The subset keeps krilla's name, the default instance's PostScript name.
+    assert {match.decode() for match in SUBSET_NAME.findall(drawn[0])} == {_postscript_name(as_given)}
+
+
+def test_explicit_input_refuses_weights_that_the_font_does_not_define() -> None:
+    for source in EXPLICIT_SOURCES:
+        for weight in (300, 900):
+            outside = f"weight {weight} is outside the font's weight axis, which runs from 400 through 700"
+            with pytest.raises(pylopdf.PdfError, match=outside):
+                _variable_font(source, "ar", True, weight=weight)
+    # The same face without its weight axis has only its default instance's weight.
+    static = _without_weight_axis(HEBREW_SANS.read_bytes())
+    with pytest.raises(pylopdf.PdfError, match="no weight axis, and its only face is weight-100, not regular; load"):
+        pylopdf.Font(fontbuffer=static, weight=400)
+    assert pylopdf.Font(fontbuffer=static, weight=100).name == "Noto Sans Hebrew Thin"
+    # The style options still select only installed extras' faces.
+    for option in ({"is_bold": True}, {"is_italic": True}, {"is_serif": True}, {"allow_regular_fallback": True}):
+        with pytest.raises(pylopdf.PdfError, match="used as given"):
+            pylopdf.Font(fontfile=HEBREW_SANS, weight=700, **option)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("source", SOURCES)
+@pytest.mark.parametrize(("language", "serif", "text"), SCRIPT_FACES)
+def test_variable_faces_provide_named_weight_instances(
+    source: str,
+    language: pylopdf.FontLanguage,
+    serif: bool,  # noqa: FBT001
+    text: str,
+) -> None:
+    regular = _variable_font(source, language, serif, weight=400)
+    bold = _bold_font(source, language, serif)
+    semibold = _variable_font(source, language, serif, weight=600)
+    between = _variable_font(source, language, serif, weight=650)
 
     family = regular.family
     assert family is not None
@@ -158,15 +300,16 @@ def test_variable_extras_provide_named_weight_instances(
 
 # Noto Sans Arabic draws some dots as glyphs of their own, which extraction skips.
 @pytest.mark.filterwarnings("ignore:text extraction skipped glyphs:pylopdf.PylopdfWarning")
+@pytest.mark.parametrize("source", SOURCES)
 @pytest.mark.parametrize(("language", "serif", "text"), SCRIPT_FACES)
 def test_a_bold_instance_measures_and_draws_the_same_width(
+    source: str,
     language: pylopdf.FontLanguage,
     serif: bool,  # noqa: FBT001
     text: str,
 ) -> None:
-    pytest.importorskip(EXTRA_MODULES[language])
-    bold = pylopdf.Font(language=language, is_serif=serif, is_bold=True)
-    regular = pylopdf.Font(language=language, is_serif=serif)
+    bold = _bold_font(source, language, serif)
+    regular = _variable_font(source, language, serif, weight=400)
     doc, page = _new_page()
     x, size = 30.25, 24.0
 
@@ -186,9 +329,9 @@ def test_a_bold_instance_measures_and_draws_the_same_width(
     assert reopened[0].get_text().strip() == text
 
 
-def test_a_prefix_of_a_bold_line_ends_where_the_next_glyph_begins() -> None:
-    pytest.importorskip("pylopdf_fonts_th")
-    bold = pylopdf.Font(language="th", is_bold=True)
+@pytest.mark.parametrize("source", SOURCES)
+def test_a_prefix_of_a_bold_line_ends_where_the_next_glyph_begins(source: str) -> None:
+    bold = _bold_font(source, "th", False)
     _doc, page = _new_page()
     x, size, text, prefix = 20.5, 30.0, "ภาษาไทย", "ภาษา"
 
@@ -198,9 +341,9 @@ def test_a_prefix_of_a_bold_line_ends_where_the_next_glyph_begins() -> None:
     assert following["origin"][0] == pytest.approx(x + bold.text_length(prefix, size), abs=1e-3)
 
 
-def test_textbox_lays_out_a_bold_instance_with_its_advances() -> None:
-    pytest.importorskip("pylopdf_fonts_he")
-    bold = pylopdf.Font(language="he", is_bold=True)
+@pytest.mark.parametrize("source", SOURCES)
+def test_textbox_lays_out_a_bold_instance_with_its_advances(source: str) -> None:
+    bold = _bold_font(source, "he", False)
     _doc, page = _new_page()
     rect = (20, 20, 380, 120)
 

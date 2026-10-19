@@ -114,6 +114,8 @@ width = bold.text_length("제목", fontsize=16)                  # 그렸을 때
 page.insert_text((page.rect.width - 40 - width, 140), "제목", font=bold, fontsize=16)
 hebrew = pylopdf.Font(language="he", is_bold=True)          # 가변 글꼴인 pylopdf[he]는 파일 없이 Bold를 선택
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
+semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 직접 준비한 가변 글꼴은 축 위의 어떤 굵기든 선택
+page.insert_text((40, 200), "제목", font=semibold, fontsize=16)
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

@@ -34,8 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Noto Sans JP Bold; pylopdf keeps no font registry, never searches system
   font directories, and never imitates a weight by stroking or overprinting
   glyphs. `allow_regular_fallback=True` explicitly uses the extra's face with a
-  `PylopdfWarning`. These options raise with `fontname` and font files, where
-  pymupdf ignores them.
+  `PylopdfWarning`. `is_bold=`, `is_italic=`, `is_serif=`, and
+  `allow_regular_fallback=` raise with `fontname` and font files, where
+  pymupdf ignores them, and `weight=` raises with `fontname`.
 - `Font(language=...)` and `Font(family=...)` select a weight of the variable
   faces that the `ar`, `he`, `hi`, and `th` extras install, from `weight=` or
   `is_bold=True`, as an instance on the face's weight axis without another
@@ -48,6 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, `NotoSansHebrew-Bold`, which extraction reports together with its bold
   flag. A weight outside the axis raises `PdfError` instead of being clamped
   to the nearest end.
+- `Font(fontfile=..., weight=...)` and `Font(fontbuffer=..., weight=...)`
+  select an instance of a variable font that the application supplies, such as
+  `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` or `weight=650`, through
+  the same instancing as the script extras: `text_length` is the drawn width,
+  and the subset is named after the instance, `NotoSansCJKjp-Bold`. Without
+  `weight`, the face is still loaded as given, a variable font at its default
+  instance, which need not be regular (that of Noto Sans CJK JP is Thin), so
+  `weight=400` differs from an omitted weight on such a font. A weight outside
+  the axis raises `PdfError`, and so does a weight that a static face does not
+  declare. The `fontfile` and `fontbuffer` arguments of `insert_text`,
+  `insert_textbox`, and `set_form_field` still draw the default instance, and
+  their output is byte-identical.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing

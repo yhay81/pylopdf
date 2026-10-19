@@ -1486,8 +1486,16 @@ overview.
   output depends only on the fonts passed in. A face that does not match
   `is_bold`, `is_italic`, or `weight` raises unless `allow_regular_fallback`
   is set, which warns; never synthesize a weight by stroking, overprinting, or
-  render-mode changes. `fontfile`, `fontbuffer`, and `Font(fontfile=)` load a
-  variable font at its default instance.
+  render-mode changes. The `fontfile` and `fontbuffer` drawing arguments,
+  and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`, load a
+  variable font at its default instance, which need not be regular (Noto
+  Sans CJK JP's is Thin). The keyword-only `weight` extends a loaded face
+  (F0 R2.5): `_face_at_weight` selects that instance with
+  `_Font.with_weight`, so `weight=400` differs from an omitted weight, and
+  refuses a weight outside the axis; a static face must already declare the
+  requested weight class, and pylopdf never relabels it. `is_bold`,
+  `is_italic`, and `is_serif` keep pymupdf's lookup meaning and raise with
+  `fontname` and font files (R2.7) instead of selecting an instance there.
 - The `ar`, `he`, `hi`, and `th` extras ship variable fonts with `wght` axes
   (100 through 900; Noto Naskh Arabic 400 through 700), and the default
   instance of Noto Sans Hebrew is Thin (weight class 100).
@@ -1518,8 +1526,9 @@ overview.
   truncates HVAR deltas where HarfRust rounds them, so a `/W` width could
   differ from the shaped advance by one font unit while glyph positions
   follow HarfRust; every Hebrew and Thai letter of the bundled faces matched
-  at the weights measured. The Pyodide contract has no font extras, so
-  native tests cover instancing.
+  at the weights measured. The Pyodide contract has no font extras; it
+  covers instancing through `Font(fontbuffer=..., weight=...)` with the
+  repository's Noto Sans Hebrew, and native tests cover the extras.
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature
@@ -1887,7 +1896,8 @@ overview.
   job must compare it exactly. Coverage includes bytes input, PDF 2.0,
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
-  subset-embedded OpenType generation, textbox layout, pixmaps,
+  subset-embedded OpenType generation, weight instances of a variable font
+  passed as bytes, textbox layout, pixmaps,
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
   error recovery, lopdf cross-reference recovery reporting, and unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page

@@ -95,7 +95,13 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 `insert_text(font=)`与`insert_textbox(font=)`传入。`Font("helv")`或
 `Font("Times-Bold")`指定Standard 14字体，不嵌入即可绘制，并按Adobe AFM宽度测量；
 pymupdf的其他内置字体不可用。`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载
-OpenType字体（可变字体使用其默认实例），`Font(language="zh-CN")`或
+OpenType字体，可变字体使用其默认实例。默认实例不一定是Regular：可变字体Noto Sans CJK JP
+的默认实例是Thin。传入`weight=`即可从可变字体的字重轴选择其他实例：
+`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`按Bold实例的前进宽度测量，并以
+`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用，因此对这类字体，`weight=400`与省略
+`weight`的结果不同。超出字重轴范围的字重会抛出`PdfError`，静态字体不具备的字重也一样。
+传给`insert_text`、`insert_textbox`与`set_form_field`的`fontfile`和`fontbuffer`以默认
+实例绘制。`Font(language="zh-CN")`或
 `Font(family="Noto Sans SC")`选择已安装字体extra的字体（`is_serif=True`为衬线体）。
 `font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此
 可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是
@@ -109,8 +115,8 @@ OpenType字体（可变字体使用其默认实例），`Font(language="zh-CN")`
 `PdfError`。已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`
 自动选择时）以Regular字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
 字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出
-`PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入样式选项也会
-抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集。
+`PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入`is_bold`、
+`is_italic`或`is_serif`也会抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集。
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
 使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
@@ -141,7 +147,7 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | 元数据输出／部分更新／快速探测契约 |
 | `DocumentLimits` / `DocumentComplexity` | 包含PDF snapshot用`max_interpretation_size`和带位置layout用`max_text_glyphs`的不受信任输入不可变预算／轻量结构TypedDict |
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
-| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体 |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体；`weight=`也可选择可变字体文件的实例 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |

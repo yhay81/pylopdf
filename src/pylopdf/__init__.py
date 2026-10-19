@@ -1843,6 +1843,27 @@ def _regular_instance(face: _Font) -> _Font:
     return face if face.weight_range is None else face.with_weight(_REGULAR_FONT_WEIGHT)
 
 
+def _face_at_weight(face: _Font, weight: int) -> _Font:
+    """Select ``weight`` on a face loaded from ``fontfile`` or ``fontbuffer``.
+
+    A variable face provides the instance at any weight on its weight axis and
+    refuses a weight outside it. Any other face has one weight, its OS/2
+    weight class, which must be the one requested: pylopdf never imitates a
+    weight that the font does not define.
+    """
+    if face.weight_range is not None:
+        return face.with_weight(weight)
+    if face.weight == weight:
+        return face
+    current = _describe_face(face.weight, italic=False)
+    requested = _describe_face(weight, italic=False)
+    msg = (
+        f"the font has no weight axis, and its only face is {current}, not {requested}; "
+        f"load the {requested} face's file instead"
+    )
+    raise PdfError(msg)
+
+
 def _package_face_weight(package_font: tuple[FontLanguage, str] | None) -> int | None:
     """Return the weight that drawing selects on an installed package face.
 
@@ -1857,17 +1878,24 @@ class Font:
 
     Pass exactly one source. ``fontname`` names a Standard 14 font by its
     PostScript name or pymupdf alias, such as ``"Times-Bold"`` or ``"helv"``.
-    ``fontfile`` or ``fontbuffer`` loads an OpenType face as given, with
-    ``fontindex`` selecting a face in a collection; a variable font is used at
-    its default instance. ``language`` selects the face of an installed font
-    extra such as ``pylopdf[jp]`` (``is_serif=True`` for its serif face), and
-    ``family`` selects an installed extra's face by family name, such as
-    ``"Noto Sans JP"``. pylopdf has no default font and keeps no font
-    registry; load any other face, such as a bold weight, from its file.
+    ``fontfile`` or ``fontbuffer`` loads an OpenType face, with ``fontindex``
+    selecting a face in a collection. ``language`` selects the face of an
+    installed font extra such as ``pylopdf[jp]`` (``is_serif=True`` for its
+    serif face), and ``family`` selects an installed extra's face by family
+    name, such as ``"Noto Sans JP"``. pylopdf has no default font and keeps no
+    font registry; load any other face, such as a bold weight, from its file.
+
+    A face from ``fontfile`` or ``fontbuffer`` is used as given, a variable
+    font at its default instance, which need not be regular: the variable
+    Noto Sans CJK JP defaults to Thin. ``weight``, a weight class from 1
+    through 1000, selects the instance at that weight on a variable font's
+    weight axis instead and refuses a weight outside the axis, so
+    ``weight=400`` differs from an omitted weight for such a font. A static
+    face must already have the requested weight class.
 
     For ``language`` and ``family``, ``is_bold`` and ``is_italic`` request a
-    style and ``weight`` a weight class from 1 through 1000. The extras
-    install one face per style. The ``ar``, ``he``, ``hi``, and ``th`` extras
+    style and ``weight`` a weight class. The extras install one face per
+    style. The ``ar``, ``he``, ``hi``, and ``th`` extras
     install variable faces, which provide the weights on their weight axis as
     instances (100 through 900, or 400 through 700 for the Noto Naskh Arabic
     serif face) and are drawn at the regular weight unless another is
@@ -1875,9 +1903,10 @@ class Font:
     installed face does not provide, including a weight outside its axis,
     raises :class:`PdfError` instead of imitating a weight by stroking or
     overprinting glyphs; ``allow_regular_fallback=True`` explicitly uses the
-    extra's regular face and emits a :class:`PylopdfWarning`. These options
-    do not apply to the other sources and raise there, where pymupdf would
-    ignore them.
+    extra's regular face and emits a :class:`PylopdfWarning`. Apart from
+    ``weight`` with ``fontfile`` and ``fontbuffer``, these options do not
+    apply to the other sources and raise there, where pymupdf would ignore
+    them.
 
     A Font reads its input once. Pass it as ``font`` to
     :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
@@ -1926,13 +1955,18 @@ class Font:
             msg = f"pass one font source, not {' and '.join(sources)}"
             raise PdfError(msg)
         if fontname is not None or fontfile is not None or fontbuffer is not None:
-            if is_bold or is_italic or is_serif or resolved_weight is not None or allow_regular_fallback:
+            if is_bold or is_italic or is_serif or allow_regular_fallback:
                 msg = (
-                    "is_bold, is_italic, is_serif, weight, and allow_regular_fallback select the face of an "
-                    "installed font extra; fontname names one Standard 14 variant and a font file is used as given"
+                    "is_bold, is_italic, is_serif, and allow_regular_fallback select the face of an installed "
+                    "font extra; fontname names one Standard 14 variant and a font file is used as given, "
+                    "or at the instance that weight selects on a variable font"
                 )
                 raise PdfError(msg)
-            self._font = _named_or_loaded_font(fontname, fontfile, fontbuffer, fontindex, max_font_size)
+            if fontname is not None and resolved_weight is not None:
+                msg = "weight selects an instance of a variable font file; fontname names one Standard 14 variant"
+                raise PdfError(msg)
+            face = _named_or_loaded_font(fontname, fontfile, fontbuffer, fontindex, max_font_size)
+            self._font = face if resolved_weight is None else _face_at_weight(face, resolved_weight)
             return
         if fontindex != 0:
             msg = "fontindex requires fontfile or fontbuffer"
@@ -1974,9 +2008,9 @@ class Font:
     def weight(self) -> int:
         """The weight: 400 for regular and 700 for bold faces.
 
-        A variable face that ``language`` or ``family`` selects reports the
-        weight-axis value it is drawn at; any other face reports its OS/2
-        weight class.
+        An instance selected on a variable face's weight axis reports the axis
+        value it is drawn at; a face used as given reports its OS/2 weight
+        class.
         """
         return self._font.weight
 
@@ -2717,7 +2751,9 @@ class Page:
 
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
-        including shaped CJK and RTL scripts. Script extras ``pylopdf[ar]``,
+        including shaped CJK and RTL scripts. A variable font is drawn at its
+        default instance; ``font=Font(fontfile=..., weight=...)`` draws another
+        instance on its weight axis. Script extras ``pylopdf[ar]``,
         ``[he]``, ``[hi]``, and ``[th]`` plus locale extras ``[jp]``, ``[ko]``,
         ``[zh-cn]``, and ``[zh-tw]`` provide matching fonts.
         Kana, Hangul, and Bopomofo select an installed locale automatically;
@@ -2907,7 +2943,9 @@ class Page:
         ``fontfile`` or ``fontbuffer``, for HarfRust-shaped Unicode and a krilla
         subset-embedded OpenType font. Lines are measured with the advances
         that :meth:`Font.text_length` returns. ``font`` cannot be combined with
-        the other font sources or ``fontindex``.
+        the other font sources or ``fontindex``. ``fontfile`` and
+        ``fontbuffer`` draw a variable font at its default instance, and a
+        :class:`Font` loaded with ``weight`` draws another instance.
         Installed script or CJK locale font extras provide matching fonts.
         ``font_language`` selects a specific provider, including for ambiguous
         Han text.
@@ -3711,9 +3749,10 @@ class Document:
         resolving booleans or generating missing appearances.
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
-        ``fontbuffer`` to subset-embed an arbitrary OpenType font. Locale font
-        extras can supply Unicode appearances automatically; use
-        ``font_language`` for ambiguous Han text. Otherwise the value is still
+        ``fontbuffer`` to subset-embed an arbitrary OpenType font, a variable
+        font at its default instance. Locale font extras can supply Unicode
+        appearances automatically; use ``font_language`` for ambiguous Han
+        text. Otherwise the value is still
         stored with ``NeedAppearances`` for viewer compatibility, but its
         appearance cannot be rendered by pylopdf.
         Explicit and automatically selected font input defaults to a 64 MiB

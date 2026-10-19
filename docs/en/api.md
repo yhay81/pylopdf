@@ -172,9 +172,17 @@ and is passed as `insert_text(font=)` and `insert_textbox(font=)`.
 `Font("helv")` or `Font("Times-Bold")` names a Standard 14 font, which is drawn
 without embedding and measured with Adobe's AFM widths; pymupdf's other built-in
 fonts are not available. `Font(fontfile=)` and `Font(fontbuffer=)` load an
-OpenType face as given (a variable font at its default instance), and
-`Font(language="ja")` or `Font(family="Noto Sans JP")` selects the face of an
-installed font extra, with `is_serif=True` for the serif face.
+OpenType face as given, a variable font at its default instance, which need not
+be regular: the variable Noto Sans CJK JP defaults to Thin. `weight=` selects
+another instance on a variable font's weight axis:
+`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` measures with the bold
+instance's advances and embeds it as `NotoSansCJKjp-Bold`, and `weight=650`
+works as well, so `weight=400` differs from an omitted weight on such a font. A
+weight outside the axis raises `PdfError`, and so does a weight that a static
+face does not declare. The `fontfile` and `fontbuffer` arguments of
+`insert_text`, `insert_textbox`, and `set_form_field` draw the default
+instance. `Font(language="ja")` or `Font(family="Noto Sans JP")` selects the
+face of an installed font extra, with `is_serif=True` for the serif face.
 `font.text_length(text, fontsize)` measures with the shaping that drawing uses,
 including kerning and ligatures, so layout code can wrap, align, and paginate
 with the font it draws. `ascender` and `descender` are the em fractions that
@@ -194,8 +202,8 @@ faces are drawn at the regular weight, also when `insert_text`,
 default instance of Noto Sans Hebrew is Thin. pylopdf keeps no font registry
 and never searches system font directories. It never imitates a weight by stroking or overprinting glyphs;
 `allow_regular_fallback=True` explicitly accepts the extra's face with a
-`PylopdfWarning`. Style options raise with `fontname` and font files, where
-pymupdf would ignore them. Each drawing call still embeds a subset of its own
+`PylopdfWarning`. `is_bold`, `is_italic`, and `is_serif` raise with `fontname`
+and font files, where pymupdf would ignore them. Each drawing call still embeds a subset of its own
 glyphs.
 
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
@@ -232,7 +240,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
-| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em` |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`; `weight=` also selects an instance of a variable font file |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
