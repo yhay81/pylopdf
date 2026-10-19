@@ -6,11 +6,27 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { inspect } from "node:util";
 
 function fail(message) {
   process.stderr.write(`error: ${message}\n`);
   process.exit(1);
 }
+
+// Node prints an uncaught error below the source line that threw it, and
+// Pyodide throws from pyodide.asm.js, which holds its minified code on one
+// line of about 1 MB. The GitHub Actions log kept the first 64 KB of that line
+// and nothing after it, so a failing step lost its Python traceback. Report
+// failures as short lines instead.
+process.on("uncaughtException", (error) => {
+  // A PythonError carries the Python traceback as its message, and its stack
+  // adds only the runtime's JavaScript and Wasm frames.
+  const report =
+    error?.name === "PythonError"
+      ? `${error.name}: ${error.message}`
+      : inspect(error);
+  process.stderr.write(`error: ${report}\n`, () => process.exit(1));
+});
 
 function elapsed(start) {
   return Math.round((performance.now() - start) * 1000) / 1000;
