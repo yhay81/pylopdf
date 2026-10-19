@@ -377,7 +377,7 @@ def test_package_font_face_must_name_a_known_package_style(package_font: tuple[s
     doc = _Document.load_bytes(one_page_pdf)
     with pytest.raises(PdfError, match=r"font package language|kind must be"):
         doc.insert_embedded_text_file(
-            1, (20.0, 40.0), ["日本語"], str(SANS), 0, 12.0, (0.0, 0.0, 0.0), True, package_font=package_font
+            1, (20.0, 40.0), ["日本語"], str(SANS), 0, 12.0, None, (0.0, 0.0, 0.0), True, package_font=package_font
         )
 
 

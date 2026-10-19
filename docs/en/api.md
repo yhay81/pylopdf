@@ -67,8 +67,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps; identical input placed again shares one image XObject |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document; placing a page of an unedited `src` again shares its Form XObject |
-| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
-| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; lines are `lineheight` times `fontsize` apart, by default the font's `ascender` minus `descender`, as in pymupdf; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; lines are placed as pymupdf places them; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `new_shape()` | pymupdf's `Shape` for paths and text drawn in one step; see [Shapes](#shapes) |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth` on the wavy lines, which also follows the points positionally as in pymupdf |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
@@ -169,6 +169,15 @@ grapheme-safe emergency breaks for overlong words. Alignment constants are
 `TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
 content or font resource is added in that case.
 
+Both methods place lines as pymupdf does. `insert_text` starts each line
+`lineheight` times `fontsize` below the previous one; without `lineheight`, the
+multiplier is the font's `ascender` minus its `descender`, or 1.2 when that
+difference is at most 1, so Helvetica lines at size 10 lie 13.74 points apart.
+`insert_textbox` takes the same default, sets the first baseline one ascender
+below the top of `rect` and each later one `lineheight` times the ascender
+lower, and counts `lineheight` times `fontsize` per line plus one descender to
+decide whether the text fits and to report the spare height.
+
 `Font` follows pymupdf's `Font(fontname=None, fontfile=None, fontbuffer=None)`
 and is passed as `insert_text(font=)` and `insert_textbox(font=)`, and an
 OpenType face also as `set_form_field(font=)`.
@@ -190,8 +199,12 @@ face of an installed font extra, with `is_serif=True` for the serif face.
 `font.text_length(text, fontsize)` measures with the shaping that drawing uses,
 including kerning and ligatures, so layout code can wrap, align, and paginate
 with the font it draws. `ascender` and `descender` are the em fractions that
-`insert_textbox` places lines with, and `has_glyph(chr)` returns the glyph
-number of a code point, or 0. The CJK extras install one static face per
+pymupdf reports, which `insert_text` and `insert_textbox` place lines with: for
+an OpenType face, the OS/2 typographic metrics when the face sets
+`USE_TYPO_METRICS` and the `hhea` metrics otherwise, as FreeType reads them for
+MuPDF, and for a Standard 14 font, the bounding box of the URW font that MuPDF
+draws it with, such as 1.075 and -0.299 for Helvetica. `has_glyph(chr)`
+returns the glyph number of a code point, or 0. The CJK extras install one static face per
 style, so `is_bold`, `is_italic`, and an exact OS/2 `weight` that the face does
 not match raise `PdfError`, and other weights, such as Noto Sans JP Bold, are
 loaded from their files. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]` extras
@@ -222,7 +235,8 @@ dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`
 strokes and fills everything drawn since the previous `finish`, with gray,
 RGB, or CMYK colours from 0 to 1 and a PDF dash pattern such as `"[3 4] 0"`.
 `insert_text` and `insert_textbox` take the font options of `Page.insert_text`
-and `Page.insert_textbox`, `font=` included. `insert_text` returns the line
+and `Page.insert_textbox`, `font=` and `lineheight=` included, and place lines
+as those methods do. `insert_text` returns the line
 count, and `insert_textbox` the unused height, negative when the text does not
 fit and nothing is added. `commit(overlay=True)` draws the shape: the finished
 paths in order and all text above them, as pymupdf does.

@@ -1160,7 +1160,8 @@ def test_insert_textbox_auto_embeds_optional_jp_font_and_survives_rotation() -> 
     )
 
     assert spare > 0
-    lines = page.get_text("dict")["blocks"][0]["lines"]
+    # pymupdf's default line height for Noto Sans JP sets each line in its own block.
+    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
     assert len(lines) >= 3
     assert "".join(span["text"] for line in lines for span in line["spans"]) == "日本語の文章を空白なしで折り返します。"
     assert all(rect[0] <= line["bbox"][0] < line["bbox"][2] <= rect[2] + 0.1 for line in lines)

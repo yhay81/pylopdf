@@ -65,8 +65,8 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい。編集していない`src`の同じページを再配置するとForm XObjectを共有 |
-| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
-| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。行の間隔はpymupdfと同じく`fontsize`の`lineheight`倍で、既定は書体の`ascender`から`descender`を引いた値。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。行はpymupdfと同じ位置に置く。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth`がある（pymupdfと同じく点の後に位置引数でも渡せる） |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
@@ -104,6 +104,15 @@ Devanagari runなど、並べ替えやcontext依存のclusterは再open後の抽
 `TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォント
 resourceは追加されません。
 
+どちらのメソッドもpymupdfと同じ位置に行を置きます。`insert_text`は各行を前の行の
+`fontsize`の`lineheight`倍だけ下に置きます。`lineheight`を省くと倍率は書体の
+`ascender`から`descender`を引いた値で、それが1以下なら1.2です。たとえば
+Helveticaの10ポイントでは行の間隔は13.74ポイントになります。`insert_textbox`も
+同じ既定値を使い、最初のベースラインを`rect`の上端からascender 1つ分下に置き、
+以降の行をascenderの`lineheight`倍ずつ下に置きます。収まるかどうかの判定と
+返す余りの高さには、1行あたり`fontsize`の`lineheight`倍とdescender 1つ分を
+数えます。
+
 `Font`はpymupdfの`Font(fontname=None, fontfile=None, fontbuffer=None)`に
 従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。OpenTypeの書体は
 `set_form_field(font=)`にも渡せます。`Font("helv")`や
@@ -121,8 +130,12 @@ resourceは追加されません。
 `Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を
 選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じ
 shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
-計算できます。`ascender`と`descender`は`insert_textbox`が行を置くときのemに対する
-比率で、`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。
+計算できます。`ascender`と`descender`はpymupdfが返すemに対する比率で、
+`insert_text`と`insert_textbox`はこれで行を置きます。OpenTypeの書体では、
+書体が`USE_TYPO_METRICS`を立てていればOS/2のtypographicの値、そうでなければ
+`hhea`の値で、FreeTypeがMuPDFのために読む値と同じです。Standard 14の書体では
+MuPDFが描くのに使うURWの書体の外接矩形の値で、Helveticaなら1.075と-0.299です。
+`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。
 CJKのextraが入れる静的な書体はスタイルごとに1つだけなので、書体と合わない
 `is_bold`、`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Bold
 のようなほかの太さはファイルから読み込みます。一方`pylopdf[ar]`・`[he]`・`[hi]`・
@@ -151,7 +164,8 @@ lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1,
 stroke_opacity=1)`は、前の`finish`以降に描いた経路を線と塗りで仕上げます。色は
 0〜1のグレー、RGB、CMYKで、`dashes`は`"[3 4] 0"`のようなPDFの破線の指定です。
 `insert_text`と`insert_textbox`は、`Page.insert_text`と`Page.insert_textbox`と
-同じ書体の指定を（`font=`も含めて）受け取ります。`insert_text`は行数を返し、
+同じ書体の指定を（`font=`と`lineheight=`も含めて）受け取り、同じ位置に行を置きます。
+`insert_text`は行数を返し、
 `insert_textbox`は余った高さを返します。収まらないときは負の値を返し、何も
 足しません。`commit(overlay=True)`で頁に描きます。pymupdfと同じく、仕上げた
 経路を順に描き、その上にすべての文字を描きます。

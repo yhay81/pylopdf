@@ -652,7 +652,13 @@ def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - p
         "descender": face.descender,
         "text_length": measured,
         "glyphs": [face.has_glyph(ord(character)) for character in _JAPANESE],
-        "standard": [standard.name, standard.text_length("AVA", 18), standard.has_glyph(ord("A"))],
+        "standard": [
+            standard.name,
+            standard.text_length("AVA", 18),
+            standard.has_glyph(ord("A")),
+            standard.ascender,
+            standard.descender,
+        ],
     }
 
 
@@ -676,6 +682,8 @@ def _shape_results(font: bytes) -> dict[str, Any]:
             shape.insert_text((30, 50), _JAPANESE, font=face, fontsize=14),
             shape.insert_text((30, 80), "Standard 14\nsecond line", fontsize=10, color=(0.5,)),
             shape.insert_text((30, 110), _JAPANESE + "AVA", font=face, fontsize=12, color=(0, 1, 0, 0)),
+            shape.insert_text((120, 50), "spaced\nlines", fontsize=8, lineheight=2),
+            shape.insert_text((120, 80), _JAPANESE + "\n" + _JAPANESE, font=face, fontsize=8, lineheight=1.5),
         ]
         spare = shape.insert_textbox((30, 180, 170, 260), _JAPANESE * 6, font=face, fontsize=10)
     drawings = page.get_drawings()

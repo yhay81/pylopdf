@@ -1,6 +1,7 @@
 //! AcroForm widget appearance primitives.
 
 use lopdf::{Dictionary, Document, Object, Stream, dictionary};
+use pdf_base14_metrics::Base14Font;
 
 use crate::draw;
 use crate::layout::{collect_graphemes, copy_text, normalized_single_line};
@@ -38,13 +39,12 @@ pub fn standard_text_ops(
     }
     let mut font_size = box_size.1.min(12.0);
     let layout = loop {
-        let candidate = draw::standard_textbox_layout(
+        let candidate = draw::standard_form_layout(
             &normalized,
             box_size,
-            "Helvetica",
+            Base14Font::Helvetica,
             font_size,
             1.2,
-            false,
             Some(crate::layout::MAX_GENERATED_TEXT_LINES),
         )?;
         if candidate.fits() && (multiline || candidate.lines.len() <= 1) {
@@ -111,13 +111,12 @@ pub fn standard_comb_text_ops(
             .try_reserve_exact(graphemes.len())
             .map_err(|error| format!("failed to allocate comb field layout collection: {error}"))?;
         for grapheme in &graphemes {
-            candidates.push(draw::standard_textbox_layout(
+            candidates.push(draw::standard_form_layout(
                 grapheme,
                 (cell_width, box_size.1),
-                "Helvetica",
+                Base14Font::Helvetica,
                 font_size,
                 1.0,
-                false,
                 Some(crate::layout::MAX_GENERATED_TEXT_LINES),
             )?);
         }

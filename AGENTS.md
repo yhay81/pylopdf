@@ -1589,10 +1589,36 @@ overview.
   GitHub-hosted release targets measured a fresh Japanese `insert_text` 6–38%
   faster and a twelve-widget `set_form_field` 17–31% faster, with loads
   unchanged and byte-identical output.
+- `insert_text` and `insert_textbox`, on `Page` and `Shape`, place lines as
+  pymupdf 1.28.2 does, with the ascender and descender that pymupdf's `Font`
+  reports (`layout::LineMetrics`), which `Font.ascender` and
+  `Font.descender` return. `generate::font_line_metrics` reproduces what
+  FreeType reads for MuPDF, the OS/2 typographic metrics when the face sets
+  `USE_TYPO_METRICS` and the `hhea` metrics otherwise, then the typographic
+  and the Windows metrics when both `hhea` values are zero, and MuPDF's
+  corrections: an ascender that is not positive or exceeds 8 em becomes 0.8,
+  a descender beyond 3 em either way -0.2, and a positive descender its
+  negation. It matched pymupdf on 582 macOS system faces and every bundled
+  face. `draw::standard_line_metrics` holds pymupdf's Standard 14 values, the
+  bounding boxes of the URW fonts that MuPDF draws them with, not Adobe's AFM
+  metrics. `insert_text` lines lie `lineheight` times `fontsize` apart, by
+  default the ascender minus the descender, or 1.2 when that is at most 1.
+  `insert_textbox` (`LinePlacement::Ascender`) takes the same default, puts
+  the first baseline one ascender below the top and later ones `lineheight`
+  times the ascender apart, and fits `lineheight` times `fontsize` per line
+  plus one descender, so its fit check does not follow the drawn lines when
+  the ascender differs from 1 em; that is pymupdf's behaviour, so keep it.
+  Form appearances keep the OS/2 or AFM-bounding-box metrics
+  (`font_vertical_metrics`, `standard_vertical_metrics`) and
+  `LinePlacement::Stacked`, so their output did not change. pymupdf splits
+  `insert_text` text with `str.splitlines()`, so a trailing line break adds no
+  line, and leaves out the lines whose baseline falls below the page, counting
+  only the lines it drew; pylopdf does neither yet.
 - `Page.insert_textbox` completes layout before mutating the PDF and returns
   negative spare height without drawing on overflow. Standard 14 measurement
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust
-  advances and font vertical metrics. Both share greedy UAX #14 wrapping in
+  advances. Lines are placed as the previous bullet describes. Both share
+  greedy UAX #14 wrapping in
   `rust/src/layout.rs`, with grapheme-safe emergency breaks and soft-line-only
   justification. Measure the complete visible paragraph first and return it
   directly when it fits so wide one-line boxes remain linear; otherwise reuse

@@ -376,7 +376,7 @@ def test_font_input_limits_are_repeated_in_core(one_page_pdf: bytes, tmp_path: P
     calls = [
         lambda: doc.set_fallback_font("sans", b"too large", 0, 1),
         lambda: doc.set_form_field("missing", "x", b"too large", 0, 1),
-        lambda: doc.insert_embedded_text(1, (10.0, 20.0), ["x"], b"too large", 0, 11.0, color, True, 1),
+        lambda: doc.insert_embedded_text(1, (10.0, 20.0), ["x"], b"too large", 0, 11.0, None, color, True, 1),
         lambda: doc.insert_embedded_textbox(
             1,
             (10.0, 10.0, 100.0, 80.0),
@@ -412,9 +412,9 @@ def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -
     rect = (10.0, 10.0, 100.0, 80.0)
 
     calls = [
-        lambda: doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, color, True, 3),
+        lambda: doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, None, color, True, 3),
         lambda: doc.insert_page_textbox(1, rect, "1234", "Helvetica", True, 11.0, 1.2, 0, color, True, 3),
-        lambda: doc.insert_embedded_text(1, point, ["1234"], b"bad font", 0, 11.0, color, True, None, 3),
+        lambda: doc.insert_embedded_text(1, point, ["1234"], b"bad font", 0, 11.0, None, color, True, None, 3),
         lambda: doc.insert_embedded_text_file(
             1,
             point,
@@ -422,6 +422,7 @@ def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -
             "missing-font.otf",
             0,
             11.0,
+            None,
             color,
             True,
             None,
@@ -463,9 +464,9 @@ def test_generated_text_input_limits_are_repeated_in_core(one_page_pdf: bytes) -
         assert doc.save_bytes() == before
 
     with pytest.raises(ValueError, match="max_text_size"):
-        doc.insert_page_text(1, point, [b"x"], "Helvetica", True, 11.0, color, True, 0)
+        doc.insert_page_text(1, point, [b"x"], "Helvetica", True, 11.0, None, color, True, 0)
 
-    doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, color, True, 4)
+    doc.insert_page_text(1, point, [b"1234"], "Helvetica", True, 11.0, None, color, True, 4)
     assert doc.save_bytes() != before
 
 
@@ -480,9 +481,9 @@ def test_generated_text_line_limits_are_repeated_in_core(one_page_pdf: bytes) ->
     text = "\n" * 4096
 
     calls = [
-        lambda: doc.insert_page_text(1, point, byte_lines, "Helvetica", True, 11.0, color, True, 1),
+        lambda: doc.insert_page_text(1, point, byte_lines, "Helvetica", True, 11.0, None, color, True, 1),
         lambda: doc.insert_page_textbox(1, rect, text, "Helvetica", True, 11.0, 1.2, 0, color, True, len(text)),
-        lambda: doc.insert_embedded_text(1, point, text_lines, b"bad font", 0, 11.0, color, True, None, 1),
+        lambda: doc.insert_embedded_text(1, point, text_lines, b"bad font", 0, 11.0, None, color, True, None, 1),
         lambda: doc.insert_embedded_text_file(
             1,
             point,
@@ -490,6 +491,7 @@ def test_generated_text_line_limits_are_repeated_in_core(one_page_pdf: bytes) ->
             "missing-font.otf",
             0,
             11.0,
+            None,
             color,
             True,
             None,

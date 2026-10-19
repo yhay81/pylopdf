@@ -63,8 +63,8 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转；再次放置相同输入时共享同一图像XObject |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档；再次放置未编辑`src`的同一页面时共享其Form XObject |
-| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
-| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；与pymupdf相同，行距为`fontsize`的`lineheight`倍，默认为字体的`ascender`减去`descender`；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；行的位置与pymupdf相同；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `new_shape()` | 一次绘制路径和文字的pymupdf `Shape`；参见[图形](#shapes) |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth`（与pymupdf相同，也可在点之后按位置传入） |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
@@ -93,6 +93,13 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 `TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
 垂直空间不足，此时不会添加页面内容或字体resource。
 
+两个方法都与pymupdf在相同位置排列行。`insert_text`把每一行放在上一行下方
+`fontsize`的`lineheight`倍处；省略`lineheight`时，倍数为字体的`ascender`减去
+`descender`，该差不大于1时为1.2，例如10磅的Helvetica行距为13.74磅。
+`insert_textbox`使用相同的默认值，把第一条基线放在`rect`顶边下方一个ascender处，
+之后各行依次下移ascender的`lineheight`倍；判断文字能否放下以及返回剩余高度时，
+每行计为`fontsize`的`lineheight`倍，另加一个descender。
+
 `Font`遵循pymupdf的`Font(fontname=None, fontfile=None, fontbuffer=None)`，并以
 `insert_text(font=)`与`insert_textbox(font=)`传入；OpenType字体也可以传给
 `set_form_field(font=)`。`Font("helv")`或
@@ -107,9 +114,11 @@ OpenType字体，可变字体使用其默认实例。默认实例不一定是Reg
 实例绘制；要以所选实例绘制，请将该`Font`传给`font=`。`Font(language="zh-CN")`或
 `Font(family="Noto Sans SC")`选择已安装字体extra的字体（`is_serif=True`为衬线体）。
 `font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此
-可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是
-`insert_textbox`排列行时使用的相对em比例，`has_glyph(chr)`返回码位的字形编号
-（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的
+可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是pymupdf
+报告的相对em比例，`insert_text`与`insert_textbox`用它们排列行：OpenType字体在设置了
+`USE_TYPO_METRICS`时取OS/2的typographic值，否则取`hhea`的值，与FreeType为MuPDF
+读取的值相同；Standard 14字体取MuPDF绘制它时所用URW字体的外接矩形，例如
+Helvetica为1.075与-0.299。`has_glyph(chr)`返回码位的字形编号（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的
 `is_bold`、`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重
 请从文件加载。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
 `Font(language="he", is_bold=True)`无需其他文件即可从字体的字重轴选择Bold实例，按该
@@ -132,8 +141,8 @@ OpenType字体，可变字体使用其默认实例。默认实例不一定是Reg
 dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`
 以描边和填充完成上一次`finish`之后绘制的路径；颜色为0到1的灰度、RGB或CMYK，
 `dashes`是`"[3 4] 0"`这样的PDF虚线模式。`insert_text`与`insert_textbox`接受与
-`Page.insert_text`、`Page.insert_textbox`相同的字体选项（包括`font=`）。
-`insert_text`返回行数，`insert_textbox`返回剩余高度；放不下时返回负值且不添加
+`Page.insert_text`、`Page.insert_textbox`相同的字体选项（包括`font=`与
+`lineheight=`），并在相同位置排列行。`insert_text`返回行数，`insert_textbox`返回剩余高度；放不下时返回负值且不添加
 任何内容。`commit(overlay=True)`将图形绘制到页面：与pymupdf相同，先按顺序绘制
 已完成的路径，再在其上绘制全部文字。
 

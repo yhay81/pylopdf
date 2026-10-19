@@ -358,9 +358,9 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 
 | Target | pymupdf | Relation | Notes |
 | --- | --- | --- | --- |
-| `Page.insert_text(point, text, *, fontsize=11, fontname="helv", fontfile=None, color=None, ...)` → `int` | same | same | M0 returns pymupdf's count of inserted lines instead of `None`. `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
+| `Page.insert_text(point, text, *, fontsize=11, lineheight=None, fontname="helv", fontfile=None, color=None, ...)` → `int` | same | same | M0 returns pymupdf's count of inserted lines instead of `None`, and places lines at pymupdf's line height. `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
 | `fontname=` on `insert_text` and `insert_textbox` | same | same | M0 accepts pymupdf's full Standard 14 names (`Helvetica`, `Times-Roman`, `Courier-Bold`, and the rest) besides the short aliases (`helv`, `tiro`, `cobo`, ...) that work today, and exports `Base14_fontnames` and `Base14_fontdict`. |
-| `Page.insert_textbox(rect, text, /, *, ..., expandtabs=1, ...)` | same | same | M0 changes the `expandtabs` default from 8 to pymupdf's 1. The second parameter is positional-only because pymupdf names it `buffer`. |
+| `Page.insert_textbox(rect, text, /, *, ..., expandtabs=1, lineheight=None, ...)` | same | same | M0 changes the `expandtabs` default from 8 to pymupdf's 1 and places lines at pymupdf's line height. The second parameter is positional-only because pymupdf names it `buffer`. |
 | `Page.insert_image(rect, *, filename=None, stream=None, pixmap=None, rotate=0, keep_proportion=True, overlay=True, ...)` → `int` | same | same | M0 returns the image xref, as pymupdf does, instead of `None`. `xref=`, `mask=`, `alpha=`, and `oc=` land in M2. |
 | `Page.show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True, ...)` → `int` | same | same | M0 renames the parameter `src` to pymupdf's `docsrc` and returns the Form XObject's xref, as pymupdf does; `clip=`, `rotate=`, and `oc=` land in M2. |
 | `Page.new_shape()` → `Shape` | same | same | M2, under the builder rules in R7. |
@@ -488,6 +488,7 @@ one-to-one onto these rows.
 | `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3 |
 | `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2 |
 | `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2 |
+| `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart | pymupdf's line placement: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), and `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart | R2 |
 | `Page.show_pdf_page(rect, src, pno=0, ...)` | the parameter name `docsrc` | R2 |
 | `Page.annots()` (dictionaries) | read-only `Annot` handles | R2 |
 | `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2 |
