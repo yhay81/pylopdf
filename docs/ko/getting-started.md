@@ -109,6 +109,9 @@ page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBA 직�
 page.show_pdf_page(page.rect, letterhead)                    # 벡터로 겹치기; 같은 문서도 가능
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "기밀", fontsize=18, fontfile="NotoSansKR-Regular.otf")
+bold = pylopdf.Font(fontfile="NotoSansKR-Bold.otf")         # extra에 없는 굵기는 파일에서 불러옴
+width = bold.text_length("제목", fontsize=16)                  # 그렸을 때의 폭과 일치
+page.insert_text((page.rect.width - 40 - width, 140), "제목", font=bold, fontsize=16)
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

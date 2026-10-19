@@ -619,7 +619,42 @@ def _layout_results() -> dict[str, Any]:
     }
 
 
-def _generation_results(root: Path) -> dict[str, Any]:
+def _font_results(page: Any, font: bytes) -> dict[str, Any]:  # noqa: ANN401 - pylopdf imports lazily.
+    """Draw with a reusable Font and require its measurement to match the drawing."""
+    import pylopdf  # noqa: PLC0415
+
+    face = pylopdf.Font(fontbuffer=font)
+    text = _JAPANESE + "AVA"
+    measured = face.text_length(text, 18)
+    page.insert_text((20, 115), text, fontsize=18, font=face)
+    drawn = [
+        span
+        for block in page.get_text("rawdict")["blocks"]
+        for line in block["lines"]
+        for span in line["spans"]
+        if abs(span["origin"][1] - 115) < 1
+    ]
+    _require(len(drawn) == 1, "a Font run did not extract as one span")
+    _require(
+        abs(drawn[0]["chars"][-1]["bbox"][2] - (20 + measured)) < 0.01,  # noqa: PLR2004 - PDF real precision.
+        "Font.text_length differs from the drawn advance",
+    )
+    standard = pylopdf.Font("helv")
+    return {
+        "name": face.name,
+        "weight": face.weight,
+        "is_bold": face.is_bold,
+        "is_serif": face.is_serif,
+        "units_per_em": face.units_per_em,
+        "ascender": face.ascender,
+        "descender": face.descender,
+        "text_length": measured,
+        "glyphs": [face.has_glyph(ord(character)) for character in _JAPANESE],
+        "standard": [standard.name, standard.text_length("AVA", 18), standard.has_glyph(ord("A"))],
+    }
+
+
+def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit compatibility scenarios.
     import pylopdf  # noqa: PLC0415
 
     font = (root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
@@ -628,6 +663,7 @@ def _generation_results(root: Path) -> dict[str, Any]:
     first = document.new_page(width=240, height=180)
     first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
+    font_results = _font_results(first, font)
     first_pixmap = first.get_pixmap(0.5)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
     _require(
@@ -690,6 +726,7 @@ def _generation_results(root: Path) -> dict[str, Any]:
     return {
         "empty_pages": 0,
         "roundtrip_pages": document.page_count,
+        "font": font_results,
         "text_sha256": [_digest(text) for text in texts],
         "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
         "batch_render_sizes": render_sizes,
