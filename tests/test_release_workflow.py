@@ -22,6 +22,8 @@ _NATIVE_PLATFORMS = [
     ("windows-latest", "x86_64-pc-windows-msvc"),
 ]
 _MATRIX_ENTRY = re.compile(r"^\s+- \{ runner: ([^,]+), target: ([^ }]+) \}$", re.MULTILINE)
+_FREE_THREADED_PYTHONS = [("3.14t", "cp314t"), ("3.15t", "cp315t")]
+_PYTHON_ENTRY = re.compile(r'^\s+- \{ version: "([^"]+)", tag: ([^ }]+) \}$', re.MULTILINE)
 
 
 def _job(workflow: str, name: str) -> str:
@@ -45,9 +47,17 @@ def test_every_native_release_wheel_runs_on_its_own_architecture() -> None:
         assert "python tools/smoke_artifact.py dist" in job
         assert job.index("Smoke-test installed") < job.index("Attest")
 
-    assert 'python-version: "3.14"' in _job(workflow, "build-wheels")
-    assert 'python-version: "3.14t"' in _job(workflow, "build-free-threaded-wheels")
-    assert '--pattern "*cp314t*.whl"' in _job(workflow, "build-free-threaded-wheels")
+    # The abi3 wheel is exercised on the CI interpreter and the newest CPython.
+    abi3_job = _job(workflow, "build-wheels")
+    assert re.findall(r'python-version: "([^"]+)"', abi3_job) == ["3.14", "3.15"]
+
+    # Each free-threaded CPython gets its own version-specific wheel.
+    free_threaded_job = _job(workflow, "build-free-threaded-wheels")
+    assert _PYTHON_ENTRY.findall(free_threaded_job) == _FREE_THREADED_PYTHONS
+    assert "python-version: ${{ matrix.python.version }}" in free_threaded_job
+    assert "--out dist -i python${{ matrix.python.version }}" in free_threaded_job
+    assert '--pattern "*${{ matrix.python.tag }}*.whl"' in free_threaded_job
+    assert "name: free-threaded-wheels-${{ matrix.python.tag }}-${{ matrix.platform.target }}" in free_threaded_job
     assert "needs: [build-wheels, build-free-threaded-wheels," in _job(workflow, "publish")
     assert "if: startsWith(github.ref, 'refs/tags/')" in _job(workflow, "publish")
 

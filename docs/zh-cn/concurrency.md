@@ -1,19 +1,20 @@
 ---
 title: 并发与free-threaded Python
-description: Document、Page、Pixmap、并行渲染与CPython 3.14t所支持的线程边界。
+description: Document、Page、Pixmap、并行渲染与CPython 3.14t和3.15t所支持的线程边界。
 ---
 
 # 并发与free-threaded Python
 
-从v0.10开始，pylopdf既为带GIL的CPython 3.10–3.14发布每个平台一个`abi3` wheel，
-也为free-threaded CPython 3.14发布专用的`cp314-cp314t` wheel。导入后者不会重新启用GIL。
+pylopdf既为带GIL的CPython 3.10–3.15发布每个平台一个`abi3` wheel，也为
+free-threaded CPython按Python版本发布专用wheel：`cp314-cp314t`自v0.10起提供，
+`cp315-cp315t`自v0.14.0之后的版本起提供。导入free-threaded wheel不会重新启用GIL。
 
 ## 支持约定 { #support-contract }
 
 | 用法 | 支持情况 |
 |---|---|
-| 带GIL的CPython 3.10–3.14 | 由`abi3-py310` wheel支持 |
-| free-threaded CPython 3.14t | 由`cp314-cp314t` wheel支持，并在GIL禁用状态下测试 |
+| 带GIL的CPython 3.10–3.15 | 由`abi3-py310` wheel支持 |
+| free-threaded CPython 3.14t和3.15t | 由`cp314-cp314t`和`cp315-cp315t` wheel支持，并在GIL禁用状态下测试 |
 | 对不同`Document`对象执行并发操作 | 支持；加载、保存、渲染、提取、合并和压缩等重型操作会释放GIL |
 | 对同一个`Document`并发调用或编辑 | 不支持；请用锁串行访问，或使用互相独立的Document |
 | 对一个Document调用`Document.render_pages(workers=...)` | 支持；这是同一Document内有界并行渲染的边界 |
