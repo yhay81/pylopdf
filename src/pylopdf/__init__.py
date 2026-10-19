@@ -2559,8 +2559,7 @@ class Shape:
         center: Sequence[float],
         point: Sequence[float],
         beta: float,
-        *,
-        fullSector: bool = True,  # noqa: N803 - pymupdf's name.
+        fullSector: bool = True,  # noqa: FBT001, FBT002, N803 - pymupdf's positional parameter.
     ) -> Point:
         """Draw an arc of ``beta`` degrees around ``center`` from ``point``.
 
@@ -2711,7 +2710,6 @@ class Shape:
         self,
         p1: Sequence[float],
         p2: Sequence[float],
-        *,
         breadth: float = 2,
     ) -> Point:
         """Draw a zigzag line from ``p1`` to ``p2`` and return ``p2``."""
@@ -2725,7 +2723,6 @@ class Shape:
         self,
         p1: Sequence[float],
         p2: Sequence[float],
-        *,
         breadth: float = 2,
     ) -> Point:
         """Draw a wavy line from ``p1`` to ``p2`` and return ``p2``."""
@@ -4201,8 +4198,8 @@ class Page:
         self,
         p1: Sequence[float],
         p2: Sequence[float],
-        *,
         breadth: float = 2,
+        *,
         color: Sequence[float] | float | None = (0,),
         dashes: str | None = None,
         width: float = 1,
@@ -4231,8 +4228,8 @@ class Page:
         self,
         p1: Sequence[float],
         p2: Sequence[float],
-        *,
         breadth: float = 2,
+        *,
         color: Sequence[float] | float | None = (0,),
         dashes: str | None = None,
         width: float = 1,

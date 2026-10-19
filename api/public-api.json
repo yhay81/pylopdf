@@ -2620,7 +2620,7 @@
               {
                 "annotation": "float",
                 "default": 2,
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "breadth"
               },
               {
@@ -2698,7 +2698,7 @@
               {
                 "annotation": "float",
                 "default": 2,
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "breadth"
               },
               {
@@ -4051,7 +4051,7 @@
               {
                 "annotation": "bool",
                 "default": true,
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "fullSector"
               }
             ],
@@ -4079,7 +4079,7 @@
               {
                 "annotation": "float",
                 "default": 2,
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "breadth"
               }
             ],
@@ -4107,7 +4107,7 @@
               {
                 "annotation": "float",
                 "default": 2,
-                "kind": "keyword_only",
+                "kind": "positional_or_keyword",
                 "name": "breadth"
               }
             ],

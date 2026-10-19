@@ -70,7 +70,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `new_shape()` | pymupdf's `Shape` for paths and text drawn in one step; see [Shapes](#shapes) |
-| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth=` on the wavy lines |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth` on the wavy lines, which also follows the points positionally as in pymupdf |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
@@ -233,7 +233,7 @@ with page.new_shape() as shape:
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
     shape.draw_circle((80, 140), 7)
     shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "Site survey report", font=bold, fontsize=18)
+    shape.insert_text((56, 80), "Inspection report", font=bold, fontsize=18)
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 

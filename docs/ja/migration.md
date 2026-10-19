@@ -49,7 +49,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | ドキュメント単位。テキスト／選択／checkbox／radioのネイティブ外観 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`によるオフライン純Rust PP-OCR。任意の位置付き結果には`insert_ocr_text_layer`も利用可能 |
 | `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 同じ | 確定1回につきForm XObject 1つで、書体は1度だけ埋め込む。`with page.new_shape() as shape:`は正常に抜けると確定。`finish()`で仕上げていない経路の`commit()`と、何も描かない`finish()`は例外。`morph=`と`oc=`は使えない |
-| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` などの`draw_*` | 同じ | 指定はキーワード専用で、終点の`Point`を返す。`morph=`と`oc=`は使えない |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` などの`draw_*` | 同じ | 線や色の指定はキーワード専用で、終点の`Point`を返す。`morph=`と`oc=`は使えない |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内蔵・MIT |
 
 ## 挙動の違い { #behavioral-differences }

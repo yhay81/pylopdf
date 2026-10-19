@@ -46,7 +46,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | 通过`pylopdf[ocr]`使用离线纯Rust PP-OCR；任意带坐标结果仍可传给`insert_ocr_text_layer` |
 | `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 相同 | 每次提交一个Form XObject，每种字体只嵌入一次；`with page.new_shape() as shape:`在正常结束时提交；未经`finish()`完成的路径执行`commit()`，以及不绘制任何内容的`finish()`都会抛出异常；`morph=`与`oc=`不可用 |
-| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()`等`draw_*` | 相同 | 选项仅限关键字参数，返回终点`Point`；`morph=`与`oc=`不可用 |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()`等`draw_*` | 相同 | 样式选项仅限关键字参数，返回终点`Point`；`morph=`与`oc=`不可用 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 内置，MIT |
 
 ## 行为差异 { #behavioral-differences }

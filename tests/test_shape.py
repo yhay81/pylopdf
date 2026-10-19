@@ -480,6 +480,33 @@ def test_page_drawing_options_are_keyword_only_and_omit_morph_and_oc() -> None:
     assert page.get_drawings() == []
 
 
+def test_breadth_and_full_sector_keep_pymupdfs_positions() -> None:
+    _, page = _new_page()
+    shape = page.new_shape()
+    # pymupdf 1.28.2 accepts both calls positionally.
+    assert shape.draw_zigzag((10, 10), (100, 10), 3) == (100, 10)
+    zigzag = shape.rect
+    shape.finish()
+    shape.draw_zigzag((10, 10), (100, 10), breadth=3)
+    assert shape.rect == zigzag
+    shape.finish()
+    assert shape.draw_squiggle((10, 50), (100, 50), 3) == (100, 50)
+    shape.finish()
+    open_sector = shape.draw_sector((50, 150), (80, 150), 90, False)
+    shape.finish(closePath=False)
+    shape.commit()
+    assert open_sector == pytest.approx((50, 120))
+    assert page.draw_zigzag((10, 180), (100, 180), 3) == (100, 180)
+    assert page.draw_squiggle((10, 190), (100, 190), 3) == (100, 190)
+    # Styling options stay keyword-only, and Page.draw_sector takes
+    # fullSector after its styling options, as pymupdf does.
+    with pytest.raises(TypeError):
+        page.draw_zigzag((10, 10), (100, 10), 3, (1, 0, 0))  # ty: ignore[too-many-positional-arguments]
+    with pytest.raises(TypeError):
+        page.draw_sector((50, 50), (80, 50), 90, False)  # ty: ignore[too-many-positional-arguments]
+    assert len(page.get_drawings()) == 6
+
+
 @pytest.mark.parametrize(
     ("finish", "message"),
     [
@@ -622,8 +649,8 @@ def test_path_points_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
         record.add_path("ml", [0.0, 0.0, 1.0, 1.0], False, None, None)
 
 
-def test_site_survey_report_pages(regular: pylopdf.Font, bold: pylopdf.Font) -> None:
-    """Build report pages the way the site-survey tool draws them."""
+def test_report_pages_with_measured_labels_and_photo_marks(regular: pylopdf.Font, bold: pylopdf.Font) -> None:
+    """Build A4 report pages with framed sections, measured labels, wrapped text, and marks over a photo."""
     doc = pylopdf.Document()
     accent = (0.83, 0.26, 0.05)
     for number in range(2):
@@ -664,7 +691,7 @@ def test_site_survey_report_pages(regular: pylopdf.Font, bold: pylopdf.Font) -> 
     # Each commit embeds one subset of each face it uses.
     assert _font_files(doc) == 4
 
-    # A survey record page: marks drawn after a photo lie on top of it.
+    # A record page: marks drawn after a photo lie on top of it.
     page = doc.new_page(width=A4[0], height=A4[1])
     page.insert_image((56, 420, 300, 600), stream=PHOTO_JPEG)
     with page.new_shape() as shape:

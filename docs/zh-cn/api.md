@@ -66,7 +66,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `new_shape()` | 一次绘制路径和文字的pymupdf `Shape`；参见[图形](#shapes) |
-| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth=` |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth`（与pymupdf相同，也可在点之后按位置传入） |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
@@ -143,7 +143,7 @@ with page.new_shape() as shape:
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
     shape.draw_circle((80, 140), 7)
     shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "现场调查报告", font=bold, fontsize=18)
+    shape.insert_text((56, 80), "检查报告", font=bold, fontsize=18)
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 

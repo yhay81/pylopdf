@@ -49,7 +49,7 @@ deliberately does not implement.
 | `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | document-level; native text/choice/checkbox/radio appearances |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | offline pure-Rust PP-OCR through `pylopdf[ocr]`; arbitrary positioned results still work with `insert_ocr_text_layer` |
 | `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | same | one Form XObject per commit embeds each font once; `with page.new_shape() as shape:` commits on a clean exit; `commit()` raises for drawing that `finish()` did not style, and `finish()` raises for a style that draws nothing; `morph=` and `oc=` are not available |
-| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` and the other `draw_*` | same | options are keyword-only and return the end `Point`; `morph=` and `oc=` are not available |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` and the other `draw_*` | same | styling options are keyword-only, and each returns the end `Point`; `morph=` and `oc=` are not available |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
 ## Behavioral differences { #behavioral-differences }

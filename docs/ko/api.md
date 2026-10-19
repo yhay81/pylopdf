@@ -68,7 +68,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |
-| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth=`가 있음 |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth`가 있음(pymupdf처럼 점 뒤에 위치 인수로도 전달 가능) |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
@@ -156,7 +156,7 @@ with page.new_shape() as shape:
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
     shape.draw_circle((80, 140), 7)
     shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "현장 조사 보고서", font=bold, fontsize=18)
+    shape.insert_text((56, 80), "점검 보고서", font=bold, fontsize=18)
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 

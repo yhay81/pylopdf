@@ -92,7 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Page.draw_line()`, `draw_polyline()`, `draw_rect()`, `draw_quad()`,
   `draw_circle()`, `draw_oval()`, `draw_sector()`, `draw_curve()`,
   `draw_bezier()`, `draw_squiggle()`, and `draw_zigzag()` draw one finished
-  shape each with pymupdf's options, which are keyword-only; `morph=` and
+  shape each with pymupdf's options. The styling options are keyword-only,
+  `breadth` keeps pymupdf's position after the points, and `morph=` and
   `oc=` are not available.
 
 ### Changed

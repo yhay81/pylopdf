@@ -1558,8 +1558,11 @@ overview.
   in its own corner order and skips the fill of a zero-area path, so
   `get_drawings` can list such a path differently from pymupdf's output
   while it renders the same. `morph=` and `oc=` wait for `Matrix` (F4) and
-  layers (M5); `Shape.width`, `height`, `x`, `y`, `pctm`, and `ipctm`
-  describe pymupdf's unrotated space and are not provided.
+  layers (M5). `Shape.width`, `height`, `x`, `y`, `pctm`, and `ipctm`
+  describe pymupdf's unrotated space, so the parity manifest lists them as
+  non-goals under G1; `shape.page.rect` gives the drawing area. `breadth` on
+  the wavy lines and `fullSector` on `Shape.draw_sector` keep pymupdf's
+  positions (R2.3).
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

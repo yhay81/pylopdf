@@ -48,7 +48,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | 문서 수준, 텍스트／선택／checkbox／radio 네이티브 appearance |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`의 오프라인 순수 Rust PP-OCR, 임의의 위치 결과에는 `insert_ocr_text_layer`도 사용 가능 |
 | `page.new_shape()` / `shape.draw_*` / `shape.finish()` / `shape.insert_text()` / `shape.commit()` | 같음 | 확정 한 번에 Form XObject 하나, 글꼴은 한 번만 포함. `with page.new_shape() as shape:`는 정상 종료 시 확정. `finish()`로 마무리하지 않은 경로의 `commit()`과 아무것도 그리지 않는 `finish()`는 예외. `morph=`와 `oc=`는 쓸 수 없음 |
-| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` 등 `draw_*` | 같음 | 지정은 키워드 전용이며 끝점 `Point`를 반환. `morph=`와 `oc=`는 쓸 수 없음 |
+| `page.draw_line()` / `draw_rect()` / `draw_circle()` / `draw_polyline()` 등 `draw_*` | 같음 | 선과 색 지정은 키워드 전용이며 끝점 `Point`를 반환. `morph=`와 `oc=`는 쓸 수 없음 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 내장, MIT |
 
 ## 동작 차이 { #behavioral-differences }

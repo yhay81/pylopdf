@@ -68,7 +68,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |
-| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth=`がある |
+| `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth`がある（pymupdfと同じく点の後に位置引数でも渡せる） |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
@@ -162,7 +162,7 @@ with page.new_shape() as shape:
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)
     shape.draw_circle((80, 140), 7)
     shape.finish(color=(1, 1, 1), fill=(0.83, 0.26, 0.05), width=1.2)
-    shape.insert_text((56, 80), "現地調査報告書", font=bold, fontsize=18)
+    shape.insert_text((56, 80), "点検報告書", font=bold, fontsize=18)
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 
