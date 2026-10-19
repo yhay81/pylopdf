@@ -33,7 +33,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고 가져온 페이지의 폼 필드를 등록하며, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
 | `get_toc()` / `set_toc(toc)` | 대규모 manual에 맞춘, cycle을 처리하는 제한된 목차（페이지는 1부터, 65,536 entry/node, 131,072 edge, 깊이64, text 16 MiB, named destination은`get_links()`와 같음） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance |
+| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance. `font`에는 불러온 OpenType `Font`를 전달할 수 있음 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=` `deflate=` `object_streams=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
@@ -98,7 +98,8 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 글꼴 resource를 추가하지 않습니다.
 
 `Font`는 pymupdf의 `Font(fontname=None, fontfile=None, fontbuffer=None)`을
-따르며 `insert_text(font=)`와 `insert_textbox(font=)`에 전달합니다.
+따르며 `insert_text(font=)`와 `insert_textbox(font=)`에 전달합니다. OpenType 글꼴은
+`set_form_field(font=)`에도 전달할 수 있습니다.
 `Font("helv")`나 `Font("Times-Bold")`는 Standard 14 글꼴을 가리키며, 포함하지 않고
 그리고 Adobe AFM 폭으로 측정합니다. pymupdf의 다른 내장 글꼴은 쓸 수 없습니다.
 `Font(fontfile=)`와 `Font(fontbuffer=)`는 OpenType 글꼴을 그대로 불러오며, 가변 글꼴은
@@ -109,7 +110,8 @@ Noto Sans CJK JP의 기본 인스턴스는 Thin입니다. `weight=`를 전달하
 있으므로 이런 글꼴에서는 `weight=400`과 생략한 경우의 결과가 다릅니다. 축 범위를 벗어난
 굵기는 `PdfError`가 되며, 정적 글꼴에 없는 굵기도 마찬가지입니다. `insert_text`,
 `insert_textbox`, `set_form_field`에 전달하는 `fontfile`과 `fontbuffer`는 기본 인스턴스로
-그립니다. `Font(language="ko")`나 `Font(family="Noto Sans KR")`는 설치된
+그립니다. 선택한 인스턴스로 그리려면 그 `Font`를 `font=`에 전달합니다.
+`Font(language="ko")`나 `Font(family="Noto Sans KR")`는 설치된
 글꼴 extra의 글꼴을 선택합니다(`is_serif=True`이면 세리프). `font.text_length(text,
 fontsize)`는 그리기와 같은 shaping으로 커닝과 합자를 포함해 측정하므로, 그리는 글꼴의
 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다. `ascender`와 `descender`는
@@ -132,8 +134,12 @@ Regular 굵기로 그립니다. Noto Sans Hebrew의 기본 인스턴스가 Thin�
 
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
-또는 `fontbuffer`를 지정해 서브셋 내장합니다. 설치된script／locale provider는
-`insert_text`와 같은 규칙으로 선택하며 모호한 한자는`font_language`로 지정합니다.
+또는 `fontbuffer`를 지정해 서브셋 내장합니다. 가변 글꼴의 Bold 인스턴스처럼 불러온
+OpenType `Font`를 `font`에 전달할 수도 있습니다. `Font`를 쓰면 `text_length`가 측정하는
+advance로 축소와 정렬을 계산하고 comb 필드의 각 위치 중앙에 배치합니다. `font`는 다른
+글꼴 지정과 함께 쓸 수 없으며, Standard 14 `Font`는 `PdfError`가 됩니다.
+설치된script／locale provider는 `insert_text`와 같은 규칙으로 선택하며 모호한 한자는
+`font_language`로 지정합니다.
 비어 있지 않은 기존 버튼 appearance는
 보존하고 누락된 상태만 벡터로 만듭니다. 다른 WinAnsi 필드의 누락된 appearance도
 함께 채우며, 입력 가능한 모든 widget이 자체 완결일 때만 `NeedAppearances`를

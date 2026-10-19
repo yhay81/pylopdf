@@ -456,6 +456,96 @@ def test_form_appearances_use_the_regular_instance() -> None:
     assert {field["name"]: field["value"] for field in reopened.get_form_fields()} == {"name": HEBREW, "code": "שלום"}
 
 
+def _aligned_form_pdf() -> bytes:
+    """Build a right-aligned text field with two widgets and a centered six-position comb field.
+
+    Each widget's text area is inset 2 points inside its 260-point-wide
+    rectangle, so in display coordinates the text field's areas end at x = 278
+    and the comb positions, each 256 / 6 points wide, start at x = 22.
+    """
+    return build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 7 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+            2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 200] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Annots [5 0 R 6 0 R 7 0 R] >>",
+            4: "<< /FT /Tx /Q 2 /T (name) /Kids [5 0 R 6 0 R] >>",
+            5: "<< /Parent 4 0 R /Type /Annot /Subtype /Widget /Rect [20 140 280 170] /P 3 0 R /F 4 >>",
+            6: "<< /Parent 4 0 R /Type /Annot /Subtype /Widget /Rect [20 20 280 50] /P 3 0 R /F 4 >>",
+            7: (
+                "<< /FT /Tx /Ff 16777216 /MaxLen 6 /Q 1 /T (code) /Type /Annot /Subtype /Widget"
+                " /Rect [20 80 280 110] /P 3 0 R /F 4 >>"
+            ),
+        },
+    )
+
+
+def _fill_aligned_form(doc: pylopdf.Document, source: str, font: pylopdf.Font | None) -> None:
+    """Fill both fields with ``font``, or without one through Noto Sans Hebrew's file or bytes."""
+    for name, value in (("name", HEBREW), ("code", "A12")):
+        if font is not None:
+            doc.set_form_field(name, value, font=font)
+        elif source == "fontfile":
+            doc.set_form_field(name, value, fontfile=HEBREW_SANS)
+        else:
+            doc.set_form_field(name, value, fontbuffer=HEBREW_SANS.read_bytes())
+
+
+@pytest.mark.parametrize("source", EXPLICIT_SOURCES)
+def test_form_appearances_draw_a_bold_instance_with_its_advances(source: str) -> None:
+    """Text and comb appearances fit, align, and center with the bold instance's advances."""
+    bold = _variable_font(source, "he", False, weight=700)
+    doc = pylopdf.open(stream=_aligned_form_pdf())
+
+    _fill_aligned_form(doc, source, bold)
+
+    saved = doc.tobytes()
+    # Each widget embeds its own subset, named after the instance.
+    assert [match.decode() for match in SUBSET_NAME.findall(saved)] == ["NotoSansHebrew-Bold"] * 9
+    assert b"/NeedAppearances false" in saved
+    page = doc[0]
+    spans = _spans(page)
+    assert {span["font"] for span in spans} == {"NotoSansHebrew-Bold"}
+    assert all(span["flags"] & BOLD_FLAG for span in spans)
+    # Both values fit at the 12-point size that auto-fitting starts from.
+    assert [span["size"] for span in spans] == pytest.approx([12.0] * len(spans))
+    lines = [line for block in page.get_text("dict")["blocks"] for line in block["lines"]]
+    first_name, _code, second_name = sorted(lines, key=lambda line: line["bbox"][1])
+    for name in (first_name, second_name):
+        assert name["bbox"][0] == pytest.approx(278 - bold.text_length(HEBREW, 12), abs=1e-3)
+        assert name["bbox"][2] == pytest.approx(278, abs=1e-3)
+    # Three characters take the middle positions 1 through 3 of six.
+    cell = 256 / 6
+    comb = sorted((char for char in _chars(page) if 90 < char["origin"][1] < 120), key=lambda char: char["origin"][0])
+    assert [char["c"] for char in comb] == ["A", "1", "2"]
+    expected = [22 + (1 + index) * cell + (cell - bold.text_length(char, 12)) / 2 for index, char in enumerate("A12")]
+    assert [char["origin"][0] for char in comb] == pytest.approx(expected, abs=1e-3)
+    reopened = pylopdf.open(stream=saved)
+    assert {field["name"]: field["value"] for field in reopened.get_form_fields()} == {"name": HEBREW, "code": "A12"}
+
+
+@pytest.mark.parametrize("source", EXPLICIT_SOURCES)
+def test_form_font_without_a_weight_draws_what_the_font_input_draws(source: str) -> None:
+    """A face loaded without ``weight`` fills fields as fontfile and fontbuffer do, at the default instance."""
+    drawn = []
+    for font in (_variable_font(source, "he", False), None):
+        doc = pylopdf.open(stream=_aligned_form_pdf())
+        _fill_aligned_form(doc, source, font)
+        drawn.append(doc.tobytes())
+
+    assert drawn[0] == drawn[1]
+    assert {match.decode() for match in SUBSET_NAME.findall(drawn[0])} == {"NotoSansHebrew-Thin"}
+
+
+def test_form_font_of_an_installed_extra_draws_what_automatic_selection_draws() -> None:
+    pytest.importorskip("pylopdf_fonts_he")
+    automatic, explicit = (pylopdf.open(stream=_aligned_form_pdf()) for _ in range(2))
+
+    automatic.set_form_field("name", HEBREW)
+    explicit.set_form_field("name", HEBREW, font=pylopdf.Font(language="he"))
+
+    assert explicit.tobytes() == automatic.tobytes()
+
+
 def test_weights_share_the_installed_font_file() -> None:
     pytest.importorskip("pylopdf_fonts_he")
     pylopdf.Font(language="he")

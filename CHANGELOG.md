@@ -61,6 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declare. The `fontfile` and `fontbuffer` arguments of `insert_text`,
   `insert_textbox`, and `set_form_field` still draw the default instance, and
   their output is byte-identical.
+- `Document.set_form_field(font=)` draws text and choice appearances with a
+  loaded OpenType `Font`, such as the bold instance that
+  `Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)` selects on a variable
+  font's weight axis. Auto-fitting, alignment, and comb positions use the
+  advances that `text_length` measures, and each widget embeds a subset named
+  after the instance, such as `NotoSansCJKjp-Bold`. `font` cannot be combined
+  with `fontfile`, `fontbuffer`, `fontindex`, or `font_language`, and a
+  Standard 14 `Font` raises `PdfError`. A `Font` loaded without `weight` fills
+  fields with the same bytes as its `fontfile` or `fontbuffer`, and calls
+  without `font` are unchanged.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing

@@ -821,6 +821,12 @@
                 "name": "value"
               },
               {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
                 "annotation": "str | os.PathLike[str] | None",
                 "default": null,
                 "kind": "keyword_only",
