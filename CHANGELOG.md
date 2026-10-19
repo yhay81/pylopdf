@@ -24,7 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draws; Standard 14 fonts measure with Adobe's AFM widths. `has_glyph(chr)`
   returns pymupdf's glyph number, and `name`, `ascender`, `descender`,
   `is_bold`, `is_italic`, and `is_serif` keep pymupdf's meaning, with
-  `family`, `weight`, and `units_per_em` as extensions. `Page.insert_text(font=)`
+  `family`, `weight`, and `units_per_em` as extensions. `ascender` and
+  `descender` report pymupdf's values: for an OpenType face the metrics that
+  FreeType reads for MuPDF, the OS/2 typographic ones when the face sets
+  `USE_TYPO_METRICS` and the `hhea` ones otherwise, and for a Standard 14 font
+  the bounding box of the URW font that MuPDF draws it with, such as 1.075 and
+  -0.299 for Helvetica. `Page.insert_text(font=)`
   and `Page.insert_textbox(font=)` draw with it; an OpenType face produces the
   same bytes as passing its data as `fontbuffer`, and each call still embeds
   its own subset.
@@ -79,7 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `draw_zigzag` return pymupdf's end points, and `finish()` strokes and fills
   with gray, RGB, or CMYK colours, line width, caps and joins, PDF dash
   patterns, the even-odd rule, and opacity. `insert_text()` and
-  `insert_textbox()` take `Page.insert_text()`'s fonts, `font=` included. A
+  `insert_textbox()` take `Page.insert_text()`'s fonts, `font=` included, and
+  `lineheight=`, and place lines as the `Page` methods do. A
   commit places one Form XObject, the finished paths in order and all text
   above them, as pymupdf draws them, and embeds each font once however many
   lines use it. `with page.new_shape() as shape:` commits on a clean exit and
@@ -97,6 +103,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `oc=` are not available.
 
 ### Changed
+- `Page.insert_text()` and `Page.insert_textbox()` place lines as pymupdf
+  does, an item of the API reset (M0). `insert_text()` takes pymupdf's
+  keyword-only `lineheight=`, a multiple of the font size, and without it
+  sets lines the font's `ascender` minus its `descender` apart, or 1.2 times
+  the font size when that difference is at most 1, instead of always 1.2
+  times: at size 10, Helvetica lines now lie 13.74 points apart and Noto Sans
+  JP lines 14.48, as in pymupdf 1.28.2. `insert_textbox()` defaults
+  `lineheight` the same way instead of to 1.2, places the first baseline one
+  ascender below the top of the box and later ones `lineheight` times the
+  ascender apart, and returns the spare height left by `lineheight` times the
+  font size per line plus one descender, as pymupdf does. Form-field
+  appearances keep their layout.
+- `Page.insert_textbox()` and `Shape.insert_textbox()` raise `PdfError`, which
+  is a `ValueError`, instead of a plain `ValueError` for a `fontsize`,
+  `lineheight`, `align`, or `expandtabs` they do not accept, as the new
+  `lineheight=` of `insert_text()` does.
 - An embedded generation font that lacks a glyph now names the missing
   characters in the error, for example `no glyph for U+1F980 ('🦀')`.
 - Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers

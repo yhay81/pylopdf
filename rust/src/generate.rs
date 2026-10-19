@@ -18,11 +18,15 @@ use krilla::text::{Font, GlyphId, KrillaGlyph};
 use lopdf::Object;
 use read_fonts::TableProvider;
 use read_fonts::tables::fvar::InstanceRecord;
+use read_fonts::tables::os2::SelectionFlags;
 use read_fonts::types::{Fixed, NameId, Tag};
 
 use crate::draw::DeviceColor;
 use crate::form;
-use crate::layout::{collect_graphemes, copy_text, layout_textbox, normalized_single_line};
+use crate::layout::{
+    LineMetrics, LinePlacement, collect_graphemes, copy_text, layout_textbox,
+    normalized_single_line,
+};
 
 /// One shaped line placed at its baseline-left point on a krilla page.
 pub(crate) struct GlyphRun {
@@ -32,24 +36,22 @@ pub(crate) struct GlyphRun {
 }
 
 /// Shape `lines` where `insert_text` places them: the first baseline-left
-/// point at `point` in top-left-origin page coordinates, then 1.2 times the
-/// font size of leading.
+/// point at `point` in top-left-origin page coordinates, and each later
+/// baseline `leading` lower.
 pub(crate) fn text_runs(
     font: &ShapingFont,
     point: (f64, f64),
     lines: &[String],
-    font_size: f64,
+    leading: f64,
 ) -> Result<Vec<GlyphRun>, String> {
     let x = finite_f32(point.0, "text x")?;
-    let y = finite_f32(point.1, "text y")?;
-    let size = finite_f32(font_size, "font size")?;
     let shaper = LineShaper::new(font);
     let mut runs = Vec::new();
     runs.try_reserve_exact(lines.len())
         .map_err(|error| format!("failed to allocate shaped text line collection: {error}"))?;
     for (line_number, line) in lines.iter().enumerate() {
         let glyphs = shape_line(line, &shaper)?;
-        let baseline_y = y + line_number as f32 * size * 1.2;
+        let baseline_y = finite_f32(point.1 + line_number as f64 * leading, "text y")?;
         runs.push(GlyphRun {
             origin: Point::from_xy(x, baseline_y),
             glyphs,
@@ -60,27 +62,26 @@ pub(crate) fn text_runs(
 }
 
 /// Lay out and shape text inside a display rectangle as `insert_textbox`
-/// does. Return the placed lines, or `None` when they do not fit, together
-/// with the spare height, which is negative on overflow.
+/// does, at `lineheight` or the face's default line height. Return the placed
+/// lines, or `None` when they do not fit, together with the spare height,
+/// which is negative on overflow.
 pub(crate) fn textbox_runs(
     font: &ShapingFont,
     rect: [f64; 4],
     text: &str,
     font_size: f64,
-    line_height: f64,
+    lineheight: Option<f64>,
     align: u8,
     max_lines: Option<usize>,
 ) -> Result<(Option<Vec<GlyphRun>>, f64), String> {
-    let (ascent, descent) = font_vertical_metrics(font)?;
+    let placement = LinePlacement::textbox(font_line_metrics(font)?, lineheight);
     let shaper = LineShaper::new(font);
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
     let layout = layout_textbox(
         text,
         box_size,
         font_size,
-        line_height,
-        ascent,
-        descent,
+        placement,
         align == 3,
         max_lines,
         |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
@@ -453,13 +454,15 @@ fn truncate_postscript_name(mut name: String) -> String {
 /// Generate one transparent page containing subset-embedded OpenType text.
 ///
 /// Coordinates use krilla's top-left-origin page surface. `point` is the first
-/// line's baseline-left point; subsequent lines use 1.2× font-size leading.
+/// line's baseline-left point; later lines follow at `lineheight` times the
+/// font size, or at the face's default line height.
 pub fn embedded_text_page(
     page_size: (f64, f64),
     point: (f64, f64),
     lines: &[String],
     face: &GenerationFace,
     font_size: f64,
+    lineheight: Option<f64>,
     color: (f64, f64, f64),
 ) -> Result<Vec<u8>, String> {
     let width = finite_f32(page_size.0, "page width")?;
@@ -467,7 +470,8 @@ pub fn embedded_text_page(
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let runs = text_runs(face.shaping_font(), point, lines, font_size)?;
+    let leading = font_line_metrics(face.shaping_font())?.leading(font_size, lineheight)?;
+    let runs = text_runs(face.shaping_font(), point, lines, leading)?;
     let font = face.embedding_font()?;
 
     let mut document = Document::new();
@@ -493,7 +497,7 @@ pub fn embedded_textbox_page(
     text: &str,
     face: &GenerationFace,
     font_size: f64,
-    line_height: f64,
+    lineheight: Option<f64>,
     align: u8,
     color: (f64, f64, f64),
     max_lines: Option<usize>,
@@ -508,7 +512,7 @@ pub fn embedded_textbox_page(
         rect,
         text,
         font_size,
-        line_height,
+        lineheight,
         align,
         max_lines,
     )?;
@@ -569,9 +573,11 @@ pub fn embedded_widget_text_page(
             &normalized,
             box_size,
             font_size,
-            1.2,
-            ascent,
-            descent,
+            LinePlacement::Stacked {
+                ascent,
+                descent,
+                line_height: 1.2,
+            },
             false,
             Some(crate::layout::MAX_GENERATED_TEXT_LINES),
             |line| Ok(line_width(&shape_line(line, &shaper)?, font_size)),
@@ -763,8 +769,70 @@ impl<'a> LineShaper<'a> {
     }
 }
 
-/// Return the ascent and descent, as positive fractions of the em, that
-/// textbox and form layout place lines with.
+/// Return the ascender and descender that pymupdf's `Font` reports for a
+/// face, which `insert_text` and `insert_textbox` place lines with.
+///
+/// MuPDF takes them from FreeType, which reads the OS/2 typographic metrics
+/// when the face sets `USE_TYPO_METRICS` and the `hhea` metrics otherwise,
+/// falling back to the typographic and then the Windows metrics when both
+/// `hhea` values are zero. MuPDF then replaces an ascender that is not
+/// positive or exceeds 8 em with 0.8, a descender beyond 3 em either way with
+/// -0.2, and a positive descender with its negation. A variable face reports
+/// the metrics of its default instance.
+pub(crate) fn font_line_metrics(font: &ShapingFont) -> Result<LineMetrics, String> {
+    /// The largest ascender and descender, in em, that MuPDF accepts.
+    const MAX_TRUSTED_ASCENDER: i32 = 8;
+    const MAX_TRUSTED_DESCENDER: i32 = 3;
+
+    let tables = font.tables();
+    let units_per_em = tables
+        .head()
+        .map_err(|_| "font does not contain a valid head table".to_owned())?
+        .units_per_em();
+    if units_per_em == 0 {
+        return Err("font has an invalid units-per-em value".to_owned());
+    }
+    let os2 = tables.os2().ok();
+    let use_typo_metrics = os2.as_ref().is_some_and(|os2| {
+        os2.fs_selection()
+            .contains(SelectionFlags::USE_TYPO_METRICS)
+    });
+    let hhea = tables.hhea().map_or((0, 0), |hhea| {
+        (hhea.ascender().to_i16(), hhea.descender().to_i16())
+    });
+    let (ascender, descender) = match &os2 {
+        Some(os2) if use_typo_metrics => (os2.s_typo_ascender(), os2.s_typo_descender()),
+        Some(os2) if hhea == (0, 0) => match (os2.s_typo_ascender(), os2.s_typo_descender()) {
+            // FreeType reads the unsigned Windows metrics as signed values.
+            (0, 0) => (
+                os2.us_win_ascent().cast_signed(),
+                os2.us_win_descent().cast_signed().wrapping_neg(),
+            ),
+            typo => typo,
+        },
+        _ => hhea,
+    };
+    let (ascender, descender) = (i32::from(ascender), i32::from(descender));
+    let units_per_em = i32::from(units_per_em);
+    let ascender = if ascender <= 0 || ascender > MAX_TRUSTED_ASCENDER * units_per_em {
+        0.8
+    } else {
+        f64::from(ascender) / f64::from(units_per_em)
+    };
+    let descender = if descender.abs() > MAX_TRUSTED_DESCENDER * units_per_em {
+        -0.2
+    } else {
+        // A zero descender stays 0.0, as in MuPDF, rather than becoming -0.0.
+        f64::from(-descender.abs()) / f64::from(units_per_em)
+    };
+    Ok(LineMetrics {
+        ascender,
+        descender,
+    })
+}
+
+/// Return the ascent and descent, as positive fractions of the em, that form
+/// appearances place lines with.
 pub(crate) fn font_vertical_metrics(font: &ShapingFont) -> Result<(f64, f64), String> {
     let font = font.tables();
     let units_per_em = f64::from(

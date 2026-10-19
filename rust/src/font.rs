@@ -25,6 +25,7 @@ use crate::document::{
 };
 use crate::draw;
 use crate::generate::{self, GenerationFace, ShapingFont, WeightAxis};
+use crate::layout::LineMetrics;
 
 /// The OS/2 weight class of a face that has no OS/2 table: Regular.
 const DEFAULT_WEIGHT_CLASS: u16 = 400;
@@ -45,8 +46,7 @@ struct OpenTypeFace {
     bold: bool,
     italic: bool,
     serif: bool,
-    ascent: f64,
-    descent: f64,
+    line_metrics: LineMetrics,
 }
 
 /// What a `_Font` draws with.
@@ -124,8 +124,7 @@ impl _Font {
                 generation.source().1
             ))
         })?;
-        let (ascent, descent) =
-            generate::font_vertical_metrics(shaping).map_err(PdfError::new_err)?;
+        let line_metrics = generate::font_line_metrics(shaping).map_err(PdfError::new_err)?;
         let tables = shaping.tables();
         let os2 = tables.os2().ok();
         let selection = os2.as_ref().map(|os2| os2.fs_selection());
@@ -173,8 +172,7 @@ impl _Font {
                 bold,
                 italic,
                 serif,
-                ascent,
-                descent,
+                line_metrics,
             })),
         })
     }
@@ -185,6 +183,15 @@ impl _Font {
         match &self.face {
             Face::OpenType(face) => Some(face.generation.clone()),
             Face::Standard(..) => None,
+        }
+    }
+
+    /// The ascender and descender that `insert_text` and `insert_textbox`
+    /// place lines with, as pymupdf's `Font` reports them.
+    pub(crate) fn line_metrics(&self) -> LineMetrics {
+        match &self.face {
+            Face::OpenType(face) => face.line_metrics,
+            Face::Standard(font, _) => draw::standard_line_metrics(*font),
         }
     }
 
@@ -368,22 +375,17 @@ impl _Font {
         }
     }
 
-    /// Ascent as a positive fraction of the em.
+    /// The ascender as a fraction of the em; see `line_metrics`.
     #[getter]
     fn ascender(&self) -> f64 {
-        match &self.face {
-            Face::OpenType(face) => face.ascent,
-            Face::Standard(font, _) => draw::standard_vertical_metrics(*font).0,
-        }
+        self.line_metrics().ascender
     }
 
-    /// Descent as a negative fraction of the em.
+    /// The descender as a fraction of the em, negative below the baseline;
+    /// see `line_metrics`.
     #[getter]
     fn descender(&self) -> f64 {
-        match &self.face {
-            Face::OpenType(face) => -face.descent,
-            Face::Standard(font, _) => -draw::standard_vertical_metrics(*font).1,
-        }
+        self.line_metrics().descender
     }
 
     /// Measure one line as drawing places it, in PDF units.

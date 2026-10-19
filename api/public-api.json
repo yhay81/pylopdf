@@ -3048,6 +3048,12 @@
                 "name": "fontsize"
               },
               {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "lineheight"
+              },
+              {
                 "annotation": "Font | None",
                 "default": null,
                 "kind": "keyword_only",
@@ -4229,6 +4235,12 @@
                 "default": 11,
                 "kind": "keyword_only",
                 "name": "fontsize"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "lineheight"
               },
               {
                 "annotation": "Font | None",

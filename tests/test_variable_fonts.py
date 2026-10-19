@@ -349,7 +349,10 @@ def test_textbox_lays_out_a_bold_instance_with_its_advances(source: str) -> None
 
     spare = page.insert_textbox(rect, HEBREW, font=bold, fontsize=16, align=pylopdf.TEXT_ALIGN_RIGHT)
 
-    assert spare == pytest.approx(rect[3] - rect[1] - (bold.ascender - bold.descender) * 16, abs=1e-6)
+    # As in pymupdf, one line counts its default line height, the ascender
+    # minus the descender, plus one more descender.
+    line_height = bold.ascender - bold.descender
+    assert spare == pytest.approx(rect[3] - rect[1] - (line_height - bold.descender) * 16, abs=1e-6)
     line = page.get_text("dict")["blocks"][0]["lines"][0]
     assert line["bbox"][0] == pytest.approx(rect[2] - bold.text_length(HEBREW, 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)

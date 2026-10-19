@@ -65,8 +65,8 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨; 편집하지 않은 `src`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
-| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
-| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
+| `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 줄은 pymupdf와 같은 위치에 배치. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth`가 있음(pymupdf처럼 점 뒤에 위치 인수로도 전달 가능) |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
@@ -99,6 +99,14 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 `TEXT_ALIGN_JUSTIFY`입니다. 반환값이 음수이면 세로 공간이 부족하며 페이지 내용이나
 글꼴 resource를 추가하지 않습니다.
 
+두 메서드 모두 pymupdf와 같은 위치에 줄을 배치합니다. `insert_text`는 각 줄을 앞 줄보다
+`fontsize`의 `lineheight`배만큼 아래에 놓습니다. `lineheight`를 생략하면 배율은 글꼴의
+`ascender`에서 `descender`를 뺀 값이고, 그 차가 1 이하이면 1.2입니다. 예를 들어
+10포인트 Helvetica의 줄 간격은 13.74포인트입니다. `insert_textbox`도 같은 기본값을
+쓰며, 첫 기준선을 `rect` 위쪽 가장자리에서 ascender 하나만큼 아래에 두고, 이후 줄은
+ascender의 `lineheight`배씩 아래에 둡니다. 텍스트가 들어가는지 판단하고 남은 높이를
+반환할 때는 줄마다 `fontsize`의 `lineheight`배와 descender 하나를 셉니다.
+
 `Font`는 pymupdf의 `Font(fontname=None, fontfile=None, fontbuffer=None)`을
 따르며 `insert_text(font=)`와 `insert_textbox(font=)`에 전달합니다. OpenType 글꼴은
 `set_form_field(font=)`에도 전달할 수 있습니다.
@@ -117,8 +125,11 @@ Noto Sans CJK JP의 기본 인스턴스는 Thin입니다. `weight=`를 전달하
 글꼴 extra의 글꼴을 선택합니다(`is_serif=True`이면 세리프). `font.text_length(text,
 fontsize)`는 그리기와 같은 shaping으로 커닝과 합자를 포함해 측정하므로, 그리는 글꼴의
 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다. `ascender`와 `descender`는
-`insert_textbox`가 줄을 배치할 때 쓰는 em 대비 비율이고, `has_glyph(chr)`는 코드
-포인트의 글리프 번호(없으면 0)를 반환합니다. CJK extra는 스타일마다 정적 글꼴 하나만
+pymupdf가 보고하는 em 대비 비율이며, `insert_text`와 `insert_textbox`는 이 값으로 줄을
+배치합니다. OpenType 글꼴은 `USE_TYPO_METRICS`를 설정했으면 OS/2의 typographic 값,
+그렇지 않으면 `hhea` 값을 쓰며, FreeType이 MuPDF를 위해 읽는 값과 같습니다. Standard 14
+글꼴은 MuPDF가 그릴 때 쓰는 URW 글꼴의 외접 사각형 값으로, Helvetica는 1.075와
+-0.299입니다. `has_glyph(chr)`는 코드 포인트의 글리프 번호(없으면 0)를 반환합니다. CJK extra는 스타일마다 정적 글꼴 하나만
 설치하므로, 글꼴과 맞지 않는 `is_bold`, `is_italic`, OS/2 `weight` 지정은 `PdfError`가
 되며 Noto Sans KR Bold 같은 다른 굵기는 파일에서 불러옵니다. 반면 `pylopdf[ar]`,
 `[he]`, `[hi]`, `[th]`는 가변 글꼴을 설치하므로 `Font(language="he", is_bold=True)`는
@@ -145,7 +156,8 @@ lineCap=0, lineJoin=0, dashes=None, even_odd=False, closePath=True,
 fill_opacity=1, stroke_opacity=1)`는 앞의 `finish` 이후 그린 경로를 선과 채우기로
 마무리합니다. 색은 0~1의 회색, RGB, CMYK이며, `dashes`는 `"[3 4] 0"` 같은 PDF
 점선 지정입니다. `insert_text`와 `insert_textbox`는 `Page.insert_text`,
-`Page.insert_textbox`와 같은 글꼴 지정을(`font=` 포함) 받습니다. `insert_text`는
+`Page.insert_textbox`와 같은 글꼴 지정을(`font=`와 `lineheight=` 포함) 받고 같은
+위치에 줄을 배치합니다. `insert_text`는
 줄 수를, `insert_textbox`는 남은 높이를 반환하며, 들어가지 않으면 음수를 반환하고
 아무것도 더하지 않습니다. `commit(overlay=True)`로 페이지에 그립니다. pymupdf와
 마찬가지로 마무리한 경로를 순서대로 그리고 그 위에 모든 글자를 그립니다.

@@ -70,9 +70,10 @@ def test_font_reads_face_metadata_and_vertical_metrics(regular: pylopdf.Font) ->
     assert regular.is_serif is False
     assert pylopdf.Font(fontfile=NOTO_SERIF_JP).is_serif is True
     assert regular.units_per_em == 1000
-    # OS/2 typographic metrics, which insert_textbox places lines with.
-    assert regular.ascender == pytest.approx(0.88)
-    assert regular.descender == pytest.approx(-0.12)
+    # The hhea metrics that pymupdf reports and places lines with; the face
+    # does not set USE_TYPO_METRICS, so its OS/2 values (0.88, -0.12) are unused.
+    assert regular.ascender == pytest.approx(1.16)
+    assert regular.descender == pytest.approx(-0.288)
     assert repr(regular) == "Font('Noto Sans JP Regular')"
 
 
@@ -123,8 +124,10 @@ def test_text_length_matches_textbox_layout(regular: pylopdf.Font) -> None:
 
     spare = page.insert_textbox(rect, "見出しAVATAR", font=regular, fontsize=16, align=pylopdf.TEXT_ALIGN_RIGHT)
 
-    # One line occupies the face's ascent plus descent.
-    assert spare == pytest.approx(rect[3] - rect[1] - (regular.ascender - regular.descender) * 16, abs=1e-6)
+    # As in pymupdf, one line counts its default line height, the ascender
+    # minus the descender, plus one more descender.
+    line_height = regular.ascender - regular.descender
+    assert spare == pytest.approx(rect[3] - rect[1] - (line_height - regular.descender) * 16, abs=1e-6)
     line = page.get_text("dict")["blocks"][0]["lines"][0]
     assert line["bbox"][0] == pytest.approx(rect[2] - regular.text_length("見出しAVATAR", 16), abs=1e-2)
     assert line["bbox"][2] == pytest.approx(rect[2], abs=1e-2)

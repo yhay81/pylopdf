@@ -6564,6 +6564,7 @@ impl _Document {
         lines: &[String],
         face: GenerationFace,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
     ) -> PyResult<()> {
@@ -6577,8 +6578,10 @@ impl _Document {
             (pdf_width, pdf_height)
         };
         let generated = py.detach(|| {
-            generate::embedded_text_page(page_size, point, lines, &face, fontsize, color)
-                .map_err(PdfError::new_err)
+            generate::embedded_text_page(
+                page_size, point, lines, &face, fontsize, lineheight, color,
+            )
+            .map_err(PdfError::new_err)
         })?;
         let mut generated_doc = generated_pdf::load(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
@@ -6614,7 +6617,7 @@ impl _Document {
         text: &str,
         face: GenerationFace,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
@@ -6635,7 +6638,7 @@ impl _Document {
                 text,
                 &face,
                 fontsize,
-                line_height,
+                lineheight,
                 align,
                 color,
                 max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
@@ -11859,6 +11862,7 @@ impl _Document {
         base_font,
         winansi,
         fontsize,
+        lineheight,
         color,
         overlay,
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
@@ -11872,12 +11876,19 @@ impl _Document {
         base_font: &str,
         winansi: bool,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
         max_text_size: Option<usize>,
     ) -> PyResult<()> {
         validate_generated_text_line_count(lines.len(), max_text_size)?;
         validate_generated_text_input(lines.iter().map(Vec::as_slice), max_text_size)?;
+        let font = draw::base14_font(base_font).ok_or_else(|| {
+            PdfError::new_err(format!("unsupported Standard 14 font: {base_font}"))
+        })?;
+        let leading = draw::standard_line_metrics(font)
+            .leading(fontsize, lineheight)
+            .map_err(PdfError::new_err)?;
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) =
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
@@ -11899,6 +11910,7 @@ impl _Document {
                 &lines,
                 drawing_plan.resource.name(),
                 fontsize,
+                leading,
                 draw::DeviceColor::Rgb(color.0, color.1, color.2),
             );
             self.commit_drawing_resource(page_id, drawing_plan.resource, font_id)?;
@@ -11918,7 +11930,7 @@ impl _Document {
         base_font,
         winansi,
         fontsize,
-        line_height,
+        lineheight,
         align,
         color,
         overlay,
@@ -11933,7 +11945,7 @@ impl _Document {
         base_font: &str,
         winansi: bool,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
@@ -11948,7 +11960,7 @@ impl _Document {
                 (rect[2] - rect[0], rect[3] - rect[1]),
                 base_font,
                 fontsize,
-                line_height,
+                lineheight,
                 align == 3,
                 max_text_size.map(|_| crate::layout::MAX_GENERATED_TEXT_LINES),
             )
@@ -12004,6 +12016,7 @@ impl _Document {
         font_data,
         font_index,
         fontsize,
+        lineheight,
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
@@ -12019,6 +12032,7 @@ impl _Document {
         font_data: Vec<u8>,
         font_index: u32,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
@@ -12036,6 +12050,7 @@ impl _Document {
             &lines,
             face,
             fontsize,
+            lineheight,
             color,
             overlay,
         )
@@ -12055,6 +12070,7 @@ impl _Document {
         path,
         font_index,
         fontsize,
+        lineheight,
         color,
         overlay,
         max_font_size=Some(DEFAULT_MAX_FONT_INPUT_SIZE),
@@ -12071,6 +12087,7 @@ impl _Document {
         path: &str,
         font_index: u32,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
         max_font_size: Option<usize>,
@@ -12089,6 +12106,7 @@ impl _Document {
             &lines,
             face,
             fontsize,
+            lineheight,
             color,
             overlay,
         )
@@ -12124,6 +12142,7 @@ impl _Document {
         lines,
         font,
         fontsize,
+        lineheight,
         color,
         overlay,
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
@@ -12136,6 +12155,7 @@ impl _Document {
         lines: Vec<String>,
         font: &Bound<'_, _Font>,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: (f64, f64, f64),
         overlay: bool,
         max_text_size: Option<usize>,
@@ -12152,6 +12172,7 @@ impl _Document {
             &lines,
             face,
             fontsize,
+            lineheight,
             color,
             overlay,
         )
@@ -12165,7 +12186,7 @@ impl _Document {
         text,
         font,
         fontsize,
-        line_height,
+        lineheight,
         align,
         color,
         overlay,
@@ -12179,7 +12200,7 @@ impl _Document {
         text: &str,
         font: &Bound<'_, _Font>,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
@@ -12197,7 +12218,7 @@ impl _Document {
             text,
             face,
             fontsize,
-            line_height,
+            lineheight,
             align,
             color,
             overlay,
@@ -12216,7 +12237,7 @@ impl _Document {
         font_data,
         font_index,
         fontsize,
-        line_height,
+        lineheight,
         align,
         color,
         overlay,
@@ -12233,7 +12254,7 @@ impl _Document {
         font_data: Vec<u8>,
         font_index: u32,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
@@ -12252,7 +12273,7 @@ impl _Document {
             text,
             face,
             fontsize,
-            line_height,
+            lineheight,
             align,
             color,
             overlay,
@@ -12273,7 +12294,7 @@ impl _Document {
         path,
         font_index,
         fontsize,
-        line_height,
+        lineheight,
         align,
         color,
         overlay,
@@ -12291,7 +12312,7 @@ impl _Document {
         path: &str,
         font_index: u32,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: (f64, f64, f64),
         overlay: bool,
@@ -12311,7 +12332,7 @@ impl _Document {
             text,
             face,
             fontsize,
-            line_height,
+            lineheight,
             align,
             color,
             overlay,

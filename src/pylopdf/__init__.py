@@ -1222,35 +1222,43 @@ def _validate_unit_rgb(color: Sequence[float]) -> tuple[float, float, float]:
     return red, green, blue
 
 
+def _validate_lineheight(lineheight: float | None) -> float | None:
+    """Validate a line-height multiplier; ``None`` keeps the font's default line height."""
+    if lineheight is None:
+        return None
+    try:
+        resolved = float(lineheight)
+    except (TypeError, ValueError) as exc:
+        msg = f"lineheight must be a positive number or None: {lineheight!r}"
+        raise PdfError(msg) from exc
+    if not (math.isfinite(resolved) and resolved > 0):
+        msg = f"lineheight must be a positive number or None: {lineheight!r}"
+        raise PdfError(msg)
+    return resolved
+
+
 def _validate_textbox_options(
     fontsize: float,
     lineheight: float | None,
     align: int,
     expandtabs: int,
-) -> tuple[float, float]:
-    """Validate textbox layout options and return normalized size and leading."""
+) -> tuple[float, float | None]:
+    """Validate textbox layout options and return the normalized size and line height."""
     try:
         resolved_fontsize = float(fontsize)
     except (TypeError, ValueError) as exc:
         msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise ValueError(msg) from exc
+        raise PdfError(msg) from exc
     if not (math.isfinite(resolved_fontsize) and resolved_fontsize > 0):
         msg = f"fontsize must be a positive number: {fontsize!r}"
-        raise ValueError(msg)
-    try:
-        resolved_lineheight = 1.2 if lineheight is None else float(lineheight)
-    except (TypeError, ValueError) as exc:
-        msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise ValueError(msg) from exc
-    if not (math.isfinite(resolved_lineheight) and resolved_lineheight > 0):
-        msg = f"lineheight must be a positive number or None: {lineheight!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
+    resolved_lineheight = _validate_lineheight(lineheight)
     if isinstance(align, bool) or not isinstance(align, int) or not TEXT_ALIGN_LEFT <= align <= TEXT_ALIGN_JUSTIFY:
         msg = f"align must be one of 0, 1, 2, or 3: {align!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     if isinstance(expandtabs, bool) or not isinstance(expandtabs, int) or expandtabs < 0:
         msg = f"expandtabs must be a non-negative integer: {expandtabs!r}"
-        raise ValueError(msg)
+        raise PdfError(msg)
     return resolved_fontsize, resolved_lineheight
 
 
@@ -2039,18 +2047,27 @@ class Font:
 
     @property
     def ascender(self) -> float:
-        """Ascent above the baseline as a positive fraction of the font size.
+        """Ascent above the baseline as a fraction of the font size, as pymupdf reports it.
 
-        This is the value that :meth:`Page.insert_textbox` places its first
-        baseline with: the OS/2 typographic ascender, or the ``hhea``
-        ascender when the typographic metrics are unusable, and the AFM font
-        bounding box for Standard 14 fonts.
+        An OpenType face reports what FreeType reads for MuPDF: the OS/2
+        typographic ascender when the face sets ``USE_TYPO_METRICS``, else
+        the ``hhea`` ascender, or the typographic or Windows one when both
+        ``hhea`` values are zero; MuPDF replaces a value that is not positive
+        or exceeds 8 with 0.8. A Standard 14 font reports the bounding box of
+        the URW font that MuPDF draws it with, such as 1.075 for Helvetica. A
+        variable face reports its default instance. :meth:`Page.insert_text`
+        and :meth:`Page.insert_textbox` place lines with :attr:`ascender` and
+        :attr:`descender`.
         """
         return self._font.ascender
 
     @property
     def descender(self) -> float:
-        """Descent below the baseline as a negative fraction of the font size."""
+        """Descent below the baseline as a negative fraction of the font size, as pymupdf reports it.
+
+        It comes from the same table as :attr:`ascender`. MuPDF negates a
+        positive value and replaces one beyond 3 either way with -0.2.
+        """
         return self._font.descender
 
     def text_length(
@@ -2831,6 +2848,7 @@ class Shape:
         /,
         *,
         fontsize: float = 11,
+        lineheight: float | None = None,
         font: Font | None = None,
         fontname: str = "helv",
         fontfile: str | os.PathLike[str] | None = None,
@@ -2843,10 +2861,10 @@ class Shape:
     ) -> int:
         r"""Add text whose first baseline starts at ``point`` and return its line count.
 
-        ``text`` is a string, in which ``\n`` starts a line 1.2 times
-        ``fontsize`` lower, or a list of lines. The font options and limits
-        are those of :meth:`Page.insert_text`. ``color`` defaults to black.
-        Empty text adds nothing and returns 0.
+        ``text`` is a string, in which ``\n`` starts a new line, or a list of
+        lines. Lines are placed as :meth:`Page.insert_text` places them,
+        ``lineheight`` included, and the font options and limits are its own.
+        ``color`` defaults to black. Empty text adds nothing and returns 0.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
         lines_text = "\n".join(text) if isinstance(text, (list, tuple)) else text
@@ -2860,6 +2878,7 @@ class Shape:
         if not size > 0:
             msg = f"fontsize must be a positive number: {fontsize!r}"
             raise PdfError(msg)
+        resolved_lineheight = _validate_lineheight(lineheight)
         text_color = _shape_color(color, "color") or (0.0,)
         _validate_utf8_text_input(lines_text, max_text_size)
         normalized = lines_text.replace("\r\n", "\n").replace("\r", "\n")
@@ -2879,6 +2898,7 @@ class Shape:
             normalized.split("\n"),
             core_font,
             size,
+            resolved_lineheight,
             list(text_color),
             max_text_size,
         )
@@ -3544,6 +3564,7 @@ class Page:
         text: str,
         *,
         fontsize: float = 11.0,
+        lineheight: float | None = None,
         font: Font | None = None,
         fontname: str = "helv",
         fontfile: str | os.PathLike[str] | None = None,
@@ -3591,7 +3612,11 @@ class Page:
         current pylopdf extractor does not consume it, so some reordered or
         context-dependent clusters can extract approximately after reopening.
 
-        ``\n`` starts a new line at 1.2 times ``fontsize``. Text remains
+        ``\n`` starts a new line, ``lineheight`` times ``fontsize`` below the
+        previous one. Without ``lineheight``, lines are pymupdf's default
+        distance apart: the font's :attr:`Font.ascender` minus its
+        :attr:`Font.descender`, times ``fontsize``, or 1.2 times ``fontsize``
+        when that difference is at most 1. Text remains
         visually upright on rotated pages. ``overlay=False`` draws below
         existing content. Loop over pages for headers, footers, page numbers,
         or Bates numbers. Explicit and automatically selected font input
@@ -3614,6 +3639,7 @@ class Page:
         if not (math.isfinite(fontsize) and fontsize > 0):
             msg = f"fontsize must be a positive number: {fontsize!r}"
             raise ValueError(msg)
+        resolved_lineheight = _validate_lineheight(lineheight)
         red, green, blue = _validate_unit_rgb(color)
         if not text:
             msg = "text must be at least 1 character"
@@ -3631,6 +3657,7 @@ class Page:
                     normalized.split("\n"),
                     core_font,
                     float(fontsize),
+                    resolved_lineheight,
                     (red, green, blue),
                     overlay,
                     max_text_size,
@@ -3642,6 +3669,7 @@ class Page:
                 normalized,
                 base_font=standard_name,
                 fontsize=float(fontsize),
+                lineheight=resolved_lineheight,
                 color=(red, green, blue),
                 overlay=overlay,
                 max_text_size=max_text_size,
@@ -3663,6 +3691,7 @@ class Page:
                 str(font_data),
                 fontindex,
                 float(fontsize),
+                resolved_lineheight,
                 (red, green, blue),
                 overlay,
                 max_font_size,
@@ -3679,6 +3708,7 @@ class Page:
                 font_data,
                 fontindex,
                 float(fontsize),
+                resolved_lineheight,
                 (red, green, blue),
                 overlay,
                 max_font_size,
@@ -3692,6 +3722,7 @@ class Page:
             normalized,
             base_font=cast("str", base_font),
             fontsize=float(fontsize),
+            lineheight=resolved_lineheight,
             color=(red, green, blue),
             overlay=overlay,
             max_text_size=max_text_size,
@@ -3704,6 +3735,7 @@ class Page:
         *,
         base_font: str,
         fontsize: float,
+        lineheight: float | None,
         color: tuple[float, float, float],
         overlay: bool,
         max_text_size: int | None,
@@ -3717,6 +3749,7 @@ class Page:
             base_font,
             base_font not in _SYMBOLIC_BASE14_NAMES,
             fontsize,
+            lineheight,
             color,
             overlay,
             max_text_size,
@@ -3752,9 +3785,17 @@ class Page:
         ``align`` accepts :data:`TEXT_ALIGN_LEFT`,
         :data:`TEXT_ALIGN_CENTER`, :data:`TEXT_ALIGN_RIGHT`, or
         :data:`TEXT_ALIGN_JUSTIFY`. Justification expands spaces on soft-wrapped
-        lines, never the final line of a paragraph. ``lineheight`` is a
-        font-size multiplier and defaults to 1.2. Tabs are expanded before
+        lines, never the final line of a paragraph. Tabs are expanded before
         Unicode line breaking; explicit newlines always start a new line.
+
+        Lines are placed as pymupdf places them. ``lineheight`` is a font-size
+        multiplier that defaults to the font's :attr:`Font.ascender` minus its
+        :attr:`Font.descender`, or to 1.2 when that difference is at most 1.
+        The first baseline lies one ascender below the top of ``rect``, and
+        later baselines follow ``lineheight`` times the ascender apart. The
+        text fits when ``lineheight`` times ``fontsize`` per line plus one
+        descender fits the height of ``rect``, which is the measure the
+        returned spare height uses.
 
         Without a font source, Adobe Core 14 metrics provide exact WinAnsi
         wrapping. Pass a :class:`Font` as ``font``, or exactly one of

@@ -67,6 +67,7 @@ enum StandardContent {
     Lines {
         point: (f64, f64),
         lines: Vec<Vec<u8>>,
+        leading: f64,
     },
     Textbox {
         rect: [f64; 4],
@@ -369,9 +370,13 @@ impl _Shape {
             return Err("a shape segment is not Standard 14 text".to_owned());
         };
         match content {
-            StandardContent::Lines { point, lines } => {
-                Ok(draw::text_ops(crop, 0, *point, lines, name, *size, *color))
-            }
+            StandardContent::Lines {
+                point,
+                lines,
+                leading,
+            } => Ok(draw::text_ops(
+                crop, 0, *point, lines, name, *size, *leading, *color,
+            )),
             StandardContent::Textbox {
                 rect,
                 layout,
@@ -622,14 +627,16 @@ impl _Shape {
     }
 
     /// Record lines placed as `insert_text` places them: the first baseline
-    /// starts at `point` and later lines follow at 1.2 times the font size.
-    /// Return the number of lines.
+    /// starts at `point` and later lines follow at `lineheight` times the
+    /// font size, or at the font's default line height. Return the number of
+    /// lines.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         point,
         lines,
         font,
         fontsize,
+        lineheight,
         color,
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
     ))]
@@ -640,6 +647,7 @@ impl _Shape {
         lines: Vec<String>,
         font: &Bound<'_, _Font>,
         fontsize: f64,
+        lineheight: Option<f64>,
         color: Vec<f64>,
         max_text_size: Option<usize>,
     ) -> PyResult<usize> {
@@ -647,12 +655,16 @@ impl _Shape {
         validate_generated_text_input(lines.iter().map(String::as_bytes), max_text_size)?;
         let color = device_color(&color)?;
         let face = font.get();
+        let leading = face
+            .line_metrics()
+            .leading(fontsize, lineheight)
+            .map_err(PdfError::new_err)?;
         let text = match face.draw_face() {
             DrawFace::Embedded(face) => {
                 let size =
                     generate::finite_f32(fontsize, "font size").map_err(PdfError::new_err)?;
                 let runs = py
-                    .detach(|| generate::text_runs(face.shaping_font(), point, &lines, fontsize))
+                    .detach(|| generate::text_runs(face.shaping_font(), point, &lines, leading))
                     .map_err(PdfError::new_err)?;
                 ShapeText::Embedded {
                     face: self.face_slot(face)?,
@@ -676,6 +688,7 @@ impl _Shape {
                     content: StandardContent::Lines {
                         point,
                         lines: encoded,
+                        leading,
                     },
                 }
             }
@@ -693,7 +706,7 @@ impl _Shape {
         text,
         font,
         fontsize,
-        line_height,
+        lineheight,
         align,
         color,
         max_text_size=Some(DEFAULT_MAX_GENERATED_TEXT_SIZE)
@@ -705,7 +718,7 @@ impl _Shape {
         text: &str,
         font: &Bound<'_, _Font>,
         fontsize: f64,
-        line_height: f64,
+        lineheight: Option<f64>,
         align: u8,
         color: Vec<f64>,
         max_text_size: Option<usize>,
@@ -727,7 +740,7 @@ impl _Shape {
                             rect,
                             text,
                             fontsize,
-                            line_height,
+                            lineheight,
                             align,
                             max_lines,
                         )
@@ -752,7 +765,7 @@ impl _Shape {
                             (rect[2] - rect[0], rect[3] - rect[1]),
                             name,
                             fontsize,
-                            line_height,
+                            lineheight,
                             align == 3,
                             max_lines,
                         )

@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use pdf_base14_metrics::Base14Font;
 
-use crate::layout::{TextBoxLayout, layout_textbox};
+use crate::layout::{LineMetrics, LinePlacement, TextBoxLayout, layout_textbox};
 
 const MAX_PAGE_CONTENT_STREAMS: usize = 4096;
 const MAX_CONTENT_REFERENCE_DEPTH: usize = 32;
@@ -718,9 +718,10 @@ impl DeviceColor {
 
 /// Build text operators with display-space `point` as the baseline origin.
 ///
-/// `lines` contains WinAnsi/cp1252 bytes, one item per line. `Tm` receives
-/// display-space basis vectors so text remains upright on rotated pages.
-/// Leading is 1.2 times the font size.
+/// `lines` contains WinAnsi/cp1252 bytes, one item per line, and `leading`
+/// is the distance between their baselines. `Tm` receives display-space basis
+/// vectors so text remains upright on rotated pages.
+#[allow(clippy::too_many_arguments)]
 pub fn text_ops(
     crop: [f64; 4],
     rotation: i64,
@@ -728,6 +729,7 @@ pub fn text_ops(
     lines: &[Vec<u8>],
     font: &str,
     size: f64,
+    leading: f64,
     color: DeviceColor,
 ) -> Vec<u8> {
     let (ox, oy) = display_to_pdf(crop, rotation, point.0, point.1);
@@ -749,7 +751,7 @@ pub fn text_ops(
         fmt(uy),
         fmt(ox),
         fmt(oy),
-        fmt(size * 1.2),
+        fmt(leading),
     )
     .into_bytes();
     for (i, line) in lines.iter().enumerate() {
@@ -773,28 +775,51 @@ pub fn text_ops(
     out
 }
 
-/// Lay out Standard 14 text using Adobe's canonical AFM metrics.
+/// Lay out Standard 14 text as `insert_textbox` does: wrapped with Adobe's
+/// canonical AFM widths, with lines placed by pymupdf's line metrics.
 pub fn standard_textbox_layout(
     text: &str,
     box_size: (f64, f64),
     base_font: &str,
     font_size: f64,
-    line_height: f64,
+    lineheight: Option<f64>,
     justify: bool,
     max_lines: Option<usize>,
 ) -> Result<TextBoxLayout, String> {
     let font = base14_font(base_font)
         .ok_or_else(|| format!("unsupported Standard 14 font: {base_font}"))?;
-    let (ascent, descent) = standard_vertical_metrics(font);
-
     layout_textbox(
         text,
         box_size,
         font_size,
-        line_height,
-        ascent,
-        descent,
+        LinePlacement::textbox(standard_line_metrics(font), lineheight),
         justify,
+        max_lines,
+        |line| standard_text_width(line, font, font_size),
+    )
+}
+
+/// Lay out Standard 14 text for a form appearance, `line_height` em apart and
+/// fitted with the AFM font bounding box.
+pub fn standard_form_layout(
+    text: &str,
+    box_size: (f64, f64),
+    font: Base14Font,
+    font_size: f64,
+    line_height: f64,
+    max_lines: Option<usize>,
+) -> Result<TextBoxLayout, String> {
+    let (ascent, descent) = standard_vertical_metrics(font);
+    layout_textbox(
+        text,
+        box_size,
+        font_size,
+        LinePlacement::Stacked {
+            ascent,
+            descent,
+            line_height,
+        },
+        false,
         max_lines,
         |line| standard_text_width(line, font, font_size),
     )
@@ -869,8 +894,36 @@ pub fn textbox_text_ops(
     Ok(out)
 }
 
+/// Return the ascender and descender that pymupdf's `Font` reports for a
+/// Standard 14 font, which `insert_text` and `insert_textbox` place lines
+/// with. MuPDF draws these fonts with the URW base-35 fonts it builds in and
+/// reports their font bounding boxes, not Adobe's AFM metrics; the values are
+/// those of pymupdf 1.28.2, in thousandths of the em.
+pub(crate) fn standard_line_metrics(font: Base14Font) -> LineMetrics {
+    let (ascender, descender) = match font {
+        Base14Font::Courier => (932, -317),
+        Base14Font::CourierOblique => (920, -317),
+        Base14Font::CourierBold => (1007, -393),
+        Base14Font::CourierBoldOblique => (997, -393),
+        Base14Font::Helvetica => (1075, -299),
+        Base14Font::HelveticaOblique => (1070, -284),
+        Base14Font::HelveticaBold => (1070, -307),
+        Base14Font::HelveticaBoldOblique => (1073, -309),
+        Base14Font::TimesRoman => (1053, -281),
+        Base14Font::TimesItalic => (951, -270),
+        Base14Font::TimesBold => (1044, -341),
+        Base14Font::TimesBoldItalic => (972, -324),
+        Base14Font::Symbol => (1010, -293),
+        Base14Font::ZapfDingbats => (819, -144),
+    };
+    LineMetrics {
+        ascender: f64::from(ascender) / 1000.0,
+        descender: f64::from(descender) / 1000.0,
+    }
+}
+
 /// Return the ascent and descent, as positive fractions of the em, that
-/// Standard 14 textbox layout places lines with.
+/// Standard 14 form appearances place lines with.
 pub(crate) fn standard_vertical_metrics(font: Base14Font) -> (f64, f64) {
     let metrics = font.metrics();
     // FontBBox is intentionally conservative: Core 14 viewers substitute
