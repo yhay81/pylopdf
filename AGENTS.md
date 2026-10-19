@@ -314,7 +314,10 @@ overview.
   abi3, the wheel measured 6.86 MiB versus 6.78 MiB at the preceding v0.11
   commit (+0.07 MiB); extending the same path to bounded Flate decoding
   measured 6.90 MiB (+0.04 MiB).
-- Native OCR uses RTen 0.24 with only its `rten_format` feature. The core wheel
+- Native OCR uses RTen 0.27 with only its `rten_format` feature. RTen 0.27
+  deprecates the `.rten` format (robertknight/rten#1470) and no longer
+  enables it by default; a release that removes it would require ONNX model
+  files and RTen's ONNX parser in the core wheel. The core wheel
   contains the pure-Rust inference engine; PP-OCRv6 small detector,
   recognizer, and dictionary data come from the independently versioned
   `pylopdf-ocr-models` package through the `[ocr]` extra. `OcrEngine` loads one
@@ -1292,7 +1295,7 @@ overview.
   successful replacement materializes inherited page attributes and clears
   the drawing isolation marker for that page.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
-  pinned to 0.8.2 with all default features disabled; HarfRust 0.12 supplies
+  pinned to 0.8.2 with all default features disabled; HarfRust 0.14 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
   PDF-import features remain disabled. Generation creates a transparent page
   in target display coordinates, subset-embeds the selected OpenType face, and
