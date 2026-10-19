@@ -107,9 +107,16 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 fontsize)`는 그리기와 같은 shaping으로 커닝과 합자를 포함해 측정하므로, 그리는 글꼴의
 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다. `ascender`와 `descender`는
 `insert_textbox`가 줄을 배치할 때 쓰는 em 대비 비율이고, `has_glyph(chr)`는 코드
-포인트의 글리프 번호(없으면 0)를 반환합니다. extra는 스타일마다 글꼴 하나만 설치하므로,
-글꼴과 맞지 않는 `is_bold`, `is_italic`, OS/2 `weight` 지정은 `PdfError`가 되며 Noto
-Sans KR Bold 같은 다른 굵기는 파일에서 불러옵니다. pylopdf는 글꼴 등록표를 두지 않고 OS
+포인트의 글리프 번호(없으면 0)를 반환합니다. CJK extra는 스타일마다 정적 글꼴 하나만
+설치하므로, 글꼴과 맞지 않는 `is_bold`, `is_italic`, OS/2 `weight` 지정은 `PdfError`가
+되며 Noto Sans KR Bold 같은 다른 굵기는 파일에서 불러옵니다. 반면 `pylopdf[ar]`,
+`[he]`, `[hi]`, `[th]`는 가변 글꼴을 설치하므로 `Font(language="he", is_bold=True)`는
+다른 파일 없이 글꼴의 굵기 축에서 Bold 인스턴스를 선택하고, 그 인스턴스의 advance로
+측정하며, `NotoSansHebrew-Bold`라는 PostScript 이름으로 포함합니다. 굵기 범위는
+100부터 900까지이고, `pylopdf[ar]`의 세리프 글꼴인 Noto Naskh Arabic은 400부터
+700까지입니다. 축 밖의 굵기나 기울임 지정은 `PdfError`가 됩니다. 설치된 가변 글꼴은
+`insert_text`, `insert_textbox`, `set_form_field`가 자동으로 선택하는 경우를 포함해
+Regular 굵기로 그립니다. Noto Sans Hebrew의 기본 인스턴스가 Thin이기 때문입니다. pylopdf는 글꼴 등록표를 두지 않고 OS
 글꼴 폴더도 찾지 않습니다. 윤곽선이나 덧칠로 굵기를 흉내 내지 않으며,
 `allow_regular_fallback=True`를 명시한 경우에만 extra의 글꼴을 쓰고 `PylopdfWarning`을
 냅니다. pymupdf라면 무시하는 경우에도 `fontname`이나 글꼴 파일과 함께 스타일 지정을

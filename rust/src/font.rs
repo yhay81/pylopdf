@@ -1,12 +1,13 @@
 //! Faces that Python loads once and reuses for generation and measurement.
 //!
 //! `pylopdf.Font` wraps a `_Font`, which holds either an OpenType face or a
-//! Standard 14 font. An OpenType face keeps its shared bytes and the HarfRust
-//! font that shapes them; `text_length` measures with
-//! `generate::shaped_line_width`, the sum that places every glyph generation
-//! draws, and drawing passes the same bytes and collection index to the paths
-//! that `fontbuffer` uses. A Standard 14 font is not embedded; it measures
-//! with the Adobe AFM widths that Standard 14 text layout uses.
+//! Standard 14 font. An OpenType face keeps a `generate::GenerationFace`:
+//! its shared bytes and the HarfRust font that shapes them, at the instance
+//! of a variable face that `with_weight` selected. `text_length` measures
+//! with `generate::shaped_line_width`, the sum that places every glyph
+//! generation draws, and drawing passes the same face to the paths that
+//! `fontbuffer` uses. A Standard 14 font is not embedded; it measures with
+//! the Adobe AFM widths that Standard 14 text layout uses.
 
 use std::sync::Arc;
 
@@ -18,13 +19,12 @@ use read_fonts::tables::head::MacStyle;
 use read_fonts::tables::os2::SelectionFlags;
 use read_fonts::types::NameId;
 
-use crate::bundled_font_cache::FontBytes;
 use crate::document::{
     DEFAULT_MAX_FONT_INPUT_SIZE, DEFAULT_MAX_GENERATED_TEXT_SIZE, PdfError, load_generation_font,
     validate_font_input, validate_generated_text_input,
 };
 use crate::draw;
-use crate::generate::{self, ShapingFont};
+use crate::generate::{self, GenerationFace, ShapingFont, WeightAxis};
 
 /// The OS/2 weight class of a face that has no OS/2 table: Regular.
 const DEFAULT_WEIGHT_CLASS: u16 = 400;
@@ -37,9 +37,8 @@ const STANDARD_UNITS_PER_EM: u16 = 1000;
 
 /// An embedded OpenType face prepared for shaping and measurement.
 struct OpenTypeFace {
-    data: FontBytes,
-    index: u32,
-    shaping: ShapingFont,
+    generation: GenerationFace,
+    weight_axis: Option<WeightAxis>,
     full_name: Option<String>,
     family: Option<String>,
     weight: u16,
@@ -117,44 +116,57 @@ impl _Font {
     ///
     /// krilla must accept the face as well as HarfRust, so a font that
     /// generation could not embed fails here rather than at its first use.
-    fn open(data: FontBytes, index: u32) -> PyResult<Self> {
-        let shaping = generate::open_shaping_font(&data, index).map_err(PdfError::new_err)?;
-        krilla::text::Font::new(Arc::clone(&data).into(), index).ok_or_else(|| {
+    fn open(generation: GenerationFace) -> PyResult<Self> {
+        let shaping = generation.shaping_font();
+        generation.embedding_font().map_err(|_| {
             PdfError::new_err(format!(
-                "font data or collection index {index} cannot be embedded"
+                "font data or collection index {} cannot be embedded",
+                generation.source().1
             ))
         })?;
         let (ascent, descent) =
-            generate::font_vertical_metrics(&shaping).map_err(PdfError::new_err)?;
+            generate::font_vertical_metrics(shaping).map_err(PdfError::new_err)?;
         let tables = shaping.tables();
         let os2 = tables.os2().ok();
-        let weight = os2
-            .as_ref()
-            .map_or(DEFAULT_WEIGHT_CLASS, |os2| os2.us_weight_class());
         let selection = os2.as_ref().map(|os2| os2.fs_selection());
         let mac_style = tables.head().ok().map(|head| head.mac_style());
-        let bold = weight >= MIN_BOLD_WEIGHT_CLASS
-            || selection.is_some_and(|flags| flags.contains(SelectionFlags::BOLD))
-            || mac_style.is_some_and(|style| style.contains(MacStyle::BOLD));
+        // OS/2 and head describe the default instance of a variable face; an
+        // instance that `with_weight` selected weighs its axis value.
+        let (weight, bold) = match generation.weight() {
+            Some(weight) => (weight, weight >= MIN_BOLD_WEIGHT_CLASS),
+            None => {
+                let weight = os2
+                    .as_ref()
+                    .map_or(DEFAULT_WEIGHT_CLASS, |os2| os2.us_weight_class());
+                let bold = weight >= MIN_BOLD_WEIGHT_CLASS
+                    || selection.is_some_and(|flags| flags.contains(SelectionFlags::BOLD))
+                    || mac_style.is_some_and(|style| style.contains(MacStyle::BOLD));
+                (weight, bold)
+            }
+        };
         let italic = selection.is_some_and(|flags| {
             flags.intersects(SelectionFlags::ITALIC | SelectionFlags::OBLIQUE)
         }) || mac_style.is_some_and(|style| style.contains(MacStyle::ITALIC));
-        let family = name_record(&shaping, NameId::TYPOGRAPHIC_FAMILY_NAME)
-            .or_else(|| name_record(&shaping, NameId::FAMILY_NAME));
-        // Name a face as FreeType and pymupdf do: family, then style.
-        let style = name_record(&shaping, NameId::TYPOGRAPHIC_SUBFAMILY_NAME)
-            .or_else(|| name_record(&shaping, NameId::SUBFAMILY_NAME));
+        let family = name_record(shaping, NameId::TYPOGRAPHIC_FAMILY_NAME)
+            .or_else(|| name_record(shaping, NameId::FAMILY_NAME));
+        // Name a face as FreeType and pymupdf do: family, then style. An
+        // instance away from the default location takes its own style.
+        let style = generation
+            .instance_style_name()
+            .map(str::to_owned)
+            .or_else(|| name_record(shaping, NameId::TYPOGRAPHIC_SUBFAMILY_NAME))
+            .or_else(|| name_record(shaping, NameId::SUBFAMILY_NAME));
         let full_name = match (&family, style) {
             (Some(family), Some(style)) => Some(format!("{family} {style}")),
-            _ => name_record(&shaping, NameId::FULL_NAME)
-                .or_else(|| name_record(&shaping, NameId::POSTSCRIPT_NAME)),
+            _ => name_record(shaping, NameId::FULL_NAME)
+                .or_else(|| name_record(shaping, NameId::POSTSCRIPT_NAME)),
         };
-        let serif = is_serif_face(&shaping, family.as_deref());
+        let serif = is_serif_face(shaping, family.as_deref());
+        let weight_axis = generate::weight_axis(shaping);
         Ok(Self {
             face: Face::OpenType(Box::new(OpenTypeFace {
-                data,
-                index,
-                shaping,
+                generation,
+                weight_axis,
                 full_name,
                 family,
                 weight,
@@ -167,11 +179,11 @@ impl _Font {
         })
     }
 
-    /// The shared bytes and collection index that generation embeds, or
-    /// `None` for a Standard 14 font, which is drawn without embedding.
-    pub(crate) fn source(&self) -> Option<(FontBytes, u32)> {
+    /// The face that generation embeds, or `None` for a Standard 14 font,
+    /// which is drawn without embedding.
+    pub(crate) fn face(&self) -> Option<GenerationFace> {
         match &self.face {
-            Face::OpenType(face) => Some((Arc::clone(&face.data), face.index)),
+            Face::OpenType(face) => Some(face.generation.clone()),
             Face::Standard(..) => None,
         }
     }
@@ -189,7 +201,9 @@ impl _Font {
         max_font_size: Option<usize>,
     ) -> PyResult<Self> {
         validate_font_input(Some(&data), max_font_size)?;
-        py.detach(|| Self::open(Arc::new(data), index))
+        py.detach(|| {
+            Self::open(GenerationFace::new(Arc::new(data), index, None).map_err(PdfError::new_err)?)
+        })
     }
 
     /// Open a face from a bounded font file.
@@ -212,7 +226,41 @@ impl _Font {
         package_font: Option<(String, String)>,
     ) -> PyResult<Self> {
         let data = load_generation_font(py, path, package_font, max_font_size)?;
-        py.detach(|| Self::open(data, index))
+        py.detach(|| Self::open(GenerationFace::new(data, index, None).map_err(PdfError::new_err)?))
+    }
+
+    /// Return the instance at `weight` on this face's weight axis.
+    ///
+    /// The instance shares this face's bytes. A face without a weight axis,
+    /// including a Standard 14 font, and a weight outside the axis raise:
+    /// pylopdf draws only weights that the font defines.
+    fn with_weight(&self, py: Python<'_>, weight: u16) -> PyResult<Self> {
+        let Face::OpenType(face) = &self.face else {
+            return Err(PdfError::new_err(
+                "a Standard 14 font has no weight axis to select another weight on",
+            ));
+        };
+        if face.weight_axis.is_none() {
+            return Err(PdfError::new_err(
+                "the face has no weight axis to select another weight on",
+            ));
+        }
+        let (data, index) = face.generation.source();
+        py.detach(|| {
+            Self::open(GenerationFace::new(data, index, Some(weight)).map_err(PdfError::new_err)?)
+        })
+    }
+
+    /// The `(min, default, max)` user-space values of the weight axis, or
+    /// `None` for a face without one.
+    #[getter]
+    fn weight_range(&self) -> Option<(f32, f32, f32)> {
+        match &self.face {
+            Face::OpenType(face) => face
+                .weight_axis
+                .map(|axis| (axis.min, axis.default, axis.max)),
+            Face::Standard(..) => None,
+        }
     }
 
     /// A Standard 14 font, by its PostScript name.
@@ -259,7 +307,8 @@ impl _Font {
         }
     }
 
-    /// The OS/2 weight class; 400 or 700 for Standard 14 fonts.
+    /// The weight-axis value of a selected instance, else the OS/2 weight
+    /// class; 400 or 700 for Standard 14 fonts.
     #[getter]
     fn weight(&self) -> u16 {
         match &self.face {
@@ -299,7 +348,7 @@ impl _Font {
     #[getter]
     fn units_per_em(&self) -> u16 {
         match &self.face {
-            Face::OpenType(face) => face.shaping.units_per_em(),
+            Face::OpenType(face) => face.generation.shaping_font().units_per_em(),
             Face::Standard(..) => STANDARD_UNITS_PER_EM,
         }
     }
@@ -343,9 +392,9 @@ impl _Font {
             )));
         }
         match &self.face {
-            Face::OpenType(face) => {
-                py.detach(|| generate::shaped_line_width(&face.shaping, text, fontsize))
-            }
+            Face::OpenType(face) => py.detach(|| {
+                generate::shaped_line_width(face.generation.shaping_font(), text, fontsize)
+            }),
             Face::Standard(font, _) => draw::standard_text_width(text, *font, fontsize),
         }
         .map_err(PdfError::new_err)
@@ -358,7 +407,8 @@ impl _Font {
     fn has_glyph(&self, codepoint: u32) -> u32 {
         match &self.face {
             Face::OpenType(face) => face
-                .shaping
+                .generation
+                .shaping_font()
                 .charmap()
                 .map_unicode(codepoint)
                 .map_or(0, |glyph| glyph.to_u32()),

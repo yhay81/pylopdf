@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glyphs. `allow_regular_fallback=True` explicitly uses the extra's face with a
   `PylopdfWarning`. These options raise with `fontname` and font files, where
   pymupdf ignores them.
+- `Font(language=...)` and `Font(family=...)` select a weight of the variable
+  faces that the `ar`, `he`, `hi`, and `th` extras install, from `weight=` or
+  `is_bold=True`, as an instance on the face's weight axis without another
+  font file: weights 100 through 900, or 400 through 700 for Noto Naskh
+  Arabic, the serif face of `pylopdf[ar]`. krilla's subsetter embeds the
+  instance's outlines and advances, and HarfRust shapes at the same
+  coordinates, so `text_length` stays the drawn width. The instance reports
+  its axis value as `weight` and its style in `name`, such as `Noto Sans
+  Hebrew Bold`, and the subset is embedded under the instance's PostScript
+  name, `NotoSansHebrew-Bold`, which extraction reports together with its bold
+  flag. A weight outside the axis raises `PdfError` instead of being clamped
+  to the nearest end.
 
 ### Changed
 - An embedded generation font that lacks a glyph now names the missing
@@ -191,6 +203,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that the manifest stays complete.
 
 ### Fixed
+- Hebrew text generated with `pylopdf[he]` was drawn in Thin, the default
+  instance of the variable Noto Sans Hebrew, and extraction reported its font
+  as `NotoSansHebrew-Thin`. `insert_text`, `insert_textbox`, `set_form_field`,
+  and `Font(language="he")` now draw installed variable faces at the regular
+  weight (400), embedded as `NotoSansHebrew-Regular`. Output for static faces such
+  as the CJK extras, for variable faces whose default instance is already
+  regular, and for explicit `fontfile` and `fontbuffer` input, which is still
+  drawn as given, is byte-identical.
 - `insert_pdf()` registers the AcroForm fields of the imported pages in the
   receiving document. It used to copy their widgets but not the source
   `/AcroForm`, so `get_form_fields()` and `set_form_field()` found none of

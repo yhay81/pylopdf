@@ -179,11 +179,20 @@ installed font extra, with `is_serif=True` for the serif face.
 including kerning and ligatures, so layout code can wrap, align, and paginate
 with the font it draws. `ascender` and `descender` are the em fractions that
 `insert_textbox` places lines with, and `has_glyph(chr)` returns the glyph
-number of a code point, or 0. Each extra installs one face per style, so
-`is_bold`, `is_italic`, and an exact OS/2 `weight` that the face does not match
-raise `PdfError`, and other weights, such as Noto Sans JP Bold, are loaded from
-their files. pylopdf keeps no font registry and never searches system font
-directories. It never imitates a weight by stroking or overprinting glyphs;
+number of a code point, or 0. The CJK extras install one static face per
+style, so `is_bold`, `is_italic`, and an exact OS/2 `weight` that the face does
+not match raise `PdfError`, and other weights, such as Noto Sans JP Bold, are
+loaded from their files. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]` extras
+install variable faces instead: `Font(language="he", is_bold=True)` selects
+the bold instance on the face's weight axis without another file, measures
+with that instance's advances, and embeds it under its own PostScript name,
+`NotoSansHebrew-Bold`. Their weights run from 100 through 900, or from 400
+through 700 for Noto Naskh Arabic, the serif face of `pylopdf[ar]`, and a
+weight outside the axis or an italic raises `PdfError`. Installed variable
+faces are drawn at the regular weight, also when `insert_text`,
+`insert_textbox`, and `set_form_field` select them automatically, because the
+default instance of Noto Sans Hebrew is Thin. pylopdf keeps no font registry
+and never searches system font directories. It never imitates a weight by stroking or overprinting glyphs;
 `allow_regular_fallback=True` explicitly accepts the extra's face with a
 `PylopdfWarning`. Style options raise with `fontname` and font files, where
 pymupdf would ignore them. Each drawing call still embeds a subset of its own

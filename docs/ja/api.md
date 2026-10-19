@@ -112,9 +112,16 @@ resourceは追加されません。
 shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
 計算できます。`ascender`と`descender`は`insert_textbox`が行を置くときのemに対する
 比率で、`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。
-extraが入れる書体はスタイルごとに1つだけなので、書体と合わない`is_bold`、
-`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Boldのような
-ほかの太さはファイルから読み込みます。pylopdfは書体の登録表を持たず、OSの書体
+CJKのextraが入れる静的な書体はスタイルごとに1つだけなので、書体と合わない
+`is_bold`、`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Bold
+のようなほかの太さはファイルから読み込みます。一方`pylopdf[ar]`・`[he]`・`[hi]`・
+`[th]`は可変フォントを入れるため、`Font(language="he", is_bold=True)`は別のファイル
+なしに太さの軸からBoldのインスタンスを選び、そのインスタンスの送り幅で測り、
+`NotoSansHebrew-Bold`というPostScript名で埋め込みます。太さの範囲は100から900で、
+`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは400から700です。軸の外の
+太さや斜体の指定は`PdfError`になります。導入済みの可変フォントは、`insert_text`・
+`insert_textbox`・`set_form_field`が自動で選ぶ場合も含めてRegularの太さで描きます。
+Noto Sans Hebrewの既定のインスタンスはThinだからです。pylopdfは書体の登録表を持たず、OSの書体
 フォルダも探しません。輪郭線や重ね塗りで太さを真似ることはせず、
 `allow_regular_fallback=True`を明示したときだけextraの書体を使い
 `PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイル

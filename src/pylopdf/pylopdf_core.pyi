@@ -50,6 +50,9 @@ class _Font:
     def standard(name: str) -> _Font: ...
     @property
     def standard_name(self) -> str | None: ...
+    def with_weight(self, weight: int) -> _Font: ...
+    @property
+    def weight_range(self) -> tuple[float, float, float] | None: ...
     @property
     def name(self) -> str | None: ...
     @property
@@ -208,6 +211,7 @@ class _Document:
         font_data: bytes | None = None,
         font_index: int = 0,
         max_font_size: int | None = 67108864,
+        weight: int | None = None,
     ) -> None: ...
     def set_form_field_file(
         self,
@@ -217,6 +221,7 @@ class _Document:
         font_index: int = 0,
         max_font_size: int | None = 67108864,
         package_font: tuple[str, str] | None = None,
+        weight: int | None = None,
     ) -> None: ...
     def get_page_labels(self) -> list[tuple[int, str | None, str | None, int]]: ...
     def set_page_labels(self, labels: list[tuple[int, str | None, str | None, int]]) -> None: ...
@@ -418,6 +423,7 @@ class _Document:
         overlay: bool,
         max_font_size: int | None = 67108864,
         max_text_size: int | None = 1048576,
+        weight: int | None = None,
     ) -> None: ...
     def insert_embedded_text_file(
         self,
@@ -432,6 +438,7 @@ class _Document:
         max_font_size: int | None = 67108864,
         max_text_size: int | None = 1048576,
         package_font: tuple[str, str] | None = None,
+        weight: int | None = None,
     ) -> None: ...
     def insert_font_text(
         self,
@@ -485,6 +492,7 @@ class _Document:
         overlay: bool,
         max_font_size: int | None = 67108864,
         max_text_size: int | None = 1048576,
+        weight: int | None = None,
     ) -> float: ...
     def insert_embedded_textbox_file(
         self,
@@ -501,6 +509,7 @@ class _Document:
         max_font_size: int | None = 67108864,
         max_text_size: int | None = 1048576,
         package_font: tuple[str, str] | None = None,
+        weight: int | None = None,
     ) -> float: ...
     def replace_text_on_page(
         self,

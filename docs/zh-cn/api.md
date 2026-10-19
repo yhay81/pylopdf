@@ -100,9 +100,14 @@ OpenType字体（可变字体使用其默认实例），`Font(language="zh-CN")`
 `font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此
 可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是
 `insert_textbox`排列行时使用的相对em比例，`has_glyph(chr)`返回码位的字形编号
-（不存在时为0）。每个extra的每种样式只安装一个字体，因此与字体不符的`is_bold`、
-`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重请从文件
-加载。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
+（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的
+`is_bold`、`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重
+请从文件加载。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
+`Font(language="he", is_bold=True)`无需其他文件即可从字体的字重轴选择Bold实例，按该
+实例的前进宽度测量，并以PostScript名称`NotoSansHebrew-Bold`嵌入。字重范围为100到
+900，`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；轴外的字重或斜体会抛出
+`PdfError`。已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`
+自动选择时）以Regular字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
 字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出
 `PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入样式选项也会
 抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集。

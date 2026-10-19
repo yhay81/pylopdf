@@ -116,6 +116,8 @@ page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
 bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # extraにない太さはファイルから読む
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+hebrew = pylopdf.Font(language="he", is_bold=True)          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
+page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```
