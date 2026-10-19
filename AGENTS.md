@@ -747,12 +747,61 @@ overview.
   the content walk (3.7 to 12); add a shape for every new kind of root and for
   every new reference the content walk follows. Memory is bounded by the
   objects reached, the path stack by the limit, and every collection grows
-  fallibly. Outside this rule stays what a visited object reads behind a
-  reference through hayro's typed accessors: the `/Subtype` of a form, or the
-  `/Filter`, `/DecodeParms`, and `/Length` that hayro reads when the walk
-  decodes a stream. Each visited object reads its own, so 3,000 forms whose
-  `/Subtype` names one 1 MB name (1.4 MB in all) cost about 1 s, as before;
-  remembering those would take a memo of the value rather than of the visit.
+  fallibly.
+  The small values that a visited object keeps behind a reference follow the
+  same rule where the walk reads them itself: a form's `/Subtype`
+  (`ContentGuard::is_form`, remembered in `form_subtypes`) and a stream's
+  `/FunctionType` (`is_program`, remembered in `GraphGuard::programs`). Each
+  reference is read for the first stream that names it and the outcome, `/Form`
+  or not and 4 or not, is remembered by reference. Parsing the object behind a
+  reference costs as much as the object is large however small the value the
+  walk wants, and a mismatch costs as much as a match, because hayro skips the
+  whole object before it answers none: 3,000 forms whose `/Subtype` names one
+  array of 500,000 numbers (1.4 MB in all) kept the first `get_text` busy for
+  17 s, a dictionary of 111,000 keys for 4.8 s, a string of 1 MB for 2.3 s, a
+  number padded with a million zeros for 1.3 s, and a name of 1 MB for 1.2 s;
+  3,000 Type 4 functions whose `/FunctionType` names the same array took 17 s,
+  a padded number 3.6 s, and a name 0.9 s. They take 3 to 11 ms now. The read
+  follows no further reference, so the chain of objects being read cannot
+  change what the value holds (a stream that names itself holds neither a name
+  nor an integer) and every stream that names the reference gets the same
+  answer; a direct value belongs to the stream's own dictionary, which is
+  parsed anyway. `test_a_value_that_many_streams_name_is_read_once` pins six
+  shapes (5,000 streams, 3.1 to 29 s before), and four tests pin that a
+  remembered answer is still applied to the second stream, which the walk
+  reaches through the first one's resources or a stitching function so that
+  the order is fixed: a mutant that negates the remembered answer fails all
+  four.
+  Outside this rule stays what hayro reads while it parses and decodes a
+  stream: `/Length` in `Stream::read`, and `/Filter`, `/DecodeParms`, `/DP`,
+  and the parameters inside them in `Stream::decoded`. The walk can only call
+  those two methods, because the decoded bytes must be hayro's own, so it
+  cannot remember the values: every stream it reads or decodes pays for its own
+  copy. 3,000 forms that name one object of about 1 MB through `/Length` took
+  3.6 s for a number padded with zeros, 4.8 s for a dictionary of 111,000 keys,
+  and 17 s for an array of 500,000 numbers; through `/Filter` 2.1 s for a name,
+  14 s for 125,000 unknown names, 8.3 s for 62,500 `/ASCIIHexDecode` names, and
+  34 s for the array of numbers; through `/DecodeParms` or `/DP` 12 s for the
+  dictionary and 17 s for the array; and a `/Predictor` that names the padded
+  number 3.6 s. Tiling patterns, glyph procedures, appearance streams, Type 4
+  functions, and (for `/Length` only, since the walk never decodes an image)
+  images cost the same. hayro pays the same for every stream it draws, but it
+  draws only the streams that content uses and the walk reads every listed one:
+  the 125,000-name file takes 14 s with content that draws nothing and 28 s with
+  content that draws all 3,000 forms. hayro 0.8.0 reads the same entries the
+  same way. The options that were weighed and left: decoding a stream rewritten
+  with direct values needs hayro's filter and parameter semantics reproduced
+  exactly (which keys each filter reads, how `/DecodeParms` lines up with
+  `/Filter`), and the guard exists to scan hayro's bytes; refusing a large value
+  bounds CPU rather than stack, which belongs in a `DocumentLimits` field;
+  skipping streams that content does not draw needs the operands of `Do`, `scn`,
+  `gs`, `Tf`, and `sh` from the ambiguous tokenization that `content_scan`
+  models; and reading an image as a dictionary first would skip its `/Length`
+  but also admit a dictionary that is no stream, which hayro never draws. A
+  cache of parsed objects in hayro-syntax (`XRef::get_with` parses the object
+  again on every call, and `ObjectStream::new` rebuilds the index of an object
+  stream on every lookup) would close this for every user, drawn streams
+  included.
   The Type 4 scan needs no model beyond hayro's trivia rules: whitespace
   (NUL, tab, LF, FF, CR, space) and comments (`%` to CR or LF) are skipped
   before a token, the program must begin with `{`, `{` and `}` are delimiters

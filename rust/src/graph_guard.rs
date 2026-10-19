@@ -45,6 +45,15 @@
 //! An object is identified by its reference, or, for a direct object, by the
 //! address of its bytes in the snapshot, which stays valid because decoded
 //! object streams live as long as the snapshot.
+//!
+//! The same holds for the one value that the walk reads from a stream's own
+//! dictionary: the `/FunctionType` that tells a Type 4 program from other
+//! streams. When it sits behind a reference, [`is_program`] remembers by
+//! reference whether it is 4, because parsing the object costs as much as its
+//! size and the walk opens every stream that a colour space or function names.
+//! What hayro reads while it parses and decodes a stream, `/Length`, `/Filter`,
+//! `/DecodeParms`, and the parameters inside them, is outside the walk's reach,
+//! and hayro reads it again for every stream that names it.
 
 use std::collections::{HashMap, TryReserveError};
 use std::hash::Hash;
@@ -251,7 +260,12 @@ struct Member {
 
 impl<'a> Frame<'a> {
     /// Open a node, scanning the program of a Type 4 function on the way.
-    fn open(node: &Node<'a>, order: usize, base: usize) -> Result<Self, Refusal> {
+    fn open(
+        node: &Node<'a>,
+        order: usize,
+        base: usize,
+        programs: &mut HashMap<ObjectIdentifier, bool>,
+    ) -> Result<Self, Refusal> {
         let mut frame = Self {
             identity: node.identity,
             alternate: None,
@@ -267,7 +281,7 @@ impl<'a> Frame<'a> {
             Object::Dict(dictionary) => frame.read(dictionary),
             Object::Stream(stream) => {
                 let dictionary = stream.dict();
-                if dictionary.get::<u8>(FUNCTION_TYPE) == Some(4)
+                if is_program(programs, dictionary)?
                     // A stream that fails to decode is no function for hayro either.
                     && stream
                         .decoded()
@@ -313,6 +327,9 @@ pub(crate) struct GraphGuard {
     /// that cannot have children has depth zero. Everything below a remembered
     /// object is remembered too.
     depths: HashMap<Identity, u8>,
+    /// Whether the value behind each `/FunctionType` reference of a stream reads
+    /// as 4, so that the value is read once however many streams name it.
+    programs: HashMap<ObjectIdentifier, bool>,
 }
 
 impl GraphGuard {
@@ -390,7 +407,12 @@ impl GraphGuard {
                 }
                 let order = reached.len();
                 insert_map(&mut reached, node.identity, Reached::Open(order))?;
-                stack.push(Frame::open(&node, order, members.len())?);
+                stack.push(Frame::open(
+                    &node,
+                    order,
+                    members.len(),
+                    &mut self.programs,
+                )?);
                 continue;
             }
             let Some(frame) = stack.last_mut() else {
@@ -466,6 +488,32 @@ impl GraphGuard {
         );
         Ok(())
     }
+}
+
+/// Whether the dictionary's `/FunctionType` reads as 4, which makes a stream a
+/// PostScript calculator function whose program is scanned.
+///
+/// A type behind a reference is read for the first stream that names it only.
+/// Parsing the object costs as much as its size, and the walk opens every
+/// stream that a colour space or function names, so thousands of streams that
+/// name one large object would read it once each. A direct value belongs to the
+/// stream's own dictionary, which was parsed already. The read follows no
+/// further reference, so the chain of objects being read cannot change what the
+/// value holds: a stream that names itself holds no integer.
+fn is_program(
+    programs: &mut HashMap<ObjectIdentifier, bool>,
+    dictionary: &Dict<'_>,
+) -> Result<bool, Refusal> {
+    let Some(reference) = dictionary.get_ref(FUNCTION_TYPE) else {
+        return Ok(dictionary.get::<u8>(FUNCTION_TYPE) == Some(4));
+    };
+    let id = ObjectIdentifier::from(reference);
+    if let Some(&program) = programs.get(&id) {
+        return Ok(program);
+    }
+    let program = dictionary.get::<u8>(FUNCTION_TYPE) == Some(4);
+    insert_map(programs, id, program)?;
+    Ok(program)
 }
 
 /// Insert after reserving fallibly.
