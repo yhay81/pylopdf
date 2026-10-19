@@ -12,6 +12,7 @@ mod graph_guard;
 mod image_compression;
 mod layout;
 mod object_recovery;
+mod object_stream_work;
 mod ocr;
 #[cfg(not(target_os = "emscripten"))]
 mod ocr_engine;
