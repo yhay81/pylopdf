@@ -74,7 +74,7 @@ def test_document_limits_validate_values() -> None:
     with pytest.raises(TypeError, match="max_pages"):
         pylopdf.DocumentLimits(max_pages=True)
     with pytest.raises(TypeError, match="max_pages"):
-        pylopdf.DocumentLimits(max_pages=1.5)  # type: ignore[arg-type]
+        pylopdf.DocumentLimits(max_pages=1.5)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="max_pages"):
         pylopdf.DocumentLimits(max_pages=0)
     with pytest.raises(ValueError, match="cannot both"):

@@ -271,7 +271,7 @@ regression files:
 uv sync                    # build + install dependencies
 uv run pytest              # tests
 uv run ruff check .        # lint
-uv run mypy src tests      # type check
+uv run ty check            # type check
 ```
 
 Report security vulnerabilities privately through

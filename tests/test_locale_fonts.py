@@ -280,9 +280,9 @@ def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pyt
 
     def generate(sans: dict[str, object], serif: dict[str, object]) -> bytes:
         doc = pylopdf.open(stream=text_field_pdf())
-        doc[0].insert_text((20, 30), "日本語", **sans)  # type: ignore[arg-type]
-        assert doc[0].insert_textbox((20, 40, 280, 70), "明朝体の段落", **serif) >= 0  # type: ignore[arg-type]
-        doc.set_form_field("name", "山田 太郎", **sans)  # type: ignore[arg-type]
+        doc[0].insert_text((20, 30), "日本語", **sans)  # ty: ignore[invalid-argument-type]
+        assert doc[0].insert_textbox((20, 40, 280, 70), "明朝体の段落", **serif) >= 0  # ty: ignore[invalid-argument-type]
+        doc.set_form_field("name", "山田 太郎", **sans)  # ty: ignore[invalid-argument-type]
         return doc.tobytes()
 
     reads = _Document.package_font_reads()
@@ -362,7 +362,7 @@ def test_concurrent_generation_shares_package_fonts(tmp_path: Path, monkeypatch:
     def generate(**options: object) -> bytes:
         doc = pylopdf.Document()
         doc.new_page(width=200, height=100)
-        doc[0].insert_text((20, 40), "日本語", **options)  # type: ignore[arg-type]
+        doc[0].insert_text((20, 40), "日本語", **options)  # ty: ignore[invalid-argument-type]
         return doc.tobytes()
 
     reads = _Document.package_font_reads()

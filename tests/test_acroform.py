@@ -597,7 +597,7 @@ def test_form_errors() -> None:
     with pytest.raises(ValueError, match="fontindex requires"):
         doc.set_form_field("customer", "x", fontindex=1)
     with pytest.raises(TypeError, match="string or bool"):
-        doc.set_form_field("customer", 1)  # type: ignore[arg-type]
+        doc.set_form_field("customer", 1)  # ty: ignore[invalid-argument-type]
 
 
 def test_no_form_returns_empty() -> None:

@@ -275,7 +275,7 @@ def test_table_markdown_validates_output_limit(max_size: object) -> None:
     table = pylopdf.open(stream=_bordered_table_pdf())[0].find_tables()[0]
 
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        table.to_markdown(max_size=max_size)  # type: ignore[arg-type]
+        table.to_markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_document_preflights_table_before_page_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -468,4 +468,4 @@ def test_text_table_confidence_tracks_alignment_evidence() -> None:
 def test_find_tables_rejects_unknown_strategy() -> None:
     page = pylopdf.open(stream=_borderless_table_pdf())[0]
     with pytest.raises(ValueError, match="strategy"):
-        page.find_tables(strategy="guess")  # type: ignore[arg-type]
+        page.find_tables(strategy="guess")  # ty: ignore[invalid-argument-type]

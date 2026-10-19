@@ -121,7 +121,7 @@ def _object_stream_pdf(  # noqa: PLR0913 - each keyword shapes one part of the f
 
 def _source(data: bytes, **kwargs: object) -> str:
     """Open `data`, extract the first page, and report which input hayro parsed."""
-    doc = pylopdf.Document(stream=data, **kwargs)  # type: ignore[arg-type]
+    doc = pylopdf.Document(stream=data, **kwargs)  # ty: ignore[invalid-argument-type]
     doc.get_text(pages=[0])
     return doc._doc.snapshot_source()  # noqa: SLF001
 

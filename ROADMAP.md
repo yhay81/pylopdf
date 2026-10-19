@@ -60,7 +60,7 @@ The review reproduced these issues through public Python APIs:
   parent trees rejected before importing or creating objects.
 - **P2: Python 3.10 typing is not validated.** Keep `Self` typing compatible with
   the supported floor without introducing a mandatory Python dependency or
-  changing public signatures. Run mypy explicitly for Python 3.10.
+  changing public signatures. Type-check explicitly against Python 3.10.
 - **P2: dependency updates can leave a stale native extension.** Include
   `rust/Cargo.lock` in uv rebuild keys. Restore strict Clippy on current native
   Rust while retaining the pinned Rust 1.95.0 Wasm build compatibility.

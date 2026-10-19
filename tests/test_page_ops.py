@@ -193,7 +193,7 @@ def test_insert_pdf_native_argument_refusal_keeps_existing_pages(
     before = doc.tobytes()
 
     with pytest.raises(TypeError):
-        doc.insert_pdf(source, start_at=0.5)  # type: ignore[arg-type]
+        doc.insert_pdf(source, start_at=0.5)  # ty: ignore[invalid-argument-type]
 
     assert doc.tobytes() == before
     assert "Page one" in page.get_text()

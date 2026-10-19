@@ -7,7 +7,7 @@ the interop dependency group is absent.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import io
 from pathlib import Path
 
@@ -104,15 +104,15 @@ def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
     """Write a test-only self-signed certificate and private key as PEM."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "pylopdf interop test")])
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = dt.datetime.now(dt.timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)
         .issuer_name(name)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(days=1))
-        .not_valid_after(now + datetime.timedelta(days=365))
+        .not_valid_before(now - dt.timedelta(days=1))
+        .not_valid_after(now + dt.timedelta(days=365))
         .add_extension(
             x509.KeyUsage(
                 digital_signature=True,
