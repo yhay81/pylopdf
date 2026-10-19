@@ -682,7 +682,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     _require(len(drawings) == 1, "a finished shape did not draw one path")
     data = document.tobytes()
     _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
-    words = [(word[4], round(word[0], 2), round(word[1], 2)) for word in page.get_text("words")]
+    words = [[word[4], round(word[0], 2), round(word[1], 2)] for word in page.get_text("words")]
     return {
         "ends": [[round(value, 6) for value in point] for point in ends],
         "drawing": [drawings[0]["type"], [round(value, 2) for value in drawings[0]["rect"]]],
@@ -983,6 +983,13 @@ def _compare_results(actual: dict[str, Any], expected: dict[str, Any]) -> None:
 def run_suite(root: Path, baseline: Path | None = None) -> str:
     """Run the suite, optionally compare a native baseline, and return JSON."""
     results = collect_results(root)
+    # The baseline arrives as JSON, so a tuple or a non-string key would make
+    # the Wasm results unequal to it while both serialize identically, and the
+    # comparison would fail with an empty diff.
+    _require(
+        json.loads(json.dumps(results)) == results,
+        "compatibility results must be plain JSON values, with lists instead of tuples",
+    )
     if baseline is not None:
         expected = json.loads(baseline.read_text(encoding="utf-8"))
         _compare_results(results, expected)

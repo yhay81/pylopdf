@@ -1931,7 +1931,10 @@ overview.
   platform-sensitive raster bytes. It must combine explicit content/structure
   assertions with full text/Markdown hashes rather than relying on either
   alone. The Python 3.10 CI job uploads the native baseline, and the Pyodide
-  job must compare it exactly. Coverage includes bytes input, PDF 2.0,
+  job must compare it exactly. Results must survive a JSON round trip
+  unchanged, which `run_suite` checks on both sides: the baseline arrives as
+  JSON, so a tuple compares unequal to its list and fails with an empty diff.
+  Coverage includes bytes input, PDF 2.0,
   embedded/vertical CJK, sustained columns, bordered/borderless rotated tables,
   vector extraction, image-only input, AES-256 authentication, Standard 14 and
   subset-embedded OpenType generation, weight instances of a variable font
