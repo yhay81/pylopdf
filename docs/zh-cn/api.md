@@ -33,7 +33,7 @@ password input上限为127个UTF-8 byte。
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围，navigation清理与link导入共享TOC和named destination上限 |
 | `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input |
+| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的`Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
@@ -91,7 +91,8 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 `TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
 垂直空间不足，此时不会添加页面内容或字体resource。
 
-`Font`只加载一次OpenType字体，供`insert_text(font=)`与`insert_textbox(font=)`使用。
+`Font`只加载一次OpenType字体，供`insert_text(font=)`、`insert_textbox(font=)`与
+`set_form_field(font=)`使用。
 测量与绘制使用相同的shaping，因此`font.text_length(text, fontsize)`等于绘制该行时的
 前进宽度（含字距调整与连字），可以按实际绘制的字体计算换行、对齐与分页。
 `ascender`与`descender`是`insert_textbox`排列行时使用的相对em比例，`has_glyph`
@@ -103,7 +104,8 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 前进宽度测量，并以其自身的名称`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用。因此对这类
 字体，显式传入`weight="regular"`与省略`weight`的结果不同。超出字重轴范围的字重会抛出
 `ValueError`，静态字体不具备的字重也一样。传给`insert_text`、`insert_textbox`与
-`set_form_field`的`fontfile`和`fontbuffer`仍以默认实例绘制。
+`set_form_field`的`fontfile`和`fontbuffer`仍以默认实例绘制；要以所选实例绘制，请将该`Font`
+传给`font=`。
 
 `Font(language="zh-CN")`选择已安装字体extra的字体（`serif=True`为衬线体）。
 每个extra的每种样式只安装一个字体，其他字重在需要时再添加：`register_font(path)`从字体读取家族名、
@@ -120,8 +122,10 @@ Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容�
 Regular并发出`PylopdfWarning`。每次绘制调用仍会嵌入该调用所用字形的子集。
 
 `set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
-使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode。
-已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
+使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode，
+也可以将已加载的`Font`（例如可变字体的Bold实例）传给`font`。使用`Font`时，按
+`text_length`测量的前进宽度缩小与对齐文本，并将其置于comb字段各位置的中央；`font`不能与
+其他字体参数同时使用。已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
 `font_language`指定。已有且非空的按钮外观
 会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
 所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的

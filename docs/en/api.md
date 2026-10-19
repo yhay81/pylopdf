@@ -34,7 +34,7 @@ Password input stops at 127 UTF-8 bytes.
 | `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page management; select/delete entries are bounded by the larger of the page count and 4,096, `insert_pdf` accepts any complete source range, and navigation cleanup and link import share the TOC and named-destination limits |
 | `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines sized for large manuals (1-based pages; 65,536 entries/nodes, 131,072 edges, 64 levels, 16 MiB text; named destinations as in `get_links()`) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
-| `get_form_fields()` / `set_form_field(name, value, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input |
+| `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input; `font` draws with a loaded `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with symmetric input/decoded-output defaults plus 1 MiB caller text, bounded metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=` `deflate=` `object_streams=` and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
@@ -167,8 +167,9 @@ grapheme-safe emergency breaks for overlong words. Alignment constants are
 `TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
 content or font resource is added in that case.
 
-`Font` loads an OpenType face once for `insert_text(font=)` and
-`insert_textbox(font=)` and measures with the shaping that drawing uses:
+`Font` loads an OpenType face once for `insert_text(font=)`,
+`insert_textbox(font=)`, and `set_form_field(font=)` and measures with the
+shaping that drawing uses:
 `font.text_length(text, fontsize)` is the advance that drawing the line covers,
 including kerning and ligatures, so layout code can wrap, align, and paginate
 with the face it draws. `ascender` and `descender` are the em fractions that
@@ -184,7 +185,7 @@ with the bold instance's advances and embeds it under its own name,
 weight outside the axis raises `ValueError`, and so does a weight that a
 static face does not declare. `fontfile` and `fontbuffer` passed to
 `insert_text`, `insert_textbox`, and `set_form_field` still draw the default
-instance.
+instance; pass the `Font` as `font=` to draw the instance it selects.
 
 `Font(language="ja")` selects the face of an installed font extra
 (`serif=True` for its serif face). Each extra installs one face per style, so
@@ -212,7 +213,10 @@ call still embeds a subset of its own glyphs.
 
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
-`fontfile` or `fontbuffer` for subset-embedded Unicode. Installed locale/script
+`fontfile` or `fontbuffer` for subset-embedded Unicode, or a loaded `Font` as
+`font`, such as the bold instance of a variable font. A `Font` fits, aligns,
+and centers comb positions with the advances that `text_length` measures, and
+cannot be combined with the other font arguments. Installed locale/script
 providers are selected with the same rules as `insert_text`, and
 `font_language` resolves ambiguous Han. Existing
 non-empty checkbox/radio appearances are preserved and missing states receive

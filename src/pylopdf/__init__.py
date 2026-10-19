@@ -1905,10 +1905,11 @@ class Font:
     face instead and emit a :class:`PylopdfWarning`.
 
     A Font reads its input once. Pass it as ``font`` to
-    :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
-    and share it between threads. :meth:`text_length` measures with the
-    shaping and advances that drawing uses, so a measured line is as wide as
-    the drawn line. Font input defaults to a 64 MiB boundary;
+    :meth:`Page.insert_text`, :meth:`Page.insert_textbox`, and
+    :meth:`Document.set_form_field` on any document and share it between
+    threads. :meth:`text_length` measures with the shaping and advances that
+    drawing uses, so a measured line is as wide as the drawn line. Font input
+    defaults to a 64 MiB boundary;
     ``max_font_size=None`` opts trusted input out, and refusal raises
     :class:`LimitError` with code ``font_input_size``.
     """
@@ -3636,6 +3637,7 @@ class Document:
         name: str,
         value: str | bool,  # noqa: FBT001 - Match pymupdf's bool API.
         *,
+        font: Font | None = None,
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
         fontindex: int = 0,
@@ -3663,7 +3665,13 @@ class Document:
 
         WinAnsi text uses Helvetica. Pass exactly one of ``fontfile`` or
         ``fontbuffer`` to subset-embed an arbitrary OpenType font, a variable
-        font at its default instance. Locale font extras can supply Unicode
+        font at its default instance. Pass a :class:`Font` as ``font`` to draw
+        with a face loaded once, such as the bold instance that
+        ``Font(fontfile, weight="bold")`` selects on a variable font's weight
+        axis; text is fitted, aligned, and placed in comb positions with the
+        advances that :meth:`Font.text_length` returns. ``font`` cannot be
+        combined with ``fontfile``, ``fontbuffer``, ``fontindex``, or
+        ``font_language``. Locale font extras can supply Unicode
         appearances automatically; use ``font_language`` for ambiguous Han
         text. Otherwise the value is still
         stored with ``NeedAppearances`` for viewer compatibility, but its
@@ -3698,6 +3706,9 @@ class Document:
                 limit_code="form_field_input_size",
                 input_label="form field value",
             )
+        core_font = (
+            None if font is None else _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
+        )
         normalized_font_language = _normalize_font_language(font_language)
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         package_font: tuple[FontLanguage, str] | None = None
@@ -3720,10 +3731,13 @@ class Document:
                 resolved = "Off"
         else:
             resolved = value
-            if font_data is None:
+            if font_data is None and core_font is None:
                 bundled_font = _form_generation_font(resolved, normalized_font_language)
                 if bundled_font is not None:
                     font_data, package_font = bundled_font
+        if core_font is not None:
+            self._doc.set_form_field_font(name, resolved, core_font)
+            return
         weight = _package_face_weight(package_font)
         if isinstance(font_data, Path):
             self._doc.set_form_field_file(

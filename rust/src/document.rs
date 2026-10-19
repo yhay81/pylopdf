@@ -1525,18 +1525,30 @@ fn generation_face(
 
 /// Font input that generated form appearances draw with.
 ///
-/// Each widget that draws text opens the face, so a value that needs no
-/// embedded font, such as a button state, never reads it.
-struct FormFont {
-    data: FontBytes,
-    index: u32,
-    /// The weight drawn on a variable face; see `generation_face`.
-    weight: Option<u16>,
+/// Each widget that draws text opens a face from font bytes, so a value that
+/// needs no embedded font, such as a button state, never reads them. A loaded
+/// `Font` was opened when Python created it, at the instance it selected.
+enum FormFont {
+    Data {
+        data: FontBytes,
+        index: u32,
+        /// The weight drawn on a variable face; see `generation_face`.
+        weight: Option<u16>,
+    },
+    Face(GenerationFace),
 }
 
 impl FormFont {
     fn face(&self) -> Result<GenerationFace, String> {
-        GenerationFace::new(Arc::clone(&self.data), self.index, self.weight)
+        match self {
+            Self::Data {
+                data,
+                index,
+                weight,
+            } => GenerationFace::new(Arc::clone(data), *index, *weight),
+            // A clone shares the opened font instead of reading it again.
+            Self::Face(face) => Ok(face.clone()),
+        }
     }
 }
 
@@ -11030,7 +11042,7 @@ impl _Document {
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
         validate_font_input(font_data.as_deref(), max_font_size)?;
-        let font = font_data.map(|data| FormFont {
+        let font = font_data.map(|data| FormFont::Data {
             data: Arc::new(data),
             index: font_index,
             weight,
@@ -11066,11 +11078,28 @@ impl _Document {
     ) -> PyResult<()> {
         validate_form_field_input(name, Some(value))?;
         let data = load_generation_font(py, path, package_font, max_font_size)?;
-        let font = FormFont {
+        let font = FormFont::Data {
             data,
             index: font_index,
             weight,
         };
+        self.fill_form_field(py, name, value, Some(font))
+    }
+
+    /// Set a form-field value, drawing text appearances with a loaded `Font`.
+    ///
+    /// The face's bytes were bounded when it was loaded, so only the field
+    /// input budgets apply here. Every widget that draws text draws the
+    /// face's selected instance, and filling follows `set_form_field`.
+    fn set_form_field_font(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        value: &str,
+        font: &Bound<'_, _Font>,
+    ) -> PyResult<()> {
+        validate_form_field_input(name, Some(value))?;
+        let font = FormFont::Face(font.get().face());
         self.fill_form_field(py, name, value, Some(font))
     }
 

@@ -1359,19 +1359,20 @@ overview.
   well. `text_length` measures with `generate::shaped_line_width`, the sum of
   shaped advances that places every glyph krilla draws and that textbox and
   form layout wrap with; keep generation and measurement on that one sum so a
-  measured line stays the drawn width. Drawing with `font=` passes the same
-  bytes and index as `fontbuffer` and produces byte-identical output; each call
-  still embeds its own subset. `register_font` keeps a process-wide registry
-  keyed by case-folded family name, OS/2 weight class, and italic flag. A
-  variable face is keyed by `None` in place of the weight class and provides
-  every weight on its axis through `_Font.with_weight`; a face registered at
-  the requested weight takes precedence over that axis, and either takes
-  precedence over the axis of an installed extra. Lookups match exactly; the
-  font extras install one face per style, and
+  measured line stays the drawn width. Drawing with `font=` (`insert_text`,
+  `insert_textbox`, and `set_form_field`) passes the same bytes and index as
+  `fontbuffer`, and a face loaded without `weight` produces byte-identical
+  output; each call still embeds its own subset. `register_font` keeps a
+  process-wide registry keyed by case-folded family name, OS/2 weight class,
+  and italic flag. A variable face is keyed by `None` in place of the weight
+  class and provides every weight on its axis through `_Font.with_weight`; a
+  face registered at the requested weight takes precedence over that axis, and
+  either takes precedence over the axis of an installed extra. Lookups match
+  exactly; the font extras install one face per style, and
   `Font(language=..., weight=...)` uses a registered face of the extra's
   family. A missing face raises `ValueError` unless `allow_regular_fallback`
-  is set, which warns. Never synthesize a weight by stroking, overprinting,
-  or render-mode changes, and never scan system font directories: output must
+  is set, which warns. Never synthesize a weight by stroking, overprinting, or
+  render-mode changes, and never scan system font directories: output must
   depend only on the faces passed in. The `fontfile` and `fontbuffer` drawing
   arguments, and `Font(fontfile=)` or `Font(fontbuffer=)` without `weight`,
   load a variable font at its default instance, which need not be regular
@@ -1452,7 +1453,11 @@ overview.
 - AcroForm filling writes `/V`, synchronizes button `/AS`, and regenerates
   widget `/AP /N`. Text and choice appearances auto-fit in widget-local
   coordinates, respect inherited `/Q` and multiline `/Ff`, and reuse the Core
-  14 or krilla generation paths. When the bounded `/Parent` walk finds no `/Q`,
+  14 or krilla generation paths. `FormFont` is either font bytes, which each
+  widget that draws text opens, so a button state or empty value never reads
+  them, or the face of a loaded `Font`, which every such widget clones at the
+  instance it selected; both keep `GenerationFace::name_subset` renaming and
+  the same layout. When the bounded `/Parent` walk finds no `/Q`,
   `field_quadding` uses the AcroForm dictionary's document-wide `/Q`
   (ISO 32000-2 Table 225), read through `inheritable_field_value`, and
   otherwise aligns left. A field's own or inherited `/Q`, including `/Q 0` and
