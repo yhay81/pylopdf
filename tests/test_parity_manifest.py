@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 CHECKER = ROOT / "tools" / "check_parity.py"
 MANIFEST = ROOT / "api" / "pymupdf-parity.json"
+OPTIONAL_FIELDS = frozenset({"provisional", "hint", "reset", "note"})
 
 
 def _run_checker(*args: str) -> subprocess.CompletedProcess[str]:
@@ -26,17 +27,20 @@ def _run_checker(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_parity_manifest_is_classified_and_resolves() -> None:
-    """Every pymupdf API has a status, and every pylopdf symbol it names exists."""
+    """Every pymupdf API has a status, and every available pylopdf symbol exists."""
     result = _run_checker()
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[0].startswith("pymupdf ")
+    assert result.stdout.startswith("pymupdf ")
+    assert "M0 resets (" in result.stdout
 
 
 @pytest.mark.parametrize(
     ("key", "changes", "message"),
     [
-        ("Document.authenticate", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
+        ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
+        ("Page.get_label", {"pylopdf": "Page.render"}, "needs a reset that gives it the pymupdf name"),
         ("Document.xref_object", {"milestone": None}, "a planned entry must name its milestone"),
+        ("Page.bound", {"hint": None}, "needs a hint for migrating callers"),
         ("Document.journal_undo", {"status": None}, "unclassified"),
     ],
 )
@@ -46,9 +50,14 @@ def test_parity_checker_rejects_broken_entries(
     changes: dict[str, object],
     message: str,
 ) -> None:
-    """The checker fails on a missing symbol, a missing milestone, and an unclassified entry."""
+    """The checker names the entry and the rule it breaks; None removes an optional field."""
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    manifest["entries"][key].update(changes)
+    entry = manifest["entries"][key]
+    for field, value in changes.items():
+        if value is None and field in OPTIONAL_FIELDS:
+            del entry[field]
+        else:
+            entry[field] = value
     broken = tmp_path / "pymupdf-parity.json"
     broken.write_text(json.dumps(manifest), encoding="utf-8")
 

@@ -354,7 +354,7 @@ def update(inventory: JsonObject, manifest: JsonObject | None) -> JsonObject:
     recorded = {} if manifest is None else cast("dict[str, Entry]", manifest["entries"])
     entries: dict[str, Entry] = {}
     for key, kind in current.items():
-        entry = recorded.get(key) or {"status": None, "pylopdf": None, "milestone": None, "note": ""}
+        entry = recorded.get(key) or {"status": None, "relation": None, "pylopdf": None, "milestone": None}
         entries[key] = {**entry, "kind": kind}
     return {"schema": SCHEMA, "pymupdf": inventory["pymupdf"], "entries": entries}
 
