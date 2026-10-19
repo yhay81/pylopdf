@@ -28,8 +28,9 @@ pip install "pylopdf[ar]"     # 아랍어 생성(he, hi, th도 제공)
 
 release CI는 architecture가 일치하는 runner에 모든 native platform wheel을 설치하고
 PDF 생성, 저장, 다시 열기, extraction, rendering 및 immutable Pixmap storage를
-검증합니다. 5개의 `abi3-py310`과 5개의 CPython 3.14t artifact를 모두 포함하며 sdist와
-PyEmscripten wheel에는 각각 environment 전용 gate가 있습니다.
+검증합니다. CPython 3.14와 3.15에서 검증하는 5개의 `abi3-py310` artifact와 CPython
+3.14t 및 3.15t용 10개의 artifact를 모두 포함하며 sdist와 PyEmscripten wheel에는
+각각 environment 전용 gate가 있습니다.
 
 ## 열기, 확인, 저장 { #open-inspect-save }
 

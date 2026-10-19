@@ -45,8 +45,8 @@ pikepdf 10.10.0 on 2026-07-25.
 - **AGPL-free**: covers the common pymupdf use cases under the MIT license
 - **Small and self-contained**: fits size-constrained environments such as AWS
   Lambda and Cloudflare Workers
-- **One wheel per platform**: abi3 covers CPython 3.10–3.14, plus a native
-  `cp314t` wheel for free-threaded Python
+- **One wheel per platform**: abi3 covers CPython 3.10–3.15, plus native
+  `cp314t` and `cp315t` wheels for free-threaded Python
 - **Familiar**: the API is modeled after
   [pymupdf](https://github.com/pymupdf/PyMuPDF), with a
   [migration guide](https://pylopdf.haya.works/migration/)
@@ -165,8 +165,8 @@ default, and resource boundary.
   Workers, verified end-to-end every release
   ([guide](https://pylopdf.haya.works/wasm/))
 - **Concurrency** — heavy operations release the GIL, distinct `Document`
-  objects work in parallel, and a native `cp314t` wheel supports
-  free-threaded Python 3.14
+  objects work in parallel, and native `cp314t` and `cp315t` wheels support
+  free-threaded Python 3.14 and 3.15
   ([contract](https://pylopdf.haya.works/concurrency/))
 
 ## Limitations
@@ -255,10 +255,10 @@ src/pylopdf/   # Python high-level API
 tests/         # pytest (Rust behavior is verified through Python tests)
 ```
 
-Every release installs each published wheel — five `abi3-py310`, five CPython
-3.14t, the sdist, and the PyEmscripten wheel — on architecture-matched runners
-and exercises creation, saving, extraction, and rendering before publishing
-with build provenance.
+Every release installs each published wheel — five `abi3-py310` on CPython
+3.14 and 3.15, five CPython 3.14t, five CPython 3.15t, the sdist, and the
+PyEmscripten wheel — on architecture-matched runners and exercises creation,
+saving, extraction, and rendering before publishing with build provenance.
 
 ## Contributing
 

@@ -68,6 +68,12 @@ jobs:
           python-version: "3.14"
       - name: Smoke-test installed wheel
         run: python tools/smoke_artifact.py dist --pattern "*.whl"
+      # Exercise the same abi3 wheel on the newest supported CPython as well.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.15"
+      - name: Smoke-test installed wheel on Python 3.15
+        run: python tools/smoke_artifact.py dist --pattern "*.whl"
       - name: Attest wheel build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -78,7 +84,7 @@ jobs:
           path: dist
 
   build-free-threaded-wheels:
-    name: free-threaded wheel (${{ matrix.platform.target }})
+    name: free-threaded wheel (${{ matrix.python.tag }}, ${{ matrix.platform.target }})
     needs: verify
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
@@ -90,6 +96,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each free-threaded CPython gets a version-specific wheel; AGENTS.md
+        # records why the abi3t stable ABI stays disabled.
+        python:
+          - { version: "3.14t", tag: cp314t }
+          - { version: "3.15t", tag: cp315t }
         platform:
           - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
           - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
@@ -102,23 +113,23 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14t"
+          python-version: ${{ matrix.python.version }}
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           rust-toolchain: "1.99.1"
           maturin-version: "1.15.0"
-          args: --release --locked --out dist -i python3.14t
+          args: --release --locked --out dist -i python${{ matrix.python.version }}
           manylinux: auto
       - name: Smoke-test installed free-threaded wheel
-        run: python tools/smoke_artifact.py dist --pattern "*cp314t*.whl"
+        run: python tools/smoke_artifact.py dist --pattern "*${{ matrix.python.tag }}*.whl"
       - name: Attest free-threaded wheel build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/*.whl
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: free-threaded-wheels-${{ matrix.platform.target }}
+          name: free-threaded-wheels-${{ matrix.python.tag }}-${{ matrix.platform.target }}
           path: dist
 
   build-pyemscripten-wheel:

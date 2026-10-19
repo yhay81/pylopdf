@@ -77,9 +77,9 @@ jobs:
           path: native-compat/*.json
           retention-days: 7
 
-  # Test the version-specific ABI without silently falling back to the GIL.
-  test-free-threaded:
-    name: test (Python 3.14t free-threaded)
+  # Test the newest GIL-enabled CPython against the same abi3-py310 build.
+  test-py315:
+    name: test (Python 3.15)
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -95,13 +95,42 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.13.1"
+      - name: Build and install (Python 3.15)
+        run: uv sync --all-extras --group interop --no-editable-package pylopdf --python 3.15
+      - name: Test
+        run: uv run --no-sync pytest
+
+  # Test each version-specific ABI without silently falling back to the GIL.
+  test-free-threaded:
+    name: test (Python ${{ matrix.python }} free-threaded)
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.14t", "3.15t"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          # Keep one cache per interpreter: PyO3 rebuilds for each version.
+          key: ${{ matrix.python }}
+          # Preserve rustup and tools installed outside cargo install.
+          cache-bin: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14t"
-      - name: Build and install (Python 3.14t)
+          python-version: ${{ matrix.python }}
+      - name: Build and install (Python ${{ matrix.python }})
         # Keep this lane focused on pylopdf: optional interop extensions may not
-        # publish cp314t wheels on the same schedule.
-        run: uv sync --all-extras --no-editable-package pylopdf --python 3.14t
+        # publish free-threaded wheels on the same schedule.
+        run: uv sync --all-extras --no-editable-package pylopdf --python ${{ matrix.python }}
       - name: Verify free-threaded import
         run: >-
           uv run --no-sync python -c

@@ -829,6 +829,10 @@ answer.
 - **pymupdf, pymupdf4llm, and pymupdf-layout releases**: record new public
   APIs in the parity manifest as they appear.
 - **Competitors**: pdf_oxide, oxidize-pdf, pypdfium2, kreuzberg, and docling.
+- **abi3t (PEP 803)**: one `cp315-abi3.abi3t` wheel per platform could serve
+  free-threaded 3.15 and every later free-threaded release, but GIL-enabled
+  3.15+ installs would prefer it to `cp310-abi3` (AGENTS.md has the
+  evaluation). Reconsider before adding `cp316t`.
 
 ## Decisions in this rewrite
 
