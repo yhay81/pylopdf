@@ -1684,8 +1684,13 @@ overview.
   Run `uv run python tools/check_api_surface.py`; refresh with `--update` only
   after reviewing runtime, typing, documentation, and SemVer impact. The
   snapshot detects changes but does not decide compatibility.
-- GIL-enabled CPython 3.10–3.14 uses one `abi3-py310` wheel per platform.
-  Free-threaded CPython 3.14 uses a version-specific `cp314-cp314t` wheel.
+- GIL-enabled CPython 3.10–3.15 uses one `abi3-py310` wheel per platform.
+  Free-threaded CPython 3.14 and 3.15 use version-specific `cp314-cp314t` and
+  `cp315-cp315t` wheels. CI runs the full suite on 3.10, on 3.14 on all three
+  operating systems, on 3.15, and on 3.14t and 3.15t; release CI smoke-tests
+  each abi3 wheel on 3.14 and 3.15 and each free-threaded wheel on its own
+  interpreter. `tests/test_ci_policy.py` requires CI lanes for the oldest and
+  newest classified CPython and for every free-threaded release interpreter.
   All CI, documentation, fuzz, and release jobs use standard GitHub-hosted
   runners. Native wheels must install and execute on all five supported
   architecture-matched targets before publication. Set deadlines for each
@@ -1693,11 +1698,32 @@ overview.
   no global one-minute cap. Skipped checks do not constitute validation.
   Do not add personal infrastructure details to this public repository.
   Run actionlint after workflow changes.
-  Add `abi3t-py315` only when 3.15t builds can be tested: enabling it alongside
-  3.14t breaks maturin's cross-compilation config by raising the implied
-  minimum interpreter version. Add size-increasing dependencies cautiously;
-  thin-LTO abi3 wheels built from v0.14.0 sources are 6.4–7.4 MiB depending on
-  platform, versus 6.8–7.9 MiB for the published v0.14.0 wheels.
+  Keep PyO3's `abi3t-py315` feature off. PEP 803's `abi3t` stable ABI, new in
+  CPython 3.15, loads in GIL-enabled and free-threaded builds alike, and PyO3
+  0.30.1 with maturin 1.15.0 builds pylopdf as a `cp315-abi3.abi3t` wheel that
+  passed `tools/smoke_artifact.py` on CPython 3.15.0 and 3.15.0t, with the GIL
+  still disabled and the zero-copy Pixmap buffer intact. But `cp315-abi3`
+  outranks `cp310-abi3` on GIL-enabled 3.15+, so publishing that wheel would
+  move those installs to the abi3t binary, which no GIL-enabled CI lane builds
+  and whose cost there is unmeasured. Enabling the feature in `Cargo.toml`
+  would also tie each build's ABI to its interpreters. Since 1.14.1, maturin
+  builds one stable ABI per invocation, abi3t whenever a CPython 3.15+
+  interpreter takes part, and version-specific wheels for the others:
+  `-i python3.14 -i python3.15` produced `cp315-abi3.abi3t` and `cp314-cp314`
+  and no `cp310-abi3`. The abi3 release jobs pass no `-i`. maturin 1.15.0
+  discovers interpreters only up to 3.14 (`MAXIMUM_PYTHON_MINOR`), so the
+  manylinux job found CPython 3.10–3.14 although its image ships 3.15 and
+  3.15t, and the macOS jobs build with the runner's default `python3`; a
+  maturin or runner image that finds 3.15 would silently replace those jobs'
+  `cp310-abi3` wheels. Adopting abi3t therefore needs the feature passed to
+  the free-threaded 3.15 build alone, CI lanes for that binary on GIL-enabled
+  and free-threaded 3.15, and a measurement of its cost on GIL-enabled builds;
+  one such wheel would then also serve every later free-threaded release. The
+  July 2026 reason, a maturin cross-compilation failure for 3.14t, no longer
+  applies because every release target builds natively. Add size-increasing
+  dependencies cautiously; thin-LTO abi3 wheels built from v0.14.0 sources are
+  6.4–7.4 MiB depending on platform, versus 6.8–7.9 MiB for the published
+  v0.14.0 wheels.
 - Native wheels and sdist builds share `rust/Cargo.toml`'s release profile:
   thin LTO, one codegen unit, and `panic = "unwind"`, which PyO3 needs to turn
   Rust panics into Python exceptions. The 2026-10-17 comparison against Cargo's
@@ -1950,8 +1976,8 @@ overview.
 1. Update the version in all three locations, add the changelog entry, commit,
    and push.
 2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
-3. GitHub Actions (`release.yml`) builds abi3 and cp314t wheels plus the sdist
-   for five platforms and publishes through PyPI Trusted Publishing.
+3. GitHub Actions (`release.yml`) builds abi3, cp314t, and cp315t wheels plus
+   the sdist for five platforms and publishes through PyPI Trusted Publishing.
 
 Locale/script font wheels have a separate release process. Update the selected
 `fonts/pylopdf-fonts-{locale}/pyproject.toml`, then push a
