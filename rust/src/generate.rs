@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use harfrust::{Direction, FontRef, ShapeOptions, Shaper, ShaperData, UnicodeBuffer};
+use harfrust::{Buffer, Direction, Font as ShapingFont, ShapeOptions, ShaperFont};
 use krilla::Document;
 use krilla::color::rgb;
 use krilla::geom::Point;
@@ -38,10 +38,8 @@ pub fn embedded_text_page(
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = FontRef::from_index(&font_data, font_index)
-        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
-    let shaper_data = ShaperData::new(&shaping_font);
-    let shaper = shaper_data.shaper(&shaping_font).build();
+    let shaping_font = open_shaping_font(&font_data, font_index)?;
+    let shaper = LineShaper::new(&shaping_font);
     let shaped_lines = shape_lines(lines.iter().map(String::as_str), &shaper)?;
     let font = Font::new(font_data.into(), font_index)
         .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))?;
@@ -97,11 +95,9 @@ pub fn embedded_textbox_page(
     let size = finite_f32(font_size, "font size")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = FontRef::from_index(&font_data, font_index)
-        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
+    let shaping_font = open_shaping_font(&font_data, font_index)?;
     let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper_data = ShaperData::new(&shaping_font);
-    let shaper = shaper_data.shaper(&shaping_font).build();
+    let shaper = LineShaper::new(&shaping_font);
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
     let layout = layout_textbox(
         text,
@@ -197,11 +193,9 @@ pub fn embedded_widget_text_page(
     let height = finite_f32(page_size.1, "page height")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = FontRef::from_index(&font_data, font_index)
-        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
+    let shaping_font = open_shaping_font(&font_data, font_index)?;
     let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper_data = ShaperData::new(&shaping_font);
-    let shaper = shaper_data.shaper(&shaping_font).build();
+    let shaper = LineShaper::new(&shaping_font);
     let normalized = if multiline {
         copy_text(text)?
     } else {
@@ -303,11 +297,9 @@ pub fn embedded_widget_comb_text_page(
     let height = finite_f32(page_size.1, "page height")?;
     let page_settings = PageSettings::from_wh(width, height)
         .ok_or_else(|| "page dimensions are outside krilla's supported range".to_owned())?;
-    let shaping_font = FontRef::from_index(&font_data, font_index)
-        .map_err(|_| format!("font data or collection index {font_index} is invalid"))?;
+    let shaping_font = open_shaping_font(&font_data, font_index)?;
     let (ascent, descent) = font_vertical_metrics(&shaping_font)?;
-    let shaper_data = ShaperData::new(&shaping_font);
-    let shaper = shaper_data.shaper(&shaping_font).build();
+    let shaper = LineShaper::new(&shaping_font);
     let normalized = normalized_single_line(text)?;
     let graphemes = collect_graphemes(&normalized)?;
     let box_size = (rect[2] - rect[0], rect[3] - rect[1]);
@@ -390,7 +382,32 @@ pub fn embedded_widget_comb_text_page(
         .map_err(|error| format!("krilla form appearance generation failed: {error}"))
 }
 
-fn font_vertical_metrics(font: &FontRef<'_>) -> Result<(f64, f64), String> {
+/// Open the font that HarfRust shapes and that vertical metrics come from.
+///
+/// The font shares `font_data` with krilla instead of copying it.
+fn open_shaping_font(font_data: &Arc<Vec<u8>>, font_index: u32) -> Result<ShapingFont, String> {
+    let source: Arc<dyn AsRef<[u8]> + Send + Sync> = font_data.clone();
+    ShapingFont::new(source, font_index)
+        .ok_or_else(|| format!("font data or collection index {font_index} is invalid"))
+}
+
+/// A font prepared for shaping, with the em size that scales its positions.
+struct LineShaper<'a> {
+    font: ShaperFont<'a, 'a>,
+    units_per_em: f32,
+}
+
+impl<'a> LineShaper<'a> {
+    fn new(font: &'a ShapingFont) -> Self {
+        Self {
+            font: ShaperFont::new(font),
+            units_per_em: f32::from(font.units_per_em()),
+        }
+    }
+}
+
+fn font_vertical_metrics(font: &ShapingFont) -> Result<(f64, f64), String> {
+    let font = font.tables();
     let units_per_em = f64::from(
         font.head()
             .map_err(|_| "font does not contain a valid head table".to_owned())?
@@ -439,7 +456,7 @@ fn justify_glyphs(glyphs: &mut [KrillaGlyph], text: &str, extra_em: f64) {
 
 fn shape_lines<'a>(
     lines: impl ExactSizeIterator<Item = &'a str>,
-    shaper: &Shaper<'_>,
+    shaper: &LineShaper<'_>,
 ) -> Result<Vec<Vec<KrillaGlyph>>, String> {
     let mut shaped = Vec::new();
     shaped
@@ -451,22 +468,26 @@ fn shape_lines<'a>(
     Ok(shaped)
 }
 
-fn shape_line(text: &str, shaper: &Shaper<'_>) -> Result<Vec<KrillaGlyph>, String> {
+fn shape_line(text: &str, shaper: &LineShaper<'_>) -> Result<Vec<KrillaGlyph>, String> {
     if text.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut buffer = UnicodeBuffer::new();
+    let mut buffer = Buffer::new();
     buffer.push_str(text);
     buffer.guess_segment_properties();
     let direction = buffer.direction();
-    let output = shaper.shape(buffer, ShapeOptions::new());
-    let positions = output.glyph_positions();
-    let infos = output.glyph_infos();
-    let units_per_em = shaper.units_per_em() as f32;
+    harfrust::shape(&shaper.font, &mut buffer, ShapeOptions::new())
+        .map_err(|error| format!("text shaping failed: {error}"))?;
+    if !buffer.allocation_successful() {
+        return Err("failed to allocate shaped glyph buffer".to_owned());
+    }
+    let positions = buffer.glyph_positions();
+    let infos = buffer.glyph_infos();
+    let units_per_em = shaper.units_per_em;
     let mut glyphs = Vec::new();
     glyphs
-        .try_reserve_exact(output.len())
+        .try_reserve_exact(buffer.len())
         .map_err(|error| format!("failed to allocate shaped glyph collection: {error}"))?;
 
     for (index, (info, position)) in infos.iter().zip(positions).enumerate() {

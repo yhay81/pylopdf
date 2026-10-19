@@ -6,19 +6,19 @@ generation and font subsetting. krilla is available under MIT OR Apache-2.0:
 - Source: <https://github.com/LaurenzV/krilla>
 - Package: <https://crates.io/crates/krilla/0.8.2>
 
-pylopdf uses HarfRust 0.12 for OpenType shaping. HarfRust is available under
+pylopdf uses HarfRust 0.14 for OpenType shaping. HarfRust is available under
 the MIT license:
 
 - Source: <https://github.com/harfbuzz/harfrust>
-- Package: <https://crates.io/crates/harfrust/0.12.0>
+- Package: <https://crates.io/crates/harfrust/0.14.0>
 
-pylopdf uses `pdf-base14-metrics` 0.0.1 for canonical Core 14 font widths.
+pylopdf uses `pdf-base14-metrics` 0.0.2 for canonical Core 14 font widths.
 Its Rust code is MIT and its Adobe Font Metrics data is licensed under
 APAFML. The required Adobe license text is distributed in
 `LICENSES/APAFML.txt`.
 
 - Source: <https://github.com/kjanat/mosaic>
-- Package: <https://crates.io/crates/pdf-base14-metrics/0.0.1>
+- Package: <https://crates.io/crates/pdf-base14-metrics/0.0.2>
 
 pylopdf uses `unicode-linebreak` 0.1.5 (Apache-2.0) and
 `unicode-segmentation` 1.13 (MIT OR Apache-2.0) for UAX #14 wrapping and
@@ -48,13 +48,13 @@ distributed in `LICENSES/Apache-2.0.txt`.
 - Source: <https://github.com/Voultapher/self_cell>
 - Package: <https://crates.io/crates/self_cell/1.3.0>
 
-pylopdf uses RTen 0.24 and its companion `rten-*` crates for local PP-OCR
+pylopdf uses RTen 0.27 and its companion `rten-*` crates for local PP-OCR
 inference. RTen is available under MIT OR Apache-2.0. Its RTen model reader
 uses FlatBuffers 24.12.23, available under Apache-2.0. The Apache license is
 distributed in `LICENSES/Apache-2.0.txt`.
 
 - RTen source: <https://github.com/robertknight/rten>
-- RTen package: <https://crates.io/crates/rten/0.24.0>
+- RTen package: <https://crates.io/crates/rten/0.27.0>
 - FlatBuffers source: <https://github.com/google/flatbuffers>
 
 The optional `pylopdf-ocr-models` distribution contains PP-OCRv6 small model

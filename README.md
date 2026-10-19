@@ -245,7 +245,7 @@ pylopdf.Document (Python, pymupdf-style API)
    └─ _Document (PyO3)
         ├─ lopdf 0.45   … editing: open → modify → save
         ├─ hayro 0.7    … rendering and positioned extraction
-        └─ krilla 0.8 + HarfRust 0.12
+        └─ krilla 0.8 + HarfRust 0.14
                          … shaped, subset-embedded text and form appearances
 ```
 

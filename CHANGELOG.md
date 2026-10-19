@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Neither native nor Emscripten builds enable a lopdf date backend; pylopdf
   never used lopdf's date conversions. This removes chrono and its time-zone
   dependencies from native builds.
+- Upgrade PyO3 from 0.29 to 0.30.1, HarfRust from 0.12 to 0.14.0 with
+  read-fonts 0.45.1, RTen from 0.24 to 0.27.0, and `pdf-base14-metrics` to
+  0.0.2, and move the other locked crates to their newest compatible
+  releases. HarfRust 0.14 matches HarfBuzz 14.5.1: it carries Unicode 18.0
+  data and now applies coverage-based contextual lookups that Indic shapers
+  rely on, such as Bengali ra-phala. PyO3 has linked Windows targets with
+  raw-dylib since 0.29, so the deprecated `generate-import-lib` feature is no
+  longer enabled. RTen 0.27 deprecates the `.rten` model format that
+  `pylopdf-ocr-models` ships; pylopdf keeps enabling it explicitly.
 - `bench/run.py` now splits first-page rendering into end-to-end time, cold
   and warm Pixmap rasterization, and PNG encoding time and size for both
   pylopdf and pymupdf, adds corpus totals, and reports pymupdf's sequential
