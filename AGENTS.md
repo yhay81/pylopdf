@@ -1469,6 +1469,26 @@ overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
+- `pylopdf.Font` follows pymupdf's `Font(fontname, fontfile, fontbuffer)` and
+  wraps `_Font` (`rust/src/font.rs`): either an OpenType face, held as shared
+  bytes plus the HarfRust font that shapes them and checked by krilla as
+  well, or a Standard 14 font. `text_length` measures OpenType text with
+  `generate::shaped_line_width`, the sum of shaped advances that places every
+  glyph krilla draws and that textbox and form layout wrap with, and Standard
+  14 text with `draw::standard_text_width`, which Standard 14 layout uses;
+  keep generation and measurement on those so a measured line stays the drawn
+  width. Drawing with an OpenType `font=` passes the same bytes and index as
+  `fontbuffer` and produces byte-identical output; a Standard 14 `font=`
+  follows the `fontname` path. `language=` and `family=` look up only the
+  faces of installed font extras, by the family names in
+  `_FONT_EXTRA_FAMILIES`. There is no font registry or other process-global
+  font state (F0 G6), and pylopdf never scans system font directories, so
+  output depends only on the fonts passed in. A face that does not match
+  `is_bold`, `is_italic`, or `weight` raises unless `allow_regular_fallback`
+  is set, which warns; never synthesize a weight by stroking, overprinting, or
+  render-mode changes. Variable fonts load at their default instance; the
+  `ar`, `he`, `hi`, and `th` extras ship variable fonts, and the default
+  instance of Noto Sans Hebrew is Thin (weight class 100).
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

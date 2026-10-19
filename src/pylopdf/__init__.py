@@ -22,7 +22,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, TypedDict, cast, overload
 
 from pylopdf import _markdown
-from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, _Document, _OcrEngine
+from pylopdf.pylopdf_core import (
+    LimitError,
+    OcrError,
+    PasswordError,
+    PdfError,
+    Pixmap,
+    _Document,
+    _Font,
+    _OcrEngine,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -54,6 +63,7 @@ __all__ = [
     "DrawingInfo",
     "DrawingItem",
     "EncryptedDocumentError",
+    "Font",
     "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
@@ -1650,6 +1660,403 @@ def _form_generation_font(
     return None
 
 
+#: Standard 14 names that :class:`Font` accepts: pymupdf's short aliases and
+#: the PostScript names, matched without regard to case.
+_BASE14_FONT_NAMES: dict[str, str] = {
+    **_BASE14_FONTS,
+    **{name.lower(): name for name in _BASE14_FONTS.values()},
+}
+_SYMBOLIC_BASE14_NAMES = frozenset({"Symbol", "ZapfDingbats"})
+
+#: Family names of the faces that each font extra installs: sans, then serif.
+_FONT_EXTRA_FAMILIES: dict[FontLanguage, tuple[str, str]] = {
+    "ar": ("Noto Sans Arabic", "Noto Naskh Arabic"),
+    "he": ("Noto Sans Hebrew", "Noto Serif Hebrew"),
+    "hi": ("Noto Sans Devanagari", "Noto Serif Devanagari"),
+    "ja": ("Noto Sans JP", "Noto Serif JP"),
+    "ko": ("Noto Sans KR", "Noto Serif KR"),
+    "th": ("Noto Sans Thai", "Noto Serif Thai"),
+    "zh-CN": ("Noto Sans SC", "Noto Serif SC"),
+    "zh-TW": ("Noto Sans TC", "Noto Serif TC"),
+}
+_MIN_BOLD_FONT_WEIGHT = 600
+_BOLD_FONT_WEIGHT = 700
+_MAX_FONT_WEIGHT = 1000
+_MAX_UNICODE_CODEPOINT = 0x10FFFF
+
+
+def _validate_font_weight(weight: object) -> int | None:
+    """Validate an optional OS/2 weight class."""
+    if weight is None:
+        return None
+    if isinstance(weight, bool) or not isinstance(weight, int):
+        msg = f"weight must be an OS/2 weight class from 1 through {_MAX_FONT_WEIGHT} or None: {weight!r}"
+        raise TypeError(msg)
+    if not 1 <= weight <= _MAX_FONT_WEIGHT:
+        msg = f"weight must be an OS/2 weight class from 1 through {_MAX_FONT_WEIGHT} or None: {weight!r}"
+        raise ValueError(msg)
+    return weight
+
+
+def _describe_face(weight: int | None, *, italic: bool) -> str:
+    """Describe a requested face for error and warning messages."""
+    name = {None: "regular", 400: "regular", _BOLD_FONT_WEIGHT: "bold"}.get(weight, f"weight-{weight}")
+    return f"{name} italic" if italic else name
+
+
+def _standard_font_name(fontname: str) -> str:
+    """Resolve a Standard 14 alias or name to its PostScript name."""
+    if not isinstance(fontname, str):
+        msg = f"fontname must be a string: {fontname!r}"
+        raise TypeError(msg)
+    name = _BASE14_FONT_NAMES.get(fontname) or _BASE14_FONT_NAMES.get(fontname.lower())
+    if name is None:
+        msg = (
+            f"fontname must be a Standard 14 name or alias such as 'helv' or 'Times-Roman': {fontname!r}; "
+            "pymupdf's other built-in fonts are not available, so pass fontfile, fontbuffer, or language"
+        )
+        raise PdfError(msg)
+    return name
+
+
+def _load_font(
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    fontindex: int,
+    max_font_size: int | None,
+) -> _Font:
+    """Load one face from a bounded file or buffer."""
+    if isinstance(fontindex, bool) or not isinstance(fontindex, int) or not 0 <= fontindex <= _UINT32_MAX:
+        msg = f"fontindex must be an integer from 0 through {_UINT32_MAX}: {fontindex!r}"
+        raise ValueError(msg)
+    source = _resolve_font_source(fontfile, fontbuffer, max_font_size)
+    if isinstance(source, Path):
+        return _Font.from_file(os.fspath(source), fontindex, max_font_size)
+    return _Font.from_bytes(cast("bytes", source), fontindex, max_font_size)
+
+
+def _named_or_loaded_font(
+    fontname: str | None,
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    fontindex: int,
+    max_font_size: int | None,
+) -> _Font:
+    """Return a Standard 14 font by name, or load a face from a file or buffer."""
+    if fontname is None:
+        return _load_font(fontfile, fontbuffer, fontindex, max_font_size)
+    if fontindex != 0:
+        msg = "fontindex requires fontfile or fontbuffer"
+        raise PdfError(msg)
+    return _Font.standard(_standard_font_name(fontname))
+
+
+def _requested_font_weight(weight: int | None, *, is_bold: bool) -> int | None:
+    """Combine ``weight`` and ``is_bold`` into the weight class a lookup must match."""
+    if not is_bold:
+        return weight
+    if weight is None:
+        return _BOLD_FONT_WEIGHT
+    if weight < _MIN_BOLD_FONT_WEIGHT:
+        msg = f"weight={weight} contradicts is_bold=True"
+        raise PdfError(msg)
+    return weight
+
+
+def _font_extra_family(family: str) -> tuple[FontLanguage, bool]:
+    """Return the font extra and style that install a family."""
+    if not isinstance(family, str):
+        msg = f"family must be a string: {family!r}"
+        raise TypeError(msg)
+    for language, names in _FONT_EXTRA_FAMILIES.items():
+        for serif, name in enumerate(names):
+            if name.casefold() == family.casefold():
+                return language, bool(serif)
+    msg = f"no pylopdf font extra installs the family {family!r}; pass its font as fontfile or fontbuffer"
+    raise PdfError(msg)
+
+
+def _font_extra_face(  # noqa: PLR0913 - the lookup keeps every Font argument explicit.
+    language: FontLanguage,
+    *,
+    serif: bool,
+    weight: int | None,
+    italic: bool,
+    allow_regular_fallback: bool,
+    max_font_size: int | None,
+) -> _Font:
+    """Select the face that an installed font extra provides for one style.
+
+    An extra installs one face per style, so ``weight=None`` selects that face
+    and any other requested weight or an italic must match it.
+    """
+    extra = next(extra for candidate, extra, _ in _FONT_PROVIDER_SPECS if candidate == language)
+    provider = _provider_for_language(language)
+    if provider is None:
+        msg = f"language={language!r} requires pylopdf[{extra}]; pass fontfile or fontbuffer instead"
+        raise PdfError(msg)
+    kind = "serif" if serif else "sans"
+    source = provider.serif if serif else provider.sans
+    if isinstance(source, Path):
+        face = _Font.from_file(os.fspath(source), 0, max_font_size, (language, kind))
+    else:
+        face = _Font.from_bytes(source, 0, max_font_size)
+    if (weight is None or weight == face.weight) and not italic:
+        return face
+    family = face.family or _FONT_EXTRA_FAMILIES[language][serif]
+    if allow_regular_fallback:
+        msg = f"pylopdf[{extra}] has no {_describe_face(weight, italic=italic)} {family!r} face; using its own face"
+        # Point at the caller of Font(): this helper and __init__ sit between.
+        _warnings.warn(msg, PylopdfWarning, stacklevel=3)
+        return face
+    msg = (
+        f"pylopdf[{extra}] installs one {family!r} face; pass its {_describe_face(weight, italic=italic)} "
+        "face as fontfile or fontbuffer, or set allow_regular_fallback=True"
+    )
+    raise PdfError(msg)
+
+
+class Font:
+    """A font for generated text and its measurement, as pymupdf's ``Font``.
+
+    Pass exactly one source. ``fontname`` names a Standard 14 font by its
+    PostScript name or pymupdf alias, such as ``"Times-Bold"`` or ``"helv"``.
+    ``fontfile`` or ``fontbuffer`` loads an OpenType face as given, with
+    ``fontindex`` selecting a face in a collection; a variable font is used at
+    its default instance. ``language`` selects the face of an installed font
+    extra such as ``pylopdf[jp]`` (``is_serif=True`` for its serif face), and
+    ``family`` selects an installed extra's face by family name, such as
+    ``"Noto Sans JP"``. pylopdf has no default font and keeps no font
+    registry; load any other face, such as a bold weight, from its file.
+
+    For ``language`` and ``family``, ``is_bold`` and ``is_italic`` request a
+    style and ``weight`` an exact OS/2 weight class. The extras install one
+    face per style, so a request that the face does not match raises
+    :class:`PdfError` instead of imitating a weight by stroking or
+    overprinting glyphs; ``allow_regular_fallback=True`` explicitly uses the
+    extra's face and emits a :class:`PylopdfWarning`. These options do not
+    apply to the other sources and raise there, where pymupdf would ignore
+    them.
+
+    A Font reads its input once. Pass it as ``font`` to
+    :meth:`Page.insert_text` and :meth:`Page.insert_textbox` on any document
+    and share it between threads. :meth:`text_length` measures with the
+    shaping and advances that drawing uses, so a measured line is as wide as
+    the drawn line. Standard 14 fonts are drawn without embedding and measure
+    with Adobe's AFM widths. Font input defaults to a 64 MiB boundary;
+    ``max_font_size=None`` opts trusted input out, and refusal raises
+    :class:`LimitError` with code ``font_input_size``.
+    """
+
+    def __init__(  # noqa: PLR0913 - pymupdf's sources plus keyword-only lookup options.
+        self,
+        fontname: str | None = None,
+        fontfile: str | os.PathLike[str] | None = None,
+        fontbuffer: bytes | None = None,
+        *,
+        language: FontLanguage | None = None,
+        is_bold: bool = False,
+        is_italic: bool = False,
+        is_serif: bool = False,
+        weight: int | None = None,
+        fontindex: int = 0,
+        family: str | None = None,
+        allow_regular_fallback: bool = False,
+        max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
+    ) -> None:
+        """Select a Standard 14 font, load a face, or select an installed extra's face."""
+        _validate_optional_positive_int("max_font_size", max_font_size)
+        resolved_weight = _validate_font_weight(weight)
+        sources = [
+            name
+            for name, value in (
+                ("fontname", fontname),
+                ("fontfile", fontfile),
+                ("fontbuffer", fontbuffer),
+                ("family", family),
+                ("language", language),
+            )
+            if value is not None
+        ]
+        if not sources:
+            msg = "pylopdf has no default font; pass fontname, fontfile, fontbuffer, family, or language"
+            raise PdfError(msg)
+        if len(sources) > 1:
+            msg = f"pass one font source, not {' and '.join(sources)}"
+            raise PdfError(msg)
+        if fontname is not None or fontfile is not None or fontbuffer is not None:
+            if is_bold or is_italic or is_serif or resolved_weight is not None or allow_regular_fallback:
+                msg = (
+                    "is_bold, is_italic, is_serif, weight, and allow_regular_fallback select the face of an "
+                    "installed font extra; fontname names one Standard 14 variant and a font file is used as given"
+                )
+                raise PdfError(msg)
+            self._font = _named_or_loaded_font(fontname, fontfile, fontbuffer, fontindex, max_font_size)
+            return
+        if fontindex != 0:
+            msg = "fontindex requires fontfile or fontbuffer"
+            raise PdfError(msg)
+        requested = _requested_font_weight(resolved_weight, is_bold=bool(is_bold))
+        if family is not None:
+            if is_serif:
+                msg = "is_serif cannot be combined with family, which already names the face"
+                raise PdfError(msg)
+            extra_language, serif = _font_extra_family(family)
+        else:
+            extra_language = cast("FontLanguage", _normalize_font_language(language))
+            serif = bool(is_serif)
+        self._font = _font_extra_face(
+            extra_language,
+            serif=serif,
+            weight=requested,
+            italic=bool(is_italic),
+            allow_regular_fallback=allow_regular_fallback,
+            max_font_size=max_font_size,
+        )
+
+    @property
+    def name(self) -> str | None:
+        """The full name of an OpenType face or the PostScript name of a Standard 14 font."""
+        return self._font.name
+
+    @property
+    def family(self) -> str | None:
+        """The typographic family name (name ID 16, else 1), or ``None``."""
+        return self._font.family
+
+    @property
+    def weight(self) -> int:
+        """The OS/2 weight class: 400 for regular and 700 for bold faces."""
+        return self._font.weight
+
+    @property
+    def is_bold(self) -> bool:
+        """Whether the face is bold by its weight class or style flags."""
+        return self._font.bold
+
+    @property
+    def is_italic(self) -> bool:
+        """Whether the face is marked italic or oblique."""
+        return self._font.italic
+
+    @property
+    def is_serif(self) -> bool:
+        """Whether the face has serifs, by its PANOSE class or family name."""
+        return self._font.serif
+
+    @property
+    def units_per_em(self) -> int:
+        """The design units per em of the face; 1000 for Standard 14 fonts."""
+        return self._font.units_per_em
+
+    @property
+    def ascender(self) -> float:
+        """Ascent above the baseline as a positive fraction of the font size.
+
+        This is the value that :meth:`Page.insert_textbox` places its first
+        baseline with: the OS/2 typographic ascender, or the ``hhea``
+        ascender when the typographic metrics are unusable, and the AFM font
+        bounding box for Standard 14 fonts.
+        """
+        return self._font.ascender
+
+    @property
+    def descender(self) -> float:
+        """Descent below the baseline as a negative fraction of the font size."""
+        return self._font.descender
+
+    def text_length(
+        self,
+        text: str,
+        fontsize: float = 11,
+        *,
+        max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
+    ) -> float:
+        """Return the width of one line of ``text`` at ``fontsize`` in PDF units.
+
+        OpenType text is shaped with HarfRust exactly as drawing shapes it, so
+        the result is the advance that :meth:`Page.insert_text` draws,
+        including kerning and ligatures; Standard 14 text sums the AFM widths
+        of its WinAnsi characters. Measure each line separately: line breaks
+        raise :class:`PdfError`. A character the font has no glyph for raises
+        :class:`PdfError`, as drawing does. Text input defaults to a 1 MiB
+        UTF-8 boundary; ``max_text_size=None`` opts trusted input out, and
+        refusal raises :class:`LimitError` with code ``text_input_size``.
+        """
+        if not isinstance(text, str):
+            msg = f"text must be a string: {text!r}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(text, max_text_size)
+        if "\n" in text or "\r" in text:
+            msg = "text_length measures one line; split text at line breaks first"
+            raise PdfError(msg)
+        try:
+            size = float(fontsize)
+        except (TypeError, ValueError) as exc:
+            msg = f"fontsize must be a positive number: {fontsize!r}"
+            raise ValueError(msg) from exc
+        if not (math.isfinite(size) and size > 0):
+            msg = f"fontsize must be a positive number: {fontsize!r}"
+            raise ValueError(msg)
+        return self._font.text_length(text, size, max_text_size)
+
+    def has_glyph(self, chr: int | str) -> int:  # noqa: A002 - pymupdf's parameter name.
+        """Return the glyph number of the code point ``chr``, or 0 when the font has none.
+
+        ``chr`` is an integer code point, as in pymupdf, or a one-character
+        string. A Standard 14 font has no glyph numbers because it is not
+        embedded; for it, the number is the character's code in the font's
+        encoding.
+        """
+        if isinstance(chr, str):
+            if len(chr) != 1:
+                msg = f"chr must be a code point or a one-character string: {chr!r}"
+                raise ValueError(msg)
+            codepoint = ord(chr)
+        elif isinstance(chr, int) and not isinstance(chr, bool):
+            if not 0 <= chr <= _MAX_UNICODE_CODEPOINT:
+                msg = f"chr must be a Unicode code point: {chr!r}"
+                raise ValueError(msg)
+            codepoint = chr
+        else:
+            msg = f"chr must be a code point or a one-character string: {chr!r}"
+            raise TypeError(msg)
+        return self._font.has_glyph(codepoint)
+
+    def __repr__(self) -> str:
+        """Return the font's name."""
+        return f"Font({self.name!r})"
+
+
+def _require_winansi(text: str) -> None:
+    """Refuse text that a Standard 14 font cannot print."""
+    try:
+        text.encode("cp1252")
+    except UnicodeEncodeError as exc:
+        msg = (
+            "Standard 14 fonts can only print WinAnsi (Latin-1-equivalent) characters; "
+            "pass an OpenType Font for other text"
+        )
+        raise ValueError(msg) from exc
+
+
+def _validate_font_choice(
+    font: Font,
+    fontfile: str | os.PathLike[str] | None,
+    fontbuffer: bytes | None,
+    fontindex: int,
+    font_language: str | None,
+) -> _Font:
+    """Return the core face of a ``font`` argument that no other source contradicts."""
+    if not isinstance(font, Font):
+        msg = f"font must be a pylopdf.Font, not {type(font).__name__}"
+        raise TypeError(msg)
+    if fontfile is not None or fontbuffer is not None or fontindex != 0 or font_language is not None:
+        msg = "font cannot be combined with fontfile, fontbuffer, fontindex, or font_language"
+        raise ValueError(msg)
+    return font._font
+
+
 #: Page-label numbering styles (`/S`); an empty value means prefix only.
 _PAGE_LABEL_STYLES = frozenset({"", "D", "R", "r", "A", "a"})
 
@@ -2234,6 +2641,7 @@ class Page:
         text: str,
         *,
         fontsize: float = 11.0,
+        font: Font | None = None,
         fontname: str = "helv",
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
@@ -2250,6 +2658,11 @@ class Page:
         ``"tiro"``, and ``"cour"`` families with ``bo``/``it`` variants, plus
         ``"symb"`` and ``"zadb"``. These fonts are not embedded and text is
         limited to WinAnsi, roughly Latin-1.
+
+        Pass a :class:`Font` as ``font`` to draw with a face loaded once, such as
+        a bold face; :meth:`Font.text_length` measures what this call draws.
+        ``font`` cannot be combined with ``fontfile``, ``fontbuffer``,
+        ``fontindex``, or ``font_language``, and ``fontname`` is then ignored.
 
         Pass exactly one of ``fontfile`` or ``fontbuffer`` to subset-embed an
         arbitrary OpenType font through krilla. This enables Unicode text,
@@ -2303,6 +2716,32 @@ class Page:
         _validate_utf8_text_input(text, max_text_size)
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         _validate_generated_text_lines(normalized, max_text_size)
+        if font is not None:
+            core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
+            standard_name = core_font.standard_name
+            if standard_name is None:
+                self._document._doc.insert_font_text(
+                    self._page_number(),
+                    (x, y),
+                    normalized.split("\n"),
+                    core_font,
+                    float(fontsize),
+                    (red, green, blue),
+                    overlay,
+                    max_text_size,
+                )
+                return
+            _require_winansi(normalized)
+            self._insert_standard_text(
+                (x, y),
+                normalized,
+                base_font=standard_name,
+                fontsize=float(fontsize),
+                color=(red, green, blue),
+                overlay=overlay,
+                max_text_size=max_text_size,
+            )
+            return
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data, package_font = _resolve_generation_font(
             normalized,
@@ -2341,16 +2780,37 @@ class Page:
             )
             return
 
-        base_font = cast("str", base_font)
-        lines = [line.encode("cp1252") for line in normalized.split("\n")]
+        self._insert_standard_text(
+            (x, y),
+            normalized,
+            base_font=cast("str", base_font),
+            fontsize=float(fontsize),
+            color=(red, green, blue),
+            overlay=overlay,
+            max_text_size=max_text_size,
+        )
+
+    def _insert_standard_text(  # noqa: PLR0913 - the validated insert_text arguments.
+        self,
+        point: tuple[float, float],
+        text: str,
+        *,
+        base_font: str,
+        fontsize: float,
+        color: tuple[float, float, float],
+        overlay: bool,
+        max_text_size: int | None,
+    ) -> None:
+        """Draw validated WinAnsi text in a Standard 14 font."""
+        lines = [line.encode("cp1252") for line in text.split("\n")]
         self._document._doc.insert_page_text(
             self._page_number(),
-            (x, y),
+            point,
             lines,
             base_font,
-            fontname not in _SYMBOLIC_FONTS,
-            float(fontsize),
-            (red, green, blue),
+            base_font not in _SYMBOLIC_BASE14_NAMES,
+            fontsize,
+            color,
             overlay,
             max_text_size,
         )
@@ -2361,6 +2821,7 @@ class Page:
         text: str,
         *,
         fontsize: float = 11.0,
+        font: Font | None = None,
         fontname: str = "helv",
         fontfile: str | os.PathLike[str] | None = None,
         fontbuffer: bytes | None = None,
@@ -2389,8 +2850,11 @@ class Page:
         Unicode line breaking; explicit newlines always start a new line.
 
         Without a font source, Adobe Core 14 metrics provide exact WinAnsi
-        wrapping. Pass exactly one of ``fontfile`` or ``fontbuffer`` for
-        HarfRust-shaped Unicode and a krilla subset-embedded OpenType font.
+        wrapping. Pass a :class:`Font` as ``font``, or exactly one of
+        ``fontfile`` or ``fontbuffer``, for HarfRust-shaped Unicode and a krilla
+        subset-embedded OpenType font. Lines are measured with the advances
+        that :meth:`Font.text_length` returns. ``font`` cannot be combined with
+        the other font sources or ``fontindex``.
         Installed script or CJK locale font extras provide matching fonts.
         ``font_language`` selects a specific provider, including for ambiguous
         Han text.
@@ -2414,8 +2878,40 @@ class Page:
         _validate_generated_text_lines(normalized, max_text_size)
         _validate_utf8_text_input(normalized, max_text_size, expandtabs=expandtabs)
         normalized = normalized.expandtabs(expandtabs)
+        core_font = (
+            None if font is None else _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
+        )
         if not normalized:
             return y1 - y0
+        standard_name = None if core_font is None else core_font.standard_name
+        if core_font is not None and standard_name is None:
+            return self._document._doc.insert_font_textbox(
+                page_number,
+                (x0, y0, x1, y1),
+                normalized,
+                core_font,
+                resolved_fontsize,
+                resolved_lineheight,
+                align,
+                (red, green, blue),
+                overlay,
+                max_text_size,
+            )
+        if standard_name is not None:
+            _require_winansi(normalized)
+            return self._document._doc.insert_page_textbox(
+                page_number,
+                (x0, y0, x1, y1),
+                normalized,
+                standard_name,
+                standard_name not in _SYMBOLIC_BASE14_NAMES,
+                resolved_fontsize,
+                resolved_lineheight,
+                align,
+                (red, green, blue),
+                overlay,
+                max_text_size,
+            )
 
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data, package_font = _resolve_generation_font(
