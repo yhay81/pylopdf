@@ -45,6 +45,19 @@ approval before M0 starts.
 9. **Field-level form values.** A by-name `Document.form` mapping reads and
    writes field values, while pymupdf's `Widget.field_value` keeps widget-level
    access to the same value ([forms](#10-forms)).
+10. **No shared page objects** ([G8](#g8--no-shared-page-objects)). pymupdf's
+    `copy_page` and repeated `select` numbers make two page-tree entries share
+    one page object; pylopdf always makes independent copies, so it provides
+    pymupdf's `fullcopy_page` and replaces `copy_page`.
+11. **Page boxes follow pymupdf's box convention**
+    ([G1](#g1--display-coordinates)): the MediaBox in PDF coordinates and the
+    other boxes with a top-left origin against the MediaBox, because display
+    space is itself derived from the boxes.
+12. **Encryption is explicit** ([R2.7](#r2--same-name-same-meaning)).
+    `save(encryption=)` takes pymupdf's `PDF_ENCRYPT_*` values and defaults to
+    pymupdf's `PDF_ENCRYPT_NONE`. pymupdf silently ignores `user_pw=` and
+    `owner_pw=` under that default; pylopdf raises, and no longer encrypts
+    implicitly when a password is given.
 
 ## 1. Rules
 
@@ -69,7 +82,7 @@ approval before M0 starts.
    limits ([G4](#g4--limits)).
 3. **Signature shape.** Leading parameters that pymupdf code passes
    positionally keep their position and pymupdf's name, such as `option` in
-   `get_text("words")` or `pno` in `show_pdf_page(rect, src, pno)`. They
+   `get_text("words")` or `pno` in `show_pdf_page(rect, docsrc, pno)`. They
    become positional-only when pymupdf's name is not worth exposing, as in
    `select(pyliste)`, which becomes `select(page_numbers, /)`. Parameters that
    pymupdf code passes by keyword are keyword-only and keep pymupdf's names, so
@@ -83,10 +96,18 @@ approval before M0 starts.
 5. **Extensions.** pylopdf may add keyword-only parameters whose defaults leave
    pymupdf's behavior unchanged, such as `max_*` limits, `font_language=`, and
    `background=`.
-6. **Conveniences.** pymupdf's convenience methods are part of the vocabulary.
-   When pylopdf provides the capability, it provides the convenience under
-   pymupdf's name and meaning (`Document.get_page_text` beside
-   `Page.get_text`). This is not a pylopdf synonym under R1.
+6. **Conveniences and aliases.** pymupdf's convenience methods and its own
+   aliases are part of the vocabulary. When pylopdf provides the capability, it
+   provides them under pymupdf's names and meaning: `Document.get_page_text`
+   beside `Page.get_text`, `open` as the same callable as `Document`, `w` and
+   `h` beside `width` and `height`, and `tl`, `tr`, `bl`, and `br` on `Rect`.
+   These are not pylopdf synonyms under R1.
+7. **No silently dropped intent.** Where pymupdf accepts an option and then
+   silently skips the only effect the option exists for, pylopdf raises
+   instead: `user_pw=` without an encrypting `encryption=` value is the case
+   in point. Documented round-trip behavior is not such a case; `set_metadata`
+   ignores the read-only `format` and `encryption` keys exactly as pymupdf
+   does, so `doc.set_metadata(doc.metadata)` works.
 
 ### R3 — Redesign for substance, under a new name
 
@@ -124,6 +145,12 @@ placement coordinates through a transformation that, on rotated pages, flips
 y without rotating, so they land in unrotated space. pylopdf does not. Code
 that multiplies by pymupdf's `derotation_matrix` before inserting must drop
 that step, and the codemod flags it.
+
+Page boxes are the exception, because display space is derived from them.
+They follow pymupdf's box convention: `mediabox` and `set_mediabox` use PDF
+coordinates as stored, while `cropbox`, `artbox`, `bleedbox`, `trimbox`, and
+their setters use unrotated coordinates with the y axis flipped against the
+MediaBox top, and the setters require the box to lie inside the MediaBox.
 
 #### G2 — Zero-based pages
 
@@ -170,6 +197,16 @@ better than pymupdf there and documents its algorithms, but these properties
 are not part of a name's meaning. Where pymupdf exposes a quality knob that
 pylopdf does not implement, the knob raises instead of being ignored.
 
+#### G8 — No shared page objects
+
+Each page-tree entry has its own page object, as the PDF page tree's single
+`/Parent` per page requires; pylopdf's page-tree walker rejects reused page
+references. Where pymupdf repeats a reference to one page object — `copy_page`
+and repeated numbers in `select` — pylopdf makes an independent copy. pylopdf
+therefore provides pymupdf's `fullcopy_page`, which already has that meaning,
+and replaces `copy_page`; repeated `select` numbers keep pymupdf's name and
+produce independent copies under this convention.
+
 ### R5 — Naming new APIs
 
 New capabilities without a pymupdf counterpart follow pymupdf's patterns, so
@@ -192,10 +229,10 @@ the vocabulary stays uniform:
 | --- | --- | --- |
 | Handle | Document-backed objects: `Page`, `Annot`, `Widget`, `Link`, `Attachment`, outline items, low-level objects | A view of a document, a generation, and an object number. Equality compares those, and a stale handle raises `StaleObjectError`. |
 | NamedTuple | pymupdf's positional records: words, blocks, image inventory | Keeps pymupdf's order and length and adds field names. |
-| TypedDict | pymupdf's dictionary formats: `dict` and `rawdict` text, drawings, links, metadata, image info | A plain `dict` at runtime with pymupdf's keys. |
+| TypedDict | pymupdf's dictionary formats: `dict` and `rawdict` text, drawings, links, metadata, image info | A plain `dict` at runtime with pymupdf's keys. A TypedDict never takes a pymupdf class name: today's `TextPage` and `RawTextPage` become `TextPageDict` and `RawTextPageDict` in M0, because M1 gives `TextPage` to pymupdf's handle. |
 | Frozen dataclass | Richer records without a pymupdf counterpart | `@dataclass(frozen=True, slots=True, kw_only=True)`. |
 | IntEnum and IntFlag | Codes and flags | pymupdf's module constants are members, as `re.IGNORECASE` is a member of `re.RegexFlag`; values equal pymupdf's. |
-| Geometry | `Point`, `Rect`, `IRect`, `Quad`, `Matrix` | Immutable values with pymupdf's value-returning members and operators (roadmap F4). |
+| Geometry | `Point`, `Rect`, `IRect`, `Quad`, `Matrix` | Immutable values with pymupdf's value-returning members and operators (roadmap F4). They remain NamedTuples for indexing, length, unpacking, and hashing, but `+`, `-`, `*`, `/`, `\|`, `&`, `in`, `abs()`, and truth testing take pymupdf's geometric meaning instead of the tuple operations, and `Rect.width` and `height` clamp at 0 as pymupdf's do. |
 | `Literal[...]` | String options such as `"words"` or `output="png"` | One `@overload` per value when the value changes the return type. |
 
 Every public API is fully typed, so `page.get_text("words")` type-checks as
@@ -248,12 +285,12 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 
 | Target | pymupdf | Relation | Notes |
 | --- | --- | --- | --- |
-| `open(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` | `open(filename, stream, filetype, ...)` | same | M0 moves `password` and the limits behind `*`, so pymupdf's third positional `filetype` cannot bind to `password`. `filetype` accepts `"pdf"`; images and CBZ follow in M2. |
-| `Document()` | `Document()` | same | An empty document. Opening by path stays on `open()` until M2. |
-| `save(filename, *, garbage=0, deflate=False, use_objstms=False, user_pw=None, owner_pw=None, permissions=..., ...)` | `save(...)` | same | M0 renames `object_streams=` to `use_objstms=`. F6 adds `garbage` levels 2–4 with pymupdf's meaning, and M7 adds the remaining options. pylopdf can save over the open file through atomic replacement, which pymupdf refuses without `incremental=True`; removing an error changes no meaning. |
+| `Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)`, with `open` as the same callable | `Document(...)`, `open = Document` | same | M0 moves `password` and the limits behind `*` in both, so pymupdf's third positional `filetype` cannot bind to `password`; today `Document()` and `open()` both take `password` third. With no source, `Document()` creates an empty document. `filetype` accepts `"pdf"`; images and CBZ follow in M2. |
+| `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=PDF_ENCRYPT_NONE, user_pw=None, owner_pw=None, permissions=..., ...)` | `save(...)` | same | M0 renames `object_streams=` to `use_objstms=` and adds `encryption=` with pymupdf's constants and default: `PDF_ENCRYPT_NONE` writes plaintext and `PDF_ENCRYPT_AES_256` encrypts; `PDF_ENCRYPT_AES_128` and `PDF_ENCRYPT_KEEP` follow in M7, and the RC4 values raise. A password under `PDF_ENCRYPT_NONE` raises (R2.7). F6 adds `garbage` levels 2–4 with pymupdf's meaning, and M7 adds the remaining options. pylopdf can save over the open file through atomic replacement, which pymupdf refuses without `incremental=True`; removing an error changes no meaning. |
 | `tobytes(*, ...)`, `write(*, ...)` | `tobytes`, `write` | same | The same options as `save`; `write` arrives with M7. |
 | `ez_save(filename, ...)` | `ez_save` | same | M7. |
-| `authenticate`, `needs_pass`, `is_encrypted`, `is_repaired`, `page_count`, `metadata`, `close`, the context manager | same names | same | `metadata` gains pymupdf's `trapped` and `encryption` keys in M0. |
+| `authenticate`, `needs_pass`, `is_encrypted`, `is_repaired`, `page_count`, `metadata`, `close`, the context manager | same names | same | `metadata` gains pymupdf's `trapped` and `encryption` keys in M0. `authenticate` returns pymupdf's codes in M0: today, a document that opened with an empty user password returns 1 for any password, where pymupdf still checks it and returns 0, 2, 4, or 6. |
+| `set_metadata(m)` | same | same | M0 adopts pymupdf's meaning: unknown keys raise, the read-only `format` and `encryption` keys are ignored so a `metadata` round trip works, `trapped` is written, a false or `"none"` value removes its key, and an empty dictionary removes the Info dictionary. Today the read-only keys raise and an empty dictionary changes nothing. |
 | `limits`, `complexity`, `get_pdfa_claim()`, `peek_metadata()`, `set_fallback_font()` | — | pylopdf | No pymupdf counterpart. |
 
 ## 4. Pages and page structure
@@ -264,9 +301,13 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `new_page(pno=-1, *, width=595, height=842)` | same | same | M0 makes `width` and `height` keyword-only. |
 | `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1, ...)` | same | same | M0 adopts pymupdf's range rules: a negative `from_page` means the first page, a negative `to_page` the last, and both clamp to the source. pylopdf counts a negative `from_page` from the end today, which is the conflict M0 removes. `links=`, `annots=`, `widgets=`, and `rotate=` follow pymupdf's meaning as they land. |
 | `delete_page(pno=-1)`, `delete_pages(...)` | same | same | M0 adds pymupdf's default and argument forms: `(from_page, to_page)`, the `from_page=`/`to_page=` keywords, and an iterable. |
-| `select(page_numbers, /)`, `copy_page(pno, to=-1)` | same | same | |
-| `move_page`, `fullcopy_page`, `insert_page` | same | same | M2. |
-| `Page.rect`, `rotation`, `set_rotation`, `mediabox`, `cropbox`, `set_mediabox`, `set_cropbox` | same | same | Art, Bleed, and TrimBox follow in M2. |
+| `select(page_numbers, /)` | same | same | Repeated numbers make independent copies ([G8](#g8--no-shared-page-objects)). |
+| `fullcopy_page(pno, to=-1)` | `fullcopy_page` | same | M0 renames today's `copy_page`, whose independent copy is `fullcopy_page`'s meaning. |
+| — | `copy_page(pno, to=-1)` | replaced | pymupdf's shared page reference violates G8. The hint reads: "pylopdf never shares page objects; use fullcopy_page". |
+| `move_page`, `insert_page` | same | same | M2. |
+| `Page.rect`, `rotation`, `set_rotation` | same | same | |
+| `Page.mediabox`, `set_mediabox(rect)` | same | same | PDF coordinates ([G1](#g1--display-coordinates)). M0 adopts pymupdf's side effect: setting the MediaBox removes the CropBox, ArtBox, BleedBox, and TrimBox. |
+| `Page.cropbox`, `set_cropbox(rect)` | same | same | M0 adopts pymupdf's box convention: unrotated coordinates with the y axis flipped against the MediaBox top, required to lie inside the MediaBox. Today they use PDF coordinates with a bottom-left origin. Art, Bleed, and TrimBox follow in M2 under the same convention. |
 
 ## 5. Extraction
 
@@ -310,17 +351,18 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `Document.render_pages(pages=None, *, matrix=None, dpi=None, colorspace=None, alpha=False, clip=None, annots=True, background=None, output="png", jpg_quality=95, workers=None, max_size=...)` → `list[bytes]` | — | pylopdf | The parallel batch, aligned with the `get_pixmap` options; encoding runs inside the workers. |
 | `Page.get_svg_image(*, matrix=None, text_as_path=True)` | same | same | M0 renames `render_svg`. `text_as_path=False` raises until M1 can honor it. |
 | `Pixmap`: `width` and `w`, `height` and `h`, `n`, `alpha`, `stride`, `samples`, `samples_mv`, `colorspace`, `irect`, `size`, `xres`, `yres` | same | same | `w` and `h` are pymupdf's own aliases. `colorspace` returns a `Colorspace(name, n)` value, with `csGRAY`, `csRGB`, and `csCMYK` as constants. On abi3 wheels without the buffer protocol, `samples_mv` views a copy. |
-| `Pixmap.tobytes(output="png", jpg_quality=95, *, max_size=...)`, `Pixmap.save(filename, output=None, jpg_quality=95)` | same | same | JPEG and PNM land in M1. |
+| `Pixmap.tobytes(output="png", jpg_quality=95, *, max_size=...)`, `Pixmap.save(filename, output=None, jpg_quality=95)` | same | same | M0 renames `save`'s parameter `path` to pymupdf's `filename`. JPEG and PNM land in M1. |
 | `Pixmap` constructors and analysis (`pixel`, `color_count`, `is_unicolor`, `digest`, `copy`, `shrink`, `invert_irect`, and the rest) | same | same | M1. Constructors follow pymupdf's argument forms only where they are unambiguous ([open questions](#16-open-questions)). |
 
 ## 7. Generation
 
 | Target | pymupdf | Relation | Notes |
 | --- | --- | --- | --- |
-| `Page.insert_text(point, text, *, fontsize=11, fontname="helv", fontfile=None, color=None, ...)` | same | same | `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
+| `Page.insert_text(point, text, *, fontsize=11, fontname="helv", fontfile=None, color=None, ...)` → `int` | same | same | M0 returns pymupdf's count of inserted lines instead of `None`. `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
+| `fontname=` on `insert_text` and `insert_textbox` | same | same | M0 accepts pymupdf's full Standard 14 names (`Helvetica`, `Times-Roman`, `Courier-Bold`, and the rest) besides the short aliases (`helv`, `tiro`, `cobo`, ...) that work today, and exports `Base14_fontnames` and `Base14_fontdict`. |
 | `Page.insert_textbox(rect, text, /, *, ..., expandtabs=1, ...)` | same | same | M0 changes the `expandtabs` default from 8 to pymupdf's 1. The second parameter is positional-only because pymupdf names it `buffer`. |
-| `Page.insert_image(rect, *, filename=None, stream=None, pixmap=None, rotate=0, keep_proportion=True, overlay=True, ...)` | same | same | `xref=`, `mask=`, `alpha=`, and `oc=` land in M2. |
-| `Page.show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True, ...)` | same | same | M0 renames the parameter `src` to pymupdf's `docsrc`; `clip=`, `rotate=`, and `oc=` land in M2. |
+| `Page.insert_image(rect, *, filename=None, stream=None, pixmap=None, rotate=0, keep_proportion=True, overlay=True, ...)` → `int` | same | same | M0 returns the image xref, as pymupdf does, instead of `None`. `xref=`, `mask=`, `alpha=`, and `oc=` land in M2. |
+| `Page.show_pdf_page(rect, docsrc, pno=0, *, keep_proportion=True, overlay=True, ...)` → `int` | same | same | M0 renames the parameter `src` to pymupdf's `docsrc` and returns the Form XObject's xref, as pymupdf does; `clip=`, `rotate=`, and `oc=` land in M2. |
 | `Page.new_shape()` → `Shape` | same | same | M2, under the builder rules in R7. |
 | `Font`, `get_text_length()`, `Page.insert_font()` | same | same | M2. |
 | `Page.replace_text()`, `Page.insert_ocr_text_layer()` | — | pylopdf | No pymupdf counterpart. |
@@ -403,21 +445,30 @@ pymupdf's module-level names and values.
 | Text alignment | `TextAlign` | `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`, `TEXT_ALIGN_JUSTIFY` |
 | Text flags | `TextFlags` | `TEXT_PRESERVE_LIGATURES`, `TEXT_DEHYPHENATE`, and the rest (M1) |
 | Permissions | `Permissions` | `PDF_PERM_PRINT`, `PDF_PERM_MODIFY`, `PDF_PERM_COPY`, `PDF_PERM_ANNOTATE`, `PDF_PERM_FORM`, `PDF_PERM_ACCESSIBILITY`, `PDF_PERM_ASSEMBLE`, `PDF_PERM_PRINT_HQ`; M0 renames today's members to these suffixes |
-| Annotation types and flags, line ends, borders, field types, redaction, encryption | `AnnotType`, `AnnotFlags`, and others | `PDF_ANNOT_*`, `PDF_REDACT_*`, `PDF_ENCRYPT_*`, and the rest, as their milestones land |
+| Encryption methods | `EncryptionMethod` | `PDF_ENCRYPT_KEEP`, `PDF_ENCRYPT_NONE`, `PDF_ENCRYPT_RC4_40`, `PDF_ENCRYPT_RC4_128`, `PDF_ENCRYPT_AES_128`, `PDF_ENCRYPT_AES_256`, `PDF_ENCRYPT_UNKNOWN`, with MuPDF's values 0–6, in M0 |
+| Colorspaces | `Colorspace` values | `csGRAY`, `csRGB`, `csCMYK`, and the `CS_*` integers, in M0 with `Pixmap.colorspace` |
+| Standard 14 fonts | tuple and dict | `Base14_fontnames` and `Base14_fontdict`, in M0 |
+| Annotation types and flags, line ends, borders, field types, redaction | `AnnotType`, `AnnotFlags`, and others | `PDF_ANNOT_*`, `PDF_REDACT_*`, and the rest, as their milestones land; `PDF_ANNOT_IS_*` arrives with `Annot.flags` in M0 |
 
 ## 15. API reset (M0)
 
 Every change below removes a pymupdf-name conflict (R2), a pylopdf synonym
-(R1), or a design replaced under R3. Each change ships with a codemod rule and
-a migration hint (roadmap F9), and all of them land in one breaking release.
+(R1), or a design replaced under R3, or applies a global convention (R4). Each
+change ships with a codemod rule and a migration hint (roadmap F9), and all of
+them land in one breaking release. The parity manifest's `reset` entries map
+one-to-one onto these rows.
 
 | Current pylopdf API | Target | Rule |
 | --- | --- | --- |
-| `open(filename, stream, password, max_decompressed_size, *, limits)` | `open(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` | R2: the third positional parameter is `filetype` |
+| `open(filename, stream, password, max_decompressed_size, *, limits)` and the same `Document(...)` constructor | `Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)`, with `open = Document` | R2: the third positional parameter is `filetype`; R2.6: `open` is pymupdf's alias |
+| `Document.authenticate(password)` | pymupdf's return codes even after an empty user password opened the document | R2 |
+| `Document.set_metadata(m)` | pymupdf's round trip, `trapped`, and empty-dictionary semantics | R2 |
 | `Document.insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | pymupdf's negative-index and clamping rules, with keyword-only ranges | R2 |
 | `Document.delete_page(pno)`, `delete_pages(page_numbers)` | pymupdf's default and argument forms | R2 |
 | `Document.new_page(pno, width, height)` | keyword-only `width` and `height` | R2.3 |
+| `Document.copy_page(pno, to=-1)` (an independent copy) | `fullcopy_page(pno, to=-1)`; `copy_page` is not provided | R2, G8 |
 | `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2 |
+| `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7 |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2 |
 | `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
 | `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1 |
@@ -427,6 +478,13 @@ a migration hint (roadmap F9), and all of them land in one breaking release.
 | `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1 |
 | `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2 |
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2 |
+| `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1 |
+| `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2 |
+| `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2 |
+| `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2 |
+| `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2 |
+| `TextPage` and `RawTextPage` TypedDicts | `TextPageDict` and `RawTextPageDict`; M1 gives `TextPage` to pymupdf's handle | R2 |
+| `Rect.width` and `height` going negative; tuple `+`, `*`, `in`, and truth testing on `Point` and `Rect` | clamped widths and pymupdf's geometric operators (roadmap F4) | R2, R6 |
 | `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3 |
 | `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2 |
 | `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2 |
