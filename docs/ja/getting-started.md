@@ -112,11 +112,10 @@ page.show_pdf_page(page.rect, letterhead)                    # ベクタのま�
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[jp]から自動subset
 page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
-pylopdf.register_font("NotoSansJP-Bold.otf")                 # extraにない太さを後から足す
-bold = pylopdf.Font(language="ja", weight="bold")            # なければValueError。擬似太字にしない
+bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # extraにない太さはファイルから読む
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
 page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
-hebrew = pylopdf.Font(language="he", weight="bold")          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
+hebrew = pylopdf.Font(language="he", is_bold=True)          # 可変フォントのpylopdf[he]はファイルを足さずにBoldを選べる
 page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 検索してマーカー
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")

@@ -105,8 +105,9 @@ stream数、圧縮状態のstream byte数、直接objectの最大深度を返し
 直接深度検証とcomplexity検査の反復走査stackはfallibleに拡張されるため、
 allocation refusalは部分的なfactsではなく`PdfError`になります。
 
-`max_interpretation_size`は、hayroが保持済みinputを最初に読むときと、編集、復号、
-AcroForm state選択後の現在状態をpylopdfがserializeするときに適用されます。上限付き
+`max_interpretation_size`は、hayroが保持済みinputを最初に読むときと、編集や復号の後、
+またはtext markup appearanceの合成などrendering用copyの準備のためにpylopdfが現在状態を
+serializeするときに適用されます。上限付き
 writerは境界を越えるwriteを拒否し、不完全なrenderer／extractor cacheを登録しません。
 互換性のため既定値は`None`で、`DocumentLimits.web()`は64 MiBです。
 
@@ -142,19 +143,21 @@ lopdfの再構築は、後ろに`endstream`のない`stream` keywordごとに入
 なることを防ぎます。実際の破損ファイルでは、その位置にある途切れたstreamは
 多くても1つです。
 
-hayro 0.7はcontent stream内のarrayとdictionaryを深さ無制限の再帰で読むため、
+hayro 0.7はcontent stream内のarrayとdictionaryを深さ無制限の再帰で読んでいたため、
 数十万個の`[`を開くstreamが1つあるだけで、例外にならずstackを溢れさせてPython
-プロセスを終了させていました。pylopdfは、text抽出、layout、table、検索、drawing、
-image取得、rendering（PNG、pixmap、SVG）、Markdown変換、image圧縮がpageを解釈する
-前に、そのpageから到達できるcontent stream（`/Contents`、resourceにあるForm
-XObject、annotationとwidgetのappearance、soft-mask group、tiling pattern、
-Type 3 glyph procedure）をデコードします。arrayまたはdictionaryが64階層を超えて
+プロセスを終了させていました。hayro 0.8は64階層で読むのをやめ、それより深いoperandを
+黙って省きます。pylopdfは、text抽出、layout、table、検索、drawing、image取得、
+rendering（PNG、pixmap、SVG）、Markdown変換、image圧縮がpageを解釈する前に、その
+pageから到達できるcontent stream（`/Contents`、resourceにあるForm XObject、
+annotationとwidgetのappearance（check boxとradio buttonはすべての状態。hayroが
+描くのは`/AS`が選ぶ1つです）、soft-mask group、tiling pattern、Type 3 glyph
+procedure）をデコードします。arrayまたはdictionaryが64階層を超えて
 入れ子になる場合、stream objectが埋め込まれている場合、検査できないinline image
 境界がある場合は、そのpageを`content_nesting_depth`で拒否します。この上限は固定で、
 `DocumentLimits`の有無にかかわらず適用され、ほかのpageは引き続き利用できます。
 各pageはdocument snapshotごとに1回だけ検査され、編集すると結果は破棄されます。
-hayroは名前を外側のすべてのdictionaryにたどって解決するため、operatorが描画しない
-resource dictionaryのentryも検査対象です。
+検査はcontentがどの名前を使うかを調べないため、operatorが描画しないresource
+dictionaryのentryも検査対象です。
 
 hayroはcolour space、shading、functionも、それらが名前で参照するobjectをたどる深さ
 無制限の再帰で構築します（hayro 0.7と0.8の両方）。IndexedまたはPattern colour space
@@ -165,16 +168,35 @@ procedureを再帰でparseします。互いを参照する約2万個のindirect
 個の入れ子の波括弧で、stackが溢れてプロセスが終了していました。pylopdfはpageを解釈
 する前に、そのpageのresource dictionaryの`/ColorSpace`と`/Shading`のentry、shading
 pattern、image XObject、soft-mask group、graphics stateとsoft maskの転送関数
-（`/TR`、`/TR2`）から到達できるものを測り、colour spaceとfunctionの連鎖が32階層を
+（`/TR`、`/TR2`）から到達できるものを測り、colour spaceとfunctionの連鎖が16階層を
 超える場合、またはType 4 functionのprocedureが64階層を超えて入れ子になる場合は、
 そのpageを`resource_nesting_depth`で拒否します。連鎖にはcolour spaceのarray、
 function、profile streamが数えられ、hayro自身が循環を断つため自己参照や短い輪は
-そのまま描画されますが、互いに到達し合うobjectが32個を超える循環は拒否され、共有された
+そのまま描画されますが、互いに到達し合うobjectが16個を超える循環は拒否され、共有された
 sub-graphは1回だけ測られ、objectは参照する項目の数にかかわらず1回しか読まれません。これらの上限は固定で、`DocumentLimits`の有無にかかわらず
 適用され、ほかのpageは引き続き利用できます。制限するのはstackの使用量であり時間では
 ありません。各階層で同じfunctionを2回参照する、Separationを入れ子にするなど、上限
 以内でも細工されたgraphではhayroが指数時間のCPUを要するため、ホスト側でCPU
 deadlineを強制してください。
+
+hayro 0.8は、それを保持するobjectを含めて64階層を超えて入れ子になったarrayや
+dictionaryを読まず、そのobject全体をないものとして扱います。hayro 0.7はこうした
+objectを再帰で読んでおり、lopdfは100階層まで読みます。page treeから継承する属性を
+含めたpageのdictionaryがこれより深いpageは、操作が解釈するたびに`object_depth`で
+拒否され、ほかのpageは引き続き利用できます。trailer、catalog、page treeのroot node
+がこの深さで入れ子になっていても、文書の描画は妨げられません。renderingとextraction
+は深すぎるentryを除いたcopyを読み、編集・保存する文書にはそのentryが残ります。それ
+以外のobjectがこの深さで入れ子になっている場合は、hayroと同じくないものとして読ま
+れます。`DocumentLimits.web()`は、このような文書をopen時に`object_depth`で拒否します。
+
+hayro 0.8は、成分数の合わない値を返すSeparationやDeviceNのtint transform、Pattern
+colour spaceのshadingなど、一部の不正な色データでpanicします
+（[LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)）。hayro 0.7
+は同じpageを描画できていました。hayroにpageを解釈させるすべての操作はこのpanicを捕捉
+し、PyO3の`PanicException`（`BaseException`の派生で、`except Exception`をすり抜け
+ます）の代わりに`PdfError`を送出します。renderer stateは編集時と同じく破棄されるため、
+以降の呼び出しは最初からやり直され、文書は引き続き利用できます。panicのメッセージは
+Rustが標準エラー出力に書き出します。
 
 - レンダリングは1ページ64メガピクセルまでです。
 - `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded
@@ -221,7 +243,7 @@ deadlineを強制してください。
   `password_input_size`です。保存拒否はdocument mutation／output作成より前です。
 - `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
-  解除できます。hayro-svg 0.7が完成した`String`だけを返すため、pylopdfが
+  解除できます。hayro-svg 0.8が完成した`String`だけを返すため、pylopdfが
   制限を適用する前の内部Rust string 1つはこの境界の対象外です。
 - 描画挿入はcache無効化・入力decode・dependent object作成の前に、page
   `/Contents`のraw arrayと参照chainを検査します。raw arrayは4,096 entry、

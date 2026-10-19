@@ -65,8 +65,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | bounded PNG / UTF-8 SVG rendering; `clip` uses display coordinates |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps; identical input placed again shares one image XObject |
+| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document; placing a page of an unedited `src` again shares its Form XObject |
 | `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
@@ -167,34 +167,36 @@ grapheme-safe emergency breaks for overlong words. Alignment constants are
 `TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
 content or font resource is added in that case.
 
-`Font` loads an OpenType face once for `insert_text(font=)` and
-`insert_textbox(font=)` and measures with the shaping that drawing uses:
-`font.text_length(text, fontsize)` is the advance that drawing the line covers,
+`Font` follows pymupdf's `Font(fontname=None, fontfile=None, fontbuffer=None)`
+and is passed as `insert_text(font=)` and `insert_textbox(font=)`.
+`Font("helv")` or `Font("Times-Bold")` names a Standard 14 font, which is drawn
+without embedding and measured with Adobe's AFM widths; pymupdf's other built-in
+fonts are not available. `Font(fontfile=)` and `Font(fontbuffer=)` load an
+OpenType face as given (a variable font at its default instance), and
+`Font(language="ja")` or `Font(family="Noto Sans JP")` selects the face of an
+installed font extra, with `is_serif=True` for the serif face.
+`font.text_length(text, fontsize)` measures with the shaping that drawing uses,
 including kerning and ligatures, so layout code can wrap, align, and paginate
-with the face it draws. `ascender` and `descender` are the em fractions that
-`insert_textbox` places lines with, and `has_glyph` reads the character map.
-`Font(fontfile=)` and `Font(fontbuffer=)` load a face as given (a variable
-font at its default instance), and `Font(language="ja")` selects the face of an installed font extra
-(`serif=True` for its serif face). Each extra installs one face per style, so
-other weights are added when an application needs them: `register_font(path)`
-reads the family, weight, and style from the font, after which
-`Font(family="Noto Sans JP", weight="bold")` selects that face, and so does
-`Font(language="ja", weight="bold")` because the face belongs to the family
-that `pylopdf[jp]` installs. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]`
-extras install variable faces instead: `Font(language="he", weight="bold")`
-selects the bold instance on the face's weight axis without another file,
-measures with that instance's advances, and embeds it under its own name,
+with the font it draws. `ascender` and `descender` are the em fractions that
+`insert_textbox` places lines with, and `has_glyph(chr)` returns the glyph
+number of a code point, or 0. The CJK extras install one static face per
+style, so `is_bold`, `is_italic`, and an exact OS/2 `weight` that the face does
+not match raise `PdfError`, and other weights, such as Noto Sans JP Bold, are
+loaded from their files. The `pylopdf[ar]`, `[he]`, `[hi]`, and `[th]` extras
+install variable faces instead: `Font(language="he", is_bold=True)` selects
+the bold instance on the face's weight axis without another file, measures
+with that instance's advances, and embeds it under its own PostScript name,
 `NotoSansHebrew-Bold`. Their weights run from 100 through 900, or from 400
 through 700 for Noto Naskh Arabic, the serif face of `pylopdf[ar]`, and a
-registered face of the same family takes precedence over the axis. Installed
-variable faces are drawn at the regular weight, also when `insert_text`,
+weight outside the axis or an italic raises `PdfError`. Installed variable
+faces are drawn at the regular weight, also when `insert_text`,
 `insert_textbox`, and `set_form_field` select them automatically, because the
-default instance of Noto Sans Hebrew is Thin. pylopdf never searches system
-font directories.
-A face that is not available raises `ValueError` instead of being imitated by
-stroking or overprinting glyphs; `allow_regular_fallback=True` explicitly
-accepts the family's regular face and emits a `PylopdfWarning`. Each drawing
-call still embeds a subset of its own glyphs.
+default instance of Noto Sans Hebrew is Thin. pylopdf keeps no font registry
+and never searches system font directories. It never imitates a weight by stroking or overprinting glyphs;
+`allow_regular_fallback=True` explicitly accepts the extra's face with a
+`PylopdfWarning`. Style options raise with `fontname` and font files, where
+pymupdf would ignore them. Each drawing call still embeds a subset of its own
+glyphs.
 
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
@@ -230,7 +232,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
-| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph` / registration that makes a face available to family and weight lookups |
+| `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em` |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |

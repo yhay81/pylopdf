@@ -640,7 +640,7 @@ def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
     has_ink = any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
     if not has_ink:
-        pytest.xfail("hayro 0.7.1 omits these Type 3 stencil glyphs on this renderer target")
+        pytest.xfail("hayro omits these Type 3 stencil glyphs on this renderer target, as hayro 0.7.1 did on some")
 
 
 def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
@@ -655,7 +655,7 @@ def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
     words = [word[4] for word in page.get_text("words")]
 
     if not words:
-        pytest.xfail("hayro 0.7 maps Type 3 glyphs to Unicode only via a ToUnicode CMap (LaurenzV/hayro#1331)")
+        pytest.xfail("hayro 0.8.0 maps Type 3 glyphs to Unicode only via a ToUnicode CMap (LaurenzV/hayro#1331)")
     assert words == ["A", "A", "A"]
 
 

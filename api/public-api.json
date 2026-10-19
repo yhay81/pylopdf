@@ -61,8 +61,7 @@
     "TextSpan",
     "WordEntry",
     "open",
-    "peek_metadata",
-    "register_font"
+    "peek_metadata"
   ],
   "schema": 1,
   "symbols": {
@@ -1278,15 +1277,23 @@
                 "name": "self"
               },
               {
-                "annotation": "str",
+                "annotation": "int | str",
                 "kind": "positional_or_keyword",
-                "name": "char"
+                "name": "chr"
               }
             ],
-            "returns": "bool"
+            "returns": "int"
           }
         },
+        "is_bold": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_italic": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_serif": {
           "kind": "property",
           "returns": "bool"
         },
@@ -1309,7 +1316,7 @@
               },
               {
                 "annotation": "float",
-                "default": 11.0,
+                "default": 11,
                 "kind": "positional_or_keyword",
                 "name": "fontsize"
               },
@@ -1335,6 +1342,12 @@
       "signature": {
         "parameters": [
           {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "fontname"
+          },
+          {
             "annotation": "str | os.PathLike[str] | None",
             "default": null,
             "kind": "positional_or_keyword",
@@ -1343,8 +1356,38 @@
           {
             "annotation": "bytes | None",
             "default": null,
-            "kind": "keyword_only",
+            "kind": "positional_or_keyword",
             "name": "fontbuffer"
+          },
+          {
+            "annotation": "FontLanguage | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "language"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_bold"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_italic"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "is_serif"
+          },
+          {
+            "annotation": "int | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "weight"
           },
           {
             "annotation": "int",
@@ -1357,30 +1400,6 @@
             "default": null,
             "kind": "keyword_only",
             "name": "family"
-          },
-          {
-            "annotation": "FontLanguage | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "language"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "serif"
-          },
-          {
-            "annotation": "Literal['regular', 'bold'] | int",
-            "default": "regular",
-            "kind": "keyword_only",
-            "name": "weight"
-          },
-          {
-            "annotation": "bool",
-            "default": false,
-            "kind": "keyword_only",
-            "name": "italic"
           },
           {
             "annotation": "bool",
@@ -3263,38 +3282,6 @@
           }
         ],
         "returns": "MetadataProbe"
-      }
-    },
-    "register_font": {
-      "kind": "function",
-      "signature": {
-        "parameters": [
-          {
-            "annotation": "str | os.PathLike[str] | None",
-            "default": null,
-            "kind": "positional_or_keyword",
-            "name": "fontfile"
-          },
-          {
-            "annotation": "bytes | None",
-            "default": null,
-            "kind": "keyword_only",
-            "name": "fontbuffer"
-          },
-          {
-            "annotation": "int",
-            "default": 0,
-            "kind": "keyword_only",
-            "name": "fontindex"
-          },
-          {
-            "annotation": "int | None",
-            "default": 67108864,
-            "kind": "keyword_only",
-            "name": "max_font_size"
-          }
-        ],
-        "returns": "Font"
       }
     }
   }

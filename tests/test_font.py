@@ -1,4 +1,4 @@
-"""Reusable OpenType faces, their measurement, and family/weight registration."""
+"""Reusable fonts in pymupdf's shape, and their measurement."""
 
 from __future__ import annotations
 
@@ -36,17 +36,9 @@ def _with_weight_class(data: bytes, weight: int) -> bytes:
     raise AssertionError(msg)
 
 
-@pytest.fixture
-def font_registry(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, int, bool], pylopdf.Font]:
-    """Give each test an empty registry so registrations cannot leak."""
-    registry: dict[tuple[str, int, bool], pylopdf.Font] = {}
-    monkeypatch.setattr(pylopdf, "_REGISTERED_FONTS", registry)
-    return registry
-
-
 @pytest.fixture(scope="module")
 def regular() -> pylopdf.Font:
-    return pylopdf.Font(NOTO_SANS_JP)
+    return pylopdf.Font(fontfile=NOTO_SANS_JP)
 
 
 @pytest.fixture(scope="module")
@@ -70,30 +62,34 @@ def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
 
 
 def test_font_reads_face_metadata_and_vertical_metrics(regular: pylopdf.Font) -> None:
-    assert regular.name == "NotoSansJP-Regular"
+    assert regular.name == "Noto Sans JP Regular"
     assert regular.family == "Noto Sans JP"
     assert regular.weight == 400
+    assert regular.is_bold is False
     assert regular.is_italic is False
+    assert regular.is_serif is False
+    assert pylopdf.Font(fontfile=NOTO_SERIF_JP).is_serif is True
     assert regular.units_per_em == 1000
     # OS/2 typographic metrics, which insert_textbox places lines with.
     assert regular.ascender == pytest.approx(0.88)
     assert regular.descender == pytest.approx(-0.12)
-    assert repr(regular) == "Font(name='NotoSansJP-Regular', family='Noto Sans JP', weight=400)"
+    assert repr(regular) == "Font('Noto Sans JP Regular')"
 
 
 def test_font_loads_the_same_face_from_a_path_or_bytes(regular: pylopdf.Font) -> None:
     from_bytes = pylopdf.Font(fontbuffer=NOTO_SANS_JP.read_bytes())
-    from_keyword = pylopdf.Font(fontfile=str(NOTO_SANS_JP))
+    positional = pylopdf.Font(None, str(NOTO_SANS_JP))
 
-    for font in (from_bytes, from_keyword):
+    for font in (from_bytes, positional):
         assert font.name == regular.name
         assert font.text_length(MIXED_LINE, 12) == regular.text_length(MIXED_LINE, 12)
 
 
 def test_text_length_scales_with_size_and_includes_shaping(regular: pylopdf.Font) -> None:
     assert regular.text_length("") == 0
-    # Full-width CJK advances one em per character.
+    # Full-width CJK advances one em per character, and the default size is 11.
     assert regular.text_length("見出し", 10) == pytest.approx(30)
+    assert regular.text_length("見出し") == pytest.approx(33)
     assert regular.text_length(MIXED_LINE, 22) == pytest.approx(2 * regular.text_length(MIXED_LINE, 11))
     # Kerning pulls "AV" closer than the two glyphs measured alone.
     assert regular.text_length("AV", 100) < regular.text_length("A", 100) + regular.text_length("V", 100)
@@ -146,6 +142,64 @@ def test_font_parameter_draws_the_same_bytes_as_fontbuffer(regular: pylopdf.Font
     assert actual[0].tobytes() == expected[0].tobytes()
 
 
+def test_a_bold_face_loaded_from_its_file_draws_as_given(bold_data: bytes) -> None:
+    bold = pylopdf.Font(fontbuffer=bold_data)
+    assert (bold.weight, bold.is_bold, bold.family) == (700, True, "Noto Sans JP")
+
+    expected, actual = (_new_page() for _ in range(2))
+    expected[1].insert_text((20, 60), "太字", fontbuffer=bold_data, fontsize=18)
+    actual[1].insert_text((20, 60), "太字", font=bold, fontsize=18)
+    assert actual[0].tobytes() == expected[0].tobytes()
+
+
+@pytest.mark.parametrize(
+    ("fontname", "name", "family", "flags"),
+    [
+        ("helv", "Helvetica", "Helvetica", (False, False, False)),
+        ("Helvetica", "Helvetica", "Helvetica", (False, False, False)),
+        ("hebo", "Helvetica-Bold", "Helvetica", (True, False, False)),
+        ("helvetica-oblique", "Helvetica-Oblique", "Helvetica", (False, True, False)),
+        ("tiro", "Times-Roman", "Times", (False, False, True)),
+        ("Times-BoldItalic", "Times-BoldItalic", "Times", (True, True, True)),
+        ("cour", "Courier", "Courier", (False, False, False)),
+        ("zadb", "ZapfDingbats", "ZapfDingbats", (False, False, False)),
+    ],
+)
+def test_standard_14_fonts_by_name_or_alias(
+    fontname: str,
+    name: str,
+    family: str,
+    flags: tuple[bool, bool, bool],
+) -> None:
+    font = pylopdf.Font(fontname)
+
+    assert (font.name, font.family) == (name, family)
+    assert (font.is_bold, font.is_italic, font.is_serif) == flags
+    assert font.weight == (700 if flags[0] else 400)
+    assert font.units_per_em == 1000
+    assert font.ascender > 0 > font.descender
+
+
+def test_standard_14_fonts_measure_and_draw_with_afm_widths() -> None:
+    helvetica = pylopdf.Font("helv")
+    # Adobe AFM widths: H 722, e 556, l 222, o 556, space 278, W 944, r 333, d 556.
+    assert helvetica.text_length("Hello World", 11) == pytest.approx(56.837)
+    assert helvetica.has_glyph(65) == 65
+    assert helvetica.has_glyph("é") == 0xE9
+    assert helvetica.has_glyph(0x3042) == 0
+    with pytest.raises(pylopdf.PdfError, match="outside WinAnsi"):
+        helvetica.text_length("あ")
+
+    expected, actual = (_new_page() for _ in range(2))
+    expected[1].insert_text((10, 40), "Hello", fontname="hebo", fontsize=14)
+    actual[1].insert_text((10, 40), "Hello", font=pylopdf.Font("Helvetica-Bold"), fontsize=14)
+    expected[1].insert_textbox((10, 60, 300, 150), "Wrapped Times text " * 4, fontname="tiro", align=2)
+    actual[1].insert_textbox((10, 60, 300, 150), "Wrapped Times text " * 4, font=pylopdf.Font("tiro"), align=2)
+    assert actual[0].tobytes() == expected[0].tobytes()
+    with pytest.raises(ValueError, match="WinAnsi"):
+        actual[1].insert_text((10, 40), "日本語", font=helvetica)
+
+
 def test_one_font_draws_on_several_documents_and_threads(regular: pylopdf.Font) -> None:
     def draw(index: int) -> tuple[float, str]:
         _doc, page = _new_page()
@@ -162,7 +216,7 @@ def test_one_font_draws_on_several_documents_and_threads(regular: pylopdf.Font) 
 
 def test_text_length_rejects_line_breaks_missing_glyphs_and_bad_input(regular: pylopdf.Font) -> None:
     for text in ("一行目\n二行目", "a\rb"):
-        with pytest.raises(ValueError, match="one line"):
+        with pytest.raises(pylopdf.PdfError, match="one line"):
             regular.text_length(text)
     with pytest.raises(pylopdf.PdfError, match=r"does not contain all glyphs.*U\+1F980"):
         regular.text_length("crab 🦀")
@@ -183,45 +237,62 @@ def test_drawing_names_the_missing_character(regular: pylopdf.Font) -> None:
         page.insert_text((10, 40), "🦀", font=regular)
 
 
-def test_has_glyph_reads_the_character_map(regular: pylopdf.Font) -> None:
-    assert regular.has_glyph("髙")
-    assert regular.has_glyph("A")
-    assert not regular.has_glyph("🦀")
+def test_has_glyph_returns_glyph_numbers(regular: pylopdf.Font) -> None:
+    # pymupdf 1.28 returns the same glyph numbers for this face.
+    assert regular.has_glyph(ord("髙")) == 14456
+    assert regular.has_glyph(65) == 34
+    assert regular.has_glyph("髙") == 14456
+    assert regular.has_glyph(0x1F980) == 0
     with pytest.raises(ValueError, match="one-character"):
         regular.has_glyph("ab")
-    with pytest.raises(TypeError, match="one-character"):
-        regular.has_glyph(65)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError, match="code point"):
+        regular.has_glyph(0x110000)
+    for value in (True, 65.0, None):
+        with pytest.raises(TypeError, match="code point"):
+            regular.has_glyph(value)  # ty: ignore[invalid-argument-type]
 
 
 def test_font_validates_sources_and_lookup_arguments() -> None:
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(pylopdf.PdfError, match="no default font"):
         pylopdf.Font()
-    with pytest.raises(ValueError, match="exactly one"):
-        pylopdf.Font(NOTO_SANS_JP, fontbuffer=b"font")
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(pylopdf.PdfError, match="one font source"):
+        pylopdf.Font("helv", NOTO_SANS_JP)
+    with pytest.raises(pylopdf.PdfError, match="one font source"):
         pylopdf.Font(family="Noto Sans JP", language="ja")
-    with pytest.raises(ValueError, match="as given"):
-        pylopdf.Font(NOTO_SANS_JP, weight="bold")
-    with pytest.raises(ValueError, match="as given"):
-        pylopdf.Font(NOTO_SANS_JP, allow_regular_fallback=True)
-    with pytest.raises(ValueError, match="fontindex requires"):
+    for fontname in ("figo", "cjk", "japan", "Arial"):
+        with pytest.raises(pylopdf.PdfError, match="Standard 14"):
+            pylopdf.Font(fontname)
+    for options in ({"is_bold": True}, {"is_italic": True}, {"is_serif": True}, {"weight": 700}):
+        with pytest.raises(pylopdf.PdfError, match="as given"):
+            pylopdf.Font("helv", **options)  # ty: ignore[invalid-argument-type]
+        with pytest.raises(pylopdf.PdfError, match="as given"):
+            pylopdf.Font(fontfile=NOTO_SANS_JP, **options)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(pylopdf.PdfError, match="as given"):
+        pylopdf.Font(fontfile=NOTO_SANS_JP, allow_regular_fallback=True)
+    with pytest.raises(pylopdf.PdfError, match="fontindex requires"):
+        pylopdf.Font("helv", fontindex=1)
+    with pytest.raises(pylopdf.PdfError, match="fontindex requires"):
         pylopdf.Font(family="Noto Sans JP", fontindex=1)
-    with pytest.raises(ValueError, match="serif"):
-        pylopdf.Font(family="Noto Sans JP", serif=True)
-    for weight in ("heavy", 0, 1001):
+    with pytest.raises(pylopdf.PdfError, match="is_serif"):
+        pylopdf.Font(family="Noto Sans JP", is_serif=True)
+    for weight in (0, 1001):
         with pytest.raises(ValueError, match="weight"):
-            pylopdf.Font(family="Noto Sans JP", weight=weight)  # ty: ignore[invalid-argument-type]
-    for weight in (True, 700.0, None):
+            pylopdf.Font(family="Noto Sans JP", weight=weight)
+    for weight in (True, 700.0, "bold"):
         with pytest.raises(TypeError, match="weight"):
             pylopdf.Font(family="Noto Sans JP", weight=weight)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(pylopdf.PdfError, match="contradicts is_bold"):
+        pylopdf.Font(language="ja", is_bold=True, weight=500)
     with pytest.raises(ValueError, match="font_language"):
         pylopdf.Font(language="fr")  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="fontindex"):
-        pylopdf.Font(NOTO_SANS_JP, fontindex=-1)
+        pylopdf.Font(fontfile=NOTO_SANS_JP, fontindex=-1)
     with pytest.raises(pylopdf.PdfError, match="invalid"):
         pylopdf.Font(fontbuffer=b"not a font")
     with pytest.raises(pylopdf.PdfError, match="invalid"):
-        pylopdf.Font(NOTO_SANS_JP, fontindex=1)
+        pylopdf.Font(fontfile=NOTO_SANS_JP, fontindex=1)
+    with pytest.raises(TypeError, match="fontname"):
+        pylopdf.Font(NOTO_SANS_JP)  # ty: ignore[invalid-argument-type]
 
 
 def test_font_input_is_bounded() -> None:
@@ -233,7 +304,7 @@ def test_font_input_is_bounded() -> None:
         assert pylopdf.Font(**source, max_font_size=size).weight == 400  # ty: ignore[invalid-argument-type]
     for value in (0, -1, True, 1.5):
         with pytest.raises((TypeError, ValueError), match="max_font_size"):
-            pylopdf.Font(NOTO_SANS_JP, max_font_size=value)  # ty: ignore[invalid-argument-type]
+            pylopdf.Font(fontfile=NOTO_SANS_JP, max_font_size=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_font_parameter_rejects_other_font_sources(regular: pylopdf.Font) -> None:
@@ -262,100 +333,39 @@ def test_textbox_with_font_keeps_its_no_draw_boundaries(regular: pylopdf.Font) -
     assert doc.tobytes() == before
 
 
-def test_register_font_enables_family_and_weight_lookup(
-    font_registry: dict[tuple[str, int, bool], pylopdf.Font],
-    bold_data: bytes,
-) -> None:
-    registered_regular = pylopdf.register_font(NOTO_SANS_JP)
-    registered_bold = pylopdf.register_font(fontbuffer=bold_data)
-
-    assert registered_bold.family == "Noto Sans JP"
-    assert registered_bold.weight == 700
-    assert set(font_registry) == {("noto sans jp", 400, False), ("noto sans jp", 700, False)}
-    bold = pylopdf.Font(family="noto sans JP", weight="bold")
-    assert bold.weight == 700
-    assert pylopdf.Font(family="Noto Sans JP", weight=700).weight == 700
-    assert pylopdf.Font(family="Noto Sans JP").weight == 400
-    assert registered_regular.weight == 400
-
-    # The looked-up face draws exactly what the registered bytes draw.
-    expected, actual = (_new_page() for _ in range(2))
-    expected[1].insert_text((20, 60), "太字", fontbuffer=bold_data, fontsize=18)
-    actual[1].insert_text((20, 60), "太字", font=bold, fontsize=18)
-    assert actual[0].tobytes() == expected[0].tobytes()
-
-
-def test_registering_the_same_family_weight_and_style_replaces_it(
-    font_registry: dict[tuple[str, int, bool], pylopdf.Font],
-) -> None:
-    first = pylopdf.register_font(NOTO_SANS_JP)
-    second = pylopdf.register_font(fontbuffer=NOTO_SANS_JP.read_bytes())
-
-    assert len(font_registry) == 1
-    assert font_registry["noto sans jp", 400, False] is second
-    assert first is not second
-
-
-def test_a_missing_weight_raises_unless_regular_fallback_is_allowed(
-    font_registry: dict[tuple[str, int, bool], pylopdf.Font],
-) -> None:
-    with pytest.raises(ValueError, match=r"no bold face of 'Noto Sans JP' is registered.*register_font"):
-        pylopdf.Font(family="Noto Sans JP", weight="bold")
-    with pytest.raises(ValueError, match="neither a bold nor a regular face of 'Noto Sans JP' is registered"):
-        pylopdf.Font(family="Noto Sans JP", weight="bold", allow_regular_fallback=True)
-
-    pylopdf.register_font(NOTO_SANS_JP)
-    with pytest.raises(ValueError, match="no bold italic face"):
-        pylopdf.Font(family="Noto Sans JP", weight="bold", italic=True)
-    with pytest.warns(pylopdf.PylopdfWarning, match="no registered bold face; using its regular face") as record:
-        fallback = pylopdf.Font(family="Noto Sans JP", weight="bold", allow_regular_fallback=True)
-    assert fallback.weight == 400
-    assert record[0].filename == __file__
-    assert len(font_registry) == 1
-
-
-def test_language_selects_the_installed_regular_face() -> None:
+def test_language_and_family_select_installed_extra_faces() -> None:
     pytest.importorskip("pylopdf_fonts_jp")
 
     sans = pylopdf.Font(language="ja")
-    serif = pylopdf.Font(language="ja", serif=True)
+    serif = pylopdf.Font(language="ja", is_serif=True)
 
-    assert (sans.name, sans.weight) == ("NotoSansJP-Regular", 400)
-    assert serif.name == "NotoSerifJP-Regular"
+    assert (sans.name, sans.weight) == ("Noto Sans JP Regular", 400)
+    assert serif.name == "Noto Serif JP Regular"
+    assert pylopdf.Font(language="ja", weight=400).name == sans.name
+    assert pylopdf.Font(family="noto sans jp").name == sans.name
+    assert pylopdf.Font(family="Noto Serif JP").is_serif
     assert sans.text_length("見出し", 10) == pytest.approx(30)
+    with pytest.raises(pylopdf.PdfError, match="no pylopdf font extra installs the family 'Arial'"):
+        pylopdf.Font(family="Arial")
 
 
-def test_language_bold_comes_from_a_registered_face_of_the_same_family(
-    font_registry: dict[tuple[str, int, bool], pylopdf.Font],
-    bold_data: bytes,
-) -> None:
+def test_a_missing_weight_raises_unless_regular_fallback_is_allowed() -> None:
     pytest.importorskip("pylopdf_fonts_jp")
-    with pytest.raises(ValueError, match=r"pylopdf\[jp\] installs one 'Noto Sans JP' face; register its bold face"):
-        pylopdf.Font(language="ja", weight="bold")
-    with pytest.warns(pylopdf.PylopdfWarning, match="using its regular face"):
-        fallback = pylopdf.Font(language="ja", weight="bold", allow_regular_fallback=True)
+    for options in ({"is_bold": True}, {"weight": 700}, {"is_italic": True}):
+        with pytest.raises(pylopdf.PdfError, match=r"pylopdf\[jp\] installs one 'Noto Sans JP' face.*fontfile"):
+            pylopdf.Font(language="ja", **options)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(pylopdf.PdfError, match="'Noto Serif JP'"):
+        pylopdf.Font(family="Noto Serif JP", is_bold=True)
+
+    with pytest.warns(pylopdf.PylopdfWarning, match="no bold 'Noto Sans JP' face; using its own face") as record:
+        fallback = pylopdf.Font(language="ja", is_bold=True, allow_regular_fallback=True)
     assert fallback.weight == 400
-
-    pylopdf.register_font(fontbuffer=bold_data)
-
-    assert pylopdf.Font(language="ja", weight="bold").weight == 700
-    # The serif face belongs to another family, so its bold is still missing.
-    with pytest.raises(ValueError, match="Noto Serif JP"):
-        pylopdf.Font(language="ja", serif=True, weight="bold")
-    assert font_registry
+    assert record[0].filename == __file__
 
 
 def test_language_requires_its_font_extra(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pylopdf._bundled_font_providers", lambda: ())
-    with pytest.raises(ValueError, match=r"language='ko' requires pylopdf\[ko\]"):
+    with pytest.raises(pylopdf.PdfError, match=r"language='ko' requires pylopdf\[ko\]"):
         pylopdf.Font(language="ko")
-
-
-def test_register_font_validates_its_input(font_registry: dict[tuple[str, int, bool], pylopdf.Font]) -> None:
-    with pytest.raises(ValueError, match="exactly one"):
-        pylopdf.register_font()
-    with pytest.raises(pylopdf.PdfError, match="invalid"):
-        pylopdf.register_font(fontbuffer=b"not a font")
-    assert not font_registry
-    serif = pylopdf.register_font(NOTO_SERIF_JP)
-    assert font_registry == {("noto serif jp", 400, False): serif}
+    with pytest.raises(pylopdf.PdfError, match=r"requires pylopdf\[jp\]"):
+        pylopdf.Font(family="Noto Sans JP")
