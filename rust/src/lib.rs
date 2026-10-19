@@ -21,6 +21,7 @@ mod ocr_engine;
 mod ocr_engine;
 mod page_cleanup;
 mod pixmap;
+mod placement_reuse;
 mod postscript_scan;
 mod prune;
 mod read_depth;

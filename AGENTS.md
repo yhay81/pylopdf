@@ -388,7 +388,9 @@ overview.
   example by rolling an incremental file back to its first revision.
   Editing methods must call `invalidate_hayro_pdf`, which also discards
   the original-byte fast path and the link-resolution cache; edited state must
-  always be reflected in rendering and link reads. The page index needs no
+  always be reflected in rendering and link reads. An edit that cannot change
+  an object that drawing placed calls `invalidate_hayro_pdf_keeping_placements`
+  instead, as described with placement reuse below. The page index needs no
   call: mutable document access drops it, as described with the walker below.
   `DocumentLimits.max_interpretation_size` bounds both retained original input
   and the complete reserialization after edits or decryption, or for a
@@ -1146,6 +1148,39 @@ overview.
   in every object, and lopdf's bookmark table is left alone because only
   `set_toc` uses it, after clearing it. Refusal raises `PdfError` and may
   leave the copy partly rewritten.
+- `rust/src/placement_reuse.rs` places an image or page that a document
+  already holds again instead of embedding another copy. `insert_image` keys
+  Image XObjects by the SHA-256 digest of the accepted encoded bytes, or of a
+  Pixmap's dimensions and RGBA samples; the rectangle and rotation stay in the
+  placement matrix. `show_pdf_page` keys Form XObjects by the source
+  document's revision and one-based page. Every `_Document` takes a
+  process-unique revision at construction and a new one on every edit, so a
+  Form is reused only while its source is unchanged and never for another
+  document, including the one that `authenticate` or a reopen creates. A hit
+  places the remembered XObject without parsing the input or cloning the
+  source. Before a hit, the remembered image, soft mask, or Form stream must
+  still exist with its subtype and content length: pruning is the only change
+  that the keeping edits below make to a placed object, and a Form that
+  survives pruning was reachable, as are the objects it reaches.
+  `invalidate_hayro_pdf` forgets every placement, so it stays the safe default
+  for an editing method. Edits that only add objects; replace page
+  dictionaries; rewrite the page tree, the catalog, the information
+  dictionary, or navigation structures (outlines, name trees, annotations); or
+  remove unreachable objects call `invalidate_hayro_pdf_keeping_placements`:
+  drawing, annotations, page geometry, structural edits, outline, label,
+  attachment, and metadata edits, `prune_objects` for `garbage=True`, and
+  object-stream saves. `compress`, `decompress`, `compress_images`,
+  `replace_text`, and `set_form_field` forget. Both replace the revision.
+  Classify a new editing method before giving it the keeping variant. A
+  same-document `show_pdf_page` re-keys its Form under the revision of its own
+  edit unless it placed the source page on itself, so consecutive placements
+  of one page on other pages share one Form; any other edit imports the page
+  again. Each document remembers at most 4,096 images and 4,096 Forms, and a
+  full map starts over, which keeps output deterministic. Room for an entry is
+  reserved before mutation, and a refused allocation leaves the placement
+  unremembered instead of failing the edit. Nothing is remembered across save
+  and reopen, and generated text and widget appearances import their own
+  Forms. `tests/test_placement_reuse.py` pins each of these behaviors.
 - lopdf numbers new objects above `Document::max_id`, so a loaded reference to
   a higher number would resolve to whatever a later import or edit adds.
   `_Document.load` and `load_bytes`, which `authenticate` reuses, therefore
