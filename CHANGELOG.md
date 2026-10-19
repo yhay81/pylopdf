@@ -384,6 +384,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested form, still overflowed the stack and ended the process with SIGSEGV on
   the first text extraction. Entries are now skipped only in the role they were
   followed for, and such a document is refused with `resource_nesting_depth`.
+- The content nesting check and the colour space and function check no longer
+  parse the object behind a `/Subtype` or `/FunctionType` reference once for
+  every stream that names it. Each walk reads that value itself from every
+  XObject stream and function stream it opens, and parsing an object costs as
+  much as it is large, however small the name or integer the walk wants: 3,000
+  forms whose `/Subtype` names one array of 500,000 numbers (1.4 MB in all) kept
+  the first text extraction busy for 17 seconds, a dictionary of 111,000 keys
+  for 4.8, a string of 1 MB for 2.3, and a name of 1 MB for 1.2, and 3,000
+  Type 4 functions whose `/FunctionType` names the same array took 17 seconds.
+  The cost grows with the product of the two sizes, so 30,000 streams and a
+  10 MB value would take minutes, where the same files take milliseconds
+  without the check. Each reference is now read for the first stream that
+  names it and the answer is remembered, so these files take 3 to 11
+  milliseconds and no verdict changes. Six deadline tests pin the shapes (each
+  failed by a factor of 2 to 19 before) and four tests pin that a remembered
+  answer still applies to the second stream. The values that hayro itself reads
+  while it parses and decodes a stream (`/Length`, `/Filter`, `/DecodeParms`,
+  and the parameters inside them) cannot be remembered by the checks, which
+  only ask hayro to decode: 3,000 streams that name one object of about 1 MB
+  through those entries still take 3.6 to 34 seconds, as they would for hayro
+  if content drew every one of them.
 - Saving no longer takes time proportional to a document's highest object
   number. lopdf's cross-reference writer visits every number up to the highest
   object, so a file of a few hundred bytes whose single object was numbered
