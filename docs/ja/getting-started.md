@@ -29,9 +29,10 @@ CJKの4 extraは、非埋め込みAdobe CJK fontの描画fallbackとsubset埋め
 合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択します。汎用CJK extraはありません。
 
 release CIは各native platform wheelをarchitectureが一致するrunnerへinstallし、PDFの
-生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。5つの
-`abi3-py310`と5つのCPython 3.14t artifactをすべて対象にし、sdistとPyEmscripten
-wheelにはそれぞれのenvironment専用gateがあります。
+生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。CPython
+3.14と3.15で検証する5つの`abi3-py310` artifactと、CPython 3.14tと3.15tの10個の
+artifactをすべて対象にし、sdistとPyEmscripten wheelにはそれぞれのenvironment専用
+gateがあります。
 
 ## 開く・調べる・保存する { #open-inspect-save }
 

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import cast
 
 import pytest
 import yaml
 
-_WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+_ROOT = Path(__file__).resolve().parents[1]
+_WORKFLOWS = _ROOT / ".github" / "workflows"
 _HOSTED_RUNNERS = {
     "ubuntu-latest",
     "ubuntu-24.04-arm",
@@ -16,10 +18,17 @@ _HOSTED_RUNNERS = {
     "macos-15-intel",
     "windows-latest",
 }
+_CLASSIFIED_MINOR = re.compile(r'"Programming Language :: Python :: 3\.(\d+)"')
 
 
 def _workflow(path: Path) -> dict[str, object]:
     return cast("dict[str, object]", yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+def _matrix_values(job: dict[str, object], name: str) -> list[object]:
+    strategy = cast("dict[str, object]", job["strategy"])
+    matrix = cast("dict[str, object]", strategy["matrix"])
+    return cast("list[object]", matrix[name])
 
 
 def _routes(job: dict[str, object]) -> list[tuple[object, object]]:
@@ -76,3 +85,21 @@ def test_fuzz_deadline_leaves_time_for_build_and_reproducer_upload() -> None:
     timeout = cast("int", jobs["api"]["timeout-minutes"])
     assert "-max_total_time=600" in path.read_text(encoding="utf-8")
     assert timeout * 60 > 600 + 60
+
+
+def test_ci_tests_the_oldest_and_newest_classified_python() -> None:
+    pyproject = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    minors = [int(minor) for minor in _CLASSIFIED_MINOR.findall(pyproject)]
+    workflow = (_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    for minor in (min(minors), max(minors)):
+        assert re.search(rf"uv sync .*--python 3\.{minor}$", workflow, re.MULTILINE), minor
+
+
+def test_ci_tests_every_free_threaded_release_interpreter() -> None:
+    ci_jobs = cast("dict[str, dict[str, object]]", _workflow(_WORKFLOWS / "ci.yml")["jobs"])
+    release_jobs = cast("dict[str, dict[str, object]]", _workflow(_WORKFLOWS / "release.yml")["jobs"])
+    released = [
+        cast("dict[str, object]", entry)["version"]
+        for entry in _matrix_values(release_jobs["build-free-threaded-wheels"], "python")
+    ]
+    assert _matrix_values(ci_jobs["test-free-threaded"], "python") == released

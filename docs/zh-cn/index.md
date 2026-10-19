@@ -36,7 +36,7 @@ hide:
         <li>MIT许可</li>
         <li>6.7–7.8 MB wheel</li>
         <li>无必需Python依赖</li>
-        <li>Python 3.10–3.14</li>
+        <li>Python 3.10–3.15</li>
       </ul>
     </div>
 
@@ -112,8 +112,8 @@ hide:
         <span class="living-evidence__label">必需Python依赖。编译后的Rust组件已包含在wheel中。</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">3.10–3.14</span>
-        <span class="living-evidence__label">单一abi3 wheel系列覆盖五代Python。</span>
+        <span class="living-evidence__value">3.10–3.15</span>
+        <span class="living-evidence__label">单一abi3 wheel系列覆盖六代Python。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">MIT</span>
