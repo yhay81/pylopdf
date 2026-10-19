@@ -98,17 +98,17 @@ def test_metadata_roundtrip(one_page_pdf: bytes) -> None:
 def test_metadata_unknown_key_raises(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"format": "PDF 2.0"})  # type: ignore[typeddict-unknown-key]
+        doc.set_metadata({"format": "PDF 2.0"})  # ty: ignore[invalid-argument-type, invalid-key]
 
 
 def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})  # type: ignore[typeddict-unknown-key]
+        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})  # ty: ignore[invalid-argument-type, invalid-key]
     assert doc.metadata["title"] == ""
 
     with pytest.raises(TypeError, match="must be a string"):
-        doc.set_metadata({"author": "変更されない", "title": 42})  # type: ignore[typeddict-item]
+        doc.set_metadata({"author": "変更されない", "title": 42})  # ty: ignore[invalid-argument-type]
     assert doc.metadata["author"] == ""
 
 
@@ -389,7 +389,7 @@ def test_tobytes_output_limit_exact_boundary(one_page_pdf: bytes) -> None:
 def test_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: object) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc.tobytes(max_size=max_size)  # type: ignore[arg-type]
+        doc.tobytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_tobytes_bounds_object_stream_output(one_page_pdf: bytes) -> None:
@@ -453,7 +453,7 @@ def test_peek_metadata_file_size_limit_rejects_non_integers(
     value: object,
 ) -> None:
     with pytest.raises(TypeError, match="max_file_size"):
-        pylopdf.peek_metadata(stream=one_page_pdf, max_file_size=value)  # type: ignore[arg-type]
+        pylopdf.peek_metadata(stream=one_page_pdf, max_file_size=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_peek_metadata_file_size_limit_must_be_positive(one_page_pdf: bytes) -> None:
@@ -532,7 +532,7 @@ def test_render_page_png_validates_output_limit(one_page_pdf: bytes, max_size: o
     doc = pylopdf.Document(stream=one_page_pdf)
 
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc.render_page(0, max_size=max_size)  # type: ignore[arg-type]
+        doc.render_page(0, max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_render_page_png_scale(one_page_pdf: bytes) -> None:
@@ -579,7 +579,7 @@ def test_render_pages_rejects_invalid_worker_count(three_page_pdf: bytes, worker
 def test_render_pages_rejects_non_integer_workers(three_page_pdf: bytes, workers: object) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     with pytest.raises(TypeError, match="workers"):
-        doc.render_pages(workers=workers)  # type: ignore[arg-type]
+        doc.render_pages(workers=workers)  # ty: ignore[invalid-argument-type]
 
 
 def test_render_pages_validates_all_page_numbers_before_rendering(
@@ -636,7 +636,7 @@ def test_render_pages_rejects_non_integer_size_limits(
 ) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(TypeError, match="max_size"):
-        doc.render_pages(max_size=max_size)  # type: ignore[arg-type]
+        doc.render_pages(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -706,7 +706,7 @@ def test_render_page_svg_rejects_non_integer_size_limits(
 ) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(TypeError, match="max_size"):
-        doc.render_page_svg(0, max_size=max_size)  # type: ignore[arg-type]
+        doc.render_page_svg(0, max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -760,7 +760,7 @@ def test_render_page_background_out_of_range(one_page_pdf: bytes, background: tu
 def test_render_page_background_wrong_length(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="background"):
-        doc.render_page(0, background=(255, 255))  # type: ignore[arg-type]
+        doc.render_page(0, background=(255, 255))  # ty: ignore[invalid-argument-type]
 
 
 def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:

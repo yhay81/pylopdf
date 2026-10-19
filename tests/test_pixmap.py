@@ -32,11 +32,11 @@ def test_pixmap_buffer_protocol_matches_build_abi(one_page_pdf: bytes) -> None:
     pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
     if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
         with pytest.raises(TypeError, match="bytes-like object"):
-            memoryview(pix)  # type: ignore[arg-type]  # Buffer exists only in version-specific builds.
+            memoryview(pix)  # ty: ignore[invalid-argument-type]  # Buffer exists only in version-specific builds.
         return
 
     expected = pix.samples
-    view = memoryview(pix)  # type: ignore[arg-type]  # Buffer exists only in version-specific builds.
+    view = memoryview(pix)  # ty: ignore[invalid-argument-type]  # Buffer exists only in version-specific builds.
     assert view.readonly
     assert view.format == "B"
     assert view.ndim == 1
@@ -78,7 +78,7 @@ def test_pixmap_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: ob
     pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
 
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        pix.tobytes(max_size=max_size)  # type: ignore[arg-type]
+        pix.tobytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_pixmap_save_writes_png_to_pathlike(one_page_pdf: bytes, tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 _WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
 _HOSTED_RUNNERS = {

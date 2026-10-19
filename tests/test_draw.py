@@ -698,7 +698,7 @@ def test_insert_image_rejects_bad_input() -> None:
             pixmap=page.get_pixmap(),
         )
     with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
-        page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # type: ignore[arg-type]
+        page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # ty: ignore[invalid-argument-type]
     before = page.get_pixmap(background=WHITE).samples
     with pytest.raises(TypeError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=True)
@@ -722,7 +722,7 @@ def test_insert_image_validates_resource_budgets(name: str, value: object) -> No
     kwargs = {name: value}
 
     with pytest.raises((TypeError, ValueError), match=name):
-        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), **kwargs)  # type: ignore[arg-type]
+        page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), **kwargs)  # ty: ignore[invalid-argument-type]
 
 
 def test_insert_image_bounds_encoded_stream_before_core_copy() -> None:
@@ -1028,7 +1028,7 @@ def test_insert_text_disambiguates_han_provider() -> None:
 def test_insert_text_validates_font_language_contract() -> None:
     page = _new_page_doc()[0]
     with pytest.raises(ValueError, match="font_language"):
-        page.insert_text((20, 40), "text", font_language="fr")  # type: ignore[arg-type]
+        page.insert_text((20, 40), "text", font_language="fr")  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="cannot be combined"):
         page.insert_text((20, 40), "日本語", fontfile=NOTO_SANS_JP, font_language="ja")
     with pytest.raises(ValueError, match="multiple bundled font locales"):
@@ -1288,7 +1288,7 @@ def test_insert_text_validates_font_budget(value: object) -> None:
     page = _new_page_doc()[0]
 
     with pytest.raises((TypeError, ValueError), match="max_font_size"):
-        page.insert_text((10, 20), "x", fontbuffer=b"font", max_font_size=value)  # type: ignore[arg-type]
+        page.insert_text((10, 20), "x", fontbuffer=b"font", max_font_size=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_insert_text_bounds_fontbuffer_before_core_copy() -> None:
@@ -1348,9 +1348,9 @@ def test_generated_text_validates_text_budget(method: str, value: object) -> Non
 
     def call() -> None:
         if method == "insert_text":
-            page.insert_text((10, 20), "x", max_text_size=value)  # type: ignore[arg-type]
+            page.insert_text((10, 20), "x", max_text_size=value)  # ty: ignore[invalid-argument-type]
         else:
-            page.insert_textbox((10, 10, 100, 80), "x", max_text_size=value)  # type: ignore[arg-type]
+            page.insert_textbox((10, 10, 100, 80), "x", max_text_size=value)  # ty: ignore[invalid-argument-type]
 
     with pytest.raises((TypeError, ValueError), match="max_text_size"):
         call()
@@ -1549,7 +1549,7 @@ def test_replace_text_rejects_non_string_inputs(argument: str, value: object) ->
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     kwargs: dict[str, object] = {"search": "PDF", "replacement": "Cat", argument: value}
     with pytest.raises(TypeError, match=argument):
-        doc[0].replace_text(**kwargs)  # type: ignore[arg-type]
+        doc[0].replace_text(**kwargs)  # ty: ignore[invalid-argument-type]
 
 
 def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
@@ -1565,7 +1565,7 @@ def test_replace_text_allows_exact_input_boundary_and_linear_fallback() -> None:
 def test_replace_text_validates_output_budget(max_size: object) -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc[0].replace_text("PDF", "Cat", max_size=max_size)  # type: ignore[arg-type]
+        doc[0].replace_text("PDF", "Cat", max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_replace_text_bounds_content_and_preserves_document() -> None:

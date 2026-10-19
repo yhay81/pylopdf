@@ -327,7 +327,7 @@ def test_markdown_bounds_page_iterable_before_interpretation() -> None:
 def test_markdown_rejects_non_integer_size_limits(max_size: object) -> None:
     doc = pylopdf.open(stream=_layout_pdf([[(12, 720, "Page")]]))
     with pytest.raises(TypeError, match="max_size"):
-        doc.to_markdown(max_size=max_size)  # type: ignore[arg-type]
+        doc.to_markdown(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -419,4 +419,4 @@ def test_empty_bordered_table_uses_geometric_reading_order(rotation: int) -> Non
 def test_markdown_rejects_unknown_table_strategy(table_strategy: object) -> None:
     doc = pylopdf.open(stream=_table_pdf())
     with pytest.raises(ValueError, match="table_strategy"):
-        doc.to_markdown(table_strategy=table_strategy)  # type: ignore[arg-type]
+        doc.to_markdown(table_strategy=table_strategy)  # ty: ignore[invalid-argument-type]

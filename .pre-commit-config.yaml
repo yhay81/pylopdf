@@ -54,7 +54,7 @@ repos:
       - id: sort-simple-yaml
       - id: trailing-whitespace
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.25
+    rev: "0.26"
     hooks:
       - id: validate-pyproject
         # Read UTF-8 independently of the default Windows code page.
@@ -65,16 +65,22 @@ repos:
         additional_dependencies: ["packaging>=26.2", "trove-classifiers"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.16.0
+    rev: v0.17.1
     hooks:
       # Run the linter.
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       # Run the formatter.
       - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.0
+  - repo: local
     hooks:
-      - id: mypy
-        files: ^(src|tests)/.*\.pyi?$
-        additional_dependencies: ["pytest>=9.1.1"]
+      # ty resolves imports from the synced project environment (uv sync), so
+      # it checks against the same pytest and extras as CI. astral-sh's own
+      # ty-pre-commit hook would run `uv check`, which syncs the project and
+      # rebuilds the Rust extension.
+      - id: ty
+        name: ty
+        entry: uv run --no-sync ty check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false

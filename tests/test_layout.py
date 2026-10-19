@@ -114,7 +114,7 @@ def test_dict_structure(usrguide: pylopdf.Page) -> None:
 
 def test_invalid_option_raises(usrguide: pylopdf.Page) -> None:
     with pytest.raises(ValueError, match="option"):
-        usrguide.get_text("html")  # type: ignore[call-overload]
+        usrguide.get_text("html")  # ty: ignore[no-matching-overload]
 
 
 def test_document_level_get_page_text_modes() -> None:
@@ -157,7 +157,7 @@ def test_search_for_empty_raises(usrguide: pylopdf.Page) -> None:
 @pytest.mark.parametrize("value", [0, -1, True, 1.5])
 def test_search_for_validates_hit_budget(usrguide: pylopdf.Page, value: object) -> None:
     with pytest.raises((TypeError, ValueError), match="max_hits"):
-        usrguide.search_for("authors", max_hits=value)  # type: ignore[arg-type]
+        usrguide.search_for("authors", max_hits=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_search_for_bounds_utf8_input_before_core_copy(usrguide: pylopdf.Page) -> None:

@@ -31,7 +31,7 @@ overview.
   only, set `CARGO_PROFILE_RELEASE_LTO=false` and
   `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16`; both are uv cache keys, so
   unsetting them rebuilds the published profile before measurement.
-- `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests`
+- `uv run pytest` / `uv run ruff check .` / `uv run ty check`
 - `uv sync --group bench && uv run python bench/run.py` — run reproducible
   benchmarks. Results are written to `bench/results/latest.md`; publish wins and
   losses together. Rendering reports end-to-end PNG time plus cold and warm

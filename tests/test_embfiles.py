@@ -69,7 +69,7 @@ def test_embfile_add_bounds_input_atomically() -> None:
 def test_embfile_add_rejects_non_integer_size_limits(max_size: object) -> None:
     doc = pylopdf.Document()
     with pytest.raises(TypeError, match="max_size"):
-        doc.embfile_add("x", b"x", max_size=max_size)  # type: ignore[arg-type]
+        doc.embfile_add("x", b"x", max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -208,7 +208,7 @@ def test_embfile_get_rejects_non_integer_size_limits(max_size: object) -> None:
     doc.new_page()
     doc.embfile_add("x", b"x")
     with pytest.raises(TypeError, match="max_size"):
-        doc.embfile_get("x", max_size=max_size)  # type: ignore[arg-type]
+        doc.embfile_get("x", max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])

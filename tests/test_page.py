@@ -101,7 +101,7 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
 def test_set_box_invalid(one_page_pdf: bytes, rect: object) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="MediaBox"):
-        doc[0].set_mediabox(rect)  # type: ignore[arg-type]
+        doc[0].set_mediabox(rect)  # ty: ignore[invalid-argument-type]
 
 
 def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:

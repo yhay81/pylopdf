@@ -320,7 +320,7 @@ def test_apply_ocr_skips_existing_text_by_default() -> None:
 
     assert doc[0].apply_ocr() == []
     with pytest.raises(TypeError, match="skip_existing"):
-        doc[0].apply_ocr(skip_existing=1)  # type: ignore[arg-type]
+        doc[0].apply_ocr(skip_existing=1)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("dpi", [0, -1, float("inf"), float("nan"), "bad"])
@@ -328,7 +328,7 @@ def test_ocr_engine_rejects_invalid_dpi(ocr_engine: pylopdf.OcrEngine, dpi: obje
     doc = pylopdf.Document()
     doc.new_page(width=100, height=100)
     with pytest.raises(pylopdf.OcrError, match="dpi"):
-        ocr_engine.recognize(doc[0], dpi=dpi)  # type: ignore[arg-type]
+        ocr_engine.recognize(doc[0], dpi=dpi)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_engine_rejects_incomplete_or_missing_model_paths(tmp_path: Path) -> None:
@@ -411,7 +411,7 @@ def test_ocr_engine_discovers_installed_model_extra() -> None:
 )
 def test_ocr_engine_validates_threads(threads: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="threads"):
-        pylopdf.OcrEngine(threads=threads)  # type: ignore[arg-type]
+        pylopdf.OcrEngine(threads=threads)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize(
@@ -420,7 +420,7 @@ def test_ocr_engine_validates_threads(threads: object, error: type[Exception]) -
 )
 def test_ocr_engine_validates_max_concurrent(max_concurrent: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="max_concurrent"):
-        pylopdf.OcrEngine(max_concurrent=max_concurrent)  # type: ignore[arg-type]
+        pylopdf.OcrEngine(max_concurrent=max_concurrent)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize(
@@ -429,7 +429,7 @@ def test_ocr_engine_validates_max_concurrent(max_concurrent: object, error: type
 )
 def test_ocr_engine_validates_max_model_size(max_model_size: object, error: type[Exception]) -> None:
     with pytest.raises(error, match="max_model_size"):
-        pylopdf.OcrEngine(max_model_size=max_model_size)  # type: ignore[arg-type]
+        pylopdf.OcrEngine(max_model_size=max_model_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize(
@@ -444,7 +444,7 @@ def test_ocr_engine_validates_input_rotation(
     doc = pylopdf.Document()
     doc.new_page(width=100, height=100)
     with pytest.raises(error, match="rotation"):
-        ocr_engine.recognize(doc[0], dpi=72, rotation=rotation)  # type: ignore[arg-type]
+        ocr_engine.recognize(doc[0], dpi=72, rotation=rotation)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_engine_validates_runtime_options(ocr_engine: pylopdf.OcrEngine) -> None:
@@ -457,7 +457,7 @@ def test_ocr_engine_validates_runtime_options(ocr_engine: pylopdf.OcrEngine) -> 
     with pytest.raises(pylopdf.OcrError, match="min_confidence"):
         ocr_engine.recognize(doc[0], dpi=72, tile_size=512, overlap=64, min_confidence=2)
     with pytest.raises(TypeError, match="tile_size"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=512.0)  # type: ignore[arg-type]
+        ocr_engine.recognize(doc[0], dpi=72, tile_size=512.0)  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="overlap"):
         ocr_engine.recognize(doc[0], dpi=72, tile_size=512, overlap=True)
     with pytest.raises(TypeError, match="dpi"):

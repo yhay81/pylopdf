@@ -749,7 +749,7 @@ def _validate_ocr_rotation(rotation: int) -> OcrRotation:
     if rotation not in (0, 90, 180, 270):
         msg = f"rotation must be 0, 90, 180, or 270: {rotation}"
         raise OcrError(msg)
-    return cast("OcrRotation", rotation)
+    return rotation
 
 
 class OcrEngine:
@@ -1540,7 +1540,7 @@ def _normalize_cjk_font_language(language: str) -> CjkFontLanguage:
     if normalized not in {"ja", "ko", "zh-CN", "zh-TW"}:
         msg = "font_language for fallback must be 'ja', 'ko', 'zh-CN', or 'zh-TW'"
         raise ValueError(msg)
-    return cast("CjkFontLanguage", normalized)
+    return normalized
 
 
 def _provider_for_language(language: FontLanguage) -> _BundledFontProvider | None:
@@ -1814,7 +1814,7 @@ class Page:
         the same display coordinates; see :class:`TextChar` for its limits.
         """
         self._page_number()
-        return self._document.get_page_text(self._pno, option)  # type: ignore[call-overload]
+        return self._document.get_page_text(self._pno, option)  # ty: ignore[no-matching-overload]
 
     def get_text_ocr(  # noqa: PLR0913 - OCR resource controls are keyword-only.
         self,
