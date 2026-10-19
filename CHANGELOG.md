@@ -84,14 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parity with pymupdf is measured instead of claimed (ROADMAP.md F3).
   `api/pymupdf-parity.json` classifies the 948 public API entries of pymupdf
   1.28.0, from module functions and constants grouped by prefix to the members
-  of 20 classes. 118 are available today and 636 are planned with their
-  ROADMAP.md milestone; 653 of these keep pymupdf's name and meaning, and 101
-  are replaced by a different pylopdf API with a migration hint. The other 194
-  are non-goals. 47 entries record what the API reset (M0) changes in an
-  existing pylopdf API to match pymupdf. `tools/check_parity.py` runs in the
-  test suite: available entries must name a symbol in `api/public-api.json`,
-  planned entries a milestone, and replaced entries a hint, and it reports
-  coverage per class and the M0 resets. The development-only
+  of 20 classes. 90 are available today and 666 are planned with their
+  ROADMAP.md milestone; 695 of these keep pymupdf's name and meaning, and 61
+  are replaced by a different pylopdf API with a migration hint. The other 192
+  are non-goals. The 43 entries that the API reset (M0) touches record its 26
+  changes. `tools/check_parity.py` runs in the test suite: available entries
+  must name a symbol in `api/public-api.json`, planned entries a milestone, and
+  replaced entries a hint, and it reports coverage per class and the M0
+  changes. The development-only
   `tools/pymupdf_inventory.py` lists pymupdf's API from the `bench` group so
   that the manifest stays complete.
 

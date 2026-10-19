@@ -305,14 +305,19 @@ def coverage_report(manifest: JsonObject) -> str:
     lines.append(f"planned by milestone: {planned or 'none'}")
     provisional = sum(1 for entry in entries.values() if entry.get("provisional"))
     lines.append(f"provisional pylopdf names awaiting the F0 review: {provisional}")
-    resets = sorted((key for key, entry in entries.items() if "reset" in entry), key=sort_key)
+    # Entries that one change touches share its sentence, so each change is listed once.
+    changes: dict[str, list[str]] = {}
+    for key in sorted((key for key, entry in entries.items() if "reset" in entry), key=sort_key):
+        changes.setdefault(str(entries[key]["reset"]), []).append(key)
     lines.append("")
-    lines.append(f"M0 resets ({len(resets)}):")
-    for key in resets:
-        entry = entries[key]
-        tense = "now" if entry["status"] == "available" else "becomes"
-        symbol = "" if same_name(key, entry) else f" [{tense} {entry['pylopdf']}]"
-        lines.append(f"  {key}{symbol}: {entry['reset']}")
+    lines.append(f"M0 resets: {len(changes)} changes over {sum(len(keys) for keys in changes.values())} entries")
+    for reset, keys in changes.items():
+        lines.append(f"- {reset}")
+        for key in keys:
+            entry = entries[key]
+            tense = "now" if entry["status"] == "available" else "becomes"
+            symbol = "" if same_name(key, entry) else f" [{tense} {entry['pylopdf']}]"
+            lines.append(f"    {key}{symbol}")
     return "\n".join(lines) + "\n"
 
 

@@ -31,7 +31,7 @@ def test_parity_manifest_is_classified_and_resolves() -> None:
     result = _run_checker()
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("pymupdf ")
-    assert "M0 resets (" in result.stdout
+    assert "M0 resets: " in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -40,7 +40,7 @@ def test_parity_manifest_is_classified_and_resolves() -> None:
         ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
         ("Page.get_label", {"pylopdf": "Page.render"}, "needs a reset that gives it the pymupdf name"),
         ("Document.xref_object", {"milestone": None}, "a planned entry must name its milestone"),
-        ("Page.bound", {"hint": None}, "needs a hint for migrating callers"),
+        ("set_log", {"hint": None}, "needs a hint for migrating callers"),
         ("Document.journal_undo", {"status": None}, "unclassified"),
     ],
 )
