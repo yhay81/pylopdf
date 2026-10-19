@@ -1354,6 +1354,23 @@ overview.
   Keep third-party acknowledgements in `NOTICE.md` and include both license
   files through PEP 639. The Windows abi3 wheel measured 5.42 MB after
   integration, up from 4.44 MB.
+- `pylopdf.Font` wraps `_Font` (`rust/src/font.rs`): shared font bytes plus
+  the HarfRust font that shapes them, opened once and checked by krilla as
+  well. `text_length` measures with `generate::shaped_line_width`, the sum of
+  shaped advances that places every glyph krilla draws and that textbox and
+  form layout wrap with; keep generation and measurement on that one sum so a
+  measured line stays the drawn width. Drawing with `font=` passes the same
+  bytes and index as `fontbuffer` and produces byte-identical output; each call
+  still embeds its own subset. `register_font` keeps a process-wide registry
+  keyed by case-folded family name, OS/2 weight class, and italic flag.
+  Lookups match exactly; the font extras install one face per style, and
+  `Font(language=..., weight=...)` uses a registered face of the extra's
+  family. A missing face raises `ValueError` unless `allow_regular_fallback`
+  is set, which warns. Never synthesize a weight by stroking, overprinting,
+  or render-mode changes, and never scan system font directories: output must
+  depend only on the faces passed in. Variable fonts load at their default
+  instance; the `ar`, `he`, `hi`, and `th` extras ship variable fonts, and
+  the default instance of Noto Sans Hebrew is Thin (weight class 100).
 - Generated text and widget appearance PDFs import through
   `generated_pdf::load` in `rust/src/generated_pdf.rs`; never pass krilla
   output to `Document::load_mem` directly. Native lopdf's `rayon` feature

@@ -65,8 +65,8 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전 |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨 |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
+| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
@@ -96,6 +96,23 @@ token, 여러 token 및 일반적인 혼합 방향 paragraph는 producer의 visu
 `TEXT_ALIGN_LEFT`, `TEXT_ALIGN_CENTER`, `TEXT_ALIGN_RIGHT`,
 `TEXT_ALIGN_JUSTIFY`입니다. 반환값이 음수이면 세로 공간이 부족하며 페이지 내용이나
 글꼴 resource를 추가하지 않습니다.
+
+`Font`는 OpenType 글꼴을 한 번만 불러와 `insert_text(font=)`와
+`insert_textbox(font=)`에서 사용합니다. 측정은 그리기와 같은 shaping으로 하므로
+`font.text_length(text, fontsize)`는 그 줄을 그렸을 때의 advance(커닝과 합자 포함)와
+같고, 그리는 글꼴의 폭으로 줄바꿈, 정렬, 페이지 나누기를 계산할 수 있습니다.
+`ascender`와 `descender`는 `insert_textbox`가 줄을 배치할 때 쓰는 em 대비 비율이고,
+`has_glyph`는 문자 맵을 조회합니다. `Font(fontfile=)`와 `Font(fontbuffer=)`는 전달한
+글꼴을 그대로 불러오고(가변 글꼴은 기본 인스턴스로 사용), `Font(language="ko")`는 설치된 글꼴 extra의 글꼴을
+선택합니다(`serif=True`이면 명조/세리프). extra는 스타일마다 글꼴 하나만 설치하므로 다른
+굵기는 필요할 때 추가합니다. `register_font(path)`는 글꼴에서 패밀리 이름, 굵기, 기울임 여부를
+읽으며, 이후 `Font(family="Noto Sans KR", weight="bold")`로 그 글꼴을 선택할 수 있습니다.
+이 글꼴은 `pylopdf[ko]`가 설치하는 글꼴과 같은 패밀리이므로
+`Font(language="ko", weight="bold")`로도 선택됩니다. pylopdf는 OS 글꼴 폴더를 찾지
+않습니다. 요청한 글꼴이 없으면 윤곽선이나 덧칠로 굵기를 흉내 내지 않고 `ValueError`를
+발생시킵니다. `allow_regular_fallback=True`를 명시한 경우에만 그 패밀리의 Regular를
+사용하고 `PylopdfWarning`을 냅니다. 그리기 호출마다 그 호출이 쓰는 글자의 subset을
+포함하는 점은 그대로입니다.
 
 `set_form_field`는 텍스트, 콤보／목록 선택, checkbox, radio widget의 appearance를
 생성합니다. WinAnsi는 Helvetica로 자동 축소하며, Unicode는 OpenType `fontfile`
@@ -129,6 +146,7 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata 출력／부분 업데이트／빠른 probe 계약 |
 | `DocumentLimits` / `DocumentComplexity` | PDF snapshot용`max_interpretation_size`와 위치layout용`max_text_glyphs`를 포함한 신뢰할 수 없는 입력의 불변 예산／저비용 구조TypedDict |
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, `has_glyph`를 가진 재사용 가능한 OpenType 글꼴／패밀리 이름과 굵기로 찾을 수 있게 하는 등록 |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |

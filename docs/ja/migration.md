@@ -42,6 +42,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.show_pdf_page(rect, src, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要 |
 | `page.insert_text(point, text, fontsize=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | sourceなしは標準14 / WinAnsi、または導入済みscript／locale provider。その他は明示fontを字形処理してsubset埋め込み |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。負の戻り値なら描画しない |
+| `pymupdf.Font(fontfile=)` / `font.text_length(text, fontsize)` / `font.ascender` | `pylopdf.Font(fontfile=)` / 同じ / 同じ | `insert_text` / `insert_textbox`に`font=`で渡す。`text_length`は描画と同じHarfRustの字形処理で測る。`ascender`／`descender`はOS/2のtypographic metrics。`is_bold=`で近い書体を探すことはせず、`weight=`は導入済みまたは`register_font()`の書体を完全一致で選ぶ |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del` | 同じ | |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |

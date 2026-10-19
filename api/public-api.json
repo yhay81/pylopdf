@@ -12,6 +12,7 @@
     "DrawingInfo",
     "DrawingItem",
     "EncryptedDocumentError",
+    "Font",
     "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
@@ -60,7 +61,8 @@
     "TextSpan",
     "WordEntry",
     "open",
-    "peek_metadata"
+    "peek_metadata",
+    "register_font"
   ],
   "schema": 1,
   "symbols": {
@@ -1252,6 +1254,150 @@
       "kind": "exception",
       "members": {}
     },
+    "Font": {
+      "kind": "class",
+      "members": {
+        "ascender": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "descender": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "family": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "has_glyph": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "char"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "is_italic": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
+        },
+        "text_length": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "text"
+              },
+              {
+                "annotation": "float",
+                "default": 11.0,
+                "kind": "positional_or_keyword",
+                "name": "fontsize"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_text_size"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "units_per_em": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "weight": {
+          "kind": "property",
+          "returns": "int"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | os.PathLike[str] | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "fontfile"
+          },
+          {
+            "annotation": "bytes | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "fontbuffer"
+          },
+          {
+            "annotation": "int",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "fontindex"
+          },
+          {
+            "annotation": "str | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "family"
+          },
+          {
+            "annotation": "FontLanguage | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "language"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "serif"
+          },
+          {
+            "annotation": "Literal['regular', 'bold'] | int",
+            "default": "regular",
+            "kind": "keyword_only",
+            "name": "weight"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "italic"
+          },
+          {
+            "annotation": "bool",
+            "default": false,
+            "kind": "keyword_only",
+            "name": "allow_regular_fallback"
+          },
+          {
+            "annotation": "int | None",
+            "default": 67108864,
+            "kind": "keyword_only",
+            "name": "max_font_size"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "FontLanguage": {
       "kind": "type-alias",
       "target": "Literal['ar', 'he', 'hi', 'ja', 'ko', 'th', 'zh-CN', 'zh-TW']"
@@ -1988,6 +2134,12 @@
                 "name": "fontsize"
               },
               {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
+              },
+              {
                 "annotation": "str",
                 "default": "helv",
                 "kind": "keyword_only",
@@ -2072,6 +2224,12 @@
                 "default": 11.0,
                 "kind": "keyword_only",
                 "name": "fontsize"
+              },
+              {
+                "annotation": "Font | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "font"
               },
               {
                 "annotation": "str",
@@ -3105,6 +3263,38 @@
           }
         ],
         "returns": "MetadataProbe"
+      }
+    },
+    "register_font": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str | os.PathLike[str] | None",
+            "default": null,
+            "kind": "positional_or_keyword",
+            "name": "fontfile"
+          },
+          {
+            "annotation": "bytes | None",
+            "default": null,
+            "kind": "keyword_only",
+            "name": "fontbuffer"
+          },
+          {
+            "annotation": "int",
+            "default": 0,
+            "kind": "keyword_only",
+            "name": "fontindex"
+          },
+          {
+            "annotation": "int | None",
+            "default": 67108864,
+            "kind": "keyword_only",
+            "name": "max_font_size"
+          }
+        ],
+        "returns": "Font"
       }
     }
   }

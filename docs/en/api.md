@@ -67,8 +67,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps |
 | `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document |
-| `insert_text(point, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; installed script/locale providers are selected automatically and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
-| `insert_textbox(rect, text, fontsize=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
+| `insert_text(point, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
+| `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
 | `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
@@ -167,6 +167,25 @@ grapheme-safe emergency breaks for overlong words. Alignment constants are
 `TEXT_ALIGN_JUSTIFY`. A negative return value is the vertical deficit; no page
 content or font resource is added in that case.
 
+`Font` loads an OpenType face once for `insert_text(font=)` and
+`insert_textbox(font=)` and measures with the shaping that drawing uses:
+`font.text_length(text, fontsize)` is the advance that drawing the line covers,
+including kerning and ligatures, so layout code can wrap, align, and paginate
+with the face it draws. `ascender` and `descender` are the em fractions that
+`insert_textbox` places lines with, and `has_glyph` reads the character map.
+`Font(fontfile=)` and `Font(fontbuffer=)` load a face as given (a variable
+font at its default instance), and `Font(language="ja")` selects the face of an installed font extra
+(`serif=True` for its serif face). Each extra installs one face per style, so
+other weights are added when an application needs them: `register_font(path)`
+reads the family, weight, and style from the font, after which
+`Font(family="Noto Sans JP", weight="bold")` selects that face, and so does
+`Font(language="ja", weight="bold")` because the face belongs to the family
+that `pylopdf[jp]` installs. pylopdf never searches system font directories.
+A face that is not available raises `ValueError` instead of being imitated by
+stroking or overprinting glyphs; `allow_regular_fallback=True` explicitly
+accepts the family's regular face and emits a `PylopdfWarning`. Each drawing
+call still embeds a subset of its own glyphs.
+
 `set_form_field` generates appearances for text, combo/list choice, checkbox,
 and radio widgets. WinAnsi text auto-fits in Helvetica; pass an OpenType
 `fontfile` or `fontbuffer` for subset-embedded Unicode. Installed locale/script
@@ -201,6 +220,7 @@ metrics. `TableFinder.strategy` and
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
+| `Font` / `register_font(fontfile=None, *, fontbuffer=None, fontindex=0, max_font_size=64 MiB)` | reusable OpenType face with `text_length`, `ascender` / `descender`, `units_per_em`, `name`, `family`, `weight`, `is_italic`, and `has_glyph` / registration that makes a face available to family and weight lookups |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |

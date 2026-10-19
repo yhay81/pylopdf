@@ -105,6 +105,10 @@ page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # 直接RGB
 page.show_pdf_page(page.rect, letterhead)                    # 以矢量叠加；也可来自同一文档
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
 page.insert_text((40, 70), "机密", fontsize=18, fontfile="NotoSansSC-Regular.otf")
+pylopdf.register_font("NotoSansSC-Bold.otf")                 # 之后再添加extra未包含的字重
+bold = pylopdf.Font(language="zh-CN", weight="bold")         # 不存在时ValueError，不模仿字重
+width = bold.text_length("标题", fontsize=16)                  # 与绘制宽度一致
+page.insert_text((page.rect.width - 40 - width, 140), "标题", font=bold, fontsize=16)
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
 page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
 ```

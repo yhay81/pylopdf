@@ -6,7 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `pylopdf.Font` loads an OpenType face once for generated text and measures
+  it with the shaping that drawing uses. `Font.text_length(text, fontsize)`
+  returns the advance that drawing the line covers, including kerning and
+  ligatures, so layout code can wrap, align, and paginate with the face it
+  draws. `ascender` and `descender` are the em fractions that
+  `insert_textbox` places lines with, and `units_per_em`, `name`, `family`,
+  `weight`, `is_italic`, and `has_glyph` describe the face.
+  `Page.insert_text(font=)` and `Page.insert_textbox(font=)` draw with it and
+  produce the same bytes as passing the face's data as `fontbuffer`; each call
+  still embeds its own subset.
+- `pylopdf.register_font()` makes a face available to family and weight
+  lookups, so an application can add weights that the font extras do not
+  bundle without making the extras larger. After registering Noto Sans JP
+  Bold, `Font(family="Noto Sans JP", weight="bold")` and
+  `Font(language="ja", weight="bold")` select it. A requested face that is not
+  available raises `ValueError`; pylopdf never imitates a weight by stroking or
+  overprinting glyphs. `allow_regular_fallback=True` explicitly accepts the
+  family's regular face and emits a `PylopdfWarning`. pylopdf does not search
+  system font directories, so output depends only on the faces passed in.
+
 ### Changed
+- An embedded generation font that lacks a glyph now names the missing
+  characters in the error, for example `no glyph for U+1F980 ('🦀')`.
 - Upgrade lopdf from 0.44.0 to 0.45.0. Lenient opening now recovers
   cross-reference damage that previously made files unopenable: lopdf moves a
   `startxref`, `/Prev`, or `/XRefStm` offset that misses by up to 64 bytes to
