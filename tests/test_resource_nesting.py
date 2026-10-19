@@ -614,13 +614,25 @@ def test_a_painted_chain_at_the_limit_is_interpreted(case: str) -> None:
     assert doc[0].get_pixmap().width == 300
 
 
-@pytest.mark.parametrize("depth", [CHAIN_LIMIT + 1, 60, 90])
+@pytest.mark.parametrize("depth", [CHAIN_LIMIT + 1, 60, 61])
 def test_directly_nested_spaces_are_a_chain_too(depth: int) -> None:
     """Spaces nested inside one another cost as many levels as spaces that reference each other."""
     doc = pylopdf.Document(stream=CASES["pattern-resource"](depth))
 
     assert _refusal(lambda: doc.get_page_text(0)).code == CODE
     assert _refusal(doc[0].get_pixmap).code == CODE
+
+
+@pytest.mark.parametrize("depth", [62, 90])
+def test_a_page_too_deep_for_hayro_to_read_is_refused_as_such(depth: int) -> None:
+    """Refuse the page itself: hayro reads no page dictionary nested more than 64 levels deep.
+
+    The page, its `/Resources`, and its `/ColorSpace` dictionary are the three levels above the spaces.
+    """
+    doc = pylopdf.Document(stream=CASES["pattern-resource"](depth))
+
+    assert _refusal(lambda: doc.get_page_text(0)).code == "object_depth"
+    assert _refusal(doc[0].get_pixmap).code == "object_depth"
 
 
 @pytest.mark.parametrize("structure", ["separation", "devicen"])

@@ -44,6 +44,7 @@ use crate::ocr;
 use crate::page_cleanup::PageCleanupPlan;
 use crate::pixmap::Pixmap;
 use crate::prune::{prune_unreachable_objects, reachable_object_ids};
+use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::text_replace::{self, TextReplacementError};
@@ -5556,6 +5557,10 @@ pub struct _Document {
     ///
     /// Dropped with the snapshot, so edits never leave a stale verdict.
     content_guard: ContentGuard,
+    /// One-based pages, ascending, whose dictionary nests deeper than hayro
+    /// reads, so that the current snapshot holds a cut copy of it. Every
+    /// operation that interprets one of them is refused.
+    pages_too_deep: Vec<u32>,
     /// Recently interpreted pages, keyed by one-based page number.
     text_pages: HashMap<u32, crate::extract::TextPage>,
     /// Least-recently-used to most-recently-used text-page keys.
@@ -5630,6 +5635,7 @@ impl _Document {
             hayro_source,
             hayro_pdf_from_original: false,
             content_guard: ContentGuard::default(),
+            pages_too_deep: Vec::new(),
             text_pages: HashMap::new(),
             text_page_order: VecDeque::new(),
             table_pages: HashMap::new(),
@@ -5796,6 +5802,7 @@ impl _Document {
         self.hayro_pdf = None;
         self.hayro_source = HayroSource::Unavailable;
         self.content_guard.reset();
+        self.pages_too_deep.clear();
         self.link_resolution = None;
         self.invalidate_interpreted_pages();
     }
@@ -7312,48 +7319,82 @@ impl _Document {
                     HayroSource::Unavailable => {}
                 }
             }
+            // hayro cannot open a document whose trailer or catalog nests too
+            // deeply, and lists pages without their inherited attributes when
+            // the root page-tree node does, so such a document reads from the
+            // rendering copy that cuts them.
+            let readable_roots =
+                !read_depth::roots_too_deep(&self.doc, page_tree_root(&self.doc).ok())?;
+            let copy_needed = prepare_appearances || !readable_roots;
             // hayro rebuilds an object stream's member table for every member
             // it looks up, so a document with a very large container reads
             // faster from its serialized graph, which has none. The original
             // bytes stay the fallback when the serialization is refused or
             // lists other pages.
-            let serialized_pdf = (!prepare_appearances && self.prefers_serialized_graph())
+            let serialized_pdf = (!copy_needed && self.prefers_serialized_graph())
                 .then(|| self.render_snapshot(None, None).ok())
                 .flatten()
+                .and_then(|(data, _)| Pdf::new(data).ok())
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             if serialized_pdf.is_some() {
                 self.hayro_source = HayroSource::Unavailable;
             }
-            let source_pdf = (!prepare_appearances && serialized_pdf.is_none())
+            let source_pdf = (!copy_needed && serialized_pdf.is_none())
                 .then(|| self.hayro_source.take_bytes())
                 .flatten()
                 .and_then(|data| Pdf::new(data).ok())
                 .filter(|pdf| hayro_pages_match(pdf, &page_ids));
             self.hayro_pdf_from_original = source_pdf.is_some();
-            let pdf = match serialized_pdf.or(source_pdf) {
-                Some(pdf) => pdf,
+            let (pdf, pages_too_deep) = match serialized_pdf.or(source_pdf) {
+                Some(pdf) => (pdf, Vec::new()),
                 None => {
-                    let pdf = self.render_snapshot(text_markup_appearances, None)?;
-                    if hayro_pages_match(&pdf, &page_ids) {
-                        pdf
+                    let plain = if readable_roots {
+                        let (data, _) = self.render_snapshot(text_markup_appearances, None)?;
+                        Pdf::new(data).ok()
                     } else {
-                        // hayro 0.7 stops at the first page-tree kid that is
-                        // not a dictionary and reads untyped kids as pages,
-                        // while the walker skips both, so list only the
-                        // walker's pages in a rendering copy.
-                        let text_markup_appearances =
-                            missing_text_markup_appearance_plans(&self.doc)?;
-                        let pdf = self.render_snapshot(text_markup_appearances, Some(&page_ids))?;
-                        if !hayro_pages_match(&pdf, &page_ids) {
-                            return Err(PdfError::new_err(
-                                "the renderer could not resolve the document page tree",
-                            ));
+                        None
+                    };
+                    match plain {
+                        Some(pdf) if hayro_pages_match(&pdf, &page_ids) => (pdf, Vec::new()),
+                        _ => {
+                            // hayro 0.8 reads untyped page-tree kids as pages,
+                            // which the walker skips, and leaves out a kid it
+                            // cannot read, such as one nested more than 64
+                            // levels deep. It cannot open a document whose
+                            // trailer or catalog is nested that deeply. List
+                            // only the walker's pages in a rendering copy and
+                            // cut what hayro could not read.
+                            let text_markup_appearances =
+                                missing_text_markup_appearance_plans(&self.doc)?;
+                            let (data, cut) =
+                                self.render_snapshot(text_markup_appearances, Some(&page_ids))?;
+                            let pdf = Pdf::new(data).map_err(|e| {
+                                PdfError::new_err(format!(
+                                    "failed to parse PDF for rendering: {e:?}"
+                                ))
+                            })?;
+                            if !hayro_pages_match(&pdf, &page_ids) {
+                                return Err(PdfError::new_err(
+                                    "the renderer could not resolve the document page tree",
+                                ));
+                            }
+                            (pdf, cut)
                         }
-                        pdf
                     }
                 }
             };
             self.content_guard.reset();
+            self.pages_too_deep.clear();
+            self.pages_too_deep
+                .try_reserve_exact(pages_too_deep.len())
+                .map_err(|error| {
+                    PdfError::new_err(format!("failed to record pages nested too deeply: {error}"))
+                })?;
+            for index in pages_too_deep {
+                let number = u32::try_from(index + 1)
+                    .map_err(|_| PdfError::new_err("page number exceeds the platform limit"))?;
+                self.pages_too_deep.push(number);
+            }
             self.hayro_pdf = Some(Arc::new(pdf));
         }
         Ok(self
@@ -7382,6 +7423,20 @@ impl _Document {
     /// `LimitError` before any interpretation or cache insertion.
     fn hayro_view_for(&mut self, pages: PageSelection<'_>) -> PyResult<&Arc<Pdf>> {
         self.hayro_view()?;
+        let too_deep = |number: &u32| self.pages_too_deep.binary_search(number).is_ok();
+        let refused = match pages {
+            PageSelection::One(number) => too_deep(&number).then_some(number),
+            PageSelection::Many(numbers) => numbers.iter().copied().find(too_deep),
+            PageSelection::All => self.pages_too_deep.first().copied(),
+        };
+        if let Some(number) = refused {
+            return Err(limit_err(
+                "object_depth",
+                format!(
+                    "page {number} nests arrays or dictionaries deeper than the {MAX_READ_DEPTH} levels that rendering and extraction read"
+                ),
+            ));
+        }
         let pdf = self
             .hayro_pdf
             .as_ref()
@@ -7420,16 +7475,19 @@ impl _Document {
         }
     }
 
-    /// Parse a serialized snapshot, normalizing a rendering copy when
-    /// appearances or the page tree need it.
+    /// Serialize a snapshot, normalizing a rendering copy when appearances or
+    /// the page tree need it.
     ///
     /// `flattened_pages` lists the walker's pages directly under the root
-    /// page-tree node. None of this changes the editable or saved document.
+    /// page-tree node and fits that copy to the nesting hayro reads, which
+    /// returns the zero-based indexes of the pages it cut. None of this
+    /// changes the editable or saved document.
     fn render_snapshot(
         &mut self,
         text_markup_appearances: Option<Vec<TextMarkupAppearancePlan>>,
         flattened_pages: Option<&[ObjectId]>,
-    ) -> PyResult<Pdf> {
+    ) -> PyResult<(Vec<u8>, Vec<usize>)> {
+        let mut cut = Vec::new();
         let normalize = text_markup_appearances
             .as_ref()
             .is_some_and(|plans| !plans.is_empty())
@@ -7452,6 +7510,7 @@ impl _Document {
             if let Some(pages) = flattened_pages {
                 let pages_id = page_tree_root(&doc)?;
                 rebuild_flat_page_tree(&mut doc, pages_id, pages, None)?;
+                cut = read_depth::fit_rendering_copy(&mut doc, pages_id, pages)?;
             }
             serialize_pdf_with_limit(
                 &mut doc,
@@ -7463,8 +7522,7 @@ impl _Document {
         } else {
             self.current_bytes()?
         };
-        Pdf::new(data)
-            .map_err(|e| PdfError::new_err(format!("failed to parse PDF for rendering: {e:?}")))
+        Ok((data, cut))
     }
 
     /// Refresh a cached text page's LRU position; return false when uncached.
