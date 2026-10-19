@@ -65,11 +65,22 @@
 //! says nothing about another, for a stream may be a tiling pattern and an
 //! image at once.
 //!
+//! A value that a visited object keeps behind a reference is read once as well.
+//! This walk reads only one such value itself, the `/Subtype` of an XObject
+//! stream ([`ContentGuard::is_form`]), and remembers by reference whether it is
+//! `/Form`: parsing the object behind a reference costs as much as its size,
+//! however small the name the walk wants, so 3,000 forms that name one array of
+//! 500,000 numbers kept the first interpretation busy for 17 seconds. What
+//! hayro reads while it parses and decodes a stream stays outside this rule:
+//! `/Length`, `/Filter`, `/DecodeParms`, and the parameters inside them. The
+//! walk can only ask hayro to decode the stream, and hayro reads them again for
+//! every stream that names them, as it would when drawing it.
+//!
 //! The state belongs to one hayro snapshot. Any edit drops the snapshot and
 //! this state with it. An error clears the state too, so nothing recorded
 //! before a failed check can stand in for a stream the check did not finish.
 
-use std::collections::{HashSet, TryReserveError};
+use std::collections::{HashMap, HashSet, TryReserveError};
 use std::hash::Hash;
 
 use hayro::hayro_syntax::Pdf;
@@ -215,6 +226,12 @@ pub(crate) struct ContentGuard {
     /// name could be read. A reference is recorded before the object is parsed,
     /// so one object that thousands of entries name is parsed once.
     followed: HashSet<(Role, ObjectIdentifier)>,
+    /// Whether the value behind each `/Subtype` reference of an XObject reads
+    /// as the name `/Form`, so that the value is read once however many
+    /// streams name it. The read follows no further reference, so the chain of
+    /// objects being read cannot change what the value holds: a stream that
+    /// names itself holds no name.
+    form_subtypes: HashMap<ObjectIdentifier, bool>,
     /// Colour space and function chains that were measured and cleared.
     graph: GraphGuard,
     /// The one-based page being checked, for error messages.
@@ -408,7 +425,7 @@ impl ContentGuard {
                 else {
                     continue;
                 };
-                if is_form(&stream) {
+                if self.is_form(&stream)? {
                     push(work, Work::Content(stream))?;
                 } else {
                     self.visit_image(fresh, &stream)?;
@@ -741,10 +758,31 @@ impl ContentGuard {
             .then(|| fresh.array(owner, key))
             .flatten())
     }
+
+    /// Whether hayro draws the stream as a Form XObject.
+    ///
+    /// A `/Subtype` behind a reference is read for the first stream that names
+    /// it only. Parsing the object costs as much as its size, and the walk
+    /// lists every `/XObject` entry whether or not content draws it, so
+    /// thousands of streams that name one large object would read it once
+    /// each. A direct value belongs to the stream's own dictionary, which was
+    /// parsed already.
+    fn is_form(&mut self, stream: &Stream<'_>) -> PyResult<bool> {
+        let Some(reference) = stream.dict().get_ref(SUBTYPE) else {
+            return Ok(has_form_subtype(stream));
+        };
+        let id = ObjectIdentifier::from(reference);
+        if let Some(&form) = self.form_subtypes.get(&id) {
+            return Ok(form);
+        }
+        let form = has_form_subtype(stream);
+        insert_value(&mut self.form_subtypes, id, form)?;
+        Ok(form)
+    }
 }
 
-/// Whether hayro draws the stream as a Form XObject.
-fn is_form(stream: &Stream<'_>) -> bool {
+/// Whether the stream's `/Subtype` reads as the name `/Form`.
+fn has_form_subtype(stream: &Stream<'_>) -> bool {
     stream
         .dict()
         .get::<Name<'_>>(SUBTYPE)
@@ -816,6 +854,13 @@ fn allocation_error(error: TryReserveError) -> PyErr {
 fn insert<T: Eq + Hash>(set: &mut HashSet<T>, value: T) -> PyResult<bool> {
     set.try_reserve(1).map_err(allocation_error)?;
     Ok(set.insert(value))
+}
+
+/// Insert after reserving fallibly.
+fn insert_value<K: Eq + Hash, V>(map: &mut HashMap<K, V>, key: K, value: V) -> PyResult<()> {
+    map.try_reserve(1).map_err(allocation_error)?;
+    map.insert(key, value);
+    Ok(())
 }
 
 fn push<'a>(work: &mut Vec<Work<'a>>, item: Work<'a>) -> PyResult<()> {

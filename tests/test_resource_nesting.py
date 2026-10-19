@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 from conftest import build_raw_pdf
-from test_content_nesting import FONT, FORM, OPERATIONS, _refusal, _stream, _type3_font
+from test_content_nesting import FONT, FORM, LIMIT, OPERATIONS, _arrays, _refusal, _stream, _type3_font
 
 import pylopdf
 
@@ -1226,6 +1226,134 @@ def test_a_content_object_that_many_entries_name_is_read_once(name: str) -> None
     assert doc.get_page_text(0) is not None
     # Parsing the object for every entry takes seconds to tens of seconds; parsing it once takes milliseconds.
     assert time.perf_counter() - started < 1.5
+
+
+# --- the small values that a visited object keeps behind a reference -----------------------------------------------
+#
+# The walk itself reads a form's `/Subtype` and a function stream's `/FunctionType`, and the value is a name or an
+# integer, but parsing the object behind a reference costs as much as the object is large, whatever the reader wanted.
+# Each shape names one large object that is no name or integer from thousands of streams: the walk lists every entry
+# of every resource dictionary whether or not content draws it, so reading the value for each stream multiplies the
+# sizes, where hayro, which opens only the streams it draws, needs milliseconds.
+
+#: Elements of the large array and keys of the large dictionary that the streams name.
+VALUE_ELEMENTS = 500_000
+VALUE_KEYS = 100_000
+
+
+def _large_value(kind: str) -> str:
+    """Return an object that is no name or integer and takes milliseconds to skip."""
+    if kind == "array":
+        return "[" + "0 " * VALUE_ELEMENTS + "]"
+    if kind == "dictionary":
+        return f"<< {_padding(VALUE_KEYS)} >>"
+    if kind == "name":
+        return "/" + "A" * 2_000_000
+    msg = f"unknown kind {kind}"
+    raise ValueError(msg)
+
+
+def _shared_subtype(kind: str, parts: Parts) -> bytes:
+    """Five thousand forms whose `/Subtype` names one large object."""
+    value = parts.add(_large_value(kind))
+    entries = f"/Type /XObject /Subtype {value} 0 R /BBox [0 0 300 300] "
+    forms = [parts.add(_stream("", entries)) for _ in range(5_000)]
+    return page_scope(parts, f"/XObject << {_entries('Fm', forms)} >> ", "0 0 m")
+
+
+def _shared_function_type(kind: str, parts: Parts) -> bytes:
+    """Five thousand functions of shadings whose `/FunctionType` names one large object."""
+    value = parts.add(_large_value(kind))
+    entries = f"/FunctionType {value} 0 R /Domain [0 1] /Range [0 1 0 1 0 1] "
+    functions = [parts.add(_stream("{ }", entries)) for _ in range(5_000)]
+    shadings = " ".join(f"/Sh{index} << {SHADING}/Function {number} 0 R >>" for index, number in enumerate(functions))
+    return page_scope(parts, f"/Shading << {shadings} >> ", "0 0 m")
+
+
+SHARED_VALUES: dict[str, Callable[[Parts], bytes]] = {
+    f"{entry}-{kind}": partial(builder, kind)
+    for entry, builder in (("subtype", _shared_subtype), ("function-type", _shared_function_type))
+    for kind in ("array", "dictionary", "name")
+}
+
+
+@pytest.mark.parametrize("name", SHARED_VALUES)
+def test_a_value_that_many_streams_name_is_read_once(name: str) -> None:
+    doc = pylopdf.Document(stream=SHARED_VALUES[name](Parts()))
+
+    started = time.perf_counter()
+    assert doc.get_page_text(0) is not None
+    # Reading the value for every stream takes seconds to tens of seconds; reading it once takes milliseconds.
+    assert time.perf_counter() - started < 1.5
+
+
+def _nested_forms(parts: Parts, subtype: str, content: str) -> bytes:
+    """Draw a plain form whose resources hold a second form with `content`, both naming `subtype`.
+
+    The walk reads the plain form first, because it reaches the second one through the first one's resources.
+    """
+    entries = f"/Type /XObject /Subtype {subtype} /BBox [0 0 300 300] "
+    inner = parts.add(_stream(content, entries))
+    outer = parts.add(_stream("0 0 m", entries + f"/Resources << /XObject << /Inner {inner} 0 R >> >> "))
+    return page_scope(parts, f"/XObject << /Outer {outer} 0 R >> ", "q /Outer Do Q")
+
+
+def test_a_subtype_behind_a_reference_makes_every_stream_that_names_it_a_form() -> None:
+    """The first stream settles that the name is `/Form`; the second is content too, whatever the walk remembered."""
+    parts = Parts()
+    name = parts.add("/Form")
+    doc = pylopdf.Document(stream=_nested_forms(parts, f"{name} 0 R", _arrays(2 * LIMIT)))
+
+    assert _refusal(doc.get_text).code == "content_nesting_depth"
+
+
+def test_a_subtype_behind_a_reference_leaves_every_other_stream_an_image() -> None:
+    """The first stream settles that the name is not `/Form`; the second still has its colour space measured."""
+    parts = Parts()
+    name = parts.add("/Image")
+    space = indexed_chain(parts, REFUSED["indexed"])
+    image = f"/Type /XObject /Subtype {name} 0 R /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace "
+    plain = parts.add(_stream(b"\x00", image + "/DeviceGray "))
+    deep = parts.add(_stream(b"\x00", image + f"{space} "))
+    form = parts.add(_stream("q /Im1 Do Q", FORM + f"/Resources << /XObject << /Im1 {deep} 0 R >> >> "))
+    doc = pylopdf.Document(stream=page_scope(parts, f"/XObject << /Im0 {plain} 0 R /Fm0 {form} 0 R >> ", "0 0 m"))
+
+    assert _refusal(doc.get_text).code == CODE
+
+
+def _nested_functions(parts: Parts, function_type: str, program: str) -> bytes:
+    """Draw a shading whose stitching function takes two streams that name `function_type`, and a second `program`."""
+    entries = f"/FunctionType {function_type} /Domain [0 1] /Range [0 1 0 1 0 1] "
+    plain = parts.add(_stream("{ }", entries))
+    nested = parts.add(_stream(program, entries))
+    stitching = parts.add(
+        f"<< /FunctionType 3 /Domain [0 1] /Functions [{plain} 0 R {nested} 0 R] /Bounds [0.5] /Encode [0 1 0 1] >>"
+    )
+    shading_object = parts.add(f"<< {SHADING}/Function {stitching} 0 R >>")
+    return page_scope(parts, f"/Shading << /Sh1 {shading_object} 0 R >> ", "/Sh1 sh")
+
+
+def _too_deep_program() -> str:
+    return "{" * (BRACE_LIMIT + 1) + "}" * (BRACE_LIMIT + 1)
+
+
+def test_a_function_type_behind_a_reference_makes_every_stream_that_names_it_a_program() -> None:
+    """The first stream settles that the integer is 4; the second program is scanned, whatever the walk remembered."""
+    parts = Parts()
+    number = parts.add("4")
+    doc = pylopdf.Document(stream=_nested_functions(parts, f"{number} 0 R", _too_deep_program()))
+
+    assert _refusal(doc.get_text).code == CODE
+
+
+def test_a_function_type_behind_a_reference_leaves_every_other_stream_no_program() -> None:
+    """Streams that are not Type 4 functions are not scanned for braces, whether the type is direct or remembered."""
+    parts = Parts()
+    number = parts.add("0")
+    through_reference = pylopdf.Document(stream=_nested_functions(parts, f"{number} 0 R", _too_deep_program()))
+    direct = pylopdf.Document(stream=_nested_functions(Parts(), "0", _too_deep_program()))
+
+    assert through_reference.get_page_text(0) == direct.get_page_text(0)
 
 
 def _image_and_pattern(depth: int) -> bytes:
