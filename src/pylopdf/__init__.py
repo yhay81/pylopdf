@@ -59,6 +59,7 @@ from pylopdf._annots import (
     AnnotFlags,
     AnnotType,
 )
+from pylopdf._attachments import Attachment, Attachments
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
 from pylopdf._errors import (
     DocumentClosedError,
@@ -235,6 +236,8 @@ __all__ = [
     "AnnotFlags",
     "AnnotType",
     "Array",
+    "Attachment",
+    "Attachments",
     "Base14_fontdict",
     "Base14_fontnames",
     "Block",

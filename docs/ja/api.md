@@ -37,7 +37,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_outline()` / `set_outline(entries)` | 大規模manualに対応するcycle対応・上限付きのしおり。`OutlineEntry(level, title, page)`で表す（0始まり。65,536 entry/node、131,072 edge、深さ64、text 16 MiB。named destinationは`get_links()`と同じ） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入。`font`には読み込み済みのOpenTypeの`Font`を渡せる |
-| `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
+| `attachments` → `Attachments` mapping：`add(name, data, /, *, filename, description, max_size=64 MiB)`、`del`、`filename` / `description` / `size` / `creation_date` / `mod_date` / `read(*, max_size=64 MiB)` / `write(data, /, *, max_size=64 MiB)` を持つ `Attachment` handle | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `use_objstms=`、`encryption=`（既定は`PDF_ENCRYPT_NONE`、暗号化は`PDF_ENCRYPT_AES_256`。`PDF_ENCRYPT_AES_256`なしのpasswordは例外）、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |

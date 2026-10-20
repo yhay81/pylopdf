@@ -38,7 +38,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_outline()` / `set_outline(entries)` | 面向大型手册、可处理cycle且有上限的书签，以`OutlineEntry(level, title, page)`表示（页码从0开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的OpenType `Font` |
-| `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
+| `attachments` → `Attachments` mapping：`add(name, data, /, *, filename, description, max_size=64 MiB)`、`del`，以及带有`filename` / `description` / `size` / `creation_date` / `mod_date` / `read(*, max_size=64 MiB)` / `write(data, /, *, max_size=64 MiB)`的`Attachment` handle | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `use_objstms=`、`encryption=`（默认`PDF_ENCRYPT_NONE`，加密用`PDF_ENCRYPT_AES_256`；未指定`PDF_ENCRYPT_AES_256`时传入password会抛出异常）及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |

@@ -45,7 +45,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；行的位置与是否放得下的判断与pymupdf相同；返回负值时不绘制 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`与pymupdf的值相同，`insert_text`与`insert_textbox`用它们排列行 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
-| `doc.embfile_add / names / get / del` | 相同 | |
+| `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`、`list(doc.attachments)`、`doc.attachments[name].read()`、`del doc.attachments[name]`、`.write(data)`、handle属性、`len(doc.attachments)` | 不存在的名称引发`KeyError`；`desc=`改为`description=` |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
 | `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | 通过`pylopdf[ocr]`使用离线纯Rust PP-OCR；任意带坐标结果仍可传给`insert_ocr_text_layer` |
