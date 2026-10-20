@@ -105,6 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `oc=` are not available.
 
 ### Changed
+- The pymupdf parity manifest tracks pymupdf 2.0, which the `bench`
+  dependency group now resolves on Python 3.11 and later. Its 15 new public
+  names are classified: `Document.to_markdown()` is available,
+  `Document.to_text()` is covered by `Document.get_text()`, the pymupdf4llm
+  JSON and chunk exports join milestone M6, and `Pixmap.flip_rotate()` joins
+  M1.
 - `Page.insert_text()` and `Page.insert_textbox()` place lines as pymupdf
   does, an item of the API reset (M0). `insert_text()` takes pymupdf's
   keyword-only `lineheight=`, a multiple of the font size, and without it
