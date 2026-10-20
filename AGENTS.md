@@ -1474,6 +1474,9 @@ overview.
   interprets: strings, comments, and inline image data hold no operators, a
   `q` or `Q` with stray operands still counts, and counting ends where hayro
   stops interpreting, which then never reaches the appended content either.
+  The F8 interpreter in `rust/src/content/` reads lopdf's strict parse instead,
+  which redaction must edit but which rejects some content that hayro reads;
+  the count only reads and must neither disagree with hayro nor fail.
   The opening stream holds one `q` more than the content's `Q` that find no
   `q`, and the closing stream a newline and one `Q` more than the `q` that the
   content leaves open, so the page balances and appended content starts from
