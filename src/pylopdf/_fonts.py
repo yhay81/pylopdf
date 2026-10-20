@@ -9,6 +9,7 @@ import os
 import warnings as _warnings
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from pylopdf._errors import PylopdfWarning
@@ -22,6 +23,7 @@ from pylopdf._limits import (
 from pylopdf.pylopdf_core import LimitError, PdfError, _Font
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from typing import Any
 
     from pylopdf._types import CjkFontLanguage, FontLanguage
@@ -118,9 +120,6 @@ _BASE14_FONTS: dict[str, str] = {
     "symb": "Symbol",
     "zadb": "ZapfDingbats",
 }
-
-#: Standard fonts that use built-in encoding rather than WinAnsi.
-_SYMBOLIC_FONTS = frozenset({"symb", "zadb"})
 
 #: Times aliases select an optional locale-specific serif generation font.
 _SERIF_BASE14_FONTS = frozenset({"tiro", "tibo", "tiit", "tibi"})
@@ -267,11 +266,8 @@ def _resolve_generation_font(
         msg = "fontindex requires fontfile or fontbuffer"
         raise ValueError(msg)
 
-    base_font = _BASE14_FONTS.get(fontname)
-    if base_font is None:
-        msg = f"fontname must be a standard-14 font abbreviation ({sorted(_BASE14_FONTS)}): {fontname!r}"
-        raise ValueError(msg)
-    bundled_font = _bundled_generation_font(text, fontname, normalized_language)
+    base_font = _standard_font_name(fontname)
+    bundled_font = _bundled_generation_font(text, _BASE14_ALIASES[base_font], normalized_language)
     if bundled_font is not None:
         source, package_font = bundled_font
         return None, source, package_font
@@ -303,12 +299,34 @@ def _form_generation_font(
     return None
 
 
-#: Standard 14 names that :class:`Font` accepts: pymupdf's short aliases and
-#: the PostScript names, matched without regard to case.
-_BASE14_FONT_NAMES: dict[str, str] = {
-    **_BASE14_FONTS,
-    **{name.lower(): name for name in _BASE14_FONTS.values()},
-}
+#: pymupdf's Standard 14 PostScript names, in pymupdf's order.
+Base14_fontnames: tuple[str, ...] = (
+    "Courier",
+    "Courier-Oblique",
+    "Courier-Bold",
+    "Courier-BoldOblique",
+    "Helvetica",
+    "Helvetica-Oblique",
+    "Helvetica-Bold",
+    "Helvetica-BoldOblique",
+    "Times-Roman",
+    "Times-Italic",
+    "Times-Bold",
+    "Times-BoldItalic",
+    "Symbol",
+    "ZapfDingbats",
+)
+#: pymupdf's lookup from the lower-case PostScript names and the short aliases
+#: to the PostScript names. Read-only, because pylopdf keeps no process-global
+#: mutable state (DESIGN.md G6).
+Base14_fontdict: Mapping[str, str] = MappingProxyType(
+    {**{name.lower(): name for name in Base14_fontnames}, **_BASE14_FONTS}
+)
+#: Standard 14 names that ``fontname=`` and :class:`Font` accept, matched
+#: without regard to case.
+_BASE14_FONT_NAMES = Base14_fontdict
+#: The short alias of each PostScript name, which selects serif or sans faces.
+_BASE14_ALIASES: dict[str, str] = {name: alias for alias, name in _BASE14_FONTS.items()}
 _SYMBOLIC_BASE14_NAMES = frozenset({"Symbol", "ZapfDingbats"})
 
 #: Family names of the faces that each font extra installs: sans, then serif.

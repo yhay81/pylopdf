@@ -96,7 +96,7 @@ def _pages(count: int, width: float = 200, height: float = 120) -> pylopdf.Docum
     return doc
 
 
-def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], None]:
+def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], int]:
     """Return a function that places the same image input on a page."""
     if kind == "png":
         data = _logo_png()

@@ -528,8 +528,8 @@ one-to-one onto these rows.
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2 |
 | `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1; done |
 | `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2; done |
-| `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2; `insert_text` done |
-| `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2 |
+| `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2; done |
+| `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2; done |
 | `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2; done |
 | `TextPage` and `RawTextPage` TypedDicts | `TextPageDict` and `RawTextPageDict`; M1 gives `TextPage` to pymupdf's handle | R2 |
 | `Rect.width` and `height` going negative; tuple `+`, `*`, `in`, and truth testing on `Point` and `Rect` | clamped widths and pymupdf's geometric operators (roadmap F4) | R2, R6 |

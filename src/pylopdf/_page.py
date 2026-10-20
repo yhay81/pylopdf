@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal, cast, overload
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
     _SYMBOLIC_BASE14_NAMES,
-    _SYMBOLIC_FONTS,
     _package_face_weight,
     _require_winansi,
     _resolve_font_source,
@@ -652,8 +651,10 @@ class Page:
         overlay: bool = True,
         max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
         max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
-    ) -> None:
-        """Draw an image into ``rect`` in top-left-origin display coordinates.
+    ) -> int:
+        """Draw an image into ``rect`` and return the image XObject's xref.
+
+        ``rect`` uses top-left-origin display coordinates.
 
         Specify exactly one source. JPEG is embedded unchanged through DCTDecode
         passthrough. PNG is decoded and embedded, preserving transparency as a
@@ -679,6 +680,8 @@ class Page:
         :meth:`replace_text`, :meth:`Document.set_form_field`, and
         ``deflate=True`` saves end this sharing, so the next placement embeds
         the input again. A reopened document shares only its new placements.
+        The returned xref is that of the shared XObject when the input was
+        placed again, as pymupdf returns the xref of a reused image.
         """
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
@@ -688,7 +691,7 @@ class Page:
             raise _image_input_limit_error(len(source), max_size)
         x0, y0, x1, y1 = _validate_rect(rect)
         if isinstance(source, Pixmap):
-            self._document._doc.insert_pixmap(
+            return self._document._doc.insert_pixmap(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 source,
@@ -696,8 +699,8 @@ class Page:
                 keep_proportion,
                 overlay,
             )
-        elif isinstance(source, Path):
-            self._document._doc.insert_image_file(
+        if isinstance(source, Path):
+            return self._document._doc.insert_image_file(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 str(source),
@@ -707,17 +710,16 @@ class Page:
                 max_size,
                 max_pixels,
             )
-        else:
-            self._document._doc.insert_image(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                source,
-                image_rotation,
-                keep_proportion,
-                overlay,
-                max_size,
-                max_pixels,
-            )
+        return self._document._doc.insert_image(
+            self._page_number(),
+            (x0, y0, x1, y1),
+            source,
+            image_rotation,
+            keep_proportion,
+            overlay,
+            max_size,
+            max_pixels,
+        )
 
     def show_pdf_page(
         self,
@@ -727,8 +729,11 @@ class Page:
         *,
         keep_proportion: bool = True,
         overlay: bool = True,
-    ) -> None:
-        """Overlay page ``pno`` from ``docsrc`` into ``rect`` as vector content.
+    ) -> int:
+        """Overlay page ``pno`` from ``docsrc`` into ``rect`` and return the Form xref.
+
+        The source page becomes a Form XObject drawn as vector content, and the
+        return value is its xref, as in pymupdf.
 
         ``pno`` is zero-based and may be negative. This is the pymupdf-style
         primitive for watermarks, stamps, and letterheads. The source page is
@@ -744,30 +749,28 @@ class Page:
         earlier placement, with its fonts and images, instead of importing
         another copy, as long as ``docsrc`` has not been edited since; any
         edit of ``docsrc`` makes the next placement import the page again.
-        Edits that end
-        image sharing, as described in :meth:`insert_image`, end this sharing
-        too. A same-document source page stays shared across consecutive
-        placements on other pages.
+        Edits that end image sharing, as described in :meth:`insert_image`,
+        end this sharing too. A same-document source page stays shared across
+        consecutive placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
         src_number = docsrc[pno]._page_number()
         if docsrc is self._document:
-            self._document._doc.show_pdf_page_self(
+            return self._document._doc.show_pdf_page_self(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 src_number,
                 keep_proportion,
                 overlay,
             )
-        else:
-            self._document._doc.show_pdf_page(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                docsrc._doc,
-                src_number,
-                keep_proportion,
-                overlay,
-            )
+        return self._document._doc.show_pdf_page(
+            self._page_number(),
+            (x0, y0, x1, y1),
+            docsrc._doc,
+            src_number,
+            keep_proportion,
+            overlay,
+        )
 
     def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
@@ -1128,7 +1131,7 @@ class Page:
             (x0, y0, x1, y1),
             normalized,
             base_font,
-            fontname not in _SYMBOLIC_FONTS,
+            base_font not in _SYMBOLIC_BASE14_NAMES,
             resolved_fontsize,
             resolved_lineheight,
             align,
