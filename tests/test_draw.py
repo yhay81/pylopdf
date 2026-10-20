@@ -829,15 +829,15 @@ def test_show_pdf_page_scales_source_crop_into_rect() -> None:
 def test_show_pdf_page_imports_another_page_from_same_document() -> None:
     doc = _new_page_doc(100, 100)
     doc[0].insert_image((0, 0, 100, 100), stream=_solid_png(2, 2, RED), keep_proportion=False)
-    doc.embfile_add("keep.txt", b"reachable target attachment")
+    doc.attachments.add("keep.txt", b"reachable target attachment")
     target = doc.new_page(width=200, height=100)
 
     target.show_pdf_page((120, 20, 180, 80), doc, pno=0)
 
     assert _pixel(target, 150, 50) == RED
     assert _pixel(target, 60, 50) == WHITE
-    assert doc.embfile_names() == ["keep.txt"]
-    assert doc.embfile_get("keep.txt") == b"reachable target attachment"
+    assert list(doc.attachments) == ["keep.txt"]
+    assert doc.attachments["keep.txt"].read() == b"reachable target attachment"
 
 
 def test_show_pdf_page_imports_target_page_from_pre_edit_snapshot() -> None:
@@ -857,13 +857,13 @@ def test_show_pdf_page_does_not_keep_unreachable_source_data() -> None:
     secret = b"SECRET-UNREFERENCED-STAMP-ATTACHMENT-91af"
     source = pylopdf.Document()
     source.new_page(width=100, height=100)
-    source.embfile_add("secret.txt", secret)
+    source.attachments.add("secret.txt", secret)
     target = pylopdf.Document()
     page = target.new_page(width=100, height=100)
 
     page.show_pdf_page((0, 0, 100, 100), source)
 
-    assert target.embfile_names() == []
+    assert list(target.attachments) == []
     assert secret not in target.tobytes()
 
 

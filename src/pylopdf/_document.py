@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
 
 from pylopdf import _fonts, _markdown
+from pylopdf._attachments import Attachments
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
 from pylopdf._fonts import (
     _font_input_limit_error,
@@ -88,14 +89,12 @@ if TYPE_CHECKING:
     )
 
 
-_DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 #: The first garbage level that renumbers objects.
 _GARBAGE_RENUMBERS = 2
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
-_MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_TOC_INPUT_TEXT_SIZE = 16 * 1024 * 1024
 _MAX_PAGE_LABEL_INPUT_TEXT_SIZE = 1024 * 1024
@@ -981,102 +980,20 @@ class Document:
         )
         self._doc.set_page_labels(payload)
 
-    def embfile_add(
-        self,
-        name: str,
-        data: bytes,
-        *,
-        filename: str | None = None,
-        desc: str | None = None,
-        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
-    ) -> None:
-        """Add an EmbeddedFiles attachment.
+    @property
+    def attachments(self) -> Attachments:
+        """Return the live mapping of embedded files, keyed by name.
 
-        ``name`` is the unique key used for listing and retrieval. ``filename``
-        is the viewer-facing file name and defaults to ``name``; ``desc`` is a
-        description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
-        ``max_size`` bounds attachment data and defaults to 64 MiB, matching
-        :meth:`embfile_get`; ``None`` explicitly accepts unbounded input.
-        Their aggregate input text is capped at 1 MiB before data copying;
-        refusals use ``embedded_file_input_size``. Existing inline FileSpecs are
-        cloned only after bounded shape validation.
-        This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
+        This replaces pymupdf's ``embfile_*`` methods: ``list(doc.attachments)``
+        for ``embfile_names``, ``doc.attachments[name].read()`` for
+        ``embfile_get``, ``doc.attachments.add(...)`` for ``embfile_add``,
+        ``doc.attachments[name].write(data)`` for ``embfile_upd``, and
+        ``del doc.attachments[name]`` for ``embfile_del``. The EmbeddedFiles
+        name tree is read cycle-aware and rejects more than 4,096 entries or
+        nodes, 32 levels, or 1 MiB of encoded/decoded names.
         """
         self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        if not name:
-            msg = "name must be at least 1 character"
-            raise ValueError(msg)
-        if filename is not None and not isinstance(filename, str):
-            msg = f"filename must be a string or None: {type(filename).__name__}"
-            raise TypeError(msg)
-        if desc is not None and not isinstance(desc, str):
-            msg = f"desc must be a string or None: {type(desc).__name__}"
-            raise TypeError(msg)
-        input_text = [name, name if filename is None else filename]
-        if desc is not None:
-            input_text.append(desc)
-        _validate_cumulative_utf8_input(
-            input_text,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment name, filename, and description",
-        )
-        _validate_optional_positive_int("max_size", max_size)
-        if max_size is not None and len(data) > max_size:
-            limit_code = "embedded_file_size"
-            msg = f"attachment input is {len(data)} bytes, exceeding the {max_size}-byte limit"
-            raise LimitError(limit_code, msg)
-        self._doc.embfile_add(name, bytes(data), filename, desc, max_size)
-
-    def embfile_names(self) -> list[str]:
-        """Return sorted attachment names."""
-        self._ensure_open()
-        return self._doc.embfile_names()
-
-    def embfile_get(
-        self,
-        name: str,
-        *,
-        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
-    ) -> bytes:
-        """Return attachment contents as bytes.
-
-        ``max_size`` bounds every decoding layer and defaults to 64 MiB. Pass a
-        larger positive integer for a known large attachment, or ``None`` only
-        when intentionally accepting unbounded materialization. Oversized
-        content raises :class:`LimitError` with code ``embedded_file_size``.
-        The lookup name stops at 1 MiB of UTF-8 before tree traversal, using
-        code ``embedded_file_input_size``.
-        """
-        self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        _validate_utf8_text_input(
-            name,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment lookup name",
-        )
-        _validate_optional_positive_int("max_size", max_size)
-        return self._doc.embfile_get(name, max_size)
-
-    def embfile_del(self, name: str) -> None:
-        """Delete an attachment, bounding its name before tree traversal."""
-        self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        _validate_utf8_text_input(
-            name,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment lookup name",
-        )
-        self._doc.embfile_del(name)
+        return Attachments(self)
 
     def get_pdfa_claim(
         self,

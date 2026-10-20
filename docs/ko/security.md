@@ -287,8 +287,8 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   `Document.extract_image()`는 64,000,000 pixel과 64 MiB payload 상한, content·색
   공간 guard 아래에서 이미지 하나를 디코딩하며 Flate-wrapped JPEG passthrough도 그
   상한까지만 압축을 풉니다.
-- `Document.embfile_add()`는PyO3 copy 전에64 MiB를 넘는 입력을 거부하고,
-  `embfile_get()`은 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
+- `doc.attachments.add()`와`Attachment.write()`는PyO3 copy 전에64 MiB를 넘는 입력을 거부하고,
+  `Attachment.read()`는 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
   있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은 무제한 입력
   또는materialization을 명시적으로 허용합니다. 첨부name tree도4,096 entry/node,
   깊이32, encoded/decoded 이름 합계1 MiB를 넘으면 거부합니다. caller 조회／삭제 이름과

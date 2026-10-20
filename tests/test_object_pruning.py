@@ -143,7 +143,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     # The font, the Form XObject, the new content stream, and the q/Q pair
     # that isolates the page's existing content.
     assert doc.complexity["object_count"] == objects + 5
-    assert doc.embfile_names() == []
+    assert list(doc.attachments) == []
     assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.tobytes(garbage=True)
     assert "SOURCE-PAGE-TEXT" in pylopdf.Document(stream=saved).get_page_text(0)

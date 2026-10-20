@@ -330,8 +330,9 @@ overview.
   placement collection grow fallibly; allocator refusal must not be mistaken
   for an unsupported image or codec failure. Format tags are static. Never
   return a partial list.
-- `Document.embfile_add` and `embfile_get` share a 64 MiB default attachment
-  boundary. Adds reject byte input before its PyO3 copy and repeat the check in
+- `Document.attachments.add`, `Attachment.write`, and `Attachment.read`
+  share a 64 MiB default attachment boundary (the core's `embfile_add`,
+  `embfile_upd`, and `embfile_get`). Adds and writes reject byte input before its PyO3 copy and repeat the check in
   Rust; gets apply the decoded-size limit to every filter layer. `max_size=None`
   is the explicit unbounded opt-out; limit failures use `LimitError.code ==
   "embedded_file_size"`, while malformed or unsupported filters must not fall

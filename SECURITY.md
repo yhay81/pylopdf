@@ -100,7 +100,7 @@ risky. When processing untrusted files:
 - `Page.get_images()` rejects partial results above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page;
   Flate-wrapped JPEG passthrough is decompressed only to the remaining budget.
-- `Document.embfile_get()` bounds every attachment decoding layer to 64 MiB by
+- `Attachment.read()` bounds every attachment decoding layer to 64 MiB by
   default and raises `LimitError` with code `embedded_file_size`. Raise
   `max_size=` for a known large attachment; `None` is an explicit unbounded
   opt-out. Attachment name trees are also rejected above 4,096 entries/nodes,
