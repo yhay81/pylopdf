@@ -348,6 +348,8 @@ raw edits semantically valid is the caller's responsibility.
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | fast metadata/page-count probe with optional input-size rejection and a 127-byte password boundary; `repaired` reports cross-reference recovery |
 | `Permissions` | encryption permission flags (IntFlag) |
 | `Rect` | rectangle NamedTuple with `width` / `height` |
+| `Point` | immutable `(x, y)` NamedTuple with vector arithmetic, affine transforms, distance, and direction |
+| `Matrix` | immutable affine `(a, b, c, d, e, f)` NamedTuple with composition and inversion |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
 | `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
@@ -368,3 +370,54 @@ The `TypedDict` contracts affect static typing only; values remain ordinary
 pymupdf-style dictionaries. `LinkInfo` requires `kind` and `from`, with
 destination-specific optional keys. `PageLabelSpec` requires `startpage`;
 `style`, `prefix`, and `firstpagenum` retain their runtime defaults.
+
+## Point and matrix geometry { #geometry }
+
+`Point()` creates the origin; `Point(x, y)` and `Point((x, y))` create a
+position. `Matrix()` creates the zero matrix, `Matrix(sx, sy)` scales,
+`Matrix(degrees)` rotates, and `Matrix(sx, sy, 1)` shears. For an explicit
+transform, pass six coordinates or one six-item sequence. Coordinate keyword
+arguments are supported when every coordinate is supplied. Both classes are
+immutable NamedTuples: indexing, unpacking, tuple equality, hashing, and
+pickling work as before, while arithmetic returns geometry values.
+
+```python
+from pylopdf import Matrix, Point
+
+scale = Matrix(2, 3)
+shift = Matrix(1, 0, 0, 1, 20, 30)
+transform = scale * shift
+position = Point(10, 20) * transform  # Point(x=40.0, y=90.0)
+original = position / transform      # Point(x=10.0, y=20.0)
+page.insert_text(position, "Transformed position")
+```
+
+Multiplication composes transforms from left to right. A point `(x, y)`
+multiplied by `(a, b, c, d, e, f)` becomes `(a*x + c*y + e, b*x + d*y + f)`.
+With the display-space y axis pointing down, `Matrix(90)` sends `(1, 0)`
+to `(0, 1)`. `~matrix` returns its inverse, or the zero matrix if singular;
+`point / matrix` and `matrix / other` raise `ZeroDivisionError` if the
+divisor is singular. Finite transformations whose result cannot be represented
+also raise `PdfError`.
+
+| Operation | Result |
+|---|---|
+| `point + other`, `point - other` | componentwise operation with a point, two-item sequence, or scalar |
+| `matrix + other`, `matrix - other` | componentwise operation with a matrix, six-item sequence, or scalar |
+| `value * scalar`, `value / scalar`, `-value`, `+value` | a new value, or the same immutable value for unary `+` |
+| `abs(value)`, `value.norm()` | Euclidean length of the coordinates |
+| `bool(value)` | false only when every coordinate is zero |
+| `point.unit`, `point.abs_unit` | unit direction, optionally with nonnegative components; the origin stays zero |
+| `point.distance_to(other, unit="px")` | distance to a point or the closest location in a normalized rectangle; units `px` (PDF points), `in`, `cm`, `mm` |
+| `matrix.is_rectilinear` | whether axes remain aligned, with a `1e-5` zero tolerance |
+
+Coordinates must be finite numbers. Incorrect coordinate sequence lengths or
+nonfinite values raise `PdfError`; invalid argument types raise `TypeError`.
+Inputs are bounded sequences, not arbitrary iterables. Mutating methods such as `transform`,
+`invert`, and `pretranslate` are absent: assign the operator's result instead.
+Addition and scalar multiplication place the geometry on the left.
+
+These are value operations, so passing a transformed point to drawing changes
+its position, not the text's orientation or size. Rendering still accepts
+`scale=` / `dpi=`; `get_pixmap(matrix=)` and geometric operations on `Rect`,
+`IRect`, and `Quad` remain roadmap work.

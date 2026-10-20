@@ -1029,6 +1029,46 @@ def _garbage_results() -> dict[str, Any]:
     return results
 
 
+def _geometry_results() -> dict[str, Any]:
+    """Check immutable affine values and their use by the PDF drawing API."""
+    from pylopdf import Document, Matrix, Point  # noqa: PLC0415
+
+    transform = Matrix(2, 3) * Matrix(1, 0, 0, 1, 20, 30)
+    point = Point(10, 20)
+    mapped = point * transform
+    _require(mapped == (40, 90), "affine composition order changed")
+    _require(mapped / transform == point, "inverse point transformation changed")
+    _require(Point(1, 0) * Matrix(90) == (0, 1), "right-angle rotation changed")
+    _require(not Matrix() and not Point(), "zero geometry must be false")
+    _require(hash(point) == hash((10.0, 20.0)), "point hashing lost tuple semantics")
+    _require(~Matrix(1, 2, 2, 4, 5, 6) == Matrix(), "singular inverse must be zero")
+    try:
+        point / Matrix()
+    except ZeroDivisionError:
+        pass
+    else:
+        msg = "division by a singular matrix did not raise"
+        raise RuntimeError(msg)
+    with Document() as document:
+        page_size = 200
+        page = document.new_page(width=page_size, height=page_size)
+        page.draw_line(mapped, mapped + Point(40, 0), width=2)
+        page.insert_text(mapped + Point(0, 30), "Affine")
+        saved = document.tobytes()
+    with Document(stream=saved) as reopened:
+        text = reopened[0].get_text().strip()
+        _require(text == "Affine", "transformed text failed to survive save/reopen")
+        line = reopened[0].get_drawings()[0]["items"][0]
+        _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
+        _require(reopened[0].get_pixmap().width == page_size, "transformed drawing failed to render")
+    return {
+        "matrix": list(transform),
+        "point": list(mapped),
+        "inverse_point": list(mapped / transform),
+        "text": text,
+    }
+
+
 def _content_isolation_results() -> dict[str, Any]:
     """Draw on content that leaves q and Q unbalanced, counted as hayro parses it."""
     import pylopdf  # noqa: PLC0415
@@ -1115,6 +1155,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "fixtures": _fixture_results(root),
         "layout": _layout_results(),
         "generation": _generation_results(root),
+        "geometry": _geometry_results(),
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
         "garbage": _garbage_results(),

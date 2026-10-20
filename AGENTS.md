@@ -98,7 +98,7 @@ overview.
     `layout.rs`, `shape.rs`, `font.rs`, `bundled_font_cache.rs`,
     `placement_reuse.rs`;
     `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
-    `src/pylopdf/_fonts.py` and `_shape.py`.
+    `src/pylopdf/_fonts.py`, `_shape.py`, and `_geometry.py`.
   - D, interactive: `form.rs`, `acroform_import.rs`;
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
@@ -2538,6 +2538,11 @@ Git history (`git show a233814:ROADMAP.md`).
   leaves the pymupdf name out. Do not add aliases, synonyms, or compatibility
   layers; migration is served by the parity manifest and its tools (F9). There
   are no deprecation windows before 1.0.
+- F4 starts with immutable `Point` and `Matrix` NamedTuples in `_geometry.py`.
+  Arithmetic has geometric semantics; matrix products apply the left
+  transform first. Constructors reject nonfinite coordinates and bound
+  sequence reads to two or six entries. Keep operator changes in the API
+  snapshot. Rect algebra, IRect, Quad, and geometry constants remain pending.
 - Current phase: wave 1 of the parity program (2026-10-20). Wave 0 is done:
   the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
   (#234), XObject reuse (#231), save-time merging of identical objects

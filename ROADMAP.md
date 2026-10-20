@@ -330,6 +330,15 @@ already returned everywhere. pymupdf's in-place mutators (`include_point`,
 family) are not provided, because the same names on immutable values would
 silently do nothing; the codemod rewrites them to operators.
 
+The first F4 slice implements immutable `Point` and `Matrix` values in
+`src/pylopdf/_geometry.py`: constructors, vector arithmetic, affine
+composition/inversion, point distances and directions, and matrix
+rectilinearity. Point arithmetic and truth testing now have geometric
+semantics, resolving those M0 entries. Python regressions cover boundaries,
+singular transforms, and drawing/save/reopen at all four page rotations;
+the native/PyEmscripten contract includes the same affine workflow.
+`Rect` algebra, `IRect`, `Quad`, and geometry constants remain pending.
+
 ### F5 — Low-level object API
 
 Expose the lopdf graph as a typed object model in the style of pikepdf:

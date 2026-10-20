@@ -18,6 +18,7 @@ from pylopdf import _types
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning, StalePageError
 from pylopdf._fonts import Font
+from pylopdf._geometry import Matrix
 from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
@@ -96,6 +97,7 @@ __all__ = [
     "ImageInfo",
     "LimitError",
     "LinkInfo",
+    "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
     "Name",

@@ -21,7 +21,26 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT_PATH = ROOT / "api" / "public-api.json"
-PUBLIC_DUNDERS = frozenset({"__enter__", "__exit__", "__getitem__", "__iter__", "__len__"})
+PUBLIC_DUNDERS = frozenset(
+    {
+        "__abs__",
+        "__add__",
+        "__bool__",
+        "__enter__",
+        "__exit__",
+        "__getitem__",
+        "__invert__",
+        "__iter__",
+        "__len__",
+        "__mul__",
+        "__neg__",
+        "__pos__",
+        "__radd__",
+        "__rmul__",
+        "__sub__",
+        "__truediv__",
+    }
+)
 
 JsonValue: TypeAlias = bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"] | None
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -164,12 +183,23 @@ def _class_members(value: type[object]) -> JsonObject:
         if name.startswith("_") and name not in PUBLIC_DUNDERS:
             continue
         members[name] = _member_contract(value, name, raw_value)
+    # Geometry subclasses a typed NamedTuple to customize construction.
+    # Its inherited coordinate descriptors still belong to the public API.
+    for name in getattr(value, "_fields", ()):
+        if name not in members:
+            members[name] = _member_contract(value, name, inspect.getattr_static(value, name))
     return members
 
 
 def _class_annotations(value: type[object]) -> JsonObject:
     """Collect stable class-level annotations."""
-    annotations = getattr(value, "__annotations__", {})
+    annotations = dict(getattr(value, "__annotations__", {}))
+    for name in getattr(value, "_fields", ()):
+        if name not in annotations:
+            for base in value.__mro__[1:]:
+                if name in (inherited := getattr(base, "__annotations__", {})):
+                    annotations[name] = inherited[name]
+                    break
     return {name: _type_expression(annotation) for name, annotation in sorted(annotations.items())}
 
 
