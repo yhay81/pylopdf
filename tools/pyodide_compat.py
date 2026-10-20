@@ -1120,9 +1120,16 @@ def _rectangle_results() -> dict[str, Any]:
         crop_rect = list(boxed.rect)
         boxed.set_mediabox((0, 0, 200, 300))
         reset_cropbox = list(boxed.cropbox)
+        image_xref = boxed.insert_image((10, 10, 60, 60), pixmap=page.get_pixmap(scale=0.1))
+        form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
+        placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
+        boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
+        full_name = "/BaseFont/Times-Bold" in document.tobytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
     _require(cropbox == [100, 50, 500, 350] and crop_rect == [0, 0, 400, 300], "the CropBox convention changed")
     _require(reset_cropbox == [0, 0, 200, 300], "set_mediabox kept the CropBox")
+    _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
+    _require(full_name, "a full Standard 14 name did not select its font")
     return {
         "cropbox": cropbox,
         "reset_cropbox": reset_cropbox,

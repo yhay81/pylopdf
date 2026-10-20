@@ -116,7 +116,7 @@ impl _Document {
         image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) = py.detach(|| {
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
@@ -141,7 +141,7 @@ impl _Document {
         );
         let remember = matches!(image, PageImage::New(_)) && self.placements.reserve_image();
         self.invalidate_hayro_pdf_keeping_placements();
-        let added = py.detach(|| -> PyResult<_> {
+        let (xobj_id, added) = py.detach(|| -> PyResult<_> {
             let (xobj_id, added) = match image {
                 PageImage::Placed(placed) => (placed.id(), None),
                 PageImage::New(parts) => {
@@ -153,12 +153,12 @@ impl _Document {
             let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
             self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
             self.push_page_content(page_id, ops, drawing_plan.content)?;
-            Ok(added)
+            Ok((xobj_id, added))
         })?;
         if remember && let Some(added) = added {
             self.placements.remember_image(digest, added);
         }
-        Ok(())
+        Ok(xobj_id.0)
     }
 }
 
@@ -199,7 +199,7 @@ pub(super) fn insert_image(
     overlay: bool,
     max_size: Option<usize>,
     max_pixels: Option<u64>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     validate_image_input(&data, max_size, max_pixels)?;
     this.place_image(
         py,
@@ -225,7 +225,7 @@ pub(super) fn insert_image_file(
     overlay: bool,
     max_size: Option<usize>,
     max_pixels: Option<u64>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     if max_size == Some(0) {
         return Err(PyValueError::new_err(
             "max_size must be a positive integer or None",
@@ -261,7 +261,7 @@ pub(super) fn insert_pixmap(
     image_rotation: i64,
     keep_proportion: bool,
     overlay: bool,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     let input = ImageInput::Rgba {
         width: pixmap.width,
         height: pixmap.height,

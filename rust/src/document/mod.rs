@@ -1074,7 +1074,7 @@ impl _Document {
         overlay: bool,
         max_size: Option<usize>,
         max_pixels: Option<u64>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_image(
             self,
             py,
@@ -1112,7 +1112,7 @@ impl _Document {
         overlay: bool,
         max_size: Option<usize>,
         max_pixels: Option<u64>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_image_file(
             self,
             py,
@@ -1141,7 +1141,7 @@ impl _Document {
         image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_pixmap(
             self,
             py,
@@ -1170,7 +1170,7 @@ impl _Document {
         src_page_number: u32,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         drawing::show_pdf_page(
             self,
             py,
@@ -1194,7 +1194,7 @@ impl _Document {
         src_page_number: u32,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         drawing::show_pdf_page_self(
             self,
             py,

@@ -401,7 +401,7 @@ class _Document:
         overlay: bool,
         max_size: int | None = 67108864,
         max_pixels: int | None = 64000000,
-    ) -> None: ...
+    ) -> int: ...
     def insert_image_file(
         self,
         page_number: int,
@@ -412,7 +412,7 @@ class _Document:
         overlay: bool,
         max_size: int | None = 67108864,
         max_pixels: int | None = 64000000,
-    ) -> None: ...
+    ) -> int: ...
     def insert_pixmap(
         self,
         page_number: int,
@@ -421,7 +421,7 @@ class _Document:
         image_rotation: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def show_pdf_page(
         self,
         page_number: int,
@@ -430,7 +430,7 @@ class _Document:
         src_page_number: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def show_pdf_page_self(
         self,
         page_number: int,
@@ -438,7 +438,7 @@ class _Document:
         src_page_number: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def read_annotations(
         self, page_number: int
     ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...

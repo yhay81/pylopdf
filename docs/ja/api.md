@@ -67,8 +67,8 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 上限付きPNG / UTF-8 SVG rendering。`clip`は表示座標 |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | pymupdfの規約に従うページボックス。`mediabox`はPDF座標、`cropbox`はMediaBox上端を基準にy軸を反転。`set_cropbox`はMediaBox内の矩形のみ受け付け、`set_mediabox`はCropBox・BleedBox・TrimBox・ArtBoxを削除 |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
-| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`docsrc`は同じ文書でもよい。編集していない`docsrc`の同じページを再配置するとForm XObjectを共有 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` → xref | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` → Form xref | PDFページをベクタのまま重ねる。`docsrc`は同じ文書でもよい。編集していない`docsrc`の同じページを再配置するとForm XObjectを共有 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。pymupdfと同じく、文字列は`str.splitlines()`で行に分け、リストは1項目を1行とする。行の間隔は`fontsize`の`lineheight`倍で、既定は書体の`ascender`から`descender`を引いた値。頁の下にはみ出す行は描かず、描いた行数を返す。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。行はpymupdfと同じ位置に置く。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |
@@ -272,6 +272,7 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 入力サイズを任意に制限しpasswordを127 byteに制限する高速メタデータ読み取り。`repaired`でcross-reference復旧を確認 |
 | `Permissions` | 暗号化の許可フラグ（IntFlag）。メンバーはpymupdfの`PDF_PERM_*`定数 |
 | `EncryptionMethod` | `save(encryption=)`の方式（IntEnum）。メンバーはpymupdfの`PDF_ENCRYPT_*`定数 |
+| `Base14_fontnames` / `Base14_fontdict` | pymupdfのStandard 14のPostScript名と、`fontname=`が使う読み取り専用の対応表。略称と正式名を大文字小文字を問わず受け付ける |
 | `LinkKind` / `TextAlign` | メンバーがpymupdfの`LINK_*`・`TEXT_ALIGN_*`定数であるIntEnum |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |

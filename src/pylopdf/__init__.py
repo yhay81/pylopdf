@@ -24,7 +24,7 @@ from pylopdf._errors import (
     PylopdfWarning,
     StalePageError,
 )
-from pylopdf._fonts import Font
+from pylopdf._fonts import Base14_fontdict, Base14_fontnames, Font
 from pylopdf._geometry import (
     EMPTY_IRECT,
     EMPTY_QUAD,
@@ -141,6 +141,8 @@ __all__ = [
     "TEXT_ALIGN_RIGHT",
     "AnnotationInfo",
     "Array",
+    "Base14_fontdict",
+    "Base14_fontnames",
     "BlockEntry",
     "CjkFontLanguage",
     "Dictionary",
