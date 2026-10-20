@@ -1,20 +1,20 @@
 # pylopdf API design
 
-Status: **draft for review**, 2026-10-19. This document is roadmap item F0.
-It defines the rules every public API follows and the target surface for the
-API reset (M0) and the parity milestones (M1–M8) in [ROADMAP.md](../ROADMAP.md).
-Workstreams implement against it; a change to a rule changes this document
-first.
+Status: **approved** on 2026-10-20 (drafted 2026-10-19). This document is
+roadmap item F0. It defines the rules every public API follows and the target
+surface for the API reset (M0) and the parity milestones (M1–M8) in
+[ROADMAP.md](../ROADMAP.md). Workstreams implement against it; a change to a
+rule changes this document first.
 
 The parity manifest (`api/pymupdf-parity.json`, roadmap F3) records, for each
 pymupdf 1.28 API, whether pylopdf provides it under the same name (`same`) or
 replaces it (`replaced`), with a migration hint. This document states the
 rules and the redesigned APIs; the manifest holds the per-name mapping.
 
-## Decisions to confirm
+## Confirmed decisions
 
-These choices follow from the rules below but deserve explicit maintainer
-approval before M0 starts.
+These choices follow from the rules below. The maintainer confirmed all twelve
+on 2026-10-20, before M0 starts.
 
 1. **Display coordinates everywhere** ([G1](#g1--display-coordinates)). On
    rotated pages, pymupdf interprets insertion and placement coordinates in
@@ -238,7 +238,7 @@ the vocabulary stays uniform:
 | TypedDict | pymupdf's dictionary formats: `dict` and `rawdict` text, drawings, links, metadata, image info | A plain `dict` at runtime with pymupdf's keys. A TypedDict never takes a pymupdf class name: today's `TextPage` and `RawTextPage` become `TextPageDict` and `RawTextPageDict` in M0, because M1 gives `TextPage` to pymupdf's handle. |
 | Frozen dataclass | Richer records without a pymupdf counterpart | `@dataclass(frozen=True, slots=True, kw_only=True)`. |
 | IntEnum and IntFlag | Codes and flags | pymupdf's module constants are members, as `re.IGNORECASE` is a member of `re.RegexFlag`; values equal pymupdf's. |
-| Geometry | `Point`, `Rect`, `IRect`, `Quad`, `Matrix` | Immutable values with pymupdf's value-returning members and operators (roadmap F4). They remain NamedTuples for indexing, length, unpacking, and hashing, but `+`, `-`, `*`, `/`, `\|`, `&`, `in`, `abs()`, and truth testing take pymupdf's geometric meaning instead of the tuple operations, and `Rect.width` and `height` clamp at 0 as pymupdf's do. |
+| Geometry | `Point`, `Rect`, `IRect`, `Quad`, `Matrix` | Immutable values with pymupdf's value-returning members and operators (roadmap F4). They remain NamedTuples for indexing, length, unpacking, and hashing, but `+`, `-`, `*`, `/`, `\|`, `&`, `in`, `abs()`, and truth testing take pymupdf's geometric meaning instead of the tuple operations, and `Rect.width` and `height` clamp at 0 as pymupdf's do. pymupdf's in-place mutators map to operators; `normalize()`, which no operator expresses, becomes `normalized()`, which returns a new value. |
 | `Literal[...]` | String options such as `"words"` or `output="png"` | One `@overload` per value when the value changes the return type. |
 
 Every public API is fully typed, so `page.get_text("words")` type-checks as
@@ -336,6 +336,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `Page.find_tables(*, clip=None, strategy=None, ...)` | same | same | M0 makes `strategy` keyword-only, as pymupdf code passes it. pymupdf's tuning keywords arrive in M6 and raise until then. |
 | `TableFinder.tables`, `Table.extract()`, `Table.to_markdown(*, clean=False, fill_empty=True)`, `Table.to_pandas()` | same | same | `to_pandas()` needs optional pandas (M6). |
 | `Document.to_markdown(pages=None, *, table_strategy=..., ...)`, `Page.to_markdown(...)` | pymupdf4llm `to_markdown` | pylopdf | Keyword names follow pymupdf4llm (`page_chunks`, `write_images`, `margins`, and the rest in M6). |
+| `Page.get_layout()` | pymupdf-layout's `use_layout()` mode | replaced | M6, with the `[layout]` extra. R3: a process-global mode becomes a per-page result. |
 
 ### 5.3 Images, drawings, and fonts
 
@@ -379,7 +380,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | --- | --- | --- | --- |
 | `metadata`, `set_metadata(m)` | same | same | |
 | `get_page_labels()`, `set_page_labels(labels)`, `Page.get_label()` | same | same | |
-| `Document.get_outline()` → `list[OutlineEntry]`, `Document.set_outline(entries)` | `get_toc()`, `set_toc()` | replaced | M0. `OutlineEntry(level, title, page)` is a NamedTuple with a zero-based `page`; M5 adds destinations, styles, collapse state, and item editing. The hint reads: "pylopdf's get_outline uses zero-based pages; get_toc used one-based pages". |
+| `Document.get_outline()` → `list[OutlineEntry]`, `Document.set_outline(entries)` | `get_toc()`, `set_toc()` | replaced | M0. `OutlineEntry(level, title, page)` is a NamedTuple with a zero-based `page`; M5 adds destinations, styles, and collapse state to it, so `get_outline()` and `set_outline()` round-trip everything an outline item holds. Editing that list replaces pymupdf's `set_toc_item` and `del_toc_item` (R1), while pymupdf's `Document.outline` and `Outline` items keep pymupdf's names and meaning in M5. The hint reads: "pylopdf's get_outline uses zero-based pages; get_toc used one-based pages". |
 | `Document.attachments` → `Attachments` | `embfile_*` | replaced | M0. A `Mapping[str, Attachment]` with `add(name, data, /, *, filename=None, description=None, max_size=...)` and `del attachments[name]`. An `Attachment` has `name`, `filename`, `description`, `size`, `creation_date`, `mod_date`, `read(*, max_size=...)`, and `write(data, /, *, max_size=...)`. |
 | `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | same | same | M5. |
 | Layers: `get_ocgs`, `add_ocg`, `set_layer`, `get_layer`, and the rest | same | same | M5, followed by `oc=` on the insertion APIs. |

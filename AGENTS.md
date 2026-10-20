@@ -2259,12 +2259,14 @@ Git history (`git show a233814:ROADMAP.md`).
   leaves the pymupdf name out. Do not add aliases, synonyms, or compatibility
   layers; migration is served by the parity manifest and its tools (F9). There
   are no deprecation windows before 1.0.
-- Current phase: closing wave 0 of the parity program (2026-10-20). The
-  hayro 0.8 migration (#233), AcroForm registration on `insert_pdf` (#234),
-  XObject reuse for repeated insertion (#231), CPython 3.15 support (#230),
-  the F3 parity manifest (#235), and the F0 API design draft (#236) have
-  merged, and save-time merging of identical objects is the last wave-0 item.
-  The F1 module split runs alone next; the M0 API reset follows F0 approval.
+- Current phase: wave 1 of the parity program (2026-10-20). Wave 0 is done:
+  the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
+  (#234), XObject reuse (#231), save-time merging of identical objects
+  (#251), CPython 3.15 support (#230), and the F3 parity manifest (#235)
+  merged, and the F0 API design (#236) was approved on 2026-10-20. The F1
+  module split runs alone during a freeze of `document.rs` and
+  `__init__.py`; F2, F4, and F9 follow it, and the M0 API reset follows F1
+  and F4.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.
