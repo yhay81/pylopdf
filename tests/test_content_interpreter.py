@@ -144,6 +144,38 @@ def test_standard_fonts_without_widths_use_afm_widths() -> None:
     assert _unmatched(doc) == []
 
 
+@pytest.mark.parametrize(
+    ("encoding", "text"),
+    [
+        # Code 0 is `.notdef` (250 units), an unmapped WinAnsi code `bullet`,
+        # and 0xA0 a space.
+        ("/WinAnsiEncoding", r"A\000B\201C\240D"),
+        # MacRoman's own `eacute`, then Mac OS Roman's `notequal`, which the
+        # PDF table lacks.
+        ("/MacRomanEncoding", r"A\216B\255C\000D"),
+        ("/StandardEncoding", r"A\000B\047C\140D"),
+    ],
+)
+def test_standard_fonts_name_codes_as_hayro_does(encoding: str, text: str) -> None:
+    content = f"BT /F2 20 Tf 10 100 Td ({text}) Tj ET"
+    resources = "<< /Font << /F2 6 0 R >> >>"
+    font = f"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding {encoding} >>"
+    doc = pylopdf.open(stream=_page(content, resources, font))
+
+    assert [char for char, _x, _y in _hayro_origins(doc) if char in "ABCD"] == list("ABCD")
+    assert _unmatched(doc) == []
+
+
+def test_symbol_fonts_ignore_their_base_encoding() -> None:
+    content = "BT /F2 20 Tf 10 100 Td (ab\\000c) Tj /F1 20 Tf (X) Tj ET"
+    resources = "<< /Font << /F1 4 0 R /F2 6 0 R >> >>"
+    symbol = "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /Encoding /WinAnsiEncoding >>"
+    doc = pylopdf.open(stream=_page(content, resources, symbol))
+
+    assert _unmatched(doc) == []
+    assert "X" in [char for char, _x, _y in _hayro_origins(doc)]
+
+
 def test_widths_arrays_and_missing_width_apply_to_simple_fonts() -> None:
     content = "BT /F2 10 Tf 10 100 Td (ABCD) Tj ET"
     resources = "<< /Font << /F2 6 0 R >> >>"

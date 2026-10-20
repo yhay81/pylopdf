@@ -99,7 +99,13 @@ impl FontMetrics {
                     select_standard_font(doc, font, descriptor)
                 };
                 let widths = SimpleWidths::read(doc, font, standard);
-                let approximate = widths.table.is_none() && standard.is_none();
+                // Symbol and ZapfDingbats ignore the base encoding.
+                let symbolic = matches!(
+                    standard,
+                    Some(Base14Font::Symbol | Base14Font::ZapfDingbats)
+                );
+                let approximate = widths.table.is_none()
+                    && (standard.is_none() || !(symbolic || encoding_is_known(doc, font)));
                 Some(Self {
                     kind: Kind::Simple(widths),
                     approximate,
@@ -109,15 +115,11 @@ impl FontMetrics {
         }
     }
 
-    /// The metrics hayro uses for a missing or unusable font: Helvetica.
+    /// The metrics hayro uses for a missing or unusable font: Helvetica with
+    /// its built-in encoding, since hayro builds it from an empty dictionary.
     pub(super) fn fallback() -> Self {
         let mut names: Box<[Option<String>; 256]> = Box::new(std::array::from_fn(|_| None));
-        for (code, slot) in names.iter_mut().enumerate() {
-            *slot = u8::try_from(code)
-                .ok()
-                .and_then(pdf_base14_metrics::winansi_glyph_name)
-                .map(str::to_owned);
-        }
+        fill_from_afm(&mut names, Base14Font::Helvetica);
         Self {
             kind: Kind::Simple(SimpleWidths {
                 table: None,
@@ -723,6 +725,59 @@ const MAC_ROMAN: &[(u8, &str)] = &[
     (255, "caron"),
 ];
 
+/// The Mac OS Roman glyphs that `MacRomanEncoding` lacks, which hayro uses
+/// for those codes.
+const MAC_OS_ROMAN_EXTRA: &[(u8, &str)] = &[
+    (173, "notequal"),
+    (176, "infinity"),
+    (178, "lessequal"),
+    (179, "greaterequal"),
+    (182, "partialdiff"),
+    (183, "summation"),
+    (184, "product"),
+    (185, "pi"),
+    (186, "integral"),
+    (189, "Omega"),
+    (195, "radical"),
+    (197, "approxequal"),
+    (198, "Delta"),
+    (215, "lozenge"),
+    (240, "apple"),
+];
+
+fn fill_from_afm(names: &mut [Option<String>; 256], font: Base14Font) {
+    for metric in font.metrics().character_metrics.iter() {
+        if let Some(slot) = usize::try_from(metric.code)
+            .ok()
+            .and_then(|code| names.get_mut(code))
+        {
+            *slot = Some(metric.name.to_string());
+        }
+    }
+}
+
+/// Whether hayro's base encoding for a simple font is one this module
+/// names: no `/Encoding`, a dictionary without `/BaseEncoding`, or
+/// WinAnsi, MacRoman, or Standard.
+fn encoding_is_known(doc: &Document, font: &Dictionary) -> bool {
+    let base = match font
+        .get(b"Encoding")
+        .ok()
+        .and_then(|value| resolve(doc, value))
+    {
+        Some(Object::Name(name)) => Some(name.as_slice()),
+        Some(Object::Dictionary(dict)) => dict
+            .get(b"BaseEncoding")
+            .ok()
+            .and_then(|value| name_of(doc, value)),
+        _ => None,
+    };
+    matches!(
+        base,
+        None | Some(b"WinAnsiEncoding" | b"MacRomanEncoding" | b"StandardEncoding")
+    )
+}
+
 /// Glyph names per code from `/Encoding`, its `/Differences`, and the
 /// standard font's built-in encoding.
 fn glyph_names(
@@ -735,7 +790,7 @@ fn glyph_names(
         .get(b"Encoding")
         .ok()
         .and_then(|value| resolve(doc, value));
-    let (base, differences) = match encoding {
+    let (mut base, differences) = match encoding {
         Some(Object::Name(name)) => (Some(name.as_slice()), None),
         Some(Object::Dictionary(dict)) => (
             dict.get(b"BaseEncoding")
@@ -747,35 +802,48 @@ fn glyph_names(
         ),
         _ => (None, None),
     };
+    // hayro ignores the base encoding of a non-embedded font drawn as Symbol
+    // or ZapfDingbats (pdf.js issue 16464), keeping only `/Differences`.
+    if matches!(
+        standard,
+        Some(Base14Font::Symbol | Base14Font::ZapfDingbats)
+    ) {
+        base = None;
+    }
     match base {
+        // hayro's `Encoding::map_code` names code 0 `.notdef` in every table
+        // encoding, and names every unmapped WinAnsi code above 40 `bullet`.
         Some(b"WinAnsiEncoding") => {
             for (code, slot) in names.iter_mut().enumerate() {
-                *slot = u8::try_from(code)
-                    .ok()
-                    .and_then(pdf_base14_metrics::winansi_glyph_name)
+                let code = u8::try_from(code).unwrap_or(u8::MAX);
+                *slot = pdf_base14_metrics::winansi_glyph_name(code)
+                    .or((code > 40).then_some("bullet"))
                     .map(str::to_owned);
             }
+            names[0] = Some(".notdef".to_owned());
         }
+        // The PDF table first, then the rest of Mac OS Roman, as hayro does.
         Some(b"MacRomanEncoding") => {
-            for (code, name) in MAC_ROMAN {
+            for (code, name) in MAC_OS_ROMAN_EXTRA.iter().chain(MAC_ROMAN) {
                 names[usize::from(*code)] = Some((*name).to_owned());
             }
+            names[0] = Some(".notdef".to_owned());
         }
-        _ => {
-            // The built-in encoding: StandardEncoding for the text fonts and
-            // the font's own codes for Symbol and ZapfDingbats, which the AFM
-            // `C` fields record either way.
+        // StandardEncoding, which the `C` fields of a Latin AFM record.
+        Some(b"StandardEncoding") => {
+            fill_from_afm(&mut names, Base14Font::Helvetica);
+            names[0] = Some(".notdef".to_owned());
+        }
+        // The font's built-in encoding: StandardEncoding for the text fonts
+        // and their own codes for Symbol and ZapfDingbats.
+        None => {
             if let Some(standard) = standard {
-                for metric in standard.metrics().character_metrics.iter() {
-                    if let Some(slot) = usize::try_from(metric.code)
-                        .ok()
-                        .and_then(|code| names.get_mut(code))
-                    {
-                        *slot = Some(metric.name.to_string());
-                    }
-                }
+                fill_from_afm(&mut names, standard);
             }
         }
+        // MacExpertEncoding and unknown names: widths stay unresolved, and
+        // `encoding_is_known` marks the metrics approximate.
+        Some(_) => {}
     }
     if let Some(differences) = differences {
         let mut code: Option<usize> = None;
