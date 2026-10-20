@@ -4,7 +4,7 @@ version = "0.14.0"
 description = "PDF editing, rendering, extraction, and generation for Python, powered by Rust. MIT, no mandatory Python dependencies, lightweight wheels."
 authors = [{ "name" = "Yusuke Hayashi", "email" = "yusuke8h@gmail.com" }]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE", "NOTICE.md", "LICENSES/*"]
 dependencies = []
@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -65,7 +64,6 @@ dev = [
     # ty is pre-1.0 and its diagnostics change between releases; uv.lock pins
     # the version that CI and the pre-commit hook run.
     "ty>=0.0.89",
-    "typing-extensions>=4.6",
 ]
 # Integration tests for the ecosystem recipes in the README; skipped when absent.
 interop = [
@@ -131,7 +129,7 @@ pylopdf-ocr-models = { workspace = true }
 testpaths = ["tests"]
 
 [tool.ty.src]
-# Check the package and its tests. ty reads the Python 3.10 floor from
+# Check the package and its tests. ty reads the Python 3.11 floor from
 # project.requires-python.
 include = ["src", "tests"]
 
@@ -152,7 +150,7 @@ allowed-unresolved-imports = [
 [tool.ruff]
 line-length = 120
 src = ["src"]
-target-version = "py310"
+target-version = "py311"
 # python/ and lambda_test/ are unrelated colocated work. Keep Markdown examples
 # hand-aligned and validate them through the documentation build.
 extend-exclude = ["python", "lambda_test", "*.md"]

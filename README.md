@@ -45,7 +45,7 @@ pikepdf 10.10.0 on 2026-07-25.
 - **AGPL-free**: covers the common pymupdf use cases under the MIT license
 - **Small and self-contained**: fits size-constrained environments such as AWS
   Lambda and Cloudflare Workers
-- **One wheel per platform**: abi3 covers CPython 3.10–3.15, plus native
+- **One wheel per platform**: abi3 covers CPython 3.11–3.15, plus native
   `cp314t` and `cp315t` wheels for free-threaded Python
 - **Familiar**: the API is modeled after
   [pymupdf](https://github.com/pymupdf/PyMuPDF), with a
@@ -257,7 +257,7 @@ src/pylopdf/   # Python high-level API
 tests/         # pytest (Rust behavior is verified through Python tests)
 ```
 
-Every release installs each published wheel — five `abi3-py310` on CPython
+Every release installs each published wheel — five `abi3-py311` on CPython
 3.14 and 3.15, five CPython 3.14t, five CPython 3.15t, the sdist, and the
 PyEmscripten wheel — on architecture-matched runners and exercises creation,
 saving, extraction, and rendering before publishing with build provenance.

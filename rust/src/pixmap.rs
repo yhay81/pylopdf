@@ -3,24 +3,20 @@
 //! `np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, 4)`
 //! can be consumed by NumPy or PIL.
 //!
-//! Version-specific builds such as cp314t expose a read-only, zero-copy buffer.
-//! The abi3-py310 wheel cannot use `Py_buffer`, which entered the stable ABI in
-//! Python 3.11, so `samples` remains the portable one-copy fallback.
+//! Every wheel, the abi3-py311 wheels included, also exposes the same storage as
+//! a read-only, zero-copy buffer, so `memoryview(pixmap)` and
+//! `np.frombuffer(pixmap, ...)` avoid the copy that `samples` makes.
 
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
+use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyInt};
-#[cfg(any(not(Py_LIMITED_API), Py_3_11))]
-use pyo3::{exceptions::PyBufferError, ffi};
-#[cfg(any(not(Py_LIMITED_API), Py_3_11))]
 use std::{
     ffi::{CString, c_int, c_void},
-    ptr,
-};
-use std::{
     fs::{self, File, OpenOptions},
     io,
     path::{Path, PathBuf},
+    ptr,
     sync::Arc,
 };
 
@@ -241,8 +237,7 @@ impl Pixmap {
         format!("<Pixmap {}x{} rgba>", self.width, self.height)
     }
 
-    /// Expose immutable pixel storage without copying on version-specific builds.
-    #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
+    /// Expose immutable pixel storage without copying.
     unsafe fn __getbuffer__(
         slf: Bound<'_, Self>,
         view: *mut ffi::Py_buffer,
@@ -293,7 +288,6 @@ impl Pixmap {
     }
 
     /// Release the optional format string allocated for one buffer view.
-    #[cfg(any(not(Py_LIMITED_API), Py_3_11))]
     unsafe fn __releasebuffer__(&self, view: *mut ffi::Py_buffer) {
         if !view.is_null() {
             let format = unsafe { (*view).format };

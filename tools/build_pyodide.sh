@@ -73,8 +73,8 @@ readonly TOOL_VENV="${BUILD_ROOT}/tool-venv-${tool_requirements_sha:0:16}"
 mkdir -p -- "${BUILD_ROOT}" "${DOWNLOADS}" "${OUTPUT_DIR}"
 
 project_version="$("${PYTHON_BIN}" -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
-runtime_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp310-abi3-${PYODIDE_PLATFORM}.whl"
-release_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp310-abi3-${PYEMSCRIPTEN_PLATFORM}.whl"
+runtime_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp311-abi3-${PYODIDE_PLATFORM}.whl"
+release_wheel="${OUTPUT_DIR}/pylopdf-${project_version}-cp311-abi3-${PYEMSCRIPTEN_PLATFORM}.whl"
 # Remove only the two exact artifacts this invocation owns so repeated builds
 # cannot accidentally validate a wheel from an earlier source tree.
 rm -f -- "${runtime_wheel}" "${release_wheel}"

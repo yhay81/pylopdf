@@ -228,7 +228,7 @@ types (NamedTuples for pymupdf's positional records, frozen dataclasses for
 richer records, TypedDicts for interchange formats such as `dict` output,
 handles for document-backed objects, and IntEnum/IntFlag for codes and flags);
 collections; mutation, builders, and transactions; errors, limits, and
-warnings; coordinates; constraints of the Python 3.10 floor; and the target
+warnings; coordinates; constraints of the Python 3.11 floor; and the target
 signature of every existing API and every redesigned capability. Workstreams
 implement against it, and a change to a rule goes through it.
 
@@ -862,7 +862,7 @@ answer.
 - **Competitors**: pdf_oxide, oxidize-pdf, pypdfium2, kreuzberg, and docling.
 - **abi3t (PEP 803)**: one `cp315-abi3.abi3t` wheel per platform could serve
   free-threaded 3.15 and every later free-threaded release, but GIL-enabled
-  3.15+ installs would prefer it to `cp310-abi3` (AGENTS.md has the
+  3.15+ installs would prefer it to `cp311-abi3` (AGENTS.md has the
   evaluation). Reconsider before adding `cp316t`.
 
 ## Decisions in this rewrite

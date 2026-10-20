@@ -22,7 +22,7 @@ JavaScript PDF 구현이나 wasm-bindgen shim을 사용하지 않습니다.
 | Cloudflare bundler | Wrangler 4.114.0 |
 | Worker compatibility date | 2026-07-26 |
 
-배포 artifact는 `cp310-abi3-pyemscripten_2025_0_wasm32`를 사용합니다. builder는 같은
+배포 artifact는 `cp311-abi3-pyemscripten_2025_0_wasm32`를 사용합니다. builder는 같은
 binary를 runtime-native `pyodide_2025_0_wasm32` tag로 먼저 실행하고 PEP 783 배포용으로
 결정적으로 retag합니다. PyEmscripten tag artifact만 PyPI, provenance attestation,
 release SBOM에 포함됩니다.
@@ -85,7 +85,7 @@ await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(
     "https://example.invalid/pylopdf-0.14.0-"
-    "cp310-abi3-pyodide_2025_0_wasm32.whl"
+    "cp311-abi3-pyodide_2025_0_wasm32.whl"
 )
 `);
 ```

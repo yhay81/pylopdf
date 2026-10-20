@@ -23,13 +23,13 @@ Changes that are not released yet may also wait as fragments in
   keys are never merged, so identical pages or layers stay distinct.
   Compaction turns references to missing objects into null, so that their
   numbers cannot come to name another object.
-- CPython 3.15 support. The existing `abi3-py310` wheel covers GIL-enabled
-  3.15, which the package metadata now declares; CI runs the full suite on
-  3.15, and release CI smoke-tests every abi3 wheel on 3.15 as well as 3.14.
+- CPython 3.15 support. The abi3 wheel covers GIL-enabled 3.15, which the
+  package metadata now declares; CI runs the full suite on 3.15, and release
+  CI smoke-tests every abi3 wheel on 3.15 as well as 3.14.
   Free-threaded CPython 3.15 gets a version-specific `cp315-cp315t` wheel on
   all five release targets next to `cp314t`, tested in CI with the GIL
   disabled. The PEP 803 `abi3t` stable ABI stays disabled, because a
-  `cp315-abi3.abi3t` wheel would also take precedence over `cp310-abi3` on
+  `cp315-abi3.abi3t` wheel would also take precedence over `cp311-abi3` on
   GIL-enabled CPython 3.15 and later.
 - `pylopdf.Font` follows pymupdf's `Font(fontname=None, fontfile=None,
   fontbuffer=None)`: a Standard 14 font by name or alias, an OpenType face

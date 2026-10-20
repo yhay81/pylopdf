@@ -105,7 +105,7 @@ def _read_imports(extension: bytes) -> list[tuple[str, str, int]]:
 
 def verify_wheel(wheel: Path, *, version: str, platform: str) -> None:
     """Verify wheel tags and the Emscripten extension contract."""
-    expected_tag = f"cp310-abi3-{platform}"
+    expected_tag = f"cp311-abi3-{platform}"
     expected_suffix = f"-{expected_tag}.whl"
     if not wheel.name.startswith(f"pylopdf-{version}-") or not wheel.name.endswith(expected_suffix):
         msg = f"unexpected wheel filename: {wheel.name}; expected *{expected_suffix}"

@@ -5,7 +5,7 @@ description: Document、Page、Pixmap、並列レンダリング、CPython 3.14t
 
 # 並行実行とfree-threaded Python
 
-pylopdfは、GILありCPython 3.10–3.15向けのプラットフォーム別`abi3` wheelに加え、
+pylopdfは、GILありCPython 3.11–3.15向けのプラットフォーム別`abi3` wheelに加え、
 free-threaded CPython向けにPythonのバージョンごとのwheelを公開します。
 `cp314-cp314t`はv0.10以降、`cp315-cp315t`はv0.14.0より後のリリースで提供します。
 free-threaded wheelをimportしてもGILは再有効化されません。
@@ -14,7 +14,7 @@ free-threaded wheelをimportしてもGILは再有効化されません。
 
 | 利用方法 | サポート |
 |---|---|
-| GILありCPython 3.10–3.15 | `abi3-py310` wheelでサポート |
+| GILありCPython 3.11–3.15 | `abi3-py311` wheelでサポート |
 | free-threaded CPython 3.14tと3.15t | `cp314-cp314t`と`cp315-cp315t` wheelでサポートし、GIL無効の状態でテスト |
 | 異なる`Document`に対する並行操作 | サポート。load、save、render、抽出、merge、圧縮の重い処理はGILを解放 |
 | 同じ`Document`に対する並行呼び出し・編集 | 非サポート。ロックで直列化するか、独立したDocumentを使用 |
@@ -68,7 +68,7 @@ Documentの編集、代替fontの変更、closeによってcacheは無効にな�
 
 ## Pixmapバッファ { #pixmap-buffers }
 
-free-threaded wheelでは、不変のRGBA8ストレージをread-only・1次元・ゼロコピーの
+すべてのwheelが、不変のRGBA8ストレージをread-only・1次元・ゼロコピーの
 bufferとして公開します。
 
 ```python
@@ -76,6 +76,8 @@ view = memoryview(page.get_pixmap())
 assert view.readonly and view.format == "B"
 ```
 
-`Py_buffer`はPython 3.11でstable ABIに加わったため、`abi3-py310` wheelからは
-公開できません。そのwheelでは1回コピーする`bytes`値の`pixmap.samples`を使います。
-これによりbufferの寿命と不変性を崩さずPython 3.10互換性を保ちます。
+viewはPixmapを生かし続けるため、NumPyは`np.frombuffer(pixmap, dtype=np.uint8)`で
+画素をコピーせずに読めます。独立した`bytes`のコピーが必要な場合は、引き続き
+`pixmap.samples`を使えます。v0.14.0より後のリリースはPython 3.11以上を必要とし、
+そのstable ABIには`Py_buffer`が含まれるため、abi3 wheelも同じbufferを公開します。
+v0.14.0以前はfree-threaded wheelだけがこのbufferを公開していました。

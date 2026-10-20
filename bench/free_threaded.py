@@ -11,7 +11,7 @@ import sysconfig
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pylopdf
@@ -154,7 +154,7 @@ def main() -> None:
             sequential_seconds=sequential,
             parallel_seconds=parallel,
             python_command="py -3.14t" if os.name == "nt" else "python3.14t",
-            run_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            run_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
             version=pylopdf.__version__,
         )
     )

@@ -34,9 +34,7 @@ from pylopdf.pylopdf_core import LimitError, PdfError, _Font, _Shape
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from types import TracebackType
-    from typing import Any
-
-    from typing_extensions import Self
+    from typing import Any, Self
 
     from pylopdf._document import Document
     from pylopdf._fonts import Font

@@ -5,7 +5,7 @@ description: Document、Page、Pixmap、并行渲染与CPython 3.14t和3.15t所�
 
 # 并发与free-threaded Python
 
-pylopdf既为带GIL的CPython 3.10–3.15发布每个平台一个`abi3` wheel，也为
+pylopdf既为带GIL的CPython 3.11–3.15发布每个平台一个`abi3` wheel，也为
 free-threaded CPython按Python版本发布专用wheel：`cp314-cp314t`自v0.10起提供，
 `cp315-cp315t`自v0.14.0之后的版本起提供。导入free-threaded wheel不会重新启用GIL。
 
@@ -13,7 +13,7 @@ free-threaded CPython按Python版本发布专用wheel：`cp314-cp314t`自v0.10�
 
 | 用法 | 支持情况 |
 |---|---|
-| 带GIL的CPython 3.10–3.15 | 由`abi3-py310` wheel支持 |
+| 带GIL的CPython 3.11–3.15 | 由`abi3-py311` wheel支持 |
 | free-threaded CPython 3.14t和3.15t | 由`cp314-cp314t`和`cp315-cp315t` wheel支持，并在GIL禁用状态下测试 |
 | 对不同`Document`对象执行并发操作 | 支持；加载、保存、渲染、提取、合并和压缩等重型操作会释放GIL |
 | 对同一个`Document`并发调用或编辑 | 不支持；请用锁串行访问，或使用互相独立的Document |
@@ -64,13 +64,14 @@ cache失效；若在打开它的线程上执行这些操作，或在该线程上
 
 ## Pixmap缓冲区 { #pixmap-buffers }
 
-free-threaded wheel通过只读、一维、零复制的buffer公开不可变RGBA8数据：
+所有wheel都通过只读、一维、零复制的buffer公开不可变RGBA8数据：
 
 ```python
 view = memoryview(page.get_pixmap())
 assert view.readonly and view.format == "B"
 ```
 
-`Py_buffer`在Python 3.11才进入stable ABI，因此`abi3-py310` wheel无法公开该接口。
-在该wheel上请使用`pixmap.samples`；它是复制一次的`bytes`值。这样既保持Python 3.10
-兼容性，也不会削弱buffer的生命周期和不可变性保证。
+view会使Pixmap保持存活，因此NumPy可以通过`np.frombuffer(pixmap, dtype=np.uint8)`
+无复制地读取像素。需要独立的`bytes`副本时仍可使用`pixmap.samples`。v0.14.0之后的
+版本要求Python 3.11及以上，其stable ABI包含`Py_buffer`，因此abi3 wheel也公开同一
+buffer；v0.14.0及更早版本只在free-threaded wheel上公开该buffer。

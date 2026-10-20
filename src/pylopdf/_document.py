@@ -52,8 +52,7 @@ from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import TracebackType
-
-    from typing_extensions import Self
+    from typing import Self
 
     from pylopdf._fonts import Font
     from pylopdf._types import (

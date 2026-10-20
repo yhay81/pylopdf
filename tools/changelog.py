@@ -279,7 +279,7 @@ def assemble(root: Path, fragments: list[Fragment], version: str | None, date: s
     if version is None and not fragments:
         sys.stdout.write("no changelog fragments to fold\n")
         return 0
-    date = date or dt.datetime.now(tz=dt.timezone.utc).date().isoformat()
+    date = date or dt.datetime.now(tz=dt.UTC).date().isoformat()
     if version is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         sys.stderr.write(f"error: date {date!r} is not YYYY-MM-DD\n")
         return 1

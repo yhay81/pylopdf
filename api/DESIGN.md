@@ -264,11 +264,21 @@ Every public API is fully typed, so `page.get_text("words")` type-checks as
   handles raise `StaleObjectError` when their page changed or their object was
   deleted.
 
-### R8 — Python 3.10 floor
+### R8 — Python 3.11 floor
 
-No `StrEnum` (use `Literal` strings), no runtime `typing.Self` (import it
-under `TYPE_CHECKING`), dataclasses with `slots=True` and `kw_only=True`
-(both available since 3.10), and no syntax newer than 3.10.
+Python 3.11 is the oldest supported version, as it is for pymupdf 2.0. Its
+stable ABI includes `Py_buffer`, so every wheel exposes the Pixmap buffer.
+`typing.Self` may be imported at runtime, dataclasses use `slots=True` and
+`kw_only=True`, and no syntax newer than 3.11 appears. Public type aliases
+stay `TypeAlias` assignments: a PEP 695 `type` statement needs 3.12 and
+changes what `typing.get_args` returns for the alias at runtime.
+
+String options stay `Literal` strings rather than `StrEnum` members. This is a
+design choice, not a version limit, since 3.11 has `StrEnum`: an enum member
+that compares equal to its string would be a second spelling of every option,
+which [R1](#r1--one-api) excludes, while `Literal` keeps pymupdf's string
+arguments as they are and type-checks each value. Codes and flags remain
+IntEnum and IntFlag classes ([R6](#r6--types)).
 
 ## 2. Object model
 
@@ -357,7 +367,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `Document.get_page_pixmap(pno, *, ...)` | same | same | A convenience (R2.6); it replaces `render_page`. |
 | `Document.render_pages(pages=None, *, matrix=None, dpi=None, colorspace=None, alpha=False, clip=None, annots=True, background=None, output="png", jpg_quality=95, workers=None, max_size=...)` → `list[bytes]` | — | pylopdf | The parallel batch, aligned with the `get_pixmap` options; encoding runs inside the workers. |
 | `Page.get_svg_image(*, matrix=None, text_as_path=True)` | same | same | M0 renames `render_svg`. `text_as_path=False` raises until M1 can honor it. |
-| `Pixmap`: `width` and `w`, `height` and `h`, `n`, `alpha`, `stride`, `samples`, `samples_mv`, `colorspace`, `irect`, `size`, `xres`, `yres` | same | same | `w` and `h` are pymupdf's own aliases. `colorspace` returns a `Colorspace(name, n)` value, with `csGRAY`, `csRGB`, and `csCMYK` as constants. On abi3 wheels without the buffer protocol, `samples_mv` views a copy. |
+| `Pixmap`: `width` and `w`, `height` and `h`, `n`, `alpha`, `stride`, `samples`, `samples_mv`, `colorspace`, `irect`, `size`, `xres`, `yres` | same | same | `w` and `h` are pymupdf's own aliases. `colorspace` returns a `Colorspace(name, n)` value, with `csGRAY`, `csRGB`, and `csCMYK` as constants. `samples_mv` is a read-only `memoryview` of the pixel storage on every wheel, without a copy. |
 | `Pixmap.tobytes(output="png", jpg_quality=95, *, max_size=...)`, `Pixmap.save(filename, output=None, jpg_quality=95)` | same | same | M0 renames `save`'s parameter `path` to pymupdf's `filename`. JPEG and PNM land in M1. |
 | `Pixmap` constructors and analysis (`pixel`, `color_count`, `is_unicolor`, `digest`, `copy`, `shrink`, `invert_irect`, and the rest) | same | same | M1. Constructors follow pymupdf's argument forms only where they are unambiguous ([open questions](#16-open-questions)). |
 

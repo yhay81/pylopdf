@@ -37,7 +37,7 @@ hide:
         <li>MIT 라이선스</li>
         <li>6.7–7.8 MB wheel</li>
         <li>필수 Python 의존성 없음</li>
-        <li>Python 3.10–3.15</li>
+        <li>Python 3.11–3.15</li>
       </ul>
     </div>
 
@@ -113,8 +113,8 @@ hide:
         <span class="living-evidence__label">필수 Python 의존성. 컴파일된 Rust 구성 요소는 wheel에 포함됩니다.</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">3.10–3.15</span>
-        <span class="living-evidence__label">하나의 abi3 wheel 계열이 여섯 세대의 Python을 지원합니다.</span>
+        <span class="living-evidence__value">3.11–3.15</span>
+        <span class="living-evidence__label">하나의 abi3 wheel 계열이 다섯 세대의 Python을 지원합니다.</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">MIT</span>
