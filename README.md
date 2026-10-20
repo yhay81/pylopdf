@@ -5,15 +5,16 @@
 [![Python](https://img.shields.io/pypi/pyversions/pylopdf)](https://pypi.org/project/pylopdf/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/yhay81/pylopdf/blob/main/LICENSE)
 
-**PDF editing, rendering, extraction, and generation for Python — a
-pymupdf-style API on a pure-Rust core, MIT licensed, with no mandatory Python
-dependencies.**
+**PDF editing, rendering, extraction, and generation for Python — pymupdf's
+API names and meaning on a pure-Rust core, MIT licensed, with no mandatory
+Python dependencies.**
 
 [Documentation](https://pylopdf.haya.works/) ·
 [Getting started](https://pylopdf.haya.works/getting-started/) ·
 [API reference](https://pylopdf.haya.works/api/) ·
 [pymupdf migration guide](https://pylopdf.haya.works/migration/) ·
-[Benchmarks](https://pylopdf.haya.works/benchmarks/)
+[Benchmarks](https://pylopdf.haya.works/benchmarks/) ·
+[Roadmap](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
 
 pylopdf combines the 2026 Rust PDF ecosystem behind one Python API:
 [lopdf](https://github.com/J-F-Liu/lopdf) for editing,
@@ -23,33 +24,75 @@ by Typst) for rendering and positioned extraction, and
 [HarfRust](https://github.com/harfbuzz/harfrust) for shaped, subset-embedded
 text and form appearances.
 
-## Why pylopdf?
+> **Status: pre-1.0.** pylopdf is working toward
+> [parity with pymupdf](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)
+> for PDF documents. Its rule is one API in which a pymupdf name keeps
+> pymupdf's meaning and a redesign takes a new name, with no aliases. One
+> breaking release before 1.0 brings the existing API in line: for example,
+> `render_page` gave way to pymupdf's `get_page_pixmap`, `render_page_svg`
+> and `Page.render_svg` to `Page.get_svg_image`, and `add_link_annot` gives
+> way to `insert_link`. The [stability policy](https://pylopdf.haya.works/stability/)
+> says what may change.
 
-| | pylopdf | pymupdf | pypdf | pypdfium2 | pdf_oxide | pikepdf |
+## How pylopdf compares
+
+### Packaging
+
+| | pylopdf | pymupdf | pypdf | pypdfium2 | pikepdf | pdf_oxide |
 |---|---|---|---|---|---|---|
-| License | **MIT** | AGPL / commercial | BSD | Apache/BSD | MIT/Apache-2.0 | MPL-2.0 |
-| Wheel size (MiB) | **~6.4–7.4** | ~17.5–24.7 | small (pure Python) | ~2.7–5.0 | ~9.7–10.9 | ~1.9–4.6 |
-| Editing (merge / split / rotate / outlines) | ✅ | ✅ | ✅ | limited | ✅ | ✅ (structure-focused) |
-| Rendering (PNG / SVG) | ✅ | ✅ | ❌ | ✅ (PNG) | ❌ | ❌ (docs point to other tools) |
-| Text extraction | ✅ (positioned text, tables, Markdown) | ✅ (advanced) | ✅ | ✅ | ✅ (advanced, table detection / Markdown) | ❌ (docs point to other tools) |
-| Encryption (AES-256) | ✅ read & write | ✅ | ✅ | read only | undocumented | ✅ (via qpdf) |
-| Locale-aware multilingual fonts | ✅ (optional extras) | ✅ | — | manual | — | — |
-| Implementation | **pure Rust** | C/C++ | Python | C++ (PDFium) | Rust | C++ (qpdf) |
+| License | **MIT** | AGPL-3.0 or commercial | BSD-3-Clause | Apache-2.0 / BSD-3-Clause | MPL-2.0 | MIT or Apache-2.0 |
+| Core | Rust (lopdf, hayro, krilla) | C (MuPDF) | pure Python | C++ (PDFium) | C++ (qpdf) | Rust |
+| Wheel size (MiB) | 6.8–7.9 | 60.1–65.7 | 0.4 | 2.8–5.1 | 2.0–4.2 | 10.0–11.2 |
+| Required dependencies | **none** | 8, including onnxruntime and numpy | none | none | Pillow, lxml, packaging | none |
+| Free-threaded wheels | cp314t, cp315t | — | pure Python | pure Python (ctypes) | cp314t, cp315t | — |
 
-pylopdf's range covers the five native abi3 wheels built from the 0.14.0
-sources with the thin-LTO release profile on GitHub-hosted runners on
-2026-10-17; the published 0.14.0 wheels are 6.8–7.9 MiB. The other ranges are
-published files for pymupdf 1.28.0, pypdfium2 5.12.1, pdf-oxide 0.3.75, and
-pikepdf 10.10.0 on 2026-07-25.
+Published files on PyPI on 2026-10-20: pylopdf 0.14.0, pymupdf 2.0, pypdf
+6.21.1, pypdfium2 5.14.0, pikepdf 10.17.0, and pdf-oxide 0.3.78. Ranges span
+each project's platform wheels. pylopdf's `cp315t` wheels and its hayro 0.8
+upgrade, which grew the abi3 wheel by about 4%, are on `main` and not yet
+released. Feature lists change quickly between releases, so this table states
+packaging facts only; compare features in each project's documentation.
 
-- **AGPL-free**: covers the common pymupdf use cases under the MIT license
-- **Small and self-contained**: fits size-constrained environments such as AWS
-  Lambda and Cloudflare Workers
-- **One wheel per platform**: abi3 covers CPython 3.11–3.15, plus native
-  `cp314t` and `cp315t` wheels for free-threaded Python
-- **Familiar**: the API is modeled after
-  [pymupdf](https://github.com/pymupdf/PyMuPDF), with a
-  [migration guide](https://pylopdf.haya.works/migration/)
+### Against pymupdf, measured
+
+pymupdf covers every row below; the table shows where pylopdf stands. The
+[parity manifest](https://github.com/yhay81/pylopdf/blob/main/api/pymupdf-parity.json)
+classifies all 962 public names of pymupdf 2.0, and CI checks it against
+pylopdf's public API: 201 of the 763 names in scope are available (26.3%), 562
+are planned for a roadmap milestone, and 199 are non-goals with an ecosystem
+answer. `python tools/check_parity.py` prints the report per pymupdf class.
+
+| Area | pylopdf today | Not yet (milestone) |
+|---|---|---|
+| Pages and documents | ✅ merge, split, select, rotate, page boxes, labels, TOC, metadata, attachments, AES-256 | TOC item editing, viewer preferences, Art/Bleed/TrimBox (M5) |
+| Text extraction | ✅ `text` / `words` / `blocks` / `dict` / `rawdict`, search, tables, Markdown | span colour and flags, `clip=`, html / xml / json output (M1) |
+| Rendering | ✅ PNG, SVG, clips, ordered parallel batches | arbitrary matrix, grayscale, JPEG output, `annots=False` (M0, M1) |
+| Drawing and text generation | ✅ `Shape` and `draw_*`, shaped and subset-embedded `insert_text` / `insert_textbox`, images, page overlays | rotated, translucent, and outlined text; images to PDF (M2); HTML text boxes (M8) |
+| Annotations | ◐ create Highlight and URI Link | other types, editing, deletion, flattening (M3) |
+| Forms | ◐ fill fields with regenerated appearances | field creation, deletion, properties, reset, flattening (M3) |
+| Redaction | — | `apply_redactions`, `scrub` (M4) |
+| Low-level objects | ✅ a typed object model in place of `xref_*` | XMP metadata, optional-content layers (M5) |
+| Saving | ✅ `garbage` levels 0–4, object streams, encryption | incremental save, font subsetting, damaged xref-stream recovery (M7) |
+| OCR and LLM output | ✅ native offline OCR, `to_markdown` | OCR text pages, page chunks, layout analysis (M6) |
+| XPS, EPUB, HTML input | non-goal | typst or a dedicated converter |
+
+### Beyond pymupdf
+
+- **MIT for everything**, layout analysis included when it lands; pymupdf is
+  AGPL or commercial
+- **Small and self-contained**: one wheel without Python dependencies fits
+  size-constrained environments such as AWS Lambda and Cloudflare Workers
+- **Bounded on untrusted input**: every documented cap raises a typed
+  `LimitError` instead of degrading silently, and `DocumentLimits.web()`
+  enables the complete profile ([security model](https://pylopdf.haya.works/security/))
+- **Concurrency contract**: heavy operations release the GIL, and native
+  `cp314t` and `cp315t` wheels support free-threaded Python
+  ([contract](https://pylopdf.haya.works/concurrency/))
+- **WebAssembly**: a PyEmscripten wheel runs on Cloudflare Python Workers
+  ([guide](https://pylopdf.haya.works/wasm/))
+- **OCR without system tools**: PP-OCRv6 runs in pure Rust, with no Tesseract
+  install and no network at runtime
+- **One wheel per platform**: abi3 covers CPython 3.11–3.15
 
 ## Install
 
@@ -92,10 +135,10 @@ tables = doc[0].find_tables()                # bordered grids incl. merged cells
 markdown = doc.to_markdown()                 # RAG / LLM preprocessing
 
 # Render: PNG / SVG / raw pixels
-png: bytes = doc.render_page(0, dpi=300)
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg: str = doc.render_page_svg(0)
-pix = doc[0].get_pixmap(dpi=144)             # immutable RGBA8 for NumPy / PIL
+png: bytes = doc.get_page_pixmap(0, dpi=300).tobytes()
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg: str = doc[0].get_svg_image()
+pix = doc[0].get_pixmap(dpi=144)             # immutable RGB pixels for NumPy / PIL
 
 # Edit: reorganize pages, merge documents
 doc.delete_pages([1, 2])
@@ -126,8 +169,13 @@ engine = pylopdf.OcrEngine(threads=4)
 page.apply_ocr(engine=engine)                # skips pages with existing text
 
 # Save: optimized, or AES-256 encrypted
-doc.save("out.pdf", garbage=True, deflate=True, object_streams=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save("out.pdf", garbage=True, deflate=True, use_objstms=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 
 # Encrypted input and fast probing
 doc = pylopdf.open("locked.pdf", password="secret")
@@ -143,11 +191,12 @@ default, and resource boundary.
 
 - **Editing** — merge, split, select/reorder, rotate, page boxes, blank and
   copied pages, table of contents, page labels, metadata, file attachments,
-  AES-256 encrypted save, atomic file replacement
-- **Extraction** — plain and positioned text (`words` / `blocks` / `dict`),
-  case-insensitive search, bordered and opt-in borderless table detection with
-  merged-cell reconstruction, image and vector-drawing extraction, Markdown
-  conversion, vertical and rotated CJK reading order
+  AcroForm fields carried along by `insert_pdf` and pruned with deleted pages,
+  atomic file replacement
+- **Extraction** — plain and positioned text (`words` / `blocks` / `dict` /
+  `rawdict`), case-insensitive search, bordered and opt-in borderless table
+  detection with merged-cell reconstruction, image and vector-drawing
+  extraction, Markdown conversion, vertical and rotated CJK reading order
 - **Rendering** — PNG and SVG via hayro, page-region clips, DPI control,
   background fills, ordered parallel `render_pages`
 - **Generation** — JPEG-passthrough/PNG image insertion, vector page overlays
@@ -156,24 +205,23 @@ default, and resource boundary.
   `text_length` is the drawn width, pymupdf's `Shape` and `draw_*` vector
   drawing that embeds each font once per commit, highlight and link annotations,
   AcroForm filling with regenerated appearances, bounded simple-font text
-  replacement
+  replacement; repeated images and page overlays reuse one embedded copy
+- **Saving** — pymupdf's `garbage` levels 0–4, where 3 and 4 merge identical
+  objects and streams, object and cross-reference streams, AES-256 encryption
+- **Low-level access** — `doc.objects`, `doc.trailer`, `doc.catalog`, and
+  `page.obj` expose the object graph as typed Python values in place of
+  pymupdf's string-based `xref_*` methods
+- **Geometry** — immutable `Point` and `Matrix` values with pymupdf's
+  arithmetic; `Rect` algebra, `IRect`, and `Quad` follow
 - **OCR** — offline PP-OCRv6 engine (`[ocr]` extra), positioned words,
   idempotent invisible searchable layers, clockwise rotation correction
-- **Untrusted input policy** — `DocumentLimits.web()` bounds file size, pages,
-  objects, decompression, glyph and output budgets in one opt-in profile;
-  every documented cap raises a typed `LimitError` instead of degrading
-  silently ([security model](https://pylopdf.haya.works/security/))
-- **WebAssembly** — a static PyEmscripten wheel runs on Cloudflare Python
-  Workers, verified end-to-end every release
-  ([guide](https://pylopdf.haya.works/wasm/))
-- **Concurrency** — heavy operations release the GIL, distinct `Document`
-  objects work in parallel, and native `cp314t` and `cp315t` wheels support
-  free-threaded Python 3.14 and 3.15
-  ([contract](https://pylopdf.haya.works/concurrency/))
 
 ## Limitations
 
-pylopdf documents its boundaries instead of guessing. Multicolumn reading
+pylopdf documents its boundaries instead of guessing. Redaction, annotation
+editing, form-field creation, and incremental save are not available yet; the
+[comparison above](#against-pymupdf-measured) lists the milestone for each.
+Multicolumn reading
 order follows deterministic whitespace-gutter rules; borderless table
 detection is opt-in because aligned prose is geometrically ambiguous. CJK text
 generation selects one font per run (not per-glyph fallback). Pure RTL lines

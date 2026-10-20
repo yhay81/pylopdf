@@ -48,7 +48,7 @@ For many pages of one document, use `render_pages()` instead of calling the
 same document from external threads:
 
 ```python
-png_pages = document.render_pages(scale=2, workers=4)
+png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 `render_pages()` uses one immutable renderer snapshot, preserves requested page
@@ -57,7 +57,7 @@ order and duplicates, and caps estimated concurrent working memory at roughly
 
 ## Repeated rendering { #repeated-rendering }
 
-Repeated `render_page()`, `Page.get_pixmap()`, `Page.render()`, and serial
+Repeated `Page.get_pixmap()`, `Document.get_page_pixmap()`, and serial
 `render_pages()` calls on the thread that opened a document reuse fonts, color
 spaces, and glyph outlines parsed by earlier calls, with output identical to a
 freshly opened document. Each thread retains at most one such cache, covering
@@ -69,7 +69,7 @@ other threads and parallel `render_pages()` workers use call-scoped caches.
 
 ## Pixmap buffers { #pixmap-buffers }
 
-Every wheel exposes the immutable RGBA8 storage through a read-only,
+Every wheel exposes the immutable RGB or RGBA pixel storage through a read-only,
 one-dimensional, zero-copy buffer:
 
 ```python

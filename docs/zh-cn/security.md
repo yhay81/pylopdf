@@ -80,7 +80,7 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `page_entry_count`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
-`pdf_output_size`、`image_input_size`、`image_pixel_count`、
+`pdf_output_size`、`image_input_size`、`image_pixel_count`、`image_inventory_count`、
 `font_input_size`、`text_input_size`、`text_line_count`、`path_point_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`、
@@ -174,16 +174,14 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 仍会把panic消息写到标准错误输出。
 
 - 每页渲染上限为6400万像素。
-- `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG
-  输出默认上限为64 MiB。writer会在返回Python `bytes`前拒绝越界write；
-  `max_size=None`可显式取消。rendering使用`render_output_size`，
-  Pixmap直接encode使用`pixmap_output_size`。
+- `Pixmap.tobytes()`的encoded PNG输出默认上限为64 MiB。writer会在返回Python
+  `bytes`前以`pixmap_output_size`拒绝越界write；`max_size=None`可显式取消。
 - `Document.tobytes()`对普通、object/xref stream及加密输出统一应用512 MiB默认
   serialization上限。Rust writer会在转换为Python `bytes`之前拒绝越界write；
   `max_size=None`可显式取消。`save()`先流式写入target同directory中安全创建的
   sibling，仅在完整写入后原子替换请求path，因此serialization或替换失败会保留
   现有file。它不受此in-memory预算限制。即使后续I/O失败，`garbage`、`deflate`、
-  `object_streams`等save option仍保持已记录的mutation语义。
+  `use_objstms`等save option仍保持已记录的mutation语义。
 - `Pixmap.save()`把PNG encode直接流式写入target directory中不可预测且排他创建的
   sibling，仅在完整write成功后原子替换请求path，不会在内存中再保留一份完成PNG。
   替换失败会保留现有output并删除临时file。
@@ -221,7 +219,7 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 - open、authenticate、快速metadata probe与AES-256输出使用的password在PyO3 copy或
   password KDF前限制为127 UTF-8 byte。Rust直接调用会再次检查；拒绝code为
   `password_input_size`，保存拒绝发生在document mutation或创建output之前。
-- `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
+- `Page.get_svg_image()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.8只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
   不受此限制。
@@ -242,8 +240,10 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   较大者的entry，因此重复页面也不会使选择结果大于文档。iterable会在超过上限的
   第一个entry、graph修改前停止，并返回`page_entry_count`。`insert_pdf()`接受源
   文档的完整范围。空delete保留cache、generation及现有`Page` view。
-- `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
-  64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
+- `Page.get_images()`在图像或Form XObject超过4,096个时以`image_inventory_count`
+  停止，`Page.get_image_info()`在4,096个placement时停止。`Document.extract_image()`
+  在64,000,000像素与64 MiB payload上限及content和颜色空间guard下解码单个图像，
+  Flate-wrapped JPEG直通也只解压到该上限。
 - `Document.embfile_add()`会在PyO3 copy前拒绝超过64 MiB的输入，
   `embfile_get()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
   `max_size=`；`max_size=None`会显式接受无限制输入或materialization。附件name tree

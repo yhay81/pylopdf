@@ -37,7 +37,7 @@ def test_open_with_user_password(name: str) -> None:
     assert doc.needs_pass
     assert not doc.is_encrypted
     assert "Encrypted page one" in doc.get_page_text(0)
-    assert doc.render_page(0, 0.5).startswith(b"\x89PNG")
+    assert doc.get_page_pixmap(0, matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).tobytes().startswith(b"\x89PNG")
 
 
 @USER
@@ -81,8 +81,11 @@ def test_authenticate(name: str) -> None:
     assert doc.needs_pass
     assert doc.page_count == 2
     assert "Encrypted page two" in doc.get_page_text(1)
-    # Re-authenticating a decrypted document returns 1 for "not required."
-    assert doc.authenticate("anything") == 1
+    # pymupdf still checks a decrypted document's passwords.
+    assert doc.authenticate("anything") == 0
+    assert doc.authenticate("userpw") == 2
+    assert doc.authenticate("ownerpw") == 4
+    assert not doc.is_encrypted
 
 
 @USER
@@ -138,7 +141,7 @@ def test_plain_pdf_reports_not_encrypted(one_page_pdf: bytes) -> None:
 def test_save_encrypted_roundtrip(three_page_pdf: bytes) -> None:
     """Save with AES-256 and open with either user or owner password."""
     doc = pylopdf.Document(stream=three_page_pdf)
-    data = doc.tobytes(user_pw="secret", owner_pw="boss")
+    data = doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret", owner_pw="boss")
     # The original in-memory document remains plaintext.
     assert not doc.is_encrypted
     assert doc.page_count == 3
@@ -158,7 +161,7 @@ def test_tobytes_bounds_encrypted_output(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(stream=three_page_pdf)
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.tobytes(user_pw="secret", owner_pw="boss", max_size=16)
+        doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret", owner_pw="boss", max_size=16)
     assert caught.value.code == "pdf_output_size"
     assert not doc.is_encrypted
 
@@ -166,11 +169,11 @@ def test_tobytes_bounds_encrypted_output(three_page_pdf: bytes) -> None:
 def test_save_encrypted_file_and_password_arg(tmp_path: Path, three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     out = tmp_path / "locked.pdf"
-    doc.save(out, user_pw="secret")  # Omitting owner_pw defaults it to user_pw.
+    doc.save(out, encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret")  # Omitting owner_pw defaults it to user_pw.
     opened = pylopdf.Document(out, password="secret")
     assert opened.page_count == 3
     assert "Page one" in opened.get_page_text(0)
-    assert opened.render_page(0).startswith(b"\x89PNG")
+    assert opened.get_page_pixmap(0, alpha=True).tobytes().startswith(b"\x89PNG")
     with pytest.raises(pylopdf.PasswordError):
         pylopdf.Document(out, password="wrong")
 
@@ -178,17 +181,19 @@ def test_save_encrypted_file_and_password_arg(tmp_path: Path, three_page_pdf: by
 def test_save_encrypted_owner_only_restricts(three_page_pdf: bytes) -> None:
     """Create a freely readable, permission-restricted owner-only PDF."""
     doc = pylopdf.Document(stream=three_page_pdf)
-    data = doc.tobytes(user_pw="", owner_pw="boss", permissions=pylopdf.Permissions.PRINT)
+    data = doc.tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="", owner_pw="boss", permissions=pylopdf.Permissions.PRINT
+    )
     opened = pylopdf.Document(stream=data)
     assert not opened.needs_pass  # An empty user password auto-decrypts.
     assert opened.page_count == 3
     assert "Page one" in opened.get_page_text(0)
 
 
-def test_save_encrypted_rejects_object_streams(three_page_pdf: bytes) -> None:
+def test_save_encrypted_rejects_use_objstms(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     with pytest.raises(ValueError, match="cannot both be specified"):
-        doc.tobytes(user_pw="x", object_streams=True)
+        doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="x", use_objstms=True)
 
 
 def test_permissions_flags() -> None:
@@ -203,7 +208,7 @@ def test_password_input_boundary_is_exact(one_page_pdf: bytes) -> None:
     assert doc.page_count == 1
     assert pylopdf.peek_metadata(stream=one_page_pdf, password=password)["page_count"] == 1
 
-    encrypted = doc.tobytes(user_pw=password)
+    encrypted = doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw=password)
     assert pylopdf.Document(stream=encrypted, password=password).page_count == 1
 
 
@@ -233,7 +238,7 @@ def test_password_input_is_bounded_before_save_mutation(
 ) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     before = doc.tobytes()
-    kwargs = {password_field: "é" * 64}
+    kwargs = {"encryption": pylopdf.PDF_ENCRYPT_AES_256, password_field: "é" * 64}
 
     with pytest.raises(pylopdf.LimitError) as memory_limit:
         doc.tobytes(garbage=True, **kwargs)  # ty: ignore[invalid-argument-type]

@@ -12,32 +12,35 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()`은 별칭 생성자이며 컨텍스트 관리자를 지원합니다.
-password input은UTF-8 127 byte로 제한됩니다.
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+`pylopdf.open`은 pymupdf와 같이 동일한 호출 가능 객체이며 컨텍스트 관리자를 지원합니다.
+`stream`은 bytes, `bytearray`, `memoryview`, `io.BytesIO`를 받고 `filetype`은
+`"pdf"`를 받습니다. pymupdf의 `open("pdf", data)`처럼 `stream`과 함께 전달한 문자열
+`filename`은 파일 형식을 뜻합니다. password input은UTF-8 127 byte로 제한됩니다.
 
 | 멤버 | 용도 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / 반복 | `Page`뷰（음수 지원, 구조 변경 후 다시 가져오기） |
 | `page_count` / `len(doc)` | 페이지 수 |
 | `limits` / `complexity` | 열 때의 불변 리소스 정책 / stream 디코딩 없는 저비용 구조 지표 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제（pymupdf 의미론） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제. pymupdf와 같은 반환값 0/1/2/4/6이며 빈 user password로 열린 문서도 검사 |
 | `is_repaired` | 열 때 손상된 cross-reference data를 복구했는지 여부(offset 보정 또는 table 재구성). 저장하면 xref data를 정규화 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | 객체 그래프에 대한 타입 있는 저수준 접근. pymupdf의 `xref_*` 메서드를 대체([저수준 객체](#low-level-objects)) |
-| `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
+| `metadata` / `set_metadata(m)` | pymupdf와 같은 키: `format`, `trapped`를 포함한 Info 필드, `encryption`（UTF-16BE 지원）. `set_metadata`는 `format`과 `encryption`을 무시하고 거짓 값이면 항목을 삭제하며 `{}`이면 Info 사전을 삭제. aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 기본은 전체page, 명시entry는 page 수와4,096 중 큰 값까지이며 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
-| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 상한이 있는PNG, 누적encoded output 상한 안에서 전체page 또는 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdf와 같은 키로 이미지 하나의 데이터를 반환(DCT는 JPEG 그대로, 다른 filter는 PNG로 디코딩, soft mask는 제외). 페이지의 이미지 목록 |
+| `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 페이지 `Pixmap`(pymupdf의 `doc[pno].get_pixmap()` 간편형), 또는 누적encoded output 상한 안에서 전체page나 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
-| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고 가져온 페이지의 폼 필드를 등록하며, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
+| `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고 가져온 페이지의 폼 필드를 등록하며, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
 | `get_toc()` / `set_toc(toc)` | 대규모 manual에 맞춘, cycle을 처리하는 제한된 목차（페이지는 1부터, 65,536 entry/node, 131,072 edge, 깊이64, text 16 MiB, named destination은`get_links()`와 같음） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance. `font`에는 불러온 OpenType `Font`를 전달할 수 있음 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `object_streams=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `use_objstms=`, `encryption=`(기본값`PDF_ENCRYPT_NONE`, 암호화는`PDF_ENCRYPT_AES_256`; `PDF_ENCRYPT_AES_256` 없는password는 예외) 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |
 
 `compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
@@ -55,28 +58,29 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `xref` / `obj` | 페이지 사전의 객체 번호 / 실시간 저수준 핸들. 상속되는 속성은 조상에 남음 |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | 추출 및 상한이 있는 대소문자 구분 없는 검색. 검색어는UTF-8 4,096 byte, 신뢰 가능한 결과 집합은`None`으로 해제 |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | 추출 및 상한이 있는 대소문자 구분 없는 검색. 검색어는UTF-8 4,096 byte, 신뢰 가능한 결과 집합은`None`으로 해제 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `rotation`은 입력을 시계 방향으로 보정하고 `clip`은 표시 좌표 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
-| `find_tables(strategy="lines", clip=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
+| `find_tables(clip=None, strategy=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
-| `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | pymupdf와 같은 이미지 XObject 목록(`ImageItem` NamedTuple, `ImageItemFull`은 `referencer` 추가)과 그려진 배치의 사전(`bbox`, `transform`, 크기, 색 공간, `xrefs=True`면 `xref`) |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성. 페이지당 8,192개 경로, 131,072개 명령 또는 누적 131,072개 dash 값을 넘으면 부분 결과 없이 거부 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 상한이 있는PNG / UTF-8 SVG 렌더링. `clip`은 표시 좌표 사용 |
+| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdf와 같은 렌더링. 기본은 흰 바탕의 불투명 RGB, `alpha=True`면 straight-alpha RGBA, `dpi`가 배율 `matrix`보다 우선, `clip`은 표시 좌표. text를 path로 그리는 상한이 있는 UTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
-| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨; 편집하지 않은 `src`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
+| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | pymupdf 규약의 페이지 박스. `mediabox`는 PDF 좌표, `cropbox`는 MediaBox 위쪽 기준으로 y축 반전. `set_cropbox`는 MediaBox 안의 사각형만 받고 `set_mediabox`는 CropBox, BleedBox, TrimBox, ArtBox를 삭제 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` → xref | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` → Form xref | PDF 페이지를 벡터로 겹치기; `docsrc`는 같은 문서여도 됨; 편집하지 않은 `docsrc`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 문자열은 `str.splitlines()`로 줄을 나누고 리스트는 항목 하나를 한 줄로 쓰며, 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. 페이지 아래로 벗어나는 줄은 그리지 않고 그린 줄 수를 반환. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 줄은 pymupdf와 같은 위치에 배치. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth`가 있음(pymupdf처럼 점 뒤에 위치 인수로도 전달 가능) |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. link는 pymupdf의 `xref`와 `id`(`/NM`)를 가짐. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
 
 `get_drawings()`는`type="f"` / `"s"` / `"fs"`, 자체 완결형line/cubic `items`,
-`rect`, RGB/opacity, fill rule, width, cap, join, dashes를 포함한`DrawingInfo`
+`rect`, RGB/opacity, fill rule, width, cap, join, dashes, 페이지의 path·text·image
+가운데 그리기 순서인 `seqno`를 포함한`DrawingInfo`
 딕셔너리를 반환합니다. pattern paint는 도형을 유지하고 색상과opacity는`None`으로
 둡니다. clip path, clip 적용 후 가시성 판단, group/soft-mask 구조, optional-content
 layer 이름, text, image, annotation은 반환하지 않지만 optional-content 표시 상태는
@@ -260,9 +264,12 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | 이름 | 용도 |
 |---|---|
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 입력 크기를 선택적으로 제한하고password를127 byte로 제한하는 빠른 메타데이터·페이지 수 조회. `repaired`는 cross-reference 복구를 표시 |
-| `Permissions` | 암호화 권한 플래그（IntFlag） |
+| `Permissions` | 암호화 권한 플래그（IntFlag）. 멤버는 pymupdf의`PDF_PERM_*` 상수 |
+| `EncryptionMethod` | `save(encryption=)` 방식（IntEnum）. 멤버는 pymupdf의`PDF_ENCRYPT_*` 상수 |
+| `Base14_fontnames` / `Base14_fontdict` | pymupdf의 Standard 14 PostScript 이름과 `fontname=`이 쓰는 읽기 전용 대응표. 약칭과 정식 이름을 대소문자 구분 없이 받음 |
+| `LinkKind` / `TextAlign` | 멤버가 pymupdf의`LINK_*`·`TEXT_ALIGN_*` 상수인 IntEnum |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page, document 작업, form, vector drawing의 사전 형식 결과를 위한 TypedDict 계약 |
 | `DrawingItem` | line/cubic 그리기 명령을 나타내는 타입 별칭 |
 | `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
@@ -272,10 +279,12 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴. `weight=`는 가변 글꼴 파일의 인스턴스도 선택 |
 | `Shape(page)` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. `page.new_shape()`로도 만들 수 있음 |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 저수준 PDF 값과 실시간 객체 핸들([저수준 객체](#low-level-objects)) |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
+| `Word` / `Block` | pymupdf tuple 순서의 `get_text("words")`·`get_text("blocks")` NamedTuple |
+| `OcrRotation` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
-| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반）. 읽을 수 없는 입력은`FileDataError`(`RuntimeError`이기도 함), 빈 입력은`EmptyFileError`, 없는 파일은 내장`FileNotFoundError` |
+| `Pixmap` | 불변 RGB(`n == 3`) 또는 straight-alpha RGBA(`n == 4`) 픽셀: `samples` / `width` / `height` / `stride` / `n` / `alpha` / `colorspace` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(filename)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdf의 장치 색 공간과 그 번호 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 
 `TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의

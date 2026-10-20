@@ -16,8 +16,15 @@ from typing import (
 
 from pylopdf import _types
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
-from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning, StalePageError
-from pylopdf._fonts import Font
+from pylopdf._errors import (
+    DocumentClosedError,
+    EmptyFileError,
+    EncryptedDocumentError,
+    FileDataError,
+    PylopdfWarning,
+    StalePageError,
+)
+from pylopdf._fonts import Base14_fontdict, Base14_fontnames, Font
 from pylopdf._geometry import (
     EMPTY_IRECT,
     EMPTY_QUAD,
@@ -38,6 +45,7 @@ from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
 from pylopdf._page import Page
+from pylopdf._pixmap import CS_CMYK, CS_GRAY, CS_RGB, Colorspace, csCMYK, csGRAY, csRGB
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics, TableFinder
 from pylopdf._types import (
@@ -47,18 +55,39 @@ from pylopdf._types import (
     LINK_NAMED,
     LINK_NONE,
     LINK_URI,
+    PDF_ENCRYPT_AES_128,
+    PDF_ENCRYPT_AES_256,
+    PDF_ENCRYPT_KEEP,
+    PDF_ENCRYPT_NONE,
+    PDF_ENCRYPT_RC4_40,
+    PDF_ENCRYPT_RC4_128,
+    PDF_ENCRYPT_UNKNOWN,
+    PDF_PERM_ACCESSIBILITY,
+    PDF_PERM_ANNOTATE,
+    PDF_PERM_ASSEMBLE,
+    PDF_PERM_COPY,
+    PDF_PERM_FORM,
+    PDF_PERM_MODIFY,
+    PDF_PERM_PRINT,
+    PDF_PERM_PRINT_HQ,
     TEXT_ALIGN_CENTER,
     TEXT_ALIGN_JUSTIFY,
     TEXT_ALIGN_LEFT,
     TEXT_ALIGN_RIGHT,
     AnnotationInfo,
+    Block,
     DocumentComplexity,
     DocumentMetadata,
     DrawingInfo,
+    EncryptionMethod,
+    ExtractedImage,
     FormFieldInfo,
     ImageCompressionResult,
     ImageInfo,
+    ImageItem,
+    ImageItemFull,
     LinkInfo,
+    LinkKind,
     MetadataProbe,
     MetadataUpdate,
     OcrWord,
@@ -68,19 +97,24 @@ from pylopdf._types import (
     Point,
     RawTextBlock,
     RawTextLine,
-    RawTextPage,
+    RawTextPageDict,
     RawTextSpan,
     Rect,
+    TextAlign,
     TextBlock,
     TextChar,
     TextLine,
-    TextPage,
+    TextPageDict,
     TextSpan,
+    Word,
 )
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
 __version__ = "0.15.0"
 __all__ = [
+    "CS_CMYK",
+    "CS_GRAY",
+    "CS_RGB",
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
@@ -95,14 +129,32 @@ __all__ = [
     "LINK_NAMED",
     "LINK_NONE",
     "LINK_URI",
+    "PDF_ENCRYPT_AES_128",
+    "PDF_ENCRYPT_AES_256",
+    "PDF_ENCRYPT_KEEP",
+    "PDF_ENCRYPT_NONE",
+    "PDF_ENCRYPT_RC4_40",
+    "PDF_ENCRYPT_RC4_128",
+    "PDF_ENCRYPT_UNKNOWN",
+    "PDF_PERM_ACCESSIBILITY",
+    "PDF_PERM_ANNOTATE",
+    "PDF_PERM_ASSEMBLE",
+    "PDF_PERM_COPY",
+    "PDF_PERM_FORM",
+    "PDF_PERM_MODIFY",
+    "PDF_PERM_PRINT",
+    "PDF_PERM_PRINT_HQ",
     "TEXT_ALIGN_CENTER",
     "TEXT_ALIGN_JUSTIFY",
     "TEXT_ALIGN_LEFT",
     "TEXT_ALIGN_RIGHT",
     "AnnotationInfo",
     "Array",
-    "BlockEntry",
+    "Base14_fontdict",
+    "Base14_fontnames",
+    "Block",
     "CjkFontLanguage",
+    "Colorspace",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -111,7 +163,11 @@ __all__ = [
     "DocumentMetadata",
     "DrawingInfo",
     "DrawingItem",
+    "EmptyFileError",
     "EncryptedDocumentError",
+    "EncryptionMethod",
+    "ExtractedImage",
+    "FileDataError",
     "Font",
     "FontLanguage",
     "FormFieldInfo",
@@ -121,8 +177,11 @@ __all__ = [
     "IdentityMatrix",
     "ImageCompressionResult",
     "ImageInfo",
+    "ImageItem",
+    "ImageItemFull",
     "LimitError",
     "LinkInfo",
+    "LinkKind",
     "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
@@ -142,7 +201,7 @@ __all__ = [
     "Quad",
     "RawTextBlock",
     "RawTextLine",
-    "RawTextPage",
+    "RawTextPageDict",
     "RawTextSpan",
     "Rect",
     "Shape",
@@ -153,12 +212,16 @@ __all__ = [
     "Table",
     "TableDiagnostics",
     "TableFinder",
+    "TextAlign",
     "TextBlock",
     "TextChar",
     "TextLine",
-    "TextPage",
+    "TextPageDict",
     "TextSpan",
-    "WordEntry",
+    "Word",
+    "csCMYK",
+    "csGRAY",
+    "csRGB",
     "open",
     "peek_metadata",
     "planish_line",
@@ -168,8 +231,6 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 # Declare the type aliases again so that this module's __annotations__ marks
 # them as TypeAlias, which tools/check_api_surface.py and other runtime readers
 # use to tell an alias from a constant.
-WordEntry: TypeAlias = _types.WordEntry
-BlockEntry: TypeAlias = _types.BlockEntry
 OcrRotation: TypeAlias = _types.OcrRotation
 FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage

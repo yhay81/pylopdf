@@ -44,10 +44,10 @@ def test_one_input(data: bytes) -> None:
                     page.get_text("dict")
                     page.get_text("rawdict")
                     page.search_for("pdf")
-                    page.get_pixmap(dpi=18)
+                    page.get_pixmap(dpi=18, alpha=True)
 
                 doc.set_metadata({"producer": "pylopdf fuzz"})
-                saved = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+                saved = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
 
             with pylopdf.open(
                 stream=saved,

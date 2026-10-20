@@ -57,9 +57,14 @@ pub(crate) fn encoded_image_digest(data: &[u8]) -> ImageDigest {
 }
 
 /// Identify straight-alpha RGBA8 samples together with their dimensions.
-pub(crate) fn rgba_image_digest(width: u32, height: u32, samples: &[u8]) -> ImageDigest {
+pub(crate) fn pixmap_image_digest(
+    width: u32,
+    height: u32,
+    alpha: bool,
+    samples: &[u8],
+) -> ImageDigest {
     Sha256::new()
-        .chain_update([1])
+        .chain_update([if alpha { 1 } else { 2 }])
         .chain_update(width.to_be_bytes())
         .chain_update(height.to_be_bytes())
         .chain_update(samples)

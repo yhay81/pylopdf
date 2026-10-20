@@ -75,7 +75,7 @@ CASES: dict[str, bytes] = {
 
 
 def _render_all(doc: pylopdf.Document) -> None:
-    doc.render_pages(workers=2)
+    doc.render_pages(alpha=True, workers=2)
 
 
 @pytest.mark.parametrize("case", CASES)
@@ -95,7 +95,7 @@ def test_a_renderer_panic_raises_pdf_error(case: str) -> None:
 
     doc = pylopdf.Document(stream=CASES[case])
     with pytest.raises(pylopdf.PdfError, match=MESSAGE) as caught:
-        doc[0].get_pixmap()
+        doc[0].get_pixmap(alpha=True)
     assert "copy_from_slice" in str(caught.value)
     assert "PAGE TEXT" in doc.get_page_text(0)
 
@@ -106,19 +106,19 @@ def test_the_document_stays_usable_after_a_panic() -> None:
     doc = pylopdf.Document(stream=_pages((resources, content), ("", "0 0 1 rg 0 0 100 100 re f"), ("", "")))
 
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc[0].get_pixmap()
-    assert doc[1].get_pixmap().width == 300
+        doc[0].get_pixmap(alpha=True)
+    assert doc[1].get_pixmap(alpha=True).width == 300
     assert "PAGE TEXT" in doc.get_page_text(0)
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc.render_page(0)
-    assert len(doc.render_pages([1, 2], workers=2)) == 2
+        doc.get_page_pixmap(0, alpha=True).tobytes()
+    assert len(doc.render_pages([1, 2], alpha=True, workers=2)) == 2
 
     # A worker thread of the parallel renderer panics as well.
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
         _render_all(doc)
 
     doc.delete_pages([0])
-    assert len(doc.render_pages(workers=2)) == 2
+    assert len(doc.render_pages(alpha=True, workers=2)) == 2
 
 
 def test_a_contained_panic_leaves_edits_in_place() -> None:
@@ -128,7 +128,7 @@ def test_a_contained_panic_leaves_edits_in_place() -> None:
     doc[1].insert_text((20, 250), "ADDED")
 
     with pytest.raises(pylopdf.PdfError, match=MESSAGE):
-        doc[0].get_pixmap()
+        doc[0].get_pixmap(alpha=True)
 
     assert "ADDED" in doc.get_page_text(1)
     assert "ADDED" in pylopdf.Document(stream=doc.tobytes()).get_page_text(1)

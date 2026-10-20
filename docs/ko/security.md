@@ -88,7 +88,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
+`image_pixel_count`, `image_inventory_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `path_point_count`, `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
 `decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
@@ -200,18 +200,16 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
 표준 오류 출력에 씁니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
-- `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG
-  출력 기본 상한은64 MiB입니다. writer는Python `bytes`를 반환하기 전에 경계를
-  넘는write를 거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
-  rendering은`render_output_size`, Pixmap 직접encode는`pixmap_output_size`를
-  사용합니다.
+- `Pixmap.tobytes()`의 encoded PNG 출력 기본 상한은64 MiB입니다. writer는
+  Python `bytes`를 반환하기 전에 경계를 넘는write를`pixmap_output_size`로
+  거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
 - `Document.tobytes()`는 일반, object/xref stream, 암호화 출력 모두에512 MiB 기본
   serialization 상한을 적용합니다. Rust writer는Python `bytes` 변환 전에 경계를
   넘는write를 거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
   `save()`는target과 같은directory에 안전하게 만든sibling으로stream한 뒤 완전한
   write가 끝난 경우에만 요청path를 원자적으로 교체하므로serialization/교체 실패 시
   기존file을 보존합니다. 이in-memory 예산의 대상은 아닙니다. `garbage`, `deflate`,
-  `object_streams` 같은save option은 이후I/O가 실패해도 문서화된mutation semantics를
+  `use_objstms` 같은save option은 이후I/O가 실패해도 문서화된mutation semantics를
   유지합니다.
 - `Pixmap.save()`는target directory 안에 예측할 수 없고 배타적으로 생성한sibling에
   PNG encode를 직접stream하며, 완전한write가 성공한 뒤에만 요청path를 원자적으로
@@ -259,7 +257,7 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   password KDF 전에UTF-8 127 byte로 제한됩니다. Rust 직접 호출도 경계를 반복하며
   거부code는`password_input_size`입니다. 저장 거부는document mutation 또는output
   생성 전에 발생합니다.
-- `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
+- `Page.get_svg_image()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.8은 완성된`String`만 반환하므로
   pylopdf가 경계를 적용하기 전의 내부Rust string 하나는 이 제한의 대상이 아닙니다.
@@ -284,9 +282,11 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   않습니다. iterable은graph 변경 전 상한을 넘는 첫entry에서 중단하고
   `page_entry_count`를 반환합니다. `insert_pdf()`는 원본의 전체 범위를 허용합니다.
   빈delete는cache, generation 및기존`Page` view를 유지합니다.
-- `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
-  64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
-  남은byte 예산까지만 압축을 풉니다.
+- `Page.get_images()`는 이미지나 Form XObject가 4,096개를 넘으면
+  `image_inventory_count`로, `Page.get_image_info()`는 4,096 placement에서 멈춥니다.
+  `Document.extract_image()`는 64,000,000 pixel과 64 MiB payload 상한, content·색
+  공간 guard 아래에서 이미지 하나를 디코딩하며 Flate-wrapped JPEG passthrough도 그
+  상한까지만 압축을 풉니다.
 - `Document.embfile_add()`는PyO3 copy 전에64 MiB를 넘는 입력을 거부하고,
   `embfile_get()`은 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
   있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은 무제한 입력

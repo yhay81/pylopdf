@@ -83,7 +83,7 @@ def test_embfile_survives_compressed_and_garbage_save() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello"]))
     payload = b"repetitive " * 1000
     doc.embfile_add("data.txt", payload)
-    data = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
     reopened = pylopdf.open(stream=data)
     assert reopened.embfile_get("data.txt") == payload
 

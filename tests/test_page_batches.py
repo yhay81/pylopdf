@@ -62,10 +62,12 @@ def test_render_pages_renders_every_page_across_chunks(large_pdf: bytes) -> None
     scale = 0.05
 
     for workers in (1, 2):
-        rendered = doc.render_pages(scale=scale, workers=workers)
+        rendered = doc.render_pages(matrix=pylopdf.Matrix(scale, scale), alpha=True, workers=workers)
         assert len(rendered) == LARGE_PAGE_COUNT
         for index in (0, 4095, 4096, LARGE_PAGE_COUNT - 1):
-            assert rendered[index] == doc.render_page(index, scale=scale)
+            assert (
+                rendered[index] == doc.get_page_pixmap(index, matrix=pylopdf.Matrix(scale, scale), alpha=True).tobytes()
+            )
 
 
 def test_select_reorders_every_page(large_pdf: bytes) -> None:
@@ -101,7 +103,7 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
     assert appended.get_text([0, LARGE_PAGE_COUNT - 1]) == f"Page 0\nPage {LARGE_PAGE_COUNT - 1}\n"
 
     reversed_doc = pylopdf.Document()
-    reversed_doc.insert_pdf(source, from_page=-1, to_page=0)
+    reversed_doc.insert_pdf(source, from_page=LARGE_PAGE_COUNT - 1, to_page=0)
     assert reversed_doc.page_count == LARGE_PAGE_COUNT
     assert reversed_doc.get_page_text(0) == f"Page {LARGE_PAGE_COUNT - 1}\n"
 
@@ -111,7 +113,7 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
     [
         lambda doc, pages: doc.get_text(pages),
         lambda doc, pages: doc.to_markdown(pages),
-        lambda doc, pages: doc.render_pages(pages, scale=0.05),
+        lambda doc, pages: doc.render_pages(pages, matrix=pylopdf.Matrix(0.05, 0.05), alpha=True),
         lambda doc, pages: doc.select(pages),
         lambda doc, pages: doc.delete_pages(pages),
     ],
@@ -142,7 +144,7 @@ def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> No
     assert doc.extract_text([1] * LARGE_PAGE_COUNT) == "Page 0\n" * LARGE_PAGE_COUNT
     calls: list[Callable[[], object]] = [
         lambda: doc.extract_text(too_many),
-        lambda: doc.render_pages_png(too_many, 0.05, None, 1, None),
+        lambda: doc.render_pages_png(too_many, (0.05, 0.05), True, None, 1, None),
         lambda: doc.select(too_many),
         lambda: doc.delete_pages(too_many),
         lambda: _Document().merge_pages(doc, too_many, None),

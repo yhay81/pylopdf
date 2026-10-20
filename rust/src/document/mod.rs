@@ -677,6 +677,23 @@ impl _Document {
         self.set_metadata_entries(entries)
     }
 
+    /// Remove the trailer's Info dictionary entry.
+    fn remove_metadata(&mut self) {
+        self.remove_info_dictionary();
+    }
+
+    /// Describe the encryption the document was loaded with, or None.
+    fn encryption_method(&self) -> Option<String> {
+        self.encryption_description()
+    }
+
+    /// Check a password against the encryption the document was loaded with,
+    /// even after decryption; return (user matches, owner matches).
+    fn check_original_password(&self, password: &str) -> PyResult<(bool, bool)> {
+        validate_password_input(Some(password), "password")?;
+        Ok(self.original_password_matches(password))
+    }
+
     /// Delete one-based pages; duplicates name the same page.
     fn delete_pages(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
         page_tree::delete_pages(self, page_numbers)
@@ -740,6 +757,25 @@ impl _Document {
         page_number: u32,
     ) -> PyResult<Vec<crate::extract::ImageTuple>> {
         extraction::extract_images(self, py, page_number)
+    }
+
+    /// List the image XObjects that a one-based page's resources reach.
+    fn page_image_inventory(&self, page_number: u32) -> PyResult<Vec<ImageInventoryTuple>> {
+        extraction::page_image_inventory(self, page_number)
+    }
+
+    /// Describe the images drawn on a one-based page.
+    fn page_image_info(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<crate::extract::ImageInfoTuple>> {
+        extraction::page_image_info(self, py, page_number)
+    }
+
+    /// Decode one image XObject by object number.
+    fn extract_image(&mut self, py: Python<'_>, xref: u32) -> PyResult<ExtractedImageTuple> {
+        extraction::extract_image(self, py, xref)
     }
 
     /// Extract vector paint operations on a one-based page.
@@ -824,19 +860,30 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         max_output_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        rendering::render_page_png(self, py, page_number, scale, background, max_output_size)
+        rendering::render_page_png(
+            self,
+            py,
+            page_number,
+            scale,
+            alpha,
+            background,
+            max_output_size,
+        )
     }
 
     /// Render one-based pages to PNG in input order on a bounded worker pool.
+    #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
     fn render_pages_png(
         &mut self,
         py: Python<'_>,
         page_numbers: Vec<u32>,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         workers: usize,
         max_output_size: Option<usize>,
@@ -846,22 +893,24 @@ impl _Document {
             py,
             page_numbers,
             scale,
+            alpha,
             background,
             workers,
             max_output_size,
         )
     }
 
-    /// Render a one-based page and return a straight-alpha RGBA8 Pixmap.
+    /// Render a one-based page and return an RGB, or straight-alpha RGBA, Pixmap.
     fn render_page_pixmap(
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<crate::pixmap::Pixmap> {
-        rendering::render_page_pixmap(self, py, page_number, scale, background, clip)
+        rendering::render_page_pixmap(self, py, page_number, scale, alpha, background, clip)
     }
 
     /// Release the render cache retained for this document on the calling thread.
@@ -995,6 +1044,18 @@ impl _Document {
         geometry::set_page_box(self, page_number, key, x0, y0, x1, y1)
     }
 
+    /// Set a one-based page's MediaBox and remove its other page boxes.
+    fn set_mediabox(
+        &mut self,
+        page_number: u32,
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+    ) -> PyResult<()> {
+        geometry::set_mediabox(self, page_number, x0, y0, x1, y1)
+    }
+
     /// Compress streams.
     fn compress(&mut self, py: Python<'_>) {
         self.invalidate_hayro_pdf();
@@ -1045,7 +1106,7 @@ impl _Document {
         overlay: bool,
         max_size: Option<usize>,
         max_pixels: Option<u64>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_image(
             self,
             py,
@@ -1083,7 +1144,7 @@ impl _Document {
         overlay: bool,
         max_size: Option<usize>,
         max_pixels: Option<u64>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_image_file(
             self,
             py,
@@ -1112,7 +1173,7 @@ impl _Document {
         image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         images::insert_pixmap(
             self,
             py,
@@ -1141,7 +1202,7 @@ impl _Document {
         src_page_number: u32,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         drawing::show_pdf_page(
             self,
             py,
@@ -1165,7 +1226,7 @@ impl _Document {
         src_page_number: u32,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         drawing::show_pdf_page_self(
             self,
             py,
@@ -1190,7 +1251,7 @@ impl _Document {
     /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
     /// Resolve GoTo names from `/Names` trees and legacy `/Dests`. The page
     /// index and name-tree index persist until the next edit.
-    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkTuple>> {
+    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<IdentifiedLink>> {
         navigation::read_links(self, py, page_number)
     }
 

@@ -46,6 +46,11 @@ pub(super) type LinkTuple = (
     Option<String>,
 );
 
+/// One link with the object number of its annotation (0 for a direct
+/// dictionary) and the annotation's `/NM` name ("" when absent), as pymupdf
+/// reports them in `xref` and `id`.
+pub(super) type IdentifiedLink = (LinkTuple, u32, String);
+
 /// Resolved link destination: page number, display point, zoom, named destination.
 pub(super) type ResolvedDestination =
     (Option<u32>, Option<(f64, f64)>, Option<f64>, Option<String>);
@@ -1015,27 +1020,46 @@ impl _Document {
         &self,
         page_number: u32,
         cache: &mut LinkResolutionCache,
-    ) -> PyResult<Vec<LinkTuple>> {
+    ) -> PyResult<Vec<IdentifiedLink>> {
         let page_id = self.doc.page_id(page_number)?;
         let (crop, rotation) = self.resolve_display_geometry(page_id)?;
         let Some(annots) = self.page_annotation_items(page_id)? else {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
+        // The annotation that produced each link of `out`, filled in before
+        // the next annotation so that every early `continue` stays correct.
+        let mut identities: Vec<(u32, String)> = Vec::new();
+        let mut identity = (0u32, String::new());
         let mut encoded_bytes = 0usize;
         let mut returned_bytes = 0usize;
         for item in annots {
-            let dict = match item {
+            while identities.len() < out.len() {
+                push_fallibly(&mut identities, identity.clone(), "link identities")?;
+            }
+            let (xref, dict) = match item {
                 Object::Reference(id) => match self.doc.get_object(*id).and_then(Object::as_dict) {
-                    Ok(dict) => dict,
+                    Ok(dict) => (id.0, dict),
                     Err(_) => continue,
                 },
-                Object::Dictionary(dict) => dict,
+                Object::Dictionary(dict) => (0, dict),
                 _ => continue,
             };
             if !matches!(dict.get(b"Subtype").and_then(Object::as_name), Ok(b"Link")) {
                 continue;
             }
+            let name = match dict.get(b"NM") {
+                Ok(name) => bounded_annotation_text(
+                    &self.doc,
+                    name,
+                    &mut encoded_bytes,
+                    &mut returned_bytes,
+                    "annotation name",
+                )?
+                .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+            identity = (xref, name);
             let Some(rect) = resolve_box(&self.doc, dict, b"Rect") else {
                 continue;
             };
@@ -1196,8 +1220,29 @@ impl _Document {
                 ));
             }
         }
-        Ok(out)
+        while identities.len() < out.len() {
+            push_fallibly(&mut identities, identity.clone(), "link identities")?;
+        }
+        let mut identified = Vec::new();
+        identified.try_reserve_exact(out.len()).map_err(|error| {
+            PdfError::new_err(format!("failed to allocate returned links: {error}"))
+        })?;
+        identified.extend(
+            out.into_iter()
+                .zip(identities)
+                .map(|(link, (xref, name))| (link, xref, name)),
+        );
+        Ok(identified)
     }
+}
+
+/// Push onto a link-reading collection, refusing allocation failure.
+fn push_fallibly<T>(values: &mut Vec<T>, value: T, label: &str) -> PyResult<()> {
+    values
+        .try_reserve(1)
+        .map_err(|error| PdfError::new_err(format!("failed to grow {label}: {error}")))?;
+    values.push(value);
+    Ok(())
 }
 
 /// Implements [`_Document::set_toc`].
@@ -1313,7 +1358,7 @@ pub(super) fn read_links(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-) -> PyResult<Vec<LinkTuple>> {
+) -> PyResult<Vec<IdentifiedLink>> {
     py.detach(|| {
         // Detach the cache so link collection can borrow the document, and
         // restore it on success and failure because reads never edit.

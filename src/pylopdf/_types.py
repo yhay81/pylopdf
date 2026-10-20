@@ -3,46 +3,125 @@
 from __future__ import annotations
 
 import enum
-from typing import Literal, TypeAlias, TypedDict
+from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
-from pylopdf._geometry import Point, Rect
+from pylopdf._geometry import Matrix, Point, Rect
 
-# Link kinds with pymupdf-compatible values.
-LINK_NONE = 0
-LINK_GOTO = 1
-LINK_URI = 2
-LINK_LAUNCH = 3
-LINK_NAMED = 4
-LINK_GOTOR = 5
 
-# Text alignment values compatible with pymupdf.
-TEXT_ALIGN_LEFT = 0
-TEXT_ALIGN_CENTER = 1
-TEXT_ALIGN_RIGHT = 2
-TEXT_ALIGN_JUSTIFY = 3
+class LinkKind(enum.IntEnum):
+    """Link kinds; the members are pymupdf's ``LINK_*`` values."""
+
+    NONE = 0
+    GOTO = 1
+    URI = 2
+    LAUNCH = 3
+    NAMED = 4
+    GOTOR = 5
+
+
+LINK_NONE = LinkKind.NONE
+LINK_GOTO = LinkKind.GOTO
+LINK_URI = LinkKind.URI
+LINK_LAUNCH = LinkKind.LAUNCH
+LINK_NAMED = LinkKind.NAMED
+LINK_GOTOR = LinkKind.GOTOR
+
+
+class TextAlign(enum.IntEnum):
+    """Text alignment; the members are pymupdf's ``TEXT_ALIGN_*`` values."""
+
+    LEFT = 0
+    CENTER = 1
+    RIGHT = 2
+    JUSTIFY = 3
+
+
+TEXT_ALIGN_LEFT = TextAlign.LEFT
+TEXT_ALIGN_CENTER = TextAlign.CENTER
+TEXT_ALIGN_RIGHT = TextAlign.RIGHT
+TEXT_ALIGN_JUSTIFY = TextAlign.JUSTIFY
 
 
 class Permissions(enum.IntFlag):
     """Encrypted-PDF permission flags combined with ``|`` for ``save``.
 
-    Values correspond to the ``/P`` bit positions in the PDF specification.
+    The members are pymupdf's ``PDF_PERM_*`` values, the ``/P`` bit positions
+    of the PDF specification. ``ALL`` combines every member.
     """
 
     PRINT = 1 << 2
     MODIFY = 1 << 3
     COPY = 1 << 4
     ANNOTATE = 1 << 5
-    FILL_FORMS = 1 << 8
-    COPY_FOR_ACCESSIBILITY = 1 << 9
+    FORM = 1 << 8
+    ACCESSIBILITY = 1 << 9
     ASSEMBLE = 1 << 10
-    PRINT_HIGH_QUALITY = 1 << 11
-    ALL = PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
+    PRINT_HQ = 1 << 11
+    ALL = PRINT | MODIFY | COPY | ANNOTATE | FORM | ACCESSIBILITY | ASSEMBLE | PRINT_HQ
 
 
-#: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
-WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
-#: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
-BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
+PDF_PERM_PRINT = Permissions.PRINT
+PDF_PERM_MODIFY = Permissions.MODIFY
+PDF_PERM_COPY = Permissions.COPY
+PDF_PERM_ANNOTATE = Permissions.ANNOTATE
+PDF_PERM_FORM = Permissions.FORM
+PDF_PERM_ACCESSIBILITY = Permissions.ACCESSIBILITY
+PDF_PERM_ASSEMBLE = Permissions.ASSEMBLE
+PDF_PERM_PRINT_HQ = Permissions.PRINT_HQ
+
+
+class EncryptionMethod(enum.IntEnum):
+    """Encryption methods for ``save(encryption=)``.
+
+    The members are pymupdf's ``PDF_ENCRYPT_*`` values.
+    """
+
+    KEEP = 0
+    NONE = 1
+    RC4_40 = 2
+    RC4_128 = 3
+    AES_128 = 4
+    AES_256 = 5
+    UNKNOWN = 6
+
+
+PDF_ENCRYPT_KEEP = EncryptionMethod.KEEP
+PDF_ENCRYPT_NONE = EncryptionMethod.NONE
+PDF_ENCRYPT_RC4_40 = EncryptionMethod.RC4_40
+PDF_ENCRYPT_RC4_128 = EncryptionMethod.RC4_128
+PDF_ENCRYPT_AES_128 = EncryptionMethod.AES_128
+PDF_ENCRYPT_AES_256 = EncryptionMethod.AES_256
+PDF_ENCRYPT_UNKNOWN = EncryptionMethod.UNKNOWN
+
+
+class Word(NamedTuple):
+    """One ``get_text("words")`` item, in pymupdf's tuple order."""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    word: str
+    block_no: int
+    line_no: int
+    word_no: int
+
+
+class Block(NamedTuple):
+    """One ``get_text("blocks")`` item, in pymupdf's tuple order.
+
+    ``block_type`` is 0 for text, as in pymupdf.
+    """
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    text: str
+    block_no: int
+    block_type: int
+
+
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 #: Script or locale used to select an optional bundled generation font.
@@ -82,7 +161,7 @@ class TextBlock(TypedDict):
     lines: list[TextLine]
 
 
-class TextPage(TypedDict):
+class TextPageDict(TypedDict):
     """Nested positioned layout returned by ``get_text("dict")``."""
 
     width: float
@@ -133,7 +212,7 @@ class RawTextBlock(TypedDict):
     lines: list[RawTextLine]
 
 
-class RawTextPage(TypedDict):
+class RawTextPageDict(TypedDict):
     """Nested glyph layout returned by ``get_text("rawdict")``.
 
     Geometry is in display points, with page rotation and CropBox offsets
@@ -145,14 +224,84 @@ class RawTextPage(TypedDict):
     blocks: list[RawTextBlock]
 
 
-class ImageInfo(TypedDict):
-    """One image returned by :meth:`Page.get_images`."""
+class ImageItem(NamedTuple):
+    """One image XObject of :meth:`Page.get_images`, in pymupdf's tuple order."""
 
+    xref: int
+    smask: int
     width: int
     height: int
-    bbox: Rect
-    ext: Literal["jpeg", "png"]
-    image: bytes
+    bpc: int
+    colorspace: str
+    alt_colorspace: str
+    name: str
+    filter: str
+
+
+class ImageItemFull(NamedTuple):
+    """One item of ``get_images(full=True)``: :class:`ImageItem` plus ``referencer``.
+
+    ``referencer`` is the xref of the Form XObject whose resources list the
+    image, or 0 when the page's own resources do.
+    """
+
+    xref: int
+    smask: int
+    width: int
+    height: int
+    bpc: int
+    colorspace: str
+    alt_colorspace: str
+    name: str
+    filter: str
+    referencer: int
+
+
+_ImageInfoRequired = TypedDict(
+    "_ImageInfoRequired",
+    {
+        "number": int,
+        "bbox": Rect,
+        "transform": Matrix,
+        "width": int,
+        "height": int,
+        "colorspace": int,
+        "cs-name": str,
+        "xres": int,
+        "yres": int,
+        "bpc": int,
+        "size": int,
+        "has-mask": bool,
+    },
+)
+
+
+class ImageInfo(_ImageInfoRequired, total=False):
+    """One drawn image returned by :meth:`Page.get_image_info`, with pymupdf's keys.
+
+    ``transform`` maps the unit square to ``bbox``. ``xref`` is present with
+    ``xrefs=True`` and is 0 for an inline image or an image mask.
+    """
+
+    xref: int
+
+
+ExtractedImage = TypedDict(
+    "ExtractedImage",
+    {
+        "ext": Literal["jpeg", "png"],
+        "smask": int,
+        "width": int,
+        "height": int,
+        "colorspace": int,
+        "cs-name": str,
+        "bpc": int,
+        "xres": int,
+        "yres": int,
+        "image": bytes,
+    },
+)
+ExtractedImage.__doc__ = """The image that :meth:`Document.extract_image` returns, with pymupdf's keys."""
 
 
 class ImageCompressionResult(TypedDict):
@@ -187,6 +336,7 @@ class DrawingInfo(TypedDict):
     lineCap: tuple[int, int, int] | None
     lineJoin: int | None
     dashes: str | None
+    seqno: int
 
 
 class AnnotationInfo(TypedDict):
@@ -198,13 +348,15 @@ class AnnotationInfo(TypedDict):
     uri: str | None
 
 
-_LinkRequired = TypedDict("_LinkRequired", {"kind": int, "from": Rect})
+_LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect, "xref": int, "id": str})
 
 
 class LinkInfo(_LinkRequired, total=False):
     """One link returned by :meth:`Page.get_links`.
 
-    Keys other than ``kind`` and ``from`` depend on ``kind``.
+    ``xref`` is the object number of the link annotation, or 0 for a direct
+    dictionary, and ``id`` its ``/NM`` name, or ``""``. Keys other than
+    ``kind``, ``from``, ``xref``, and ``id`` depend on ``kind``.
     """
 
     uri: str | None
@@ -259,9 +411,10 @@ class PageLabelSpec(_PageLabelStart, total=False):
     firstpagenum: int
 
 
-class DocumentMetadata(TypedDict):
-    """Normalized metadata returned by :attr:`Document.metadata`."""
+class _InfoMetadata(TypedDict):
+    """The PDF version and the Info text fields, as pymupdf names them."""
 
+    format: str
     title: str
     author: str
     subject: str
@@ -270,23 +423,40 @@ class DocumentMetadata(TypedDict):
     producer: str
     creationDate: str
     modDate: str
-    format: str
+
+
+class DocumentMetadata(_InfoMetadata):
+    """Metadata returned by :attr:`Document.metadata`, with pymupdf's keys.
+
+    ``encryption`` describes the encryption the document was opened with, as
+    in ``"Standard V5 R6 256-bit AES"``, or is ``None``.
+    """
+
+    trapped: str
+    encryption: str | None
 
 
 class MetadataUpdate(TypedDict, total=False):
-    """Writable subset accepted by :meth:`Document.set_metadata`."""
+    """Keys accepted by :meth:`Document.set_metadata`.
 
-    title: str
-    author: str
-    subject: str
-    keywords: str
-    creator: str
-    producer: str
-    creationDate: str
-    modDate: str
+    ``format`` and ``encryption`` are read-only and ignored, so that
+    ``doc.set_metadata(doc.metadata)`` works.
+    """
+
+    title: str | None
+    author: str | None
+    subject: str | None
+    keywords: str | None
+    creator: str | None
+    producer: str | None
+    creationDate: str | None
+    modDate: str | None
+    trapped: str | None
+    format: str | None
+    encryption: str | None
 
 
-class MetadataProbe(DocumentMetadata):
+class MetadataProbe(_InfoMetadata):
     """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
 
     page_count: int
@@ -314,17 +484,25 @@ class OcrWord(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
+    Word,
+    Block,
+    LinkKind,
+    TextAlign,
     Permissions,
+    EncryptionMethod,
     TextSpan,
     TextLine,
     TextBlock,
-    TextPage,
+    TextPageDict,
     TextChar,
     RawTextSpan,
     RawTextLine,
     RawTextBlock,
-    RawTextPage,
+    RawTextPageDict,
+    ImageItem,
+    ImageItemFull,
     ImageInfo,
+    ExtractedImage,
     ImageCompressionResult,
     DrawingInfo,
     AnnotationInfo,

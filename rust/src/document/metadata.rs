@@ -3,7 +3,7 @@
 use super::*;
 
 /// Bound standard document Info metadata reads and writes.
-pub(super) const INFO_METADATA_KEYS: [&[u8]; 8] = [
+pub(super) const INFO_METADATA_KEYS: [&[u8]; 9] = [
     b"Title",
     b"Author",
     b"Subject",
@@ -12,7 +12,11 @@ pub(super) const INFO_METADATA_KEYS: [&[u8]; 8] = [
     b"Producer",
     b"CreationDate",
     b"ModDate",
+    b"Trapped",
 ];
+
+/// The `/Trapped` values that ISO 32000-2 Table 349 writes as names.
+const TRAPPED_NAMES: [&str; 3] = ["True", "False", "Unknown"];
 
 pub(super) const MAX_INFO_METADATA_TEXT_BYTES: usize = 1024 * 1024;
 
@@ -102,12 +106,23 @@ pub(super) fn collect_info_metadata(doc: &Document) -> PyResult<HashMap<String, 
             continue;
         };
         let resolved = deref_object(doc, value);
-        let Object::String(encoded, _) = resolved else {
-            continue;
-        };
-        add_info_metadata_budget(&mut source_bytes, encoded.len(), "source text")?;
-        let Ok(text) = decode_text_string(resolved) else {
-            continue;
+        let text = match resolved {
+            Object::String(encoded, _) => {
+                add_info_metadata_budget(&mut source_bytes, encoded.len(), "source text")?;
+                let Ok(text) = decode_text_string(resolved) else {
+                    continue;
+                };
+                text
+            }
+            // `/Trapped` is a name; other producers write it as a string.
+            Object::Name(name) if key == b"Trapped" => {
+                add_info_metadata_budget(&mut source_bytes, name.len(), "source text")?;
+                let Ok(name) = std::str::from_utf8(name) else {
+                    continue;
+                };
+                try_clone_info_metadata_text(name, "value")?
+            }
+            _ => continue,
         };
         add_info_metadata_budget(&mut returned_bytes, text.len(), "returned text")?;
         let key = std::str::from_utf8(key)
@@ -137,7 +152,8 @@ pub(super) fn pdf_metadata_to_tuple(
         encrypted,
     } = meta;
     // pylopdf exposes only the standard fields. Release upstream custom clones
-    // before materializing Python-facing strings.
+    // before materializing Python-facing strings. lopdf 0.45 drops `/Trapped`
+    // from both, so the fast probe cannot report it.
     drop(custom);
     let mut map = HashMap::new();
     map.try_reserve(INFO_METADATA_KEYS.len()).map_err(|error| {
@@ -321,6 +337,8 @@ impl _Document {
             )?;
             let encoded = if value.is_empty() {
                 None
+            } else if key == "Trapped" && TRAPPED_NAMES.contains(&value.as_str()) {
+                Some(Object::Name(value.clone().into_bytes()))
             } else {
                 let encoded_len = pdf_text_string_len(&value).ok_or_else(|| {
                     limit_err(
@@ -388,6 +406,86 @@ impl _Document {
             }
         }
         Ok(())
+    }
+
+    /// Remove the trailer's `/Info` entry, as pymupdf does for an empty
+    /// metadata dictionary. The dictionary stays until pruning removes it.
+    pub(super) fn remove_info_dictionary(&mut self) {
+        if self.doc.trailer.has(b"Info") {
+            self.invalidate_hayro_pdf_keeping_placements();
+            self.doc.trailer.remove(b"Info");
+        }
+    }
+
+    /// The Encrypt dictionary the document was loaded with, rebuilt from the
+    /// decryption state, which lopdf keeps after it removes `/Encrypt`.
+    fn original_encryption(&self) -> Option<Dictionary> {
+        self.doc.encryption_state.as_ref()?.encode().ok()
+    }
+
+    /// Describe the loaded document's encryption as MuPDF's metadata does,
+    /// for example `Standard V5 R6 256-bit AES`.
+    pub(super) fn encryption_description(&self) -> Option<String> {
+        let encryption = self.original_encryption()?;
+        let integer = |key: &[u8]| encryption.get(key).and_then(Object::as_i64).ok();
+        let version = integer(b"V").unwrap_or(0);
+        let revision = integer(b"R").unwrap_or(0);
+        let method = |filter_key: &[u8]| -> &'static str {
+            if version < 4 {
+                return "RC4";
+            }
+            let filter = encryption
+                .get(filter_key)
+                .and_then(Object::as_name)
+                .unwrap_or(b"Identity");
+            if filter == b"Identity" {
+                return "None";
+            }
+            let method = encryption
+                .get(b"CF")
+                .and_then(Object::as_dict)
+                .and_then(|filters| filters.get(filter))
+                .and_then(Object::as_dict)
+                .and_then(|filter| filter.get(b"CFM"))
+                .and_then(Object::as_name);
+            match method {
+                Ok(b"V2") => "RC4",
+                Ok(b"AESV2" | b"AESV3") => "AES",
+                Ok(b"None") => "None",
+                _ => "Unknown",
+            }
+        };
+        let length = match version {
+            5.. => 256,
+            4 => 128,
+            _ => integer(b"Length").unwrap_or(40),
+        };
+        let (streams, strings) = (method(b"StmF"), method(b"StrF"));
+        Some(if streams == strings {
+            format!("Standard V{version} R{revision} {length}-bit {strings}")
+        } else {
+            format!(
+                "Standard V{version} R{revision} {length}-bit streams: {streams} strings: {strings}"
+            )
+        })
+    }
+
+    /// Check a password against the encryption the document was loaded with,
+    /// returning whether it matches the user and the owner password.
+    pub(super) fn original_password_matches(&self, password: &str) -> (bool, bool) {
+        let Some(encryption) = self.original_encryption() else {
+            return (false, false);
+        };
+        let mut probe = Document::new();
+        let encryption_id = probe.add_object(encryption);
+        probe.trailer.set("Encrypt", encryption_id);
+        if let Ok(file_id) = self.doc.trailer.get(b"ID") {
+            probe.trailer.set("ID", file_id.clone());
+        }
+        (
+            probe.authenticate_user_password(password).is_ok(),
+            probe.authenticate_owner_password(password).is_ok(),
+        )
     }
 }
 

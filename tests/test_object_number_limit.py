@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, drawn_images
 
 import pylopdf
 
@@ -123,7 +123,9 @@ def _probe_document() -> pylopdf.Document:
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_text": lambda doc: doc[0].insert_text((20, 250), "Stamp"),
     "insert_text_embedded_font": lambda doc: doc[0].insert_text((20, 250), "Stamp", fontfile=NOTO_SANS_JP),
-    "insert_image": lambda doc: doc[0].insert_image((10, 10, 50, 50), pixmap=doc[0].get_pixmap(scale=0.05)),
+    "insert_image": lambda doc: doc[0].insert_image(
+        (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
+    ),
     "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
     "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
@@ -132,7 +134,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
         (0, 0, 100, 100), pylopdf.Document(stream=build_pdf(["Source"])), 0
     ),
     "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.copy_page(0),
+    "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_toc": lambda doc: doc.set_toc([[1, "Start", 1]]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "embfile_add": lambda doc: doc.embfile_add(f"note{len(doc.embfile_names())}.txt", b"note"),
@@ -238,8 +240,11 @@ def test_document_numbered_past_i32_reads_and_saves() -> None:
 _SAVES: dict[str, tuple[Callable[[pylopdf.Document], bytes], str | None]] = {
     "default": (lambda doc: doc.tobytes(), None),
     "garbage": (lambda doc: doc.tobytes(garbage=True), None),
-    "object-streams": (lambda doc: doc.tobytes(object_streams=True), None),
-    "encrypted": (lambda doc: doc.tobytes(user_pw="user", owner_pw="owner"), "user"),
+    "object-streams": (lambda doc: doc.tobytes(use_objstms=True), None),
+    "encrypted": (
+        lambda doc: doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"),
+        "user",
+    ),
 }
 
 
@@ -296,7 +301,7 @@ def test_image_above_the_limit_is_compressed() -> None:
 
     assert (result["considered"], result["rewritten"]) == (1, 1)
     for current in _with_reloaded(doc):
-        compressed = current[0].get_images()[0]
+        compressed = drawn_images(current[0])[0]
         assert (compressed["ext"], compressed["width"], compressed["height"]) == ("jpeg", 64, 64)
 
 
@@ -328,7 +333,9 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     """
     objects = _objects("[5 0 R 6 0 R]")
     objects[6] = _stream("SECRET", 200)
-    encrypted = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes(user_pw="user", owner_pw="owner")
+    encrypted = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    )
     encrypt_id = re.search(rb"/Encrypt (\d+) 0 R", encrypted)
     assert encrypt_id is not None
     patched = _renumber_raw(encrypted, {6: NEAR_U32_MAX, int(encrypt_id[1]): NEAR_U32_MAX - 1})

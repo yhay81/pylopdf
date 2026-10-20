@@ -257,3 +257,36 @@ pub(super) fn set_page_box(
         ]),
     )
 }
+
+/// Implements [`_Document::set_mediabox`]: set the MediaBox and remove the
+/// CropBox, BleedBox, TrimBox, and ArtBox, as pymupdf does. A CropBox that
+/// the page would still inherit from an ancestor is replaced by the new
+/// MediaBox, so the whole MediaBox stays visible.
+pub(super) fn set_mediabox(
+    this: &mut _Document,
+    page_number: u32,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+) -> PyResult<()> {
+    let page_id = this.page_id(page_number)?;
+    let corners = [
+        checked_pdf_real(x0, "x0")?,
+        checked_pdf_real(y0, "y0")?,
+        checked_pdf_real(x1, "x1")?,
+        checked_pdf_real(y1, "y1")?,
+    ];
+    let mediabox = Object::Array(corners.iter().copied().map(Object::Real).collect());
+    this.invalidate_hayro_pdf_keeping_placements();
+    this.doc
+        .set_page_object_entry(page_id, "MediaBox", mediabox.clone())?;
+    for key in ["CropBox", "BleedBox", "TrimBox", "ArtBox"] {
+        this.doc.remove_page_box_entry(page_id, key)?;
+    }
+    if this.resolve_page_box(page_id, "CropBox")?.is_some() {
+        this.doc
+            .set_page_object_entry(page_id, "CropBox", mediabox)?;
+    }
+    Ok(())
+}

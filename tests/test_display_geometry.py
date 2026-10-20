@@ -19,7 +19,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -132,7 +132,7 @@ def test_page_rect_is_the_page_that_rendering_and_extraction_display(name: str, 
 
     assert tuple(page.rect) == pytest.approx((0, 0, width, height), abs=1e-9)
     # hayro truncates the page size to whole pixels.
-    pixmap = page.get_pixmap(dpi=72)
+    pixmap = page.get_pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (int(width), int(height))
     layout = page.get_text("dict")
     assert (layout["width"], layout["height"]) == pytest.approx((width, height), abs=1e-3)
@@ -188,7 +188,7 @@ def test_annotations_and_links_share_the_display_space(name: str, rotation: int)
     assert tuple(added_link["rect"]) == pytest.approx((300, 20, 360, 60), abs=1e-3)
     assert tuple(highlight["rect"]) == pytest.approx((10, 10, 60, 40), abs=1e-3)
     assert tuple(page.get_links()[2]["from"]) == pytest.approx((300, 20, 360, 60), abs=1e-3)
-    pixmap = page.get_pixmap(dpi=72, background=(255, 255, 255))
+    pixmap = page.get_pixmap(dpi=72, background=(255, 255, 255), alpha=True)
     if name == "cropbox-misses":
         # hayro clips the page to the empty intersection, so nothing shows.
         assert pixmap.samples == b"\xff" * len(pixmap.samples)
@@ -207,7 +207,7 @@ def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation:
         shape.draw_rect((100, 100, 150, 130))
         shape.finish(fill=(0.0, 0.0, 1.0), color=None)
 
-    assert [tuple(image["bbox"]) for image in page.get_images()] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
+    assert [tuple(image["bbox"]) for image in drawn_images(page)] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
     assert [tuple(drawing["rect"]) for drawing in page.get_drawings()] == [
         pytest.approx((100, 100, 150, 130), abs=1e-3)
     ]
@@ -229,11 +229,12 @@ def test_a_placed_page_shows_what_rendering_shows_of_it(name: str, rotation: int
     assert tuple(page.rect) == pytest.approx((0, 0, width, height), abs=1e-3)
 
 
-def test_page_boxes_keep_their_stored_values() -> None:
+def test_page_boxes_follow_pymupdf_box_convention() -> None:
     page = _page("cropbox-overlaps", 90)
 
     assert page.mediabox == pylopdf.Rect(0, 0, 600, 800)
-    assert page.cropbox == pylopdf.Rect(300, 400, 900, 1200)
+    # The stored CropBox [300 400 900 1200], with y flipped against the MediaBox top.
+    assert page.cropbox == pylopdf.Rect(300, -400, 900, 400)
     assert page.rect == pylopdf.Rect(0, 0, 400, 300)
     assert _page("mediabox-missing", 0).mediabox == pylopdf.Rect(0, 0, *A4)
 
@@ -242,11 +243,14 @@ def test_setting_a_cropbox_past_the_mediabox_clips_the_page() -> None:
     doc = pylopdf.Document()
     page = doc.new_page(width=600, height=800)
 
-    page.set_cropbox((-50, -40, 650, 850))
+    # set_cropbox refuses such a box, as pymupdf does; a file can still hold one.
+    with pytest.raises(ValueError, match="CropBox not in MediaBox"):
+        page.set_cropbox((-50, -50, 650, 840))
+    page.obj["CropBox"] = [-50, -40, 650, 850]
 
-    assert page.cropbox == pylopdf.Rect(-50, -40, 650, 850)
+    assert page.cropbox == pylopdf.Rect(-50, -50, 650, 840)
     assert page.rect == pylopdf.Rect(0, 0, 600, 800)
     page.insert_text((40, 50), "Probe", fontsize=12)
     assert _origins(page, "Probe") == [pytest.approx((40, 50), abs=1e-3)]
-    pixmap = page.get_pixmap(dpi=72)
+    pixmap = page.get_pixmap(dpi=72, alpha=True)
     assert (pixmap.width, pixmap.height) == (600, 800)

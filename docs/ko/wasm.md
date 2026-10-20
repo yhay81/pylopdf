@@ -125,7 +125,8 @@ native/Wasm 공유 suite는 현재 다음을 검증합니다.
   rendering, `Pixmap`, serialization, virtual-filesystem save, merge, reorder,
   duplicate, select
 - `PdfError`, stable resource code가 있는 `LimitError`, `PasswordError`,
-  `EncryptedDocumentError`, `DocumentClosedError`, `StalePageError`와 malformed
+  `EncryptedDocumentError`, `DocumentClosedError`, `StalePageError`,
+  `FileDataError`, `EmptyFileError`와 malformed
   input 이후 runtime 재사용
 - `render_pages(workers=4)`의 입력 순서와 `workers=1`의 byte 일치
 

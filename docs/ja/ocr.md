@@ -34,7 +34,7 @@ engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, object_streams=True)
+    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
 
 `apply_ocr()`は描画ピクセルと既存のページ内容を保持します。既定では抽出可能なテキストがあるページをスキップするため、パイプラインを再実行しても非表示層は重複しません。混在ページでは、スキャン領域を表示座標の`clip=(x0, y0, x1, y1)`で指定します。その領域と交差する既存テキストだけがスキップ判定の対象です。交差するテキストがあっても追記する場合に限り`skip_existing=False`を指定します。

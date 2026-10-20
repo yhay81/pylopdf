@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, drawn_images
 
 import pylopdf
 
@@ -64,7 +64,7 @@ def _noise_png(size: int) -> bytes:
 
 
 def _manuscript_jpeg() -> bytes:
-    images = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0].get_images()
+    images = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0])
     jpeg = min((image for image in images if image["ext"] == "jpeg"), key=lambda image: len(image["image"]))
     return jpeg["image"]
 
@@ -78,12 +78,12 @@ def _count(data: bytes, pattern: bytes) -> int:
 
 
 def _samples(page: pylopdf.Page) -> bytes:
-    return page.get_pixmap(background=WHITE).samples
+    return page.get_pixmap(background=WHITE, alpha=True).samples
 
 
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
-    pix = page.get_pixmap(background=WHITE)
+    pix = page.get_pixmap(background=WHITE, alpha=True)
     offset = y * pix.stride + x * 4
     r, g, b = pix.samples[offset : offset + 3]
     return (r, g, b)
@@ -96,7 +96,7 @@ def _pages(count: int, width: float = 200, height: float = 120) -> pylopdf.Docum
     return doc
 
 
-def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], None]:
+def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], int]:
     """Return a function that places the same image input on a page."""
     if kind == "png":
         data = _logo_png()
@@ -111,7 +111,7 @@ def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], None]:
     # Each call renders a new Pixmap; identical samples share one XObject.
     source = _pages(1, 32, 24)
     source[0].insert_image((0, 0, 32, 24), stream=_logo_png())
-    return lambda page: page.insert_image(LOGO_RECT, pixmap=source[0].get_pixmap())
+    return lambda page: page.insert_image(LOGO_RECT, pixmap=source[0].get_pixmap(alpha=True))
 
 
 @pytest.mark.parametrize("kind", ["png", "jpeg", "filename", "pixmap"])
@@ -186,8 +186,8 @@ def test_pixmaps_with_equal_samples_but_other_dimensions_stay_distinct() -> None
     wide[0].insert_image((0, 0, 4, 1), stream=_solid_png(RED), keep_proportion=False)
     square = _pages(1, 2, 2)
     square[0].insert_image((0, 0, 2, 2), stream=_solid_png(RED), keep_proportion=False)
-    wide_pixmap = wide[0].get_pixmap(background=WHITE)
-    square_pixmap = square[0].get_pixmap(background=WHITE)
+    wide_pixmap = wide[0].get_pixmap(background=WHITE, alpha=True)
+    square_pixmap = square[0].get_pixmap(background=WHITE, alpha=True)
     assert wide_pixmap.samples == square_pixmap.samples
     doc = _pages(1, 200, 100)
     page = doc[0]
@@ -233,7 +233,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
 
     doc.new_page(width=200, height=120)
     doc[1].insert_image(LOGO_RECT, stream=logo)
-    doc.copy_page(1)
+    doc.fullcopy_page(1)
     doc.select([0, 1, 2, 3, 3])
     doc.delete_pages([3])
     doc.insert_pdf(pylopdf.open(stream=build_pdf(["Appendix"])))
@@ -241,7 +241,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     doc.set_metadata({"title": "Shared"})
     doc[2].set_rotation(90)
     doc[2].add_highlight_annot((40, 30, 160, 90))
-    doc.tobytes(garbage=True, object_streams=True)
+    doc.tobytes(garbage=True, use_objstms=True)
     for page in doc:
         page.insert_image(LOGO_RECT, stream=logo)
 
@@ -366,8 +366,8 @@ def test_image_compression_between_placements_keeps_the_next_placement_full_size
 
     doc[1].insert_image((0, 0, 72, 72), stream=photo)
 
-    assert doc[0].get_images()[0]["width"] == 72
-    assert doc[1].get_images()[0]["width"] == 240
+    assert drawn_images(doc[0])[0]["width"] == 72
+    assert drawn_images(doc[1])[0]["width"] == 240
 
 
 @pytest.mark.parametrize("edit", ["deflate", "replace_text"])

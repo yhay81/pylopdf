@@ -20,25 +20,27 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
 | `import pymupdf`(`fitz`는 이전 이름) | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 같은 형태, `password=`도 지원하며UTF-8 127 byte로 제한 |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 동일 | `open`은 `Document` 그 자체. `filetype=`은 `"pdf"`만 지원. `password=`는 keyword-only이며 UTF-8 127 byte로 제한 |
 | `doc[i]`, `len(doc)`, 반복 | 동일 | 0부터 시작, 음수 인덱스 |
 | `doc.metadata` / `set_metadata` | 동일 | 같은 키 이름 |
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 동일, 추가로`max_hits=4096` | 상한이 있는`list[Rect]` 반환. 검색어는4,096 byte, `max_hits=None`으로 해제, `quads=` 없음 |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
-| `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
-| `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 동일 | 기본은 불투명 RGB, `alpha=True`면 RGBA. `dpi=`가 우선. 배율 matrix만 지원하며 `colorspace=`와 `annots=`는 아직 없음 |
+| `page.get_svg_image()` | 동일 | `matrix`는 항등만. `text_as_path=False`는 예외 |
+| `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 동일 | RGB, `alpha=True`면 straight-alpha RGBA. pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(filename)`는 PNG를 만들며 `save`는 `.png`가 필요 |
+| `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 동일 | `extract_image`는 DCT를 JPEG 그대로 반환하고 다른 filter는 PNG로 디코딩. `get_image_info(hashes=True)`는 digest 지원 전까지 예외 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로 변환. `dpi`는 최대 배치를 직접 제한하며lossless 변환은 미지원 |
-| `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | 동일 | 반복된 페이지 번호로 `select`하면 페이지 복제 |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 동일 | 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
+| `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제 |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음(G8) |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 동일 | pymupdf의 범위 규칙(음수 `from_page`는 첫 페이지, 음수 `to_page`는 마지막 페이지이며 둘 다 범위 안으로 맞춤). 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
 | `doc.get_toc()` / `set_toc()` | 동일 | 둘 다 페이지 번호는 1부터 시작 |
 | `doc.save(garbage=4, deflate=True)` | 동일 | pymupdf와 같은 0~4단계. 페이지, 주석, 폼 필드, 구조 요소, 레이어는 병합하지 않음 |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256만 지원. 각password는UTF-8 127 byte로 제한 |
+| `doc.save(encryption=…, user_pw=…)` | 동일 | `PDF_ENCRYPT_NONE`(기본값)과 `PDF_ENCRYPT_AES_256`만 지원하며 다른 방식은 예외. `PDF_ENCRYPT_NONE`에서 password는 무시하지 않고 예외. 각password는UTF-8 127 byte로 제한 |
 | `doc.needs_pass` / `authenticate()` | 동일 | 같은 반환값 의미(0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 동일 | JPEG 패스스루, PNG 알파, RGBA `Pixmap` 직접 재사용과 시계 방향 직각 회전; 그 밖의 인코딩 형식은 Pillow로 변환; 같은 입력은 이미지 XObject를 공유하므로 `xref=` 재사용이 불필요 |
-| `page.show_pdf_page(rect, src, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요; 편집하지 않은 원본을 다시 배치하면 Form XObject를 공유 |
+| `page.show_pdf_page(rect, docsrc, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요; 편집하지 않은 원본을 다시 배치하면 Form XObject를 공유 |
 | `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | source가 없으면 Standard-14 / WinAnsi 또는 설치된script／locale provider. 다른 source는 shaping 후 subset 내장. 줄 나누기, 줄 위치, 페이지 아래로 벗어나는 줄의 제외는 pymupdf와 같고 그린 줄 수를 반환. 페이지 아래쪽 가장자리는 표시 좌표의 `page.rect` 기준이며 pymupdf는 회전 전 좌표로 잼 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 줄 위치와 들어가는지의 판단은 pymupdf와 같음, 음수 반환 시 그리지 않음 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 동일 | Standard 14 이름과 약칭, OpenType 파일, `language=`나 `family=`로 선택하는 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴(`"cjk"`, `"figo"` 등)과 `script=`, `ordering=`, `embed=`는 쓸 수 없음. `is_bold=`, `is_italic=`, `is_serif=`는 설치된 extra의 글꼴을 정확히 일치하는 것으로 선택하며, pymupdf가 무시하는 `fontname`이나 글꼴 파일과 함께 쓰면 예외. keyword-only `weight=`는 가변 글꼴 파일의 굵기 축에서 인스턴스도 선택. 글꼴은 `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 커닝을 포함하고 `ascender`／`descender`는 pymupdf와 같은 값이며 `insert_text`와 `insert_textbox`는 이 값으로 줄을 배치 |
@@ -64,7 +66,10 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
   `doc[i]`로 다시 가져오세요.
 - **예외**: `PdfError`(`ValueError`의 하위 클래스)가 기반이며 `PasswordError`,
   `DocumentClosedError`, `EncryptedDocumentError`, `StalePageError`로
-  구체화됩니다. `except ValueError`도 계속 동작합니다.
+  구체화됩니다. `except ValueError`도 계속 동작합니다. pymupdf의
+  `FileDataError`와 `EmptyFileError`는 같은 이름이며 `RuntimeError`도
+  상속합니다. 없는 파일은 Python 내장 `FileNotFoundError`가 되므로
+  `except pymupdf.FileNotFoundError`는 `except FileNotFoundError`로 바꿉니다.
 - **리소스 정책**: `DocumentLimits.web()`은 rendering／extraction에 전달되는 전체
   PDF snapshot을64 MiB, 누적 위치text를65,536 glyph record로 제한합니다. 사용자
   정책은`max_interpretation_size`와`max_text_glyphs`를 설정할 수 있고`None`은 호환되는
@@ -129,6 +134,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # 전체 목록을 한 번에 전달
-page.get_pixmap(scale=2).save("page.png")
+page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

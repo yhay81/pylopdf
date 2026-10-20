@@ -7,7 +7,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -138,13 +138,13 @@ def _two_image_pdf(first: bytes, second: bytes) -> bytes:
 
 def test_text_only_page_has_no_images() -> None:
     doc = pylopdf.open(stream=build_pdf(["No images here"]))
-    assert doc[0].get_images() == []
+    assert drawn_images(doc[0]) == []
 
 
 def test_scanned_page_yields_png() -> None:
     """Decode a CCITT-scanned patent page as PNG."""
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
-    images = doc[0].get_images()
+    images = drawn_images(doc[0])
     assert len(images) >= 1
     image = images[0]
     assert image["ext"] == "png"
@@ -157,12 +157,12 @@ def test_image_extraction_streams_rgb_alpha_without_changing_pixels() -> None:
     """Keep straight RGBA samples exact while avoiding a complete interleaved copy."""
     source = pylopdf.Document()
     source.new_page(width=2, height=1)
-    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40))
+    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=2, height=1)
     target[0].insert_image((0, 0, 2, 1), pixmap=pixmap)
-    extracted = target[0].get_images()
+    extracted = drawn_images(target[0])
 
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "png"
@@ -200,7 +200,7 @@ def test_image_extraction_streams_gray_alpha_without_changing_pixels() -> None:
         }
     )
 
-    extracted = pylopdf.open(stream=pdf)[0].get_images()
+    extracted = drawn_images(pylopdf.open(stream=pdf)[0])
 
     assert len(extracted) == 1
     assert _decode_png(extracted[0]["image"]) == (2, 1, 4, bytes([10, 30, 20, 40]))
@@ -209,7 +209,7 @@ def test_image_extraction_streams_gray_alpha_without_changing_pixels() -> None:
 def test_jpeg_passthrough() -> None:
     """Return original JPEG bytes for an image using only DCTDecode."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    images = doc[0].get_images()
+    images = drawn_images(doc[0])
     jpegs = [i for i in images if i["ext"] == "jpeg"]
     assert jpegs, "DCT image was not returned as JPEG"
     for image in jpegs:
@@ -220,7 +220,7 @@ def test_image_bbox_is_on_page() -> None:
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
     page = doc[0]
     page_rect = page.rect
-    for image in page.get_images():
+    for image in drawn_images(page):
         bbox = image["bbox"]
         assert isinstance(bbox, pylopdf.Rect)
         assert bbox.x0 < bbox.x1
@@ -234,7 +234,7 @@ def test_image_extraction_rejects_excessive_placements_atomically() -> None:
     doc = pylopdf.open(stream=_image_pdf(b"\xff\xd8\xff", placements=4_097))
 
     with pytest.raises(pylopdf.PdfError, match="4096-placement safety limit"):
-        doc[0].get_images()
+        drawn_images(doc[0])
     assert doc.page_count == 1
 
 
@@ -243,7 +243,7 @@ def test_image_extraction_rejects_pixel_budget_before_decode() -> None:
     doc = pylopdf.open(stream=_image_pdf(b"\xff\xd8\xff", width=8_001, height=8_000))
 
     with pytest.raises(pylopdf.PdfError, match="64000000-pixel safety limit"):
-        doc[0].get_images()
+        drawn_images(doc[0])
 
 
 def test_image_extraction_rejects_cumulative_output_bytes() -> None:
@@ -252,7 +252,7 @@ def test_image_extraction_rejects_cumulative_output_bytes() -> None:
     doc = pylopdf.open(stream=_image_pdf(one_mibibyte_jpeg, placements=65))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        doc[0].get_images()
+        drawn_images(doc[0])
 
 
 def test_image_extraction_bounds_flate_wrapped_jpeg_passthrough() -> None:
@@ -262,7 +262,7 @@ def test_image_extraction_bounds_flate_wrapped_jpeg_passthrough() -> None:
     doc = pylopdf.open(stream=_image_pdf(compressed, filters="[/FlateDecode /DCTDecode]"))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        doc[0].get_images()
+        drawn_images(doc[0])
 
 
 def test_image_extraction_preserves_flate_wrapped_jpeg_passthrough() -> None:
@@ -270,7 +270,7 @@ def test_image_extraction_preserves_flate_wrapped_jpeg_passthrough() -> None:
     jpeg = b"\xff\xd8\xfffallible-passthrough"
     doc = pylopdf.open(stream=_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]"))
 
-    image = doc[0].get_images()[0]
+    image = drawn_images(doc[0])[0]
 
     assert image["ext"] == "jpeg"
     assert image["image"] == jpeg
@@ -283,4 +283,4 @@ def test_image_extraction_bounds_png_encoding_to_remaining_output() -> None:
     doc = pylopdf.open(stream=_two_image_pdf(almost_full_jpeg, flate_rgb))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        doc[0].get_images()
+        drawn_images(doc[0])

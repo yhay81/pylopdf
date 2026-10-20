@@ -56,7 +56,7 @@ def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document
 
 
 def _pixel(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
-    pix = page.get_pixmap(background=WHITE)
+    pix = page.get_pixmap(background=WHITE, alpha=True)
     offset = int(y) * pix.stride + int(x) * 4
     red, green, blue = pix.samples[offset : offset + 3]
     return red, green, blue

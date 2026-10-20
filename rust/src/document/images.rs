@@ -11,10 +11,11 @@ pub(super) const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 pub(super) enum ImageInput {
     /// Accepted JPEG or PNG bytes.
     Encoded(Vec<u8>),
-    /// A Pixmap's straight-alpha RGBA8 samples.
-    Rgba {
+    /// A Pixmap's RGB8 or straight-alpha RGBA8 samples.
+    Pixmap {
         width: u32,
         height: u32,
+        alpha: bool,
         data: Arc<Vec<u8>>,
     },
 }
@@ -23,11 +24,12 @@ impl ImageInput {
     pub(super) fn digest(&self) -> placement_reuse::ImageDigest {
         match self {
             Self::Encoded(data) => placement_reuse::encoded_image_digest(data),
-            Self::Rgba {
+            Self::Pixmap {
                 width,
                 height,
+                alpha,
                 data,
-            } => placement_reuse::rgba_image_digest(*width, *height, data),
+            } => placement_reuse::pixmap_image_digest(*width, *height, *alpha, data),
         }
     }
 
@@ -40,11 +42,12 @@ impl ImageInput {
                         "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
                     )
                 }),
-            Self::Rgba {
+            Self::Pixmap {
                 width,
                 height,
+                alpha,
                 data,
-            } => draw::rgba_parts(width, height, &data).map_err(PdfError::new_err),
+            } => draw::pixmap_parts(width, height, alpha, &data).map_err(PdfError::new_err),
         }
     }
 }
@@ -116,7 +119,7 @@ impl _Document {
         image_rotation: i64,
         keep_proportion: bool,
         overlay: bool,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let (page_id, drawing_plan) = py.detach(|| {
             self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
@@ -141,7 +144,7 @@ impl _Document {
         );
         let remember = matches!(image, PageImage::New(_)) && self.placements.reserve_image();
         self.invalidate_hayro_pdf_keeping_placements();
-        let added = py.detach(|| -> PyResult<_> {
+        let (xobj_id, added) = py.detach(|| -> PyResult<_> {
             let (xobj_id, added) = match image {
                 PageImage::Placed(placed) => (placed.id(), None),
                 PageImage::New(parts) => {
@@ -153,12 +156,12 @@ impl _Document {
             let ops = draw::draw_ops(matrix, drawing_plan.resource.name());
             self.commit_drawing_resource(page_id, drawing_plan.resource, xobj_id)?;
             self.push_page_content(page_id, ops, drawing_plan.content)?;
-            Ok(added)
+            Ok((xobj_id, added))
         })?;
         if remember && let Some(added) = added {
             self.placements.remember_image(digest, added);
         }
-        Ok(())
+        Ok(xobj_id.0)
     }
 }
 
@@ -199,7 +202,7 @@ pub(super) fn insert_image(
     overlay: bool,
     max_size: Option<usize>,
     max_pixels: Option<u64>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     validate_image_input(&data, max_size, max_pixels)?;
     this.place_image(
         py,
@@ -225,7 +228,7 @@ pub(super) fn insert_image_file(
     overlay: bool,
     max_size: Option<usize>,
     max_pixels: Option<u64>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     if max_size == Some(0) {
         return Err(PyValueError::new_err(
             "max_size must be a positive integer or None",
@@ -261,10 +264,11 @@ pub(super) fn insert_pixmap(
     image_rotation: i64,
     keep_proportion: bool,
     overlay: bool,
-) -> PyResult<()> {
-    let input = ImageInput::Rgba {
+) -> PyResult<u32> {
+    let input = ImageInput::Pixmap {
         width: pixmap.width,
         height: pixmap.height,
+        alpha: pixmap.alpha,
         data: Arc::clone(&pixmap.data),
     };
     drop(pixmap);

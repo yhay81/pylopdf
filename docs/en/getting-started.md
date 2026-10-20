@@ -44,8 +44,13 @@ doc.set_metadata({"title": "Report", "author": "Alice"})
 
 doc.save("out.pdf")
 data = doc.tobytes()
-doc.save("small.pdf", garbage=True, deflate=True, object_streams=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 ```
 
 Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
@@ -82,10 +87,10 @@ pages.
 ## Render { #rendering }
 
 ```python
-png = doc.render_page(0, dpi=300)                    # bytes (PNG)
-pix = page.get_pixmap(scale=2)                       # RGBA8 pixels for NumPy / PIL
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg = doc.render_page_svg(0)
+png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # bytes (PNG)
+pix = page.get_pixmap(dpi=144)                       # RGB pixels for NumPy / PIL
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg = doc[0].get_svg_image()
 ```
 
 ## Edit { #editing }
@@ -93,7 +98,7 @@ svg = doc.render_page_svg(0)
 ```python
 doc.delete_pages([1, 2])
 doc.select([2, 0])                                   # keep/reorder (repeat = duplicate)
-doc.new_page(); doc.copy_page(0, to=1)
+doc.new_page(); doc.fullcopy_page(0, to=1)
 
 merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))

@@ -928,7 +928,7 @@ pub(super) fn show_pdf_page(
     src_page_number: u32,
     keep_proportion: bool,
     overlay: bool,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     let (crop, rotation) = this.page_display_geometry(page_number)?;
     let (page_id, drawing_plan) =
         py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
@@ -953,7 +953,7 @@ pub(super) fn show_pdf_page(
     if remember {
         this.placements.remember_form(source, form);
     }
-    Ok(())
+    Ok(form.id().0)
 }
 
 /// Implements [`_Document::show_pdf_page_self`].
@@ -965,7 +965,7 @@ pub(super) fn show_pdf_page_self(
     src_page_number: u32,
     keep_proportion: bool,
     overlay: bool,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     let (crop, rotation) = this.page_display_geometry(page_number)?;
     let (page_id, drawing_plan) =
         py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
@@ -999,7 +999,7 @@ pub(super) fn show_pdf_page_self(
         };
         this.placements.remember_form(source, form);
     }
-    Ok(())
+    Ok(form.id().0)
 }
 
 /// Implements [`_Document::commit_shape`].

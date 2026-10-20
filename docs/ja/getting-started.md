@@ -46,8 +46,13 @@ doc.set_metadata({"title": "月次レポート", "author": "山田 太郎"})
 
 doc.save("out.pdf")
 data = doc.tobytes()
-doc.save("small.pdf", garbage=True, deflate=True, object_streams=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 ```
 
 暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。
@@ -82,10 +87,10 @@ hits = page.search_for("合計")            # 大文字小文字を区別しな�
 ## レンダリング { #rendering }
 
 ```python
-png = doc.render_page(0, dpi=300)                    # PNG（bytes）
-pix = page.get_pixmap(scale=2)                       # NumPy / PIL 向け RGBA8 画素
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg = doc.render_page_svg(0)
+png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # PNG（bytes）
+pix = page.get_pixmap(dpi=144)                       # NumPy / PIL 向け RGB 画素
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg = doc[0].get_svg_image()
 ```
 
 ## 編集 { #editing }
@@ -93,7 +98,7 @@ svg = doc.render_page_svg(0)
 ```python
 doc.delete_pages([1, 2])
 doc.select([2, 0])                                   # 抽出・並べ替え（重複指定は複製）
-doc.new_page(); doc.copy_page(0, to=1)
+doc.new_page(); doc.fullcopy_page(0, to=1)
 
 merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))

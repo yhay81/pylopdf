@@ -130,7 +130,10 @@ def test_insert_pdf_registers_f1040_fields_with_values() -> None:
     assert len(dst.get_form_fields()) == 199
     assert _fields(dst)[F1040_TEXT] == ("text", "Jane Doe")
     for page in range(2):
-        assert dst[page].get_pixmap(scale=0.5).samples == src[page].get_pixmap(scale=0.5).samples
+        assert (
+            dst[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
+            == src[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
+        )
 
     dst.set_form_field(F1040_TEXT, "John Roe")
     dst.set_form_field(F1040_CHECKBOX, value=False)
@@ -458,7 +461,7 @@ def test_imported_fields_follow_renamed_default_resources_and_form_defaults() ->
         dst.set_form_field(name, "xyz")
 
     def ink(page: int, clip: tuple[float, float, float, float]) -> bool:
-        return any(dst[page].get_pixmap(clip=clip).samples[3::4])
+        return any(dst[page].get_pixmap(clip=clip, alpha=True).samples[3::4])
 
     # In display coordinates the receiving `name` on the first page spans
     # y 10..40, and the imported `email` on the second page spans y 60..90.

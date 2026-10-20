@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf, with_xref_entry_offset
+from conftest import build_pdf, build_raw_pdf, drawn_images, with_xref_entry_offset
 
 import pylopdf
 
@@ -229,7 +229,7 @@ DAMAGE_OUTCOMES = {
 
 def _rgba_pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int, int]:
     """Return one rendered pixel over a white background."""
-    pixmap = page.get_pixmap(background=(255, 255, 255))
+    pixmap = page.get_pixmap(background=(255, 255, 255), alpha=True)
     samples = pixmap.samples
     offset = (y * pixmap.width + x) * 4
     return (
@@ -272,7 +272,7 @@ def test_peek_metadata_matches_full_load(case: Case) -> None:
 
 def _has_ink(page: pylopdf.Page) -> bool:
     """Return whether a low-resolution render of the page is not blank."""
-    samples = page.get_pixmap(0.5, background=(255, 255, 255)).samples
+    samples = page.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), background=(255, 255, 255), alpha=True).samples
     return any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
 
@@ -685,7 +685,7 @@ def test_pdf20_comment_streams_extract() -> None:
 
 def test_pdfium_type3_svg_retains_stencil_glyphs() -> None:
     """Exercise the independent Type 3 glyph program through the SVG device."""
-    svg = pylopdf.open(ASSETS / "pdfium-type3.pdf").render_page_svg(0)
+    svg = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0].get_svg_image()
 
     assert '<defs id="type3-glyph">' in svg
     assert svg.count("<image ") == 3
@@ -694,7 +694,7 @@ def test_pdfium_type3_svg_retains_stencil_glyphs() -> None:
 def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
     """Expose the current platform-dependent Type 3 raster behavior."""
     page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
-    pixmap = page.get_pixmap(background=(255, 255, 255))
+    pixmap = page.get_pixmap(background=(255, 255, 255), alpha=True)
     samples = pixmap.samples
     has_ink = any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
 
@@ -732,7 +732,7 @@ def test_pdfium_type3_skipped_glyphs_emit_one_warning() -> None:
 def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
     """Decode an ASCIIHex/LZW/JPX image chain through both image APIs."""
     page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf")[0]
-    images = page.get_images()
+    images = drawn_images(page)
 
     assert [(image["width"], image["height"], image["ext"]) for image in images] == [(612, 792, "png")]
     assert images[0]["image"].startswith(b"\x89PNG\r\n\x1a\n")
@@ -785,10 +785,12 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
         {
             "kind": 2,
             "from": pylopdf.Rect(69.0, 139.0, 542.0, 159.0),
+            "xref": 12,
+            "id": "",
             "uri": "https://www.google.com/",
         }
     ]
-    pixmap = page.get_pixmap(background=(255, 255, 255))
+    pixmap = page.get_pixmap(background=(255, 255, 255), alpha=True)
     samples = pixmap.samples
     yellow_offset = (252 * pixmap.width + 320) * 4
     red, green, blue = samples[yellow_offset : yellow_offset + 3]
@@ -948,13 +950,13 @@ def test_manuscript_scan_has_no_text_layer() -> None:
 def test_manuscript_compression_preserves_mismatched_masks() -> None:
     """Skip real JPEG/mask pairs rather than changing their compositing."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    before = doc[0].get_pixmap().samples
+    before = doc[0].get_pixmap(alpha=True).samples
 
     result = doc.compress_images(dpi=100, quality=50)
 
     assert result["considered"] >= 2
     assert result["rewritten"] == 0
-    assert doc[0].get_pixmap().samples == before
+    assert doc[0].get_pixmap(alpha=True).samples == before
 
 
 @ALL
@@ -976,7 +978,7 @@ def test_insert_subset_with_position_roundtrip(case: Case) -> None:
     reopened = pylopdf.open(stream=doc.tobytes())
     assert reopened.page_count == case.pages + 1
     # Pruning preserves fonts/images referenced by the inserted page.
-    assert reopened.render_page(0).startswith(b"\x89PNG")
+    assert reopened.get_page_pixmap(0, alpha=True).tobytes().startswith(b"\x89PNG")
 
 
 @ALL
@@ -1015,7 +1017,7 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
 def test_save_optimized_roundtrip(case: Case) -> None:
     """Garbage, deflate, and object-stream saves preserve readable content."""
     doc = pylopdf.open(ASSETS / case.name)
-    data = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
     reopened = pylopdf.open(stream=data)
     assert reopened.page_count == case.pages
 
@@ -1024,7 +1026,7 @@ def test_object_streams_reduce_size() -> None:
     """Object-stream saving reduces a medium-size document."""
     doc = pylopdf.open(ASSETS / "bill-hr815.pdf")
     plain = doc.tobytes()
-    optimized = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    optimized = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
     assert len(optimized) < len(plain)
 
 
@@ -1040,7 +1042,7 @@ def test_set_metadata_roundtrip(case: Case) -> None:
 @ALL
 def test_render_page_png(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    png = doc.render_page(0, scale=1.0)
+    png = doc.get_page_pixmap(0, matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(png) > 1000
 
@@ -1048,7 +1050,7 @@ def test_render_page_png(case: Case) -> None:
 @ALL
 def test_render_page_svg(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    svg = doc.render_page_svg(0)
+    svg = doc[0].get_svg_image()
     assert svg.startswith("<svg")
 
 

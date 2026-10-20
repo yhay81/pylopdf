@@ -83,7 +83,7 @@ def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
 
 def _ink(page: pylopdf.Page) -> int:
     """Count the pixels that drawing covered on a transparent page."""
-    return sum(alpha > 128 for alpha in page.get_pixmap(2).samples[3::4])
+    return sum(alpha > 128 for alpha in page.get_pixmap(matrix=pylopdf.Matrix(2, 2), alpha=True).samples[3::4])
 
 
 def _variable_font_path(language: str, serif: bool) -> Path:  # noqa: FBT001

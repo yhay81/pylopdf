@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from pylopdf._limits import _validate_optional_positive_int, _validate_rect
 from pylopdf._types import Rect
-from pylopdf.pylopdf_core import OcrError, _OcrEngine
+from pylopdf.pylopdf_core import OcrError, Pixmap, _OcrEngine
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -176,44 +176,31 @@ class OcrEngine:
         self.max_model_size = max_model_size
         self._recognition_slots = threading.BoundedSemaphore(resolved_max_concurrent)
 
-    def recognize(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+    def recognize(
         self,
-        page: Page,
+        pixmap: Pixmap,
         *,
-        dpi: float = 300,
         tile_size: int = 1408,
         overlap: int = 192,
         min_confidence: float = 0.5,
         rotation: OcrRotation = 0,
-        clip: Sequence[float] | None = None,
     ) -> list[OcrWord]:
-        """Recognize one page without modifying it.
+        """Recognize text in any :class:`Pixmap`.
 
-        The page is rendered on white at ``dpi``. Detection uses bounded,
-        overlapping tiles so A4 scans do not require a gigabyte-scale detector
-        tensor. Results use the same top-left display coordinates as rendering,
-        extraction, and :meth:`Page.insert_ocr_text_layer`. ``clip`` limits
-        recognition to one display-coordinate region while preserving page
-        coordinates in the returned boxes. ``rotation`` turns the rendered
-        input clockwise for recognition, then maps boxes back without changing
-        the PDF.
+        Boxes are in the pixmap's pixel coordinates, with the origin at its
+        top-left corner. Transparent pixels are read over white. Detection
+        uses bounded, overlapping tiles so A4 scans do not require a
+        gigabyte-scale detector tensor. ``rotation`` turns the raster
+        clockwise for recognition, then maps boxes back. To recognize a page
+        in page coordinates, use :meth:`Page.get_text_ocr`.
         """
-        from pylopdf._page import Page  # noqa: PLC0415 - pylopdf._page imports this module.
-
-        if not isinstance(page, Page):
-            msg = f"page must be a pylopdf.Page: {page!r}"
+        if not isinstance(pixmap, Pixmap):
+            msg = f"pixmap must be a pylopdf.Pixmap: {pixmap!r}"
             raise TypeError(msg)
-        resolved_dpi = _validate_ocr_dpi(dpi)
         _validate_ocr_tiles(tile_size, overlap)
         resolved_confidence = _validate_ocr_confidence(min_confidence)
         resolved_rotation = _validate_ocr_rotation(rotation)
-        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         with self._recognition_slots:
-            pixmap = page.get_pixmap(
-                dpi=resolved_dpi,
-                background=(255, 255, 255),
-                clip=clip_rect,
-            )
             raster_results = self._engine.recognize_pixmap(
                 pixmap,
                 tile_size=tile_size,
@@ -221,26 +208,63 @@ class OcrEngine:
                 min_confidence=resolved_confidence,
                 rotation=resolved_rotation,
             )
-            pixel_to_page = 72.0 / resolved_dpi
-            if clip_rect is None:
-                offset_x = offset_y = 0.0
-            else:
-                page_rect = page.rect
-                offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
-                offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
-            return [
-                {
-                    "bbox": Rect(
-                        offset_x + x0 * pixel_to_page,
-                        offset_y + y0 * pixel_to_page,
-                        offset_x + x1 * pixel_to_page,
-                        offset_y + y1 * pixel_to_page,
-                    ),
-                    "text": text,
-                    "confidence": confidence,
-                }
-                for x0, y0, x1, y1, text, confidence in raster_results
-            ]
+        return [
+            {"bbox": Rect(x0, y0, x1, y1), "text": text, "confidence": confidence}
+            for x0, y0, x1, y1, text, confidence in raster_results
+        ]
+
+    def _recognize_page(  # noqa: PLR0913 - OCR resource controls are keyword-only.
+        self,
+        page: Page,
+        *,
+        dpi: float,
+        tile_size: int,
+        overlap: int,
+        min_confidence: float,
+        rotation: OcrRotation,
+        clip: Sequence[float] | None,
+    ) -> list[OcrWord]:
+        """Render a page on white at ``dpi`` and recognize it in page coordinates.
+
+        One admission slot covers rendering and recognition, so the configured
+        concurrency bounds both rasters. ``clip`` limits recognition to one
+        display-coordinate region while keeping page coordinates in the boxes.
+        """
+        resolved_dpi = _validate_ocr_dpi(dpi)
+        _validate_ocr_tiles(tile_size, overlap)
+        resolved_confidence = _validate_ocr_confidence(min_confidence)
+        resolved_rotation = _validate_ocr_rotation(rotation)
+        clip_rect = None if clip is None else _validate_rect(clip, name="clip")
+        with self._recognition_slots:
+            # Opaque RGBA on white, which recognition reads without a copy.
+            pixmap = page.get_pixmap(dpi=resolved_dpi, clip=clip_rect, alpha=True, background=(255, 255, 255))
+            raster_results = self._engine.recognize_pixmap(
+                pixmap,
+                tile_size=tile_size,
+                overlap=overlap,
+                min_confidence=resolved_confidence,
+                rotation=resolved_rotation,
+            )
+        pixel_to_page = 72.0 / resolved_dpi
+        if clip_rect is None:
+            offset_x = offset_y = 0.0
+        else:
+            page_rect = page.rect
+            offset_x = math.floor(max(clip_rect[0], page_rect.x0) / pixel_to_page) * pixel_to_page
+            offset_y = math.floor(max(clip_rect[1], page_rect.y0) / pixel_to_page) * pixel_to_page
+        return [
+            {
+                "bbox": Rect(
+                    offset_x + x0 * pixel_to_page,
+                    offset_y + y0 * pixel_to_page,
+                    offset_x + x1 * pixel_to_page,
+                    offset_y + y1 * pixel_to_page,
+                ),
+                "text": text,
+                "confidence": confidence,
+            }
+            for x0, y0, x1, y1, text, confidence in raster_results
+        ]
 
 
 @functools.cache

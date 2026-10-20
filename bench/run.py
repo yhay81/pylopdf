@@ -139,19 +139,19 @@ def _pylopdf_merge(docs: list[bytes]) -> bytes:
 
 def _pylopdf_render(data: bytes) -> bytes:
     with pylopdf.open(stream=data) as doc:
-        return doc.render_page(0, scale=2)
+        return doc.get_page_pixmap(0, matrix=pylopdf.Matrix(2, 2)).tobytes()
 
 
 def _pylopdf_render_batch(data: bytes, workers: int) -> int:
     """Render up to twelve pages and return total PNG bytes."""
     with pylopdf.open(stream=data) as doc:
         pages = list(range(min(BATCH_PAGES, doc.page_count)))
-        return sum(len(png) for png in doc.render_pages(pages, scale=2, workers=workers))
+        return sum(len(png) for png in doc.render_pages(pages, matrix=pylopdf.Matrix(2, 2), workers=workers))
 
 
 _PYLOPDF_RENDERER = _Renderer(
     open=lambda data: pylopdf.open(stream=data),
-    pixmap=lambda page: page.get_pixmap(scale=2),
+    pixmap=lambda page: page.get_pixmap(matrix=pylopdf.Matrix(2, 2)),
     png=lambda pixmap: pixmap.tobytes(),
 )
 
@@ -301,8 +301,7 @@ def _format_render_results(results: dict[str, tuple[_RenderTimes, _RenderTimes]]
     lines.append("Cold runs open a fresh document from bytes for every repetition; warm runs")
     lines.append("rasterize the same page of one open document again. Caches that outlive a")
     lines.append("document, such as process-wide glyph caches, still apply to cold runs.")
-    lines.append("pylopdf returns straight-alpha RGBA8 on a transparent background; pymupdf")
-    lines.append("returns RGB on white.")
+    lines.append("Both libraries return opaque RGB on white by default.")
     lines.append("")
 
     lines.append("## PNG encoding only (2x first-page Pixmap)")
@@ -320,8 +319,8 @@ def _format_render_results(results: dict[str, tuple[_RenderTimes, _RenderTimes]]
     ]
     lines.append("| Total | " + " | ".join(_fmt(v) for v in totals) + " |")
     lines.append("")
-    lines.append("Both encoders receive an already rendered Pixmap. pylopdf writes RGBA8 with")
-    lines.append("fast fdeflate compression; pymupdf writes RGB with zlib's default level.")
+    lines.append("Both encoders receive an already rendered RGB Pixmap. pylopdf writes it with")
+    lines.append("fast fdeflate compression; pymupdf with zlib's default level.")
     lines.append("KiB is 1,024 bytes of encoded PNG.")
     lines.append("")
     return lines

@@ -12,32 +12,35 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()` は別名コンストラクタ。with 文に対応。
-password inputはUTF-8 127 byteが上限です。
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+`pylopdf.open`はpymupdfと同じく同一の呼び出し可能オブジェクト。with 文に対応。
+`stream`はbytes、`bytearray`、`memoryview`、`io.BytesIO`を受け付け、`filetype`は
+`"pdf"`を取ります。pymupdfの`open("pdf", data)`と同じく、`stream`と並ぶ文字列の
+`filename`はファイル形式を表します。password inputはUTF-8 127 byteが上限です。
 
 | メンバ | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / イテレーション | `Page` ビュー（負数可。構造変更後は取得し直す） |
 | `page_count` / `len(doc)` | ページ数 |
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号（pymupdf互換の意味論） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号。pymupdfと同じ戻り値0/1/2/4/6で、空のuser passwordで開いた文書も検査する |
 | `is_repaired` | 読み込み時に破損したcross-reference dataを復旧したか（offsetの補正またはtableの再構築）。保存するとxref dataを正規化 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | オブジェクトグラフへの型付き低レベルアクセス。pymupdfの`xref_*`メソッドを置き換える（[低レベルオブジェクト](#low-level-objects)） |
-| `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
+| `metadata` / `set_metadata(m)` | pymupdfと同じキー：`format`、`trapped`を含むInfo項目、`encryption`（UTF-16BE対応）。`set_metadata`は`format`と`encryption`を無視し、偽の値で項目を削除し、`{}`でInfo辞書を削除。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 全page（`None`）またはpage数と4,096の大きい方までの明示entryを1回のbatchで抽出するplain text。4,096 entryごとのchunkでinterpreter font cacheを共有 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。既定は全page、明示entryはpage数と4,096の大きい方まで、累積UTF-8出力上限付き（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
-| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 上限付きPNG、全pageまたはpage数と4,096の大きい方までの明示entryを累積encoded output上限付きで描画する順序保証並列PNG群、上限付きUTF-8 SVG（`None`で解除） |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdfと同じキーで1つの画像のデータを返す（DCTはJPEGのまま、ほかのfilterはPNGに復号し、soft maskは含めない）。ページの画像一覧 |
+| `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | ページの`Pixmap`（pymupdfの`doc[pno].get_pixmap()`の簡便形）、または全pageかpage数と4,096の大きい方までの明示entryを累積encoded output上限付きで描画する順序保証並列PNG群（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1を区別する非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
-| `select` / `delete_page(s)` / `insert_pdf` / `new_page` / `copy_page` | page操作。select/deleteのentryはpage数と4,096の大きい方まで、`insert_pdf`は取り込み元の全範囲を受け付けて取り込んだページのフォームフィールドを登録し、navigationのcleanupとlink取り込みはTOC・named destinationの上限を共有 |
+| `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | page操作。select/deleteのentryはpage数と4,096の大きい方まで、`insert_pdf`は取り込み元の全範囲を受け付けて取り込んだページのフォームフィールドを登録し、navigationのcleanupとlink取り込みはTOC・named destinationの上限を共有 |
 | `get_toc()` / `set_toc(toc)` | 大規模manualに対応するcycle対応・上限付きのしおり（1始まり。65,536 entry/node、131,072 edge、深さ64、text 16 MiB。named destinationは`get_links()`と同じ） |
 | `get_page_labels()` / `set_page_labels(labels)` | ページラベル。固定上限は4,096 entry/node、深さ32、label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入。`font`には読み込み済みのOpenTypeの`Font`を渡せる |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `use_objstms=`、`encryption=`（既定は`PDF_ENCRYPT_NONE`、暗号化は`PDF_ENCRYPT_AES_256`。`PDF_ENCRYPT_AES_256`なしのpasswordは例外）、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
@@ -55,28 +58,29 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 |---|---|
 | `number` / `parent` / `get_label()` | 素性と表示ラベル |
 | `xref` / `obj` | ページ辞書のオブジェクト番号 / 低レベルのライブハンドル。継承される属性は祖先に残る |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
-| `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
+| `find_tables(clip=None, strategy=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | documentと同じtable・UTF-8出力制御を持つ1 page Markdown |
-| `get_images()` | 描画された画像（`bbox`付き、JPEG passthrough / PNG）。4,096配置、累積64,000,000画素、payload 64 MiBを超える部分結果は拒否 |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | pymupdfと同じ画像XObjectの一覧（`ImageItem` NamedTuple、`ImageItemFull`は`referencer`を追加）と、描画配置の辞書（`bbox`、`transform`、サイズ、色空間、`xrefs=True`で`xref`） |
 | `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性。8,192パス、131,072コマンド、またはページ集約131,072 dash値を超える場合は部分結果を返さず拒否 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 上限付きPNG / UTF-8 SVG rendering。`clip`は表示座標 |
+| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdfと同じrendering。既定は白地の不透明RGB、`alpha=True`でstraight-alpha RGBA、`dpi`は拡大縮小の`matrix`より優先、`clip`は表示座標。textをpathで描く上限付きUTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 表示回転 |
-| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
-| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい。編集していない`src`の同じページを再配置するとForm XObjectを共有 |
+| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | pymupdfの規約に従うページボックス。`mediabox`はPDF座標、`cropbox`はMediaBox上端を基準にy軸を反転。`set_cropbox`はMediaBox内の矩形のみ受け付け、`set_mediabox`はCropBox・BleedBox・TrimBox・ArtBoxを削除 |
+| `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` → xref | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` → Form xref | PDFページをベクタのまま重ねる。`docsrc`は同じ文書でもよい。編集していない`docsrc`の同じページを再配置するとForm XObjectを共有 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。pymupdfと同じく、文字列は`str.splitlines()`で行に分け、リストは1項目を1行とする。行の間隔は`fontsize`の`lineheight`倍で、既定は書体の`ascender`から`descender`を引いた値。頁の下にはみ出す行は描かず、描いた行数を返す。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。行はpymupdfと同じ位置に置く。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth`がある（pymupdfと同じく点の後に位置引数でも渡せる） |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。linkはpymupdfの`xref`と`id`（`/NM`）を持つ。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
-`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashesを持つ
+`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes、ページのpath・text・
+imageの中での描画順`seqno`を持つ
 `DrawingInfo`辞書を返します。pattern paintでは形状を保持し、色とopacityは`None`です。
 clip path、clip適用後の可視判定、group/soft-mask構造、optional-content layer名、
 text、image、annotationは返しませんが、optional-contentの表示状態は適用されます。
@@ -268,9 +272,12 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | 名前 | 用途 |
 |---|---|
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 入力サイズを任意に制限しpasswordを127 byteに制限する高速メタデータ読み取り。`repaired`でcross-reference復旧を確認 |
-| `Permissions` | 暗号化の許可フラグ（IntFlag） |
+| `Permissions` | 暗号化の許可フラグ（IntFlag）。メンバーはpymupdfの`PDF_PERM_*`定数 |
+| `EncryptionMethod` | `save(encryption=)`の方式（IntEnum）。メンバーはpymupdfの`PDF_ENCRYPT_*`定数 |
+| `Base14_fontnames` / `Base14_fontdict` | pymupdfのStandard 14のPostScript名と、`fontname=`が使う読み取り専用の対応表。略称と正式名を大文字小文字を問わず受け付ける |
+| `LinkKind` / `TextAlign` | メンバーがpymupdfの`LINK_*`・`TEXT_ALIGN_*`定数であるIntEnum |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page・document操作・form・vector drawing の辞書形式結果を表す TypedDict |
 | `DrawingItem` | line/cubic 描画コマンドを表す型 alias |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
@@ -280,10 +287,12 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体。`weight=`は可変フォントのファイルのインスタンスも選ぶ |
 | `Shape(page)` | 経路と文字を1回で描くpymupdfの`Shape`。`page.new_shape()`でも作れる |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低レベルのPDF値とライブなオブジェクトハンドル（[低レベルオブジェクト](#low-level-objects)） |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
+| `Word` / `Block` | pymupdfのtuple順の`get_text("words")`・`get_text("blocks")` NamedTuple |
+| `OcrRotation` / `FormFieldType` | runtimeでimportできるOCR回転・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
-| `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(path)`。すべてのwheelでread-only・zero-copyの`memoryview()`にも対応 |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底）。読めない入力は`FileDataError`（`RuntimeError`でもある）、空の入力は`EmptyFileError`、存在しないファイルは組み込みの`FileNotFoundError` |
+| `Pixmap` | 不変のRGB（`n == 3`）またはstraight-alpha RGBA（`n == 4`）画素: `samples` / `width` / `height` / `stride` / `n` / `alpha` / `colorspace` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(filename)`。すべてのwheelでread-only・zero-copyの`memoryview()`にも対応 |
+| `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdfのデバイス色空間とその番号 |
 | `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 
 `TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。

@@ -34,7 +34,7 @@ engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, object_streams=True)
+    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
 
 `apply_ocr()`은 렌더링 픽셀과 기존 페이지 내용을 유지합니다. 기본적으로 추출 가능한 텍스트가 이미 있는 페이지를 건너뛰므로 파이프라인을 다시 실행해도 보이지 않는 레이어가 중복되지 않습니다. 혼합 콘텐츠 페이지에서는 표시 좌표 `clip=(x0, y0, x1, y1)`로 스캔 영역을 선택할 수 있으며 그 영역과 교차하는 기존 텍스트만 건너뛰기 판단에 사용됩니다. 교차 텍스트가 있어도 추가해야 할 때만 `skip_existing=False`를 사용하십시오.

@@ -94,7 +94,7 @@ repeated source pages before mutation.
 `page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
+`image_pixel_count`, `image_inventory_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `path_point_count`, `search_input_size`, `search_hit_count`,
 `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
@@ -242,11 +242,9 @@ error.
   `structure_tree_count` before the document changes. These operations are
   not secure redaction: arbitrary custom references, attachments, metadata,
   and other copies of the content require their own inspection and removal.
-- `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()` default to
-  a 64 MiB encoded-PNG output boundary. Their writers refuse the crossing
-  write before returning Python `bytes`; `max_size=None` explicitly opts out.
-  Render refusals use `render_output_size`, while direct Pixmap encoding uses
-  `pixmap_output_size`.
+- `Pixmap.tobytes()` defaults to a 64 MiB encoded-PNG output boundary. Its
+  writer refuses the crossing write before returning Python `bytes`, with
+  `pixmap_output_size`; `max_size=None` explicitly opts out.
 - `Document.tobytes()` defaults to a 512 MiB serialized-output limit across
   normal, object/xref-stream, and encrypted output. Its Rust writer refuses
   the write crossing the boundary before Python `bytes` conversion;
@@ -254,7 +252,7 @@ error.
   sibling in the target directory and atomically replaces the requested path
   only after a complete write, so serialization or replacement failures
   preserve an existing file. It is not governed by the in-memory output
-  budget. Save options such as `garbage`, `deflate`, and `object_streams`
+  budget. Save options such as `garbage`, `deflate`, and `use_objstms`
   retain their documented mutation semantics even when later I/O fails.
 - `Pixmap.save()` streams PNG encoding directly to an unpredictable,
   exclusively created sibling in the target directory and atomically replaces
@@ -308,7 +306,7 @@ error.
   output stop at 127 UTF-8 bytes before PyO3 copying or password-KDF work.
   Direct Rust calls repeat the boundary. Refusals use `password_input_size`;
   save rejection occurs before document mutation or output creation.
-- `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
+- `Page.get_svg_image()` defaults to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.8 materializes one internal
   Rust string before pylopdf can enforce this boundary.
@@ -337,9 +335,11 @@ error.
   beyond that bound before graph mutation, raising `page_entry_count`.
   `insert_pdf()` imports any complete source range. Empty deletion preserves
   caches, generation, and existing `Page` views.
-- `Page.get_images()` rejects partial results above 4,096 placements,
-  64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
-  Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
+- `Page.get_images()` stops at 4,096 listed images or Form XObjects with
+  `image_inventory_count`, and `Page.get_image_info()` at 4,096 placements.
+  `Document.extract_image()` decodes one image under the 64,000,000-pixel and
+  64 MiB payload limits, with the content and colour-space guards, and
+  Flate-wrapped JPEG passthrough stops decompression at that budget.
 - `Document.embfile_add()` rejects input above 64 MiB before its PyO3 copy, and
   `embfile_get()` applies the same default to every decoded filter layer. Raise
   `max_size=` for a known large attachment; `max_size=None` explicitly accepts

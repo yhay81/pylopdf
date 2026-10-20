@@ -588,7 +588,7 @@ def test_ordinary_structures_are_interpreted_by_every_operation(case: str) -> No
 
     for operation in OPERATIONS.values():
         operation(doc)
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
 
 
 @pytest.mark.parametrize(
@@ -611,7 +611,7 @@ def test_a_painted_chain_at_the_limit_is_interpreted(case: str) -> None:
 
     for operation in OPERATIONS.values():
         operation(doc)
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
 
 
 @pytest.mark.parametrize("depth", [CHAIN_LIMIT + 1, 60, 61])
@@ -789,7 +789,7 @@ def test_every_scope_that_lists_resources_is_checked(
 
     accepted = pylopdf.Document(stream=builder(structure, entry, ACCEPTED[structure], scope))
     assert accepted.get_page_text(0) is not None
-    assert accepted[0].get_pixmap().width == 300
+    assert accepted[0].get_pixmap(alpha=True).width == 300
 
 
 def test_no_scope_crashes_any_operation(tmp_path: Path) -> None:
@@ -804,8 +804,8 @@ def test_no_scope_crashes_any_operation(tmp_path: Path) -> None:
 
 SAVED: dict[str, dict[str, Any]] = {
     "compressed": {"deflate": True},
-    "object-streams": {"deflate": True, "object_streams": True},
-    "encrypted": {"deflate": True, "user_pw": "secret"},
+    "object-streams": {"deflate": True, "use_objstms": True},
+    "encrypted": {"deflate": True, "encryption": pylopdf.PDF_ENCRYPT_AES_256, "user_pw": "secret"},
 }
 
 
@@ -870,7 +870,7 @@ def test_a_cycle_costs_one_level_per_object_and_is_not_infinite() -> None:
         parts = Parts()
         resources, content = shading(parts, ring(parts, length), 3)
         doc = pylopdf.Document(stream=page_scope(parts, resources, content))
-        assert doc[0].get_pixmap().width == 300
+        assert doc[0].get_pixmap(alpha=True).width == 300
         assert doc.get_page_text(0) is not None
 
     parts = Parts()
@@ -885,7 +885,7 @@ def test_a_colour_space_that_names_itself_renders() -> None:
     resources, content = colour_resource(parts, f"{number} 0 R", 1)
     doc = pylopdf.Document(stream=page_scope(parts, resources, content))
 
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
 
 
 def test_a_long_cycle_is_refused_without_crashing(tmp_path: Path) -> None:
@@ -1421,7 +1421,7 @@ def _image_and_pattern(depth: int) -> bytes:
 def test_a_stream_that_is_a_pattern_and_an_image_is_measured_as_an_image() -> None:
     """Content that was cleared in one role says nothing about the colour space another role builds."""
     accepted = pylopdf.Document(stream=_image_and_pattern(ACCEPTED["indexed"]))
-    assert accepted[0].get_pixmap().width == 300
+    assert accepted[0].get_pixmap(alpha=True).width == 300
 
     refused = pylopdf.Document(stream=_image_and_pattern(REFUSED["indexed"]))
     assert _refusal(refused.get_text).code == CODE
@@ -1450,7 +1450,7 @@ def test_wide_stitching_functions_are_not_deep() -> None:
     resources, content = shading(parts, f"{gradient} 0 R", 3)
     doc = pylopdf.Document(stream=page_scope(parts, resources, content))
 
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
 
 
 @pytest.mark.parametrize("levels", [CHAIN_LIMIT // 2 - 1, CHAIN_LIMIT // 2])
@@ -1527,7 +1527,7 @@ def test_refusal_is_per_page() -> None:
     assert doc.get_page_text(0).strip() == "PAGE TEXT"
     assert _refusal(lambda: doc.get_page_text(1)).code == CODE
     assert doc.get_page_text(0).strip() == "PAGE TEXT"
-    assert doc.render_pages(pages=[0])
+    assert doc.render_pages([0], alpha=True)
     assert _refusal(doc.render_pages).code == CODE
     assert _refusal(doc.get_text).code == CODE
     assert "PAGE TEXT" in doc.get_text(pages=[0])
@@ -1565,5 +1565,5 @@ def test_real_world_pages_pass_the_check() -> None:
     ):
         doc = pylopdf.open(root / name)
         assert doc.get_text() is not None
-        assert doc.render_pages(pages=[0])
+        assert doc.render_pages([0], alpha=True)
         doc.compress_images()

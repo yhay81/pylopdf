@@ -70,4 +70,4 @@ def test_render_report_separates_rasterization_from_png_encoding() -> None:
     assert "| tiny.pdf | 0.20 | err/n-a | 0.50 | err/n-a |" in report
     assert "| Total | 2.7 | err/n-a | 4.5 | err/n-a |" in report
     assert "fresh document from bytes for every repetition" in report
-    assert "straight-alpha RGBA8" in report
+    assert "opaque RGB on white" in report

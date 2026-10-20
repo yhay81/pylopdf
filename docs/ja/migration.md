@@ -21,25 +21,27 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
 | `import pymupdf`（`fitz` は旧名） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=`も同じ。UTF-8 127 byte上限 |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 同じ | `open`は`Document`そのもの。`filetype=`は`"pdf"`のみ。`password=`はkeyword-onlyでUTF-8 127 byte上限 |
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 同じ。加えて`max_hits=4096` | 上限付き`list[Rect]`。検索語は4,096 byte、`max_hits=None`で解除、`quads=`は無い |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | `dpi=144` でも。Matrix クラスは無い |
-| `pix.samples / width / height / stride / save()` | 同じ | 常にストレートアルファ RGBA8。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(path)`はPNGを生成し、`save`には`.png`が必要 |
-| `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 同じ | 既定は不透明RGB、`alpha=True`でRGBA。`dpi=`が優先。拡大縮小のmatrixのみで、`colorspace=`と`annots=`はまだ無い |
+| `page.get_svg_image()` | 同じ | `matrix`は恒等のみ。`text_as_path=False`は例外 |
+| `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 同じ | RGB、`alpha=True`ではstraight-alpha RGBA。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(filename)`はPNGを生成し、`save`は`.png`が必須 |
+| `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 同じ | `extract_image`はDCTをJPEGのまま返し、ほかのfilterはPNGに復号。`get_image_info(hashes=True)`はdigest対応まで例外 |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
-| `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | 取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
+| `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
 | `doc.save(garbage=4, deflate=True)` | 同じ | pymupdfと同じ0〜4の段階。ページ、注釈、フォームフィールド、構造要素、レイヤーは統合しない |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256のみ。各passwordはUTF-8 127 byte上限 |
+| `doc.save(encryption=…, user_pw=…)` | 同じ | `PDF_ENCRYPT_NONE`（既定）と`PDF_ENCRYPT_AES_256`のみで、ほかの方式は例外。`PDF_ENCRYPT_NONE`でのpasswordは無視せず例外。各passwordはUTF-8 127 byte上限 |
 | `doc.needs_pass` / `authenticate()` | 同じ | 戻り値の意味（0/1/2/4/6）も同じ |
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 同じ | JPEGパススルー、PNG透過、RGBA `Pixmap`の直接再利用、時計回りの右角回転。その他の符号化形式はPillowで変換。同一入力は画像XObjectを共有するため`xref=`による再利用は不要 |
-| `page.show_pdf_page(rect, src, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要。編集していない取り込み元の再配置はForm XObjectを共有 |
+| `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要。編集していない取り込み元の再配置はForm XObjectを共有 |
 | `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | sourceなしは標準14 / WinAnsi、または導入済みscript／locale provider。その他は明示fontを字形処理してsubset埋め込み。行の分け方・位置・頁の下にはみ出す行の除外はpymupdfと同じで、描いた行数を返す。頁の下端は表示座標の`page.rect`の下端で、pymupdfは回転前の座標で測る |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。行の位置と収まるかどうかの判定はpymupdfと同じ。負の戻り値なら描画しない |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ | Standard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extra。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えない。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になる。keyword-onlyの`weight=`は、可変フォントのファイルの太さの軸からインスタンスも選ぶ。書体は`insert_text` / `insert_textbox`に`font=`で渡す。`text_length`はカーニングを含み、`ascender`／`descender`はpymupdfと同じ値で、`insert_text`と`insert_textbox`はこれで行を置く |
@@ -64,7 +66,10 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   取得し直してください。
 - **例外**: 基底は `PdfError`（`ValueError` のサブクラス）。`PasswordError` /
   `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` が
-  それを細分化します。`except ValueError` は動き続けます。
+  それを細分化します。`except ValueError` は動き続けます。pymupdfの
+  `FileDataError`と`EmptyFileError`は同じ名前で、`RuntimeError`も継承します。
+  存在しないファイルはPython組み込みの`FileNotFoundError`になるため、
+  `except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えます。
 - **資源ポリシー**: `DocumentLimits.web()`はrendering／extractionへ渡す完全な
   PDF snapshotを64 MiB、累積位置付きtextを65,536 glyph recordに制限します。
   独自ポリシーでは`max_interpretation_size`と`max_text_glyphs`を指定でき、`None`は
@@ -128,6 +133,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合計"))   # リストごと渡せる
-page.get_pixmap(scale=2).save("page.png")
+page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

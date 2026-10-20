@@ -89,7 +89,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
+`image_pixel_count`、`image_inventory_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `path_point_count`、`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
 `decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、
@@ -202,16 +202,15 @@ colour spaceのshadingなど、一部の不正な色データでpanicします
 Rustが標準エラー出力に書き出します。
 
 - レンダリングは1ページ64メガピクセルまでです。
-- `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded
-  PNG出力上限は既定64 MiBです。writerがPython `bytes`を返す前に境界を越える
-  writeを拒否し、`max_size=None`で明示解除できます。renderingは
-  `render_output_size`、Pixmap直接encodeは`pixmap_output_size`を返します。
+- `Pixmap.tobytes()`のencoded PNG出力上限は既定64 MiBです。writerがPython
+  `bytes`を返す前に境界を越えるwriteを`pixmap_output_size`で拒否し、
+  `max_size=None`で明示解除できます。
 - `Document.tobytes()`は通常・object/xref stream・暗号化出力すべてに512 MiBの
   既定serialization上限を適用します。Rust writerがPython `bytes`変換前に境界を
   越えるwriteを拒否し、`max_size=None`で明示的に解除できます。`save()`はtargetと
   同じdirectoryに安全に作成したsiblingへstreamし、完全なwrite後だけ要求pathを
   原子的に置換するため、serialization/置換失敗時も既存fileを保持します。この
-  in-memory上限の対象外です。`garbage`、`deflate`、`object_streams`などのsave
+  in-memory上限の対象外です。`garbage`、`deflate`、`use_objstms`などのsave
   optionは、その後I/Oが失敗しても文書化済みのmutation semanticsを維持します。
 - `Pixmap.save()`はtarget directory内に予測不能かつ排他的に作成したsiblingへ
   PNG encodeを直接streamし、完全なwriteが成功した後だけ要求pathを原子的に
@@ -256,7 +255,7 @@ Rustが標準エラー出力に書き出します。
 - open、authenticate、高速metadata probe、AES-256出力のpasswordはUTF-8 127 byteで
   PyO3 copy／password KDF前に拒否します。Rust直呼びも再検査し、codeは
   `password_input_size`です。保存拒否はdocument mutation／output作成より前です。
-- `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
+- `Page.get_svg_image()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.8が完成した`String`だけを返すため、pylopdfが
   制限を適用する前の内部Rust string 1つはこの境界の対象外です。
@@ -280,8 +279,10 @@ Rustが標準エラー出力に書き出します。
   文書より大きくなりません。iterableは上限を超えた最初のentryでgraph変更前に停止し、
   `page_entry_count`を返します。`insert_pdf()`は取り込み元の全範囲を受け付けます。
   空deleteはcache・generation・既存`Page` viewを保持します。
-- `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
-  64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
+- `Page.get_images()`は画像またはForm XObjectが4,096を超えると
+  `image_inventory_count`で、`Page.get_image_info()`は4,096配置で停止します。
+  `Document.extract_image()`は64,000,000画素と64 MiB payloadの上限、content・
+  色空間のguardの下で1つの画像を復号し、Flate-wrapped JPEG passthroughもその
   上限までしか展開しません。
 - `Document.embfile_add()`はPyO3 copy前に64 MiB超の入力を拒否し、
   `embfile_get()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量

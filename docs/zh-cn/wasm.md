@@ -121,7 +121,8 @@ native/Wasm 共享 suite 目前覆盖：
   rendering、`Pixmap`、serialization、virtual-filesystem save、merge、reorder、
   duplicate 和 select；
 - `PdfError`、带 stable resource code 的 `LimitError`、`PasswordError`、
-  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`，以及 malformed
+  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、
+  `FileDataError`、`EmptyFileError`，以及 malformed
   input 后的 runtime 复用；
 - `render_pages(workers=4)` 的输入顺序和与 `workers=1` 的 byte 一致性。
 

@@ -139,7 +139,7 @@ overview.
   Raw materialization must reuse dict grouping and existing text/glyph admission,
   without retaining additional data in the cache or allocating raw output for
   other extraction options.
-  `search_for` caps the UTF-8 needle at 4,096 bytes before PyO3 copying and
+  `search_for` caps the UTF-8 search text at 4,096 bytes before PyO3 copying and
   defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
   checks, `max_hits=None` explicitly opts trusted result sets out, and
   failures use `search_input_size` or `search_hit_count` without returning a
@@ -309,8 +309,19 @@ overview.
   avoiding one String and point-Vec allocation per command. Dash syntax and
   public command/path tuples materialize only after their aggregate admissions,
   grow fallibly, and return no partial result on allocation refusal.
-- `Page.get_images` releases the GIL and materializes each drawn placement as
-  JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
+- `Page.get_images(full=)` lists the image XObjects that the page's inherited
+  resources and, depth first, its Form XObjects' resources reach, once each in
+  resource order, from the lopdf graph (`page_image_inventory`, at most 4,096
+  images and Forms and 32 levels, `image_inventory_count`).
+  `Page.get_image_info` describes drawn placements through a hayro device;
+  hayro hides an image mask's stream, so masks report xref 0.
+  `Document.extract_image(xref)` copies the image without its masks, and the
+  objects it reaches, into a one-page document drawing it at pixel size,
+  runs a fresh `ContentGuard` on it, and decodes it with the placement
+  extractor below inside `contain_renderer_panics`. The core
+  `extract_images` placement decoder stays as the test hook behind
+  `tests/conftest.py`'s `drawn_images`. It materializes each drawn placement
+  as JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
   non-passthrough PNG encoding writes into that same remaining budget. Combine
@@ -380,9 +391,11 @@ overview.
   the explicit trusted-input opt-out. Path reads use fallible 64 KiB chunks and
   admit at most one byte beyond the remaining bounded budget. Dictionary
   materialization stops at 65,536 entries. Loading and inference release the
-  GIL. OCR clones the
-  Pixmap's shared immutable RGBA backing, composites
-  RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
+  GIL. `OcrEngine.recognize(pixmap)` reads any Pixmap in pixel
+  coordinates, and `Page.get_text_ocr` renders opaque RGBA on white and maps
+  boxes back to the page. OCR clones the Pixmap's shared immutable RGBA
+  backing, expands an RGB Pixmap to opaque RGBA in one fallible copy,
+  composites RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
   pixels, a 4096-candidate cap, and deterministic edge deduplication.
   Rotation rasters, detector/recognizer inputs, probability-map masks,
   connected-component growth, tile starts, candidates, and results allocate
@@ -1150,7 +1163,7 @@ overview.
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
   and never crosses a thread: each thread keeps at most one slot that owns an
   `Arc` of the snapshot together with the cache through `self_cell`.
-  `render_page`, `Page.get_pixmap`/`render`, and serial `render_pages` use the
+  `Page.get_pixmap`, `Document.get_page_pixmap`, and serial `render_pages` use the
   slot only on the thread that created the document, and only while the
   document's generation token and the snapshot identity both match.
   `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
@@ -1187,13 +1200,20 @@ overview.
   retaining it; `max_size=None` is the explicit unbounded opt-out and limit
   failures return no partial list. Other simultaneous calls or edits on the same
   `Document` are outside the contract.
-- `Document.render_page`, `Page.render`, and `Pixmap.tobytes` default to a
-  64 MiB encoded-PNG output boundary. The shared PNG writer refuses the write
-  crossing the limit before Python bytes conversion and grows its retained
-  output fallibly. `max_size=None` is the explicit trusted-output opt-out.
-  Render failures use `render_output_size`; direct Pixmap failures use
-  `pixmap_output_size`.
-- `Document.render_page_svg` and `Page.render_svg` default to a 64 MiB UTF-8
+- `Pixmap.tobytes` defaults to a 64 MiB encoded-PNG output boundary. The
+  shared PNG writer refuses the write crossing the limit before Python bytes
+  conversion and grows its retained output fallibly. `max_size=None` is the
+  explicit trusted-output opt-out. Failures use `pixmap_output_size`; the
+  `render_pages` batch budget uses `render_output_size`.
+- `Page.get_pixmap` follows pymupdf: opaque RGB (`n == 3`) on white by
+  default, straight-alpha RGBA with `alpha=True`, `dpi` taking precedence
+  over `matrix`, and only scaling matrices (rotation, shear, and flips raise
+  `PdfError`; a translation moves no pixels). The core takes separate x and y
+  scale factors, which hayro's transform applies, and `raster_samples` drops
+  the alpha bytes of an opaque raster in place rather than copying it.
+  `background=` must be opaque without `alpha`. `render_pages` takes the same
+  options and writes RGB or RGBA PNG accordingly.
+- `Page.get_svg_image` defaults to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
   creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.8
   returns only a completed `String`, so this boundary does not cap the
@@ -1204,8 +1224,9 @@ overview.
   transform shifted by the clip origin, so only the clipped region is
   rasterized; hayro still interprets the complete page, and the full-page
   render-size limits still apply. `Pixmap::take_rgba8` converts the raster to
-  straight alpha and hands over its buffer, and the completed `Vec<u8>` moves
-  into an `Arc<Vec<u8>>` without copying the raster.
+  straight alpha and hands over its buffer, an RGB Pixmap compacts it in
+  place, and the completed `Vec<u8>` moves into an `Arc<Vec<u8>>` without
+  copying the raster.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.
@@ -1229,7 +1250,7 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `copy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  `fullcopy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
   objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
@@ -1378,9 +1399,14 @@ overview.
   that is not a stream. Use these helpers instead of mapping lopdf's
   `ObjectNotFound` to `PdfError` wherever a reader already skips null.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
-  Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
-  `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
-  introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
+  Python defines `DocumentClosedError`, `EncryptedDocumentError`,
+  `StalePageError`, and pymupdf's `FileDataError(PdfError, RuntimeError)` and
+  `EmptyFileError(FileDataError)`, which Rust raises through
+  `import_exception!` (`document/errors.rs`). Opening input that lopdf cannot
+  parse raises `FileDataError` and empty input `EmptyFileError`, while password
+  and limit failures keep their types; a missing caller path raises the
+  built-in `FileNotFoundError` through `path_io_err`. Add new errors under the
+  `PdfError` hierarchy instead of introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
   appear only through `Error::source`; format lopdf errors through
   `LopdfErrorChain` so limit and decoder details stay in messages.
 - Encryption during `save` operates on a clone, so the in-memory document always
@@ -1415,7 +1441,7 @@ overview.
   trailer writes after every successful or failed byte/file serialization so
   repeated no-op output is deterministic. Preserve the documented mutation
   semantics of `garbage`, `deflate`, and the PDF-version/xref-mode changes from
-  `object_streams` on output refusal.
+  `use_objstms` on output refusal.
 - TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
   compatibility. All other page APIs are zero-based.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
@@ -1592,9 +1618,9 @@ overview.
   shows of the source. pymupdf's `insert_text` measures from the unclipped
   CropBox corner instead and draws off the visible page; pylopdf keeps one
   display space (G1). `mediabox` and `cropbox` still report the stored boxes.
-  `insert_image(pixmap=)` splits immutable
-  straight-alpha RGBA8 storage through fallibly allocated RGB and optional
-  alpha planes, then Flate-compresses through a fallible writer; fully opaque
+  `insert_image(pixmap=)` Flate-compresses an RGB Pixmap's storage as it is
+  and splits straight-alpha RGBA8 storage through fallibly allocated RGB and
+  optional alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
   input directly into its XObject. PNG alpha separation compacts decoded color
   samples in place and fallibly allocates only the separate alpha plane.
@@ -2399,7 +2425,7 @@ overview.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.
-- `Pixmap` is immutable. Every build exposes its RGBA8 storage through a
+- `Pixmap` is immutable. Every build exposes its RGB or RGBA storage through a
   read-only zero-copy buffer, the `abi3-py311` wheels included, because
   `Py_buffer` entered the stable ABI in Python 3.11; `Pixmap.samples` returns
   a one-copy `bytes` value. `tests/test_pixmap.py`, `tools/smoke_artifact.py`
@@ -2415,6 +2441,14 @@ overview.
   bounded same-document parallel read boundary.
 ## Known pitfalls
 
+- lopdf 0.45 decrypts on load with the empty password whenever it matches the
+  user or the owner password, and removes `/Encrypt`. MuPDF refuses an empty
+  owner password unless the user password is empty too, so pylopdf opens such
+  a document without a password where pymupdf asks for one. `authenticate`
+  follows MuPDF's codes by rebuilding the Encrypt dictionary from
+  `encryption_state.encode()` (`original_password_matches`), and
+  `metadata["encryption"]` describes it the same way. lopdf's fast metadata
+  reader also drops `/Trapped`, so `peek_metadata` omits `trapped`.
 - lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
   `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
   `/Prev` and `/XRefStm` after reconstruction; an upstream fix is a

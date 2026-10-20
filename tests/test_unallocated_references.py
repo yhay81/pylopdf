@@ -97,12 +97,14 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     ),
     "insert_text": lambda doc: doc[0].insert_text((20, 40), "Stamp"),
     "insert_text_embedded_font": lambda doc: doc[0].insert_text((20, 40), "Stamp", fontfile=NOTO_SANS_JP),
-    "insert_image": lambda doc: doc[0].insert_image((10, 10, 50, 50), pixmap=doc[0].get_pixmap(scale=0.05)),
+    "insert_image": lambda doc: doc[0].insert_image(
+        (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
+    ),
     "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
     "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
     "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.copy_page(0),
+    "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_toc": lambda doc: doc.set_toc([[1, "Start", 1]]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "embfile_add": lambda doc: doc.embfile_add("note.txt", b"note"),
@@ -180,7 +182,9 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     """
     objects = _target_objects("[5 0 R 6 0 R]", catalog="/PylopdfProbe 6 0 R")
     objects[6] = _stream("PLACEHOLDER", 200)
-    encrypted = pylopdf.Document(stream=build_raw_pdf(objects)).tobytes(user_pw="user", owner_pw="owner")
+    encrypted = pylopdf.Document(stream=build_raw_pdf(objects)).tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    )
     patched = encrypted.replace(b"/Contents[5 0 R 6 0 R]", b"/Contents[5 0 R 9 0 R]").replace(
         b"/PylopdfProbe 6 0 R", b"/PylopdfProbe 9 0 R"
     )

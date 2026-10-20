@@ -21,29 +21,31 @@ deliberately does not implement.
 | pymupdf | pylopdf | Notes |
 |---|---|---|
 | `import pymupdf` (`fitz` is the legacy name) | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too, capped at 127 UTF-8 bytes |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | same | `open` is `Document`; `filetype=` takes `"pdf"` only; `password=` is keyword-only and capped at 127 UTF-8 bytes |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | same, plus `max_hits=4096` | returns a bounded `list[Rect]`; 4,096-byte term limit, `max_hits=None` opt-out, no `quads=` |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; rendering does not yet accept `matrix=` |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | same | opaque RGB by default and RGBA with `alpha=True`; `dpi=` takes precedence; only scaling matrices, and no `colorspace=` or `annots=` yet |
+| `page.get_svg_image()` | same | identity `matrix` only; `text_as_path=False` raises |
 | `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | same | immutable NamedTuples; coordinates must be finite |
 | `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | mutating methods are absent; matrix division raises on a singular divisor |
 | `r.include_point(p)` / `r.include_rect(o)` / `r.intersect(o)` / `r.normalize()` / `r.transform(m)` | `r = r \| p` / `r = r \| o` / `r = r & o` / `r = r.normalized()` / `r = r * m` | rectangles and quads are immutable; `q.transform(m)` becomes `q = q * m` |
 | `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | assign the result; composition applies the left matrix first |
-| `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(path)` produce PNG, and `save` requires `.png` |
-| `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
+| `pix.samples / width / height / n / alpha / stride / colorspace / save()` | same | RGB, or straight-alpha RGBA with `alpha=True`; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(filename)` produce PNG, and `save` requires `.png` |
+| `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | same | `extract_image` passes DCT through as JPEG and decodes other filters to PNG; `get_image_info(hashes=True)` raises until digests arrive |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |
-| `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
+| `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | same | `delete_pages` takes pymupdf's forms (one number, two numbers, `from_page=`/`to_page=`, an iterable); `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects (G8) |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | same | pymupdf's range rules (negative `from_page` is the first page, negative `to_page` the last, both clamp); registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
 | `doc.save(garbage=4, deflate=True)` | same | pymupdf's levels 0–4; pages, annotations, form fields, structure elements, and layers are never merged |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only; each password stops at 127 UTF-8 bytes |
+| `doc.save(encryption=…, user_pw=…)` | same | `PDF_ENCRYPT_NONE` (the default) and `PDF_ENCRYPT_AES_256` only, other methods raise; a password under `PDF_ENCRYPT_NONE` raises instead of being ignored; each password stops at 127 UTF-8 bytes |
 | `doc.needs_pass` / `authenticate()` | same | same return semantics (0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | same | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | same | JPEG passthrough, PNG alpha, direct rendered-RGBA `Pixmap` reuse, and clockwise right-angle rotation; convert other encoded formats with Pillow; identical input shares one image XObject, so no `xref=` reuse is needed |
-| `page.show_pdf_page(rect, src, pno)` | same | same-document sources use a native pre-edit snapshot; no serialize/open workaround; repeated placements of an unedited source share one Form XObject |
+| `page.show_pdf_page(rect, docsrc, pno)` | same | same-document sources use a native pre-edit snapshot; no serialize/open workaround; repeated placements of an unedited source share one Form XObject |
 | `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` / `font_language=` | no source: standard-14 / WinAnsi or an installed script/locale font provider; other sources are shaped and subset-embedded; lines are split, placed, and left out below the page as in pymupdf, and the number drawn is returned; the page ends at the bottom of `page.rect` in display coordinates, where pymupdf measures in unrotated space |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` / `font_language=` | UAX #14 wrapping with the same optional provider selection; lines are placed and fitted as in pymupdf; negative return means no drawing |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | same | Standard 14 names and aliases, OpenType files, and installed font extras through `language=` or `family=`; pymupdf's other built-in fonts (`"cjk"`, `"figo"`, ...) and `script=`, `ordering=`, and `embed=` are not available. `is_bold=`, `is_italic=`, and `is_serif=` select an installed extra's face exactly and raise with `fontname` or a font file, where pymupdf ignores them, while the keyword-only `weight=` also selects an instance on a variable font file's weight axis. Pass the font as `font=` to `insert_text` / `insert_textbox`; `text_length` includes kerning, and `ascender` / `descender` report pymupdf's values, which `insert_text` and `insert_textbox` place lines with |
@@ -72,13 +74,17 @@ deliberately does not implement.
   tests containment, and `width` and `height` are never negative. Write
   `r = r.normalized()` for `r.normalize()`. Unlike tuples, `r + (1, 2, 3, 4)`
   adds coordinates and `Rect(0, 0, 0, 0)` is false.
-  Rendering continues to take `scale=` / `dpi=`, not `matrix=`.
+  `get_pixmap(matrix=)` takes scaling matrices; rotation and shear raise.
 - **Stale pages**: after structural changes (delete / insert / reorder),
   previously fetched `Page` objects raise `StalePageError` instead of silently
   pointing at a different page. Re-fetch with `doc[i]`.
 - **Exceptions**: `PdfError` (a `ValueError` subclass) is the base;
   `PasswordError`, `DocumentClosedError`, `EncryptedDocumentError`,
-  `StalePageError` refine it. `except ValueError` keeps working.
+  `StalePageError` refine it. `except ValueError` keeps working. pymupdf's
+  `FileDataError` and `EmptyFileError` keep their names and also derive from
+  `RuntimeError`; a missing file raises Python's built-in
+  `FileNotFoundError`, so replace `except pymupdf.FileNotFoundError` with
+  `except FileNotFoundError`.
 - **Resource policy**: `DocumentLimits.web()` caps the complete PDF snapshot
   supplied to rendering and extraction at 64 MiB and cumulative positioned
   text at 65,536 glyph records. Custom policies can set
@@ -147,6 +153,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # takes the whole list
-page.get_pixmap(scale=2).save("page.png")
+page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

@@ -3,6 +3,8 @@ import os
 import sys
 from typing import TypeAlias
 
+from pylopdf._pixmap import Colorspace
+
 if sys.platform == "win32":
     def _copy_windows_dacl(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None: ...
 
@@ -129,11 +131,15 @@ class Pixmap:
     @property
     def n(self) -> int: ...
     @property
+    def alpha(self) -> bool: ...
+    @property
+    def colorspace(self) -> Colorspace: ...
+    @property
     def stride(self) -> int: ...
     @property
     def samples(self) -> bytes: ...
     def tobytes(self, *, max_size: int | None = 67108864) -> bytes: ...
-    def save(self, path: str | os.PathLike[str]) -> None: ...
+    def save(self, filename: str | os.PathLike[str]) -> None: ...
     def __buffer__(self, flags: int, /) -> memoryview: ...
 
 class _Document:
@@ -305,12 +311,16 @@ class _Document:
     def embfile_del(self, name: str) -> None: ...
     def set_metadata(self, key: str, value: str) -> None: ...
     def set_metadata_batch(self, entries: list[tuple[str, str]]) -> None: ...
+    def remove_metadata(self) -> None: ...
+    def encryption_method(self) -> str | None: ...
+    def check_original_password(self, password: str) -> tuple[bool, bool]: ...
     def delete_pages(self, page_numbers: list[int]) -> None: ...
     def get_page_rotation(self, page_number: int) -> int: ...
     def set_page_rotation(self, page_number: int, rotation: int) -> None: ...
     def page_display_size(self, page_number: int) -> tuple[float, float]: ...
     def get_page_box(self, page_number: int, key: str) -> tuple[float, float, float, float] | None: ...
     def set_page_box(self, page_number: int, key: str, x0: float, y0: float, x1: float, y1: float) -> None: ...
+    def set_mediabox(self, page_number: int, x0: float, y0: float, x1: float, y1: float) -> None: ...
     def select(self, page_numbers: list[int]) -> None: ...
     def extract_text(self, page_numbers: list[int]) -> str: ...
     def extract_layout(
@@ -358,6 +368,27 @@ class _Document:
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...
+    def page_image_inventory(
+        self, page_number: int
+    ) -> list[tuple[int, int, int, int, int, str, str, str, str, int]]: ...
+    def page_image_info(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            int,
+            tuple[float, float, float, float],
+            tuple[float, float, float, float, float, float],
+            int,
+            int,
+            int,
+            str,
+            int,
+            int,
+            bool,
+            tuple[int, int],
+        ]
+    ]: ...
+    def extract_image(self, xref: int) -> tuple[str, int, int, int, str, int, int, tuple[int, int], bytes]: ...
     def extract_drawings(
         self, page_number: int
     ) -> list[
@@ -375,13 +406,15 @@ class _Document:
                 str | None,
             ],
             tuple[tuple[float, float, float] | None, float | None, bool | None],
+            int,
         ]
     ]: ...
     def compress_images(self, target_dpi: float | None, quality: int) -> tuple[int, int, int, int, int]: ...
     def render_page_pixmap(
         self,
         page_number: int,
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         clip: tuple[float, float, float, float] | None,
     ) -> Pixmap: ...
@@ -397,7 +430,7 @@ class _Document:
         overlay: bool,
         max_size: int | None = 67108864,
         max_pixels: int | None = 64000000,
-    ) -> None: ...
+    ) -> int: ...
     def insert_image_file(
         self,
         page_number: int,
@@ -408,7 +441,7 @@ class _Document:
         overlay: bool,
         max_size: int | None = 67108864,
         max_pixels: int | None = 64000000,
-    ) -> None: ...
+    ) -> int: ...
     def insert_pixmap(
         self,
         page_number: int,
@@ -417,7 +450,7 @@ class _Document:
         image_rotation: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def show_pdf_page(
         self,
         page_number: int,
@@ -426,7 +459,7 @@ class _Document:
         src_page_number: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def show_pdf_page_self(
         self,
         page_number: int,
@@ -434,7 +467,7 @@ class _Document:
         src_page_number: int,
         keep_proportion: bool,
         overlay: bool,
-    ) -> None: ...
+    ) -> int: ...
     def read_annotations(
         self, page_number: int
     ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...
@@ -442,14 +475,18 @@ class _Document:
         self, page_number: int
     ) -> list[
         tuple[
+            tuple[
+                str,
+                tuple[float, float, float, float],
+                str | None,
+                int | None,
+                tuple[float, float] | None,
+                float | None,
+                str | None,
+                str | None,
+            ],
+            int,
             str,
-            tuple[float, float, float, float],
-            str | None,
-            int | None,
-            tuple[float, float] | None,
-            float | None,
-            str | None,
-            str | None,
         ]
     ]: ...
     def add_highlight_annotation(
@@ -612,14 +649,16 @@ class _Document:
     def render_page_png(
         self,
         page_number: int,
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         max_output_size: int | None,
     ) -> bytes: ...
     def render_pages_png(
         self,
         page_numbers: list[int],
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         workers: int,
         max_output_size: int | None,

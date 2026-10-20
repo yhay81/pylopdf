@@ -363,7 +363,7 @@ def test_handles_compare_and_hash_by_address() -> None:
 def test_closed_and_encrypted_documents_are_refused() -> None:
     doc = _two_pages()
     catalog = doc.catalog
-    encrypted = pylopdf.open(stream=doc.tobytes(user_pw="secret"))
+    encrypted = pylopdf.open(stream=doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret"))
     doc.close()
 
     with pytest.raises(pylopdf.DocumentClosedError):
@@ -373,7 +373,9 @@ def test_closed_and_encrypted_documents_are_refused() -> None:
 
 
 def test_objects_are_readable_after_authentication() -> None:
-    encrypted = pylopdf.open(stream=_two_pages().tobytes(user_pw="user", owner_pw="owner"))
+    encrypted = pylopdf.open(
+        stream=_two_pages().tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner")
+    )
     with pytest.raises(pylopdf.EncryptedDocumentError):
         encrypted.catalog  # noqa: B018 - property access is the operation under test.
 

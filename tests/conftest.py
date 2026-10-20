@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
+import pylopdf
 from pylopdf.pylopdf_core import _Document
 
 
@@ -258,3 +260,17 @@ def one_page_pdf() -> bytes:
 @pytest.fixture
 def three_page_pdf() -> bytes:
     return build_pdf(["Page one", "Page two", "Page three"])
+
+
+def drawn_images(page: pylopdf.Page) -> list[dict[str, Any]]:
+    """Decode each image drawn on ``page``, composited with its soft mask.
+
+    Before M0, ``Page.get_images`` returned these placements; it now lists
+    image XObjects as pymupdf does. The core still decodes placements, which
+    tests use to check image decoding and its limits.
+    """
+    document = page.parent
+    return [
+        {"width": width, "height": height, "bbox": pylopdf.Rect(*bbox), "ext": ext, "image": data}
+        for width, height, bbox, ext, data in document._doc.extract_images(page.number + 1)  # noqa: SLF001
+    ]

@@ -20,7 +20,7 @@ WHITE_MIN = 240
 
 def _region_pixels(page: pylopdf.Page, rect: pylopdf.Rect) -> list[tuple[int, int, int]]:
     """Return RGB pixels inside ``rect`` after rendering on white."""
-    pix = page.get_pixmap(background=(255, 255, 255))
+    pix = page.get_pixmap(background=(255, 255, 255), alpha=True)
     out = []
     for y in range(int(rect.y0), min(int(rect.y1), pix.height)):
         for x in range(int(rect.x0), min(int(rect.x1), pix.width)):
@@ -271,7 +271,7 @@ def test_copy_page_detaches_shared_indirect_annots_array() -> None:
         }
     )
     doc = pylopdf.open(stream=pdf)
-    doc.copy_page(0)
+    doc.fullcopy_page(0)
 
     doc[1].add_link_annot((20, 20, 30, 30), "https://b.example")
 

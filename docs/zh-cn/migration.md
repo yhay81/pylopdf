@@ -18,25 +18,27 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
 | `import pymupdf`（`fitz`为旧名称） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=`，上限127 UTF-8 byte |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 相同 | `open`就是`Document`；`filetype=`仅接受`"pdf"`；`password=`为仅限关键字参数，上限127 UTF-8 byte |
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 相同，并有`max_hits=4096` | 返回有界`list[Rect]`；搜索词上限4,096 byte，`max_hits=None`取消，无`quads=` |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 也可用`dpi=144`；无Matrix类 |
-| `pix.samples / width / height / stride / save()` | 相同 | 始终为straight-alpha RGBA8；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(path)`生成PNG，且`save`要求`.png`扩展名 |
-| `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 相同 | 默认不透明RGB，`alpha=True`时为RGBA；`dpi=`优先；仅支持缩放matrix，尚无`colorspace=`与`annots=` |
+| `page.get_svg_image()` | 相同 | `matrix`仅限恒等；`text_as_path=False`会抛出异常 |
+| `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 相同 | RGB，`alpha=True`时为straight-alpha RGBA；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(filename)`生成PNG，`save`需要`.png` |
+| `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 相同 | `extract_image`以JPEG直通DCT，其他filter解码为PNG；`get_image_info(hashes=True)`在支持digest前会抛出异常 |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
-| `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | 注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
+| `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象（G8） |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |
 | `doc.save(garbage=4, deflate=True)` | 相同 | 与pymupdf相同的0–4级；页面、注释、表单字段、结构元素和图层不会合并 |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256；每个password上限127 UTF-8 byte |
+| `doc.save(encryption=…, user_pw=…)` | 相同 | 仅支持`PDF_ENCRYPT_NONE`（默认）与`PDF_ENCRYPT_AES_256`，其他方式抛出异常；`PDF_ENCRYPT_NONE`下传入password会抛出异常而不是被忽略；每个password上限127 UTF-8 byte |
 | `doc.needs_pass` / `authenticate()` | 相同 | 返回值语义相同（0/1/2/4/6） |
 | `page.rect / rotation / set_rotation` | 相同 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换；相同输入共享同一图像XObject，无需`xref=`复用 |
-| `page.show_pdf_page(rect, src, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
+| `page.show_pdf_page(rect, docsrc, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
 | `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入；分行、行的位置以及省略超出页面底边的行均与pymupdf相同，并返回绘制的行数；页面底边为显示坐标中`page.rect`的底边，pymupdf则在未旋转的坐标中测量 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；行的位置与是否放得下的判断与pymupdf相同；返回负值时不绘制 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`与pymupdf的值相同，`insert_text`与`insert_textbox`用它们排列行 |
@@ -60,7 +62,10 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   `StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
 - **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、
   `DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。
-  `except ValueError`仍然有效。
+  `except ValueError`仍然有效。pymupdf的`FileDataError`与`EmptyFileError`
+  名称相同，并同时继承`RuntimeError`；文件不存在时抛出Python内置的
+  `FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为
+  `except FileNotFoundError`。
 - **资源策略**：`DocumentLimits.web()`将传给rendering／extraction的完整PDF
   snapshot限制为64 MiB，并将累计带位置文本限制为65,536个glyph record。自定义策略
   可设置`max_interpretation_size`和`max_text_glyphs`；`None`保留兼容的无上限行为。
@@ -120,6 +125,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合计"))   # 可直接传入整个列表
-page.get_pixmap(scale=2).save("page.png")
+page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

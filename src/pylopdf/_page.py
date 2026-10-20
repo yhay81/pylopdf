@@ -9,18 +9,17 @@ from typing import TYPE_CHECKING, Literal, cast, overload
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
     _SYMBOLIC_BASE14_NAMES,
-    _SYMBOLIC_FONTS,
     _package_face_weight,
     _require_winansi,
     _resolve_font_source,
     _resolve_generation_font,
     _validate_font_choice,
 )
+from pylopdf._geometry import Matrix
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
-    _DEFAULT_MAX_RENDER_PAGE_SIZE,
     _DEFAULT_MAX_SVG_SIZE,
     _bounded_utf8_size,
     _insert_text_lines,
@@ -34,7 +33,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, _default_ocr_engine, _validate_ocr_rotation
-from pylopdf._pixmap import _normalize_background
+from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics, TableFinder
 from pylopdf._types import (
@@ -45,6 +44,8 @@ from pylopdf._types import (
     LINK_NONE,
     LINK_URI,
     TEXT_ALIGN_LEFT,
+    ImageItem,
+    ImageItemFull,
     Point,
     Rect,
 )
@@ -59,7 +60,7 @@ if TYPE_CHECKING:
     from pylopdf._fonts import Font
     from pylopdf._types import (
         AnnotationInfo,
-        BlockEntry,
+        Block,
         DrawingInfo,
         DrawingItem,
         FontLanguage,
@@ -68,9 +69,9 @@ if TYPE_CHECKING:
         OcrRotation,
         OcrWord,
         PageLabelInfo,
-        RawTextPage,
-        TextPage,
-        WordEntry,
+        RawTextPageDict,
+        TextPageDict,
+        Word,
     )
 
 
@@ -196,6 +197,12 @@ def _format_page_label(style: str, prefix: str, number: int) -> str:
     return prefix + digits
 
 
+def _normalized_box(box: Sequence[float]) -> Rect:
+    """Return a stored page box with ``x0 <= x1`` and ``y0 <= y1``, as MuPDF reads it."""
+    x0, y0, x1, y1 = box
+    return Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
 class Page:
     """A view of one page in a document, obtained through ``doc[i]``.
 
@@ -261,15 +268,26 @@ class Page:
 
     @property
     def mediabox(self) -> Rect:
-        """Return the resolved MediaBox in PDF page-box coordinates, or A4 when absent."""
+        """Return the MediaBox in PDF coordinates, as stored, or A4 when absent.
+
+        As in pymupdf, the corners are normalized so that ``x0 <= x1`` and
+        ``y0 <= y1``.
+        """
         box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
-        return Rect(*(box if box is not None else _DEFAULT_MEDIABOX))
+        return _normalized_box(box if box is not None else _DEFAULT_MEDIABOX)
 
     @property
     def cropbox(self) -> Rect:
-        """Return the CropBox in PDF page-box coordinates, falling back to the MediaBox."""
+        """Return the CropBox in pymupdf's box convention, or the MediaBox.
+
+        The x coordinates are the stored ones, and the y axis is flipped
+        against the top of the MediaBox, so the CropBox of an uncropped page
+        that starts at the origin equals its MediaBox (DESIGN.md G1).
+        """
+        mediabox = self.mediabox
         box = self._document._doc.get_page_box(self._page_number(), "CropBox")
-        return Rect(*box) if box is not None else self.mediabox
+        crop = mediabox if box is None else _normalized_box(box)
+        return Rect(crop.x0, mediabox.y1 - crop.y1, crop.x1, mediabox.y1 - crop.y0)
 
     @property
     def rect(self) -> Rect:
@@ -284,29 +302,47 @@ class Page:
         return Rect(0.0, 0.0, width, height)
 
     def set_mediabox(self, rect: Sequence[float]) -> None:
-        """Set the MediaBox as ``(x0, y0, x1, y1)``."""
-        self._set_box("MediaBox", rect)
+        """Set the MediaBox in PDF coordinates and remove the other page boxes.
+
+        As in pymupdf, the CropBox, BleedBox, TrimBox, and ArtBox are removed,
+        so the whole new MediaBox becomes visible; a CropBox that the page
+        would inherit from the page tree is replaced by the MediaBox. An empty
+        rectangle raises ``ValueError``.
+        """
+        x0, y0, x1, y1 = _validate_rect(rect, name="MediaBox")
+        self._document._doc.set_mediabox(self._page_number(), x0, y0, x1, y1)
 
     def set_cropbox(self, rect: Sequence[float]) -> None:
-        """Set the CropBox as ``(x0, y0, x1, y1)``."""
-        self._set_box("CropBox", rect)
+        """Set the CropBox in pymupdf's box convention.
 
-    def _set_box(self, key: str, rect: Sequence[float]) -> None:
-        """Validate and set a page box."""
-        x0, y0, x1, y1 = _validate_rect(rect, name=key)
-        self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
+        ``rect`` uses the coordinates that :attr:`cropbox` returns: stored x,
+        and y flipped against the top of the MediaBox. As in pymupdf, the box
+        must have area and lie inside the MediaBox; otherwise ``ValueError``
+        is raised and the page is unchanged.
+        """
+        x0, y0, x1, y1 = _validate_rect(rect, name="CropBox")
+        mediabox = self.mediabox
+        stored = Rect(x0, mediabox.y1 - y1, x1, mediabox.y1 - y0)
+        if not (
+            mediabox.x0 <= stored.x0 < stored.x1 <= mediabox.x1 and mediabox.y0 <= stored.y0 < stored.y1 <= mediabox.y1
+        ):
+            msg = (
+                f"CropBox not in MediaBox: {rect!r} lies outside {Rect(mediabox.x0, 0, mediabox.x1, mediabox.height)!r}"
+            )
+            raise ValueError(msg)
+        self._document._doc.set_page_box(self._page_number(), "CropBox", *stored)
 
     @overload
     def get_text(self, option: Literal["text"] = "text") -> str: ...
     @overload
-    def get_text(self, option: Literal["words"]) -> list[WordEntry]: ...
+    def get_text(self, option: Literal["words"]) -> list[Word]: ...
     @overload
-    def get_text(self, option: Literal["blocks"]) -> list[BlockEntry]: ...
+    def get_text(self, option: Literal["blocks"]) -> list[Block]: ...
     @overload
-    def get_text(self, option: Literal["dict"]) -> TextPage: ...
+    def get_text(self, option: Literal["dict"]) -> TextPageDict: ...
     @overload
-    def get_text(self, option: Literal["rawdict"]) -> RawTextPage: ...
-    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage:
+    def get_text(self, option: Literal["rawdict"]) -> RawTextPageDict: ...
+    def get_text(self, option: str = "text") -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
         """Extract page text or positioned layout data.
 
         ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
@@ -340,7 +376,7 @@ class Page:
         if not isinstance(resolved_engine, OcrEngine):
             msg = f"engine must be an OcrEngine or None: {engine!r}"
             raise TypeError(msg)
-        return resolved_engine.recognize(
+        return resolved_engine._recognize_page(
             self,
             dpi=dpi,
             tile_size=tile_size,
@@ -431,40 +467,41 @@ class Page:
 
     def search_for(
         self,
-        needle: str,
+        text: str,
         *,
         max_hits: int | None = _DEFAULT_MAX_SEARCH_HITS,
     ) -> list[Rect]:
-        """Search page text case-insensitively.
+        """Search page text case-insensitively for ``text``.
 
         Return one :class:`Rect` per match. Search is line-based and does not
-        detect matches spanning lines. The search term is limited to 4,096
-        UTF-8 bytes. Results default to 4,096 matches; ``max_hits=None``
-        explicitly opts trusted workloads out.
+        detect matches spanning lines. ``text`` is limited to 4,096 UTF-8
+        bytes. Results default to 4,096 matches; ``max_hits=None`` explicitly
+        opts trusted workloads out.
         """
-        if not needle:
-            msg = "needle must be at least 1 character"
+        if not text:
+            msg = "text must be at least 1 character"
             raise ValueError(msg)
         _validate_optional_positive_int("max_hits", max_hits)
         _validate_utf8_text_input(
-            needle,
+            text,
             _MAX_SEARCH_INPUT_BYTES,
             limit_code="search_input_size",
-            input_label="search needle",
+            input_label="search text",
         )
-        hits = self._document._doc.search_page(self._page_number(), needle, max_hits)
+        hits = self._document._doc.search_page(self._page_number(), text, max_hits)
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
     def find_tables(
         self,
-        strategy: Literal["lines", "text"] = "lines",
         *,
         clip: Sequence[float] | None = None,
+        strategy: Literal["lines", "text"] | None = None,
     ) -> TableFinder:
         """Find high-confidence tables from vector borders or aligned text.
 
-        The default ``"lines"`` strategy is deterministic and does not rasterize
+        ``strategy=None`` selects ``"lines"``, as in pymupdf. The ``"lines"``
+        strategy is deterministic and does not rasterize
         the page. It accepts stroked rules and thin filled rectangles, requires
         an outer grid with at least two rows and two columns, and reconstructs
         rectangular merged cells. Coarse grid spans are conservatively split
@@ -484,6 +521,8 @@ class Page:
         :class:`TableDiagnostics`. Confidence ranks this deterministic
         detector's results and is not a statistical probability.
         """
+        if strategy is None:
+            strategy = "lines"
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         raw = self._document._doc.find_tables(self._page_number(), strategy, clip_rect)
         self._document._emit_warnings()
@@ -510,30 +549,80 @@ class Page:
             )
         return TableFinder(self, tables, strategy, None if clip_rect is None else Rect(*clip_rect))
 
-    def get_images(self) -> list[ImageInfo]:
-        """Extract images drawn on the page.
+    @overload
+    def get_images(self, *, full: Literal[False] = False) -> list[ImageItem]: ...
+    @overload
+    def get_images(self, *, full: Literal[True]) -> list[ImageItemFull]: ...
+    def get_images(self, *, full: bool = False) -> list[ImageItem] | list[ImageItemFull]:
+        """List the image XObjects that the page's resources reach, as pymupdf does.
 
-        Each item is a ``{"width", "height", "bbox", "ext", "image"}`` dict.
-        An image filtered by DCTDecode alone, or by FlateDecode followed by
-        DCTDecode, returns its JPEG payload with ``ext="jpeg"``. Other formats,
-        including CCITT, JBIG2, and Flate, are decoded to PNG with
-        ``ext="png"``. ``bbox`` is the drawn location as a top-left-origin
-        :class:`Rect`. Extraction rejects rather than returns a partial result
-        above 4,096 placements, 64,000,000 cumulative source pixels, or 64 MiB
-        of encoded image payloads on one page.
+        Each item is an :class:`ImageItem` ``(xref, smask, width, height, bpc,
+        colorspace, alt_colorspace, name, filter)``; ``full=True`` returns
+        :class:`ImageItemFull` items that add ``referencer``, the xref of the
+        Form XObject whose resources list the image, or 0 for the page. The
+        page's resources and, depth first, those of the Form XObjects they
+        list are read in resource order, and each image appears once. Inline
+        images and images that only annotations draw are not listed, and an
+        image need not be drawn to be listed. Use :meth:`get_image_info` for
+        drawn placements and :meth:`Document.extract_image` for image data. A
+        page that lists more than 4,096 images or 4,096 Form XObjects raises
+        :class:`LimitError` with code ``image_inventory_count``.
         """
-        raw = self._document._doc.extract_images(self._page_number())
+        raw = self._document._doc.page_image_inventory(self._page_number())
+        if full:
+            return [ImageItemFull(*item) for item in raw]
+        return [ImageItem(*item[:9]) for item in raw]
+
+    def get_image_info(self, *, hashes: bool = False, xrefs: bool = False) -> list[ImageInfo]:
+        """Describe each image drawn on the page, in drawing order, as pymupdf does.
+
+        Each dictionary has pymupdf's keys: ``number``, ``bbox`` in display
+        coordinates, ``transform`` (the :class:`Matrix` that maps the unit
+        square to ``bbox``), ``width`` and ``height`` in pixels,
+        ``colorspace`` (its number of components), ``cs-name``, ``xres`` and
+        ``yres``, ``bpc``, ``size`` (encoded bytes), and ``has-mask``.
+        ``xrefs=True`` adds ``xref``, 0 for an inline image or an image mask.
+        ``hashes=True`` raises :class:`PdfError` until pylopdf computes image
+        digests. More than 4,096 placements on one page raise
+        :class:`PdfError` instead of returning a partial list.
+        """
+        if hashes:
+            msg = "hashes=True is not supported yet"
+            raise PdfError(msg)
+        raw = self._document._doc.page_image_info(self._page_number())
         self._document._emit_warnings()
-        return [
-            {
+        infos: list[ImageInfo] = []
+        for number, (
+            xref,
+            bbox,
+            transform,
+            width,
+            height,
+            components,
+            cs_name,
+            bpc,
+            size,
+            has_mask,
+            (xres, yres),
+        ) in enumerate(raw):
+            info: ImageInfo = {
+                "number": number,
+                "bbox": Rect(*bbox),
+                "transform": Matrix(*transform),
                 "width": width,
                 "height": height,
-                "bbox": Rect(*bbox),
-                "ext": cast("Literal['jpeg', 'png']", ext),
-                "image": data,
+                "colorspace": components,
+                "cs-name": cs_name,
+                "xres": xres,
+                "yres": yres,
+                "bpc": bpc,
+                "size": size,
+                "has-mask": has_mask,
             }
-            for width, height, bbox, ext, data in raw
-        ]
+            if xrefs:
+                info["xref"] = xref
+            infos.append(info)
+        return infos
 
     def get_drawings(self) -> list[DrawingInfo]:
         """Extract interpreted vector paint operations in display coordinates.
@@ -543,11 +632,14 @@ class Page:
         and cubic Bézier commands. Quadratic curves are converted exactly to
         cubics. Stroke colors use ``color``; fill colors use ``fill``. Exotic
         pattern paints do not have one representative RGB value and return
-        ``None`` for color and opacity.
+        ``None`` for color and opacity. ``seqno`` is the paint operation's
+        zero-based position among the page's paint operations, which count
+        paths, text runs, and images in drawing order, as pymupdf numbers them;
+        a combined fill-and-stroke keeps the number of its fill.
 
         Clipping paths and clip-resolved visibility, transparency-group
-        structure, optional-content layer names, text outlines, and images are
-        not returned. The interpreter still applies optional-content visibility
+        structure, optional-content layer names (pymupdf's ``layer`` key), text
+        outlines, and images are not returned. The interpreter still applies optional-content visibility
         before reporting a paint operation. Output is bounded to 8,192 paths and
         131,072 commands; exceeding either limit raises :class:`PdfError` instead
         of returning partial results.
@@ -562,6 +654,7 @@ class Page:
             close_path,
             stroke,
             fill,
+            seqno,
         ) in raw:
             stroke_color, stroke_opacity, width, line_cap, line_join, dashes = stroke
             fill_color, fill_opacity, even_odd = fill
@@ -598,6 +691,7 @@ class Page:
                     "lineCap": line_cap,
                     "lineJoin": line_join,
                     "dashes": dashes,
+                    "seqno": seqno,
                 }
             )
         return drawings
@@ -614,8 +708,10 @@ class Page:
         overlay: bool = True,
         max_size: int | None = _DEFAULT_MAX_IMAGE_INPUT_SIZE,
         max_pixels: int | None = _DEFAULT_MAX_IMAGE_PIXELS,
-    ) -> None:
-        """Draw an image into ``rect`` in top-left-origin display coordinates.
+    ) -> int:
+        """Draw an image into ``rect`` and return the image XObject's xref.
+
+        ``rect`` uses top-left-origin display coordinates.
 
         Specify exactly one source. JPEG is embedded unchanged through DCTDecode
         passthrough. PNG is decoded and embedded, preserving transparency as a
@@ -641,6 +737,8 @@ class Page:
         :meth:`replace_text`, :meth:`Document.set_form_field`, and
         ``deflate=True`` saves end this sharing, so the next placement embeds
         the input again. A reopened document shares only its new placements.
+        The returned xref is that of the shared XObject when the input was
+        placed again, as pymupdf returns the xref of a reused image.
         """
         _validate_optional_positive_int("max_size", max_size)
         _validate_optional_positive_int("max_pixels", max_pixels)
@@ -650,7 +748,7 @@ class Page:
             raise _image_input_limit_error(len(source), max_size)
         x0, y0, x1, y1 = _validate_rect(rect)
         if isinstance(source, Pixmap):
-            self._document._doc.insert_pixmap(
+            return self._document._doc.insert_pixmap(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 source,
@@ -658,8 +756,8 @@ class Page:
                 keep_proportion,
                 overlay,
             )
-        elif isinstance(source, Path):
-            self._document._doc.insert_image_file(
+        if isinstance(source, Path):
+            return self._document._doc.insert_image_file(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 str(source),
@@ -669,65 +767,67 @@ class Page:
                 max_size,
                 max_pixels,
             )
-        else:
-            self._document._doc.insert_image(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                source,
-                image_rotation,
-                keep_proportion,
-                overlay,
-                max_size,
-                max_pixels,
-            )
+        return self._document._doc.insert_image(
+            self._page_number(),
+            (x0, y0, x1, y1),
+            source,
+            image_rotation,
+            keep_proportion,
+            overlay,
+            max_size,
+            max_pixels,
+        )
 
     def show_pdf_page(
         self,
         rect: Sequence[float],
-        src: Document,
+        docsrc: Document,
         pno: int = 0,
         *,
         keep_proportion: bool = True,
         overlay: bool = True,
-    ) -> None:
-        """Overlay page ``pno`` from ``src`` into ``rect`` as vector content.
+    ) -> int:
+        """Overlay page ``pno`` from ``docsrc`` into ``rect`` and return the Form xref.
+
+        The source page becomes a Form XObject drawn as vector content, and the
+        return value is its xref, as in pymupdf.
 
         ``pno`` is zero-based and may be negative. This is the pymupdf-style
         primitive for watermarks, stamps, and letterheads. The source page is
         embedded as a Form XObject, preserving text, vectors, and embedded
         fonts. Overlaying a one-page typst PDF enables CJK watermarks, headers,
         and footers; see the README ecosystem recipe. Source rotation and
-        CropBox are resolved visually to fit ``rect``. ``src`` may be the same
-        document; pylopdf imports from a pre-edit snapshot so the source page,
-        including the target page itself, remains stable during placement.
+        CropBox are resolved visually to fit ``rect``. ``docsrc`` may be the
+        same document; pylopdf imports from a pre-edit snapshot so the source
+        page, including the target page itself, remains stable during
+        placement.
 
-        Placing a page of ``src`` again places the Form XObject of the earlier
-        placement, with its fonts and images, instead of importing another
-        copy, as long as ``src`` has not been edited since; any edit of ``src``
-        makes the next placement import the page again. Edits that end
-        image sharing, as described in :meth:`insert_image`, end this sharing
-        too. A same-document source page stays shared across consecutive
-        placements on other pages.
+        Placing a page of ``docsrc`` again places the Form XObject of the
+        earlier placement, with its fonts and images, instead of importing
+        another copy, as long as ``docsrc`` has not been edited since; any
+        edit of ``docsrc`` makes the next placement import the page again.
+        Edits that end image sharing, as described in :meth:`insert_image`,
+        end this sharing too. A same-document source page stays shared across
+        consecutive placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
-        src_number = src[pno]._page_number()
-        if src is self._document:
-            self._document._doc.show_pdf_page_self(
+        src_number = docsrc[pno]._page_number()
+        if docsrc is self._document:
+            return self._document._doc.show_pdf_page_self(
                 self._page_number(),
                 (x0, y0, x1, y1),
                 src_number,
                 keep_proportion,
                 overlay,
             )
-        else:
-            self._document._doc.show_pdf_page(
-                self._page_number(),
-                (x0, y0, x1, y1),
-                src._doc,
-                src_number,
-                keep_proportion,
-                overlay,
-            )
+        return self._document._doc.show_pdf_page(
+            self._page_number(),
+            (x0, y0, x1, y1),
+            docsrc._doc,
+            src_number,
+            keep_proportion,
+            overlay,
+        )
 
     def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
@@ -934,6 +1034,7 @@ class Page:
         self,
         rect: Sequence[float],
         text: str,
+        /,
         *,
         fontsize: float = 11.0,
         font: Font | None = None,
@@ -944,7 +1045,7 @@ class Page:
         font_language: FontLanguage | None = None,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         align: int = TEXT_ALIGN_LEFT,
-        expandtabs: int = 8,
+        expandtabs: int = 1,
         lineheight: float | None = None,
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -960,8 +1061,9 @@ class Page:
         ``align`` accepts :data:`TEXT_ALIGN_LEFT`,
         :data:`TEXT_ALIGN_CENTER`, :data:`TEXT_ALIGN_RIGHT`, or
         :data:`TEXT_ALIGN_JUSTIFY`. Justification expands spaces on soft-wrapped
-        lines, never the final line of a paragraph. Tabs are expanded before
-        Unicode line breaking; explicit newlines always start a new line.
+        lines, never the final line of a paragraph. Tabs are expanded to
+        ``expandtabs`` columns, 1 by default as in pymupdf, before Unicode line
+        breaking; explicit newlines always start a new line.
 
         Lines are placed as pymupdf places them. ``lineheight`` is a font-size
         multiplier that defaults to the font's :attr:`Font.ascender` minus its
@@ -1086,7 +1188,7 @@ class Page:
             (x0, y0, x1, y1),
             normalized,
             base_font,
-            fontname not in _SYMBOLIC_FONTS,
+            base_font not in _SYMBOLIC_BASE14_NAMES,
             resolved_fontsize,
             resolved_lineheight,
             align,
@@ -1631,10 +1733,12 @@ class Page:
             "named": LINK_NAMED,
         }
         links: list[LinkInfo] = []
-        for kind, rect, uri, page, to, zoom, file, name in raw:
+        for (kind, rect, uri, page, to, zoom, file, name), xref, link_id in raw:
             link: LinkInfo = {
                 "kind": kind_map.get(kind, LINK_NONE),
                 "from": Rect(*rect),
+                "xref": xref,
+                "id": link_id,
             }
             if kind == "uri":
                 link["uri"] = uri
@@ -1737,68 +1841,73 @@ class Page:
 
     def get_pixmap(
         self,
-        scale: float = 1.0,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
-        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         clip: Sequence[float] | None = None,
+        alpha: bool = False,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     ) -> Pixmap:
-        """Render the page to a straight-alpha RGBA8 :class:`Pixmap`.
+        """Render the page to a :class:`Pixmap`, as pymupdf does.
 
-        Arguments match :meth:`Document.render_page`. The pixmap exposes
-        ``width``, ``height``, ``stride``, ``n``, ``samples`` as bytes, and
-        ``tobytes()`` as PNG. Convert it to NumPy with
-        ``np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 4)``.
+        The default is opaque RGB (``n == 3``) on white. ``alpha=True`` keeps
+        transparency in straight-alpha RGBA (``n == 4``). ``matrix`` scales
+        the page, where the identity is 72 dpi; ``dpi`` takes precedence over
+        it. Only scaling matrices are supported: rotation, shear, and flips
+        raise :class:`PdfError`. ``background`` is an extension: an RGB or RGBA
+        tuple with components from 0 to 255 painted beneath the page, which
+        must be opaque without ``alpha``.
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
         not intersect the page raises :class:`PdfError`. Only the clipped
-        region is rasterized, but full-page render-size limits still apply.
+        region is rasterized, but full-page render-size limits still apply:
+        65,535 pixels per side and 64,000,000 pixels in all.
+
+        The pixmap exposes ``width``, ``height``, ``n``, ``alpha``,
+        ``stride``, ``samples``, a zero-copy buffer, and ``tobytes()`` as PNG.
+        Convert it to NumPy with
+        ``np.frombuffer(pix, np.uint8).reshape(pix.height, pix.width, pix.n)``.
         """
-        if dpi is not None:
-            if scale != 1.0:
-                msg = "scale and dpi cannot both be specified"
-                raise ValueError(msg)
-            scale = dpi / 72.0
-        rgba = _normalize_background(background)
+        scale = _render_scale(matrix, dpi)
+        rgba = _render_background(background, alpha=alpha)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, rgba, clip_rect)
+        result = document._doc.render_page_pixmap(page_number, scale, alpha, rgba, clip_rect)
         document._emit_warnings()
         return result
 
-    def render(
-        self,
-        scale: float = 1.0,
-        *,
-        dpi: float | None = None,
-        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
-        max_size: int | None = _DEFAULT_MAX_RENDER_PAGE_SIZE,
-    ) -> bytes:
-        """Render the page to bounded PNG with :meth:`Document.render_page` arguments."""
-        self._page_number()
-        return self._document.render_page(
-            self._pno,
-            scale,
-            dpi=dpi,
-            background=background,
-            max_size=max_size,
-        )
-
-    def render_svg(
+    def get_svg_image(
         self,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
+        text_as_path: bool = True,
         max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
     ) -> str:
-        """Render the page to a bounded SVG string.
+        """Render the page to a bounded SVG string, as pymupdf does.
 
+        ``matrix`` must be omitted or the identity, and ``text_as_path=False``
+        raises :class:`PdfError`, because text is always drawn as paths.
         ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
-        explicitly opts out.
+        explicitly opts out. hayro-svg materializes its internal Rust string
+        before this boundary is enforced, but over-limit output is rejected
+        before conversion to a Python string.
         """
-        self._page_number()
-        return self._document.render_page_svg(self._pno, max_size=max_size)
+        if _render_scale(matrix, None) != (1.0, 1.0):
+            msg = f"get_svg_image supports only the identity matrix: {matrix!r}"
+            raise PdfError(msg)
+        if not text_as_path:
+            msg = "text_as_path=False is not supported; SVG text is drawn as paths"
+            raise PdfError(msg)
+        _validate_optional_positive_int("max_size", max_size)
+        page_number = self._page_number()
+        document = self._document
+        document._ensure_fallback_fonts()
+        result = document._doc.render_page_svg(page_number, max_size)
+        document._emit_warnings()
+        return result
 
     def __repr__(self) -> str:
         """Return a representation containing the page number and document."""

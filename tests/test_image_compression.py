@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -32,7 +32,7 @@ GRAY_GRADIENT_JPEG = base64.b64decode(
 @functools.cache
 def source_jpeg() -> tuple[bytes, int, int]:
     """Return a licensed real-world JPEG already bundled inside the corpus."""
-    images = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0].get_images()
+    images = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0])
     image = next(image for image in images if image["ext"] == "jpeg")
     return image["image"], image["width"], image["height"]
 
@@ -127,13 +127,13 @@ def build_flate_pdf(
 def test_compress_images_downsamples_and_reduces_jpeg() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
     page = doc[0]
-    original = page.get_images()[0]
-    before = page.get_pixmap().samples
+    original = drawn_images(page)[0]
+    before = page.get_pixmap(alpha=True).samples
 
     result = doc.compress_images(dpi=100, quality=65)
 
-    compressed = page.get_images()[0]
-    after = page.get_pixmap().samples
+    compressed = drawn_images(page)[0]
+    after = page.get_pixmap(alpha=True).samples
     assert result == {
         "considered": 1,
         "rewritten": 1,
@@ -148,7 +148,7 @@ def test_compress_images_downsamples_and_reduces_jpeg() -> None:
     assert sum(abs(a - b) for a, b in zip(before, after, strict=True)) / len(after) < 40
 
     reopened = pylopdf.open(stream=doc.tobytes())
-    assert (reopened[0].get_images()[0]["width"], reopened[0].get_images()[0]["height"]) == (100, 100)
+    assert (drawn_images(reopened[0])[0]["width"], drawn_images(reopened[0])[0]["height"]) == (100, 100)
 
 
 def test_compress_images_preserves_pixels_needed_by_largest_reuse() -> None:
@@ -157,7 +157,7 @@ def test_compress_images_preserves_pixels_needed_by_largest_reuse() -> None:
     result = doc.compress_images(dpi=100, quality=65)
 
     assert result["rewritten"] == 1
-    image = doc[0].get_images()[0]
+    image = drawn_images(doc[0])[0]
     assert (image["width"], image["height"]) == (100, 100)
 
 
@@ -167,17 +167,17 @@ def test_compress_images_limits_each_placement_axis_independently() -> None:
     result = doc.compress_images(dpi=100, quality=65)
 
     assert result["rewritten"] == 1
-    image = doc[0].get_images()[0]
+    image = drawn_images(doc[0])[0]
     assert (image["width"], image["height"]) == (200, 100)
 
 
 def test_compress_images_can_recompress_without_downsampling() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
-    original = doc[0].get_images()[0]
+    original = drawn_images(doc[0])[0]
 
     result = doc.compress_images(dpi=None, quality=60)
 
-    compressed = doc[0].get_images()[0]
+    compressed = drawn_images(doc[0])[0]
     assert result["rewritten"] == 1
     assert (compressed["width"], compressed["height"]) == (
         original["width"],
@@ -197,7 +197,7 @@ def test_compress_images_downsamples_grayscale_jpeg() -> None:
 
     result = doc.compress_images(dpi=36, quality=65)
 
-    compressed = doc[0].get_images()[0]
+    compressed = drawn_images(doc[0])[0]
     assert result["rewritten"] == 1
     assert (compressed["width"], compressed["height"]) == (36, 36)
     assert compressed["ext"] == "jpeg"
@@ -215,12 +215,12 @@ def test_compress_images_converts_safe_flate_rasters(
     source, encoded = build_flate_pdf(color_space=color_space, predictor=predictor)
     doc = pylopdf.open(stream=source)
     page = doc[0]
-    before = page.get_pixmap().samples
+    before = page.get_pixmap(alpha=True).samples
 
     result = doc.compress_images(dpi=64, quality=65)
 
-    compressed = page.get_images()[0]
-    after = page.get_pixmap().samples
+    compressed = drawn_images(page)[0]
+    after = page.get_pixmap(alpha=True).samples
     assert result == {
         "considered": 1,
         "rewritten": 1,
@@ -236,7 +236,7 @@ def test_compress_images_converts_safe_flate_rasters(
     assert sum(abs(a - b) for a, b in zip(before, after, strict=True)) / len(after) < 50
 
     reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened[0].get_images()[0]["ext"] == "jpeg"
+    assert drawn_images(reopened[0])[0]["ext"] == "jpeg"
 
 
 @pytest.mark.parametrize("predictor", [2, 9])
@@ -288,7 +288,7 @@ def test_compress_images_skips_encoding_that_is_not_smaller() -> None:
 
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
-    assert doc[0].get_images()[0]["image"] == GRAY_GRADIENT_JPEG
+    assert drawn_images(doc[0])[0]["image"] == GRAY_GRADIENT_JPEG
 
 
 def test_compress_images_is_idempotent_at_same_settings() -> None:
@@ -326,12 +326,12 @@ def test_compress_images_rolls_back_all_candidates_on_decode_error() -> None:
     page = doc.new_page(width=200, height=100)
     page.insert_image((0, 0, 72, 72), stream=jpeg)
     page.insert_image((100, 0, 172, 72), stream=jpeg[:-20])
-    original = page.get_images()
+    original = drawn_images(page)
 
     with pytest.raises(pylopdf.PdfError, match="failed to decode JPEG"):
         doc.compress_images(dpi=100, quality=65)
 
-    assert page.get_images() == original
+    assert drawn_images(page) == original
 
 
 def test_compress_images_skips_source_above_pixel_limit_before_decode() -> None:

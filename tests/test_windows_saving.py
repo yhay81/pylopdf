@@ -146,11 +146,11 @@ def output(request: pytest.FixtureRequest, one_page_pdf: bytes) -> Iterator[tupl
     """Exercise every public writer that replaces a filesystem path."""
     with pylopdf.open(stream=one_page_pdf) as doc:
         if request.param == "png":
-            yield "png", doc[0].get_pixmap().save
+            yield "png", doc[0].get_pixmap(alpha=True).save
         elif request.param == "object-streams":
-            yield "pdf", lambda path: doc.save(path, object_streams=True)
+            yield "pdf", lambda path: doc.save(path, use_objstms=True)
         elif request.param == "encrypted":
-            yield "pdf", lambda path: doc.save(path, user_pw="test-password")
+            yield "pdf", lambda path: doc.save(path, encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="test-password")
         else:
             yield "pdf", doc.save
 

@@ -449,6 +449,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     form_markdown = form[0].to_markdown()
     form_tables = form[0].find_tables()
     form_drawings = form[0].get_drawings()
+    seqnos = [drawing["seqno"] for drawing in form_drawings]
+    _require(seqnos == sorted(set(seqnos)), "drawing paint order is not strictly increasing")
     _require(form.page_count == _EXPECTED_TWO_PAGES, "Form 1040 fixture has the wrong page count")
     _require("U.S. Individual Income Tax Return" in form_text, "Form 1040 text is incomplete")
     _require(len(form_tables) == 1, "Form 1040 bordered table was not detected")
@@ -481,6 +483,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(scan.get_page_text(0) == "", "image-only Japanese scan unexpectedly exposed text")
     bounded_scan = pylopdf.Document(stream=scan_bytes, limits=pylopdf.DocumentLimits.web())
     _require(bounded_scan.page_count == 1, "web limits rejected a representative scan")
+    scan_inventory = scan[0].get_images(full=True)
+    _require(len(scan_inventory) >= 1, "the scan lists no image XObject")
+    scan_placements = scan[0].get_image_info(xrefs=True)
+    _require(
+        {info["xref"] for info in scan_placements} <= {item.xref for item in scan_inventory},
+        "a drawn image is missing from the inventory",
+    )
+    scan_image = scan.extract_image(scan_inventory[0].xref)
 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
     encrypted = pylopdf.Document(stream=encrypted_bytes)
@@ -494,6 +504,19 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: pylopdf.Document(stream=encrypted_bytes, password="wrong")  # noqa: S106
     )
     _require(authentication_error == "PasswordError", "wrong password returned the wrong exception")
+    _require(pylopdf.open is pylopdf.Document, "open is not the Document class")
+    reauthentication = [decrypted.authenticate(password) for password in ("wrong", "userpw", "ownerpw")]
+    _require(reauthentication == [0, 2, 4], "a decrypted document returned the wrong authentication codes")
+    encryption_description = decrypted.metadata["encryption"]
+    _require(encryption_description == "Standard V5 R6 256-bit AES", "metadata described the wrong encryption")
+    reencrypted = decrypted.tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256,
+        user_pw="user",
+        permissions=pylopdf.PDF_PERM_PRINT | pylopdf.PDF_PERM_COPY,
+    )
+    _require(pylopdf.Document(stream=reencrypted).needs_pass, "PDF_ENCRYPT_AES_256 did not encrypt")
+    implicit_error = _exception_name(lambda: decrypted.tobytes(user_pw="user"))
+    _require(implicit_error == "PdfError", "a password without an encrypting method was not refused")
 
     return {
         "pdf20": {
@@ -521,11 +544,26 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "borderless_shape": [senate_text[0].row_count, senate_text[0].col_count],
             "first_row": first_senate_row,
         },
-        "image_only": {"pages": scan.page_count, "text": scan.get_page_text(0)},
+        "image_only": {
+            "pages": scan.page_count,
+            "text": scan.get_page_text(0),
+            "inventory": [list(item) for item in scan_inventory],
+            "placements": len(scan_placements),
+            "extracted": [
+                scan_image["ext"],
+                scan_image["width"],
+                scan_image["height"],
+                hashlib.sha256(scan_image["image"]).hexdigest(),
+            ],
+        },
         "encryption": {
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,
             "decrypted_pages": decrypted.page_count,
+            "reauthentication": reauthentication,
+            "metadata_encryption": encryption_description,
+            "implicit_password_exception": implicit_error,
+            "link_kind": repr(pylopdf.LINK_URI),
         },
         "limits": _limit_results(
             pdf20_bytes,
@@ -690,7 +728,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     _require(len(drawings) == 1, "a finished shape did not draw one path")
     data = document.tobytes()
     _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
-    words = [[word[4], round(word[0], 2), round(word[1], 2)] for word in page.get_text("words")]
+    words = [[word.word, round(word.x0, 2), round(word.y0, 2)] for word in page.get_text("words")]
     return {
         "ends": [[round(value, 6) for value in point] for point in ends],
         "drawing": [drawings[0]["type"], [round(value, 2) for value in drawings[0]["rect"]]],
@@ -816,10 +854,10 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     font_results = _font_results(first, font)
-    first_pixmap = first.get_pixmap(0.5)
+    first_pixmap = first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
     _require(
-        first.get_pixmap(0.5).samples == first_pixmap.samples,
+        first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples == first_pixmap.samples,
         "a repeated render on the retained cache changed the raster",
     )
     pixmap_buffer = memoryview(first_pixmap)
@@ -842,8 +880,10 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require("Generated on Wasm" in texts[0] and _JAPANESE in texts[0], "generated text did not round-trip")
     _require("Second page wraps text" in texts[1], "textbox text did not round-trip")
 
-    serial_renders = reopened.render_pages([1, 0, 1], scale=0.5, workers=1)
-    requested_parallel_renders = reopened.render_pages([1, 0, 1], scale=0.5, workers=4)
+    serial_renders = reopened.render_pages([1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=1)
+    requested_parallel_renders = reopened.render_pages(
+        [1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=4
+    )
     _require(serial_renders == requested_parallel_renders, "workers=4 changed serial-fallback rendering")
     render_sizes = [_png_size(data) for data in requested_parallel_renders]
     _require(render_sizes == [[90, 120], [120, 90], [90, 120]], "batch rendering lost input order")
@@ -873,7 +913,9 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require(closed_error == "DocumentClosedError", "closed page returned the wrong exception")
 
     malformed_error = _exception_name(lambda: pylopdf.Document(stream=b"not a PDF"))
-    _require(malformed_error == "PdfError", "malformed bytes returned the wrong exception")
+    _require(malformed_error == "FileDataError", "malformed bytes returned the wrong exception")
+    empty_error = _exception_name(lambda: pylopdf.Document(stream=b""))
+    _require(empty_error == "EmptyFileError", "empty bytes returned the wrong exception")
     recovery = pylopdf.Document(stream=serialized)
     _require(recovery.page_count == _EXPECTED_TWO_PAGES, "runtime did not recover after malformed input")
 
@@ -896,6 +938,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
             "stale": stale_error,
             "closed": closed_error,
             "malformed": malformed_error,
+            "empty": empty_error,
         },
     }
 
@@ -1060,7 +1103,7 @@ def _geometry_results() -> dict[str, Any]:
         _require(text == "Affine", "transformed text failed to survive save/reopen")
         line = reopened[0].get_drawings()[0]["items"][0]
         _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
-        _require(reopened[0].get_pixmap().width == page_size, "transformed drawing failed to render")
+        _require(reopened[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
     rectangles = _rectangle_results()
     return {
         "matrix": list(transform),
@@ -1094,8 +1137,27 @@ def _rectangle_results() -> dict[str, Any]:
         box = page.rect * Matrix(0.5, 0.5) + 20
         page.insert_text(box.tl + Point(10, 30), "Boxed")
         (hit,) = page.search_for("Boxed")
+        boxed = document.new_page(width=600, height=800)
+        boxed.set_cropbox((100, 50, 500, 350))
+        cropbox = list(boxed.cropbox)
+        crop_rect = list(boxed.rect)
+        boxed.set_mediabox((0, 0, 200, 300))
+        reset_cropbox = list(boxed.cropbox)
+        image_xref = boxed.insert_image(
+            (10, 10, 60, 60), pixmap=document[0].get_pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
+        )
+        form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
+        placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
+        boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
+        full_name = "/BaseFont/Times-Bold" in document.tobytes().decode("latin-1")
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
+    _require(cropbox == [100, 50, 500, 350] and crop_rect == [0, 0, 400, 300], "the CropBox convention changed")
+    _require(reset_cropbox == [0, 0, 200, 300], "set_mediabox kept the CropBox")
+    _require(placed == ["Image", "Form"], "placement did not return the placed XObject")
+    _require(full_name, "a full Standard 14 name did not select its font")
     return {
+        "cropbox": cropbox,
+        "reset_cropbox": reset_cropbox,
         "rect_union": list(rect | Rect(0, 0, 2, 2)),
         "rect_torect": list(rect.torect(Rect(0, 0, 10, 10))),
         "quad_rect": list(quad.rect),

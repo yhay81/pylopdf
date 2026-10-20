@@ -150,7 +150,7 @@ def test_search_for_no_match(usrguide: pylopdf.Page) -> None:
 
 
 def test_search_for_empty_raises(usrguide: pylopdf.Page) -> None:
-    with pytest.raises(ValueError, match="needle"):
+    with pytest.raises(ValueError, match="text must be"):
         usrguide.search_for("")
 
 
