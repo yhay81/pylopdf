@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any, NamedTuple, Self, TypeGuard, overload
 
+from pylopdf._hints import hinted_getattr
 from pylopdf.pylopdf_core import PdfError
 
 _RECTILINEAR_TOLERANCE = 1e-5
@@ -115,6 +116,9 @@ class Matrix(_MatrixTuple):
     """
 
     __slots__ = ()
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     @overload
     def __new__(cls) -> Self: ...
@@ -291,6 +295,9 @@ class Point(_PointTuple):
     """
 
     __slots__ = ()
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     @overload
     def __new__(cls) -> Self: ...
@@ -490,6 +497,9 @@ class _Rectangle:
         y1: float
 
         def __new__(cls, *args: Any, **kwargs: Any) -> Self: ...  # noqa: ANN401 - every subclass binds them.
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def _new(self, x0: float, y0: float, x1: float, y1: float) -> Self:
         return type(self)(x0, y0, x1, y1)
@@ -941,6 +951,9 @@ class Quad(_QuadTuple):
     """
 
     __slots__ = ()
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     @overload
     def __new__(cls) -> Self: ...

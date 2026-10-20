@@ -7,14 +7,34 @@ description: Map pymupdf workflows to pylopdf and understand deliberate differen
 
 pylopdf is pymupdf-*style*, not a drop-in replacement. The data shapes that
 determine migration cost — `"words"` tuples, `"dict"` structure,
-`search_for → list[Rect]`, 1-based TOC pages — match pymupdf, so most
-extraction and page-management code ports with small edits. This page lists
+`search_for → list[Rect]` — match pymupdf, so most extraction and
+page-management code ports with small edits. This page lists
 what carries over, what changed, and what to use instead of the parts pylopdf
 deliberately does not implement.
 
 !!! note
     pylopdf handles **PDF files only**. pymupdf's ability to open XPS / EPUB /
     images does not carry over.
+
+## Automated migration { #codemod }
+
+`python -m pylopdf.migrate` rewrites pymupdf programs in place. It needs
+LibCST, which the `migrate` extra installs:
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+It renames the `fitz` and `pymupdf` imports, rewrites the replacements that
+are mechanical — `get_toc`/`set_toc` with their page shift, `embfile_*`, the
+`xref_*` stream readers, `copy_page`, and the in-place `Rect`/`Point`/`Matrix`
+methods — and adds a `# TODO(pylopdf): …` comment above every statement that
+still needs a person, then lists those steps as `path:line: message`. `--diff`
+prints the changes without writing them, and `--check` exits with status 1
+when a file would change. Receivers are not typed, so review the diff. At run
+time, looking up a pymupdf name that pylopdf lacks raises an `AttributeError`
+whose message names the replacement or the milestone that plans it.
 
 ## Quick mapping { #mapping }
 

@@ -6,12 +6,29 @@ description: 将pymupdf工作流映射到pylopdf，并理解类型、行为与�
 # 从pymupdf迁移
 
 pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的数据形状——`"words"`
-元组、`"dict"`结构、`search_for → list[Rect]`、从1开始的TOC页码——与pymupdf一致，
+元组、`"dict"`结构、`search_for → list[Rect]`——与pymupdf一致，
 因此多数提取与页面管理代码只需少量修改。本页列出可直接迁移的部分、行为差异，
 以及pylopdf有意不实现的功能应由什么替代。
 
 !!! note
     pylopdf**只处理PDF文件**。pymupdf打开XPS、EPUB和图像的能力不在其范围内。
+
+## 自动迁移 { #codemod }
+
+`python -m pylopdf.migrate`会就地改写pymupdf程序。它需要`migrate` extra安装的LibCST：
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+它会重命名`fitz`和`pymupdf`的import，改写可机械替换的部分——带页码换算的
+`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取、`copy_page`，以及就地修改的
+`Rect`/`Point`/`Matrix`方法——并在仍需人工处理的语句上方添加
+`# TODO(pylopdf): …`注释，最后以`path:line: message`形式列出这些步骤。`--diff`
+只打印变更而不写入，`--check`在有文件会被修改时以状态1退出。由于无法得知接收者的
+类型，请审阅diff。运行时查找pylopdf没有的pymupdf名称会引发`AttributeError`，
+其消息会给出替代API或计划提供它的里程碑。
 
 ## 快速对照 { #mapping }
 
