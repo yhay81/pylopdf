@@ -257,7 +257,12 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
 - 그리기 삽입은cache 무효화, 입력decode 또는dependent object 생성 전에page
   `/Contents`의raw array와 참조chain을 검사합니다. raw array는4,096 entry,
   chain은 깊이32, 최종array는 한 번만 추가되는`q`/`Q` isolation pair를 포함해
-  4,096 stream 참조로 제한됩니다. 실패하면document를 변경하지 않습니다.
+  4,096 stream 참조로 제한됩니다. 실패하면document를 변경하지 않습니다. page에
+  대한 첫 삽입은 기존content를 한 번decode하고hayro의content parser와 같은
+  방식으로`q`와`Q`를 세어, isolation pair에content의 짝 없는`Q`보다 하나 많은
+  `q`와 닫지 않고 남긴`q`보다 하나 많은`Q`를 넣습니다. interpretation과
+  마찬가지로load 시 적용한 상한 외의decompression limit은 다시 적용하지 않으며,
+  decode할 수 없는stream은 빈 것으로 셉니다.
 - `Page.replace_text()`는search, replacement, fallback의 합계를4,096 UTF-8
   byte로 제한하고 디코딩한page content, font encoding data, 교체 증가분, 최종
   stream에64 MiB 기본 상한을 적용합니다. commit 전에page 전용stream을 준비하므로

@@ -306,7 +306,13 @@ error.
   before cache invalidation, input decoding, or dependent object creation. Raw
   arrays stop at 4,096 entries, chains at 32 levels, and the final array at
   4,096 stream references including the one-time `q`/`Q` isolation pair.
-  Failures do not mutate the document.
+  Failures do not mutate the document. The first insertion on a page decodes
+  its existing content once and counts its `q` and `Q` operators as hayro's
+  content parser reads them, so that the isolation pair holds one `q` more
+  than the content's unmatched `Q` and one `Q` more than the `q` it leaves
+  open. Like interpretation, the count re-applies no decompression limit
+  beyond those that loading enforces, and a stream that fails to decode counts
+  as empty.
 - `Page.replace_text()` caps aggregate search/replacement/fallback input at
   4,096 UTF-8 bytes and defaults decoded page content, font encoding data,
   replacement growth, and final stream output to 64 MiB. It prepares a

@@ -118,8 +118,9 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (page_id, drawing_plan) = py.detach(|| {
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
+        })?;
         let digest = py.detach(|| input.digest());
         let image = match self.placements.image(&self.doc, &digest) {
             Some(placed) => PageImage::Placed(placed),

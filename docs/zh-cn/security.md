@@ -221,7 +221,10 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 - 绘图插入会在cache失效、输入decode或创建dependent object前检查page
   `/Contents`的raw array和引用chain。raw array上限为4,096个entry，chain深度为
   32，最终array上限为4,096个stream引用（包括只添加一次的`q`/`Q` isolation
-  pair）。失败时不修改document。
+  pair）。失败时不修改document。对page的首次插入会将现有content decode一次，并按
+  hayro content parser的读法计数`q`和`Q`，使isolation pair包含比content中无匹配
+  的`Q`多一个的`q`，以及比content未闭合的`q`多一个的`Q`。与interpretation相同，
+  计数不会重新应用load时之外的decompression limit，无法decode的stream按空内容计。
 - `Page.replace_text()`将search、replacement和fallback的合计限制为4,096个
   UTF-8 byte，并为解码page content、font encoding data、替换增长和最终stream
   设置64 MiB默认上限。它在commit前准备page专用stream，因此不会修改复制page的
