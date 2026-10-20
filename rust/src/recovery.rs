@@ -7,15 +7,25 @@
 //! emitted on the loading thread before object parsing moves to the rayon pool,
 //! so one thread-local capture scope attributes them to a single load. lopdf
 //! trusts any table that it resolves, so a load that leaves the page tree
-//! unreachable is repeated with the rebuild forced.
+//! unreachable is repeated with the rebuild forced, and it trusts any trailer
+//! whose root names a scanned object, so a rebuilt document whose root leads
+//! to no page tree takes another trailer that the rebuild examined.
 
 use std::cell::Cell;
+use std::collections::TryReserveError;
 use std::sync::Once;
 
-use lopdf::{Document, LoadOptions, Object, PdfMetadata};
+use lopdf::xref::XrefEntry;
+use lopdf::{Document, LoadOptions, Object, ObjectId, PdfMetadata};
+
+use crate::object_recovery;
 
 /// lopdf's reader module, which resolves and rebuilds cross-reference data.
 const LOPDF_READER_TARGET: &str = "lopdf::reader";
+
+/// The `trailer` keywords, from the end of the input, that lopdf's rebuild
+/// examines for a root.
+const MAX_TRAILER_CANDIDATES: usize = 16;
 
 /// Bytes inspected per input byte allowed for lopdf's reconstruction scan.
 const RECOVERY_SCAN_WORK_FACTOR: u64 = 64;
@@ -55,6 +65,8 @@ pub enum LoadError {
         work: u64,
         budget: u64,
     },
+    /// Reading a trailer candidate would exceed available memory.
+    Allocation(TryReserveError),
 }
 
 thread_local! {
@@ -190,15 +202,99 @@ fn rebuild_input(data: &[u8]) -> Option<Vec<u8>> {
     Some(input)
 }
 
-/// Whether the catalog that the trailer names leads to a root page-tree node,
-/// read as the page-tree walker reads them.
-fn page_tree_reachable(document: &Document) -> bool {
+/// Whether `root` names a catalog that leads to a root page-tree node, read as
+/// the page-tree walker reads them.
+fn leads_to_page_tree(document: &Document, root: ObjectId) -> bool {
     document
-        .catalog()
+        .get_dictionary(root)
         .and_then(|catalog| catalog.get(b"Pages"))
         .and_then(Object::as_reference)
-        .and_then(|root| document.get_dictionary(root))
-        .is_ok_and(|root| root.get_type().ok() == Some(b"Pages".as_slice()))
+        .and_then(|pages| document.get_dictionary(pages))
+        .is_ok_and(|pages| pages.get_type().ok() == Some(b"Pages".as_slice()))
+}
+
+/// Whether the catalog that the trailer names leads to a root page-tree node.
+fn page_tree_reachable(document: &Document) -> bool {
+    document
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .is_ok_and(|root| leads_to_page_tree(document, root))
+}
+
+/// The object that a rebuilt document holds under `root`'s number: `root`
+/// itself, or else the object at the one entry that the rebuilt table keeps
+/// for the number, whatever its generation.
+fn rebuilt_object(document: &Document, root: ObjectId) -> Option<ObjectId> {
+    if document.objects.contains_key(&root) {
+        return Some(root);
+    }
+    let generation = match document.reference_table.entries.get(&root.0)? {
+        XrefEntry::Normal { generation, .. } => *generation,
+        XrefEntry::Compressed { .. } => 0,
+        XrefEntry::Free | XrefEntry::UnusableFree => return None,
+    };
+    let id = (root.0, generation);
+    document.objects.contains_key(&id).then_some(id)
+}
+
+/// Give a rebuilt document whose root leads to no page tree the newest trailer
+/// that the rebuild examined whose root does, and return whether its page
+/// tree is now reachable.
+///
+/// lopdf keeps the newest of the last 16 `trailer` keywords whose `/Root`
+/// names a scanned object number, whatever that object is and whatever
+/// generation the reference gives: pdf.js `issue9418.pdf` names an
+/// information dictionary in its newest trailer, and `issue15577.pdf` names
+/// generation 1 of a catalog written as generation 0. hayro and pdf.js keep
+/// only a trailer whose root is a catalog. The same keywords are read again,
+/// each root resolved by number as lopdf selects it, and the newest trailer
+/// whose root leads to the page tree replaces lopdf's, naming the root by the
+/// generation that the rebuilt table records. A trailer that names an
+/// encryption dictionary is skipped, because lopdf did not decrypt the
+/// rebuilt objects, and a document that lopdf decrypted, or could not, keeps
+/// its trailer.
+fn adopt_reachable_trailer(document: &mut Document, data: &[u8]) -> Result<bool, LoadError> {
+    if page_tree_reachable(document) {
+        return Ok(true);
+    }
+    if document.is_encrypted() || document.was_encrypted() {
+        return Ok(false);
+    }
+    // lopdf searches only the bytes after the header.
+    let buffer = find(data, b"%PDF-").map_or(data, |header| &data[header..]);
+    let mut bound = buffer.len();
+    for _ in 0..MAX_TRAILER_CANDIDATES {
+        let Some(keyword) = rfind(&buffer[..bound], b"trailer") else {
+            break;
+        };
+        bound = keyword;
+        let after = &buffer[keyword + b"trailer".len()..];
+        let Some(start) = after.iter().position(|byte| !byte.is_ascii_whitespace()) else {
+            continue;
+        };
+        let Some(mut trailer) =
+            object_recovery::read_dictionary(&after[start..]).map_err(LoadError::Allocation)?
+        else {
+            continue;
+        };
+        if trailer.has(b"Encrypt") {
+            continue;
+        }
+        let root = trailer
+            .get(b"Root")
+            .and_then(Object::as_reference)
+            .ok()
+            .and_then(|root| rebuilt_object(document, root));
+        if let Some(root) = root
+            && leads_to_page_tree(document, root)
+        {
+            trailer.set("Root", root);
+            document.trailer = trailer;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Load a complete document leniently and report cross-reference recovery.
@@ -209,7 +305,9 @@ fn page_tree_reachable(document: &Document) -> bool {
 /// objects that lead to the page tree then did not load, the document is
 /// unusable, so an unencrypted one is loaded again with the table rebuilt by
 /// scanning object headers, as hayro, MuPDF, and pdf.js rebuild it, and the
-/// rebuilt document replaces it when its page tree is reachable.
+/// rebuilt document replaces it when its page tree is reachable. A rebuilt
+/// document whose root leads to no page tree first takes another trailer, as
+/// [`adopt_reachable_trailer`] describes.
 pub fn load_document(
     data: &[u8],
     options: LoadOptions,
@@ -218,17 +316,18 @@ pub fn load_document(
     let (result, mut recovery) =
         capture_recovery(|| Document::load_mem_with_options(data, options.clone()));
     let mut document = result.map_err(LoadError::Pdf)?;
-    if recovery != Some(XrefRecovery::Reconstructed)
-        && !document.is_encrypted()
+    if recovery == Some(XrefRecovery::Reconstructed) {
+        adopt_reachable_trailer(&mut document, data)?;
+    } else if !document.is_encrypted()
         && !document.was_encrypted()
         && !page_tree_reachable(&document)
         && let Some(input) = rebuild_input(data)
     {
         let (rebuilt, retried) =
             capture_recovery(|| Document::load_mem_with_options(&input, options));
-        if let Ok(rebuilt) = rebuilt
+        if let Ok(mut rebuilt) = rebuilt
             && retried == Some(XrefRecovery::Reconstructed)
-            && page_tree_reachable(&rebuilt)
+            && adopt_reachable_trailer(&mut rebuilt, data)?
         {
             document = rebuilt;
             recovery = retried;

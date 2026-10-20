@@ -16,7 +16,8 @@
 //!   name value without its slash, while hayro reads the bare keyword as null,
 //!   or a stream whose declared bytes `endstream` does not follow and that has
 //!   no sole `endstream` before the next entry offset, while hayro reads it up
-//!   to its first `endstream`.
+//!   to its first `endstream`. It also drops an object-stream member that a
+//!   comment precedes, which hayro skips as it skips white space.
 //! - lopdf adds object-stream members that no entry lists, including members
 //!   that a damaged stream decodes under arbitrary numbers, and raises
 //!   `max_id` over them, while hayro reads those numbers as null.
@@ -32,7 +33,8 @@
 //! Loading gives each such stream the data that hayro reads, finds the members
 //! that hayro would read from another slot, re-parses each skipped uncompressed
 //! object with a small parser that reads such a bare keyword as null and such
-//! a stream up to its first `endstream` within the object's bounds, walks
+//! a stream up to its first `endstream` within the object's bounds, parses each
+//! member that lopdf did not load from the slot that hayro reads, walks
 //! every reference reachable from the trailer, and drops objects that no entry
 //! locates and nothing reaches. The original-byte fast path stays only when
 //! that walk meets no object that hayro could resolve differently. Any other
@@ -79,11 +81,12 @@ const EXACT_REAL_LIMIT: f32 = 16_777_216.0;
 /// Streams that lopdf loaded without reading their `/Length` first receive the
 /// data that hayro reads. A graph that then matches the in-use entries exactly,
 /// with every compressed member where hayro looks for it, returns true at once.
-/// Any other graph first receives the skipped uncompressed objects that parse,
-/// then loses the objects that no entry locates unless the trailer reaches
-/// them. `input` must be the unencrypted bytes lopdf loaded, with
-/// cross-reference data that lopdf did not have to recover. Allocation refusal
-/// raises `PdfError`, which fails the load.
+/// Any other graph first receives the skipped uncompressed objects and the
+/// unloaded compressed members that parse, then loses the objects that no
+/// entry locates unless the trailer reaches them. `input` must be the
+/// unencrypted bytes lopdf loaded, with cross-reference data that lopdf did
+/// not have to recover. Allocation refusal raises `PdfError`, which fails the
+/// load.
 pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyResult<bool> {
     let survey = Survey::of(doc).map_err(allocation_error)?;
     // Objects that hayro could resolve to something other than the graph holds.
@@ -98,8 +101,13 @@ pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyRe
         Some(sections) => sections,
         None => Sections::new(doc, buffer).map_err(allocation_error)?,
     };
-    let recovered =
+    let mut recovered =
         recover_skipped_objects(doc, buffer, &sections, &mut suspects).map_err(allocation_error)?;
+    let members = recover_unloaded_members(doc, survey.unloaded).map_err(allocation_error)?;
+    recovered
+        .try_reserve(members.len())
+        .map_err(allocation_error)?;
+    recovered.extend(members);
     suspects
         .try_reserve(recovered.len())
         .map_err(allocation_error)?;
@@ -125,6 +133,17 @@ pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyRe
     Ok(!audit.divergent)
 }
 
+/// Read the dictionary at the start of `data`, after white space and comments,
+/// with the parser that recovers skipped objects, or return `None` when no
+/// dictionary starts there.
+pub(crate) fn read_dictionary(data: &[u8]) -> Result<Option<Dictionary>, TryReserveError> {
+    match (Parser { data, pos: 0 }).value() {
+        Ok(Object::Dictionary(dict)) => Ok(Some(dict)),
+        Ok(_) | Err(Failure::Syntax) => Ok(None),
+        Err(Failure::Allocation(error)) => Err(error),
+    }
+}
+
 /// The input as lopdf reads it: it discards bytes before the header, and every
 /// offset it records, including `xref_start`, counts from there.
 fn lopdf_buffer(input: &[u8]) -> &[u8] {
@@ -148,6 +167,9 @@ struct Survey {
     /// `(container, index, number)` of every compressed entry whose member
     /// lopdf loaded, in object-number order.
     members: Vec<(u32, u16, u32)>,
+    /// `(container, index, number)` of every compressed entry that no loaded
+    /// object answers, in object-number order.
+    unloaded: Vec<(u32, u16, u32)>,
     /// Every stream that lopdf loaded without reading its `/Length`, with the
     /// offset of the uncompressed entry that locates it, if any.
     streams: Vec<(Option<usize>, ObjectId)>,
@@ -161,6 +183,7 @@ impl Survey {
         let mut survey = Self {
             matches: true,
             members: Vec::new(),
+            unloaded: Vec::new(),
             streams: Vec::new(),
         };
         let mut entries = doc
@@ -175,8 +198,9 @@ impl Survey {
             .peekable();
         for (&id, object) in &doc.objects {
             // An in-use entry that no loaded object answers.
-            while entries.next_if(|&(number, ..)| number < id.0).is_some() {
+            while let Some((number, _, entry)) = entries.next_if(|&(number, ..)| number < id.0) {
                 survey.matches = false;
+                survey.note_unloaded(number, entry)?;
             }
             let entry = entries
                 .next_if(|&(number, generation, _)| (number, generation) == id)
@@ -198,8 +222,21 @@ impl Survey {
                 _ => {}
             }
         }
-        survey.matches &= entries.next().is_none();
+        for (number, _, entry) in entries {
+            survey.matches = false;
+            survey.note_unloaded(number, entry)?;
+        }
         Ok(survey)
+    }
+
+    /// Record an in-use entry that no loaded object answers, if it is
+    /// compressed.
+    fn note_unloaded(&mut self, number: u32, entry: &XrefEntry) -> Result<(), TryReserveError> {
+        if let XrefEntry::Compressed { container, index } = *entry {
+            self.unloaded.try_reserve(1)?;
+            self.unloaded.push((container, index, number));
+        }
+        Ok(())
     }
 }
 
@@ -576,6 +613,118 @@ fn lopdf_pairs(table: &[u8]) -> Result<Option<Vec<(u32, u32)>>, TryReserveError>
     Ok(Some(pairs))
 }
 
+/// Parse each compressed member that lopdf did not load, from the slot that
+/// hayro reads for its entry.
+///
+/// lopdf skips only white space before a member and drops one that its parser
+/// rejects, such as a member that a comment precedes, while hayro skips white
+/// space and comments and reads the member that its container's table lists at
+/// the entry's index. A container is read only when lopdf expanded it, so its
+/// data already decoded within the load's bounds, only when hayro decodes and
+/// reads its table alike, and only for numbers under which lopdf holds no
+/// other object.
+fn recover_unloaded_members(
+    doc: &Document,
+    mut members: Vec<(u32, u16, u32)>,
+) -> Result<Vec<(ObjectId, Object)>, TryReserveError> {
+    let mut recovered = Vec::new();
+    if members.is_empty() {
+        return Ok(recovered);
+    }
+    members.sort_unstable();
+    let mut reader = TableReader::new();
+    for group in members.chunk_by(|first, second| first.0 == second.0) {
+        let Some(container) = ExpandedContainer::read(doc, group[0].0, &mut reader)? else {
+            continue;
+        };
+        for &(_, index, number) in group {
+            if doc
+                .objects
+                .range((number, 0)..=(number, u16::MAX))
+                .next()
+                .is_some()
+            {
+                continue;
+            }
+            let Some(start) = container
+                .slots
+                .get(usize::from(index))
+                .and_then(|&(_, offset)| container.first.checked_add(offset as usize))
+            else {
+                continue;
+            };
+            let mut parser = Parser {
+                data: container.data,
+                pos: start,
+            };
+            match parser.value() {
+                Ok(object) => {
+                    recovered.try_reserve(1)?;
+                    recovered.push(((number, 0), object));
+                }
+                Err(Failure::Syntax) => {}
+                Err(Failure::Allocation(error)) => return Err(error),
+            }
+        }
+    }
+    Ok(recovered)
+}
+
+/// The decoded data of an object stream that lopdf expanded, with the slots
+/// that hayro reads from its table.
+struct ExpandedContainer<'d> {
+    data: &'d [u8],
+    first: usize,
+    /// hayro's `/N` pairs of member number and offset after `/First`.
+    slots: Vec<(u32, u32)>,
+}
+
+impl<'d> ExpandedContainer<'d> {
+    /// Read object stream `container`, or return `None` when lopdf did not
+    /// expand it or hayro could read it differently.
+    fn read<'a: 'd>(
+        doc: &'a Document,
+        container: u32,
+        reader: &'d mut TableReader<'a>,
+    ) -> Result<Option<Self>, TryReserveError> {
+        // hayro looks a container up as generation 0, never in an object stream.
+        if !matches!(
+            doc.reference_table.entries.get(&container),
+            Some(XrefEntry::Normal { generation: 0, .. })
+        ) {
+            return Ok(None);
+        }
+        // lopdf expands only a stream of this type, and only when both
+        // entries are direct integers.
+        let Some(Object::Stream(stream)) = doc.objects.get(&(container, 0)) else {
+            return Ok(None);
+        };
+        if !stream.dict.has_type(b"ObjStm") {
+            return Ok(None);
+        }
+        let (Ok(&Object::Integer(declared)), Ok(&Object::Integer(first))) =
+            (stream.dict.get(b"N"), stream.dict.get(b"First"))
+        else {
+            return Ok(None);
+        };
+        let (Ok(declared), Ok(first)) = (usize::try_from(declared), usize::try_from(first)) else {
+            return Ok(None);
+        };
+        let Some(data) = reader.whole(stream)? else {
+            return Ok(None);
+        };
+        let Some(slots) = data
+            .get(..first)
+            .map(|table| hayro_slots(table, declared))
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self { data, first, slots }))
+    }
+}
+
 /// The zlib decoder and output buffer that every object stream's table
 /// reuses, so that each container costs only its own inflate.
 struct TableReader<'a> {
@@ -594,35 +743,70 @@ impl<'a> TableReader<'a> {
     /// Decode the first `length` bytes of an object stream, or return `None`
     /// when lopdf and hayro could decode them differently.
     ///
-    /// Both inflate a zlib stream alike and read an unfiltered one as it is.
-    /// hayro reads a stream with `/F` as no stream at all, and other filters or
-    /// decode parameters are rare enough in object streams to leave to the
-    /// serialized graph. Output stops at `length`, never beyond what lopdf
-    /// already decoded.
+    /// Output stops at `length`, never beyond what lopdf already decoded.
     fn prefix<'s>(
         &'s mut self,
         stream: &'a Stream,
         length: usize,
     ) -> Result<Option<&'s [u8]>, TryReserveError> {
+        match Self::compressed(stream) {
+            None => Ok(None),
+            Some(false) => Ok(stream.content.get(..length)),
+            Some(true) => self.inflate(stream, Some(length)),
+        }
+    }
+
+    /// Decode a whole object stream, or return `None` when lopdf and hayro
+    /// could decode it differently.
+    ///
+    /// hayro inflates with the same decoder and falls back to other readings
+    /// only when that decoder fails, so a failure returns `None` as well.
+    fn whole<'s>(&'s mut self, stream: &'a Stream) -> Result<Option<&'s [u8]>, TryReserveError> {
+        match Self::compressed(stream) {
+            None => Ok(None),
+            Some(false) => Ok(Some(&stream.content)),
+            Some(true) => self.inflate(stream, None),
+        }
+    }
+
+    /// Whether lopdf and hayro both inflate the stream, `Some(false)` when
+    /// both read it as it is, or `None` when they could decode it differently.
+    ///
+    /// Both inflate a zlib stream alike and read an unfiltered one as it is.
+    /// hayro reads a stream with `/F` as no stream at all, and other filters or
+    /// decode parameters are rare enough in object streams to leave to the
+    /// serialized graph.
+    fn compressed(stream: &Stream) -> Option<bool> {
         if stream.dict.has(b"F") || stream.dict.has(b"DecodeParms") || stream.dict.has(b"DP") {
-            return Ok(None);
+            return None;
         }
         let filters = match stream.dict.get(b"Filter") {
-            Err(_) => return Ok(stream.content.get(..length)),
+            Err(_) => return Some(false),
             Ok(Object::Array(filters)) => filters.as_slice(),
             Ok(filter) => std::slice::from_ref(filter),
         };
-        if !matches!(filters, [Object::Name(name)] if name == b"FlateDecode") {
-            return Ok(None);
-        }
+        matches!(filters, [Object::Name(name)] if name == b"FlateDecode").then_some(true)
+    }
+
+    /// Inflate a zlib stream to its end, or to `length` bytes if given.
+    fn inflate<'s>(
+        &'s mut self,
+        stream: &'a Stream,
+        length: Option<usize>,
+    ) -> Result<Option<&'s [u8]>, TryReserveError> {
+        const CHUNK: usize = 64 * 1024;
         self.decoder.reset(stream.content.as_slice());
         self.buffer.clear();
-        while self.buffer.len() < length {
+        while length.is_none_or(|length| self.buffer.len() < length) {
             let filled = self.buffer.len();
-            let wanted = (length - filled).min(64 * 1024);
+            let wanted = length.map_or(CHUNK, |length| (length - filled).min(CHUNK));
             self.buffer.try_reserve(wanted)?;
             self.buffer.resize(filled + wanted, 0);
             match self.decoder.read(&mut self.buffer[filled..]) {
+                Ok(0) if length.is_none() => {
+                    self.buffer.truncate(filled);
+                    break;
+                }
                 Ok(0) | Err(_) => return Ok(None),
                 Ok(read) => self.buffer.truncate(filled + read),
             }

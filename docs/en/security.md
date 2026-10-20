@@ -154,9 +154,11 @@ table from line-start object headers and the newest classic `trailer` whose
 regions may be missing. A resolved table whose entries miss the catalog or the
 root page-tree node, as in a file that lost bytes before its table, is rebuilt
 the same way, and the rebuilt table is kept when it reaches the page tree.
-Damaged xref-stream files without a classic trailer are rejected. Either
-recovery emits `PylopdfWarning`, sets `doc.is_repaired`
-(and the metadata probe's `repaired` key), and rendering and extraction use the
+When the chosen trailer's `/Root` reaches no page tree, the rebuilt table takes
+the newest examined trailer whose `/Root`, resolved by its object number, is a
+catalog that does. Damaged xref-stream files without a classic trailer are
+rejected. Either recovery emits `PylopdfWarning`, sets `doc.is_repaired` (and
+the metadata probe's `repaired` key), and rendering and extraction use the
 recovered object graph that saving writes with normalized xref data. Callers
 that must not accept recovered input can reject `is_repaired` documents.
 Lenient tolerances that keep the declared structure, such as 19-byte xref

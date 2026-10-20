@@ -486,6 +486,92 @@ def test_page_tree_that_no_rebuild_reaches_keeps_the_resolved_table(hidden: int)
         _ = doc.page_count
 
 
+def _with_foreign_root_update(data: bytes, comments: int = 0) -> bytes:
+    """Append a revision whose trailer names an information dictionary as the root.
+
+    `comments` lines that hold the word `trailer` precede the new cross-reference section.
+    """
+    previous = re.findall(rb"startxref\s+(\d+)", data)[-1].decode()
+    size = int(re.findall(rb"/Size (\d+)", data)[-1])
+    out = bytearray(data + b"\n")
+    offset = len(out)
+    out += f"{size} 0 obj\n<< /Producer (Foreign revision) >>\nendobj\n".encode()
+    out += b"% trailer\n" * comments
+    xref = len(out)
+    out += (
+        f"xref\n0 1\n0000000000 65535 f \n{size} 1\n{offset:010d} 00000 n \n"
+        f"trailer\n<< /Size {size + 1} /Root {size} 0 R /Info {size} 0 R /Prev {previous} >>\n"
+        f"startxref\n{xref}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
+
+
+def _assert_rebuilt_single_page(damaged: bytes, text: str) -> pylopdf.Document:
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        doc = pylopdf.open(stream=damaged)
+    assert doc.is_repaired is True
+    assert doc.page_count == 1
+    assert doc.get_page_text(0).split() == text.split()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened.is_repaired is False
+    assert reopened.get_page_text(0) == doc.get_page_text(0)
+    return doc
+
+
+def test_rebuilt_table_takes_an_older_trailer_whose_root_is_a_catalog() -> None:
+    """Take the newest trailer whose root leads to the page tree instead of lopdf's choice.
+
+    lopdf keeps the newest trailer whose `/Root` names a scanned object, whatever that object is, and
+    pdf.js `issue9418.pdf` appends a revision whose trailer names an information dictionary, so
+    every page operation raised, while hayro and pdf.js keep only a trailer whose root is a catalog.
+    Its metadata then comes from the same trailer. `peek_metadata` loads no object graph in which to
+    resolve another trailer, so it keeps lopdf's and counts no pages.
+    """
+    damaged = _with_foreign_root_update(build_pdf(["Original catalog"]))
+
+    doc = _assert_rebuilt_single_page(damaged, "Original catalog")
+    assert doc.metadata["producer"] == ""
+    assert pylopdf.peek_metadata(stream=damaged)["page_count"] == 0
+
+
+@pytest.mark.parametrize(("comments", "adopted"), [(14, True), (15, False)])
+def test_rebuilt_table_reads_the_trailers_that_lopdf_examines(*, comments: int, adopted: bool) -> None:
+    """Read only the last 16 `trailer` keywords, which lopdf's rebuild examines for a root.
+
+    The revision's own trailer and the comments come before the original trailer from the end.
+    """
+    damaged = _with_foreign_root_update(build_pdf(["Original catalog"]), comments)
+
+    if adopted:
+        _assert_rebuilt_single_page(damaged, "Original catalog")
+        return
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        doc = pylopdf.open(stream=damaged)
+    assert doc.is_repaired is False
+    with pytest.raises(pylopdf.PdfError, match="Catalog Pages must be an indirect page-tree node"):
+        _ = doc.page_count
+
+
+@pytest.mark.parametrize("table", ["intact", "lost"])
+def test_rebuilt_table_resolves_a_root_with_another_generation(table: str) -> None:
+    """Resolve a trailer root that names generation 1 of a catalog written as generation 0.
+
+    lopdf's rebuild accepts the trailer because the number names a scanned object, and pdf.js
+    `issue15577.pdf` then raised `object ID 1 1 not found` on every page operation, while MuPDF
+    and pdf.js read the catalog under its number and hayro takes the scanned catalog. A table that
+    lopdf resolves leaves the root missing as well, so it is rebuilt.
+    """
+    damaged = build_pdf(["Catalog generation"]).replace(b"/Root 1 0 R", b"/Root 1 1 R")
+    if table == "lost":
+        damaged = _startxref_keyword_corrupted("generation.pdf", damaged)
+
+    doc = _assert_rebuilt_single_page(damaged, "Catalog generation")
+    assert re.search(rb"/Root 1 0 R", doc.tobytes())
+
+
 def test_recovered_documents_keep_document_limits() -> None:
     """Rebuilt cross-reference data still passes every configured load budget."""
     damaged = _startxref_keyword_corrupted("patent-us223898.pdf", (ASSETS / "patent-us223898.pdf").read_bytes())

@@ -130,9 +130,11 @@ table解釈は1回分の累積admissionを共有し、拒否されたpageはbudg
 優先されますが、破損範囲のobjectは失われることがあります。解決したtableのentryが
 catalogまたはpage treeのroot nodeを指していない場合（tableより前でbyteが失われた
 ファイルなど）も同じ方法で再構築し、再構築したtableがpage treeに届く場合はそれを
-使います。classic trailerのない破損したxref streamファイルは拒否されます。
-いずれの復旧でも`PylopdfWarning`が
-発生し、`doc.is_repaired`（metadata probeでは`repaired`）が`True`になります。
+使います。選ばれたtrailerの`/Root`がpage treeに届かない場合、再構築したtableは、
+調べたtrailerのうち、object番号で解決した`/Root`がpage treeに届くcatalogである
+最新のものを使います。classic trailerのない破損したxref streamファイルは拒否され
+ます。いずれの復旧でも`PylopdfWarning`が発生し、`doc.is_repaired`（metadata probe
+では`repaired`）が`True`になります。
 描画と抽出は保存時に書き出す復旧後のobject graphを使い、保存するとxref dataを
 正規化します。復旧した入力を受け付けられない呼び出し側は、`is_repaired`の文書を
 拒否できます。19 byteのxref entryや、曖昧さのないobject境界で補正したstream

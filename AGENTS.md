@@ -600,6 +600,20 @@ overview.
   lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
   stay only when the walk meets no recovered object or other suspect, no
   object that no entry locates, and no in-use entry that lopdf could not load.
+  Before that walk, each compressed entry whose member lopdf did not load is
+  parsed with the same parser from the slot that hayro reads, after white
+  space and comments, when its container is an object stream that lopdf
+  expanded (`/Type /ObjStm` with direct `/N` and `/First`, so its data already
+  decoded within the load's bounds), that both readers decode alike, as for
+  the table check, and whose `/N` pairs hayro reads before `/First`; a slot
+  past `/N` and a number under which lopdf holds any object recover nothing.
+  Recovered members are recovered objects for the walk. lopdf skips only white
+  space before a member, so pdf.js `bug1539074.pdf` and `bug1539074.1.pdf`,
+  whose pdfTeX writer puts `% 2 0 obj` before each member, lost every member,
+  the catalog and the page tree among them, and raised on every page
+  operation. They are the only corpus files whose text, snapshot, or object
+  count the member recovery changed, and their pages render pixel for pixel
+  as hayro renders the original bytes.
   On the first six pages of the 1,455 pdf.js corpus files, text before and
   after a save differed for two files with only the recovery parse and for
   none with these checks, and no file changed its text before a save or its
@@ -1462,6 +1476,30 @@ overview.
   other corpus file opens differently; the `endobj-removed-2` damage in
   `test_damaged_corpus_outcome` and
   `test_unreachable_page_tree_rebuilds_the_xref_table` pin the behavior.
+  lopdf's rebuild keeps the newest of the last 16 `trailer` keywords
+  (`MAX_TRAILER_CANDIDATES`) whose `/Root` names a scanned object number,
+  whatever that object is and whatever generation the reference gives. A
+  rebuilt document, whether lopdf rebuilt it or the copy above forced it,
+  whose root reaches no page tree therefore reads the same 16 keywords again
+  with `object_recovery::read_dictionary`, resolves each `/Root` by number
+  (the object itself, else the object at the one entry that the rebuilt table
+  keeps for the number), skips a trailer with `/Encrypt`, because lopdf did
+  not decrypt the rebuilt objects, and adopts the newest whose root reaches
+  the page tree, naming the root by the generation that the table records. A
+  document that lopdf decrypted, or could not, keeps its trailer, and a forced
+  rebuild that no trailer rescues is discarded as before. hayro and pdf.js
+  accept only a trailer whose root is a catalog with `/Pages`, MuPDF resolves
+  references by number, and pdf.js falls back to a lower generation. pdf.js
+  `issue9418.pdf` names an information dictionary in its newest trailers, and
+  `issue15577.pdf` names generation 1 of a catalog written as generation 0;
+  both now open with hayro's page count and the adopted trailer's metadata,
+  render pixel for pixel as hayro renders their original bytes, and are the
+  only corpus files that changed. The metadata probe loads no object graph in
+  which to resolve another trailer and keeps lopdf's.
+  `test_rebuilt_table_takes_an_older_trailer_whose_root_is_a_catalog`,
+  `test_rebuilt_table_resolves_a_root_with_another_generation`, and
+  `test_rebuilt_table_reads_the_trailers_that_lopdf_examines` pin the shapes
+  and the bound.
   Before every lenient load, a linear pre-scan estimates lopdf's
   reconstruction work: each `stream` keyword after the last `endstream`
   repeats a scan to the end of the input and a backward `obj`/`/Length`
@@ -2427,6 +2465,14 @@ overview.
   document whose page tree did not load by adding a `startxref` past the end
   of a copy of the input. Rebuilding when the catalog or the root page-tree
   node does not load is an upstream contribution candidate.
+- lopdf 0.45's rebuild accepts a trailer whose `/Root` number names any
+  scanned object, of any type or generation, so pylopdf adopts another
+  trailer that the rebuild examined. Requiring a catalog there is an upstream
+  contribution candidate.
+- lopdf 0.45's `ObjectStream` skips white space but not comments before a
+  member and drops a member that its parser then rejects, so pylopdf
+  recovers such members in `object_recovery`. Skipping comments there is an
+  upstream contribution candidate.
 - lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
   helper built on it is quadratic in object count. pylopdf replaces
   `prune_objects` and `renumber_objects_with`; do not call them or the other
