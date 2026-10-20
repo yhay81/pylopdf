@@ -1,5 +1,5 @@
 {
-  "api_line": "0.14",
+  "api_line": "0.15",
   "exports": [
     "AnnotationInfo",
     "Array",
@@ -13,11 +13,22 @@
     "DocumentMetadata",
     "DrawingInfo",
     "DrawingItem",
+    "EMPTY_IRECT",
+    "EMPTY_QUAD",
+    "EMPTY_RECT",
     "EncryptedDocumentError",
+    "FZ_MAX_INF_RECT",
+    "FZ_MIN_INF_RECT",
     "Font",
     "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
+    "INFINITE_IRECT",
+    "INFINITE_QUAD",
+    "INFINITE_RECT",
+    "IRect",
+    "Identity",
+    "IdentityMatrix",
     "ImageCompressionResult",
     "ImageInfo",
     "LINK_GOTO",
@@ -46,6 +57,7 @@
     "Pixmap",
     "Point",
     "PylopdfWarning",
+    "Quad",
     "RawTextBlock",
     "RawTextLine",
     "RawTextPage",
@@ -70,7 +82,8 @@
     "TextSpan",
     "WordEntry",
     "open",
-    "peek_metadata"
+    "peek_metadata",
+    "planish_line"
   ],
   "schema": 1,
   "symbols": {
@@ -122,6 +135,10 @@
             "returns": "int"
           }
         },
+        "generation": {
+          "kind": "property",
+          "returns": "int | None"
+        },
         "insert": {
           "kind": "method",
           "signature": {
@@ -143,6 +160,14 @@
             ],
             "returns": "None"
           }
+        },
+        "is_indirect": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int | None"
         }
       },
       "signature": {
@@ -178,6 +203,23 @@
     "Dictionary": {
       "kind": "class",
       "members": {
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "key"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -218,6 +260,18 @@
             ],
             "returns": "int"
           }
+        },
+        "generation": {
+          "kind": "property",
+          "returns": "int | None"
+        },
+        "is_indirect": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int | None"
         }
       },
       "signature": {
@@ -1434,12 +1488,41 @@
       "kind": "type-alias",
       "target": "tuple[Literal['l'], pylopdf.Point, pylopdf.Point] | tuple[Literal['c'], pylopdf.Point, pylopdf.Point, pylopdf.Point, pylopdf.Point]"
     },
+    "EMPTY_IRECT": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "IRect"
+      }
+    },
+    "EMPTY_QUAD": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "Quad"
+      }
+    },
+    "EMPTY_RECT": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "Rect"
+      }
+    },
     "EncryptedDocumentError": {
       "bases": [
         "pylopdf.PdfError"
       ],
       "kind": "exception",
       "members": {}
+    },
+    "FZ_MAX_INF_RECT": {
+      "kind": "constant",
+      "value": 2147483520
+    },
+    "FZ_MIN_INF_RECT": {
+      "kind": "constant",
+      "value": -2147483648
     },
     "Font": {
       "kind": "class",
@@ -1626,6 +1709,477 @@
     "FormFieldType": {
       "kind": "type-alias",
       "target": "Literal['text', 'checkbox', 'radio', 'button', 'combobox', 'listbox', 'signature', 'unknown']"
+    },
+    "INFINITE_IRECT": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "IRect"
+      }
+    },
+    "INFINITE_QUAD": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "Quad"
+      }
+    },
+    "INFINITE_RECT": {
+      "kind": "function",
+      "signature": {
+        "parameters": [],
+        "returns": "Rect"
+      }
+    },
+    "IRect": {
+      "annotations": {
+        "x0": "int",
+        "x1": "int",
+        "y0": "int",
+        "y1": "int"
+      },
+      "kind": "class",
+      "members": {
+        "__add__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__and__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__mul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__neg__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__or__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__pos__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__radd__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__rmul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__sub__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__truediv__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "bl": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "bottom_left": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "bottom_right": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "br": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "contains": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "get_area": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "default": "px",
+                "kind": "positional_or_keyword",
+                "name": "unit"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "height": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "intersects": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "r"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "is_empty": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_infinite": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_valid": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "morph": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "m"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "norm": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "normalized": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "quad": {
+          "kind": "property",
+          "returns": "Quad"
+        },
+        "rect": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "tl": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "top_left": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "top_right": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "torect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "r"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "tr": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "width": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "x0": {
+          "kind": "property"
+        },
+        "x1": {
+          "kind": "property"
+        },
+        "y0": {
+          "kind": "property"
+        },
+        "y1": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float | Sequence[float]",
+            "kind": "var_positional",
+            "name": "args"
+          },
+          {
+            "annotation": "float",
+            "kind": "var_keyword",
+            "name": "kwargs"
+          }
+        ],
+        "returns": "Self"
+      }
+    },
+    "Identity": {
+      "kind": "constant",
+      "value": [
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "IdentityMatrix": {
+      "annotations": {
+        "a": "float",
+        "b": "float",
+        "c": "float",
+        "d": "float",
+        "e": "float",
+        "f": "float"
+      },
+      "kind": "class",
+      "members": {
+        "a": {
+          "kind": "property"
+        },
+        "b": {
+          "kind": "property"
+        },
+        "c": {
+          "kind": "property"
+        },
+        "d": {
+          "kind": "property"
+        },
+        "e": {
+          "kind": "property"
+        },
+        "f": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ],
+      "signature": {
+        "parameters": [],
+        "returns": "Self"
+      }
     },
     "ImageCompressionResult": {
       "fields": {
@@ -2033,6 +2587,23 @@
     "Objects": {
       "kind": "class",
       "members": {
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "__getitem__": {
           "kind": "method",
           "signature": {
@@ -4392,6 +4963,267 @@
       "kind": "exception",
       "members": {}
     },
+    "Quad": {
+      "annotations": {
+        "ll": "Point",
+        "lr": "Point",
+        "ul": "Point",
+        "ur": "Point"
+      },
+      "kind": "class",
+      "members": {
+        "__abs__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "__add__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__bool__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__mul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__neg__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__pos__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__radd__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__rmul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__sub__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "__truediv__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "height": {
+          "kind": "property",
+          "returns": "float"
+        },
+        "is_convex": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_empty": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_infinite": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_rectangular": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "ll": {
+          "kind": "property"
+        },
+        "lr": {
+          "kind": "property"
+        },
+        "morph": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "m"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "rect": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "ul": {
+          "kind": "property"
+        },
+        "ur": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property",
+          "returns": "float"
+        }
+      },
+      "named_tuple_fields": [
+        "ul",
+        "ur",
+        "ll",
+        "lr"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float] | Sequence[Sequence[float]]",
+            "kind": "var_positional",
+            "name": "args"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "var_keyword",
+            "name": "kwargs"
+          }
+        ],
+        "returns": "Self"
+      }
+    },
     "RawTextBlock": {
       "fields": {
         "bbox": "tuple[float, float, float, float]",
@@ -4467,9 +5299,389 @@
       },
       "kind": "class",
       "members": {
+        "__abs__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "__add__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__and__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__bool__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__mul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__neg__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__or__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__pos__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__radd__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__rmul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__sub__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "__truediv__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "bl": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "bottom_left": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "bottom_right": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "br": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "contains": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "get_area": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "default": "px",
+                "kind": "positional_or_keyword",
+                "name": "unit"
+              }
+            ],
+            "returns": "float"
+          }
+        },
         "height": {
           "kind": "property",
           "returns": "float"
+        },
+        "intersects": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "r"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "irect": {
+          "kind": "property",
+          "returns": "IRect"
+        },
+        "is_empty": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_infinite": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_valid": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "morph": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "p"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "m"
+              }
+            ],
+            "returns": "Quad"
+          }
+        },
+        "norm": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "normalized": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Self"
+          }
+        },
+        "quad": {
+          "kind": "property",
+          "returns": "Quad"
+        },
+        "round": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "IRect"
+          }
+        },
+        "tl": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "top_left": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "top_right": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "torect": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "r"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "tr": {
+          "kind": "property",
+          "returns": "Point"
         },
         "width": {
           "kind": "property",
@@ -4497,26 +5709,17 @@
       "signature": {
         "parameters": [
           {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x0"
+            "annotation": "float | Sequence[float]",
+            "kind": "var_positional",
+            "name": "args"
           },
           {
             "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y0"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x1"
-          },
-          {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y1"
+            "kind": "var_keyword",
+            "name": "kwargs"
           }
-        ]
+        ],
+        "returns": "Self"
       }
     },
     "Shape": {
@@ -5177,6 +6380,14 @@
     "Stream": {
       "kind": "class",
       "members": {
+        "generation": {
+          "kind": "property",
+          "returns": "int | None"
+        },
+        "is_indirect": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "read": {
           "kind": "method",
           "signature": {
@@ -5223,6 +6434,10 @@
             ],
             "returns": "None"
           }
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int | None"
         }
       },
       "signature": {
@@ -5657,6 +6872,24 @@
           }
         ],
         "returns": "MetadataProbe"
+      }
+    },
+    "planish_line": {
+      "kind": "function",
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "p1"
+          },
+          {
+            "annotation": "Sequence[float]",
+            "kind": "positional_or_keyword",
+            "name": "p2"
+          }
+        ],
+        "returns": "Matrix"
       }
     }
   }

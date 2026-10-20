@@ -219,6 +219,13 @@ def _field_errors(key: str, entry: Entry) -> list[str]:
     return errors
 
 
+def _symbol_exists(symbol: str, symbols: set[str]) -> bool:
+    """Return whether a symbol, or every name of a ``PREFIX*`` group, is public."""
+    if symbol.endswith("*"):
+        return any(name.startswith(symbol[:-1]) for name in symbols if "." not in name)
+    return symbol in symbols
+
+
 def _status_errors(key: str, entry: Entry, symbols: set[str]) -> list[str]:  # noqa: C901 - one rule per branch.
     errors = []
     status = entry.get("status")
@@ -231,7 +238,7 @@ def _status_errors(key: str, entry: Entry, symbols: set[str]) -> list[str]:  # n
         errors.append(f"{key}: a {status} entry has no relation")
     if status in {"available", "planned"} and symbol is None:
         errors.append(f"{key}: an {status} entry must name its pylopdf symbol")
-    if status == "available" and isinstance(symbol, str) and symbol not in symbols:
+    if status == "available" and isinstance(symbol, str) and not _symbol_exists(symbol, symbols):
         errors.append(f"{key}: pylopdf symbol {symbol!r} is not in api/public-api.json")
     if status == "available" and relation == "same" and not same_name(key, entry) and "reset" not in entry:
         errors.append(f"{key}: a same entry named {symbol!r} needs a reset that gives it the pymupdf name")

@@ -210,8 +210,8 @@ complete, and version numbers are assigned at release time.
 | Wave | Work that runs in parallel | Gate for the next wave |
 | --- | --- | --- |
 | 0 — done | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion (#249, #250); XObject reuse (#231); save-time merging of identical objects (#251); CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design (#236), approved 2026-10-20 | Merged to main; F0 approved |
-| 1 — foundations (current) | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each | F1 merged with an unchanged API snapshot and corpus |
-| 2 — API reset | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
+| 1 — done | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each. F1, F2, F4, and F5 shipped in v0.15.0; F9 continues into wave 2 | F1 merged with an unchanged API snapshot and corpus |
+| 2 — API reset (current) | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
 | 3 — breadth | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
 | 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
 | 5 — depth | M6 (A, H), M7 (G) | Milestone acceptance |
@@ -337,7 +337,23 @@ rectilinearity. Point arithmetic and truth testing now have geometric
 semantics, resolving those M0 entries. Python regressions cover boundaries,
 singular transforms, and drawing/save/reopen at all four page rotations;
 the native/PyEmscripten contract includes the same affine workflow.
-`Rect` algebra, `IRect`, `Quad`, and geometry constants remain pending.
+
+Done on 2026-10-20: `Rect` gained pymupdf's constructors, members, and
+operators, and the new `IRect`, `Quad`, `IdentityMatrix`, `Identity`,
+`planish_line`, `EMPTY_*`, `INFINITE_*`, `FZ_MIN_INF_RECT`, and
+`FZ_MAX_INF_RECT` follow pymupdf 1.28.2, including MuPDF's rules for empty,
+invalid, and infinite rectangles in unions, intersections, and transforms.
+`bench/geometry.py` compares 30,483 results of 2,000 seeded cases with
+pymupdf. Two choices differ from pymupdf on purpose: a rectangle or quad
+inside a quad needs all four corners inside, where pymupdf tests two corners
+and accepts any empty rectangle, and convexity of collinear corners does not
+depend on single-precision rounding. Validation makes `Rect(1, 2, 3, 4)`
+with four integers cost what pymupdf's does (0.8 µs); four floats, as
+extraction returns them, take a fast path at 0.3 µs against 0.16 µs before.
+The Rect, IRect, Quad, and constant entries of the manifest, 122 in all,
+became available, and the `Rect` reset items of M0 are resolved, raising
+coverage from 26.3% to 40.5%. `calc_matrix`, which pymupdf 1.28.2 does not
+yet provide, stays planned.
 
 ### F5 — Low-level object API
 

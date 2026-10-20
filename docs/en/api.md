@@ -347,9 +347,11 @@ raw edits semantically valid is the caller's responsibility.
 |---|---|
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | fast metadata/page-count probe with optional input-size rejection and a 127-byte password boundary; `repaired` reports cross-reference recovery |
 | `Permissions` | encryption permission flags (IntFlag) |
-| `Rect` | rectangle NamedTuple with `width` / `height` |
+| `Rect` / `IRect` | immutable `(x0, y0, x1, y1)` NamedTuples with containment, union, intersection, transformation, and rounding |
+| `Quad` | immutable `(ul, ur, ll, lr)` NamedTuple of four `Point`s with transformation, containment, and shape tests |
 | `Point` | immutable `(x, y)` NamedTuple with vector arithmetic, affine transforms, distance, and direction |
-| `Matrix` | immutable affine `(a, b, c, d, e, f)` NamedTuple with composition and inversion |
+| `Matrix` / `IdentityMatrix` / `Identity` | immutable affine `(a, b, c, d, e, f)` NamedTuple with composition and inversion, and the identity |
+| `EMPTY_RECT()` / `INFINITE_RECT()` and their `IRECT` / `QUAD` forms, `FZ_MIN_INF_RECT` / `FZ_MAX_INF_RECT`, `planish_line(p1, p2)` | pymupdf's geometry constants and line-flattening matrix |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
 | `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
@@ -419,5 +421,54 @@ Addition and scalar multiplication place the geometry on the left.
 
 These are value operations, so passing a transformed point to drawing changes
 its position, not the text's orientation or size. Rendering still accepts
-`scale=` / `dpi=`; `get_pixmap(matrix=)` and geometric operations on `Rect`,
-`IRect`, and `Quad` remain roadmap work.
+`scale=` / `dpi=`; `get_pixmap(matrix=)` remains roadmap work.
+
+## Rectangles and quads { #rectangles }
+
+`Rect()` is the zero rectangle. `Rect(x0, y0, x1, y1)`, `Rect((x0, y0, x1, y1))`,
+`Rect(top_left, bottom_right)`, `Rect(top_left, x1, y1)`, and
+`Rect(x0, y0, bottom_right)` take coordinates or corner points. `IRect` accepts
+the same arguments and rounds fractional edges outward: `x0` and `y0` down,
+`x1` and `y1` up, also after arithmetic. `Quad(ul, ur, ll, lr)` takes four
+points; `rect.quad` turns a rectangle into one. Every page API that returns a
+rectangle returns a `Rect`, and every API that takes one also accepts a plain
+four-item sequence.
+
+```python
+from pylopdf import Matrix, Point, Rect
+
+hits = page.search_for("Total")
+area = hits[0] | hits[-1]                    # union of the first and last hit
+inside = [hit for hit in hits if hit in page.rect]
+box = area * Matrix(1, 0, 0, 1, 0, 20)        # moved 20 points down
+quad = area.morph(area.tl, Matrix(30))       # turned 30 degrees around a corner
+```
+
+| Operation | Result |
+|---|---|
+| `rect + other`, `rect - other` | componentwise with a rectangle, four-item sequence, or scalar |
+| `rect * scalar`, `rect / scalar` | every coordinate scaled |
+| `rect * matrix`, `rect / matrix` | the bounding box of the transformed corners; the infinite rectangle stays infinite |
+| `rect \| point`, `rect \| other` | the smallest rectangle that also includes a point or a rectangle |
+| `rect & other` | the intersection; disjoint rectangles give an invalid, empty result |
+| `point in rect` | `x0 <= x < x1` and `y0 <= y < y1` |
+| `other in rect`, `quad in rect` | a valid rectangle, or a quad's bounding box, within the edges, which count as inside |
+| `rect.width`, `rect.height` | never negative |
+| `rect.is_empty`, `rect.is_valid`, `rect.is_infinite` | `x0 >= x1` or `y0 >= y1`; `x0 <= x1` and `y0 <= y1`; equal to `INFINITE_RECT()` |
+| `rect.intersects(other)` | whether two finite, nonempty rectangles share some area |
+| `rect.round()`, `rect.irect` | the covering `IRect`, tolerating 0.001 of noise at each edge |
+| `rect.torect(other)` | the matrix that maps one rectangle onto the other |
+| `rect.morph(point, matrix)`, `quad.morph(point, matrix)` | a `Quad` transformed around a fixed point |
+| `rect.normalized()` | the rectangle with ordered edges, in place of pymupdf's in-place `normalize()` |
+| `abs(rect)`, `rect.get_area(unit="px")` | the area; `abs()` is 0 for an empty or infinite rectangle |
+| `quad * matrix`, `quad / matrix`, `quad + other` | every corner transformed or shifted |
+| `point in quad`, `rect in quad`, `other_quad in quad` | containment, edges included; for a rectangle or quad, every corner must be inside |
+| `quad.rect`, `quad.width`, `quad.height` | the bounding box, and the longer edge of each opposite pair |
+| `quad.is_rectangular`, `quad.is_convex`, `quad.is_empty` | right angles within 1e-5 in `rect.quad`'s turning direction; a convex outline; an edge pair shorter than 1e-5 |
+
+pymupdf's in-place `include_point`, `include_rect`, `intersect`, `normalize`,
+and `transform` are absent; assign `r | p`, `r & other`, `r.normalized()`, or
+`r * m` instead. As in pymupdf, `IRect` has no `abs()` and is always true,
+while a `Rect` is false only when all four coordinates are zero and a `Quad`
+when it is empty. Where pymupdf decides a rectangle inside a quad by two
+corners only, pylopdf checks all four.

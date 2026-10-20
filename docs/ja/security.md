@@ -217,6 +217,12 @@ Rustが標準エラー出力に書き出します。
   PNG encodeを直接streamし、完全なwriteが成功した後だけ要求pathを原子的に
   置換します。完成PNGをメモリにもう1つ保持しません。置換失敗時は既存outputを
   保持し、一時fileを削除します。
+- Windowsでは、どちらの保存処理も既存の通常ファイルのDACLと継承保護設定を
+  維持します。データを書き込む前に一時ファイルへアクセス制限を適用し、
+  セキュリティ記述子をコピーできない場合は保存を拒否します。読み取り専用や
+  ロック中の保存先は失敗時も変更せず、一時ファイルを削除します。
+  `Document.save()`は相対パスやUnicode名を含む長いWindowsパスを内部で
+  正規化するため、システム全体の長いパスのポリシーを有効にする必要はありません。
 - `Page.insert_image()`はencoded JPEG/PNG inputを既定64 MiB、decoded PNG inputを
   既定64,000,000画素に制限します。filenameはGILを解放したRust境界で上限付きで
   読み、PNG dimensionはdecoded storage確保前に検査します。信頼できるworkloadは

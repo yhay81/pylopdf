@@ -90,8 +90,8 @@ plugins:
 
 extra:
   current_language: ja
-  announcement: "pylopdf 0.14.0 · 文字ごとの座標・言語別フォント・ページ編集の修正"
-  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.14.0"
+  announcement: "pylopdf 0.15.0 · Shapeによる描画・幾何型・低レベルオブジェクトAPI"
+  announcement_url: "https://github.com/yhay81/pylopdf/releases/tag/v0.15.0"
   social_image: "https://pylopdf.haya.works/assets/images/pylopdf-social-card.png"
   alternate:
     - name: English

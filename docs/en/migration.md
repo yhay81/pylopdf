@@ -29,6 +29,7 @@ deliberately does not implement.
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; rendering does not yet accept `matrix=` |
 | `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | same | immutable NamedTuples; coordinates must be finite |
 | `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | mutating methods are absent; matrix division raises on a singular divisor |
+| `r.include_point(p)` / `r.include_rect(o)` / `r.intersect(o)` / `r.normalize()` / `r.transform(m)` | `r = r \| p` / `r = r \| o` / `r = r & o` / `r = r.normalized()` / `r = r * m` | rectangles and quads are immutable; `q.transform(m)` becomes `q = q * m` |
 | `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | assign the result; composition applies the left matrix first |
 | `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
@@ -60,14 +61,17 @@ deliberately does not implement.
 - **Coordinates** are top-left-origin display space in both libraries, and in
   pylopdf this includes rotated pages consistently across extraction, search,
   drawing and rendering.
-- **Types**: `Point`, `Matrix`, and `Rect` are immutable NamedTuples.
+- **Types**: `Point`, `Matrix`, `Rect`, `IRect`, and `Quad` are immutable NamedTuples.
   `Point` and `Matrix` support geometric arithmetic, matrix multiplication,
   and division, while retaining tuple indexing, unpacking, equality, and
   hashing. In particular, `Point(0, 0)` is now false, `p + other` adds
   coordinates, and `p * scalar` scales instead of repeating the tuple.
   In-place geometry methods are absent; assign the result of an operator.
-  `Rect` still provides only `x0, y0, x1, y1`, `width`, and `height`.
-  `IRect` and `Quad` remain planned; quad inputs are four points.
+  `Rect`, `IRect`, and `Quad` follow pymupdf in the same way: `r | p`
+  includes a point, `r & other` intersects, `r * m` transforms, `p in r`
+  tests containment, and `width` and `height` are never negative. Write
+  `r = r.normalized()` for `r.normalize()`. Unlike tuples, `r + (1, 2, 3, 4)`
+  adds coordinates and `Rect(0, 0, 0, 0)` is false.
   Rendering continues to take `scale=` / `dpi=`, not `matrix=`.
 - **Stale pages**: after structural changes (delete / insert / reorder),
   previously fetched `Page` objects raise `StalePageError` instead of silently

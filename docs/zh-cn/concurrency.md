@@ -7,7 +7,7 @@ description: Document、Page、Pixmap、并行渲染与CPython 3.14t和3.15t所�
 
 pylopdf既为带GIL的CPython 3.11–3.15发布每个平台一个`abi3` wheel，也为
 free-threaded CPython按Python版本发布专用wheel：`cp314-cp314t`自v0.10起提供，
-`cp315-cp315t`自v0.14.0之后的版本起提供。导入free-threaded wheel不会重新启用GIL。
+`cp315-cp315t`自v0.15起提供。导入free-threaded wheel不会重新启用GIL。
 
 ## 支持约定 { #support-contract }
 
@@ -72,6 +72,6 @@ assert view.readonly and view.format == "B"
 ```
 
 view会使Pixmap保持存活，因此NumPy可以通过`np.frombuffer(pixmap, dtype=np.uint8)`
-无复制地读取像素。需要独立的`bytes`副本时仍可使用`pixmap.samples`。v0.14.0之后的
-版本要求Python 3.11及以上，其stable ABI包含`Py_buffer`，因此abi3 wheel也公开同一
+无复制地读取像素。需要独立的`bytes`副本时仍可使用`pixmap.samples`。v0.15起
+要求Python 3.11及以上，其stable ABI包含`Py_buffer`，因此abi3 wheel也公开同一
 buffer；v0.14.0及更早版本只在free-threaded wheel上公开该buffer。

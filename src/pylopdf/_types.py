@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import enum
-from typing import Literal, NamedTuple, TypeAlias, TypedDict
+from typing import Literal, TypeAlias, TypedDict
 
-from pylopdf._geometry import Point
+from pylopdf._geometry import Point, Rect
 
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
@@ -37,25 +37,6 @@ class Permissions(enum.IntFlag):
     ASSEMBLE = 1 << 10
     PRINT_HIGH_QUALITY = 1 << 11
     ALL = PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
-
-
-class Rect(NamedTuple):
-    """A rectangle ``(x0, y0, x1, y1)`` in the coordinate space of its API."""
-
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-
-    @property
-    def width(self) -> float:
-        """Return the width, ``x1 - x0``."""
-        return self.x1 - self.x0
-
-    @property
-    def height(self) -> float:
-        """Return the height, ``y1 - y0``."""
-        return self.y1 - self.y0
 
 
 #: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
@@ -334,8 +315,6 @@ class OcrWord(TypedDict):
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
     Permissions,
-    Point,
-    Rect,
     TextSpan,
     TextLine,
     TextBlock,
