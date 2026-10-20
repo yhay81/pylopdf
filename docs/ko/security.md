@@ -128,9 +128,11 @@ table 해석은 하나의 누적admission을 공유하며 거부된page는budget
 최근의 classic `trailer`로 table을 재구성합니다. 이후 revision의 object가 우선하지만
 손상된 영역의 object는 누락될 수 있습니다. 해석한 table의 entry가 catalog나 page tree의
 root node를 가리키지 못하는 경우(table 앞에서 byte가 사라진 파일 등)에도 같은 방법으로
-재구성하고, 재구성한 table이 page tree에 도달하면 그 table을 사용합니다. classic
-trailer가 없는 손상된 xref stream 파일은 거부됩니다. 어느 복구든
-`PylopdfWarning`이 발생하고
+재구성하고, 재구성한 table이 page tree에 도달하면 그 table을 사용합니다. 선택한
+trailer의`/Root`가 page tree에 도달하지 못하면, 재구성한 table은 조사한 trailer
+가운데 object 번호로 해석한`/Root`가 page tree에 도달하는 catalog인 가장 최근의
+trailer를 사용합니다. classic trailer가 없는 손상된 xref stream 파일은 거부됩니다.
+어느 복구든`PylopdfWarning`이 발생하고
 `doc.is_repaired`（metadata probe의`repaired`）가`True`가 되며, 렌더링과 추출은 저장
 시 기록되는 복구된 object graph를 사용하고 저장하면 xref data를 정규화합니다. 복구된
 입력을 받아들일 수 없는 호출자는`is_repaired`인 문서를 거부할 수 있습니다. 19 byte

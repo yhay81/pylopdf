@@ -116,7 +116,9 @@ block、line、span和word数量。同一页的文本与表格解释共享一次
 object header和`/Root`存在的最新classic `trailer`重建table；后续revision的object
 优先，但损坏区域中的object可能缺失。已解析table的entry未指向catalog或page tree的
 root node时（例如在table之前丢失了byte的文件），同样以这种方式重建，并在重建后的
-table能到达page tree时采用它。没有classic trailer的损坏xref stream文件会被拒绝。
+table能到达page tree时采用它。所选trailer的`/Root`无法到达page tree时，重建后的
+table在检查过的trailer中，改用按object编号解析的`/Root`为能到达page tree的catalog
+的最新trailer。没有classic trailer的损坏xref stream文件会被拒绝。
 任一恢复都会发出`PylopdfWarning`，令`doc.is_repaired`（metadata probe中的
 `repaired`）为`True`；渲染与提取使用保存时写出的恢复后object graph，保存会规范化
 xref数据。不能接受恢复输入的调用方可以拒绝`is_repaired`的文档。19 byte的xref

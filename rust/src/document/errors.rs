@@ -138,6 +138,13 @@ pub(super) fn recovery_load_err(
                 },
             )
         }
+        recovery::LoadError::Allocation(error) => {
+            let message = format!("failed to allocate cross-reference recovery: {error}");
+            PdfError::new_err(match prefix {
+                Some(prefix) => format!("{prefix}: {message}"),
+                None => message,
+            })
+        }
     }
 }
 

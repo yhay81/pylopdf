@@ -474,15 +474,16 @@ def _compressed_pdf(  # noqa: PLR0913 - each keyword shapes one part of the fixt
 ) -> bytes:
     """Build a page whose `members` share object stream 6, located by a cross-reference stream.
 
-    Each member's entry names its first index in `members` unless `slots` gives another one,
-    `declared` replaces the stream's `/N`, `note` follows the stream's table before `/First`,
-    `objects` adds uncompressed objects, and `headers` writes another number into the header of an
-    uncompressed object.
+    Members replace the page's objects of the same numbers. Each member's entry names its first
+    index in `members` unless `slots` gives another one, `declared` replaces the stream's `/N`,
+    `note` follows the stream's table before `/First`, `objects` adds uncompressed objects, and
+    `headers` writes another number into the header of an uncompressed object.
     """
     slots = slots or {}
     headers = headers or {}
     page = {number: body for number, body in _one_page("5 0 R", {5: _stream("abc")}, font=font).items() if body}
-    uncompressed = {number: body for number, body in page.items() if number != 4} | (objects or {})
+    compressed = {number for number, _ in members}
+    uncompressed = {number: body for number, body in page.items() if number not in compressed} | (objects or {})
     out = bytearray(b"%PDF-1.7\n")
     offsets: dict[int, int] = {}
     for number, body in sorted(uncompressed.items()):
@@ -604,6 +605,37 @@ def test_object_under_a_member_number_renders_from_the_graph() -> None:
 
     assert not _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["xyz"]]
+
+
+@pytest.mark.parametrize("flate", [False, True], ids=["uncompressed", "flate"])
+def test_members_that_comments_precede_are_recovered(*, flate: bool) -> None:
+    """Recover object-stream members that a comment precedes, as pdfTeX's `% 2 0 obj` lines do.
+
+    lopdf skips only white space before a member and dropped every member of pdf.js
+    `bug1539074.pdf`, its catalog and page tree among them, so every page operation raised, while
+    hayro skips comments as well. Loading parses each member that lopdf did not load from the slot
+    that hayro reads, and the page renders from the serialized graph.
+    """
+    page = _one_page("5 0 R", {})
+    members = [(number, f"% {number} 0 obj\n{page[number]}") for number in (1, 2, 3)]
+    data = _compressed_pdf([*members, (4, f"% 4 0 obj\n{MAPPED_FONT}")], flate=flate)
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["xyz"]]
+    saved = pylopdf.Document(stream=data).tobytes()
+    assert b"0 obj\n%" not in saved
+
+
+def test_member_that_hayro_reads_from_no_slot_stays_unloaded() -> None:
+    """Leave out a member that a comment precedes when its entry's slot lies past `/N`.
+
+    hayro reads no member there, so the font stays missing in every view and the page extracts
+    the codes that it draws.
+    """
+    data = _compressed_pdf([(9, FONT), (4, f"% 4 0 obj\n{MAPPED_FONT}")], declared=1)
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["abc"]]
 
 
 def _two_page_tree(kids: str, extra: dict[int, str | None]) -> dict[int, str | None]:
