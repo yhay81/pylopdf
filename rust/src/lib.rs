@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 mod acroform_import;
 mod bundled_font_cache;
+mod content;
 mod content_guard;
 mod content_scan;
 mod document;
