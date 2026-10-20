@@ -44,6 +44,7 @@ documentation text, which is AGPL-licensed.
 from __future__ import annotations
 
 import argparse
+import builtins
 import json
 import re
 import sys
@@ -220,7 +221,13 @@ def _field_errors(key: str, entry: Entry) -> list[str]:
 
 
 def _symbol_exists(symbol: str, symbols: set[str]) -> bool:
-    """Return whether a symbol, or every name of a ``PREFIX*`` group, is public."""
+    """Return whether a symbol, or every name of a ``PREFIX*`` group, is public.
+
+    A built-in exception, such as ``FileNotFoundError``, counts as public because
+    pylopdf raises it in place of a pymupdf class of the same name.
+    """
+    if isinstance(getattr(builtins, symbol, None), type) and issubclass(getattr(builtins, symbol), BaseException):
+        return True
     if symbol.endswith("*"):
         return any(name.startswith(symbol[:-1]) for name in symbols if "." not in name)
     return symbol in symbols

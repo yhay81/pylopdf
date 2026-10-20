@@ -133,7 +133,8 @@ The shared native/Wasm suite currently covers:
   textbox layout, rendering, `Pixmap`, serialization, virtual-filesystem save,
   merge, reorder, duplicate, and select;
 - `PdfError`, `LimitError` and its stable resource code, `PasswordError`,
-  `EncryptedDocumentError`, `DocumentClosedError`, and `StalePageError`,
+  `EncryptedDocumentError`, `DocumentClosedError`, `StalePageError`,
+  `FileDataError`, and `EmptyFileError`,
   followed by reuse of the runtime after malformed input; and
 - `render_pages(workers=4)` input ordering and byte equality with
   `workers=1`.

@@ -22,6 +22,14 @@ class EncryptedDocumentError(PdfError):
     """An operation on an undecrypted PDF; provide a password or authenticate."""
 
 
+class FileDataError(PdfError, RuntimeError):
+    """Input that is not a readable PDF document, as in pymupdf."""
+
+
+class EmptyFileError(FileDataError):
+    """An empty file or stream, as in pymupdf."""
+
+
 class StalePageError(StaleObjectError):
     """Use of a stale :class:`Page` after a structural document change.
 
@@ -57,6 +65,8 @@ for _public in (
     PylopdfWarning,
     DocumentClosedError,
     EncryptedDocumentError,
+    FileDataError,
+    EmptyFileError,
     StalePageError,
     StaleObjectError,
 ):

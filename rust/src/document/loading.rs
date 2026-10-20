@@ -87,6 +87,7 @@ pub(super) fn load(
     };
     py.detach(|| {
         let data = read_input(path, limits.max_file_size)?;
+        reject_empty_input(&data, Some(&format!("failed to load {path}")))?;
         let (mut doc, recovery) = recovery::load_document(&data, options).map_err(|error| {
             recovery_load_err(
                 Some(&format!("failed to load {path}")),
@@ -160,6 +161,7 @@ pub(super) fn load_bytes(
         max_text_glyphs,
     };
     validate_input_size(data, limits.max_file_size)?;
+    reject_empty_input(data, None)?;
     let (decoder_bound, decoder_limit_code) = match (
         limits.max_decompressed_size,
         limits.max_total_decompressed_size,
@@ -222,6 +224,7 @@ pub(super) fn load_metadata(
     validate_password_input(password.as_deref(), "password")?;
     py.detach(|| {
         let data = read_input(path, max_file_size)?;
+        reject_empty_input(&data, Some(&format!("failed to load {path}")))?;
         let (meta, recovery) =
             recovery::load_metadata(&data, password.as_deref()).map_err(|error| {
                 recovery_load_err(
@@ -250,6 +253,7 @@ pub(super) fn load_metadata_bytes(
 ) -> PyResult<MetadataTuple> {
     validate_password_input(password.as_deref(), "password")?;
     validate_input_size(data, max_file_size)?;
+    reject_empty_input(data, None)?;
     py.detach(|| {
         let (meta, recovery) = recovery::load_metadata(data, password.as_deref())
             .map_err(|error| recovery_load_err(None, &error, "decompressed_size"))?;

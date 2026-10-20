@@ -276,7 +276,7 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 저수준 PDF 값과 실시간 객체 핸들([저수준 객체](#low-level-objects)) |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반）. 읽을 수 없는 입력은`FileDataError`(`RuntimeError`이기도 함), 빈 입력은`EmptyFileError`, 없는 파일은 내장`FileNotFoundError` |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 

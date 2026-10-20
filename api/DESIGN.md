@@ -546,7 +546,7 @@ one-to-one onto these rows.
 | `Document.embfile_add`, `embfile_get`, `embfile_del`, `embfile_names` | `Document.attachments` | R3: the mapping protocol |
 | `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1 |
 | `Permissions` members | pymupdf's `PDF_PERM_*` suffixes, with module constants | R2; done |
-| `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3 |
+| `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3; done |
 | `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3; done with F5 |
 | `LINK_*` and `TEXT_ALIGN_*` as plain integers | IntEnum members with the same names and values | R6; done |
 | `get_text("words")` and `get_text("blocks")` tuples | `Word` and `Block` NamedTuples | R6 |

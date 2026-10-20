@@ -883,7 +883,9 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require(closed_error == "DocumentClosedError", "closed page returned the wrong exception")
 
     malformed_error = _exception_name(lambda: pylopdf.Document(stream=b"not a PDF"))
-    _require(malformed_error == "PdfError", "malformed bytes returned the wrong exception")
+    _require(malformed_error == "FileDataError", "malformed bytes returned the wrong exception")
+    empty_error = _exception_name(lambda: pylopdf.Document(stream=b""))
+    _require(empty_error == "EmptyFileError", "empty bytes returned the wrong exception")
     recovery = pylopdf.Document(stream=serialized)
     _require(recovery.page_count == _EXPECTED_TWO_PAGES, "runtime did not recover after malformed input")
 
@@ -906,6 +908,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
             "stale": stale_error,
             "closed": closed_error,
             "malformed": malformed_error,
+            "empty": empty_error,
         },
     }
 

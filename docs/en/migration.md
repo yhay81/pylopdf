@@ -78,7 +78,11 @@ deliberately does not implement.
   pointing at a different page. Re-fetch with `doc[i]`.
 - **Exceptions**: `PdfError` (a `ValueError` subclass) is the base;
   `PasswordError`, `DocumentClosedError`, `EncryptedDocumentError`,
-  `StalePageError` refine it. `except ValueError` keeps working.
+  `StalePageError` refine it. `except ValueError` keeps working. pymupdf's
+  `FileDataError` and `EmptyFileError` keep their names and also derive from
+  `RuntimeError`; a missing file raises Python's built-in
+  `FileNotFoundError`, so replace `except pymupdf.FileNotFoundError` with
+  `except FileNotFoundError`.
 - **Resource policy**: `DocumentLimits.web()` caps the complete PDF snapshot
   supplied to rendering and extraction at 64 MiB and cumulative positioned
   text at 65,536 glyph records. Custom policies can set

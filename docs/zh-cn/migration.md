@@ -60,7 +60,10 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
   `StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
 - **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、
   `DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。
-  `except ValueError`仍然有效。
+  `except ValueError`仍然有效。pymupdf的`FileDataError`与`EmptyFileError`
+  名称相同，并同时继承`RuntimeError`；文件不存在时抛出Python内置的
+  `FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为
+  `except FileNotFoundError`。
 - **资源策略**：`DocumentLimits.web()`将传给rendering／extraction的完整PDF
   snapshot限制为64 MiB，并将累计带位置文本限制为65,536个glyph record。自定义策略
   可设置`max_interpretation_size`和`max_text_glyphs`；`None`保留兼容的无上限行为。
