@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf, drawn_images
+from conftest import build_pdf, build_raw_pdf, drawn_images, with_xref_entry_offset
 
 import pylopdf
 
@@ -176,10 +176,12 @@ DAMAGE: dict[str, Callable[[str, bytes], bytes]] = {
 #: Pinned outcome for each damaged variant. ``intact`` opens without
 #: cross-reference recovery, ``rebuilt`` reconstructs the table by scanning
 #: object headers (``-without-snippet`` when the damage also hit that text),
-#: ``offset-broken`` corrects a nearby offset while shifted objects stay
-#: unreachable, ``unusable`` opens without a readable page tree, and
-#: ``rejected`` raises PdfError. pylopdf 0.14 with lopdf 0.44 rejected every
-#: ``rebuilt`` case here. lopdf rebuilds only from a classic trailer, so damaged
+#: ``unusable`` opens without a readable page tree, and ``rejected`` raises
+#: PdfError. pylopdf 0.14 with lopdf 0.44 rejected every ``rebuilt`` case here.
+#: Deleting two ``endobj`` keywords shifts every later object, and lopdf
+#: corrects the nearby ``startxref`` onto a table whose entries miss the
+#: catalog; those documents opened with no readable page tree until loading
+#: rebuilt such a table. lopdf rebuilds only from a classic trailer, so damaged
 #: xref-stream files such as Form 1040 remain rejected.
 DAMAGE_OUTCOMES = {
     "pdf20-simple.pdf": {
@@ -190,7 +192,7 @@ DAMAGE_OUTCOMES = {
         "xref-section-removed": "rebuilt",
         "length-off-37": "intact",
         "bit-flips-12": "unusable",
-        "endobj-removed-2": "offset-broken",
+        "endobj-removed-2": "rebuilt",
     },
     "nics-background-checks-2015-11.pdf": {
         "truncate-95": "rejected",
@@ -200,7 +202,7 @@ DAMAGE_OUTCOMES = {
         "xref-section-removed": "rebuilt",
         "length-off-37": "intact",
         "bit-flips-12": "rebuilt-without-snippet",
-        "endobj-removed-2": "offset-broken",
+        "endobj-removed-2": "rebuilt",
     },
     "patent-us223898.pdf": {
         "truncate-95": "rebuilt",
@@ -210,7 +212,7 @@ DAMAGE_OUTCOMES = {
         "xref-section-removed": "rebuilt",
         "length-off-37": "intact",
         "bit-flips-12": "intact",
-        "endobj-removed-2": "offset-broken",
+        "endobj-removed-2": "rebuilt",
     },
     "f1040.pdf": {
         "truncate-95": "rejected",
@@ -297,7 +299,6 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
     expected_warning = {
         "rebuilt": REBUILT_WARNING,
         "rebuilt-without-snippet": REBUILT_WARNING,
-        "offset-broken": OFFSET_WARNING,
     }.get(outcome)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -313,7 +314,7 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
         # One warning comes from opening and one from the metadata probe.
         assert len(messages) == 2
 
-    if outcome in {"unusable", "offset-broken"}:
+    if outcome == "unusable":
         with pytest.raises(pylopdf.PdfError):
             _ = doc.page_count
         return
@@ -425,6 +426,64 @@ def test_rebuilt_xref_prefers_later_revision_objects() -> None:
     text = doc.get_page_text(0)
     assert "Later revision" in text
     assert "Earlier revision" not in text
+
+
+@pytest.mark.parametrize(
+    ("number", "shift"),
+    [
+        pytest.param(1, None, id="catalog-past-the-end"),
+        pytest.param(1, 2, id="catalog-inside-its-header"),
+        pytest.param(2, None, id="root-node-past-the-end"),
+        pytest.param(2, 3, id="root-node-inside-its-header"),
+    ],
+)
+def test_unreachable_page_tree_rebuilds_the_xref_table(number: int, shift: int | None) -> None:
+    """Rebuild the table when its entries miss the catalog or the root page-tree node.
+
+    lopdf trusts any cross-reference data that it resolves, so the document opened with every page
+    operation raising, while hayro, MuPDF, and pdf.js rebuild the table by scanning object headers
+    (pdf.js `operator_list_cycle.pdf` locates its root node past the end of the file, and
+    `bug1130815.pdf` lost bytes before a table that lopdf reached by correcting `startxref`).
+    """
+    original = build_pdf(["Rebuilt page"])
+    header = original.index(f"\n{number} 0 obj".encode()) + 1
+    damaged = with_xref_entry_offset(original, number, 4_294_967_295 if shift is None else header + shift)
+
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        doc = pylopdf.open(stream=damaged)
+    with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
+        probe = pylopdf.peek_metadata(stream=damaged)
+    assert doc.is_repaired is True
+    assert doc.page_count == probe["page_count"] == 1
+    assert probe["repaired"] is True
+    assert doc.get_page_text(0).split() == ["Rebuilt", "page"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        reopened = pylopdf.open(stream=doc.tobytes())
+    assert reopened.is_repaired is False
+    assert reopened.get_page_text(0) == doc.get_page_text(0)
+
+
+@pytest.mark.parametrize("hidden", [1, 2], ids=["catalog", "root-node"])
+def test_page_tree_that_no_rebuild_reaches_keeps_the_resolved_table(hidden: int) -> None:
+    """Keep the resolved table, without a rebuilt warning, when a rebuilt one reaches no page tree.
+
+    The entries miss the catalog and the root node. No header names the catalog, so no table can be
+    rebuilt, or none names the root node, which the rebuilt table then lacks.
+    """
+    damaged = build_pdf(["Lost page"]).replace(f"\n{hidden} 0 obj".encode(), f"\n{hidden} 0 xbj".encode())
+    for number in (1, 2):
+        damaged = with_xref_entry_offset(damaged, number, 4_294_967_295)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        doc = pylopdf.open(stream=damaged)
+        probe = pylopdf.peek_metadata(stream=damaged)
+    assert doc.is_repaired is False
+    assert probe["repaired"] is False
+    assert probe["page_count"] == 0
+    with pytest.raises(pylopdf.PdfError, match="object ID 1 0 not found"):
+        _ = doc.page_count
 
 
 def test_recovered_documents_keep_document_limits() -> None:

@@ -17,7 +17,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, with_xref_entry_offset
 
 import pylopdf
 
@@ -343,6 +343,46 @@ def test_stream_that_hayro_reads_past_its_object_renders_from_the_graph(body: st
 
     assert not _keeps_original_bytes(data)
     assert _consistent_page_texts(data) == [["NEXT OBJECT"]]
+
+
+@pytest.mark.parametrize("declared", [len(CONTENT) - 9, len(CONTENT) + 9], ids=["short", "long"])
+def test_stream_with_an_entry_pointing_into_its_data_is_recovered(declared: int) -> None:
+    """Recover a page's stream whose wrong `/Length` hides `endstream` behind another entry's offset.
+
+    Entry 6 points into the data of object 5, whose declared bytes `endstream` does not follow.
+    lopdf searched for `endstream` only up to the next entry offset and skipped the object, as did
+    the recovery parse, while hayro reads up to the first `endstream`: the page lost its text in
+    every view (pdf.js `issue11678.pdf`, page 2). An entry offset where no object header starts
+    no longer ends an object, and the recovery parse takes the first `endstream`, as hayro does,
+    when object 6's `endstream` follows as well.
+    """
+    data = _pdf(
+        _one_page(
+            "[5 0 R 6 0 R]",
+            {5: f"<< /Length {declared} >>\nstream\n{CONTENT}\nendstream", 6: NEXT_OBJECT},
+        )
+    )
+    data = with_xref_entry_offset(data, 6, data.index(CONTENT.encode()) + 10)
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
+    saved = pylopdf.Document(stream=data).tobytes()
+    assert saved.count(b"NO USABLE LENGTH") == 1
+    assert b"NEXT OBJECT" not in saved
+
+
+def test_stream_without_a_length_reads_past_an_entry_pointing_into_its_data() -> None:
+    """Hold the data that hayro reads for a stream past an unreachable entry offset inside it.
+
+    lopdf loads a stream without `/Length` with no data, and the stream used to count as one that
+    hayro reads past its object because entry 6 points into its data. Nothing reaches entry 6, so
+    hayro reads the same data from the original bytes.
+    """
+    data = _pdf(_one_page("5 0 R", {5: f"<< >>\nstream\n{CONTENT}\nendstream ", 6: "<< /Unused true >>"}))
+    data = with_xref_entry_offset(data, 6, data.index(CONTENT.encode()) + 10)
+
+    assert _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
 
 
 def test_deeply_nested_object_that_lopdf_skips_never_reaches_hayro(tmp_path: Path) -> None:

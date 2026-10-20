@@ -127,8 +127,11 @@ table解釈は1回分の累積admissionを共有し、拒否されたpageはbudg
 `/XRefStm`のoffsetが64 byte以内でずれている場合は、近くの`xref` keywordへ移動
 します。通常の解決にそれでも失敗すると、lopdfは行頭のobject headerと、`/Root`が
 存在する最新のclassic `trailer`からtableを再構築します。後のrevisionのobjectが
-優先されますが、破損範囲のobjectは失われることがあります。classic trailerのない
-破損したxref streamファイルは拒否されます。いずれの復旧でも`PylopdfWarning`が
+優先されますが、破損範囲のobjectは失われることがあります。解決したtableのentryが
+catalogまたはpage treeのroot nodeを指していない場合（tableより前でbyteが失われた
+ファイルなど）も同じ方法で再構築し、再構築したtableがpage treeに届く場合はそれを
+使います。classic trailerのない破損したxref streamファイルは拒否されます。
+いずれの復旧でも`PylopdfWarning`が
 発生し、`doc.is_repaired`（metadata probeでは`repaired`）が`True`になります。
 描画と抽出は保存時に書き出す復旧後のobject graphを使い、保存するとxref dataを
 正規化します。復旧した入力を受け付けられない呼び出し側は、`is_repaired`の文書を

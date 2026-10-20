@@ -114,8 +114,10 @@ block、line、span和word数量。同一页的文本与表格解释共享一次
 宽松打开使用lopdf的cross-reference恢复。`startxref`、`/Prev`或`/XRefStm`的offset
 偏差在64 byte以内时，会移到附近的`xref`关键字。标准解析仍失败时，lopdf根据行首的
 object header和`/Root`存在的最新classic `trailer`重建table；后续revision的object
-优先，但损坏区域中的object可能缺失。没有classic trailer的损坏xref stream文件会被
-拒绝。任一恢复都会发出`PylopdfWarning`，令`doc.is_repaired`（metadata probe中的
+优先，但损坏区域中的object可能缺失。已解析table的entry未指向catalog或page tree的
+root node时（例如在table之前丢失了byte的文件），同样以这种方式重建，并在重建后的
+table能到达page tree时采用它。没有classic trailer的损坏xref stream文件会被拒绝。
+任一恢复都会发出`PylopdfWarning`，令`doc.is_repaired`（metadata probe中的
 `repaired`）为`True`；渲染与提取使用保存时写出的恢复后object graph，保存会规范化
 xref数据。不能接受恢复输入的调用方可以拒绝`is_repaired`的文档。19 byte的xref
 entry、在无歧义object边界修正的stream `/Length`等保留声明结构的宽松处理不会报告。

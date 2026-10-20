@@ -151,8 +151,11 @@ Lenient opening uses lopdf's cross-reference recovery. A `startxref`,
 nearby `xref` keyword. When standard resolution still fails, lopdf rebuilds the
 table from line-start object headers and the newest classic `trailer` whose
 `/Root` exists; objects from later revisions win, but objects from damaged
-regions may be missing. Damaged xref-stream files without a classic trailer
-are rejected. Either recovery emits `PylopdfWarning`, sets `doc.is_repaired`
+regions may be missing. A resolved table whose entries miss the catalog or the
+root page-tree node, as in a file that lost bytes before its table, is rebuilt
+the same way, and the rebuilt table is kept when it reaches the page tree.
+Damaged xref-stream files without a classic trailer are rejected. Either
+recovery emits `PylopdfWarning`, sets `doc.is_repaired`
 (and the metadata probe's `repaired` key), and rendering and extraction use the
 recovered object graph that saving writes with normalized xref data. Callers
 that must not accept recovered input can reject `is_repaired` documents.
