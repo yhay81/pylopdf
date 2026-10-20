@@ -66,9 +66,43 @@ overview.
 
 ## Architecture and invariants
 
-- `_Document` (`rust/src/document.rs`) is a thin conversion and error-mapping
+- `_Document` (`rust/src/document/`) is a thin conversion and error-mapping
   layer. The Python `Document` (`src/pylopdf/__init__.py`) owns validation,
   zero-/one-based conversion, and closed-state handling.
+- `rust/src/document/mod.rs` holds `_Document`, its shared state, cache
+  invalidation, and the class's single `#[pymethods]` block; PyO3's
+  `multiple-pymethods` stays off because its `inventory` registration has not
+  been validated on PyEmscripten. A method whose body is longer than a few
+  lines delegates to a function of the same name in its domain submodule
+  (`loading::load(...)`), whose body takes `this` in place of `self`; private
+  helpers live in `impl _Document` blocks of those submodules. Every
+  submodule starts with `use super::*`, and `mod.rs` glob-imports each
+  submodule, re-exporting with `pub(crate)` the ones whose items other crate
+  modules use, so moved items keep their `crate::document::` paths. A new
+  pymethod adds its signature to `mod.rs` and its body to its domain module.
+- Workstream module ownership (ROADMAP.md workstreams; shared files take only
+  append-only registrations):
+  - A, extraction: `extract.rs`; `document/extraction.rs`;
+    `src/pylopdf/_markdown.py`.
+  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`.
+  - C, generation: `draw.rs`, `generate.rs`, `generated_pdf.rs`,
+    `layout.rs`, `shape.rs`, `font.rs`, `bundled_font_cache.rs`,
+    `placement_reuse.rs`;
+    `document/{drawing,images,text_insertion,geometry,fonts}.rs`.
+  - D, interactive: `form.rs`, `acroform_import.rs`;
+    `document/{forms,annotations}.rs`.
+  - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
+    `document/{page_tree,navigation,labels,metadata,attachments}.rs`.
+  - F, content engine: `text_replace.rs`, `content_guard.rs`,
+    `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
+    `read_depth.rs`; `document/replacement.rs`.
+  - G, persistence: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
+    `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`,
+    `image_compression.rs`; `document/{loading,saving,limits,streams}.rs`.
+  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`.
+  - Shared: `lib.rs`, `document/mod.rs`,
+    `document/{errors,input,objects,indexed}.rs`, and
+    `src/pylopdf/__init__.py` until the Python half of F1 splits it.
 - Python API page numbers are zero-based; Rust/lopdf page numbers are one-based.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
@@ -1245,9 +1279,9 @@ overview.
   members.
 - Readers treat a null value, an indirect null, and a reference to a missing
   object alike, as an absent entry, following ISO 32000-2 §7.3.7 and §7.3.10.
-  `non_null_object` and `non_null_value` in `rust/src/document.rs` resolve a
-  reference chain this way, and lopdf's reference-limit error for a cyclic or
-  over-long chain still surfaces. Annotation appends start a new `/Annots`
+  `non_null_object` and `non_null_value` in `rust/src/document/objects.rs`
+  resolve a reference chain this way, and lopdf's reference-limit error for a
+  cyclic or over-long chain still surfaces. Annotation appends start a new `/Annots`
   array, `set_metadata` replaces trailer `/Info`, both page-attribute
   inheritance walks end at such a `/Parent`, Font and XObject registration
   starts an empty category, `get_toc` returns no entries for such an
@@ -1324,7 +1358,7 @@ overview.
   files carry at most a truncated final stream there. `DocumentLimits` apply
   to recovered documents unchanged.
 - CJK fallback replaces hayro's `font_resolver`
-  (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
+  (`pick_cjk_fallback` in `rust/src/document/fonts.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
   CNS1 to independent `ja`, `ko`, `zh-CN`, and `zh-TW` slots, and use
   conservative BaseFont-name hints only when collection metadata is absent.
