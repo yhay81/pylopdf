@@ -7,6 +7,7 @@ import math
 import os
 import secrets
 import stat
+import sys
 import warnings as _warnings
 from collections import Counter
 from contextlib import suppress
@@ -50,7 +51,7 @@ from pylopdf._tables import (
 from pylopdf._types import Permissions
 from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
-if os.name == "nt":
+if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ def _temporary_sibling_path(target: Path) -> Path:
 def _save_target_path(requested: Path) -> Path:
     """Support Windows long paths before checking or resolving a final symlink."""
     target = requested
-    if os.name == "nt":
+    if sys.platform == "win32":
         # Normalize before adding the verbatim prefix: it does not interpret
         # relative components or forward slashes. Keep caller text in errors.
         absolute = os.path.abspath(requested)  # noqa: PTH100 - lexical normalization must precede filesystem access.
@@ -157,7 +158,7 @@ def _save_target_path(requested: Path) -> Path:
 
 def _remove_temporary_output(temporary: Path) -> None:
     """Best-effort cleanup, including a Windows sibling made read-only."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         with suppress(OSError):
             temporary.chmod(stat.S_IWRITE)
     with suppress(OSError):
@@ -184,7 +185,7 @@ def _atomic_save_file(
         raise PdfError(msg) from exc
     replaced = False
     try:
-        if os.name == "nt" and target_mode is not None:
+        if sys.platform == "win32" and target_mode is not None:
             try:
                 # Apply access restrictions before any PDF data is written.
                 _copy_windows_dacl(target, temporary)

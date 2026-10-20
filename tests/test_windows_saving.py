@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import ctypes
-import os
 import stat
+import sys
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,7 +14,10 @@ import pytest
 import pylopdf
 from pylopdf._document import _atomic_save_file
 
-pytestmark = pytest.mark.skipif(os.name != "nt", reason="requires Windows filesystem semantics")
+# A module-level skip also tells type checkers that the Win32-only ctypes
+# members below are unreachable on other platforms.
+if sys.platform != "win32":
+    pytest.skip("requires Windows filesystem semantics", allow_module_level=True)
 
 _DACL_INFORMATION = 4
 _DACL_PROTECTED = 0x1000
