@@ -4,8 +4,8 @@
 //! An unedited document renders and extracts from its original bytes, which
 //! hayro resolves through the cross-reference data, while edits and saves
 //! serialize lopdf's object graph. The two agree when lopdf loaded exactly the
-//! object that each in-use cross-reference entry names. Malformed files break
-//! that in three ways:
+//! object that each in-use cross-reference entry names, with the stream data
+//! that hayro reads. Malformed files break that in five ways:
 //!
 //! - lopdf stores an uncompressed object under the number in its own header,
 //!   even when the entry that locates it names another number. hayro reads
@@ -17,18 +17,30 @@
 //! - lopdf adds object-stream members that no entry lists, including members
 //!   that a damaged stream decodes under arbitrary numbers, and raises
 //!   `max_id` over them, while hayro reads those numbers as null.
+//! - lopdf stores an object-stream member under the number that the stream's
+//!   own table gives it, while hayro reads the member that the table lists at
+//!   the index the entry names, whatever its number there.
+//! - lopdf loads a stream whose `/Length` is missing, is not an integer, or
+//!   names an object that holds none without data, and then takes as many
+//!   bytes as an integral real declares without looking for `endstream`,
+//!   while hayro takes the declared bytes only when `endstream` follows them
+//!   and otherwise reads up to the first `endstream`.
 //!
-//! Loading re-parses each skipped uncompressed object with a small parser that
-//! reads such a bare keyword as null, walks every reference reachable from the
-//! trailer, and drops objects that no entry locates and nothing reaches. The
-//! original-byte fast path stays only when that walk meets no object that
-//! hayro could resolve differently. Any other document renders from its
-//! serialized graph, as a document whose cross-reference data lopdf recovered
-//! already does.
+//! Loading gives each such stream the data that hayro reads, finds the members
+//! that hayro would read from another slot, re-parses each skipped uncompressed
+//! object with a small parser that reads such a bare keyword as null, walks
+//! every reference reachable from the trailer, and drops objects that no entry
+//! locates and nothing reaches. The original-byte fast path stays only when
+//! that walk meets no object that hayro could resolve differently. Any other
+//! document renders from its serialized graph, as a document whose
+//! cross-reference data lopdf recovered already does.
 
 use std::collections::{HashSet, TryReserveError};
+use std::io::Read;
+use std::ops::Range;
 use std::str::FromStr;
 
+use flate2::bufread::ZlibDecoder;
 use lopdf::xref::{Xref, XrefEntry};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
 use pyo3::prelude::*;
@@ -51,29 +63,47 @@ const STRUCTURAL_KEYWORDS: [&[u8]; 8] = [
     b"startxref",
 ];
 
+/// The magnitude below which lopdf's single-precision real truncates to the
+/// integer that hayro's double precision does. Only a decimal just below an
+/// integer, which can round up onto it, differs, and moves the end of the
+/// data by one trailing white-space byte.
+const EXACT_REAL_LIMIT: f32 = 16_777_216.0;
+
 /// Reconcile the loaded graph with its cross-reference data and report
 /// whether hayro may read the original bytes instead of the serialized graph.
 ///
-/// A graph that matches the in-use entries exactly returns true at once. Any
-/// other graph first receives the skipped uncompressed objects that parse,
+/// Streams that lopdf loaded without reading their `/Length` first receive the
+/// data that hayro reads. A graph that then matches the in-use entries exactly,
+/// with every compressed member where hayro looks for it, returns true at once.
+/// Any other graph first receives the skipped uncompressed objects that parse,
 /// then loses the objects that no entry locates unless the trailer reaches
 /// them. `input` must be the unencrypted bytes lopdf loaded, with
 /// cross-reference data that lopdf did not have to recover. Allocation refusal
 /// raises `PdfError`, which fails the load.
 pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyResult<bool> {
-    if matches_cross_reference(doc) {
+    let survey = Survey::of(doc).map_err(allocation_error)?;
+    // Objects that hayro could resolve to something other than the graph holds.
+    let mut suspects = misplaced_members(doc, survey.members).map_err(allocation_error)?;
+    let sections =
+        mirror_stream_data(doc, input, survey.streams, &mut suspects).map_err(allocation_error)?;
+    if suspects.is_empty() && survey.matches {
         return Ok(true);
     }
-    let recovered = recover_skipped_objects(doc, input).map_err(allocation_error)?;
-    let mut recovered_ids = HashSet::new();
-    recovered_ids
+    let buffer = lopdf_buffer(input);
+    let sections = match sections {
+        Some(sections) => sections,
+        None => Sections::new(doc, buffer.len()).map_err(allocation_error)?,
+    };
+    let recovered =
+        recover_skipped_objects(doc, buffer, &sections, &mut suspects).map_err(allocation_error)?;
+    suspects
         .try_reserve(recovered.len())
         .map_err(allocation_error)?;
     for (id, object) in recovered {
-        recovered_ids.insert(id);
+        suspects.insert(id);
         doc.objects.insert(id, object);
     }
-    let audit = audit_references(doc, &recovered_ids).map_err(allocation_error)?;
+    let audit = audit_references(doc, &suspects).map_err(allocation_error)?;
     // Objects that no entry locates and nothing reaches are debris, such as
     // members that a damaged object stream decoded under arbitrary numbers.
     let table = &doc.reference_table;
@@ -91,30 +121,82 @@ pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyRe
     Ok(!audit.divergent)
 }
 
+/// The input as lopdf reads it: it discards bytes before the header, and every
+/// offset it records, including `xref_start`, counts from there.
+fn lopdf_buffer(input: &[u8]) -> &[u8] {
+    let header = input
+        .windows(5)
+        .position(|window| window == b"%PDF-")
+        .unwrap_or(0);
+    &input[header..]
+}
+
 fn allocation_error(error: TryReserveError) -> PyErr {
     PdfError::new_err(format!(
         "failed to allocate PDF object reconciliation: {error}"
     ))
 }
 
-/// Whether the loaded objects are exactly the in-use cross-reference entries.
-///
-/// Both maps iterate in object-number order, so one merge pass suffices.
-/// lopdf records only in-use entries, never free ones, from classic tables
-/// and cross-reference streams alike.
-fn matches_cross_reference(doc: &Document) -> bool {
-    let mut objects = doc.objects.keys();
-    for (&number, entry) in &doc.reference_table.entries {
-        let generation = match *entry {
-            XrefEntry::Normal { generation, .. } => generation,
-            XrefEntry::Compressed { .. } => 0,
-            XrefEntry::Free | XrefEntry::UnusableFree => continue,
+/// What one pass over the in-use entries and the loaded objects finds.
+struct Survey {
+    /// Whether the loaded objects are exactly the in-use entries.
+    matches: bool,
+    /// `(container, index, number)` of every compressed entry whose member
+    /// lopdf loaded, in object-number order.
+    members: Vec<(u32, u16, u32)>,
+    /// Every stream that lopdf loaded without reading its `/Length`, with the
+    /// offset of the uncompressed entry that locates it, if any.
+    streams: Vec<(Option<usize>, ObjectId)>,
+}
+
+impl Survey {
+    /// Walk both maps once, in object-number order. lopdf records only in-use
+    /// entries, never free ones, from classic tables and cross-reference
+    /// streams alike.
+    fn of(doc: &Document) -> Result<Self, TryReserveError> {
+        let mut survey = Self {
+            matches: true,
+            members: Vec::new(),
+            streams: Vec::new(),
         };
-        if objects.next() != Some(&(number, generation)) {
-            return false;
+        let mut entries = doc
+            .reference_table
+            .entries
+            .iter()
+            .filter_map(|(&number, entry)| match *entry {
+                XrefEntry::Normal { generation, .. } => Some((number, generation, entry)),
+                XrefEntry::Compressed { .. } => Some((number, 0, entry)),
+                XrefEntry::Free | XrefEntry::UnusableFree => None,
+            })
+            .peekable();
+        for (&id, object) in &doc.objects {
+            // An in-use entry that no loaded object answers.
+            while entries.next_if(|&(number, ..)| number < id.0).is_some() {
+                survey.matches = false;
+            }
+            let entry = entries
+                .next_if(|&(number, generation, _)| (number, generation) == id)
+                .map(|(.., entry)| entry);
+            survey.matches &= entry.is_some();
+            match (entry, object) {
+                (Some(&XrefEntry::Compressed { container, index }), _) => {
+                    survey.members.try_reserve(1)?;
+                    survey.members.push((container, index, id.0));
+                }
+                (entry, Object::Stream(stream)) if stream.start_position.is_some() => {
+                    let offset = match entry {
+                        Some(&XrefEntry::Normal { offset, .. }) => Some(offset as usize),
+                        _ => None,
+                    };
+                    survey.streams.try_reserve(1)?;
+                    survey.streams.push((offset, id));
+                }
+                _ => {}
+            }
         }
+        survey.matches &= entries.next().is_none();
+        Ok(survey)
     }
-    objects.next().is_none()
 }
 
 /// Whether an in-use cross-reference entry names this object ID.
@@ -143,12 +225,12 @@ struct ReferenceAudit {
 /// hayro resolves a reference like the graph does only when an entry locates
 /// the loaded object and both parsed the same bytes. A reachable reference
 /// diverges when it names an object that no entry locates, which hayro reads
-/// as null, a recovered object, which hayro parsed on its own, or an in-use
-/// entry that lopdf could not load, which hayro parses leniently or answers by
-/// rebuilding its whole table.
+/// as null, a suspect, which hayro parsed on its own or reads from another
+/// slot or extent, or an in-use entry that lopdf could not load, which hayro
+/// parses leniently or answers by rebuilding its whole table.
 fn audit_references(
     doc: &Document,
-    recovered: &HashSet<ObjectId>,
+    suspects: &HashSet<ObjectId>,
 ) -> Result<ReferenceAudit, TryReserveError> {
     let mut audit = ReferenceAudit {
         reachable: HashSet::new(),
@@ -166,7 +248,7 @@ fn audit_references(
                 audit.highest_reference = audit.highest_reference.max(id.0);
                 match doc.objects.get(id) {
                     Some(target) => {
-                        if !located(&doc.reference_table, *id) || recovered.contains(id) {
+                        if !located(&doc.reference_table, *id) || suspects.contains(id) {
                             audit.divergent = true;
                         }
                         if audit.reachable.insert(*id) {
@@ -199,60 +281,644 @@ fn audit_references(
     Ok(audit)
 }
 
-/// Parse every skipped uncompressed object whose header matches its entry.
+/// The bytes that each uncompressed object may occupy.
 ///
-/// Each distinct offset is examined once and parsed no further than the next
-/// one, the cross-reference section, or the end of input, as lopdf bounds its
-/// own stream-length recovery, so the pass stays linear in input size even
-/// when many entries share an offset.
-fn recover_skipped_objects(
-    doc: &Document,
-    input: &[u8],
-) -> Result<Vec<(ObjectId, Object)>, TryReserveError> {
-    // lopdf discards bytes before the header, and every offset it records,
-    // including `xref_start`, counts from there.
-    let header = input
-        .windows(5)
-        .position(|window| window == b"%PDF-")
-        .unwrap_or(0);
-    let buffer = &input[header..];
-    let mut offsets = Vec::new();
-    offsets.try_reserve_exact(doc.reference_table.entries.len())?;
-    for entry in doc.reference_table.entries.values() {
-        if let XrefEntry::Normal { offset, .. } = *entry {
-            offsets.push(offset as usize);
-        }
-    }
-    offsets.sort_unstable();
-    offsets.dedup();
+/// An object is read no further than the next distinct entry offset, the
+/// cross-reference section, or the end of input, as lopdf bounds its own
+/// stream-length recovery. These bounds never overlap, so every pass that
+/// examines each distinct offset once stays linear in input size even when
+/// many entries share an offset.
+struct Sections {
+    /// Distinct offsets of in-use uncompressed entries, ascending.
+    offsets: Vec<usize>,
+    xref_start: usize,
+    len: usize,
+}
 
-    let mut recovered = Vec::new();
-    for (index, &start) in offsets.iter().enumerate() {
-        if start >= buffer.len() {
-            break;
+impl Sections {
+    fn new(doc: &Document, len: usize) -> Result<Self, TryReserveError> {
+        let mut offsets = Vec::new();
+        offsets.try_reserve_exact(doc.reference_table.entries.len())?;
+        for entry in doc.reference_table.entries.values() {
+            if let XrefEntry::Normal { offset, .. } = *entry {
+                offsets.push(offset as usize);
+            }
         }
-        let section = (doc.xref_start > start).then_some(doc.xref_start);
-        let end = offsets
-            .get(index + 1)
+        offsets.sort_unstable();
+        offsets.dedup();
+        Ok(Self {
+            offsets,
+            xref_start: doc.xref_start,
+            len,
+        })
+    }
+
+    /// The end of the object that starts at `start`.
+    fn end(&self, start: usize) -> usize {
+        let next = self.offsets.partition_point(|&offset| offset <= start);
+        let section = (self.xref_start > start).then_some(self.xref_start);
+        self.offsets
+            .get(next)
             .copied()
             .into_iter()
             .chain(section)
             .min()
-            .unwrap_or(buffer.len())
-            .min(buffer.len());
+            .unwrap_or(self.len)
+            .min(self.len)
+    }
+}
+
+/// Return the compressed members that hayro would read from another slot.
+///
+/// hayro resolves a compressed entry to the member that its container's table
+/// lists at the entry's index, whatever number the table gives it there, while
+/// lopdf stores every member under the number that the table gives it. Both
+/// read the same member only when the table names the entry's number at that
+/// index and nowhere else. Members that lopdf did not load are left to the
+/// reference walk, and each container is decoded only as far as its table.
+fn misplaced_members(
+    doc: &Document,
+    mut members: Vec<(u32, u16, u32)>,
+) -> Result<HashSet<ObjectId>, TryReserveError> {
+    let mut misplaced = HashSet::new();
+    if members.is_empty() {
+        return Ok(misplaced);
+    }
+    members.sort_unstable();
+    let mut reader = TableReader::new();
+    for group in members.chunk_by(|first, second| first.0 == second.0) {
+        match MemberTable::read(doc, group[0].0, &mut reader)? {
+            Some(table) => table.mark_misplaced(group, &mut misplaced)?,
+            None => {
+                misplaced.try_reserve(group.len())?;
+                misplaced.extend(group.iter().map(|&(.., number)| (number, 0)));
+            }
+        }
+    }
+    Ok(misplaced)
+}
+
+/// The pairs of object number and offset that head an object stream, as
+/// lopdf and hayro each read them.
+struct MemberTable {
+    /// Every pair that lopdf reads, in table order.
+    pairs: Vec<(u32, u32)>,
+    /// The `/N` pairs that hayro reads, in table order, unless they are the
+    /// first `/N` of `pairs`.
+    slots: Option<Vec<(u32, u32)>>,
+    /// How many pairs hayro reads: the container's `/N`.
+    declared: usize,
+}
+
+impl MemberTable {
+    /// Read the table of object stream `container`, or return `None` when
+    /// hayro could read it differently, which marks every member.
+    fn read<'a>(
+        doc: &'a Document,
+        container: u32,
+        reader: &mut TableReader<'a>,
+    ) -> Result<Option<Self>, TryReserveError> {
+        // hayro looks a container up as generation 0, never in an object stream.
+        if !matches!(
+            doc.reference_table.entries.get(&container),
+            Some(XrefEntry::Normal { generation: 0, .. })
+        ) {
+            return Ok(None);
+        }
+        let Some(Object::Stream(stream)) = doc.objects.get(&(container, 0)) else {
+            return Ok(None);
+        };
+        // lopdf loads members only when both entries are direct integers.
+        let (Ok(&Object::Integer(declared)), Ok(&Object::Integer(first))) =
+            (stream.dict.get(b"N"), stream.dict.get(b"First"))
+        else {
+            return Ok(None);
+        };
+        let (Ok(declared), Ok(first)) = (usize::try_from(declared), usize::try_from(first)) else {
+            return Ok(None);
+        };
+        let Some(table) = reader.prefix(stream, first)? else {
+            return Ok(None);
+        };
+        if let Some(pairs) = plain_pairs(table, declared)? {
+            return Ok(Some(Self {
+                pairs,
+                slots: None,
+                declared,
+            }));
+        }
+        let (Some(slots), Some(pairs)) = (hayro_slots(table, declared)?, lopdf_pairs(table)?)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            pairs,
+            slots: Some(slots),
+            declared,
+        }))
+    }
+
+    /// Add to `misplaced` every member of `group`, sorted by index, unless
+    /// hayro's slot at its entry's index names it and every pair that lopdf
+    /// reads for its number gives the same offset.
+    fn mark_misplaced(
+        mut self,
+        group: &[(u32, u16, u32)],
+        misplaced: &mut HashSet<ObjectId>,
+    ) -> Result<(), TryReserveError> {
+        let slots = match self.slots.take() {
+            Some(slots) => slots,
+            None => {
+                // Members that fill every slot in order leave lopdf no other
+                // pair for any of their numbers, which are distinct.
+                let filled = group.len() == self.declared
+                    && self.pairs.len() == self.declared
+                    && group.iter().zip(&self.pairs).enumerate().all(
+                        |(slot, (&(_, index, number), &(listed, _)))| {
+                            usize::from(index) == slot && listed == number
+                        },
+                    );
+                if filled {
+                    return Ok(());
+                }
+                let mut slots = Vec::new();
+                slots.try_reserve_exact(self.declared)?;
+                slots.extend_from_slice(&self.pairs[..self.declared]);
+                slots
+            }
+        };
+        self.pairs.sort_unstable();
+        for &(_, index, number) in group {
+            let start = self.pairs.partition_point(|&(other, _)| other < number);
+            let end = self.pairs.partition_point(|&(other, _)| other <= number);
+            let listed = slots
+                .get(usize::from(index))
+                .is_some_and(|&(listed, offset)| {
+                    listed == number
+                        && start < end
+                        && self.pairs[start..end]
+                            .iter()
+                            .all(|&(_, other)| other == offset)
+                });
+            if !listed {
+                misplaced.try_reserve(1)?;
+                misplaced.insert((number, 0));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Read a table of runs of digits separated by white space other than NUL,
+/// which lopdf and hayro split alike, when every run reads as a `u32` and
+/// hayro's `/N` pairs end before `/First`; otherwise return `None`, and the
+/// two readers are followed one at a time.
+fn plain_pairs(table: &[u8], declared: usize) -> Result<Option<Vec<(u32, u32)>>, TryReserveError> {
+    let separator = |byte: u8| matches!(byte, b'\t' | b'\n' | b'\x0c' | b'\r' | b' ');
+    let mut tokens = table
+        .split(|&byte| separator(byte))
+        .filter(|token| !token.is_empty());
+    let mut pairs = Vec::new();
+    let mut odd = false;
+    while let Some(number) = tokens.next() {
+        let Some(offset) = tokens.next() else {
+            // lopdf drops a last token without a partner.
+            odd = true;
+            break;
+        };
+        let (Some(number), Some(offset)) = (digit_run(number), digit_run(offset)) else {
+            return Ok(None);
+        };
+        pairs.try_reserve(1)?;
+        pairs.push((number, offset));
+    }
+    // hayro reads its last number on past `/First` unless white space ends it.
+    let cut = declared == pairs.len() && !odd && !table.last().copied().is_some_and(separator);
+    if declared > pairs.len() || (declared > 0 && cut) {
+        return Ok(None);
+    }
+    Ok(Some(pairs))
+}
+
+/// Read the `declared` pairs that hayro reads from the start of the data, or
+/// return `None` when they are not all runs of digits that hayro reads alike
+/// before `/First`.
+///
+/// hayro skips white space and comments between numbers and reads no member at
+/// all when one of its pairs fails.
+fn hayro_slots(table: &[u8], declared: usize) -> Result<Option<Vec<(u32, u32)>>, TryReserveError> {
+    let mut parser = Parser {
+        data: table,
+        pos: 0,
+    };
+    let mut slots = Vec::new();
+    for _ in 0..declared {
+        let (Some(number), Some(offset)) = (parser.digits(), parser.digits()) else {
+            return Ok(None);
+        };
+        slots.try_reserve(1)?;
+        slots.push((number, offset));
+    }
+    Ok(Some(slots))
+}
+
+/// Read the pairs that lopdf reads from the bytes before `/First`, in table
+/// order.
+///
+/// lopdf splits them at Unicode white space, pairs the tokens in order, and
+/// skips a pair whose tokens do not both read as a `u32`, so this follows the
+/// same steps.
+fn lopdf_pairs(table: &[u8]) -> Result<Option<Vec<(u32, u32)>>, TryReserveError> {
+    // lopdf reads no member from a table that is not UTF-8.
+    let Ok(text) = std::str::from_utf8(table) else {
+        return Ok(None);
+    };
+    let mut tokens = text.split_whitespace();
+    let mut pairs = Vec::new();
+    while let (Some(number), Some(offset)) = (tokens.next(), tokens.next()) {
+        if let (Ok(number), Ok(offset)) = (u32::from_str(number), u32::from_str(offset)) {
+            pairs.try_reserve(1)?;
+            pairs.push((number, offset));
+        }
+    }
+    Ok(Some(pairs))
+}
+
+/// The zlib decoder and output buffer that every object stream's table
+/// reuses, so that each container costs only its own inflate.
+struct TableReader<'a> {
+    decoder: ZlibDecoder<&'a [u8]>,
+    buffer: Vec<u8>,
+}
+
+impl<'a> TableReader<'a> {
+    fn new() -> Self {
+        Self {
+            decoder: ZlibDecoder::new(&[][..]),
+            buffer: Vec::new(),
+        }
+    }
+
+    /// Decode the first `length` bytes of an object stream, or return `None`
+    /// when lopdf and hayro could decode them differently.
+    ///
+    /// Both inflate a zlib stream alike and read an unfiltered one as it is.
+    /// hayro reads a stream with `/F` as no stream at all, and other filters or
+    /// decode parameters are rare enough in object streams to leave to the
+    /// serialized graph. Output stops at `length`, never beyond what lopdf
+    /// already decoded.
+    fn prefix<'s>(
+        &'s mut self,
+        stream: &'a Stream,
+        length: usize,
+    ) -> Result<Option<&'s [u8]>, TryReserveError> {
+        if stream.dict.has(b"F") || stream.dict.has(b"DecodeParms") || stream.dict.has(b"DP") {
+            return Ok(None);
+        }
+        let filters = match stream.dict.get(b"Filter") {
+            Err(_) => return Ok(stream.content.get(..length)),
+            Ok(Object::Array(filters)) => filters.as_slice(),
+            Ok(filter) => std::slice::from_ref(filter),
+        };
+        if !matches!(filters, [Object::Name(name)] if name == b"FlateDecode") {
+            return Ok(None);
+        }
+        self.decoder.reset(stream.content.as_slice());
+        self.buffer.clear();
+        while self.buffer.len() < length {
+            let filled = self.buffer.len();
+            let wanted = (length - filled).min(64 * 1024);
+            self.buffer.try_reserve(wanted)?;
+            self.buffer.resize(filled + wanted, 0);
+            match self.decoder.read(&mut self.buffer[filled..]) {
+                Ok(0) | Err(_) => return Ok(None),
+                Ok(read) => self.buffer.truncate(filled + read),
+            }
+        }
+        Ok(Some(&self.buffer))
+    }
+}
+
+/// How hayro reads the data of one stream.
+enum Extent {
+    /// The data lies in this range of the input.
+    Data(Range<usize>),
+    /// The stream names an external file, which hayro reads as no stream at
+    /// all, from the original bytes and from the serialized graph alike.
+    External,
+    /// hayro could read the data past the object's bounds, or read no stream.
+    Unknown,
+}
+
+/// Give each stream whose length lopdf could not read while parsing the data
+/// that hayro reads, and add the streams whose data it cannot match to
+/// `suspects`.
+///
+/// lopdf marks such a stream with the position of its data. Each stream is read
+/// within the bounds of the entry that locates it, and the header at an offset
+/// that several entries share is read once. A stream whose entry locates an
+/// object with another number was loaded from bytes that hayro does not read
+/// for it. The bounds are computed only when some stream needs them, and
+/// returned for the passes that follow.
+fn mirror_stream_data(
+    doc: &mut Document,
+    input: &[u8],
+    mut streams: Vec<(Option<usize>, ObjectId)>,
+    suspects: &mut HashSet<ObjectId>,
+) -> Result<Option<Sections>, TryReserveError> {
+    if streams.is_empty() {
+        return Ok(None);
+    }
+    let buffer = lopdf_buffer(input);
+    let sections = Sections::new(doc, buffer.len())?;
+    streams.sort_unstable();
+    let mut header_at = None;
+    for (start, id) in streams {
+        let extent = match start.filter(|&start| start < buffer.len()) {
+            Some(start) => {
+                let end = sections.end(start);
+                let header = match header_at {
+                    Some((offset, header)) if offset == start => header,
+                    _ => {
+                        let header = Parser {
+                            data: &buffer[..end],
+                            pos: start,
+                        }
+                        .header();
+                        header_at = Some((start, header));
+                        header
+                    }
+                };
+                if header == Some(id) {
+                    hayro_stream_extent(doc, buffer, start, end, suspects)?
+                } else {
+                    Extent::Unknown
+                }
+            }
+            None => Extent::Unknown,
+        };
+        match extent {
+            Extent::Data(range) => store_stream_data(doc, id, &buffer[range])?,
+            Extent::External => {}
+            Extent::Unknown => {
+                suspects.try_reserve(1)?;
+                suspects.insert(id);
+            }
+        }
+    }
+    Ok(Some(sections))
+}
+
+/// Read the stream object at `start` as hayro reads it, no further than `end`.
+///
+/// hayro takes `/Length` bytes when `stream`, one end-of-line marker, that
+/// many bytes, white space, and `endstream` follow the dictionary. Otherwise
+/// it takes everything from the end-of-line marker after the first `stream` up
+/// to the first `endstream`, less trailing white space.
+fn hayro_stream_extent(
+    doc: &Document,
+    buffer: &[u8],
+    start: usize,
+    end: usize,
+    suspects: &HashSet<ObjectId>,
+) -> Result<Extent, TryReserveError> {
+    let mut parser = Parser {
+        data: &buffer[..end],
+        pos: start,
+    };
+    if parser.header().is_none() {
+        return Ok(Extent::Unknown);
+    }
+    let dict = match parser.value() {
+        Ok(Object::Dictionary(dict)) => dict,
+        Ok(_) | Err(Failure::Syntax) => return Ok(Extent::Unknown),
+        Err(Failure::Allocation(error)) => return Err(error),
+    };
+    if dict.has(b"F") {
+        return Ok(Extent::External);
+    }
+    // Reading past `end` is certain to fail only at the end of the input.
+    let window = Window {
+        data: &buffer[..end],
+        final_end: end == buffer.len(),
+    };
+    let declared = match hayro_length(&dict, doc, suspects) {
+        Length::Absent => Proper::Failed,
+        Length::Value(length) => window.declared_extent(parser.pos, length),
+        Length::Unknown => Proper::Unknown,
+    };
+    Ok(match declared {
+        Proper::Data(range) => Extent::Data(range),
+        Proper::Failed => window
+            .searched_extent(parser.pos)
+            .map_or(Extent::Unknown, Extent::Data),
+        Proper::Unknown => Extent::Unknown,
+    })
+}
+
+/// How hayro reads a stream's `/Length`.
+enum Length {
+    /// No usable length, so hayro searches for `endstream` at once.
+    Absent,
+    Value(u32),
+    /// The length names an object that hayro could read differently.
+    Unknown,
+}
+
+/// Resolve `/Length` as hayro does: an integer, a real truncated toward zero,
+/// or an indirect object holding one, that fits a `u32`.
+fn hayro_length(dict: &Dictionary, doc: &Document, suspects: &HashSet<ObjectId>) -> Length {
+    let value = match dict.get(b"Length") {
+        Err(_) => return Length::Absent,
+        Ok(Object::Reference(id)) => {
+            if suspects.contains(id) {
+                return Length::Unknown;
+            }
+            match doc.objects.get(id) {
+                // hayro reads the object number of a reference as the length.
+                Some(Object::Reference(_)) => return Length::Unknown,
+                Some(value) => value,
+                // hayro parses an entry that lopdf could not load on its own,
+                // and reads a number that no entry lists as null.
+                None if located(&doc.reference_table, *id) => return Length::Unknown,
+                None => return Length::Absent,
+            }
+        }
+        Ok(value) => value,
+    };
+    let length = match *value {
+        Object::Integer(length) => length,
+        Object::Real(length) if length.abs() < EXACT_REAL_LIMIT => length as i64,
+        Object::Real(_) => return Length::Unknown,
+        _ => return Length::Absent,
+    };
+    u32::try_from(length).map_or(Length::Absent, Length::Value)
+}
+
+/// The outcome of hayro's attempt to read `/Length` bytes.
+enum Proper {
+    Data(Range<usize>),
+    /// hayro searches for `endstream` instead.
+    Failed,
+    /// hayro could succeed past the object's bounds.
+    Unknown,
+}
+
+/// The bytes of one object, through which hayro's stream reads are followed.
+struct Window<'a> {
+    /// The input up to the object's bound.
+    data: &'a [u8],
+    /// Whether the bound is the end of the input, past which hayro reads nothing.
+    final_end: bool,
+}
+
+impl Window<'_> {
+    /// Whether `tag` starts at `position`: `None` when the bound cuts it off.
+    fn tag_at(&self, position: usize, tag: &[u8]) -> Option<bool> {
+        let available = &self.data[position.min(self.data.len())..];
+        if available.len() >= tag.len() {
+            Some(available.starts_with(tag))
+        } else if !tag.starts_with(available) || self.final_end {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The position after the end-of-line marker that ends `stream` at
+    /// `position`, `Some(None)` when there is none, or `None` when the bound
+    /// cuts it off.
+    fn data_start(&self, position: usize) -> Option<Option<usize>> {
+        match self.data.get(position) {
+            Some(b'\n') => Some(Some(position + 1)),
+            Some(b'\r') => match self.data.get(position + 1) {
+                Some(b'\n') => Some(Some(position + 2)),
+                Some(_) => Some(Some(position + 1)),
+                None if self.final_end => Some(Some(position + 1)),
+                None => None,
+            },
+            Some(_) => Some(None),
+            None if self.final_end => Some(None),
+            None => None,
+        }
+    }
+
+    /// Mirror hayro's `parse_proper`.
+    fn declared_extent(&self, dict_end: usize, length: u32) -> Proper {
         let mut parser = Parser {
-            data: &buffer[..end],
+            data: self.data,
+            pos: dict_end,
+        };
+        parser.skip_whitespace();
+        let keyword = parser.pos;
+        match self.tag_at(keyword, b"stream") {
+            Some(true) => {}
+            Some(false) => return Proper::Failed,
+            None => return Proper::Unknown,
+        }
+        let start = match self.data_start(keyword + b"stream".len()) {
+            Some(Some(start)) => start,
+            Some(None) => return Proper::Failed,
+            None => return Proper::Unknown,
+        };
+        let Some(end) = start.checked_add(length as usize) else {
+            return Proper::Failed;
+        };
+        if end > self.data.len() {
+            return if self.final_end {
+                Proper::Failed
+            } else {
+                Proper::Unknown
+            };
+        }
+        let mut after = end;
+        while self.data.get(after).copied().is_some_and(is_whitespace) {
+            after += 1;
+        }
+        match self.tag_at(after, b"endstream") {
+            Some(true) => Proper::Data(start..end),
+            Some(false) => Proper::Failed,
+            None => Proper::Unknown,
+        }
+    }
+
+    /// Mirror hayro's `parse_fallback`, or return `None` when hayro could read
+    /// past the bound or read no stream.
+    fn searched_extent(&self, dict_end: usize) -> Option<Range<usize>> {
+        let keyword = dict_end + find(&self.data[dict_end..], b"stream")?;
+        let start = self.data_start(keyword + b"stream".len())??;
+        let end = start + find(&self.data[start..], b"endstream")?;
+        let length = self.data[start..end]
+            .iter()
+            .rposition(|&byte| !is_whitespace(byte))
+            .map_or(0, |last| last + 1);
+        Some(start..start + length)
+    }
+}
+
+/// The position of the first `needle` in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// Store `data` as a stream's content, with the direct `/Length` that lopdf
+/// gives every stream it reads, so that saving writes the data hayro reads.
+fn store_stream_data(doc: &mut Document, id: ObjectId, data: &[u8]) -> Result<(), TryReserveError> {
+    let Some(Object::Stream(stream)) = doc.objects.get_mut(&id) else {
+        return Ok(());
+    };
+    if stream.content != data {
+        let mut content = Vec::new();
+        content.try_reserve_exact(data.len())?;
+        content.extend_from_slice(data);
+        stream.content = content;
+    }
+    stream
+        .dict
+        .set("Length", Object::Integer(data.len() as i64));
+    Ok(())
+}
+
+/// Parse every skipped uncompressed object whose header matches its entry.
+///
+/// Each distinct offset is examined once and parsed no further than its
+/// section, so the pass stays linear in input size. A loaded object whose
+/// header disagrees with the entry that locates it joins `suspects` under the
+/// number in its header: lopdf stores it there, possibly in place of the
+/// object that hayro reads for that number from its own entry or container.
+fn recover_skipped_objects(
+    doc: &Document,
+    buffer: &[u8],
+    sections: &Sections,
+    suspects: &mut HashSet<ObjectId>,
+) -> Result<Vec<(ObjectId, Object)>, TryReserveError> {
+    let mut recovered = Vec::new();
+    for &start in &sections.offsets {
+        if start >= buffer.len() {
+            break;
+        }
+        let mut parser = Parser {
+            data: &buffer[..sections.end(start)],
             pos: start,
         };
         let Some(id) = parser.header() else {
             continue;
         };
-        let skipped = matches!(
+        let located_here = matches!(
             doc.reference_table.entries.get(&id.0),
             Some(XrefEntry::Normal { offset, generation })
                 if *offset as usize == start && *generation == id.1
-        ) && !doc.objects.contains_key(&id);
-        if !skipped {
+        );
+        if doc.objects.contains_key(&id) {
+            if !located_here {
+                suspects.try_reserve(1)?;
+                suspects.insert(id);
+            }
+            continue;
+        }
+        if !located_here {
             continue;
         }
         match parser.object(doc) {
@@ -318,6 +984,21 @@ fn unsigned<T: FromStr>(token: &[u8]) -> Option<T> {
         return None;
     }
     std::str::from_utf8(token).ok()?.parse().ok()
+}
+
+/// Read a non-empty run of ASCII digits as a `u32`, as `unsigned` does, without
+/// going through text, which a table of a hundred thousand pairs would notice.
+fn digit_run(token: &[u8]) -> Option<u32> {
+    if token.is_empty() {
+        return None;
+    }
+    token.iter().try_fold(0u32, |value, &byte| {
+        let digit = byte.wrapping_sub(b'0');
+        if digit > 9 {
+            return None;
+        }
+        value.checked_mul(10)?.checked_add(u32::from(digit))
+    })
 }
 
 /// Read one regular token that is not a reference as an object.
@@ -426,6 +1107,25 @@ impl<'a> Parser<'a> {
         }
         self.pos = start;
         None
+    }
+
+    /// Read a run of digits after white space and comments as hayro reads a
+    /// `u32`, or return `None` for anything else, including a run that the
+    /// data cuts off or that a regular character follows.
+    fn digits(&mut self) -> Option<u32> {
+        self.skip_whitespace();
+        let start = self.pos;
+        while self.data.get(self.pos).is_some_and(u8::is_ascii_digit) {
+            self.pos += 1;
+        }
+        let ended = self
+            .data
+            .get(self.pos)
+            .is_some_and(|&byte| !is_regular(byte));
+        if !ended {
+            return None;
+        }
+        unsigned(&self.data[start..self.pos])
     }
 
     /// Read the body after a header, including stream data.

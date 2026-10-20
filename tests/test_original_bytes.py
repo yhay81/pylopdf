@@ -13,6 +13,7 @@ import hashlib
 import re
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 import pytest
@@ -282,6 +283,68 @@ def test_unreachable_recovered_object_keeps_original_bytes() -> None:
     assert re.search(rb"6 0 obj\s*<</Type null>>", pylopdf.Document(stream=data).tobytes())
 
 
+CONTENT = "BT /F1 20 Tf 20 100 Td (NO USABLE LENGTH) Tj ET"
+
+
+@pytest.mark.parametrize(
+    ("length", "objects"),
+    [
+        pytest.param("", {}, id="missing"),
+        pytest.param("/Length /Unknown", {}, id="name"),
+        pytest.param("/Length 8 0 R", {}, id="unlisted-object"),
+        pytest.param("/Length 8 0 R", {8: "/NotANumber"}, id="object-without-a-number"),
+        pytest.param("/Length 8 0 R", {8: f"{len(CONTENT)}.0"}, id="indirect-real"),
+        pytest.param(f"/Length {len(CONTENT)}.", {}, id="real"),
+        pytest.param(f"/Length {len(CONTENT) + 1}.5", {}, id="fractional-real"),
+        pytest.param(f"/Length {len(CONTENT) - 9}.", {}, id="real-too-short"),
+    ],
+)
+def test_stream_without_a_usable_length_keeps_the_data_that_hayro_reads(
+    length: str, objects: dict[int, str | None]
+) -> None:
+    """Hold the data that hayro reads for a stream whose `/Length` lopdf cannot read while parsing.
+
+    lopdf loaded such a stream without data, or took the declared number of bytes without looking for
+    `endstream`, while hayro reads the declared bytes only when `endstream` follows them and otherwise
+    searches for it. The page lost its text, or part of it, after any edit or save (pdf.js
+    `issue1293r.pdf` has no `/Length` at all).
+    """
+    data = _pdf(_one_page("5 0 R", {5: f"<< {length} >>\nstream\n{CONTENT}\nendstream ", **objects}))
+
+    assert _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["NO USABLE LENGTH"]]
+    saved = pylopdf.Document(stream=data).tobytes()
+    assert saved.count(b"NO USABLE LENGTH") == 1
+    assert re.search(rb"<</Length \d+>>stream\n", saved)
+
+
+NEXT_OBJECT = _stream("NEXT OBJECT", 200)
+# The declared bytes of object 5 then end where `endstream` follows in object 6.
+SPANNING_LENGTH = len(f"{CONTENT}\n\nendobj\n6 0 obj\n{NEXT_OBJECT}") - len("\nendstream")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(f"<< >>\nstream\n{CONTENT}\n", id="endstream-in-the-next-object"),
+        pytest.param(f"<< >>\nstream \n{CONTENT}\nendstream", id="space-before-the-end-of-line"),
+        pytest.param(f"<< /Length {SPANNING_LENGTH}.5 >>\nstream\n{CONTENT}\n", id="length-past-the-object"),
+    ],
+)
+def test_stream_that_hayro_reads_past_its_object_renders_from_the_graph(body: str) -> None:
+    """Render from the graph when hayro would read a stream's data past its object, or no stream.
+
+    hayro searches for `endstream` to the end of the file, takes data only after an end-of-line
+    marker that follows `stream` directly, and takes the declared bytes past the next object when
+    `endstream` follows them there. lopdf holds no data for these streams, so the original page
+    showed more than any edit or save kept, or less.
+    """
+    data = _pdf(_one_page("[5 0 R 6 0 R]", {5: body, 6: NEXT_OBJECT}))
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["NEXT OBJECT"]]
+
+
 def test_deeply_nested_object_that_lopdf_skips_never_reaches_hayro(tmp_path: Path) -> None:
     """Keep a deep object that lopdf skips away from hayro's parser.
 
@@ -350,6 +413,157 @@ def test_unreachable_object_stream_debris_is_dropped_with_its_numbers() -> None:
     assert b"Debris" not in saved
     assert max(int(number) for number in re.findall(rb"(\d+) 0 obj", saved)) < 20
     assert sorted(pylopdf.Document(stream=saved).get_page_text(0).splitlines()) == ["STAMP", "TARGET PAGE"]
+
+
+# The page draws `(abc)`, which a font that maps those codes to other glyphs extracts as `xyz`.
+MAPPED_FONT = (
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Type /Encoding /Differences [97 /x /y /z] >> >>"
+)
+
+
+def _compressed_pdf(  # noqa: PLR0913 - each keyword shapes one part of the fixture.
+    members: list[tuple[int, str]],
+    *,
+    font: str = "4 0 R",
+    slots: dict[int, int] | None = None,
+    declared: int | None = None,
+    note: str = "",
+    flate: bool = False,
+    objects: dict[int, str] | None = None,
+    headers: dict[int, int] | None = None,
+) -> bytes:
+    """Build a page whose `members` share object stream 6, located by a cross-reference stream.
+
+    Each member's entry names its first index in `members` unless `slots` gives another one,
+    `declared` replaces the stream's `/N`, `note` follows the stream's table before `/First`,
+    `objects` adds uncompressed objects, and `headers` writes another number into the header of an
+    uncompressed object.
+    """
+    slots = slots or {}
+    headers = headers or {}
+    page = {number: body for number, body in _one_page("5 0 R", {5: _stream("abc")}, font=font).items() if body}
+    uncompressed = {number: body for number, body in page.items() if number != 4} | (objects or {})
+    out = bytearray(b"%PDF-1.7\n")
+    offsets: dict[int, int] = {}
+    for number, body in sorted(uncompressed.items()):
+        offsets[number] = len(out)
+        out += f"{headers.get(number, number)} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    table = "".join(
+        f"{number} {sum(len(body) + 1 for _, body in members[:index])} " for index, (number, _) in enumerate(members)
+    )
+    table += note
+    payload = (table + "".join(f"{body}\n" for _, body in members)).encode("latin-1")
+    entries = f"/Type /ObjStm /N {len(members) if declared is None else declared} /First {len(table)}"
+    if flate:
+        payload = zlib.compress(payload)
+        entries += " /Filter /FlateDecode"
+    offsets[6] = len(out)
+    out += f"6 0 obj\n<< {entries} /Length {len(payload)} >>\nstream\n".encode() + payload + b"\nendstream\nendobj\n"
+    first_slots = {}
+    for index, (number, _) in enumerate(members):
+        first_slots.setdefault(number, index)
+    xref = max([*offsets, *first_slots]) + 1
+    offsets[xref] = len(out)
+    rows = bytearray()
+    for number in range(xref + 1):
+        if number in offsets:
+            rows += b"\x01" + offsets[number].to_bytes(4, "big") + b"\x00\x00"
+        elif number in first_slots:
+            rows += b"\x02" + (6).to_bytes(4, "big") + slots.get(number, first_slots[number]).to_bytes(2, "big")
+        else:
+            rows += b"\x00\x00\x00\x00\x00\xff\xff"
+    dictionary = f"<< /Type /XRef /Size {xref + 1} /W [1 4 2] /Root 1 0 R /Length {len(rows)} >>"
+    out += (
+        f"{xref} 0 obj\n{dictionary}\nstream\n".encode()
+        + rows
+        + f"\nendstream\nendobj\nstartxref\n{offsets[xref]}\n%%EOF\n".encode()
+    )
+    return bytes(out)
+
+
+@pytest.mark.parametrize("flate", [False, True], ids=["uncompressed", "flate"])
+def test_members_in_the_slots_that_their_entries_name_keep_original_bytes(*, flate: bool) -> None:
+    data = _compressed_pdf([(4, FONT), (7, MAPPED_FONT)], flate=flate)
+
+    assert _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["abc"]]
+
+
+@pytest.mark.parametrize("flate", [False, True], ids=["uncompressed", "flate"])
+@pytest.mark.parametrize(
+    ("members", "font", "slots", "declared", "text"),
+    [
+        pytest.param([(4, FONT), (7, MAPPED_FONT)], "4 0 R", {4: 1, 7: 0}, None, "abc", id="swapped-slots"),
+        pytest.param([(4, MAPPED_FONT), (4, FONT)], "4 0 R", None, None, "abc", id="number-listed-twice"),
+        pytest.param([(4, FONT), (7, MAPPED_FONT)], "7 0 R", None, 1, "xyz", id="slot-past-n"),
+    ],
+)
+def test_member_that_hayro_reads_from_another_slot_renders_from_the_graph(  # noqa: PLR0913 - one value per column.
+    *,
+    members: list[tuple[int, str]],
+    font: str,
+    slots: dict[int, int] | None,
+    declared: int | None,
+    text: str,
+    flate: bool,
+) -> None:
+    """Render from the graph when hayro reads a page's font from another slot of its object stream.
+
+    hayro reads the member at the index that the entry names, whatever number the stream's table
+    gives it there, and reads none past `/N`; lopdf stores every member under its number in the
+    table, keeping the last of two. The page extracted `abc` before any edit or save and `xyz`
+    after, or the reverse.
+    """
+    data = _compressed_pdf(members, font=font, slots=slots, declared=declared, flate=flate)
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [[text]]
+
+
+def test_comment_after_the_member_table_keeps_original_bytes() -> None:
+    """Keep the original bytes when a comment follows the member table, as qpdf's QDF output writes.
+
+    hayro reads only the `/N` pairs, and lopdf skips the words of the comment, so both read the same
+    members (pdf.js `issue14165.pdf`).
+    """
+    data = _compressed_pdf([(4, FONT), (7, MAPPED_FONT)], note="%% Object stream: object 4, index 0\n")
+
+    assert _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["abc"]]
+
+
+def test_comment_that_lopdf_reads_as_a_member_renders_from_the_graph() -> None:
+    """Render from the graph when lopdf reads a pair from the words of a comment after the table.
+
+    lopdf splits the bytes before `/First` into words and pairs them in order. This comment gives
+    member 4 the offset of member 7, and lopdf keeps the last pair for a number, while hayro reads
+    only the `/N` pairs.
+    """
+    data = _compressed_pdf([(4, FONT), (7, MAPPED_FONT)], note=f"% x 4 {len(FONT) + 1}\n")
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["xyz"]]
+
+
+def test_unreachable_member_in_another_slot_keeps_original_bytes() -> None:
+    data = _compressed_pdf(
+        [(4, FONT), (7, MAPPED_FONT), (8, "<< /Unused 8 >>")], font="9 0 R", slots={4: 1, 7: 0}, objects={9: FONT}
+    )
+
+    assert _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["abc"]]
+
+
+def test_object_under_a_member_number_renders_from_the_graph() -> None:
+    """Render from the graph when an uncompressed object's header names a page's compressed font.
+
+    lopdf stores the object under the number in its header, in place of the member that hayro reads
+    for that number.
+    """
+    data = _compressed_pdf([(4, FONT)], objects={9: MAPPED_FONT}, headers={9: 4})
+
+    assert not _keeps_original_bytes(data)
+    assert _consistent_page_texts(data) == [["xyz"]]
 
 
 def _two_page_tree(kids: str, extra: dict[int, str | None]) -> dict[int, str | None]:
