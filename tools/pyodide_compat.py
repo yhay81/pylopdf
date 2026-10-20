@@ -897,6 +897,42 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     }
 
 
+def _form_page_deletion_results() -> dict[str, Any]:
+    """Remove the form widgets and fields of pages that deletion and selection drop."""
+    import pylopdf  # noqa: PLC0415
+
+    widget = "/Type /Annot /Subtype /Widget /Rect [10 10 90 30]"
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 8 0 R 9 0 R] /CO [6 0 R 8 0 R] >> >>",
+            2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Annots [6 0 R 8 0 R] >>",
+            4: "<< /Type /Page /Parent 2 0 R /Annots [7 0 R] >>",
+            5: "<< /FT /Tx /T (person) /Kids [6 0 R 7 0 R] >>",
+            6: f"<< /T (first) /V (Ada) /Parent 5 0 R {widget} /P 3 0 R >>",
+            7: f"<< /T (last) /V (Lovelace) /Parent 5 0 R {widget} /P 3 0 R >>",
+            8: f"<< /FT /Tx /T (total) /V (42) {widget} /P 3 0 R >>",
+            9: "<< /FT /Tx /T (hidden) /V (kept) >>",
+        }
+    )
+
+    def names(document: Any) -> list[str]:  # noqa: ANN401 - pylopdf imports lazily.
+        return [field["name"] for field in document.get_form_fields()]
+
+    results: dict[str, Any] = {}
+    edits = (("delete_first", lambda doc: doc.delete_pages([0])), ("select_first", lambda doc: doc.select([0])))
+    for label, edit in edits:
+        document = pylopdf.Document(stream=data)
+        edit(document)
+        saved = document.tobytes(garbage=True)
+        reopened = pylopdf.Document(stream=saved)
+        _require(names(reopened) == names(document), f"{label} fields changed after a save")
+        results[label] = {"fields": names(document), "widgets": saved.count(b"/Subtype/Widget")}
+    _require(results["delete_first"]["fields"] == ["hidden", "person.last"], "delete kept fields of a deleted page")
+    _require(results["select_first"]["fields"] == ["hidden", "person.first", "total"], "select dropped kept fields")
+    return results
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -911,6 +947,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "fixtures": _fixture_results(root),
         "layout": _layout_results(),
         "generation": _generation_results(root),
+        "form_page_deletion": _form_page_deletion_results(),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

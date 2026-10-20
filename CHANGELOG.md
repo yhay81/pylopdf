@@ -301,6 +301,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that the manifest stays complete.
 
 ### Fixed
+- `delete_pages()`, `delete_page()`, and `select()` remove the AcroForm
+  widgets and fields of the pages they drop. The field tree used to keep
+  listing them, so `get_form_fields()` still reported every field and each
+  widget's `/P` kept its deleted page in every save: deleting the second page
+  of `f1040.pdf` left all 199 fields instead of the 128 of its first page.
+  The edit now removes from the field tree every widget of a dropped page and
+  every field whose widgets all lay there, trims a button field's matching
+  `/Opt`, drops such top-level fields from `/Fields` and their entries from
+  `/CO`, and points a remaining widget whose `/P` names a dropped page at the
+  remaining page that lists it. A widget that no page lists, such as an
+  invisible signature, goes only when its `/P` names a dropped page, and
+  fields that never had a widget stay. The field tree is walked under the
+  `get_form_fields()` limits (4,096 nodes and widgets, 8,192 edges, 64
+  levels) before the document changes, and a tree beyond them raises
+  `PdfError` and leaves the document unchanged. Deleting each of the first six
+  pages of the 40 multi-page pdf.js corpus forms (152 deletions) removed 3,540
+  fields in 38 of them and raised nothing, and every result read the same
+  fields after saving and reopening. Objects that a tagged PDF's structure
+  tree still references, including widgets of dropped pages, are kept.
 - Hebrew text generated with `pylopdf[he]` was drawn in Thin, the default
   instance of the variable Noto Sans Hebrew, and extraction reported its font
   as `NotoSansHebrew-Thin`. `insert_text`, `insert_textbox`, `set_form_field`,

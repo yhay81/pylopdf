@@ -5502,7 +5502,10 @@ class Document:
         ``page_entry_count`` before the document changes. Links, outline
         destinations, the open action, and named destinations that target
         deleted pages are removed under the same limits as :meth:`get_toc` and
-        :meth:`Page.get_links`; a refusal leaves the document unchanged.
+        :meth:`Page.get_links`. The AcroForm loses the widgets of deleted pages
+        and the fields whose widgets all lay there, under the
+        :meth:`get_form_fields` limits; fields that never had a widget stay.
+        A refusal leaves the document unchanged.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         if not numbers:
@@ -5518,7 +5521,8 @@ class Document:
         iterable may contain up to the larger of the page count and 4,096
         entries, so a selection never grows a large document; further entries
         raise :class:`LimitError` with code ``page_entry_count``. Navigation to
-        excluded pages is cleaned as in :meth:`delete_pages`.
+        excluded pages and their AcroForm widgets and fields are cleaned as in
+        :meth:`delete_pages`.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         self._doc.select(numbers)

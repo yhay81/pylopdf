@@ -31,7 +31,7 @@ use pyo3::prelude::*;
 #[cfg(not(target_os = "emscripten"))]
 use rayon::prelude::*;
 
-use crate::acroform_import::AcroFormImport;
+use crate::acroform_import::{AcroFormImport, FormPagePrune};
 use crate::bundled_font_cache::{FontBytes, PackageFace, load_package_font};
 use crate::content_guard::{ContentGuard, PageSelection};
 use crate::draw::{self, ObjectSink};
@@ -4370,6 +4370,18 @@ fn collect_page_ids(
         Ok(())
     })?;
     Ok(pages)
+}
+
+/// Collect the pages that remain after a deletion or selection.
+fn retained_set(retained: &[ObjectId]) -> PyResult<HashSet<ObjectId>> {
+    let mut set = HashSet::new();
+    set.try_reserve(retained.len()).map_err(|error| {
+        PdfError::new_err(format!(
+            "failed to allocate retained-page tracking: {error}"
+        ))
+    })?;
+    set.extend(retained.iter().copied());
+    Ok(set)
 }
 
 /// Reject explicit page entries beyond the document-relative batch bound.
@@ -9858,8 +9870,12 @@ impl _Document {
             .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))?;
 
         let cleanup = PageCleanupPlan::prepare(&self.doc, &retained, &deleted)?;
+        let form_prune = FormPagePrune::prepare(&self.doc, pages, &retained_set(&retained)?)?;
         self.rebuild_page_tree_with_cleanup(pages_id, retained, Some(&cleanup))?;
         cleanup.apply(&mut self.doc);
+        if let Some(form_prune) = form_prune {
+            form_prune.apply(&mut self.doc);
+        }
         self.invalidate_hayro_pdf_keeping_placements();
         prune_unreachable_objects(&mut self.doc)?;
         Ok(())
@@ -10277,6 +10293,11 @@ impl _Document {
             removed.remove(page_id);
         }
         let cleanup = PageCleanupPlan::prepare(&self.doc, &selected_ids, &removed)?;
+        let form_prune = if removed.is_empty() {
+            None
+        } else {
+            FormPagePrune::prepare(&self.doc, pages, &retained_set(&selected_ids)?)?
+        };
 
         // For repeated pages, create a copy with inheritance materialized because
         // PDF page-tree Parent references must be unique.
@@ -10342,6 +10363,9 @@ impl _Document {
         pages_dict.set("Count", count);
 
         cleanup.apply(&mut self.doc);
+        if let Some(form_prune) = form_prune {
+            form_prune.apply(&mut self.doc);
+        }
         // Remove pages and intermediate nodes that became unreachable.
         prune_unreachable_objects(&mut self.doc)?;
         Ok(())
