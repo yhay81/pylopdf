@@ -97,7 +97,7 @@ cache-keys = [
     { file = "rust/Cargo.toml" },
     { file = "rust/Cargo.lock" },
     { file = "rust/build.rs" },
-    { file = "rust/src/*.rs" },
+    { file = "rust/src/**/*.rs" },
     { env = "CARGO_PROFILE_RELEASE_LTO" },
     { env = "CARGO_PROFILE_RELEASE_CODEGEN_UNITS" },
 ]

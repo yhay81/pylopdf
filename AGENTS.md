@@ -73,7 +73,7 @@ overview.
 ## Architecture and invariants
 
 - `_Document` (`rust/src/document/`) is a thin conversion and error-mapping
-  layer. The Python `Document` (`src/pylopdf/__init__.py`) owns validation,
+  layer. The Python `Document` (`src/pylopdf/_document.py`) owns validation,
   zero-/one-based conversion, and closed-state handling.
 - `rust/src/document/mod.rs` holds `_Document`, its shared state, cache
   invalidation, and the class's single `#[pymethods]` block; PyO3's
@@ -86,15 +86,19 @@ overview.
   submodule, re-exporting with `pub(crate)` the ones whose items other crate
   modules use, so moved items keep their `crate::document::` paths. A new
   pymethod adds its signature to `mod.rs` and its body to its domain module.
+  uv's rebuild cache key covers `rust/src/**/*.rs`, so edits in these
+  subdirectories rebuild the extension like any other Rust change.
 - Workstream module ownership (ROADMAP.md workstreams; shared files take only
   append-only registrations):
   - A, extraction: `extract.rs`; `document/extraction.rs`;
-    `src/pylopdf/_markdown.py`.
-  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`.
+    `src/pylopdf/_tables.py` and `_markdown.py`.
+  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
+    `src/pylopdf/_pixmap.py`.
   - C, generation: `draw.rs`, `generate.rs`, `generated_pdf.rs`,
     `layout.rs`, `shape.rs`, `font.rs`, `bundled_font_cache.rs`,
     `placement_reuse.rs`;
-    `document/{drawing,images,text_insertion,geometry,fonts}.rs`.
+    `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
+    `src/pylopdf/_fonts.py` and `_shape.py`.
   - D, interactive: `form.rs`, `acroform_import.rs`;
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
@@ -105,10 +109,14 @@ overview.
   - G, persistence: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`,
     `image_compression.rs`; `document/{loading,saving,limits,streams}.rs`.
-  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`.
+  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`;
+    `src/pylopdf/_ocr.py`.
   - Shared: `lib.rs`, `document/mod.rs`,
-    `document/{errors,input,objects,indexed}.rs`, and
-    `src/pylopdf/__init__.py` until the Python half of F1 splits it.
+    `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
+    the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
+    `_types.py`, `_errors.py`, and `_limits.py`. `Document` and `Page` gather
+    every workstream's methods, so add a method next to its domain's
+    neighbours rather than at the end of the class.
 - Python API page numbers are zero-based; Rust/lopdf page numbers are one-based.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
