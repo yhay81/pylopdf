@@ -42,7 +42,7 @@ OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "search_for": lambda doc: doc[0].search_for("PAGE"),
     "find_tables": lambda doc: doc[0].find_tables(),
     "get_drawings": lambda doc: doc[0].get_drawings(),
-    "get_images": lambda doc: doc[0].get_images(),
+    "get_image_info": lambda doc: doc[0].get_image_info(),
     "get_pixmap": lambda doc: doc[0].get_pixmap(alpha=True),
     "render_page": lambda doc: doc.get_page_pixmap(0, alpha=True).tobytes(),
     "render_pages": lambda doc: doc.render_pages(alpha=True, workers=2),
@@ -634,7 +634,7 @@ def test_binary_inline_image_data_is_not_tokenized() -> None:
 
     assert "PAGE TEXT" in doc.get_page_text(0)
     assert doc[0].get_pixmap(alpha=True).width == 300
-    assert isinstance(doc[0].get_images(), list)
+    assert isinstance(doc[0].get_image_info(), list)
 
 
 def test_ascii_hex_inline_image_is_not_tokenized() -> None:

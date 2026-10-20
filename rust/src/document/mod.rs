@@ -759,6 +759,25 @@ impl _Document {
         extraction::extract_images(self, py, page_number)
     }
 
+    /// List the image XObjects that a one-based page's resources reach.
+    fn page_image_inventory(&self, page_number: u32) -> PyResult<Vec<ImageInventoryTuple>> {
+        extraction::page_image_inventory(self, page_number)
+    }
+
+    /// Describe the images drawn on a one-based page.
+    fn page_image_info(
+        &mut self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<crate::extract::ImageInfoTuple>> {
+        extraction::page_image_info(self, py, page_number)
+    }
+
+    /// Decode one image XObject by object number.
+    fn extract_image(&mut self, py: Python<'_>, xref: u32) -> PyResult<ExtractedImageTuple> {
+        extraction::extract_image(self, py, xref)
+    }
+
     /// Extract vector paint operations on a one-based page.
     fn extract_drawings(
         &mut self,

@@ -15,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, drawn_images
 
 import pylopdf
 
@@ -64,7 +64,7 @@ def _noise_png(size: int) -> bytes:
 
 
 def _manuscript_jpeg() -> bytes:
-    images = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0].get_images()
+    images = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0])
     jpeg = min((image for image in images if image["ext"] == "jpeg"), key=lambda image: len(image["image"]))
     return jpeg["image"]
 
@@ -366,8 +366,8 @@ def test_image_compression_between_placements_keeps_the_next_placement_full_size
 
     doc[1].insert_image((0, 0, 72, 72), stream=photo)
 
-    assert doc[0].get_images()[0]["width"] == 72
-    assert doc[1].get_images()[0]["width"] == 240
+    assert drawn_images(doc[0])[0]["width"] == 72
+    assert drawn_images(doc[1])[0]["width"] == 240
 
 
 @pytest.mark.parametrize("edit", ["deflate", "replace_text"])

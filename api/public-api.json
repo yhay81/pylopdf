@@ -25,6 +25,7 @@
     "EmptyFileError",
     "EncryptedDocumentError",
     "EncryptionMethod",
+    "ExtractedImage",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
     "FileDataError",
@@ -40,6 +41,8 @@
     "IdentityMatrix",
     "ImageCompressionResult",
     "ImageInfo",
+    "ImageItem",
+    "ImageItemFull",
     "LINK_GOTO",
     "LINK_GOTOR",
     "LINK_LAUNCH",
@@ -750,6 +753,23 @@
             "returns": "list[str]"
           }
         },
+        "extract_image": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "ExtractedImage"
+          }
+        },
         "fullcopy_page": {
           "kind": "method",
           "signature": {
@@ -783,6 +803,29 @@
               }
             ],
             "returns": "list[FormFieldInfo]"
+          }
+        },
+        "get_page_images": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "full"
+              }
+            ],
+            "returns": "list[ImageItem] | list[ImageItemFull]"
           }
         },
         "get_page_labels": {
@@ -1732,6 +1775,34 @@
         "UNKNOWN": 6
       }
     },
+    "ExtractedImage": {
+      "fields": {
+        "bpc": "int",
+        "colorspace": "int",
+        "cs-name": "str",
+        "ext": "Literal['jpeg', 'png']",
+        "height": "int",
+        "image": "bytes",
+        "smask": "int",
+        "width": "int",
+        "xres": "int",
+        "yres": "int"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [],
+      "required_keys": [
+        "bpc",
+        "colorspace",
+        "cs-name",
+        "ext",
+        "height",
+        "image",
+        "smask",
+        "width",
+        "xres",
+        "yres"
+      ]
+    },
     "FZ_MAX_INF_RECT": {
       "kind": "constant",
       "value": 2147483520
@@ -2427,21 +2498,254 @@
     },
     "ImageInfo": {
       "fields": {
-        "bbox": "Rect",
-        "ext": "Literal['jpeg', 'png']",
+        "bbox": "pylopdf.Rect",
+        "bpc": "int",
+        "colorspace": "int",
+        "cs-name": "str",
+        "has-mask": "bool",
         "height": "int",
-        "image": "bytes",
-        "width": "int"
+        "number": "int",
+        "size": "int",
+        "transform": "pylopdf.Matrix",
+        "width": "int",
+        "xref": "int",
+        "xres": "int",
+        "yres": "int"
       },
       "kind": "typed-dict",
-      "optional_keys": [],
+      "optional_keys": [
+        "xref"
+      ],
       "required_keys": [
         "bbox",
-        "ext",
+        "bpc",
+        "colorspace",
+        "cs-name",
+        "has-mask",
         "height",
-        "image",
-        "width"
+        "number",
+        "size",
+        "transform",
+        "width",
+        "xres",
+        "yres"
       ]
+    },
+    "ImageItem": {
+      "annotations": {
+        "alt_colorspace": "str",
+        "bpc": "int",
+        "colorspace": "str",
+        "filter": "str",
+        "height": "int",
+        "name": "str",
+        "smask": "int",
+        "width": "int",
+        "xref": "int"
+      },
+      "kind": "class",
+      "members": {
+        "alt_colorspace": {
+          "kind": "property"
+        },
+        "bpc": {
+          "kind": "property"
+        },
+        "colorspace": {
+          "kind": "property"
+        },
+        "filter": {
+          "kind": "property"
+        },
+        "height": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "smask": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        },
+        "xref": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "xref",
+        "smask",
+        "width",
+        "height",
+        "bpc",
+        "colorspace",
+        "alt_colorspace",
+        "name",
+        "filter"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "smask"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "width"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "height"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "bpc"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "colorspace"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "alt_colorspace"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "filter"
+          }
+        ]
+      }
+    },
+    "ImageItemFull": {
+      "annotations": {
+        "alt_colorspace": "str",
+        "bpc": "int",
+        "colorspace": "str",
+        "filter": "str",
+        "height": "int",
+        "name": "str",
+        "referencer": "int",
+        "smask": "int",
+        "width": "int",
+        "xref": "int"
+      },
+      "kind": "class",
+      "members": {
+        "alt_colorspace": {
+          "kind": "property"
+        },
+        "bpc": {
+          "kind": "property"
+        },
+        "colorspace": {
+          "kind": "property"
+        },
+        "filter": {
+          "kind": "property"
+        },
+        "height": {
+          "kind": "property"
+        },
+        "name": {
+          "kind": "property"
+        },
+        "referencer": {
+          "kind": "property"
+        },
+        "smask": {
+          "kind": "property"
+        },
+        "width": {
+          "kind": "property"
+        },
+        "xref": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "xref",
+        "smask",
+        "width",
+        "height",
+        "bpc",
+        "colorspace",
+        "alt_colorspace",
+        "name",
+        "filter",
+        "referencer"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "smask"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "width"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "height"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "bpc"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "colorspace"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "alt_colorspace"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "filter"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "referencer"
+          }
+        ]
+      }
     },
     "LINK_GOTO": {
       "kind": "constant",
@@ -4184,6 +4488,30 @@
             "returns": "list[DrawingInfo]"
           }
         },
+        "get_image_info": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "hashes"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "xrefs"
+              }
+            ],
+            "returns": "list[ImageInfo]"
+          }
+        },
         "get_images": {
           "kind": "method",
           "signature": {
@@ -4191,9 +4519,15 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "full"
               }
             ],
-            "returns": "list[ImageInfo]"
+            "returns": "list[ImageItem] | list[ImageItemFull]"
           }
         },
         "get_label": {
@@ -7484,6 +7818,23 @@
             "returns": "list[str]"
           }
         },
+        "extract_image": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "ExtractedImage"
+          }
+        },
         "fullcopy_page": {
           "kind": "method",
           "signature": {
@@ -7517,6 +7868,29 @@
               }
             ],
             "returns": "list[FormFieldInfo]"
+          }
+        },
+        "get_page_images": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "full"
+              }
+            ],
+            "returns": "list[ImageItem] | list[ImageItemFull]"
           }
         },
         "get_page_labels": {

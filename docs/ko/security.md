@@ -88,7 +88,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
+`image_pixel_count`, `image_inventory_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `path_point_count`, `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
 `decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
@@ -279,9 +279,11 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   않습니다. iterable은graph 변경 전 상한을 넘는 첫entry에서 중단하고
   `page_entry_count`를 반환합니다. `insert_pdf()`는 원본의 전체 범위를 허용합니다.
   빈delete는cache, generation 및기존`Page` view를 유지합니다.
-- `Page.get_images()`는 페이지당4,096 placement, 누적64,000,000 source pixel 또는
-  64 MiB 반환payload를 넘는 부분 결과를 거부합니다. Flate-wrapped JPEG passthrough도
-  남은byte 예산까지만 압축을 풉니다.
+- `Page.get_images()`는 이미지나 Form XObject가 4,096개를 넘으면
+  `image_inventory_count`로, `Page.get_image_info()`는 4,096 placement에서 멈춥니다.
+  `Document.extract_image()`는 64,000,000 pixel과 64 MiB payload 상한, content·색
+  공간 guard 아래에서 이미지 하나를 디코딩하며 Flate-wrapped JPEG passthrough도 그
+  상한까지만 압축을 풉니다.
 - `Document.embfile_add()`는PyO3 copy 전에64 MiB를 넘는 입력을 거부하고,
   `embfile_get()`은 각 디코딩filter layer에 같은 기본 상한을 적용합니다. 크기를 알고
   있는 대용량 첨부 파일은`max_size=`를 늘릴 수 있고, `max_size=None`은 무제한 입력

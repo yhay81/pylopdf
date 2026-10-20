@@ -30,6 +30,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 全page（`None`）またはpage数と4,096の大きい方までの明示entryを1回のbatchで抽出するplain text。4,096 entryごとのchunkでinterpreter font cacheを共有 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。既定は全page、明示entryはpage数と4,096の大きい方まで、累積UTF-8出力上限付き（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdfと同じキーで1つの画像のデータを返す（DCTはJPEGのまま、ほかのfilterはPNGに復号し、soft maskは含めない）。ページの画像一覧 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | ページの`Pixmap`（pymupdfの`doc[pno].get_pixmap()`の簡便形）、または全pageかpage数と4,096の大きい方までの明示entryを累積encoded output上限付きで描画する順序保証並列PNG群（`None`で解除） |
 | `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1を区別する非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
@@ -62,7 +63,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
 | `find_tables(clip=None, strategy=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | documentと同じtable・UTF-8出力制御を持つ1 page Markdown |
-| `get_images()` | 描画された画像（`bbox`付き、JPEG passthrough / PNG）。4,096配置、累積64,000,000画素、payload 64 MiBを超える部分結果は拒否 |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | pymupdfと同じ画像XObjectの一覧（`ImageItem` NamedTuple、`ImageItemFull`は`referencer`を追加）と、描画配置の辞書（`bbox`、`transform`、サイズ、色空間、`xrefs=True`で`xref`） |
 | `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性。8,192パス、131,072コマンド、またはページ集約131,072 dash値を超える場合は部分結果を返さず拒否 |
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdfと同じrendering。既定は白地の不透明RGB、`alpha=True`でstraight-alpha RGBA、`dpi`は拡大縮小の`matrix`より優先、`clip`は表示座標。textをpathで描く上限付きUTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 表示回転 |

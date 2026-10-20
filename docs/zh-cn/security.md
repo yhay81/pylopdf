@@ -80,7 +80,7 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `page_entry_count`、`page_label_input_size`、
 `xmp_metadata_size`、`render_output_size`、`markdown_output_size`、
 `svg_output_size`、`replacement_input_size`、`replacement_output_size`或
-`pdf_output_size`、`image_input_size`、`image_pixel_count`、
+`pdf_output_size`、`image_input_size`、`image_pixel_count`、`image_inventory_count`、
 `font_input_size`、`text_input_size`、`text_line_count`、`path_point_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`、
@@ -238,8 +238,10 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   较大者的entry，因此重复页面也不会使选择结果大于文档。iterable会在超过上限的
   第一个entry、graph修改前停止，并返回`page_entry_count`。`insert_pdf()`接受源
   文档的完整范围。空delete保留cache、generation及现有`Page` view。
-- `Page.get_images()`会拒绝每页超过4,096个placement、累计64,000,000个source像素或
-  64 MiB返回payload的部分结果。Flate-wrapped JPEG直通也只解压到剩余byte预算。
+- `Page.get_images()`在图像或Form XObject超过4,096个时以`image_inventory_count`
+  停止，`Page.get_image_info()`在4,096个placement时停止。`Document.extract_image()`
+  在64,000,000像素与64 MiB payload上限及content和颜色空间guard下解码单个图像，
+  Flate-wrapped JPEG直通也只解压到该上限。
 - `Document.embfile_add()`会在PyO3 copy前拒绝超过64 MiB的输入，
   `embfile_get()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
   `max_size=`；`max_size=None`会显式接受无限制输入或materialization。附件name tree

@@ -17,7 +17,7 @@ import struct
 import zlib
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -82,7 +82,7 @@ def _assert_text_at(page: pylopdf.Page, text: str, point: tuple[float, float]) -
 
 def _inserted_image_bbox(page: pylopdf.Page) -> tuple[float, ...]:
     """Return where the 2x2 test image was drawn, among any images of the page."""
-    (image,) = [image for image in page.get_images() if (image["width"], image["height"]) == (2, 2)]
+    (image,) = [image for image in drawn_images(page) if (image["width"], image["height"]) == (2, 2)]
     return tuple(image["bbox"])
 
 

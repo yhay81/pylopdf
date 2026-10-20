@@ -31,6 +31,7 @@ in pymupdf's `open("pdf", data)`. Password input stops at 127 UTF-8 bytes.
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
 | `get_text(pages=None)` | batched plain text for every page (`None`) or up to the larger of the page count and 4,096 explicit entries; 4,096-entry chunks each share one interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; every page by default, explicit entries up to the larger of the page count and 4,096, and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | one image's data with pymupdf's keys, DCT passing through as JPEG and other filters decoded to PNG, without its soft mask; and a page's image inventory |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | a page `Pixmap` (pymupdf's convenience for `doc[pno].get_pixmap()`), or ordered parallel PNG batches of every page or up to the larger of the page count and 4,096 explicit entries under a cumulative encoded-output cap (`None` opts out) |
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
@@ -64,7 +65,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(clip=None, strategy=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | single-page Markdown with the same table and UTF-8 output controls |
-| `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | pymupdf's image XObject inventory as `ImageItem` NamedTuples (`ImageItemFull` adds `referencer`), and its placement dictionaries (`bbox`, `transform`, size, color space, `xref` with `xrefs=True`) |
 | `get_drawings()` | interpreted vector fill/stroke paths with display-space line/cubic geometry and normalized paint/stroke properties; rejects partial output above 8,192 paths, 131,072 commands, or 131,072 aggregate dash values |
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdf's rendering: opaque RGB on white by default, straight-alpha RGBA with `alpha=True`, `dpi` taking precedence over a scaling `matrix`, and `clip` in display coordinates; bounded UTF-8 SVG with text as paths |
 | `rotation` / `set_rotation(deg)` | display rotation |
@@ -135,7 +136,7 @@ but is not a complete compatibility contract. pylopdf returns text blocks
 only, preserves multi-character glyph mappings in one entry, and exposes its
 existing span metadata rather than the additional image/vector, color,
 opacity, font-metric, or synthetic-character fields of PyMuPDF. Use
-`get_images()` or `get_drawings()` for image or vector extraction.
+`get_image_info()` with `extract_image()`, or `get_drawings()`, for image or vector extraction.
 The [overlay example](https://github.com/yhay81/pylopdf/blob/main/examples/rawdict-overlay.py)
 builds a standalone HTML preview of glyph bounds and baseline origins.
 

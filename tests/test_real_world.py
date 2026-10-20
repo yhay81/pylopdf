@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -673,7 +673,7 @@ def test_pdfium_type3_skipped_glyphs_emit_one_warning() -> None:
 def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
     """Decode an ASCIIHex/LZW/JPX image chain through both image APIs."""
     page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf")[0]
-    images = page.get_images()
+    images = drawn_images(page)
 
     assert [(image["width"], image["height"], image["ext"]) for image in images] == [(612, 792, "png")]
     assert images[0]["image"].startswith(b"\x89PNG\r\n\x1a\n")

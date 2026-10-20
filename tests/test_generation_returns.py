@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, drawn_images
 
 import pylopdf
 
@@ -35,7 +35,7 @@ def test_insert_image_returns_the_image_xref(tmp_path: Path) -> None:
     assert pixmap_xref != xref
     assert doc.objects[pixmap_xref]["Subtype"] == "Image"
     reopened = pylopdf.open(stream=doc.tobytes())
-    assert len(reopened[0].get_images()) == 4
+    assert len(drawn_images(reopened[0])) == 4
 
 
 def test_show_pdf_page_returns_the_form_xref() -> None:

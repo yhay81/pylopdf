@@ -483,6 +483,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require(scan.get_page_text(0) == "", "image-only Japanese scan unexpectedly exposed text")
     bounded_scan = pylopdf.Document(stream=scan_bytes, limits=pylopdf.DocumentLimits.web())
     _require(bounded_scan.page_count == 1, "web limits rejected a representative scan")
+    scan_inventory = scan[0].get_images(full=True)
+    _require(len(scan_inventory) >= 1, "the scan lists no image XObject")
+    scan_placements = scan[0].get_image_info(xrefs=True)
+    _require(
+        {info["xref"] for info in scan_placements} <= {item.xref for item in scan_inventory},
+        "a drawn image is missing from the inventory",
+    )
+    scan_image = scan.extract_image(scan_inventory[0].xref)
 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
     encrypted = pylopdf.Document(stream=encrypted_bytes)
@@ -536,7 +544,18 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "borderless_shape": [senate_text[0].row_count, senate_text[0].col_count],
             "first_row": first_senate_row,
         },
-        "image_only": {"pages": scan.page_count, "text": scan.get_page_text(0)},
+        "image_only": {
+            "pages": scan.page_count,
+            "text": scan.get_page_text(0),
+            "inventory": [list(item) for item in scan_inventory],
+            "placements": len(scan_placements),
+            "extracted": [
+                scan_image["ext"],
+                scan_image["width"],
+                scan_image["height"],
+                hashlib.sha256(scan_image["image"]).hexdigest(),
+            ],
+        },
         "encryption": {
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,

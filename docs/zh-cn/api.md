@@ -30,6 +30,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；默认转换所有页，显式entry最多为页数与4,096中较大者，并有累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | 以与pymupdf相同的键返回单个图像的数据（DCT以JPEG直通，其他filter解码为PNG，不含soft mask）；页面的图像清单 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 页面`Pixmap`（pymupdf的`doc[pno].get_pixmap()`简便形式），或在累计encoded output上限内渲染所有页或最多为页数与4,096中较大者的显式entry的保序并行PNG批次（`None`取消） |
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
@@ -60,7 +61,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
 | `find_tables(clip=None, strategy=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 使用相同表格及UTF-8输出控制的单页Markdown |
-| `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG）；超过4,096个placement、累计64,000,000像素或64 MiB payload时拒绝部分结果 |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | 与pymupdf相同的图像XObject清单（`ImageItem` NamedTuple，`ImageItemFull`增加`referencer`），以及绘制位置字典（`bbox`、`transform`、尺寸、颜色空间，`xrefs=True`时含`xref`） |
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性；超过8,192条路径、131,072条命令或页面累计131,072个虚线值时拒绝返回部分结果 |
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | 与pymupdf相同的渲染：默认白底不透明RGB，`alpha=True`时为straight-alpha RGBA，`dpi`优先于缩放`matrix`，`clip`使用显示坐标；以path绘制文本的有上限UTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |

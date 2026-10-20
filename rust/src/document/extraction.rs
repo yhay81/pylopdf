@@ -526,3 +526,402 @@ pub(super) fn search_page(
         })
     })
 }
+
+/// One image XObject that a page's resources list, as pymupdf's
+/// `get_images(full=True)` reports it: xref, soft-mask xref, width, height,
+/// bits per component, color space, alternate color space, resource name,
+/// first filter, and the xref of the Form whose resources list it (0 for the
+/// page).
+pub(super) type ImageInventoryTuple =
+    (u32, u32, i64, i64, i64, String, String, String, String, u32);
+
+/// Bound the resource walk of one page's image inventory.
+const MAX_IMAGE_INVENTORY_ENTRIES: usize = 4_096;
+const MAX_IMAGE_INVENTORY_FORMS: usize = 4_096;
+const MAX_IMAGE_INVENTORY_DEPTH: usize = 32;
+
+/// Read a name, or the name an indirect reference resolves to, as text.
+fn object_name_text(doc: &Document, object: &Object) -> Option<String> {
+    deref_object(doc, object)
+        .as_name()
+        .ok()
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+}
+
+/// Return an image dictionary's color space and alternate color space names.
+fn image_color_space_names(doc: &Document, dict: &Dictionary) -> (String, String) {
+    let Ok(space) = dict.get(b"ColorSpace") else {
+        return (String::new(), String::new());
+    };
+    let space = deref_object(doc, space);
+    if let Some(name) = object_name_text(doc, space) {
+        return (name, String::new());
+    }
+    let Ok(items) = space.as_array() else {
+        return (String::new(), String::new());
+    };
+    let family = items
+        .first()
+        .and_then(|first| object_name_text(doc, first))
+        .unwrap_or_default();
+    let alternate = match family.as_str() {
+        "ICCBased" => items
+            .get(1)
+            .map(|profile| deref_object(doc, profile))
+            .and_then(|profile| profile.as_stream().ok())
+            .map(|profile| {
+                profile
+                    .dict
+                    .get(b"Alternate")
+                    .ok()
+                    .and_then(|alternate| object_name_text(doc, alternate))
+                    .unwrap_or_else(|| {
+                        match profile.dict.get(b"N").and_then(Object::as_i64) {
+                            Ok(1) => "DeviceGray",
+                            Ok(4) => "DeviceCMYK",
+                            _ => "DeviceRGB",
+                        }
+                        .to_owned()
+                    })
+            })
+            .unwrap_or_default(),
+        "Indexed" => items
+            .get(1)
+            .and_then(|base| {
+                object_name_text(doc, base).or_else(|| {
+                    deref_object(doc, base)
+                        .as_array()
+                        .ok()
+                        .and_then(|base| base.first())
+                        .and_then(|first| object_name_text(doc, first))
+                })
+            })
+            .unwrap_or_default(),
+        "Separation" | "DeviceN" => items
+            .get(2)
+            .and_then(|alternate| {
+                object_name_text(doc, alternate).or_else(|| {
+                    deref_object(doc, alternate)
+                        .as_array()
+                        .ok()
+                        .and_then(|alternate| alternate.first())
+                        .and_then(|first| object_name_text(doc, first))
+                })
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    (family, alternate)
+}
+
+/// Implements [`_Document::page_image_inventory`].
+///
+/// Walk the page's inherited resources and, depth first, the resources of
+/// the Form XObjects they list, recording each indirect image XObject once in
+/// resource order. Images that only inline content or annotation appearances
+/// hold are not listed, as in pymupdf.
+pub(super) fn page_image_inventory(
+    this: &_Document,
+    page_number: u32,
+) -> PyResult<Vec<ImageInventoryTuple>> {
+    let doc = &this.doc;
+    let page_id = this.page_id(page_number)?;
+    let page = resolve_inherited_page_dict(doc, page_id)?;
+    let mut inventory: Vec<ImageInventoryTuple> = Vec::new();
+    let mut seen_images: HashSet<ObjectId> = HashSet::new();
+    let mut seen_forms: HashSet<ObjectId> = HashSet::new();
+    let grow = |label: &str, error: std::collections::TryReserveError| {
+        PdfError::new_err(format!(
+            "failed to grow the image inventory {label}: {error}"
+        ))
+    };
+    // (resources, referencer xref, depth)
+    let mut pending: Vec<(Dictionary, u32, usize)> = Vec::new();
+    if let Ok(resources) = page.get(b"Resources")
+        && let Ok(resources) = deref_object(doc, resources).as_dict()
+    {
+        pending
+            .try_reserve(1)
+            .map_err(|error| grow("walk", error))?;
+        pending.push((resources.clone(), 0, 0));
+    }
+    while let Some((resources, referencer, depth)) = pending.pop() {
+        let Ok(x_objects) = resources.get(b"XObject") else {
+            continue;
+        };
+        let Ok(x_objects) = deref_object(doc, x_objects).as_dict() else {
+            continue;
+        };
+        let mut forms = Vec::new();
+        for (name, value) in x_objects.iter() {
+            let Ok(id) = value.as_reference() else {
+                continue;
+            };
+            let Ok(stream) = doc.get_object(id).and_then(Object::as_stream) else {
+                continue;
+            };
+            match stream.dict.get(b"Subtype").and_then(Object::as_name) {
+                Ok(b"Image") => {
+                    if !seen_images.insert(id) {
+                        continue;
+                    }
+                    if inventory.len() >= MAX_IMAGE_INVENTORY_ENTRIES {
+                        return Err(limit_err(
+                            "image_inventory_count",
+                            format!(
+                                "the page lists more than {MAX_IMAGE_INVENTORY_ENTRIES} image XObjects"
+                            ),
+                        ));
+                    }
+                    let dict = &stream.dict;
+                    let integer = |key: &[u8]| {
+                        dict.get(key)
+                            .map(|value| deref_object(doc, value))
+                            .and_then(Object::as_i64)
+                            .unwrap_or(0)
+                    };
+                    let smask = dict
+                        .get(b"SMask")
+                        .and_then(Object::as_reference)
+                        .map_or(0, |mask| mask.0);
+                    let (space, alternate) = image_color_space_names(doc, dict);
+                    let filter = dict
+                        .get(b"Filter")
+                        .ok()
+                        .map(|filter| deref_object(doc, filter))
+                        .and_then(|filter| {
+                            object_name_text(doc, filter).or_else(|| {
+                                filter
+                                    .as_array()
+                                    .ok()
+                                    .and_then(|filters| filters.first())
+                                    .and_then(|first| object_name_text(doc, first))
+                            })
+                        })
+                        .unwrap_or_default();
+                    inventory
+                        .try_reserve(1)
+                        .map_err(|error| grow("entries", error))?;
+                    inventory.push((
+                        id.0,
+                        smask,
+                        integer(b"Width"),
+                        integer(b"Height"),
+                        integer(b"BitsPerComponent"),
+                        space,
+                        alternate,
+                        String::from_utf8_lossy(name).into_owned(),
+                        filter,
+                        referencer,
+                    ));
+                }
+                Ok(b"Form") => {
+                    if depth + 1 > MAX_IMAGE_INVENTORY_DEPTH || !seen_forms.insert(id) {
+                        continue;
+                    }
+                    if seen_forms.len() > MAX_IMAGE_INVENTORY_FORMS {
+                        return Err(limit_err(
+                            "image_inventory_count",
+                            format!(
+                                "the page nests more than {MAX_IMAGE_INVENTORY_FORMS} Form XObjects"
+                            ),
+                        ));
+                    }
+                    if let Ok(form_resources) = stream.dict.get(b"Resources")
+                        && let Ok(form_resources) = deref_object(doc, form_resources).as_dict()
+                    {
+                        forms.try_reserve(1).map_err(|error| grow("walk", error))?;
+                        forms.push((form_resources.clone(), id.0, depth + 1));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Visit nested Forms in resource order once the listing is complete.
+        pending
+            .try_reserve(forms.len())
+            .map_err(|error| grow("walk", error))?;
+        pending.extend(forms.into_iter().rev());
+    }
+    Ok(inventory)
+}
+
+/// What `Document.extract_image` returns: the encoded image's extension,
+/// width, height, color components, color space name, bits per component,
+/// soft-mask xref, resolution, and bytes.
+pub(super) type ExtractedImageTuple = (
+    &'static str,
+    u32,
+    u32,
+    u8,
+    String,
+    i64,
+    u32,
+    (u32, u32),
+    Vec<u8>,
+);
+
+/// Implements [`_Document::extract_image`].
+///
+/// Copy the image stream and the objects it reaches into a one-page document
+/// that draws it at its pixel size, without its masks, then let hayro decode
+/// it as `Page.get_images` does: DCT data passes through as JPEG and other
+/// data becomes PNG. The content and colour-space guards run on that page.
+pub(super) fn extract_image(
+    this: &mut _Document,
+    py: Python<'_>,
+    xref: u32,
+) -> PyResult<ExtractedImageTuple> {
+    let doc = &this.doc;
+    let id = doc
+        .objects
+        .range((xref, 0)..=(xref, u16::MAX))
+        .next_back()
+        .map(|(id, _)| *id)
+        .ok_or_else(|| PdfError::new_err(format!("xref {xref} is not an object")))?;
+    let stream = doc
+        .get_object(id)
+        .and_then(Object::as_stream)
+        .ok()
+        .filter(|stream| {
+            matches!(
+                stream.dict.get(b"Subtype").and_then(Object::as_name),
+                Ok(b"Image")
+            )
+        })
+        .ok_or_else(|| PdfError::new_err(format!("xref {xref} is not an image")))?;
+    let dict = &stream.dict;
+    let integer = |key: &[u8]| {
+        dict.get(key)
+            .map(|value| deref_object(doc, value))
+            .and_then(Object::as_i64)
+            .unwrap_or(0)
+    };
+    let (width, height, bits) = (
+        integer(b"Width"),
+        integer(b"Height"),
+        integer(b"BitsPerComponent"),
+    );
+    if width <= 0 || height <= 0 || width > i64::from(u16::MAX) || height > i64::from(u16::MAX) {
+        return Err(PdfError::new_err(format!(
+            "xref {xref} is an image of unsupported size {width}x{height}"
+        )));
+    }
+    let smask = dict
+        .get(b"SMask")
+        .and_then(Object::as_reference)
+        .map_or(0, |mask| mask.0);
+    let (space, _) = image_color_space_names(doc, dict);
+    // The image alone, as pymupdf returns it: its masks are separate objects.
+    let mut image = stream.clone();
+    image.dict.remove(b"SMask");
+    image.dict.remove(b"Mask");
+    let reachable =
+        crate::prune::reachable_object_ids(doc, image.dict.iter().map(|(_, value)| value), |_| {
+            true
+        })?;
+    let mut copy = Document::with_version("1.7");
+    for object_id in &reachable {
+        if *object_id == id {
+            continue;
+        }
+        if let Ok(object) = doc.get_object(*object_id) {
+            copy.objects.insert(*object_id, object.clone());
+        }
+    }
+    copy.objects.insert(id, Object::Stream(image));
+    copy.max_id = copy
+        .objects
+        .keys()
+        .map(|object| object.0)
+        .max()
+        .unwrap_or(0)
+        .max(id.0);
+    let content = format!("q {width} 0 0 {height} 0 0 cm /Im Do Q");
+    let content_id = copy.add_object(Stream::new(Dictionary::new(), content.into_bytes()));
+    let pages_id = copy.new_object_id();
+    let page_id = copy.add_object(lopdf::dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), width.into(), height.into()],
+        "Contents" => content_id,
+        "Resources" => lopdf::dictionary! { "XObject" => lopdf::dictionary! { "Im" => id } },
+    });
+    copy.objects.insert(
+        pages_id,
+        Object::Dictionary(lopdf::dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog_id =
+        copy.add_object(lopdf::dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    copy.trailer.set("Root", catalog_id);
+    let data = serialize_pdf_with_limit(
+        &mut copy,
+        None,
+        this.max_interpretation_size,
+        "interpretation_size",
+        "image extraction snapshot",
+    )?;
+    let settings = this.interpreter_settings();
+    this.contain_renderer_panics(|_| {
+        py.detach(|| {
+            let pdf = Pdf::new(data).map_err(|error| {
+                PdfError::new_err(format!("failed to read xref {xref}: {error:?}"))
+            })?;
+            let mut guard = ContentGuard::default();
+            guard.check(&pdf, PageSelection::One(1))?;
+            let pages = pdf.pages();
+            let page = pages
+                .first()
+                .ok_or_else(|| PdfError::new_err(format!("failed to read xref {xref}")))?;
+            let mut images = crate::extract::extract_page_images(&pdf, page, settings)
+                .map_err(PdfError::new_err)?;
+            let (image_width, image_height, _, ext, bytes) = images
+                .pop()
+                .ok_or_else(|| PdfError::new_err(format!("xref {xref} could not be decoded")))?;
+            let components = match ext {
+                "jpeg" => crate::extract::jpeg_components(&bytes).unwrap_or(3),
+                _ => crate::extract::png_components(&bytes).unwrap_or(3),
+            };
+            let resolution = if ext == "jpeg" {
+                crate::extract::jpeg_resolution(&bytes)
+            } else {
+                (96, 96)
+            };
+            Ok((
+                ext,
+                image_width,
+                image_height,
+                components,
+                space,
+                bits,
+                smask,
+                resolution,
+                bytes,
+            ))
+        })
+    })
+}
+
+/// Implements [`_Document::page_image_info`].
+pub(super) fn page_image_info(
+    this: &mut _Document,
+    py: Python<'_>,
+    page_number: u32,
+) -> PyResult<Vec<crate::extract::ImageInfoTuple>> {
+    let settings = this.interpreter_settings();
+    this.contain_renderer_panics(|this| {
+        let pdf = this.hayro_view_for(PageSelection::One(page_number))?;
+        py.detach(|| {
+            let pages = pdf.pages();
+            let page = page_number
+                .checked_sub(1)
+                .and_then(|index| pages.get(index as usize))
+                .ok_or_else(|| PdfError::new_err(format!("page {page_number} does not exist")))?;
+            crate::extract::extract_page_image_info(pdf, page, settings).map_err(PdfError::new_err)
+        })
+    })
+}

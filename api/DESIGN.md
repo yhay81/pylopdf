@@ -524,7 +524,7 @@ one-to-one onto these rows.
 | `Page.render(...)` | `get_pixmap(...).tobytes()` | R1; done |
 | `Page.get_pixmap(scale=, *, dpi, background, clip)` | pymupdf's defaults (opaque RGB) and `matrix=`, without `scale=` | R1, R2; done |
 | `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1; done |
-| `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2 |
+| `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2; done |
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2; `seqno` done, `layer` with layers in M5 |
 | `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1; done |
 | `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2; done |

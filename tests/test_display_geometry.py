@@ -19,7 +19,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_raw_pdf
+from conftest import build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -207,7 +207,7 @@ def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation:
         shape.draw_rect((100, 100, 150, 130))
         shape.finish(fill=(0.0, 0.0, 1.0), color=None)
 
-    assert [tuple(image["bbox"]) for image in page.get_images()] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
+    assert [tuple(image["bbox"]) for image in drawn_images(page)] == [pytest.approx((200, 100, 260, 160), abs=1e-3)]
     assert [tuple(drawing["rect"]) for drawing in page.get_drawings()] == [
         pytest.approx((100, 100, 150, 130), abs=1e-3)
     ]
