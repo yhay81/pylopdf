@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from pylopdf.pylopdf_core import LimitError, PdfError
+from pylopdf.pylopdf_core import LimitError, PdfError, StaleObjectError
 
 if TYPE_CHECKING:
     from typing import Any
@@ -22,7 +22,7 @@ class EncryptedDocumentError(PdfError):
     """An operation on an undecrypted PDF; provide a password or authenticate."""
 
 
-class StalePageError(PdfError):
+class StalePageError(StaleObjectError):
     """Use of a stale :class:`Page` after a structural document change.
 
     Fetch the page again with ``doc[i]``.
@@ -58,5 +58,6 @@ for _public in (
     DocumentClosedError,
     EncryptedDocumentError,
     StalePageError,
+    StaleObjectError,
 ):
     _public.__module__ = "pylopdf"

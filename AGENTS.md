@@ -102,7 +102,8 @@ overview.
   - D, interactive: `form.rs`, `acroform_import.rs`;
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
-    `document/{page_tree,navigation,labels,metadata,attachments}.rs`.
+    `document/{page_tree,navigation,labels,metadata,attachments,lowlevel}.rs`;
+    `src/pylopdf/_objects.py`.
   - F, content engine: `content/`, `text_replace.rs`, `content_guard.rs`,
     `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
     `read_depth.rs`; `document/replacement.rs`.
@@ -2129,6 +2130,26 @@ overview.
   exact `pdfaid:part` / `pdfaid:conformance` XML elements or attributes, not
   lookalike prefixes, quoted values, comments, or CDATA. This remains a
   self-declaration read rather than PDF/A validation.
+- The low-level object model (`rust/src/document/lowlevel.rs`,
+  `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
+  `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a
+  document, an object-numbering epoch, a root (the trailer or one
+  `(number, generation)`), and a path of keys and indexes through direct
+  containers; it reads the graph on every access and never caches values.
+  Values cross the boundary in the tagged form the Rust module documents.
+  Reads resolve references through at most 32 links, and a missing object
+  reads as `None`. Writes convert the complete value, check every
+  referenced object exists so no reference can alias a later allocation,
+  and only then mutate; nested input stops at 32 levels with
+  `object_value_depth`. Every write calls `invalidate_hayro_pdf`, clears
+  `isolated_content_pages`, and compares the page order before and after
+  with a page-tree walk, returning whether it changed so Python bumps the
+  page generation. Python bumps `_object_epoch` when `garbage=2` and higher
+  renumber objects and when `authenticate` reopens the document, which makes
+  older handles raise `StaleObjectError`; a removed object or a broken path
+  raises it from Rust. `Stream.read` uses the strict bounded decoder with a
+  64 MiB default (`stream_data_size`). A new operation that renumbers or
+  reloads objects must bump the epoch.
 - `api/public-api.json` is the reviewed candidate public surface. It covers
   `__all__`, signatures and defaults, documented members, TypedDict keys, type
   aliases, NamedTuple fields, enum/constant values, and exception inheritance.
