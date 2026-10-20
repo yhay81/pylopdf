@@ -233,7 +233,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
 
     doc.new_page(width=200, height=120)
     doc[1].insert_image(LOGO_RECT, stream=logo)
-    doc.copy_page(1)
+    doc.fullcopy_page(1)
     doc.select([0, 1, 2, 3, 3])
     doc.delete_pages([3])
     doc.insert_pdf(pylopdf.open(stream=build_pdf(["Appendix"])))

@@ -101,7 +101,7 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
     assert appended.get_text([0, LARGE_PAGE_COUNT - 1]) == f"Page 0\nPage {LARGE_PAGE_COUNT - 1}\n"
 
     reversed_doc = pylopdf.Document()
-    reversed_doc.insert_pdf(source, from_page=-1, to_page=0)
+    reversed_doc.insert_pdf(source, from_page=LARGE_PAGE_COUNT - 1, to_page=0)
     assert reversed_doc.page_count == LARGE_PAGE_COUNT
     assert reversed_doc.get_page_text(0) == f"Page {LARGE_PAGE_COUNT - 1}\n"
 

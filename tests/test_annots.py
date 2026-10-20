@@ -271,7 +271,7 @@ def test_copy_page_detaches_shared_indirect_annots_array() -> None:
         }
     )
     doc = pylopdf.open(stream=pdf)
-    doc.copy_page(0)
+    doc.fullcopy_page(0)
 
     doc[1].add_link_annot((20, 20, 30, 30), "https://b.example")
 

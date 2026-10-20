@@ -132,7 +132,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
         (0, 0, 100, 100), pylopdf.Document(stream=build_pdf(["Source"])), 0
     ),
     "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.copy_page(0),
+    "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_toc": lambda doc: doc.set_toc([[1, "Start", 1]]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "embfile_add": lambda doc: doc.embfile_add(f"note{len(doc.embfile_names())}.txt", b"note"),

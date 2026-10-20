@@ -121,7 +121,7 @@ def test_page_with_a_null_parent_reads_and_edits_its_own_attributes(value: str) 
     assert doc[0].mediabox == pylopdf.Rect(0, 0, 300, 400)
     assert doc[0].rotation == 90
     doc[0].insert_text((20, 40), "STAMP")
-    doc.copy_page(0)
+    doc.fullcopy_page(0)
 
     for current in _with_reloaded(doc):
         assert current.page_count == 2

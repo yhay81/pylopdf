@@ -1501,7 +1501,7 @@ def test_replace_text_requires_needle() -> None:
 
 def test_replace_text_detaches_shared_page_contents() -> None:
     doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
-    doc.copy_page(0)
+    doc.fullcopy_page(0)
 
     assert doc[0].replace_text("PDF", "Cat") == 1
     assert "Hello Cat" in doc[0].get_text()

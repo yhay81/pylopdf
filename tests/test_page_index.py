@@ -106,7 +106,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "insert_pdf": (lambda doc: doc.insert_pdf(_other(), start_at=2), [0, 1, "other", 2, 3, 4]),
     "insert_pdf_append": (lambda doc: doc.insert_pdf(_other()), [*UNCHANGED, "other"]),
     "new_page": (lambda doc: doc.new_page(1, width=50, height=60), [0, "new", 1, 2, 3, 4]),
-    "copy_page": (lambda doc: doc.copy_page(3, 0), [3, *UNCHANGED]),
+    "copy_page": (lambda doc: doc.fullcopy_page(3, 0), [3, *UNCHANGED]),
     "set_toc": (lambda doc: doc.set_toc([[1, "Last", 5], [1, "First", 1]]), UNCHANGED),
     "set_rotation": (lambda doc: doc[2].set_rotation(270), UNCHANGED),
     "set_mediabox": (lambda doc: doc[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
@@ -484,7 +484,7 @@ def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> 
     """Appends clone a shared array on write until the last page owns it alone."""
     doc = pylopdf.Document(stream=_indirect_annots_pdf(1))
     for _ in range(3):
-        doc.copy_page(0)
+        doc.fullcopy_page(0)
     assert [len(page.annots()) for page in doc] == [1, 1, 1, 1]
 
     for number, page in enumerate(doc):

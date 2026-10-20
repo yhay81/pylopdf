@@ -26,11 +26,16 @@ def test_insert_pdf_reversed_range(three_page_pdf: bytes) -> None:
     assert "Page one" in doc.get_page_text(2)
 
 
-def test_insert_pdf_negative_range(three_page_pdf: bytes) -> None:
+def test_insert_pdf_negative_range_follows_pymupdf(three_page_pdf: bytes) -> None:
+    # A negative from_page means the first page and a negative to_page the last.
     doc = pylopdf.Document()
     doc.insert_pdf(pylopdf.Document(stream=three_page_pdf), from_page=-2, to_page=-1)
-    assert doc.page_count == 2
-    assert "Page two" in doc.get_page_text(0)
+    assert doc.page_count == 3
+    assert "Page one" in doc.get_page_text(0)
+    # Both ends clamp to the last source page; a descending range reverses.
+    clamped = pylopdf.Document()
+    clamped.insert_pdf(pylopdf.Document(stream=three_page_pdf), from_page=99, to_page=1)
+    assert [clamped.get_page_text(index).strip() for index in range(2)] == ["Page three", "Page two"]
 
 
 def test_insert_pdf_start_at(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
@@ -53,10 +58,11 @@ def test_insert_pdf_start_at_zero_prepends(three_page_pdf: bytes, one_page_pdf: 
     assert "Page one" in doc.get_page_text(1)
 
 
-def test_insert_pdf_start_at_out_of_range(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
+def test_insert_pdf_start_at_beyond_the_end_appends(three_page_pdf: bytes, one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
-    with pytest.raises(IndexError, match="start_at"):
-        doc.insert_pdf(pylopdf.Document(stream=one_page_pdf), start_at=4)
+    doc.insert_pdf(pylopdf.Document(stream=one_page_pdf), start_at=40)
+    assert doc.page_count == 4
+    assert "Hello PDF" in doc.get_page_text(3)
 
 
 def test_insert_pdf_empty_source_noop(three_page_pdf: bytes) -> None:
@@ -137,10 +143,10 @@ def test_new_page_invalid_size(one_page_pdf: bytes) -> None:
 
 def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
-    doc.copy_page(0)
+    doc.fullcopy_page(0)
     assert doc.page_count == 4
     assert "Page one" in doc.get_page_text(3)
-    doc.copy_page(2, to=0)  # Copy the current Page three to the front.
+    doc.fullcopy_page(2, to=0)  # Copy the current Page three to the front.
     assert doc.page_count == 5
     assert "Page three" in doc.get_page_text(0)
     reloaded = pylopdf.Document(stream=doc.tobytes())
@@ -164,7 +170,7 @@ def test_structure_ops_invalidate_pages(three_page_pdf: bytes) -> None:
         ("delete_pages", ([0.5],)),
         ("select", ([0.5],)),
         ("new_page", (0.5,)),
-        ("copy_page", (0, 0.5)),
+        ("fullcopy_page", (0, 0.5)),
     ],
 )
 def test_native_argument_refusal_keeps_existing_pages(
@@ -345,7 +351,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
     elif operation == "delete_pages":
         doc.delete_pages([1])
     elif operation == "copy_page":
-        doc.copy_page(0)
+        doc.fullcopy_page(0)
         index = 2
     else:
         doc[0].insert_text((20, 30), "Drawn")
@@ -359,7 +365,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
             assert current.render_page(index) == expected_png
 
 
-@pytest.mark.parametrize("operation", ["new_page", "insert_pdf", "copy_page"])
+@pytest.mark.parametrize("operation", ["new_page", "insert_pdf", "fullcopy_page"])
 def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) -> None:
     target = pylopdf.open(
         stream=build_raw_pdf(
@@ -377,7 +383,7 @@ def test_add_page_refuses_existing_parent_cycle_before_mutation(operation: str) 
     source = pylopdf.Document()
     source.new_page()
     source[0].insert_text((10, 30), "IMPORTED-DATA-MUST-NOT-REMAIN")
-    arguments = (source,) if operation == "insert_pdf" else (0,) if operation == "copy_page" else ()
+    arguments = (source,) if operation == "insert_pdf" else (0,) if operation == "fullcopy_page" else ()
 
     with pytest.raises(pylopdf.PdfError, match="inheritance tree contains a reference cycle"):
         getattr(target, operation)(*arguments)

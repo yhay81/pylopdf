@@ -460,29 +460,6 @@
             "returns": "ImageCompressionResult"
           }
         },
-        "copy_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "to"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -493,6 +470,7 @@
               },
               {
                 "annotation": "int",
+                "default": -1,
                 "kind": "positional_or_keyword",
                 "name": "pno"
               }
@@ -509,9 +487,21 @@
                 "name": "self"
               },
               {
-                "annotation": "Iterable[int]",
-                "kind": "positional_or_keyword",
-                "name": "page_numbers"
+                "annotation": "int | Iterable[int]",
+                "kind": "var_positional",
+                "name": "args"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "from_page"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "to_page"
               }
             ],
             "returns": "None"
@@ -607,6 +597,29 @@
               }
             ],
             "returns": "list[str]"
+          }
+        },
+        "fullcopy_page": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "int",
+                "default": -1,
+                "kind": "positional_or_keyword",
+                "name": "to"
+              }
+            ],
+            "returns": "None"
           }
         },
         "get_form_fields": {
@@ -715,24 +728,24 @@
               {
                 "annotation": "Document",
                 "kind": "positional_or_keyword",
-                "name": "other"
+                "name": "docsrc"
               },
               {
                 "annotation": "int",
-                "default": 0,
-                "kind": "positional_or_keyword",
+                "default": -1,
+                "kind": "keyword_only",
                 "name": "from_page"
               },
               {
                 "annotation": "int",
                 "default": -1,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "to_page"
               },
               {
                 "annotation": "int",
                 "default": -1,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "start_at"
               }
             ],
@@ -1007,12 +1020,12 @@
           "signature": {
             "parameters": [
               {
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "self"
               },
               {
                 "annotation": "Iterable[int]",
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "page_numbers"
               }
             ],
@@ -7103,29 +7116,6 @@
             "returns": "ImageCompressionResult"
           }
         },
-        "copy_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int",
-                "default": -1,
-                "kind": "positional_or_keyword",
-                "name": "to"
-              }
-            ],
-            "returns": "None"
-          }
-        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -7136,6 +7126,7 @@
               },
               {
                 "annotation": "int",
+                "default": -1,
                 "kind": "positional_or_keyword",
                 "name": "pno"
               }
@@ -7152,9 +7143,21 @@
                 "name": "self"
               },
               {
-                "annotation": "Iterable[int]",
-                "kind": "positional_or_keyword",
-                "name": "page_numbers"
+                "annotation": "int | Iterable[int]",
+                "kind": "var_positional",
+                "name": "args"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "from_page"
+              },
+              {
+                "annotation": "int | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "to_page"
               }
             ],
             "returns": "None"
@@ -7250,6 +7253,29 @@
               }
             ],
             "returns": "list[str]"
+          }
+        },
+        "fullcopy_page": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "int",
+                "default": -1,
+                "kind": "positional_or_keyword",
+                "name": "to"
+              }
+            ],
+            "returns": "None"
           }
         },
         "get_form_fields": {
@@ -7358,24 +7384,24 @@
               {
                 "annotation": "Document",
                 "kind": "positional_or_keyword",
-                "name": "other"
+                "name": "docsrc"
               },
               {
                 "annotation": "int",
-                "default": 0,
-                "kind": "positional_or_keyword",
+                "default": -1,
+                "kind": "keyword_only",
                 "name": "from_page"
               },
               {
                 "annotation": "int",
                 "default": -1,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "to_page"
               },
               {
                 "annotation": "int",
                 "default": -1,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "start_at"
               }
             ],
@@ -7650,12 +7676,12 @@
           "signature": {
             "parameters": [
               {
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "self"
               },
               {
                 "annotation": "Iterable[int]",
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "page_numbers"
               }
             ],

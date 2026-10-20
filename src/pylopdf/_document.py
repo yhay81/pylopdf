@@ -13,7 +13,7 @@ import warnings as _warnings
 from collections import Counter
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
 
 from pylopdf import _fonts, _markdown
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
@@ -305,6 +305,79 @@ def _resolve_source(
         msg = f"stream must be bytes, bytearray, memoryview, or io.BytesIO: {type(stream).__name__}"
         raise TypeError(msg)
     return filename, stream
+
+
+def _deletion_numbers(
+    args: tuple[int | Iterable[int], ...],
+    from_page: int | None,
+    to_page: int | None,
+    count: int,
+) -> list[int]:
+    """Resolve pymupdf's ``delete_pages`` argument forms to one-based numbers."""
+    if from_page is not None or to_page is not None:
+        if args:
+            msg = "cannot mix keyword and positional arguments"
+            raise TypeError(msg)
+        first = -1 if from_page is None else from_page
+        last = -1 if to_page is None else to_page
+        return _deletion_range(first + count if first < 0 else first, last + count if last < 0 else last, count)
+    if len(args) == 2:  # noqa: PLR2004 - pymupdf's (from_page, to_page) form.
+        first, last = args
+        if not (_is_int(first) and _is_int(last)):
+            msg = "delete_pages(from_page, to_page) takes two integers"
+            raise TypeError(msg)
+        return _deletion_range(min(first, last), max(first, last), count)
+    if len(args) != 1:
+        msg = f"delete_pages takes 1 or 2 positional arguments, or from_page= and to_page= ({len(args)} given)"
+        raise TypeError(msg)
+    (selection,) = args
+    if _is_int(selection):
+        pno = selection + count if selection < 0 else selection
+        return _deletion_range(pno, pno, count)
+    if isinstance(selection, (float, str, bytes)):
+        msg = f"delete_pages takes a page number, a range, or an iterable: {selection!r}"
+        raise TypeError(msg)
+    return _listed_deletions(selection, count)
+
+
+def _deletion_range(first: int, last: int, count: int) -> list[int]:
+    """Return the one-based numbers of an inclusive zero-based page range."""
+    if not 0 <= first <= last < count:
+        msg = f"bad page number(s): {first}..{last} (page count {count})"
+        raise ValueError(msg)
+    return list(range(first + 1, last + 2))
+
+
+def _listed_deletions(selection: object, count: int) -> list[int]:
+    """Return the sorted, distinct one-based numbers of listed pages."""
+    try:
+        entries = iter(cast("Iterable[object]", selection))
+    except TypeError:
+        msg = f"delete_pages takes a page number, a range, or an iterable: {selection!r}"
+        raise TypeError(msg) from None
+    limit = max(count, _MIN_PAGE_ENTRY_LIMIT)
+    numbers: set[int] = set()
+    for index, pno in enumerate(entries):
+        if index >= limit:
+            limit_code = "page_entry_count"
+            msg = (
+                f"page_numbers cannot contain more than {limit} entries "
+                f"(the larger of the page count and {_MIN_PAGE_ENTRY_LIMIT})"
+            )
+            raise LimitError(limit_code, msg)
+        if not _is_int(pno):
+            msg = f"page numbers must be integers: {pno!r}"
+            raise TypeError(msg)
+        if not 0 <= pno < count:
+            msg = f"bad page number: {pno!r} (page count {count})"
+            raise ValueError(msg)
+        numbers.add(pno + 1)
+    return sorted(numbers)
+
+
+def _is_int(value: object) -> TypeGuard[int]:
+    """Return whether ``value`` is an integer other than a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
@@ -1187,14 +1260,42 @@ class Document:
             ],
         }
 
-    def delete_page(self, pno: int) -> None:
-        """Delete zero-based page ``pno``; negative values count from the end."""
-        page_number = self._lopdf_page_number(pno)
-        self._doc.delete_pages([page_number])
-        self._bump_generation()
+    def delete_page(self, pno: int = -1) -> None:
+        """Delete zero-based page ``pno``, the last page by default.
 
-    def delete_pages(self, page_numbers: Iterable[int]) -> None:
-        """Delete zero-based pages; negative values count from the end.
+        Negative values count from the end. Cleanup follows
+        :meth:`delete_pages`.
+        """
+        self.delete_pages(pno)
+
+    @overload
+    def delete_pages(self, pno: int, /) -> None: ...
+
+    @overload
+    def delete_pages(self, from_page: int, to_page: int, /) -> None: ...
+
+    @overload
+    def delete_pages(self, page_numbers: Iterable[int], /) -> None: ...
+
+    @overload
+    def delete_pages(self, *, from_page: int = -1, to_page: int = -1) -> None: ...
+
+    def delete_pages(
+        self,
+        *args: int | Iterable[int],
+        from_page: int | None = None,
+        to_page: int | None = None,
+    ) -> None:
+        """Delete zero-based pages in pymupdf's argument forms.
+
+        ``delete_pages(pno)`` deletes one page, and a negative ``pno`` counts
+        from the end. ``delete_pages(from_page, to_page)`` deletes an inclusive
+        range given in either order. The keywords ``from_page`` and ``to_page``
+        delete an inclusive range in which -1, the default, means the last page
+        and other negative values count from the end. An iterable deletes the
+        listed pages, which must lie in ``0..page_count - 1``; repeated numbers
+        delete a page once. Page numbers out of range raise ``ValueError``
+        before the document changes.
 
         The iterable may contain up to the larger of the page count and 4,096
         entries; further entries raise :class:`LimitError` with code
@@ -1211,13 +1312,15 @@ class Document:
         :class:`LimitError` with code ``structure_tree_count``. A refusal
         leaves the document unchanged.
         """
-        numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
+        self._ensure_open()
+        count = self.page_count
+        numbers = _deletion_numbers(args, from_page, to_page, count)
         if not numbers:
             return
         self._doc.delete_pages(numbers)
         self._bump_generation()
 
-    def select(self, page_numbers: Iterable[int]) -> None:
+    def select(self, page_numbers: Iterable[int], /) -> None:
         """Keep only the given zero-based pages in the given order.
 
         This also reorders pages. Repeating an index duplicates that page; the
@@ -1234,16 +1337,20 @@ class Document:
 
     def insert_pdf(
         self,
-        other: Document,
-        from_page: int = 0,
+        docsrc: Document,
+        *,
+        from_page: int = -1,
         to_page: int = -1,
         start_at: int = -1,
     ) -> None:
-        """Insert a page range from another document.
+        """Insert a page range from another document, with pymupdf's range rules.
 
-        Insert the inclusive, zero-based ``from_page..to_page`` range at
-        zero-based ``start_at``; negative source indices count from the end and
-        ``start_at=-1`` appends. A descending range imports in reverse order.
+        Insert the inclusive, zero-based ``from_page..to_page`` range of
+        ``docsrc`` before page ``start_at`` of this document. A negative
+        ``from_page`` means the first page and a negative ``to_page`` the last;
+        both clamp to the last source page, and ``from_page`` above
+        ``to_page`` imports the range in reverse order. A negative
+        ``start_at`` appends, and a value beyond the page count appends too.
         The range is bounded by the source document itself, so a complete
         document of any page count can be inserted. Source-local links,
         including named destinations, become explicit destinations or are
@@ -1267,18 +1374,20 @@ class Document:
         ``/SigFlags`` are not copied.
         """
         self._ensure_open()
-        if other is self:
+        if docsrc is self:
             msg = "cannot insert a document into itself"
             raise ValueError(msg)
-        other._ensure_open()
-        source_count = other.page_count
+        docsrc._ensure_open()
+        source_count = docsrc.page_count
         if source_count == 0:
             return
-        start = _resolve_page_index(from_page, source_count)
-        stop = _resolve_page_index(to_page, source_count)
+        last = source_count - 1
+        start = min(max(from_page, 0), last)
+        stop = last if to_page < 0 else min(to_page, last)
         step = 1 if start <= stop else -1
-        position = None if start_at == -1 else self._insert_position(start_at, "start_at")
-        self._doc.merge_pages(other._doc, list(range(start + 1, stop + 1 + step, step)), position)
+        count = self.page_count
+        position = None if start_at < 0 or start_at >= count else start_at
+        self._doc.merge_pages(docsrc._doc, list(range(start + 1, stop + 1 + step, step)), position)
         self._bump_generation()
 
     def new_page(self, pno: int = -1, *, width: float = 595.0, height: float = 842.0) -> Page:
@@ -1305,15 +1414,23 @@ class Document:
         self._bump_generation()
         return self[index]
 
-    def copy_page(self, pno: int, to: int = -1) -> None:
-        """Copy page ``pno`` to insertion position ``to``; -1 appends.
+    def fullcopy_page(self, pno: int, to: int = -1) -> None:
+        """Copy page ``pno`` before page ``to``; -1 appends.
 
-        The copied page shares Contents and Resources objects with the original.
+        As in pymupdf, ``pno`` lies in ``0..page_count - 1`` and ``to`` in
+        ``-1..page_count - 1``; other values raise ``ValueError``. The copy is
+        an independent page object that shares the original's content streams
+        and resources until either page is edited (DESIGN.md G8).
         """
         self._ensure_open()
-        page_number = self._lopdf_page_number(pno)
-        position = None if to == -1 else self._insert_position(to, "to")
-        self._doc.copy_page(page_number, position)
+        if not (_is_int(pno) and _is_int(to)):
+            msg = f"pno and to must be integers: pno={pno!r}, to={to!r}"
+            raise TypeError(msg)
+        count = self.page_count
+        if not (0 <= pno < count and -1 <= to < count):
+            msg = f"bad page number(s): pno={pno!r}, to={to!r} (page count {count})"
+            raise ValueError(msg)
+        self._doc.copy_page(pno + 1, None if to == -1 else to)
         self._bump_generation()
 
     def _insert_position(self, value: int, name: str) -> int:

@@ -187,7 +187,7 @@ EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
     "select": lambda doc: doc.select([2, 0, 1]),
     "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=_manual(256)), start_at=0),
     "new_page": lambda doc: doc.new_page(0, width=200, height=200),
-    "copy_page": lambda doc: doc.copy_page(2, 0),
+    "copy_page": lambda doc: doc.fullcopy_page(2, 0),
     "set_toc": lambda doc: doc.set_toc([[1, "Last page", 3]]),
     "add_link_annot": lambda doc: doc[1].add_link_annot((1, 20, 10, 30), "https://example.com/"),
     "embfile_add": lambda doc: doc.embfile_add("notes.txt", b"notes"),
