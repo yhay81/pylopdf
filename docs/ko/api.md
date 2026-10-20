@@ -66,7 +66,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성. 페이지당 8,192개 경로, 131,072개 명령 또는 누적 131,072개 dash 값을 넘으면 부분 결과 없이 거부 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 상한이 있는PNG / UTF-8 SVG 렌더링. `clip`은 표시 좌표 사용 |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
-| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
+| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | pymupdf 규약의 페이지 박스. `mediabox`는 PDF 좌표, `cropbox`는 MediaBox 위쪽 기준으로 y축 반전. `set_cropbox`는 MediaBox 안의 사각형만 받고 `set_mediabox`는 CropBox, BleedBox, TrimBox, ArtBox를 삭제 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
 | `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `docsrc`는 같은 문서여도 됨; 편집하지 않은 `docsrc`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 문자열은 `str.splitlines()`로 줄을 나누고 리스트는 항목 하나를 한 줄로 쓰며, 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. 페이지 아래로 벗어나는 줄은 그리지 않고 그린 줄 수를 반환. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |

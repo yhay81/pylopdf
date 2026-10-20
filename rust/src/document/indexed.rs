@@ -192,6 +192,18 @@ impl IndexedDocument {
         Ok(())
     }
 
+    /// Remove one rotation or page-box entry from a page object; such
+    /// entries never name page-tree objects, so the page index survives.
+    pub(super) fn remove_page_box_entry(&mut self, page_id: ObjectId, key: &str) -> PyResult<()> {
+        debug_assert!(UNWALKED_PAGE_ENTRIES.contains(&key) && key != "Contents");
+        self.doc
+            .get_object_mut(page_id)
+            .and_then(Object::as_dict_mut)
+            .map_err(to_py_err)?
+            .remove(key.as_bytes());
+        Ok(())
+    }
+
     /// Replace a page object with a prepared page dictionary.
     ///
     /// The index survives when `page_id` is an indexed page and the new

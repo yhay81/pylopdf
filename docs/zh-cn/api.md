@@ -64,7 +64,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性；超过8,192条路径、131,072条命令或页面累计131,072个虚线值时拒绝返回部分结果 |
 | `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 有上限的PNG / UTF-8 SVG渲染；`clip`使用显示坐标 |
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
-| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
+| `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 遵循pymupdf约定的页面框：`mediabox`为PDF坐标，`cropbox`以MediaBox顶边为基准翻转y轴；`set_cropbox`只接受位于MediaBox内的矩形，`set_mediabox`会删除CropBox、BleedBox、TrimBox与ArtBox |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转；再次放置相同输入时共享同一图像XObject |
 | `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`docsrc`可为同一文档；再次放置未编辑`docsrc`的同一页面时共享其Form XObject |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；与pymupdf相同，字符串用`str.splitlines()`分行，列表每项为一行，行距为`fontsize`的`lineheight`倍，默认为字体的`ascender`减去`descender`，超出页面底边的行不绘制，并返回绘制的行数；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |

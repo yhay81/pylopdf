@@ -1114,8 +1114,18 @@ def _rectangle_results() -> dict[str, Any]:
         box = page.rect * Matrix(0.5, 0.5) + 20
         page.insert_text(box.tl + Point(10, 30), "Boxed")
         (hit,) = page.search_for("Boxed")
+        boxed = document.new_page(width=600, height=800)
+        boxed.set_cropbox((100, 50, 500, 350))
+        cropbox = list(boxed.cropbox)
+        crop_rect = list(boxed.rect)
+        boxed.set_mediabox((0, 0, 200, 300))
+        reset_cropbox = list(boxed.cropbox)
     _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
+    _require(cropbox == [100, 50, 500, 350] and crop_rect == [0, 0, 400, 300], "the CropBox convention changed")
+    _require(reset_cropbox == [0, 0, 200, 300], "set_mediabox kept the CropBox")
     return {
+        "cropbox": cropbox,
+        "reset_cropbox": reset_cropbox,
         "rect_union": list(rect | Rect(0, 0, 2, 2)),
         "rect_torect": list(rect.torect(Rect(0, 0, 10, 10))),
         "quad_rect": list(quad.rect),

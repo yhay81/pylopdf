@@ -1012,6 +1012,18 @@ impl _Document {
         geometry::set_page_box(self, page_number, key, x0, y0, x1, y1)
     }
 
+    /// Set a one-based page's MediaBox and remove its other page boxes.
+    fn set_mediabox(
+        &mut self,
+        page_number: u32,
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+    ) -> PyResult<()> {
+        geometry::set_mediabox(self, page_number, x0, y0, x1, y1)
+    }
+
     /// Compress streams.
     fn compress(&mut self, py: Python<'_>) {
         self.invalidate_hayro_pdf();
