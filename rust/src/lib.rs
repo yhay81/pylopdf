@@ -36,6 +36,8 @@ mod shape;
 mod structure_prune;
 mod text_replace;
 mod unallocated;
+#[cfg(windows)]
+mod windows_permissions;
 use document::{
     _Document, _decode_text_string, _encode_text_string, LimitError, PasswordError, PdfError,
     StaleObjectError,
@@ -59,5 +61,10 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("StaleObjectError", m.py().get_type::<StaleObjectError>())?;
     m.add_function(wrap_pyfunction!(_decode_text_string, m)?)?;
     m.add_function(wrap_pyfunction!(_encode_text_string, m)?)?;
+    #[cfg(windows)]
+    m.add_function(wrap_pyfunction!(
+        windows_permissions::_copy_windows_dacl,
+        m
+    )?)?;
     Ok(())
 }

@@ -214,6 +214,12 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   PNG encode를 직접stream하며, 완전한write가 성공한 뒤에만 요청path를 원자적으로
   교체합니다. 완성된PNG를 메모리에 하나 더 보관하지 않습니다. 교체 실패 시 기존
   output을 보존하고 임시file을 삭제합니다.
+- Windows에서는 두 저장 작업 모두 기존 일반 파일의 DACL과 상속 보호 설정을
+  유지합니다. 데이터를 쓰기 전에 임시 파일에 접근 제한을 적용하며, 보안 설명자를
+  복사할 수 없으면 저장을 거부합니다. 저장에 실패해도 읽기 전용 또는 잠긴 대상
+  파일은 변경하지 않고 임시 파일을 삭제합니다. `Document.save()`는 상대 경로와
+  Unicode 이름을 포함한 긴 Windows 경로를 내부적으로 정규화하므로 시스템 전체의
+  긴 경로 정책을 활성화할 필요가 없습니다.
 - `Page.insert_image()`는encoded JPEG/PNG input을 기본64 MiB, decoded PNG input을
   기본64,000,000픽셀로 제한합니다. filename은GIL을 해제한Rust 경계에서 상한을 두고
   읽으며 PNG dimension은decoded storage 할당 전에 검사합니다. 신뢰 가능한workload는

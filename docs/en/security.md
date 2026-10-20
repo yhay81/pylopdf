@@ -258,6 +258,13 @@ error.
   the requested path only after the complete write succeeds. It does not
   retain a second completed PNG in memory. Replacement failures preserve
   existing output and remove the temporary file.
+- On Windows, both file savers preserve an existing regular file's DACL and
+  inheritance protection. They apply the restrictions to the temporary file
+  before writing data and refuse the save if the security descriptor cannot be
+  copied. Read-only or locked destinations remain unchanged on failure, and
+  failed temporary outputs are removed. `Document.save()` normalizes long
+  Windows paths internally, including relative paths and Unicode names, without
+  requiring the system-wide long-path policy to be enabled.
 - `Page.insert_image()` defaults encoded JPEG/PNG input to 64 MiB and decoded
   PNG input to 64,000,000 pixels. Filename input is read under the released GIL
   through the same bounded Rust boundary used by direct core calls; PNG

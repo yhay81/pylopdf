@@ -1,6 +1,10 @@
 # Type stubs for the Rust extension module pylopdf_core.
 import os
+import sys
 from typing import TypeAlias
+
+if sys.platform == "win32":
+    def _copy_windows_dacl(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None: ...
 
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
 _RawSpanTuple: TypeAlias = tuple[

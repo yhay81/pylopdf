@@ -209,15 +209,28 @@ impl Pixmap {
             let (temporary, mut output) =
                 temporary_sibling(&target).map_err(|error| save_error(&path, error))?;
 
-            let result = crate::extract::write_png(
-                &mut output,
-                self.width,
-                self.height,
-                png::ColorType::Rgba,
-                &self.data,
-                png::Compression::Fast,
-            )
-            .map_err(|error| save_error(&path, error));
+            // Restrict the sibling before writing any image data. Keep the
+            // final rename: ReplaceFileW can remove the original on error.
+            #[cfg(windows)]
+            let prepared = if permissions.is_some() {
+                crate::windows_permissions::copy_dacl(&target, &temporary)
+                    .map_err(|error| save_error(&path, error))
+            } else {
+                Ok(())
+            };
+            #[cfg(not(windows))]
+            let prepared: PyResult<()> = Ok(());
+            let result = prepared.and_then(|()| {
+                crate::extract::write_png(
+                    &mut output,
+                    self.width,
+                    self.height,
+                    png::ColorType::Rgba,
+                    &self.data,
+                    png::Compression::Fast,
+                )
+                .map_err(|error| save_error(&path, error))
+            });
             drop(output);
             let result = result.and_then(|()| {
                 if let Some(permissions) = permissions {

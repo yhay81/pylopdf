@@ -7,6 +7,7 @@ import math
 import os
 import secrets
 import stat
+import sys
 import warnings as _warnings
 from collections import Counter
 from contextlib import suppress
@@ -49,6 +50,9 @@ from pylopdf._tables import (
 )
 from pylopdf._types import Permissions
 from pylopdf.pylopdf_core import LimitError, PdfError, _Document
+
+if sys.platform == "win32":
+    from pylopdf.pylopdf_core import _copy_windows_dacl
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -139,6 +143,28 @@ def _temporary_sibling_path(target: Path) -> Path:
     raise FileExistsError(msg)
 
 
+def _save_target_path(requested: Path) -> Path:
+    """Support Windows long paths before checking or resolving a final symlink."""
+    target = requested
+    if sys.platform == "win32":
+        # Normalize before adding the verbatim prefix: it does not interpret
+        # relative components or forward slashes. Keep caller text in errors.
+        absolute = os.path.abspath(requested)  # noqa: PTH100 - lexical normalization must precede filesystem access.
+        if not absolute.startswith(("\\\\?\\", "\\\\.\\")):
+            absolute = "\\\\?\\UNC\\" + absolute[2:] if absolute.startswith("\\\\") else "\\\\?\\" + absolute
+        target = Path(absolute)
+    return target.resolve(strict=False) if target.is_symlink() else target
+
+
+def _remove_temporary_output(temporary: Path) -> None:
+    """Best-effort cleanup, including a Windows sibling made read-only."""
+    if sys.platform == "win32":
+        with suppress(OSError):
+            temporary.chmod(stat.S_IWRITE)
+    with suppress(OSError):
+        temporary.unlink()
+
+
 def _atomic_save_file(
     filename: str | os.PathLike[str],
     writer: Callable[[str], None],
@@ -146,7 +172,7 @@ def _atomic_save_file(
     """Write a sibling file completely before atomically replacing the target."""
     requested = Path(filename)
     try:
-        target = requested.resolve(strict=False) if requested.is_symlink() else requested
+        target = _save_target_path(requested)
         try:
             target_metadata = target.stat()
         except FileNotFoundError:
@@ -159,6 +185,13 @@ def _atomic_save_file(
         raise PdfError(msg) from exc
     replaced = False
     try:
+        if sys.platform == "win32" and target_mode is not None:
+            try:
+                # Apply access restrictions before any PDF data is written.
+                _copy_windows_dacl(target, temporary)
+            except OSError as exc:
+                msg = f"failed to save {requested}: {exc}"
+                raise PdfError(msg) from exc
         try:
             writer(str(temporary))
         except PdfError as exc:
@@ -174,8 +207,7 @@ def _atomic_save_file(
         replaced = True
     finally:
         if not replaced:
-            with suppress(OSError):
-                temporary.unlink()
+            _remove_temporary_output(temporary)
 
 
 def _validate_cumulative_pdf_text_input(

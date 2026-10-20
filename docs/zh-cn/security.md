@@ -185,6 +185,11 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 - `Pixmap.save()`把PNG encode直接流式写入target directory中不可预测且排他创建的
   sibling，仅在完整write成功后原子替换请求path，不会在内存中再保留一份完成PNG。
   替换失败会保留现有output并删除临时file。
+- 在Windows上，两种保存操作都会保留现有普通文件的DACL和继承保护设置。
+  在写入数据之前，会将访问限制应用到临时文件；如果无法复制安全描述符，
+  则拒绝保存。保存失败时，只读或被锁定的目标文件保持不变，并删除临时文件。
+  `Document.save()`在内部规范化长Windows路径，包括相对路径和Unicode名称，
+  无需启用系统级长路径策略。
 - `Page.insert_image()`默认将encoded JPEG/PNG input限制为64 MiB，将decoded PNG
   input限制为64,000,000像素。filename通过释放GIL的Rust边界进行有上限读取，PNG
   dimension在分配decoded storage前检查。可信workload可用`max_size=None`／
