@@ -339,13 +339,15 @@ point to the object model.
   one imported Form for repeated `show_pdf_page` placements of an unchanged
   source page. Five placements of one `bill-hr815.pdf` page then write one
   Form and 5 font files (39.7 KB instead of 192 KB).
-- In progress: save-time merging of identical objects. The target API is
-  pymupdf's `garbage` levels for `save` and `tobytes`: 0 keeps every
-  object; 1 removes unreferenced objects, as `True` does today; 2 also compacts
-  numbering; 3 also merges identical non-stream objects; 4 also merges
-  identical streams. `True` and `False` keep their meaning because `bool` is a
-  subclass of `int`. Merging hashes serialized objects, confirms equality
-  before retargeting references, and stays bounded by the object count.
+- Done: save-time merging of identical objects through pymupdf's `garbage`
+  levels for `save` and `tobytes`: 0 keeps every object; 1 removes
+  unreferenced objects; 2 also compacts numbering; 3 also merges identical
+  non-stream objects; 4 also merges identical streams. `True` and `False`
+  keep their meaning because `bool` is a subclass of `int`. Merging hashes
+  each object with its references replaced by the equality class of their
+  targets, confirms equality before retargeting references, and visits the
+  reference graph's strongly connected components children first, so chains
+  of equal objects merge in one pass, in time linear in the object count.
 
 ### F7 — Content and appearance builder
 

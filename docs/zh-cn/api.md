@@ -36,7 +36,7 @@ password input上限为127个UTF-8 byte。
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=` `deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |
 
 `compress_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地

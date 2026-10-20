@@ -36,7 +36,7 @@ password inputはUTF-8 127 byteが上限です。
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入。`font`には読み込み済みのOpenTypeの`Font`を渡せる |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=` `deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される

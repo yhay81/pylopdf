@@ -34,7 +34,7 @@ deliberately does not implement.
 | `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
-| `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` is a bool |
+| `doc.save(garbage=4, deflate=True)` | same | pymupdf's levels 0–4; pages, annotations, form fields, structure elements, and layers are never merged |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256 only; each password stops at 127 UTF-8 bytes |
 | `doc.needs_pass` / `authenticate()` | same | same return semantics (0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | same | |
@@ -136,5 +136,5 @@ doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # takes the whole list
 page.get_pixmap(scale=2).save("page.png")
-doc.save("out.pdf", garbage=True, deflate=True)
+doc.save("out.pdf", garbage=4, deflate=True)
 ```

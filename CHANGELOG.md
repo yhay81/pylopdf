@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `Document.save` and `Document.tobytes` take pymupdf's cumulative `garbage`
+  levels: 1 removes unreferenced objects, as `True` did, 2 also numbers the
+  remaining objects consecutively, 3 also merges identical objects other than
+  streams, and 4 also merges identical streams. `True` and `False` keep their
+  meaning, a level outside 0–4 raises `PdfError`, and the default is now `0`.
+  Merging follows chains: a font, its descriptor, and its font program merge
+  together, and twenty imports of `usrguide.pdf` save in 786 KB at level 4
+  instead of 11.2 MB at level 1, in 21 ms. Pages, page-tree nodes,
+  annotations, form fields, structure elements, outline items, article
+  threads, optional-content groups, objects in reference cycles, objects the
+  trailer names, and lists named under `/Annots`, `/K`, `/Kids`, and similar
+  keys are never merged, so identical pages or layers stay distinct.
+  Compaction turns references to missing objects into null, so that their
+  numbers cannot come to name another object.
 - CPython 3.15 support. The existing `abi3-py310` wheel covers GIL-enabled
   3.15, which the package metadata now declares; CI runs the full suite on
   3.15, and release CI smoke-tests every abi3 wheel on 3.15 as well as 3.14.
