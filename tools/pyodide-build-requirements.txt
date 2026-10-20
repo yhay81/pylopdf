@@ -20,9 +20,9 @@ build==1.2.2.post1 \
     --hash=sha256:1d61c0887fa860c01971625baae8bdd338e517b836a2f70dd1f7aa3a6b2fc5b5 \
     --hash=sha256:b36993e92ca9375a219c99e606a122ff365a760a2d4bba0caa09bd5278b608b7
     # via pyodide-build
-certifi==2026.7.22 \
-    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775 \
-    --hash=sha256:741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55
+certifi==2026.10.19 \
+    --hash=sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae \
+    --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
     # via
     #   httpcore
     #   httpx
@@ -178,7 +178,7 @@ maturin==1.14.1 \
     --hash=sha256:dfc54ae32e6fcb18302193ab9a30b0b25eefffba994ae13238974805533ef75e \
     --hash=sha256:f3306078070c1508fd715b9116070cbcaff5959024272a9f1e6f5cb29768b86c \
     --hash=sha256:ffe5ad71f21d1e6603c4dd75f7fee34adf5ed5ebcebb692886549888ebb329ed
-    # via -r tools/pyodide-build-requirements.in
+    # via -r pyodide-build-requirements.in
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
     --hash=sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba
@@ -334,7 +334,7 @@ pygments==2.20.0 \
 pyodide-build==0.30.7 \
     --hash=sha256:2d71f51aef16a76eec50fa14b0c82b8f69876223e3e68d338cbdc9aec2be5bcf \
     --hash=sha256:6058a911d09470ed953af21270e0afd232a7df36d682dfea2f0b5fe1cb7f6763
-    # via -r tools/pyodide-build-requirements.in
+    # via -r pyodide-build-requirements.in
 pyodide-cli==0.5.0 \
     --hash=sha256:14df0797e791558b6976d4612f9df9619334f8914bfe3efbdd22e3886f5275b7 \
     --hash=sha256:24c02736f1d6c99396f5e9330fd30bd98db88cf49ef059b62b025fa1f5f6e29c
