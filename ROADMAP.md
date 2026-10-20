@@ -211,8 +211,8 @@ complete, and version numbers are assigned at release time.
 | --- | --- | --- |
 | 0 — done | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion (#249, #250); XObject reuse (#231); save-time merging of identical objects (#251); CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design (#236), approved 2026-10-20 | Merged to main; F0 approved |
 | 1 — done | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each. F1, F2, F4, and F5 shipped in v0.15.0; F9 continues into wave 2 | F1 merged with an unchanged API snapshot and corpus |
-| 2 — API reset (current) | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
-| 3 — breadth | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
+| 2 — done | M0 by workstream (#272–#274, #276–#286), released together as one breaking release, and F9's codemod, hints, and corpus; F8 in parallel | M0 acceptance, met on 2026-10-21 |
+| 3 — breadth (current) | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
 | 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
 | 5 — depth | M6 (A, H), M7 (G) | Milestone acceptance |
 | 6 — rich text | M8 (C) | Milestone acceptance |
@@ -464,6 +464,17 @@ Acceptance: the codemod turns a corpus of pymupdf example programs, written
 for this repository rather than copied, into passing pylopdf programs, and
 lists the manual steps that remain.
 
+Done on 2026-10-21. `tools/generate_migration_hints.py` writes
+`src/pylopdf/_migration_hints.py` and the name map at the end of
+`docs/en/llms.txt` from the manifest; `Document`, `Page`, `Annot`, `Font`,
+`Shape`, the geometry types, and the package raise hinted `AttributeError`s
+through a `__getattr__` that type checkers do not see. `python -m
+pylopdf.migrate` renames the imports, rewrites the TOC page shift,
+`embfile_*`, the `xref_*` stream readers, `copy_page`, and the in-place
+geometry methods, and marks every other missing name with its hint. It
+migrates the five programs of `tests/assets/migration/` into programs that
+pass, and lists the four manual steps of a sixth.
+
 ## Milestones
 
 ### M0 — API reset
@@ -501,15 +512,14 @@ release.
   replaces them.
 - Publish codemod rules and hints for every change (F9).
 
-Progress on 2026-10-20: the parameter names and keyword-only options are
-done. `search_for` takes `text`, `show_pdf_page` takes `docsrc`,
-`Pixmap.save` takes `filename`, `save` and `tobytes` take `use_objstms`,
-`find_tables` takes keyword-only `clip` and `strategy` with pymupdf's `None`
-default, `new_page` takes keyword-only `width` and `height`, and
-`insert_textbox` expands tabs to pymupdf's one column and takes its text
-positionally. The line placement and splitting of `insert_text` and
-`insert_textbox`, done in v0.15.0, lost their stale reset. 29 changes over 48
-entries remain, down from 37 over 57.
+Done on 2026-10-21: the manifest lists no `reset` entries. Parameter names
+and keyword-only options (#272), file errors (#273), constant enums (#274),
+the constructor and document state (#276), page structure (#277), page boxes
+(#278), generation return values (#279), extraction records (#280),
+rendering (#281), the image inventory (#282), annotation handles (#283), the
+zero-based outline (#284), attachments (#285), and `rewrite_images` (#286)
+each landed with their tests, documentation in four languages, and changelog
+fragments, and F9 migrates the example corpus.
 
 Acceptance: the manifest has no `reset` entries; `api/public-api.json`, the
 documentation in four languages, and the migration guide describe the new
@@ -991,3 +1001,7 @@ Dated facts that still drive decisions. Earlier detail is in Git history.
   `Page.repair_flat_rbgs`, and `calc_matrix`, and drops
   `Annot.update_timing_test`. The manifest now lists 962 entries at 18.6%
   coverage.
+- **2026-10-21, parity**: with M0 complete the manifest has no `reset`
+  entries, and its 962 entries stand at 45.3% coverage: 289 available under
+  pymupdf's name, 57 available under a replacement, 417 planned (409 under
+  pymupdf's name, 8 replaced), and 199 non-goals.

@@ -6,14 +6,34 @@ description: pymupdf 작업 흐름을 pylopdf로 옮기고 타입, 동작 및 �
 # pymupdf에서 이전
 
 pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한 대체품은 아닙니다.
-이전 비용을 좌우하는 `"words"` 튜플, `"dict"` 구조, `search_for → list[Rect]`,
-1부터 시작하는 목차 페이지 번호는 pymupdf와 일치하므로, 대부분의 텍스트 추출과
+이전 비용을 좌우하는 `"words"` 튜플, `"dict"` 구조, `search_for → list[Rect]`는
+pymupdf와 일치하므로, 대부분의 텍스트 추출과
 페이지 관리 코드는 작은 수정만으로 옮길 수 있습니다. 이 페이지에서는 그대로
 사용할 수 있는 부분, 달라진 부분, 의도적으로 구현하지 않은 기능의 대안을 설명합니다.
 
 !!! note
     pylopdf는 **PDF 파일만** 처리합니다. pymupdf가 지원하는 XPS / EPUB / 이미지
     열기는 지원하지 않습니다.
+
+## 자동 이전 { #codemod }
+
+`python -m pylopdf.migrate`는 pymupdf 프로그램을 그 자리에서 고쳐 씁니다.
+`migrate` extra가 설치하는 LibCST가 필요합니다.
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+`fitz`와 `pymupdf` import 이름을 바꾸고, 기계적으로 바꿀 수 있는 대체 —
+페이지 번호를 옮기는 `get_toc`/`set_toc`, `embfile_*`, `xref_*` 스트림 읽기,
+`copy_page`, 그 자리에서 값을 바꾸는 `Rect`/`Point`/`Matrix` 메서드 — 를
+다시 쓰며, 사람이 손봐야 하는 문장 위에는 `# TODO(pylopdf): …` 주석을 달고
+그 목록을 `path:line: message` 형식으로 출력합니다. `--diff`는 파일을 쓰지 않고
+변경 내용을 출력하고, `--check`는 바뀔 파일이 있으면 상태 1로 끝납니다.
+수신 객체의 타입은 알 수 없으므로 diff를 검토하세요. 실행 중에 pylopdf에 없는
+pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 알려 주는
+`AttributeError`가 발생합니다.
 
 ## 빠른 대응표 { #mapping }
 

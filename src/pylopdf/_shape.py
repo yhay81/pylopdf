@@ -16,6 +16,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -211,6 +212,9 @@ class Shape:
     #: last :meth:`commit`, or ``None``; as in pymupdf, ``draw_circle`` and
     #: ``draw_sector`` leave it unchanged.
     rect: Rect | None
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(self, page: Page) -> None:
         """Start an empty shape on ``page``."""

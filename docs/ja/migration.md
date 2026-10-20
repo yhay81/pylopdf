@@ -7,14 +7,33 @@ description: pymupdfの処理をpylopdfへ移し、型・挙動・スコープ�
 
 pylopdf は pymupdf「風」であって、ドロップイン互換ではありません。ただし移行
 コストを決めるデータ形状 — `"words"` タプルの並び・`"dict"` の構造・
-`search_for → list[Rect]`・TOC の 1 始まりページ番号 — は pymupdf に合わせて
-いるため、抽出やページ操作のコードは小さな修正で移植できます。このページでは
+`search_for → list[Rect]` — は pymupdf に合わせているため、抽出やページ操作のコードは小さな修正で移植できます。このページでは
 「そのまま動くもの」「変わったもの」「あえて実装せず連携で解決するもの」を
 まとめます。
 
 !!! note
     pylopdf が扱うのは **PDF のみ**です。pymupdf の XPS / EPUB / 画像を開く
     機能は対象外です。
+
+## 自動移行 { #codemod }
+
+`python -m pylopdf.migrate` は pymupdf のプログラムをその場で書き換えます。
+`migrate` extra が入れる LibCST が必要です。
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+`fitz` と `pymupdf` の import を改名し、機械的に置き換えられるもの — ページ番号を
+ずらす `get_toc`/`set_toc`、`embfile_*`、`xref_*` のストリーム読み出し、
+`copy_page`、その場で値を変える `Rect`/`Point`/`Matrix` のメソッド — を書き換え、
+人手が要る文の上には `# TODO(pylopdf): …` コメントを付けて、その一覧を
+`path:line: message` の形で出力します。`--diff` は書き込まずに差分を表示し、
+`--check` は変更が生じるファイルがあると終了コード 1 を返します。受け手の型は
+分からないので差分を確認してください。実行時に pylopdf にない pymupdf の名前を
+参照すると、置き換え先か予定しているマイルストーンを示す `AttributeError` が
+発生します。
 
 ## 対応表 { #mapping }
 

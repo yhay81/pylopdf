@@ -2597,14 +2597,26 @@ Git history (`git show a233814:ROADMAP.md`).
   transform first. Constructors reject nonfinite coordinates and bound
   sequence reads to two or six entries. Keep operator changes in the API
   snapshot. Rect algebra, IRect, Quad, and geometry constants remain pending.
-- Current phase: wave 1 of the parity program (2026-10-20). Wave 0 is done:
-  the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
-  (#234), XObject reuse (#231), save-time merging of identical objects
-  (#251), CPython 3.15 support (#230), and the F3 parity manifest (#235)
-  merged, and the F0 API design (#236) was approved on 2026-10-20. F1, F2,
-  F4, and F5 are done and F8 has its interpreter; v0.15.0 ships them before
-  the M0 API reset, which follows as one breaking release while F8
-  rewriting and F9 continue.
+- Current phase: wave 3 of the parity program (2026-10-21). Waves 0–2 are
+  done: hayro 0.8, the parity manifest, and the approved F0 API design; F1,
+  F2, F4, and F5 (v0.15.0); and the M0 API reset (#272–#286), which ships as
+  one breaking release, with F9's migration tooling. The manifest has no
+  `reset` entries. Wave 3 runs M1, M2, and M5 in parallel while F8 continues.
+- Migration tooling (F9): `tools/generate_migration_hints.py` writes
+  `src/pylopdf/_migration_hints.py` and the name map at the end of
+  `docs/en/llms.txt` from `api/pymupdf-parity.json`; run it after every
+  manifest edit, because `tests/test_migration.py` fails on stale output.
+  `src/pylopdf/_hints.py` builds the hinted `AttributeError`s. Classes assign
+  `__getattr__ = hinted_getattr` inside `if not TYPE_CHECKING:` so that type
+  checkers still reject unknown attributes; Python calls it only after normal
+  lookup fails, and dunder names never consult the hints. The LibCST codemod
+  lives in `src/pylopdf/_codemod.py`, behind `python -m pylopdf.migrate` and
+  the `migrate` extra: `CALL_RULES` rewrite calls wherever they appear,
+  `STATEMENT_RULES` rewrite in-place methods only as statements of their
+  own, and every other missing name becomes a `# TODO(pylopdf): <hint>`
+  comment. A new mechanical replacement adds a rule and a case to
+  `tests/assets/migration/`, whose `pymupdf/` programs must migrate exactly
+  to `pylopdf/` and then pass.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.
