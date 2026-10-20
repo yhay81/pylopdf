@@ -167,9 +167,9 @@ def _markdown_page_tables(
     strategy: Literal["lines", "text"],
 ) -> list[Table]:
     """Return bordered tables, optionally extended by non-overlapping text tables."""
-    tables = list(page.find_tables("lines"))
+    tables = list(page.find_tables(strategy="lines"))
     if strategy == "text":
-        for candidate in page.find_tables("text"):
+        for candidate in page.find_tables(strategy="text"):
             if all(
                 _table_overlap_ratio(candidate.bbox, table.bbox) < _MARKDOWN_TABLE_OVERLAP_LIMIT for table in tables
             ):

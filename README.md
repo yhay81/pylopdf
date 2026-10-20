@@ -169,7 +169,7 @@ engine = pylopdf.OcrEngine(threads=4)
 page.apply_ocr(engine=engine)                # skips pages with existing text
 
 # Save: optimized, or AES-256 encrypted
-doc.save("out.pdf", garbage=True, deflate=True, object_streams=True)
+doc.save("out.pdf", garbage=True, deflate=True, use_objstms=True)
 doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 
 # Encrypted input and fast probing

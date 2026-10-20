@@ -148,7 +148,7 @@ def output(request: pytest.FixtureRequest, one_page_pdf: bytes) -> Iterator[tupl
         if request.param == "png":
             yield "png", doc[0].get_pixmap().save
         elif request.param == "object-streams":
-            yield "pdf", lambda path: doc.save(path, object_streams=True)
+            yield "pdf", lambda path: doc.save(path, use_objstms=True)
         elif request.param == "encrypted":
             yield "pdf", lambda path: doc.save(path, user_pw="test-password")
         else:

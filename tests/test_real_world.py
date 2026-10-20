@@ -956,7 +956,7 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
 def test_save_optimized_roundtrip(case: Case) -> None:
     """Garbage, deflate, and object-stream saves preserve readable content."""
     doc = pylopdf.open(ASSETS / case.name)
-    data = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
     reopened = pylopdf.open(stream=data)
     assert reopened.page_count == case.pages
 
@@ -965,7 +965,7 @@ def test_object_streams_reduce_size() -> None:
     """Object-stream saving reduces a medium-size document."""
     doc = pylopdf.open(ASSETS / "bill-hr815.pdf")
     plain = doc.tobytes()
-    optimized = doc.tobytes(garbage=True, deflate=True, object_streams=True)
+    optimized = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
     assert len(optimized) < len(plain)
 
 

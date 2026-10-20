@@ -232,7 +232,7 @@ def test_saving_to_a_file_accepts_levels(tmp_path: Path) -> None:
     doc = _twice_imported()
     target = tmp_path / "out.pdf"
 
-    doc.save(target, garbage=4, deflate=True, object_streams=True)
+    doc.save(target, garbage=4, deflate=True, use_objstms=True)
 
     assert pylopdf.open(target).page_count == 2 * pylopdf.open(REAL_WORLD / "f1040.pdf").page_count
 

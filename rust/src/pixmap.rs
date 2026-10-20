@@ -189,8 +189,9 @@ impl Pixmap {
         py.detach(|| self.encode_png(max_size))
     }
 
-    /// Encode PNG data and failure-atomically replace a filesystem path.
-    fn save(&self, py: Python<'_>, path: PathBuf) -> PyResult<()> {
+    /// Encode PNG data and failure-atomically replace ``filename``.
+    fn save(&self, py: Python<'_>, filename: PathBuf) -> PyResult<()> {
+        let path = filename;
         let is_png = path
             .extension()
             .and_then(|extension| extension.to_str())

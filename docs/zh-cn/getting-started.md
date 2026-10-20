@@ -42,7 +42,7 @@ doc.set_metadata({"title": "报告", "author": "Alice"})
 
 doc.save("out.pdf")
 data = doc.tobytes()
-doc.save("small.pdf", garbage=True, deflate=True, object_streams=True)
+doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
 doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
 ```
 

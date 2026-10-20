@@ -238,7 +238,7 @@ def test_document_numbered_past_i32_reads_and_saves() -> None:
 _SAVES: dict[str, tuple[Callable[[pylopdf.Document], bytes], str | None]] = {
     "default": (lambda doc: doc.tobytes(), None),
     "garbage": (lambda doc: doc.tobytes(garbage=True), None),
-    "object-streams": (lambda doc: doc.tobytes(object_streams=True), None),
+    "object-streams": (lambda doc: doc.tobytes(use_objstms=True), None),
     "encrypted": (lambda doc: doc.tobytes(user_pw="user", owner_pw="owner"), "user"),
 }
 

@@ -185,10 +185,10 @@ def test_save_encrypted_owner_only_restricts(three_page_pdf: bytes) -> None:
     assert "Page one" in opened.get_page_text(0)
 
 
-def test_save_encrypted_rejects_object_streams(three_page_pdf: bytes) -> None:
+def test_save_encrypted_rejects_use_objstms(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     with pytest.raises(ValueError, match="cannot both be specified"):
-        doc.tobytes(user_pw="x", object_streams=True)
+        doc.tobytes(user_pw="x", use_objstms=True)
 
 
 def test_permissions_flags() -> None:

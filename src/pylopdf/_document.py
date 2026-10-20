@@ -1195,7 +1195,7 @@ class Document:
         self._doc.merge_pages(other._doc, list(range(start + 1, stop + 1 + step, step)), position)
         self._bump_generation()
 
-    def new_page(self, pno: int = -1, width: float = 595.0, height: float = 842.0) -> Page:
+    def new_page(self, pno: int = -1, *, width: float = 595.0, height: float = 842.0) -> Page:
         """Insert a blank page and return its :class:`Page`.
 
         ``pno`` is the zero-based insertion position; -1 appends. ``width`` and
@@ -1549,7 +1549,7 @@ class Document:
         *,
         garbage: int = 0,
         deflate: bool = False,
-        object_streams: bool = False,
+        use_objstms: bool = False,
         user_pw: str | None = None,
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
@@ -1563,7 +1563,7 @@ class Document:
         Pages, annotations, form fields, structure elements, outline items,
         and optional-content groups are never merged. ``deflate=True`` applies
         Flate compression before saving. Both mutate the document.
-        ``object_streams=True`` writes PDF 1.5+ object and xref streams, often
+        ``use_objstms=True`` writes PDF 1.5+ object and xref streams, often
         reducing size and raising the version to 1.5 when necessary.
 
         Providing ``user_pw`` or ``owner_pw`` writes AES-256 PDF 2.0 encryption
@@ -1577,7 +1577,7 @@ class Document:
         """
         self._ensure_open()
         level = _garbage_level(garbage)
-        encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
+        encryption = self._encryption_args(user_pw, owner_pw, permissions, use_objstms=use_objstms)
         self._apply_save_options(garbage=level, deflate=deflate)
         writer: Callable[[str], None]
         if encryption is not None:
@@ -1589,7 +1589,7 @@ class Document:
                 permissions=perms,
                 file_encryption_key=os.urandom(32),
             )
-        elif object_streams:
+        elif use_objstms:
             writer = self._doc.save_with_object_streams
         else:
             writer = self._doc.save
@@ -1600,7 +1600,7 @@ class Document:
         *,
         garbage: int = 0,
         deflate: bool = False,
-        object_streams: bool = False,
+        use_objstms: bool = False,
         user_pw: str | None = None,
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
@@ -1616,12 +1616,12 @@ class Document:
         self._ensure_open()
         _validate_optional_positive_int("max_size", max_size)
         level = _garbage_level(garbage)
-        encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
+        encryption = self._encryption_args(user_pw, owner_pw, permissions, use_objstms=use_objstms)
         self._apply_save_options(garbage=level, deflate=deflate)
         if encryption is not None:
             user, owner, perms = encryption
             return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32), max_size)
-        if object_streams:
+        if use_objstms:
             return self._doc.save_bytes_with_object_streams(max_size)
         return self._doc.save_bytes(max_size)
 
@@ -1641,13 +1641,13 @@ class Document:
         owner_pw: str | None,
         permissions: int,
         *,
-        object_streams: bool,
+        use_objstms: bool,
     ) -> tuple[str, str, int] | None:
         """Validate encryption arguments, returning ``None`` when disabled."""
         if user_pw is None and owner_pw is None:
             return None
-        if object_streams:
-            msg = "encryption (user_pw / owner_pw) and object_streams cannot both be specified"
+        if use_objstms:
+            msg = "encryption (user_pw / owner_pw) and use_objstms cannot both be specified"
             raise ValueError(msg)
         _validate_password_input(user_pw, "user password")
         _validate_password_input(owner_pw, "owner password")

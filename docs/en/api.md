@@ -38,7 +38,7 @@ Password input stops at 127 UTF-8 bytes.
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input; `font` draws with a loaded OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with symmetric input/decoded-output defaults plus 1 MiB caller text, bounded metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=0`–`4` (pymupdf's levels; 3 and 4 merge identical objects and streams) `deflate=` `object_streams=` and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=0`–`4` (pymupdf's levels; 3 and 4 merge identical objects and streams) `deflate=` `use_objstms=` and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
 | `close()` | also via `with` |
 
 `compress_images()` interprets every page to find each indirect raster object's
@@ -57,10 +57,10 @@ indirect raster placements. Repeating the same settings is idempotent.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `xref` / `obj` | the page dictionary's object number / live low-level handle; inherited attributes stay on its ancestors |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (since 0.14.0), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (since 0.14.0), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
-| `find_tables(strategy="lines", clip=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
+| `find_tables(clip=None, strategy=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | single-page Markdown with the same table and UTF-8 output controls |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads |
 | `get_drawings()` | interpreted vector fill/stroke paths with display-space line/cubic geometry and normalized paint/stroke properties; rejects partial output above 8,192 paths, 131,072 commands, or 131,072 aggregate dash values |
@@ -68,7 +68,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps; identical input placed again shares one image XObject |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `src` may be the same document; placing a page of an unedited `src` again shares its Form XObject |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | overlay a PDF page as vectors; `docsrc` may be the same document; placing a page of an unedited `docsrc` again shares its Form XObject |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UTF-8 and 4,096-line standard-14 WinAnsi or shaped subset text; as in pymupdf, a string is split with `str.splitlines()` and a list holds one line per item, lines are `lineheight` times `fontsize` apart, by default the font's `ascender` minus `descender`, lines below the page are left out, and the number of lines drawn is returned; `font` draws with a loaded `Font`, installed script/locale providers are selected automatically, and `font_language` resolves ambiguous Han; `None` opts the corresponding trusted input out |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | bounded UAX #14 wrapping with Core 14, OpenType, a loaded `Font`, or an installed script/locale provider; lines are placed as pymupdf places them; physical and wrapped layout stop at 4,096 lines, tab expansion is preflighted, and overflow draws nothing |
 | `new_shape()` | pymupdf's `Shape` for paths and text drawn in one step; see [Shapes](#shapes) |

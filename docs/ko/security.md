@@ -208,7 +208,7 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   `save()`는target과 같은directory에 안전하게 만든sibling으로stream한 뒤 완전한
   write가 끝난 경우에만 요청path를 원자적으로 교체하므로serialization/교체 실패 시
   기존file을 보존합니다. 이in-memory 예산의 대상은 아닙니다. `garbage`, `deflate`,
-  `object_streams` 같은save option은 이후I/O가 실패해도 문서화된mutation semantics를
+  `use_objstms` 같은save option은 이후I/O가 실패해도 문서화된mutation semantics를
   유지합니다.
 - `Pixmap.save()`는target directory 안에 예측할 수 없고 배타적으로 생성한sibling에
   PNG encode를 직접stream하며, 완전한write가 성공한 뒤에만 요청path를 원자적으로

@@ -501,6 +501,16 @@ release.
   replaces them.
 - Publish codemod rules and hints for every change (F9).
 
+Progress on 2026-10-20: the parameter names and keyword-only options are
+done. `search_for` takes `text`, `show_pdf_page` takes `docsrc`,
+`Pixmap.save` takes `filename`, `save` and `tobytes` take `use_objstms`,
+`find_tables` takes keyword-only `clip` and `strategy` with pymupdf's `None`
+default, `new_page` takes keyword-only `width` and `height`, and
+`insert_textbox` expands tabs to pymupdf's one column and takes its text
+positionally. The line placement and splitting of `insert_text` and
+`insert_textbox`, done in v0.15.0, lost their stale reset. 29 changes over 48
+entries remain, down from 37 over 57.
+
 Acceptance: the manifest has no `reset` entries; `api/public-api.json`, the
 documentation in four languages, and the migration guide describe the new
 surface; the codemod migrates the example corpus.
@@ -524,7 +534,7 @@ Extraction:
   `TEXT_USE_CID_FOR_UNKNOWN_UNICODE` (plus U+FFFD placeholders for unmapped
   glyphs, which are skipped today), and `TEXT_ACCURATE_BBOXES` through hayro
   glyph outlines. Default output stays unchanged unless a flag is passed.
-- `search_for(needle, clip=, quads=, flags=)` and `Document.search_page_for`.
+- `search_for(text, clip=, quads=, flags=)` and `Document.search_page_for`.
 - Inventory beyond M0's image APIs: `get_image_info(hashes=, xrefs=)`
   options, `get_image_rects`, `get_image_bbox`, `get_fonts(full=)`,
   `get_xobjects`, `Document.get_page_images`, `get_page_fonts`,
