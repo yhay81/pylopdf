@@ -21,7 +21,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
 | `import pymupdf`（`fitz` は旧名） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | `password=`も同じ。UTF-8 127 byte上限 |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 同じ | `open`は`Document`そのもの。`filetype=`は`"pdf"`のみ。`password=`はkeyword-onlyでUTF-8 127 byte上限 |
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
 | `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |

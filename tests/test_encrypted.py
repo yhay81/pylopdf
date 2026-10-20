@@ -81,8 +81,11 @@ def test_authenticate(name: str) -> None:
     assert doc.needs_pass
     assert doc.page_count == 2
     assert "Encrypted page two" in doc.get_page_text(1)
-    # Re-authenticating a decrypted document returns 1 for "not required."
-    assert doc.authenticate("anything") == 1
+    # pymupdf still checks a decrypted document's passwords.
+    assert doc.authenticate("anything") == 0
+    assert doc.authenticate("userpw") == 2
+    assert doc.authenticate("ownerpw") == 4
+    assert not doc.is_encrypted
 
 
 @USER

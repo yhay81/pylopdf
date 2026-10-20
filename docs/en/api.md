@@ -13,19 +13,21 @@ deprecation lifecycle.
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()` is an alias constructor. Context-manager support included.
-Password input stops at 127 UTF-8 bytes.
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+`pylopdf.open` is the same callable, as in pymupdf. Context-manager support included.
+`stream` takes bytes, `bytearray`, `memoryview`, or `io.BytesIO`; `filetype`
+takes `"pdf"`, and a string `filename` beside a `stream` names the file type, as
+in pymupdf's `open("pdf", data)`. Password input stops at 127 UTF-8 bytes.
 
 | Member | Purpose |
 |---|---|
 | `doc[i]` / `load_page(pno)` / iteration | `Page` views (negative indices; re-fetch after structural changes) |
 | `page_count` / `len(doc)` | number of pages |
 | `limits` / `complexity` | immutable open-time resource policy / cheap structural facts without stream decoding |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock with a 127-byte password boundary (pymupdf semantics) |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock with a 127-byte password boundary; pymupdf's codes 0/1/2/4/6, still checked after an empty user password opened the document |
 | `is_repaired` | whether opening recovered damaged cross-reference data (a corrected offset or a rebuilt table); saving normalizes the xref data |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | typed low-level access to the object graph, replacing pymupdf's `xref_*` methods ([low-level objects](#low-level-objects)) |
-| `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
+| `metadata` / `set_metadata(m)` | pymupdf's keys: `format`, the Info fields including `trapped`, and `encryption` (UTF-16BE aware); `set_metadata` ignores `format` and `encryption`, removes entries with false values, and removes the Info dictionary for `{}`; 1 MiB aggregate text boundary and atomic writes |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
 | `get_text(pages=None)` | batched plain text for every page (`None`) or up to the larger of the page count and 4,096 explicit entries; 4,096-entry chunks each share one interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; every page by default, explicit entries up to the larger of the page count and 4,096, and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |

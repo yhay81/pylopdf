@@ -12,19 +12,21 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()`은 별칭 생성자이며 컨텍스트 관리자를 지원합니다.
-password input은UTF-8 127 byte로 제한됩니다.
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+`pylopdf.open`은 pymupdf와 같이 동일한 호출 가능 객체이며 컨텍스트 관리자를 지원합니다.
+`stream`은 bytes, `bytearray`, `memoryview`, `io.BytesIO`를 받고 `filetype`은
+`"pdf"`를 받습니다. pymupdf의 `open("pdf", data)`처럼 `stream`과 함께 전달한 문자열
+`filename`은 파일 형식을 뜻합니다. password input은UTF-8 127 byte로 제한됩니다.
 
 | 멤버 | 용도 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / 반복 | `Page`뷰（음수 지원, 구조 변경 후 다시 가져오기） |
 | `page_count` / `len(doc)` | 페이지 수 |
 | `limits` / `complexity` | 열 때의 불변 리소스 정책 / stream 디코딩 없는 저비용 구조 지표 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제（pymupdf 의미론） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제. pymupdf와 같은 반환값 0/1/2/4/6이며 빈 user password로 열린 문서도 검사 |
 | `is_repaired` | 열 때 손상된 cross-reference data를 복구했는지 여부(offset 보정 또는 table 재구성). 저장하면 xref data를 정규화 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | 객체 그래프에 대한 타입 있는 저수준 접근. pymupdf의 `xref_*` 메서드를 대체([저수준 객체](#low-level-objects)) |
-| `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
+| `metadata` / `set_metadata(m)` | pymupdf와 같은 키: `format`, `trapped`를 포함한 Info 필드, `encryption`（UTF-16BE 지원）. `set_metadata`는 `format`과 `encryption`을 무시하고 거짓 값이면 항목을 삭제하며 `{}`이면 Info 사전을 삭제. aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 기본은 전체page, 명시entry는 page 수와4,096 중 큰 값까지이며 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |

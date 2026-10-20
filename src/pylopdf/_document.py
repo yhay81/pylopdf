@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import io
 import math
 import os
 import secrets
@@ -261,7 +262,60 @@ _METADATA_KEYS: dict[str, str] = {
     "producer": "Producer",
     "creationDate": "CreationDate",
     "modDate": "ModDate",
+    "trapped": "Trapped",
 }
+# Metadata keys that set_metadata ignores, so that a metadata round trip works.
+_READ_ONLY_METADATA_KEYS = frozenset({"format", "encryption"})
+# pymupdf's accepted spellings of the one file type that pylopdf opens.
+_PDF_FILETYPES = frozenset({"pdf", ".pdf", "application/pdf"})
+
+
+def _validate_filetype(filetype: str | None) -> None:
+    """Accept pymupdf's PDF file type names and refuse every other format."""
+    if filetype is None:
+        return
+    if not isinstance(filetype, str):
+        msg = f"filetype must be a string or None: {filetype!r}"
+        raise TypeError(msg)
+    if filetype.lower() not in _PDF_FILETYPES:
+        msg = f"filetype {filetype!r} is not supported; pylopdf opens PDF documents"
+        raise PdfError(msg)
+
+
+def _resolve_source(
+    filename: str | os.PathLike[str] | None,
+    stream: bytes | bytearray | memoryview | io.BytesIO | None,
+    filetype: str | None,
+) -> tuple[str | os.PathLike[str] | None, bytes | None]:
+    """Normalize pymupdf's source arguments to a path or bytes.
+
+    As in pymupdf, a string ``filename`` beside a ``stream`` names the file type.
+    """
+    if filename is not None and stream is not None:
+        if filetype is not None or not isinstance(filename, str):
+            msg = "filename and stream cannot both be specified"
+            raise ValueError(msg)
+        filename, filetype = None, filename
+    _validate_filetype(filetype)
+    if isinstance(stream, io.BytesIO):
+        return filename, stream.getvalue()
+    if isinstance(stream, (bytearray, memoryview)):
+        return filename, bytes(stream)
+    if stream is not None and not isinstance(stream, bytes):
+        msg = f"stream must be bytes, bytearray, memoryview, or io.BytesIO: {type(stream).__name__}"
+        raise TypeError(msg)
+    return filename, stream
+
+
+def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
+    """Combine password matches into pymupdf's code, as MuPDF does.
+
+    An empty owner password counts only when the user password is empty too.
+    """
+    code = (2 if user else 0) | (4 if owner else 0)
+    if not password and code == 4:  # noqa: PLR2004 - MuPDF's owner-only code.
+        return 0
+    return code
 
 
 class Document:
@@ -272,16 +326,23 @@ class Document:
     through ``doc[i]`` and iteration.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - pymupdf's constructor plus keyword-only limits.
         self,
         filename: str | os.PathLike[str] | None = None,
-        stream: bytes | None = None,
-        password: str | None = None,
-        max_decompressed_size: int | None = None,
+        stream: bytes | bytearray | memoryview | io.BytesIO | None = None,
+        filetype: str | None = None,
         *,
+        password: str | None = None,
         limits: DocumentLimits | None = None,
+        max_decompressed_size: int | None = None,
     ) -> None:
         """Open from exactly one of a file path and byte stream, or create empty.
+
+        ``open`` is the same callable. ``stream`` accepts ``bytes``,
+        ``bytearray``, ``memoryview``, or :class:`io.BytesIO`. ``filetype``
+        takes ``"pdf"``, as pymupdf's does; other formats raise
+        :class:`PdfError`. As in pymupdf, a ``filename`` passed together with a
+        ``stream`` names the file type, so ``open("pdf", data)`` works.
 
         PDFs with an empty user password decrypt automatically. Otherwise pass
         ``password`` or call :meth:`authenticate` after opening.
@@ -293,9 +354,7 @@ class Document:
         ``max_decompressed_size`` remains as the compatible single-budget
         shorthand and cannot be combined with ``limits``.
         """
-        if filename is not None and stream is not None:
-            msg = "filename and stream cannot both be specified"
-            raise ValueError(msg)
+        filename, stream = _resolve_source(filename, stream, filetype)
         _validate_password_input(password)
         if limits is not None and not isinstance(limits, DocumentLimits):
             msg = f"limits must be a DocumentLimits instance or None: {limits!r}"
@@ -360,20 +419,26 @@ class Document:
     def authenticate(self, password: str) -> int:
         """Authenticate and decrypt with a password.
 
-        Return pymupdf-compatible codes: 0 for failure, 1 when authentication is
-        unnecessary, 2 for a matching user password, 4 for a matching owner
-        password, and 6 when both match. Password input is capped at 127 UTF-8
-        bytes before the encryption KDF.
+        Return pymupdf's codes: 0 for failure, 1 for an unencrypted document,
+        2 for a matching user password, 4 for a matching owner password, and 6
+        when both match. A document that opened with an empty user password
+        is still checked against its encryption, as in pymupdf, and an empty
+        owner password counts only when the user password is empty too.
+        Password input is capped at 127 UTF-8 bytes before the encryption KDF.
         """
         self._ensure_not_closed()
         if not self._doc.is_encrypted():
-            return 1
+            if not self._doc.was_encrypted():
+                return 1
+            _validate_password_input(password)
+            user, owner = self._doc.check_original_password(password)
+            return _authentication_code(password, user=user, owner=owner)
         _validate_password_input(password)
-        code = 0
-        if self._doc.authenticate_user_password(password):
-            code |= 2
-        if self._doc.authenticate_owner_password(password):
-            code |= 4
+        code = _authentication_code(
+            password,
+            user=self._doc.authenticate_user_password(password),
+            owner=self._doc.authenticate_owner_password(password),
+        )
         if code == 0:
             return 0
         # Reopen with the password so objects inside object streams are readable.
@@ -470,14 +535,18 @@ class Document:
 
     @property
     def metadata(self) -> DocumentMetadata:
-        """Return title, author, subject, keywords, dates, producer, and format.
+        """Return pymupdf's metadata dictionary.
 
-        Only the eight standard Info fields are decoded. Reads reject more than
-        1 MiB of aggregate encoded or returned text.
+        ``format`` is the PDF version, such as ``"PDF 1.7"``; the nine
+        standard Info fields read as ``""`` when absent; and ``encryption``
+        describes the encryption the document was opened with, as in
+        ``"Standard V5 R6 256-bit AES"``, or is ``None``. Reads reject more
+        than 1 MiB of aggregate encoded or returned text.
         """
         self._ensure_open()
         raw = self._doc.get_metadata()
         return {
+            "format": f"PDF {self._doc.version()}",
             "title": raw.get("Title", ""),
             "author": raw.get("Author", ""),
             "subject": raw.get("Subject", ""),
@@ -486,26 +555,43 @@ class Document:
             "producer": raw.get("Producer", ""),
             "creationDate": raw.get("CreationDate", ""),
             "modDate": raw.get("ModDate", ""),
-            "format": f"PDF {self._doc.version()}",
+            "trapped": raw.get("Trapped", ""),
+            "encryption": self._doc.encryption_method(),
         }
 
-    def set_metadata(self, metadata: MetadataUpdate) -> None:
-        """Set metadata, deleting entries whose values are empty strings.
+    def set_metadata(self, m: MetadataUpdate | DocumentMetadata) -> None:
+        """Set metadata with pymupdf's meaning.
 
-        Keys match :attr:`metadata`, except the read-only ``format`` key.
-        The standard fields share 1 MiB input and encoded-text limits. All
-        updates are validated before PyO3 copying and applied atomically.
-        Caller refusals use ``LimitError.code == "metadata_input_size"``.
+        Keys match :attr:`metadata`; an unknown key raises ``ValueError``, and
+        the read-only ``format`` and ``encryption`` keys are ignored, so
+        ``doc.set_metadata(doc.metadata)`` works. A false value (``None`` or
+        ``""``) or the text ``"none"`` or ``"null"`` removes its entry, and an
+        empty dictionary removes the Info dictionary. ``trapped`` writes the
+        name ``/True``, ``/False``, or ``/Unknown`` for those values. The
+        fields share 1 MiB input and encoded-text limits. All updates are
+        validated before PyO3 copying and applied atomically. Caller refusals
+        use ``LimitError.code == "metadata_input_size"``.
         """
         self._ensure_open()
+        if not isinstance(m, dict):
+            msg = f"metadata must be a dict: {type(m).__name__}"
+            raise TypeError(msg)
+        unknown = sorted(key for key in m if key not in _METADATA_KEYS and key not in _READ_ONLY_METADATA_KEYS)
+        if unknown:
+            msg = f"unknown metadata key(s): {unknown} (valid: {sorted(_METADATA_KEYS)})"
+            raise ValueError(msg)
+        if not m:
+            self._doc.remove_metadata()
+            return
         updates: list[tuple[str, str]] = []
-        for key, value in metadata.items():
+        for key, value in m.items():
             pdf_key = _METADATA_KEYS.get(key)
             if pdf_key is None:
-                msg = f"unknown metadata key: {key!r} (valid: {sorted(_METADATA_KEYS)})"
-                raise ValueError(msg)
+                continue
+            if value is None or value in {"none", "null"}:
+                value = ""  # noqa: PLW2901 - an empty value removes the entry.
             if not isinstance(value, str):
-                msg = f"metadata value must be a string: {key!r}={value!r}"
+                msg = f"metadata value must be a string or None: {key!r}={value!r}"
                 raise TypeError(msg)
             updates.append((pdf_key, value))
         values = [value for _, value in updates]
@@ -1747,22 +1833,8 @@ class Document:
         return f"<{state}pylopdf.Document>"
 
 
-def open(  # noqa: A001
-    filename: str | os.PathLike[str] | None = None,
-    stream: bytes | None = None,
-    password: str | None = None,
-    max_decompressed_size: int | None = None,
-    *,
-    limits: DocumentLimits | None = None,
-) -> Document:
-    """Open a :class:`Document`; equivalent to ``Document(...)``."""
-    return Document(
-        filename=filename,
-        stream=stream,
-        password=password,
-        max_decompressed_size=max_decompressed_size,
-        limits=limits,
-    )
+#: pymupdf's alias: ``open`` is the same callable as :class:`Document`.
+open = Document  # noqa: A001
 
 
 def peek_metadata(
@@ -1774,8 +1846,9 @@ def peek_metadata(
 ) -> MetadataProbe:
     """Read metadata and page count without parsing the entire document.
 
-    Return the keys from :attr:`Document.metadata` plus integer ``page_count``
-    and boolean ``encrypted`` / ``repaired`` facts. This is suitable for
+    Return the keys from :attr:`Document.metadata` other than ``trapped``
+    and ``encryption``, plus integer ``page_count`` and boolean ``encrypted``
+    / ``repaired`` facts. This is suitable for
     scanning many PDFs. ``max_file_size`` rejects oversized path or byte input
     before metadata parsing; ``None`` leaves it unbounded. Returned standard
     Info text is capped at 1 MiB. Password input is capped at 127 UTF-8 bytes.
@@ -1800,6 +1873,7 @@ def peek_metadata(
     if recovery is not None:
         _warnings.warn(recovery, PylopdfWarning, stacklevel=2)
     return {
+        "format": f"PDF {version}",
         "title": raw.get("Title", ""),
         "author": raw.get("Author", ""),
         "subject": raw.get("Subject", ""),
@@ -1808,7 +1882,6 @@ def peek_metadata(
         "producer": raw.get("Producer", ""),
         "creationDate": raw.get("CreationDate", ""),
         "modDate": raw.get("ModDate", ""),
-        "format": f"PDF {version}",
         "page_count": page_count,
         "encrypted": encrypted,
         "repaired": recovery is not None,
@@ -1818,7 +1891,6 @@ def peek_metadata(
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
     Document,
-    open,
     peek_metadata,
 ):
     _public.__module__ = "pylopdf"

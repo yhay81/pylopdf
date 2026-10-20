@@ -76,6 +76,11 @@ def test_open_alias(one_page_pdf: bytes) -> None:
 
 def test_filename_and_stream_raises(one_page_pdf: bytes) -> None:
     with pytest.raises(ValueError, match="cannot both be specified"):
+        pylopdf.Document(Path("a.pdf"), one_page_pdf)
+    with pytest.raises(ValueError, match="cannot both be specified"):
+        pylopdf.Document("pdf", one_page_pdf, "pdf")
+    # As in pymupdf, a string filename beside a stream names the file type.
+    with pytest.raises(pylopdf.PdfError, match=r"filetype 'a\.pdf' is not supported"):
         pylopdf.Document("a.pdf", one_page_pdf)
 
 
@@ -98,13 +103,13 @@ def test_metadata_roundtrip(one_page_pdf: bytes) -> None:
 def test_metadata_unknown_key_raises(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"format": "PDF 2.0"})  # ty: ignore[invalid-argument-type, invalid-key]
+        doc.set_metadata({"bogus": "x"})  # ty: ignore[invalid-argument-type]
 
 
 def test_metadata_validation_is_atomic(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(ValueError, match="unknown metadata key"):
-        doc.set_metadata({"title": "変更されない", "format": "PDF 2.0"})  # ty: ignore[invalid-argument-type, invalid-key]
+        doc.set_metadata({"title": "変更されない", "bogus": "x"})  # ty: ignore[invalid-argument-type]
     assert doc.metadata["title"] == ""
 
     with pytest.raises(TypeError, match="must be a string"):

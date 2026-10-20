@@ -2389,6 +2389,14 @@ overview.
   bounded same-document parallel read boundary.
 ## Known pitfalls
 
+- lopdf 0.45 decrypts on load with the empty password whenever it matches the
+  user or the owner password, and removes `/Encrypt`. MuPDF refuses an empty
+  owner password unless the user password is empty too, so pylopdf opens such
+  a document without a password where pymupdf asks for one. `authenticate`
+  follows MuPDF's codes by rebuilding the Encrypt dictionary from
+  `encryption_state.encode()` (`original_password_matches`), and
+  `metadata["encryption"]` describes it the same way. lopdf's fast metadata
+  reader also drops `/Trapped`, so `peek_metadata` omits `trapped`.
 - lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
   `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
   `/Prev` and `/XRefStm` after reconstruction; an upstream fix is a

@@ -314,9 +314,10 @@ class PageLabelSpec(_PageLabelStart, total=False):
     firstpagenum: int
 
 
-class DocumentMetadata(TypedDict):
-    """Normalized metadata returned by :attr:`Document.metadata`."""
+class _InfoMetadata(TypedDict):
+    """The PDF version and the Info text fields, as pymupdf names them."""
 
+    format: str
     title: str
     author: str
     subject: str
@@ -325,23 +326,40 @@ class DocumentMetadata(TypedDict):
     producer: str
     creationDate: str
     modDate: str
-    format: str
+
+
+class DocumentMetadata(_InfoMetadata):
+    """Metadata returned by :attr:`Document.metadata`, with pymupdf's keys.
+
+    ``encryption`` describes the encryption the document was opened with, as
+    in ``"Standard V5 R6 256-bit AES"``, or is ``None``.
+    """
+
+    trapped: str
+    encryption: str | None
 
 
 class MetadataUpdate(TypedDict, total=False):
-    """Writable subset accepted by :meth:`Document.set_metadata`."""
+    """Keys accepted by :meth:`Document.set_metadata`.
 
-    title: str
-    author: str
-    subject: str
-    keywords: str
-    creator: str
-    producer: str
-    creationDate: str
-    modDate: str
+    ``format`` and ``encryption`` are read-only and ignored, so that
+    ``doc.set_metadata(doc.metadata)`` works.
+    """
+
+    title: str | None
+    author: str | None
+    subject: str | None
+    keywords: str | None
+    creator: str | None
+    producer: str | None
+    creationDate: str | None
+    modDate: str | None
+    trapped: str | None
+    format: str | None
+    encryption: str | None
 
 
-class MetadataProbe(DocumentMetadata):
+class MetadataProbe(_InfoMetadata):
     """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
 
     page_count: int
