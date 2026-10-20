@@ -37,6 +37,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
+from pylopdf._objects import Dictionary, Objects
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pixmap import _normalize_background
 from pylopdf._tables import (
@@ -81,6 +82,8 @@ _DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
+#: The first garbage level that renumbers objects.
+_GARBAGE_RENUMBERS = 2
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
@@ -325,6 +328,9 @@ class Document:
         self._fallback_configured = False
         # Structural generation; changes invalidate existing Page views.
         self._generation = 0
+        # Object-numbering epoch; renumbering or reloading the objects
+        # invalidates existing low-level object handles.
+        self._object_epoch = 0
         # Whether opening initially required a password; remains true after auth.
         self._needs_pass = needs_pass
         # Retain input only while an undecrypted document may need reopening.
@@ -377,6 +383,7 @@ class Document:
             self._doc = _Document.load_bytes(self._source_bytes, password, *limit_args)
         self._source_path = None
         self._source_bytes = None
+        self._object_epoch += 1
         self._emit_warnings()
         return code
 
@@ -421,6 +428,40 @@ class Document:
         """Iterate over every page in order."""
         for pno in range(self.page_count):
             yield self[pno]
+
+    @property
+    def objects(self) -> Objects:
+        """Return the indirect objects, keyed by object number.
+
+        This typed object model replaces pymupdf's ``xref_*`` methods:
+        ``doc.objects[xref]`` reads an object, assignment replaces it, and
+        :meth:`Objects.add` creates one. Writes take effect immediately and
+        invalidate rendering and extraction caches; a write that changes the
+        page order also invalidates existing :class:`Page` views. Objects are
+        raw PDF: keeping them semantically valid is the caller's
+        responsibility.
+        """
+        self._ensure_open()
+        return Objects(self)
+
+    @property
+    def trailer(self) -> Dictionary:
+        """Return the trailer dictionary as a live handle."""
+        self._ensure_open()
+        return Dictionary(self, None)
+
+    @property
+    def catalog(self) -> Dictionary:
+        """Return the document catalog (the trailer's ``/Root``) as a live handle."""
+        root = self.trailer.get("Root")
+        if not isinstance(root, Dictionary):
+            msg = "the trailer has no /Root catalog dictionary"
+            raise PdfError(msg)
+        return root
+
+    def page_xref(self, pno: int) -> int:
+        """Return the object number of a page; negative values count from the end."""
+        return self._doc.page_object_id(self._lopdf_page_number(pno))[0]
 
     def _bump_generation(self) -> None:
         """Record a structural change and invalidate existing page views."""
@@ -1587,6 +1628,9 @@ class Document:
         """Apply garbage collection and stream compression before saving."""
         if garbage:
             self._doc.collect_garbage(garbage)
+            if garbage >= _GARBAGE_RENUMBERS:
+                # Levels 2-4 renumber objects, so object handles go stale.
+                self._object_epoch += 1
         if deflate:
             self._doc.compress()
 

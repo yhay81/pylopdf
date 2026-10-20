@@ -77,6 +77,8 @@ mod input;
 mod labels;
 mod limits;
 mod loading;
+/// The typed low-level object model behind `Document.objects`.
+mod lowlevel;
 mod metadata;
 mod navigation;
 mod objects;
@@ -99,6 +101,8 @@ use self::images::*;
 pub(crate) use self::input::*;
 use self::labels::*;
 use self::limits::*;
+pub(crate) use self::lowlevel::{_decode_text_string, _encode_text_string, StaleObjectError};
+use self::lowlevel::{DEFAULT_MAX_STREAM_DATA_SIZE, Root, Step};
 use self::metadata::*;
 pub(crate) use self::navigation::*;
 pub(crate) use self::objects::*;
@@ -1873,5 +1877,120 @@ impl _Document {
             default_char,
             max_size,
         )
+    }
+
+    /// Return the distinct object numbers in ascending order.
+    fn object_numbers(&self) -> Vec<u32> {
+        lowlevel::object_numbers(self)
+    }
+
+    /// Return the generation and tagged value of an object number, or
+    /// `None` when no object has it. The highest generation wins.
+    fn object_lookup(&self, py: Python<'_>, number: u32) -> PyResult<Option<(u16, Py<PyAny>)>> {
+        lowlevel::object_lookup(self, py, number)
+    }
+
+    /// Return the object ID of a one-based page.
+    fn page_object_id(&self, page_number: u32) -> PyResult<(u32, u16)> {
+        self.page_id(page_number)
+    }
+
+    /// Read the tagged value at `step` of the container that `root` and
+    /// `path` address, resolving references.
+    fn object_get(
+        &self,
+        py: Python<'_>,
+        root: Root,
+        path: Vec<Step>,
+        step: Step,
+    ) -> PyResult<Py<PyAny>> {
+        lowlevel::object_get(self, py, root, path, step)
+    }
+
+    /// Return the keys of the dictionary that `root` and `path` address.
+    fn object_keys(&self, root: Root, path: Vec<Step>) -> PyResult<Vec<Vec<u8>>> {
+        lowlevel::object_keys(self, root, path)
+    }
+
+    /// Return the entry count of the container that `root` and `path` address.
+    fn object_len(&self, root: Root, path: Vec<Step>) -> PyResult<usize> {
+        lowlevel::object_len(self, root, path)
+    }
+
+    /// Set one entry of a container; return whether the page order changed.
+    fn object_set(
+        &mut self,
+        root: Root,
+        path: Vec<Step>,
+        step: Step,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        lowlevel::object_set(self, root, path, step, value)
+    }
+
+    /// Delete one entry of a container; return whether the page order changed.
+    fn object_delete(&mut self, root: Root, path: Vec<Step>, step: Step) -> PyResult<bool> {
+        lowlevel::object_delete(self, root, path, step)
+    }
+
+    /// Insert into an array; return whether the page order changed.
+    fn object_insert(
+        &mut self,
+        root: Root,
+        path: Vec<Step>,
+        index: usize,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        lowlevel::object_insert(self, root, path, index, value)
+    }
+
+    /// Add an indirect object; return its ID and whether the page order changed.
+    fn object_add(&mut self, value: &Bound<'_, PyAny>) -> PyResult<(u32, u16, bool)> {
+        lowlevel::object_add(self, value)
+    }
+
+    /// Replace the object stored under a number; return whether the page
+    /// order changed.
+    fn object_replace(&mut self, number: u32, value: &Bound<'_, PyAny>) -> PyResult<bool> {
+        lowlevel::object_replace(self, number, value)
+    }
+
+    /// Add a stream object from decoded data, Flate-compressed when
+    /// `compress` is set; return its ID and whether the page order changed.
+    fn object_add_stream(
+        &mut self,
+        py: Python<'_>,
+        dictionary: &Bound<'_, PyAny>,
+        data: Vec<u8>,
+        compress: bool,
+    ) -> PyResult<(u32, u16, bool)> {
+        lowlevel::object_add_stream(self, py, dictionary, data, compress)
+    }
+
+    /// Read a stream's data, decoded through every filter unless `decode` is
+    /// false, refusing more than `max_size` bytes.
+    #[pyo3(signature = (stream_id, path, decode=true, max_size=Some(DEFAULT_MAX_STREAM_DATA_SIZE)))]
+    fn stream_read(
+        &self,
+        py: Python<'_>,
+        stream_id: (u32, u16),
+        path: Vec<Step>,
+        decode: bool,
+        max_size: Option<usize>,
+    ) -> PyResult<Vec<u8>> {
+        lowlevel::stream_read(self, py, stream_id, path, decode, max_size)
+    }
+
+    /// Replace a stream's data with decoded `data`, Flate-compressed when
+    /// `compress` is set; return whether the page order changed.
+    fn stream_write(
+        &mut self,
+        py: Python<'_>,
+        stream_id: (u32, u16),
+        path: Vec<Step>,
+        data: Vec<u8>,
+        compress: bool,
+    ) -> PyResult<bool> {
+        lowlevel::stream_write(self, py, stream_id, path, data, compress)
     }
 }

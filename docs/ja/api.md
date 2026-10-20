@@ -23,6 +23,7 @@ password inputはUTF-8 127 byteが上限です。
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号（pymupdf互換の意味論） |
 | `is_repaired` | 読み込み時に破損したcross-reference dataを復旧したか（offsetの補正またはtableの再構築）。保存するとxref dataを正規化 |
+| `objects` / `trailer` / `catalog` / `page_xref(pno)` | オブジェクトグラフへの型付き低レベルアクセス。pymupdfの`xref_*`メソッドを置き換える（[低レベルオブジェクト](#low-level-objects)） |
 | `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 全page（`None`）またはpage数と4,096の大きい方までの明示entryを1回のbatchで抽出するplain text。4,096 entryごとのchunkでinterpreter font cacheを共有 |
@@ -53,6 +54,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | メンバ | 用途 |
 |---|---|
 | `number` / `parent` / `get_label()` | 素性と表示ラベル |
+| `xref` / `obj` | ページ辞書のオブジェクト番号 / 低レベルのライブハンドル。継承される属性は祖先に残る |
 | `get_text(option)` / `search_for(needle, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
@@ -226,6 +228,41 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 `TableFinder.strategy`と`TableFinder.clip`には
 使用した設定が残ります。
 
+## 低レベルオブジェクト { #low-level-objects }
+
+`doc.objects`はオブジェクト番号から文書の間接オブジェクトへの対応で、
+`doc.trailer`、`doc.catalog`、`page.obj`は辞書ハンドルです。この型付き
+モデルはpymupdfの文字列ベースの`xref_*`メソッドを置き換えます。オブジェクトは
+PDF構文ではなくPythonの値として扱います。
+
+```python
+from pylopdf import Name
+
+catalog = doc.catalog
+catalog["PageLayout"] = Name("TwoColumnLeft")   # 名前。素のstrはテキスト文字列になる
+font = doc.objects.add({"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica")})
+content = doc.objects.add_stream(b"BT /F9 24 Tf 72 72 Td (Hi) Tj ET")
+page.obj["Resources"] = {"Font": {"F9": doc.objects[font]}}   # 間接ハンドルは参照として格納される
+page.obj["Contents"] = doc.objects[content]
+doc.objects[content].read()                    # デコード済み。既定で64 MiBまで
+```
+
+| 値 | Python |
+|---|---|
+| null、真偽値、整数、実数 | `None`、`bool`、`int`、`float` |
+| 名前 | `Name`（スラッシュを含まない`str`のサブクラス） |
+| 文字列 | `String`（`bytes`のサブクラス。`.text`でPDFテキスト文字列をデコード） |
+| 配列 / 辞書 / ストリーム | ライブな`Array`（可変シーケンス） / `Dictionary`（可変マッピング） / `Stream`（`read(*, decode=True, max_size=64 MiB)`と`write(data, *, filter="FlateDecode")`を持つ辞書） |
+
+参照は読み取り時に解決され、存在しないオブジェクトへの参照は`None`として
+読みます。書き込みは即座に反映され、描画と抽出のキャッシュを破棄します。
+ページ順を変える書き込みは既存の`Page`ビューも無効にします。リストと
+マッピングは直接オブジェクトとして書き込まれ、コンテナに格納した間接ハンドルは
+参照になり、`doc.objects[xref]`への代入や`add()`に渡したハンドルはコピーされます。
+オブジェクトが削除されるか、`save(garbage=2)`以上で番号が振り直されると、
+ハンドルは`StaleObjectError`を送出します。生の編集を意味的に正しく保つのは
+呼び出し側の責任です。
+
 ## モジュールレベル { #module-level }
 
 | 名前 | 用途 |
@@ -242,9 +279,10 @@ Unicode graphemeを各位置の中央に配置して、長すぎる値を文書�
 | `OcrEngine` / `OcrWord` | 再利用可能な純Rust PP-OCRエンジン／位置付き結果の契約 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体。`weight=`は可変フォントのファイルのインスタンスも選ぶ |
 | `Shape(page)` | 経路と文字を1回で描くpymupdfの`Shape`。`page.new_shape()`でも作れる |
+| `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低レベルのPDF値とライブなオブジェクトハンドル（[低レベルオブジェクト](#low-level-objects)） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(path)`。すべてのwheelでread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 

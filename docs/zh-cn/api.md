@@ -23,6 +23,7 @@ password input上限为127个UTF-8 byte。
 | `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 带127-byte password上限的加密状态与解锁（兼容pymupdf语义） |
 | `is_repaired` | 打开时是否恢复了损坏的cross-reference数据（修正offset或重建table）；保存会规范化xref数据 |
+| `objects` / `trailer` / `catalog` / `page_xref(pno)` | 对对象图的类型化低层访问，取代pymupdf的`xref_*`方法（[低层对象](#low-level-objects)） |
 | `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
@@ -51,6 +52,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | 成员 | 用途 |
 |---|---|
 | `number` / `parent` / `get_label()` | 标识与显示标签 |
+| `xref` / `obj` | 页面字典的对象编号 / 实时低层句柄；继承的属性仍位于其祖先节点 |
 | `get_text(option)` / `search_for(needle, max_hits=4096)` | 提取与有界的不区分大小写搜索；搜索词上限为4,096 UTF-8 byte，可信结果集可用`None`取消 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
@@ -195,6 +197,37 @@ with page.new_shape() as shape:
 hybrid grid为0.95；两者的文本专用指标均为`None`。
 `TableFinder.strategy`和`TableFinder.clip`保留本次使用的设置。
 
+## 低层对象 { #low-level-objects }
+
+`doc.objects`将对象编号映射到文档的间接对象；`doc.trailer`、
+`doc.catalog`和`page.obj`是字典句柄。这一类型化模型取代pymupdf基于字符串的
+`xref_*`方法：对象是Python值，而不是PDF语法。
+
+```python
+from pylopdf import Name
+
+catalog = doc.catalog
+catalog["PageLayout"] = Name("TwoColumnLeft")   # 名称；普通str会写成文本字符串
+font = doc.objects.add({"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica")})
+content = doc.objects.add_stream(b"BT /F9 24 Tf 72 72 Td (Hi) Tj ET")
+page.obj["Resources"] = {"Font": {"F9": doc.objects[font]}}   # 间接句柄以引用形式存储
+page.obj["Contents"] = doc.objects[content]
+doc.objects[content].read()                    # 已解码，默认上限64 MiB
+```
+
+| 值 | Python |
+|---|---|
+| null、布尔值、整数、实数 | `None`、`bool`、`int`、`float` |
+| 名称 | `Name`，不含斜杠的`str`子类 |
+| 字符串 | `String`，`bytes`子类，`.text`解码PDF文本字符串 |
+| 数组 / 字典 / 流 | 实时的`Array`（可变序列） / `Dictionary`（可变映射） / `Stream`（带有`read(*, decode=True, max_size=64 MiB)`和`write(data, *, filter="FlateDecode")`的字典） |
+
+引用在读取时解析，指向不存在对象的引用读作`None`。写入立即生效并丢弃渲染与
+提取缓存；改变页面顺序的写入还会使现有`Page`视图失效。列表和映射写成直接对象，
+存入容器的间接句柄成为引用，而赋值给`doc.objects[xref]`或传给`add()`的句柄会被
+复制。对象被删除，或`save(garbage=2)`及以上重新编号后，句柄会引发
+`StaleObjectError`。保持原始编辑在语义上有效是调用方的责任。
+
 ## 模块级 { #module-level }
 
 | 名称 | 用途 |
@@ -211,9 +244,10 @@ hybrid grid为0.95；两者的文本专用指标均为`None`。
 | `OcrEngine` / `OcrWord` | 可复用的纯Rust PP-OCR引擎与带位置结果契约 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体；`weight=`也可选择可变字体文件的实例 |
 | `Shape(page)` | 一次绘制路径和文字的pymupdf `Shape`；也可用`page.new_shape()`创建 |
+| `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低层PDF值与实时对象句柄（[低层对象](#low-level-objects)） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 流式写入且失败时保留现有file的PNG专用`save(path)`；所有wheel还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 可恢复的解释警告（xref修复、字体解析、图像解码） |
 

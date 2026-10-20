@@ -102,7 +102,8 @@ overview.
   - D, interactive: `form.rs`, `acroform_import.rs`;
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
-    `document/{page_tree,navigation,labels,metadata,attachments}.rs`.
+    `document/{page_tree,navigation,labels,metadata,attachments,lowlevel}.rs`;
+    `src/pylopdf/_objects.py`.
   - F, content engine: `content/`, `text_replace.rs`, `content_guard.rs`,
     `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
     `read_depth.rs`; `document/replacement.rs`.
@@ -2136,6 +2137,26 @@ overview.
   exact `pdfaid:part` / `pdfaid:conformance` XML elements or attributes, not
   lookalike prefixes, quoted values, comments, or CDATA. This remains a
   self-declaration read rather than PDF/A validation.
+- The low-level object model (`rust/src/document/lowlevel.rs`,
+  `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
+  `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a
+  document, an object-numbering epoch, a root (the trailer or one
+  `(number, generation)`), and a path of keys and indexes through direct
+  containers; it reads the graph on every access and never caches values.
+  Values cross the boundary in the tagged form the Rust module documents.
+  Reads resolve references through at most 32 links, and a missing object
+  reads as `None`. Writes convert the complete value, check every
+  referenced object exists so no reference can alias a later allocation,
+  and only then mutate; nested input stops at 32 levels with
+  `object_value_depth`. Every write calls `invalidate_hayro_pdf`, clears
+  `isolated_content_pages`, and compares the page order before and after
+  with a page-tree walk, returning whether it changed so Python bumps the
+  page generation. Python bumps `_object_epoch` when `garbage=2` and higher
+  renumber objects and when `authenticate` reopens the document, which makes
+  older handles raise `StaleObjectError`; a removed object or a broken path
+  raises it from Rust. `Stream.read` uses the strict bounded decoder with a
+  64 MiB default (`stream_data_size`). A new operation that renumbers or
+  reloads objects must bump the epoch.
 - `api/public-api.json` is the reviewed candidate public surface. It covers
   `__all__`, signatures and defaults, documented members, TypedDict keys, type
   aliases, NamedTuple fields, enum/constant values, and exception inheritance.
@@ -2428,6 +2449,48 @@ overview.
   message to standard error. A new entry point that reaches hayro must run
   inside it too; `tests/test_renderer_panics.py` pins the cases of #1546 and
   the Pyodide contract checks the containment under Emscripten.
+- hayro-syntax 0.8.0, and hayro `main` at af0dc88 (2026-10-19), find the end
+  of inline image data by taking every `EI` followed by white space as a
+  candidate and checking each later `EI` and `BI` behind it. For every later
+  `EI` the search rescans the bytes from the candidate for a non-ASCII byte,
+  parses the bytes after the candidate as content with a new `TypedIter`, and
+  searches the rest of the stream for `BI` again, so content that holds many
+  `EI`s after an inline image takes quadratic time, and candidates that are
+  each rejected late take cubic time. `TypedIter` needed 3.5 s for 512 KB of
+  `(EI) Tj` and 1.4 s for 6 KB of `EI ` before one binary byte; pylopdf's
+  `get_text` and `get_pixmap` of one-page PDFs with that content took 4.2
+  and 3.7 s, and 1.6 and 1.7 s, against about 10 ms in pymupdf 1.28.2. Every
+  path that lets hayro parse a page pays it, the first drawing on a page
+  included, because its `q`/`Q` count reads `TypedIter`. A patch that keeps
+  every decision and searches in linear time (2.3 ms and 45 µs) is an
+  upstream contribution candidate: the instructions, operands, and inline
+  image data of all 88,807 decodable non-image streams of the pdf.js corpus
+  and of 36 million generated streams were unchanged, and the corpus parsed
+  as fast as before. `content_scan.rs` models the same search with a linear
+  lexer of its own, which the patch leaves valid. Until a hayro release has
+  it, hosts must keep enforcing CPU deadlines.
+- hayro-syntax 0.8.0 and `main` end a content stream, and hayro its
+  interpretation, at the first path construction operator whose operands do
+  not fit (`TypedIter::next`), at an 11th operand (`OPERANDS_THRESHOLD`), at
+  a `)`, `]`, `>`, `{`, or `}` where an operator belongs, and at an operand
+  they cannot read. Nothing after that point is drawn or extracted, including
+  content that pylopdf appends, and the drawing count of `q` and `Q` ends
+  there as well. The operand limit cuts off valid content: `scn` and `SCN`
+  take one operand per colorant of a DeviceN colour space, which ISO 32000-1
+  Annex C allows up to 32, plus the name of a pattern. After an
+  11-colorant fill colour pylopdf drew and extracted nothing, while MuPDF
+  and pdf.js (which accepts 33 operands) drew and extracted everything. In
+  the pdf.js corpus 9 of 12,509 pages and 2 of 22,976 Form XObjects stop
+  early, all in damaged or fuzzed files: 3 at path operators, 6 at stray delimiters, 2 at
+  unreadable operands, and none at the operand limit. MuPDF reads past all of
+  these; pdf.js skips incomplete path operators until more than 10 occur in
+  one run of path operators, skips a stray `]`, `>`, `{`, or `}`, and stops
+  at a stray `)` and at a 34th operand. Raising the limit to 33 in a boxed
+  operand stack, which parses as fast and takes less stack per nested content
+  stream than the current array, is an upstream contribution candidate;
+  skipping incomplete path operators and stray delimiters as pdf.js does is
+  a question for upstream. pylopdf follows hayro and does not work around
+  either.
 - The pre-commit `validate-pyproject` hook with `trove-classifiers` validates
   classifier existence. v0.4.0 was rejected by PyPI because of the invalid
   classifier `Topic :: Text Processing :: Markup :: PDF`.
