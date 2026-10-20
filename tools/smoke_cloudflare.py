@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-_PYEMSCRIPTEN_TAG = "cp310-abi3-pyemscripten_2025_0_wasm32"
+_PYEMSCRIPTEN_TAG = "cp311-abi3-pyemscripten_2025_0_wasm32"
 _WORKERS_PY_VERSION = "1.15.0"
 _WRANGLER_VERSION = "4.114.0"
 _COMPATIBILITY_DATE = "2026-07-26"

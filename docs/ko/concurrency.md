@@ -5,7 +5,7 @@ description: Document, Page, Pixmap, 병렬 렌더링 및 CPython 3.14t와 3.15t
 
 # 동시성과 free-threaded Python
 
-pylopdf는 GIL이 있는 CPython 3.10–3.15용 플랫폼별 `abi3` wheel과 free-threaded
+pylopdf는 GIL이 있는 CPython 3.11–3.15용 플랫폼별 `abi3` wheel과 free-threaded
 CPython용 Python 버전별 wheel을 배포합니다. `cp314-cp314t`는 v0.10부터,
 `cp315-cp315t`는 v0.14.0 이후 릴리스부터 제공합니다. free-threaded wheel을
 import해도 GIL이 다시 활성화되지 않습니다.
@@ -14,7 +14,7 @@ import해도 GIL이 다시 활성화되지 않습니다.
 
 | 사용 방식 | 지원 |
 |---|---|
-| GIL이 있는 CPython 3.10–3.15 | `abi3-py310` wheel로 지원 |
+| GIL이 있는 CPython 3.11–3.15 | `abi3-py311` wheel로 지원 |
 | free-threaded CPython 3.14t와 3.15t | `cp314-cp314t`와 `cp315-cp315t` wheel로 지원하며 GIL이 꺼진 상태에서 테스트 |
 | 서로 다른 `Document` 객체의 동시 작업 | 지원. load, save, render, 추출, merge, 압축의 무거운 작업은 GIL을 해제 |
 | 같은 `Document`의 동시 호출 또는 편집 | 지원하지 않음. lock으로 직렬화하거나 독립된 Document를 사용 |
@@ -68,7 +68,7 @@ cache를 사용합니다.
 
 ## Pixmap 버퍼 { #pixmap-buffers }
 
-free-threaded wheel은 불변 RGBA8 저장소를 읽기 전용, 1차원, zero-copy buffer로
+모든 wheel은 불변 RGBA8 저장소를 읽기 전용, 1차원, zero-copy buffer로
 노출합니다.
 
 ```python
@@ -76,7 +76,8 @@ view = memoryview(page.get_pixmap())
 assert view.readonly and view.format == "B"
 ```
 
-`Py_buffer`는 Python 3.11에서 stable ABI에 포함되었으므로 `abi3-py310` wheel에서는
-노출할 수 없습니다. 해당 wheel에서는 한 번 복사되는 `bytes` 값인
-`pixmap.samples`를 사용하세요. 이 방식은 buffer 수명과 불변성 보장을 약화하지
-않으면서 Python 3.10 호환성을 유지합니다.
+view가 Pixmap을 유지하므로 NumPy는 `np.frombuffer(pixmap, dtype=np.uint8)`로
+픽셀을 복사 없이 읽을 수 있습니다. 독립된 `bytes` 복사본이 필요하면 계속
+`pixmap.samples`를 사용할 수 있습니다. v0.14.0 이후 릴리스는 Python 3.11 이상이
+필요하고 그 stable ABI에는 `Py_buffer`가 포함되므로 abi3 wheel도 같은 buffer를
+노출합니다. v0.14.0 이하에서는 free-threaded wheel만 이 buffer를 노출했습니다.

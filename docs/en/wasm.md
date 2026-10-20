@@ -24,7 +24,7 @@ implementation or a wasm-bindgen shim.
 | Worker compatibility date | 2026-07-26 |
 
 The published artifact uses
-`cp310-abi3-pyemscripten_2025_0_wasm32`. The builder first runs the same binary
+`cp311-abi3-pyemscripten_2025_0_wasm32`. The builder first runs the same binary
 under the runtime-native `pyodide_2025_0_wasm32` tag, then deterministically
 retags it for PEP 783 publication. Only the PyEmscripten-tagged artifact enters
 PyPI, provenance attestation, and the release SBOM.
@@ -89,7 +89,7 @@ await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(
     "https://example.invalid/pylopdf-0.14.0-"
-    "cp310-abi3-pyodide_2025_0_wasm32.whl"
+    "cp311-abi3-pyodide_2025_0_wasm32.whl"
 )
 `);
 ```

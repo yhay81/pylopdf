@@ -24,7 +24,7 @@ Core pages:
 Key facts:
 - MIT licensed.
 - Zero runtime dependencies.
-- Approximately 6.4–7.4 MiB thin-LTO abi3 wheels for Python 3.10 through
+- Approximately 6.4–7.4 MiB thin-LTO abi3 wheels for Python 3.11 through
   3.15, plus cp314t and cp315t wheels for free-threaded Python 3.14 and
   3.15.
 - A release-gated PyEmscripten wheel targets Pyodide 0.28.3 and Cloudflare

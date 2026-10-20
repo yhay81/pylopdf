@@ -104,7 +104,7 @@ def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
     """Write a test-only self-signed certificate and private key as PEM."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "pylopdf interop test")])
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)

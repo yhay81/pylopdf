@@ -822,6 +822,8 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         first.get_pixmap(0.5).samples == first_pixmap.samples,
         "a repeated render on the retained cache changed the raster",
     )
+    pixmap_buffer = memoryview(first_pixmap)
+    _require(bytes(pixmap_buffer) == first_pixmap.samples, "the Pixmap buffer differs from its samples")
 
     second = document.new_page(width=180, height=240)
     stale_error = _exception_name(lambda: first.rect)
@@ -886,6 +888,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         ),
         "text_sha256": [_digest(text) for text in texts],
         "first_pixmap": [first_pixmap.width, first_pixmap.height, first_pixmap.n],
+        "first_pixmap_buffer": [pixmap_buffer.readonly, pixmap_buffer.format, pixmap_buffer.ndim, pixmap_buffer.nbytes],
         "batch_render_sizes": render_sizes,
         "merged_text_sha256": [_digest(text) for text in merged_texts],
         "selected_text_sha256": _digest(selected.get_page_text(0)),

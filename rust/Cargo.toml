@@ -39,7 +39,7 @@ unicode-segmentation = "1.12"
 unicode-bidi = "0.3.18"
 # PyO3 links Windows targets with raw-dylib, so builds in Python-free
 # containers and cross environments need no generated import library.
-pyo3 = { version = "0.30.1", features = ["abi3-py310"] }
+pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
 # Used for coordinate transforms in the hayro text-extraction Device; align versions.
 kurbo = "0.13"
 # Encode non-JPEG extracted images as PNG; match the version already used by hayro.

@@ -28,7 +28,7 @@ for the required regional glyph conventions; there is no generic CJK extra.
 
 Release CI installs every native platform wheel on an architecture-matched
 runner and exercises PDF creation, saving, reopening, extraction, rendering,
-and immutable Pixmap storage. This covers all five `abi3-py310` artifacts on
+and immutable Pixmap storage. This covers all five `abi3-py311` artifacts on
 CPython 3.14 and 3.15 and all ten CPython 3.14t and 3.15t artifacts; the sdist
 and PyEmscripten wheel have separate environment-specific gates.
 

@@ -10,6 +10,10 @@ import sys
 import sysconfig
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pylopdf import Pixmap
 
 _SMOKE_TEXT = "pylopdf artifact smoke test"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -21,8 +25,8 @@ def _require(*, condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
-def _check_free_threaded_pixmap(pixmap: object, expected: bytes) -> None:
-    """Verify a free-threaded wheel's no-GIL declaration and zero-copy buffer."""
+def _check_free_threaded_import() -> None:
+    """Verify that a free-threaded wheel keeps the GIL disabled after import."""
     if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
         return
     is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
@@ -30,6 +34,10 @@ def _check_free_threaded_pixmap(pixmap: object, expected: bytes) -> None:
         condition=is_gil_enabled is not None and not is_gil_enabled(),
         message="importing pylopdf unexpectedly enabled the GIL",
     )
+
+
+def _check_pixmap_buffer(pixmap: Pixmap, expected: bytes) -> None:
+    """Verify the read-only zero-copy buffer that every wheel exposes."""
     view = memoryview(pixmap)
     _require(condition=view.readonly, message="Pixmap buffer must be read-only")
     _require(condition=view.format == "B", message=f"unexpected Pixmap buffer format: {view.format!r}")
@@ -80,7 +88,8 @@ def _run_smoke() -> None:
         pixmap = reopened[0].get_pixmap()
         samples = pixmap.samples
         _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
-        _check_free_threaded_pixmap(pixmap, samples)
+        _check_free_threaded_import()
+        _check_pixmap_buffer(pixmap, samples)
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "smoke.pdf"

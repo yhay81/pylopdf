@@ -18,7 +18,7 @@ import platform
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 from typing import NamedTuple
@@ -272,7 +272,7 @@ def main() -> None:
     lines = [
         "# pylopdf native OCR results",
         "",
-        f"- Run at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        f"- Run at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
         f"- Environment: {platform.platform()} / Python {platform.python_version()} / CPU {platform.processor()}",
         f"- Versions: pylopdf {metadata.version('pylopdf')}, pylopdf-ocr-models {pylopdf_ocr_models.__version__}",
         "- Fixtures (sources and licenses in `tests/assets/real_world/README.md`):",

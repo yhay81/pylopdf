@@ -5,7 +5,6 @@ from __future__ import annotations
 import gc
 import os
 import stat
-import sysconfig
 import warnings
 from pathlib import Path
 
@@ -28,15 +27,11 @@ def test_pixmap_dimensions_and_samples(one_page_pdf: bytes) -> None:
     assert len(pix.samples) == pix.width * pix.height * 4
 
 
-def test_pixmap_buffer_protocol_matches_build_abi(one_page_pdf: bytes) -> None:
+def test_pixmap_exposes_a_zero_copy_read_only_buffer(one_page_pdf: bytes) -> None:
+    # Every wheel, the abi3-py311 wheels included, implements the buffer protocol.
     pix = pylopdf.open(stream=one_page_pdf)[0].get_pixmap()
-    if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
-        with pytest.raises(TypeError, match="bytes-like object"):
-            memoryview(pix)  # ty: ignore[invalid-argument-type]  # Buffer exists only in version-specific builds.
-        return
-
     expected = pix.samples
-    view = memoryview(pix)  # ty: ignore[invalid-argument-type]  # Buffer exists only in version-specific builds.
+    view = memoryview(pix)
     assert view.readonly
     assert view.format == "B"
     assert view.ndim == 1

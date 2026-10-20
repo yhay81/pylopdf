@@ -21,7 +21,7 @@ JavaScript PDF 实现或 wasm-bindgen shim。
 | Cloudflare bundler | Wrangler 4.114.0 |
 | Worker compatibility date | 2026-07-26 |
 
-发布的 artifact 使用 `cp310-abi3-pyemscripten_2025_0_wasm32`。构建器先以 runtime
+发布的 artifact 使用 `cp311-abi3-pyemscripten_2025_0_wasm32`。构建器先以 runtime
 原生的 `pyodide_2025_0_wasm32` tag 运行同一 binary，再确定性地 retag 为 PEP 783
 发布格式。只有 PyEmscripten-tag artifact 会进入 PyPI、provenance attestation 和
 release SBOM。
@@ -83,7 +83,7 @@ await pyodide.runPythonAsync(`
 import micropip
 await micropip.install(
     "https://example.invalid/pylopdf-0.14.0-"
-    "cp310-abi3-pyodide_2025_0_wasm32.whl"
+    "cp311-abi3-pyodide_2025_0_wasm32.whl"
 )
 `);
 ```

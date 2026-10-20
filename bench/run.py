@@ -26,7 +26,7 @@ import statistics
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -378,7 +378,7 @@ def main() -> None:
     lines: list[str] = []
     lines.append("# pylopdf benchmark results")
     lines.append("")
-    lines.append(f"- Run at: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append(f"- Run at: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append(
         f"- Environment: {platform.platform()} / Python {platform.python_version()} / "
         f"CPU {_cpu_name()} ({os.cpu_count()} logical CPUs)"

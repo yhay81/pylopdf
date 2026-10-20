@@ -6,7 +6,7 @@ description: The supported threading boundaries for Documents, Pages, Pixmaps, p
 # Concurrency and free-threaded Python
 
 pylopdf publishes one `abi3` wheel per platform for GIL-enabled CPython
-3.10–3.15 and version-specific wheels for free-threaded CPython:
+3.11–3.15 and version-specific wheels for free-threaded CPython:
 `cp314-cp314t` since v0.10 and `cp315-cp315t` in releases after v0.14.0.
 Importing a free-threaded wheel does not re-enable the GIL.
 
@@ -14,7 +14,7 @@ Importing a free-threaded wheel does not re-enable the GIL.
 
 | Use | Support |
 |---|---|
-| GIL-enabled CPython 3.10–3.15 | Supported by the `abi3-py310` wheel |
+| GIL-enabled CPython 3.11–3.15 | Supported by the `abi3-py311` wheel |
 | Free-threaded CPython 3.14t and 3.15t | Supported by the `cp314-cp314t` and `cp315-cp315t` wheels and tested with the GIL disabled |
 | Concurrent operations on distinct `Document` objects | Supported; heavy load, save, render, extraction, merge and compression work releases the GIL |
 | Concurrent calls or edits on the same `Document` | Not supported; serialize access with a lock or use independent documents |
@@ -69,15 +69,17 @@ other threads and parallel `render_pages()` workers use call-scoped caches.
 
 ## Pixmap buffers { #pixmap-buffers }
 
-The free-threaded wheels expose the immutable RGBA8 storage through a
-read-only, one-dimensional, zero-copy buffer:
+Every wheel exposes the immutable RGBA8 storage through a read-only,
+one-dimensional, zero-copy buffer:
 
 ```python
 view = memoryview(page.get_pixmap())
 assert view.readonly and view.format == "B"
 ```
 
-The `abi3-py310` wheel cannot expose `Py_buffer` because that structure entered
-the stable ABI in Python 3.11. Use `pixmap.samples`, a one-copy `bytes` value,
-on that wheel. This keeps Python 3.10 compatibility without weakening buffer
-lifetime or mutability guarantees.
+The view keeps its Pixmap alive, so NumPy can read the pixels without a copy
+through `np.frombuffer(pixmap, dtype=np.uint8)`. `pixmap.samples` remains
+available when an independent `bytes` copy is wanted. Releases after v0.14.0
+require Python 3.11, whose stable ABI includes `Py_buffer`, so the abi3 wheels
+expose the same buffer; v0.14.0 and earlier exposed it only on the
+free-threaded wheels.

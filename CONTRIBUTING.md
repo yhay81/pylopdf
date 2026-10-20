@@ -79,7 +79,7 @@ Toolchains and downloads are isolated under `.tmp/pyodide-0.28.3`; the wheel is
 written to `dist/pyodide-0.28.3`. Rust compilation defaults to two jobs to
 bound memory use; set `PYLOPDF_PYODIDE_BUILD_JOBS` only after measuring the
 builder. The command validates the
-`cp310-abi3-pyodide_2025_0_wasm32` tag, the imported WebAssembly exception tag,
+`cp311-abi3-pyodide_2025_0_wasm32` tag, the imported WebAssembly exception tag,
 and the absence of wasm-bindgen shims before installing the wheel into the
 Pyodide 0.28.3 Node runtime. Its smoke test loads a PDF from bytes, checks page
 count, text extraction, and batch rendering, and verifies that a malformed-

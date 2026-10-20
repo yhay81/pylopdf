@@ -37,7 +37,7 @@ hide:
         <li>MITライセンス</li>
         <li>6.7–7.8 MBのwheel</li>
         <li>必須Python依存なし</li>
-        <li>Python 3.10–3.15</li>
+        <li>Python 3.11–3.15</li>
       </ul>
     </div>
 
@@ -113,8 +113,8 @@ hide:
         <span class="living-evidence__label">必須Python依存。コンパイル済みRustコンポーネントはwheelに同梱されます。</span>
       </div>
       <div class="living-evidence__item">
-        <span class="living-evidence__value">3.10–3.15</span>
-        <span class="living-evidence__label">ひとつのabi3 wheel系列で6世代のPythonをカバーします。</span>
+        <span class="living-evidence__value">3.11–3.15</span>
+        <span class="living-evidence__label">ひとつのabi3 wheel系列で5世代のPythonをカバーします。</span>
       </div>
       <div class="living-evidence__item">
         <span class="living-evidence__value">MIT</span>

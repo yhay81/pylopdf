@@ -654,7 +654,7 @@
     "Pixmap.pil_tobytes": {"kind": "method", "status": "planned", "relation": "same", "pylopdf": "Pixmap.pil_tobytes", "milestone": "M1"},
     "Pixmap.pixel": {"kind": "method", "status": "planned", "relation": "same", "pylopdf": "Pixmap.pixel", "milestone": "M1"},
     "Pixmap.samples": {"kind": "property", "status": "available", "relation": "same", "pylopdf": "Pixmap.samples", "milestone": null},
-    "Pixmap.samples_mv": {"kind": "property", "status": "planned", "relation": "same", "pylopdf": "Pixmap.samples_mv", "milestone": "M1", "note": "On abi3 wheels without the buffer protocol, samples_mv will view a copy."},
+    "Pixmap.samples_mv": {"kind": "property", "status": "planned", "relation": "same", "pylopdf": "Pixmap.samples_mv", "milestone": "M1", "note": "samples_mv will be a read-only, zero-copy memoryview of the pixel storage on every wheel."},
     "Pixmap.samples_ptr": {"kind": "property", "status": "non-goal", "relation": null, "pylopdf": null, "milestone": null, "hint": "Use pix.samples or pix.samples_mv.", "note": "Raw memory address of MuPDF's sample buffer; it has no PDF-level meaning."},
     "Pixmap.save": {"kind": "method", "status": "available", "relation": "same", "pylopdf": "Pixmap.save", "milestone": "M0", "reset": "Rename the parameter path of Pixmap.save() to pymupdf's filename.", "note": "M1 adds output= and jpg_quality=."},
     "Pixmap.set_alpha": {"kind": "method", "status": "planned", "relation": "same", "pylopdf": "Pixmap.set_alpha", "milestone": "M1"},
