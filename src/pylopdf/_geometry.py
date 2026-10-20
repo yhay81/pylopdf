@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Sequence
 from fractions import Fraction
 from typing import NamedTuple, Self, overload
@@ -173,12 +174,13 @@ class Matrix(_MatrixTuple):
     def __invert__(self) -> Matrix:
         """Return the inverse, or the zero matrix when the determinant is zero."""
         determinant = self.a * self.d - self.b * self.c
-        if determinant and math.isfinite(determinant):
+        if abs(determinant) >= sys.float_info.min and math.isfinite(determinant):
             ia, ib, ic, id_ = (value / determinant for value in (self.d, -self.b, -self.c, self.a))
         else:
             # Four finite floats have bounded binary ratios. Only this rare
-            # path needs exact products: rescaling can turn an exactly
-            # singular matrix into a tiny nonzero determinant by rounding.
+            # path needs exact products: subnormal determinants lose relative
+            # precision, and rescaling can turn an exactly singular matrix
+            # into a tiny nonzero determinant by rounding.
             a, b, c, d = (Fraction(value) for value in self[:4])
             determinant = a * d - b * c
             if determinant == 0:

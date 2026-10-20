@@ -152,11 +152,12 @@ def test_inverse_and_division_round_trips(matrix: Matrix) -> None:
         assert point / tuple(matrix) == pytest.approx(point * ~matrix)
 
 
-@pytest.mark.parametrize("scale", [1e-200, 1e200])
+@pytest.mark.parametrize("scale", [1e-200, 2e-162, 1e-160, 1e-155, 1e200])
 def test_inverse_does_not_overflow_or_underflow_the_determinant(scale: float) -> None:
     matrix = Matrix(scale, scale)
     assert ~matrix == pytest.approx(Matrix(1 / scale, 1 / scale))
     assert matrix * ~matrix == pytest.approx(Matrix(1, 1))
+    assert Point(1, 2) * matrix / matrix == pytest.approx(Point(1, 2))
 
 
 def test_inverse_preserves_axes_with_very_different_scales() -> None:
