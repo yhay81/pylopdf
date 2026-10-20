@@ -535,30 +535,87 @@ overview.
   table by scanning object headers, so its view of a malformed file depends on
   read order. lopdf stores an uncompressed object under its header number even
   when the entry names another, skips objects it cannot parse, and adds
-  object-stream members that no entry lists, raising `max_id` over them. A
-  load whose objects match the in-use entries one for one keeps its bytes
-  after a single merge pass; lopdf records no free entries, and well-formed
-  files, incremental updates, and object streams all match. Otherwise loading
-  re-parses each skipped uncompressed object whose header matches its entry
-  with a bounded, iterative parser that reads a bare keyword value such as
-  `/Type XObject` as null, stops at lopdf's 100-level nesting bound, never
-  reads past the next entry's offset, and takes stream data only from a valid
-  `/Length` or a sole `endstream` that `endobj` follows. It then walks every
-  reference reachable from the trailer, drops objects that no entry locates
-  and nothing reaches, such as members that a damaged object stream decodes
-  under arbitrary numbers, and lowers `max_id` to the highest entry or
+  object-stream members that no entry lists, raising `max_id` over them. It
+  stores every member under the number that its object stream's table gives
+  it, keeping the last pair for a number, while hayro reads, for a compressed
+  entry, the member that the table lists at the entry's index, whatever its
+  number there, and none past `/N`. While parsing, lopdf reads `/Length` only
+  as an integer, direct or from an object that it can read, and loads any
+  other stream without data, marked by `start_position`; a later pass takes
+  as many bytes as an integer or integral real that it then resolves declares,
+  without looking for `endstream`. hayro takes the declared bytes, truncating
+  a real, only when `stream`, one end-of-line marker directly after it, the
+  bytes, white space, and `endstream` follow the dictionary, and otherwise
+  everything from the end-of-line marker after the first `stream` up to the
+  first `endstream` in the file, less trailing white space.
+  One pass over the in-use entries and the loaded objects finds whether they
+  match one for one, the loaded compressed members, and the marked streams.
+  Loading re-reads every marked stream as hayro does, within its entry's
+  bounds (the next distinct entry offset, the cross-reference section, or the
+  end of input, as for the recovery parse below), and stores the data that
+  hayro reads with a direct `/Length`, so saving keeps it: pdf.js
+  `issue1293r.pdf` and `operator-in-TJ-array.pdf` draw content streams written
+  `<< >>` and lost their text in every save. A stream that hayro would read
+  past those bounds, or not at all, such as one with a space before its
+  end-of-line marker, becomes a suspect; one with `/F`, which hayro reads as
+  no stream from either source, is left as it is. Every object stream that
+  holds a loaded member is decoded only as far as `/First` (unfiltered or a
+  single `/FlateDecode` without decode parameters, through one reused decoder
+  and buffer; any other stream makes every member a suspect, which is right
+  for `/BrotliDecode`, a filter hayro-syntax 0.8 does not know). A table of
+  runs of digits between ASCII white space, which both readers split alike,
+  is read once, and members that fill its slots in order need no other check.
+  Any other table is read twice: hayro's `/N` pairs, runs of digits between
+  white space and comments from the start of the data, and lopdf's pairs, the
+  bytes before `/First` split at Unicode white space and paired in order. A
+  member is a suspect unless hayro's pair at the entry's index names it and
+  every pair that lopdf reads for its number gives the same offset; a comment
+  after the table, as qpdf's QDF output writes (pdf.js `issue14165.pdf`),
+  matches. pdf.js `bug1978317.pdf` writes 65,542 members with a two-byte index
+  field, so the entries of its last six, `/Root`, `/Info`, and its page among
+  them, name slots 0 to 5. A load whose objects match the in-use entries one
+  for one and that has no suspect keeps its bytes; lopdf records no free
+  entries, and well-formed files, incremental updates, and object streams all
+  match. Otherwise loading re-parses each skipped uncompressed object whose
+  header matches its entry with a bounded, iterative parser that reads a bare
+  keyword value such as `/Type XObject` as null, stops at lopdf's 100-level
+  nesting bound, never reads past the next entry's offset, and takes stream
+  data only from a valid `/Length` or a sole `endstream` that `endobj`
+  follows. A loaded object whose header names another number than the entry
+  that locates it becomes a suspect under that number, which lopdf may hold in
+  place of the object or member that hayro reads for it. Loading then walks
+  every reference reachable from the trailer, drops objects that no entry
+  locates and nothing reaches, such as members that a damaged object stream
+  decodes under arbitrary numbers, and lowers `max_id` to the highest entry or
   remaining object when no reachable reference names a higher number, because
   lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
-  stay only when the walk meets no recovered object, no object that no entry
-  locates, and no in-use entry that lopdf could not load. lopdf skips objects
-  nested deeper than 100 levels, so a reachable one also kept them from hayro
-  0.7's unbounded recursive parser; hayro 0.8 reads none deeper than 64.
-  Audit and recovery buffers grow fallibly,
-  and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
-  and already render from the graph. The pass runs before
-  `normalize_object_numbers`, because it compares lopdf's numbers with the
-  cross-reference entries; a renumbering load also renders from the graph, and
-  dropping unreachable debris first spares most such loads the move.
+  stay only when the walk meets no recovered object or other suspect, no
+  object that no entry locates, and no in-use entry that lopdf could not load.
+  On the first six pages of the 1,455 pdf.js corpus files, text before and
+  after a save differed for two files with only the recovery parse and for
+  none with these checks, and no file changed its text before a save or its
+  snapshot; the loads that keep their bytes fell from 1,279 to 1,277, the two
+  files above, which already read from the serialized graph. Cold first calls
+  on the bundled corpus did not change (two runs of 15 interleaved rounds of
+  CPU-time minimums, thin-LTO builds: 1,748.9 to 1,742.6 ms and 1,723.7 to
+  1,714.2 ms), nor did its loads (20.49 to 20.42 ms). The member check costs
+  about 17 ms on pdf.js `pdf.pdf`, whose 2,234 object streams hold 223,316
+  members and whose load takes about 1 s, and at most 1.3 ms on the other
+  large object-stream files measured; `bug1978317.pdf` loads 26 ms slower
+  because its suspects send it through the recovery parse and the walk. Two
+  shapes stay unmarked because lopdf leaves no trace of them: a wrong integer
+  `/Length` that lopdf recovers from the sole `endstream`, whose data can
+  differ from hayro's by trailing white space, and a valid one with a space
+  before the end-of-line marker, which hayro reads as no stream; no pdf.js
+  file has either. lopdf skips objects nested deeper than 100 levels, so a
+  reachable one also kept them from hayro 0.7's unbounded recursive parser;
+  hayro 0.8 reads none deeper than 64. Survey, re-read, table, audit, and
+  recovery buffers grow fallibly, and refusal raises `PdfError`. Encrypted and
+  recovered loads skip the pass and already render from the graph. The pass
+  runs before `normalize_object_numbers`, because it compares lopdf's numbers
+  with the cross-reference entries; a renumbering load also renders from the
+  graph, and dropping unreachable debris first spares most such loads the
+  move. `tests/test_original_bytes.py` pins each shape.
 - Content streams are cleared for nesting depth before hayro interprets them.
   hayro 0.7 skipped and read arrays and dictionaries in content streams by
   unbounded recursion (LaurenzV/hayro#1347), so a stream with about 300,000
@@ -646,10 +703,10 @@ overview.
   generated pages, the walk alone 0.01, 0.01, and 0.03 s). The loop keeps
   resolving every element through hayro and not through
   lopdf's graph, although the graph holds the same dictionaries without a
-  rebuild: `object_recovery` verifies only that a compressed entry exists, not
-  the container and index that hayro reads, and the object streams' contents
-  could be parsed differently by lopdf, so a walk that took `/AP` from the
-  graph could leave unscanned a stream that hayro interprets. Reading the
+  rebuild: `object_recovery` checks the container and index that hayro reads
+  for a member, but lopdf and hayro parse its object with their own parsers,
+  so a walk that took `/AP` from the graph could leave unscanned a stream that
+  hayro interprets. Reading the
   elements through a table of its own would speed up only the walk's half and
   would have to replicate hayro's table parser and xref lookup exactly. Refusing
   a page after its last annotation measures the walk alone, because the
