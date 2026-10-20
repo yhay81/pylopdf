@@ -7,7 +7,6 @@ that rendering and text generation reuse are covered here as well.
 
 from __future__ import annotations
 
-import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -232,8 +231,9 @@ def test_cached_locale_fallback_files_are_validated_atomically(tmp_path: Path) -
     missing = Path(files[3][1])
     data = missing.read_bytes()
     missing.unlink()
-    with pytest.raises(FileNotFoundError, match=re.escape(str(missing))):
+    with pytest.raises(FileNotFoundError) as not_found:
         doc.set_fallback_font_locale_files(files)
+    assert not_found.value.filename == str(missing)
     assert doc.render_page_png(1, 1.0, None, None) == baseline
 
     # The failed calls left every other cached read in place.
@@ -322,8 +322,9 @@ def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monk
         lambda: page.insert_textbox((20, 60, 280, 90), "日本語"),
         lambda: doc.set_form_field("name", "佐藤 花子"),
     ):
-        with pytest.raises(FileNotFoundError, match=re.escape(str(provider.sans))):
+        with pytest.raises(FileNotFoundError) as not_found:
             call()
+        assert Path(not_found.value.filename) == provider.sans
     assert doc.tobytes() == baseline
     assert {field["name"]: field["value"] for field in doc.get_form_fields()} == {"name": "山田 太郎"}
 
