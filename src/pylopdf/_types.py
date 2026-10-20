@@ -339,15 +339,6 @@ class DrawingInfo(TypedDict):
     seqno: int
 
 
-class AnnotationInfo(TypedDict):
-    """One annotation returned by :meth:`Page.annots`."""
-
-    type: str
-    rect: Rect
-    contents: str | None
-    uri: str | None
-
-
 _LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect, "xref": int, "id": str})
 
 
@@ -505,7 +496,6 @@ for _public in (
     ExtractedImage,
     ImageCompressionResult,
     DrawingInfo,
-    AnnotationInfo,
     LinkInfo,
     FormFieldInfo,
     PageLabelInfo,

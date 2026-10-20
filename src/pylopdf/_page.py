@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, overload
 
+from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
 from pylopdf._errors import StalePageError
 from pylopdf._fonts import (
     _SYMBOLIC_BASE14_NAMES,
@@ -15,7 +17,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
-from pylopdf._geometry import Matrix
+from pylopdf._geometry import Matrix, Quad
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -59,7 +61,6 @@ if TYPE_CHECKING:
     from pylopdf._document import Document
     from pylopdf._fonts import Font
     from pylopdf._types import (
-        AnnotationInfo,
         Block,
         DrawingInfo,
         DrawingItem,
@@ -201,6 +202,26 @@ def _normalized_box(box: Sequence[float]) -> Rect:
     """Return a stored page box with ``x0 <= x1`` and ``y0 <= y1``, as MuPDF reads it."""
     x0, y0, x1, y1 = box
     return Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
+def _highlight_rects(
+    quads: Sequence[float] | Sequence[Sequence[float]] | None,
+) -> Sequence[float] | Sequence[Sequence[float]]:
+    """Resolve pymupdf's ``quads`` argument to rectangles; a quad gives its bounding rectangle."""
+    if quads is None:
+        msg = "quads is required; text selection by start= and stop= is not supported"
+        raise TypeError(msg)
+    if isinstance(quads, Quad):
+        return quads.rect
+    if not isinstance(quads, (list, tuple)):
+        # Map an iterator lazily, so the rectangle limit still stops it early.
+        return cast(
+            "Sequence[Sequence[float]]",
+            (quad.rect if isinstance(quad, Quad) else quad for quad in quads),
+        )
+    if quads and isinstance(quads[0], Quad):
+        return [quad.rect if isinstance(quad, Quad) else cast("Sequence[float]", quad) for quad in quads]
+    return quads
 
 
 class Page:
@@ -1681,20 +1702,23 @@ class Page:
         number = pno - applicable["startpage"] + applicable["firstpagenum"]
         return _format_page_label(applicable["style"], applicable["prefix"], number)
 
-    def annots(self) -> list[AnnotationInfo]:
-        """Read annotations on the page.
+    def annots(self, *, types: Iterable[int] | None = None) -> list[Annot]:
+        """Return the page's annotations as read-only :class:`Annot` handles.
 
-        Each item is a ``{"type", "rect", "contents", "uri"}`` dict.
-        ``type`` is the PDF Subtype name, such as ``"Highlight"`` or
-        ``"Link"``; ``rect`` is a display-coordinate :class:`Rect`;
-        ``contents`` is annotation text; and ``uri`` is the URI action target or
-        ``None``. Reads reject partial output above 4,096 annotations or 1 MiB
-        of aggregate encoded or returned metadata text per call.
+        As in pymupdf, ``types`` limits the result to the given
+        ``PDF_ANNOT_*`` types. Handles read the document on every access.
+        Reads reject partial output above 4,096 annotations or 1 MiB of
+        aggregate encoded or returned annotation text per call.
         """
+        wanted = None if types is None else frozenset(int(kind) for kind in types)
         raw = self._document._doc.read_annotations(self._page_number())
+        handles = [Annot(self, xref, index) for xref, index, *_ in raw]
+        if wanted is None:
+            return handles
         return [
-            {"type": subtype, "rect": Rect(*rect), "contents": contents, "uri": uri}
-            for subtype, rect, contents, uri in raw
+            handle
+            for handle, entry in zip(handles, raw, strict=True)
+            if _SUBTYPE_TYPES.get(entry[2], AnnotType.UNKNOWN) in wanted
         ]
 
     def get_links(self) -> list[LinkInfo]:
@@ -1761,15 +1785,18 @@ class Page:
 
     def add_highlight_annot(
         self,
-        rects: Sequence[float] | Sequence[Sequence[float]],
+        quads: Sequence[float] | Sequence[Sequence[float]] | None = None,
         *,
         color: tuple[float, float, float] = (1.0, 1.0, 0.0),
         opacity: float = 0.4,
         content: str | None = None,
-    ) -> None:
-        """Add one highlight annotation over one or more display rectangles.
+    ) -> Annot:
+        """Add one highlight annotation and return its :class:`Annot`, as pymupdf does.
 
-        Pass :meth:`search_for` output directly to highlight search results.
+        ``quads`` is one rectangle or quad, or a sequence of them, in display
+        coordinates; a :class:`Quad` contributes its bounding rectangle. Pass
+        :meth:`search_for` output directly to highlight search results.
+        ``color``, ``opacity``, and ``content`` are extensions.
         The annotation includes QuadPoints and an appearance stream using
         Multiply blending, so it looks consistent in pylopdf's renderer and
         other viewers. Multiple rectangles form one annotation, with at most
@@ -1787,11 +1814,12 @@ class Page:
             input_label="annotation subtype and content input",
         )
 
+        rects = _highlight_rects(quads)
         iterator = iter(rects)
         try:
             first = next(iterator)
         except StopIteration:
-            msg = "rects must contain at least one rect"
+            msg = "quads must contain at least one rect or quad"
             raise ValueError(msg) from None
 
         if isinstance(first, (int, float)):
@@ -1813,22 +1841,37 @@ class Page:
         if not (math.isfinite(opacity) and 0.0 < opacity <= 1.0):
             msg = f"opacity must be greater than 0 and at most 1: {opacity!r}"
             raise ValueError(msg)
-        self._document._doc.add_highlight_annotation(self._page_number(), validated, rgb, float(opacity), content)
+        xref = self._document._doc.add_highlight_annotation(
+            self._page_number(), validated, rgb, float(opacity), content
+        )
+        return Annot(self, xref, -1)
 
-    def add_link_annot(self, rect: Sequence[float], uri: str) -> None:
-        """Add a borderless URI link annotation over a display rectangle.
+    def insert_link(self, link: Mapping[str, Any], /) -> None:
+        """Insert a link annotation described by a pymupdf link dictionary.
 
-        This supports search-then-link workflows using :meth:`search_for`.
-        For new documents, links are usually better created in typst; see the
-        README ecosystem recipe. Its subtype and URI share a 1 MiB text budget.
-        Oversized text is rejected before the Rust boundary with
+        ``link`` has the shape that :meth:`get_links` returns: ``kind`` and
+        ``from`` (a display-coordinate rectangle), plus ``uri`` for
+        :data:`LINK_URI`. Other kinds raise :class:`PdfError` until pylopdf
+        writes their destinations. The subtype and URI share a 1 MiB text
+        budget; oversized text is rejected before the Rust boundary with
         ``LimitError.code == "annotation_input_size"``.
         """
+        if not isinstance(link, Mapping):
+            msg = f"link must be a mapping: {type(link).__name__}"
+            raise TypeError(msg)
+        kind = link.get("kind")
+        if kind != LINK_URI:
+            msg = f"insert_link supports kind=LINK_URI only: {kind!r}"
+            raise PdfError(msg)
+        uri = link.get("uri")
         if not isinstance(uri, str):
-            msg = f"uri must be a string: {type(uri).__name__}"
+            msg = f"a LINK_URI link needs a string uri: {uri!r}"
             raise TypeError(msg)
         if not uri:
             msg = "uri must be at least 1 character"
+            raise ValueError(msg)
+        if "from" not in link:
+            msg = "link needs a 'from' rectangle"
             raise ValueError(msg)
         _validate_cumulative_utf8_input(
             ("Link", uri),
@@ -1836,7 +1879,7 @@ class Page:
             limit_code="annotation_input_size",
             input_label="annotation subtype and URI input",
         )
-        x0, y0, x1, y1 = _validate_rect(rect)
+        x0, y0, x1, y1 = _validate_rect(link["from"], name="from")
         self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
 
     def get_pixmap(

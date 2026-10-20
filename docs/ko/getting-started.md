@@ -128,7 +128,7 @@ with page.new_shape() as shape:                              # Form 하나, 글�
     shape.insert_textbox((48, 260, 390, 310), "본문 단락.", fontsize=11)
 page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf의 draw_*
 page.add_highlight_annot(page.search_for("중요"))             # 검색 후 강조
-page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
+page.insert_link({"kind": pylopdf.LINK_URI, "from": page.search_for("Example")[0], "uri": "https://example.com/"})
 ```
 
 ## 스캔 PDF, 폼, Markdown { #scans-forms-markdown }

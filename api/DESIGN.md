@@ -538,9 +538,9 @@ one-to-one onto these rows.
 | `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2; done |
 | `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart, and `insert_text(...)` splitting text only at `\n`, drawing every line, and raising for empty text | pymupdf's lines: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart, and `insert_text` text split with `str.splitlines()`, in which a trailing line break adds no line and empty text inserts nothing, without the lines whose baseline falls below the page | R2, G1; done |
 | `Page.show_pdf_page(rect, src, pno=0, ...)` | the parameter name `docsrc` | R2; done |
-| `Page.annots()` (dictionaries) | read-only `Annot` handles | R2 |
-| `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2 |
-| `Page.add_link_annot(rect, uri)` | `Page.insert_link(link)` | R2 |
+| `Page.annots()` (dictionaries) | read-only `Annot` handles | R2; done |
+| `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2; done |
+| `Page.add_link_annot(rect, uri)` | `Page.insert_link(link)` | R2; done |
 | `Page.get_links()` keys | adds `xref` and `id` | R2; done |
 | `Document.get_toc()`, `set_toc(toc)` | `get_outline()`, `set_outline(entries)`, zero-based | R3: one-based numbering |
 | `Document.embfile_add`, `embfile_get`, `embfile_del`, `embfile_names` | `Document.attachments` | R3: the mapping protocol |

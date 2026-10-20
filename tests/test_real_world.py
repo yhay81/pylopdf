@@ -713,7 +713,7 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
     page = document[0]
     annotations = page.annots()
 
-    assert [annotation["type"] for annotation in annotations] == [
+    assert [annotation.type[1] for annotation in annotations] == [
         "Widget",
         "Widget",
         "Widget",
@@ -721,7 +721,7 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
         "Link",
         "Highlight",
     ]
-    assert annotations[4]["uri"] == "https://www.google.com/"
+    assert annotations[4].xref == page.get_links()[0]["xref"]
     assert page.get_links() == [
         {
             "kind": 2,
