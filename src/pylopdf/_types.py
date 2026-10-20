@@ -5,6 +5,8 @@ from __future__ import annotations
 import enum
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
+from pylopdf._geometry import Point
+
 # Link kinds with pymupdf-compatible values.
 LINK_NONE = 0
 LINK_GOTO = 1
@@ -35,13 +37,6 @@ class Permissions(enum.IntFlag):
     ASSEMBLE = 1 << 10
     PRINT_HIGH_QUALITY = 1 << 11
     ALL = PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
-
-
-class Point(NamedTuple):
-    """A point ``(x, y)`` in display coordinates, such as a link destination."""
-
-    x: float
-    y: float
 
 
 class Rect(NamedTuple):

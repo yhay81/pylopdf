@@ -26,6 +26,7 @@
     "LINK_URI",
     "LimitError",
     "LinkInfo",
+    "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
     "OcrEngine",
@@ -1546,6 +1547,238 @@
         "from",
         "kind"
       ]
+    },
+    "Matrix": {
+      "annotations": {
+        "a": "float",
+        "b": "float",
+        "c": "float",
+        "d": "float",
+        "e": "float",
+        "f": "float"
+      },
+      "kind": "class",
+      "members": {
+        "__abs__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "__add__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__bool__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__invert__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__mul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__neg__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__pos__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__radd__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__rmul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__sub__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "__truediv__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Matrix"
+          }
+        },
+        "a": {
+          "kind": "property"
+        },
+        "b": {
+          "kind": "property"
+        },
+        "c": {
+          "kind": "property"
+        },
+        "d": {
+          "kind": "property"
+        },
+        "e": {
+          "kind": "property"
+        },
+        "f": {
+          "kind": "property"
+        },
+        "is_rectilinear": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "norm": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        }
+      },
+      "named_tuple_fields": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float | Sequence[float]",
+            "kind": "var_positional",
+            "name": "args"
+          },
+          {
+            "annotation": "float",
+            "kind": "var_keyword",
+            "name": "kwargs"
+          }
+        ],
+        "returns": "Self"
+      }
     },
     "MetadataProbe": {
       "fields": {
@@ -3628,6 +3861,199 @@
       },
       "kind": "class",
       "members": {
+        "__abs__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "__add__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__bool__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__mul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__neg__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__pos__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__radd__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__rmul__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__sub__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "__truediv__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "other"
+              }
+            ],
+            "returns": "Point"
+          }
+        },
+        "abs_unit": {
+          "kind": "property",
+          "returns": "Point"
+        },
+        "distance_to": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[float]",
+                "kind": "positional_or_keyword",
+                "name": "x"
+              },
+              {
+                "annotation": "str",
+                "default": "px",
+                "kind": "positional_or_keyword",
+                "name": "unit"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "norm": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "float"
+          }
+        },
+        "unit": {
+          "kind": "property",
+          "returns": "Point"
+        },
         "x": {
           "kind": "property"
         },
@@ -3642,16 +4068,17 @@
       "signature": {
         "parameters": [
           {
-            "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "x"
+            "annotation": "float | Sequence[float]",
+            "kind": "var_positional",
+            "name": "args"
           },
           {
             "annotation": "float",
-            "kind": "positional_or_keyword",
-            "name": "y"
+            "kind": "var_keyword",
+            "name": "kwargs"
           }
-        ]
+        ],
+        "returns": "Self"
       }
     },
     "PylopdfWarning": {

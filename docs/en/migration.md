@@ -26,7 +26,10 @@ deliberately does not implement.
 | `doc.metadata` / `set_metadata` | same | same key names |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | same, plus `max_hits=4096` | returns a bounded `list[Rect]`; 4,096-byte term limit, `max_hits=None` opt-out, no `quads=` |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; no Matrix class |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | or `dpi=144`; rendering does not yet accept `matrix=` |
+| `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | same | immutable NamedTuples; coordinates must be finite |
+| `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | mutating methods are absent; matrix division raises on a singular divisor |
+| `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | assign the result; composition applies the left matrix first |
 | `pix.samples / width / height / stride / save()` | same | always straight-alpha RGBA8; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(path)` produce PNG, and `save` requires `.png` |
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
@@ -57,10 +60,15 @@ deliberately does not implement.
 - **Coordinates** are top-left-origin display space in both libraries, and in
   pylopdf this includes rotated pages consistently across extraction, search,
   drawing and rendering.
-- **Types**: `Rect` is an immutable `NamedTuple` (`x0, y0, x1, y1`, plus
-  `width` / `height`), and `Point` is one with `x, y`, which the `draw_*`
-  methods return. There are no `Matrix` / `Quad` classes — APIs take plain
-  tuples, a quad as four points, and `scale=` / `dpi=` keywords.
+- **Types**: `Point`, `Matrix`, and `Rect` are immutable NamedTuples.
+  `Point` and `Matrix` support geometric arithmetic, matrix multiplication,
+  and division, while retaining tuple indexing, unpacking, equality, and
+  hashing. In particular, `Point(0, 0)` is now false, `p + other` adds
+  coordinates, and `p * scalar` scales instead of repeating the tuple.
+  In-place geometry methods are absent; assign the result of an operator.
+  `Rect` still provides only `x0, y0, x1, y1`, `width`, and `height`.
+  `IRect` and `Quad` remain planned; quad inputs are four points.
+  Rendering continues to take `scale=` / `dpi=`, not `matrix=`.
 - **Stale pages**: after structural changes (delete / insert / reorder),
   previously fetched `Page` objects raise `StalePageError` instead of silently
   pointing at a different page. Re-fetch with `doc[i]`.
