@@ -1,0 +1,31 @@
+# Require a changelog fragment from pull requests that change what pylopdf ships.
+name: Changelog
+
+on:
+  pull_request:
+    # Labels decide whether a fragment is required, so re-check when they change.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fragments:
+    name: changelog fragments
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base branch is needed to list the pull request's changes.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check changelog fragments
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 tools/changelog.py check --base "origin/$BASE_REF" --labels "$LABELS"

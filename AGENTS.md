@@ -17,6 +17,12 @@ overview.
   `main` is protected: direct pushes are rejected, and merging requires the six
   required status checks. Squash-merge so one merged pull request becomes one
   `main` commit.
+- Record each user-visible change as one `changelog.d/<slug>.<type>.md`
+  fragment ([changelog.d/README.md](changelog.d/README.md)) instead of editing
+  `CHANGELOG.md`. The `Changelog` workflow requires a fragment from every pull
+  request that changes `src/`, `rust/`, `fonts/`, `models/`, or
+  `pyproject.toml`, unless it is labeled `no-changelog` (a change that users
+  cannot observe, such as a refactor) or `dependencies`.
 - Write commit messages, code comments, docstrings, repository documentation,
   configuration comments, and user-facing messages in English.
 - Non-English text is allowed only in localized documentation and data required
@@ -2218,8 +2224,10 @@ overview.
 
 ## Release procedure
 
-1. Update the version in all three locations, add the changelog entry, commit,
-   and push.
+1. Update the version in all three locations, run
+   `uv run python tools/changelog.py assemble --version X.Y.Z` to fold the
+   `changelog.d/` fragments into `CHANGELOG.md` and delete them, review the
+   new release section, commit, and push.
 2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
 3. GitHub Actions (`release.yml`) builds abi3, cp314t, and cp315t wheels plus
    the sdist for five platforms and publishes through PyPI Trusted Publishing.

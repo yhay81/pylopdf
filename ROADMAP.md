@@ -266,6 +266,14 @@ Each pull request adds `changelog.d/<slug>.<added|changed|deprecated|removed|fix
 time, CI requires one fragment unless a pull request is labeled
 `no-changelog`, and the release procedure in AGENTS.md gains the assembly step.
 
+Done on 2026-10-20. Two more types, `performance` and `documentation`, keep
+the sections that earlier releases use. The `Changelog` workflow asks for a
+fragment only when a pull request changes what ships (`src/`, `rust/`,
+`fonts/`, `models/`, or `pyproject.toml`), so documentation, test, tool, and
+CI changes need no label, and dependency updates labeled `dependencies` are
+exempt. It re-runs when labels change, apart from the main CI, which labels
+do not restart.
+
 ### F3 — Parity manifest
 
 `api/pymupdf-parity.json` holds one entry per pymupdf 2.0 public API: module
