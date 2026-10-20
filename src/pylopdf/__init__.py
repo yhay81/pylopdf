@@ -74,6 +74,7 @@ from pylopdf._types import (
     TEXT_ALIGN_LEFT,
     TEXT_ALIGN_RIGHT,
     AnnotationInfo,
+    Block,
     DocumentComplexity,
     DocumentMetadata,
     DrawingInfo,
@@ -92,15 +93,16 @@ from pylopdf._types import (
     Point,
     RawTextBlock,
     RawTextLine,
-    RawTextPage,
+    RawTextPageDict,
     RawTextSpan,
     Rect,
     TextAlign,
     TextBlock,
     TextChar,
     TextLine,
-    TextPage,
+    TextPageDict,
     TextSpan,
+    Word,
 )
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
@@ -143,7 +145,7 @@ __all__ = [
     "Array",
     "Base14_fontdict",
     "Base14_fontnames",
-    "BlockEntry",
+    "Block",
     "CjkFontLanguage",
     "Dictionary",
     "Document",
@@ -188,7 +190,7 @@ __all__ = [
     "Quad",
     "RawTextBlock",
     "RawTextLine",
-    "RawTextPage",
+    "RawTextPageDict",
     "RawTextSpan",
     "Rect",
     "Shape",
@@ -203,9 +205,9 @@ __all__ = [
     "TextBlock",
     "TextChar",
     "TextLine",
-    "TextPage",
+    "TextPageDict",
     "TextSpan",
-    "WordEntry",
+    "Word",
     "open",
     "peek_metadata",
     "planish_line",
@@ -215,8 +217,6 @@ __all__ += ["Pixmap", "PylopdfWarning"]
 # Declare the type aliases again so that this module's __annotations__ marks
 # them as TypeAlias, which tools/check_api_surface.py and other runtime readers
 # use to tell an alias from a constant.
-WordEntry: TypeAlias = _types.WordEntry
-BlockEntry: TypeAlias = _types.BlockEntry
 OcrRotation: TypeAlias = _types.OcrRotation
 FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage

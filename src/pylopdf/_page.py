@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from pylopdf._fonts import Font
     from pylopdf._types import (
         AnnotationInfo,
-        BlockEntry,
+        Block,
         DrawingInfo,
         DrawingItem,
         FontLanguage,
@@ -67,9 +67,9 @@ if TYPE_CHECKING:
         OcrRotation,
         OcrWord,
         PageLabelInfo,
-        RawTextPage,
-        TextPage,
-        WordEntry,
+        RawTextPageDict,
+        TextPageDict,
+        Word,
     )
 
 
@@ -333,14 +333,14 @@ class Page:
     @overload
     def get_text(self, option: Literal["text"] = "text") -> str: ...
     @overload
-    def get_text(self, option: Literal["words"]) -> list[WordEntry]: ...
+    def get_text(self, option: Literal["words"]) -> list[Word]: ...
     @overload
-    def get_text(self, option: Literal["blocks"]) -> list[BlockEntry]: ...
+    def get_text(self, option: Literal["blocks"]) -> list[Block]: ...
     @overload
-    def get_text(self, option: Literal["dict"]) -> TextPage: ...
+    def get_text(self, option: Literal["dict"]) -> TextPageDict: ...
     @overload
-    def get_text(self, option: Literal["rawdict"]) -> RawTextPage: ...
-    def get_text(self, option: str = "text") -> str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage:
+    def get_text(self, option: Literal["rawdict"]) -> RawTextPageDict: ...
+    def get_text(self, option: str = "text") -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
         """Extract page text or positioned layout data.
 
         ``option`` matches :meth:`Document.get_page_text`: ``"text"``,
@@ -580,11 +580,14 @@ class Page:
         and cubic Bézier commands. Quadratic curves are converted exactly to
         cubics. Stroke colors use ``color``; fill colors use ``fill``. Exotic
         pattern paints do not have one representative RGB value and return
-        ``None`` for color and opacity.
+        ``None`` for color and opacity. ``seqno`` is the paint operation's
+        zero-based position among the page's paint operations, which count
+        paths, text runs, and images in drawing order, as pymupdf numbers them;
+        a combined fill-and-stroke keeps the number of its fill.
 
         Clipping paths and clip-resolved visibility, transparency-group
-        structure, optional-content layer names, text outlines, and images are
-        not returned. The interpreter still applies optional-content visibility
+        structure, optional-content layer names (pymupdf's ``layer`` key), text
+        outlines, and images are not returned. The interpreter still applies optional-content visibility
         before reporting a paint operation. Output is bounded to 8,192 paths and
         131,072 commands; exceeding either limit raises :class:`PdfError` instead
         of returning partial results.
@@ -599,6 +602,7 @@ class Page:
             close_path,
             stroke,
             fill,
+            seqno,
         ) in raw:
             stroke_color, stroke_opacity, width, line_cap, line_join, dashes = stroke
             fill_color, fill_opacity, even_odd = fill
@@ -635,6 +639,7 @@ class Page:
                     "lineCap": line_cap,
                     "lineJoin": line_join,
                     "dashes": dashes,
+                    "seqno": seqno,
                 }
             )
         return drawings
@@ -1676,10 +1681,12 @@ class Page:
             "named": LINK_NAMED,
         }
         links: list[LinkInfo] = []
-        for kind, rect, uri, page, to, zoom, file, name in raw:
+        for (kind, rect, uri, page, to, zoom, file, name), xref, link_id in raw:
             link: LinkInfo = {
                 "kind": kind_map.get(kind, LINK_NONE),
                 "from": Rect(*rect),
+                "xref": xref,
+                "id": link_id,
             }
             if kind == "uri":
                 link["uri"] = uri

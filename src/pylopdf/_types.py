@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Literal, TypeAlias, TypedDict
+from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from pylopdf._geometry import Point, Rect
 
@@ -94,10 +94,34 @@ PDF_ENCRYPT_AES_256 = EncryptionMethod.AES_256
 PDF_ENCRYPT_UNKNOWN = EncryptionMethod.UNKNOWN
 
 
-#: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
-WordEntry: TypeAlias = tuple[float, float, float, float, str, int, int, int]
-#: One get_text("blocks") item: (x0, y0, x1, y1, text, block, type=0).
-BlockEntry: TypeAlias = tuple[float, float, float, float, str, int, int]
+class Word(NamedTuple):
+    """One ``get_text("words")`` item, in pymupdf's tuple order."""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    word: str
+    block_no: int
+    line_no: int
+    word_no: int
+
+
+class Block(NamedTuple):
+    """One ``get_text("blocks")`` item, in pymupdf's tuple order.
+
+    ``block_type`` is 0 for text, as in pymupdf.
+    """
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    text: str
+    block_no: int
+    block_type: int
+
+
 #: Clockwise correction applied to rendered OCR input.
 OcrRotation: TypeAlias = Literal[0, 90, 180, 270]
 #: Script or locale used to select an optional bundled generation font.
@@ -137,7 +161,7 @@ class TextBlock(TypedDict):
     lines: list[TextLine]
 
 
-class TextPage(TypedDict):
+class TextPageDict(TypedDict):
     """Nested positioned layout returned by ``get_text("dict")``."""
 
     width: float
@@ -188,7 +212,7 @@ class RawTextBlock(TypedDict):
     lines: list[RawTextLine]
 
 
-class RawTextPage(TypedDict):
+class RawTextPageDict(TypedDict):
     """Nested glyph layout returned by ``get_text("rawdict")``.
 
     Geometry is in display points, with page rotation and CropBox offsets
@@ -242,6 +266,7 @@ class DrawingInfo(TypedDict):
     lineCap: tuple[int, int, int] | None
     lineJoin: int | None
     dashes: str | None
+    seqno: int
 
 
 class AnnotationInfo(TypedDict):
@@ -253,13 +278,15 @@ class AnnotationInfo(TypedDict):
     uri: str | None
 
 
-_LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect})
+_LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect, "xref": int, "id": str})
 
 
 class LinkInfo(_LinkRequired, total=False):
     """One link returned by :meth:`Page.get_links`.
 
-    Keys other than ``kind`` and ``from`` depend on ``kind``.
+    ``xref`` is the object number of the link annotation, or 0 for a direct
+    dictionary, and ``id`` its ``/NM`` name, or ``""``. Keys other than
+    ``kind``, ``from``, ``xref``, and ``id`` depend on ``kind``.
     """
 
     uri: str | None
@@ -387,6 +414,8 @@ class OcrWord(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
+    Word,
+    Block,
     LinkKind,
     TextAlign,
     Permissions,
@@ -394,12 +423,12 @@ for _public in (
     TextSpan,
     TextLine,
     TextBlock,
-    TextPage,
+    TextPageDict,
     TextChar,
     RawTextSpan,
     RawTextLine,
     RawTextBlock,
-    RawTextPage,
+    RawTextPageDict,
     ImageInfo,
     ImageCompressionResult,
     DrawingInfo,

@@ -5,7 +5,7 @@
     "Array",
     "Base14_fontdict",
     "Base14_fontnames",
-    "BlockEntry",
+    "Block",
     "CjkFontLanguage",
     "Dictionary",
     "Document",
@@ -81,7 +81,7 @@
     "Quad",
     "RawTextBlock",
     "RawTextLine",
-    "RawTextPage",
+    "RawTextPageDict",
     "RawTextSpan",
     "Rect",
     "Shape",
@@ -100,9 +100,9 @@
     "TextBlock",
     "TextChar",
     "TextLine",
-    "TextPage",
+    "TextPageDict",
     "TextSpan",
-    "WordEntry",
+    "Word",
     "open",
     "peek_metadata",
     "planish_line"
@@ -239,9 +239,88 @@
         "ZapfDingbats"
       ]
     },
-    "BlockEntry": {
-      "kind": "type-alias",
-      "target": "tuple[float, float, float, float, str, int, int]"
+    "Block": {
+      "annotations": {
+        "block_no": "int",
+        "block_type": "int",
+        "text": "str",
+        "x0": "float",
+        "x1": "float",
+        "y0": "float",
+        "y1": "float"
+      },
+      "kind": "class",
+      "members": {
+        "block_no": {
+          "kind": "property"
+        },
+        "block_type": {
+          "kind": "property"
+        },
+        "text": {
+          "kind": "property"
+        },
+        "x0": {
+          "kind": "property"
+        },
+        "x1": {
+          "kind": "property"
+        },
+        "y0": {
+          "kind": "property"
+        },
+        "y1": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "text",
+        "block_no",
+        "block_type"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "x0"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "y0"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "x1"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "y1"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "text"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "block_no"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "block_type"
+          }
+        ]
+      }
     },
     "CjkFontLanguage": {
       "kind": "type-alias",
@@ -693,7 +772,7 @@
                 "name": "option"
               }
             ],
-            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage"
+            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
           }
         },
         "get_pdfa_claim": {
@@ -1544,6 +1623,7 @@
         "lineCap": "tuple[int, int, int] | None",
         "lineJoin": "int | None",
         "rect": "Rect",
+        "seqno": "int",
         "stroke_opacity": "float | None",
         "type": "Literal['f', 's', 'fs']",
         "width": "float | None"
@@ -1561,6 +1641,7 @@
         "lineCap",
         "lineJoin",
         "rect",
+        "seqno",
         "stroke_opacity",
         "type",
         "width"
@@ -2368,12 +2449,14 @@
       "fields": {
         "file": "str | None",
         "from": "pylopdf.Rect",
+        "id": "str",
         "kind": "pylopdf.LinkKind",
         "name": "str | None",
         "nameddest": "str",
         "page": "int",
         "to": "Point",
         "uri": "str | None",
+        "xref": "int",
         "zoom": "float"
       },
       "kind": "typed-dict",
@@ -2388,7 +2471,9 @@
       ],
       "required_keys": [
         "from",
-        "kind"
+        "id",
+        "kind",
+        "xref"
       ]
     },
     "LinkKind": {
@@ -4164,7 +4249,7 @@
                 "name": "option"
               }
             ],
-            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage"
+            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
           }
         },
         "get_text_ocr": {
@@ -5442,7 +5527,7 @@
         "wmode"
       ]
     },
-    "RawTextPage": {
+    "RawTextPageDict": {
       "fields": {
         "blocks": "list[RawTextBlock]",
         "height": "float",
@@ -6961,7 +7046,7 @@
         "wmode"
       ]
     },
-    "TextPage": {
+    "TextPageDict": {
       "fields": {
         "blocks": "list[TextBlock]",
         "height": "float",
@@ -6995,9 +7080,98 @@
         "text"
       ]
     },
-    "WordEntry": {
-      "kind": "type-alias",
-      "target": "tuple[float, float, float, float, str, int, int, int]"
+    "Word": {
+      "annotations": {
+        "block_no": "int",
+        "line_no": "int",
+        "word": "str",
+        "word_no": "int",
+        "x0": "float",
+        "x1": "float",
+        "y0": "float",
+        "y1": "float"
+      },
+      "kind": "class",
+      "members": {
+        "block_no": {
+          "kind": "property"
+        },
+        "line_no": {
+          "kind": "property"
+        },
+        "word": {
+          "kind": "property"
+        },
+        "word_no": {
+          "kind": "property"
+        },
+        "x0": {
+          "kind": "property"
+        },
+        "x1": {
+          "kind": "property"
+        },
+        "y0": {
+          "kind": "property"
+        },
+        "y1": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "x0",
+        "y0",
+        "x1",
+        "y1",
+        "word",
+        "block_no",
+        "line_no",
+        "word_no"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "x0"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "y0"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "x1"
+          },
+          {
+            "annotation": "float",
+            "kind": "positional_or_keyword",
+            "name": "y1"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "word"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "block_no"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "line_no"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "word_no"
+          }
+        ]
+      }
     },
     "open": {
       "kind": "class",
@@ -7349,7 +7523,7 @@
                 "name": "option"
               }
             ],
-            "returns": "str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage"
+            "returns": "str | list[Word] | list[Block] | TextPageDict | RawTextPageDict"
           }
         },
         "get_pdfa_claim": {

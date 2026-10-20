@@ -77,7 +77,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | draw one finished shape and return pymupdf's end `Point`; `fill` and `closePath` where pymupdf offers them, `radius=` on `draw_rect`, `fullSector=` on `draw_sector`, and `breadth` on the wavy lines, which also follows the points positionally as in pymupdf |
 | `insert_ocr_text_layer(words, rotation=)` | orientation-aware invisible OCR layer; fixed caps: 4,096 words and 1 MiB UTF-8 text per call |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | atomic copy-on-write simple-encoded replacement with bounded input/output |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | bounded annotation/link reads and creation; links carry pymupdf's `xref` and `id` (`/NM`); named destinations resolve through name trees of up to 65,536 entries/nodes, 131,072 edges, 32 levels, and 16 MiB of keys, indexed once and reused by later reads until the next edit; rendering conservatively supplies missing appearances for bounded RGB Highlight, Underline, StrikeOut, and Squiggly dictionaries with valid `QuadPoints` without changing the source PDF |
 
 ### Positioned text and glyphs { #positioned-text }
 
@@ -141,7 +141,8 @@ builds a standalone HTML preview of glyph bounds and baseline origins.
 
 `get_drawings()` returns `DrawingInfo` dictionaries with `type="f"`, `"s"`,
 or `"fs"`, self-contained line/cubic `items`, `rect`, RGB/opacity, fill rule,
-width, cap, join, and dashes. Pattern paints retain their geometry with
+width, cap, join, dashes, and `seqno`, the paint operation's position among
+the page's paths, text runs, and images. Pattern paints retain their geometry with
 `None` color and opacity. Clipping paths, clip-resolved visibility, group and
 soft-mask structure, optional-content layer names, text, images, and annotations
 are not returned; optional-content visibility is still applied. The result is
@@ -357,8 +358,8 @@ raw edits semantically valid is the caller's responsibility.
 | `Point` | immutable `(x, y)` NamedTuple with vector arithmetic, affine transforms, distance, and direction |
 | `Matrix` / `IdentityMatrix` / `Identity` | immutable affine `(a, b, c, d, e, f)` NamedTuple with composition and inversion, and the identity |
 | `EMPTY_RECT()` / `INFINITE_RECT()` and their `IRECT` / `QUAD` forms, `FZ_MIN_INF_RECT` / `FZ_MAX_INF_RECT`, `planish_line(p1, p2)` | pymupdf's geometry constants and line-flattening matrix |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
-| `RawTextPage` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
+| `RawTextPageDict` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
@@ -367,7 +368,8 @@ raw edits semantically valid is the caller's responsibility.
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`; `weight=` also selects an instance of a variable font file |
 | `Shape(page)` | pymupdf's builder for paths and text drawn in one step; `page.new_shape()` creates one |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | low-level PDF values and live object handles ([low-level objects](#low-level-objects)) |
-| `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
+| `Word` / `Block` | `get_text("words")` and `get_text("blocks")` NamedTuples in pymupdf's tuple order |
+| `OcrRotation` / `DrawingItem` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base); unreadable input raises `FileDataError` (also a `RuntimeError`), empty input `EmptyFileError`, and a missing file the built-in `FileNotFoundError` |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(path)`; every wheel also supports read-only zero-copy `memoryview()` |

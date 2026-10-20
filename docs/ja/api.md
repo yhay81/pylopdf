@@ -75,10 +75,11 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth`がある（pymupdfと同じく点の後に位置引数でも渡せる） |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。linkはpymupdfの`xref`と`id`（`/NM`）を持つ。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
-`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashesを持つ
+`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes、ページのpath・text・
+imageの中での描画順`seqno`を持つ
 `DrawingInfo`辞書を返します。pattern paintでは形状を保持し、色とopacityは`None`です。
 clip path、clip適用後の可視判定、group/soft-mask構造、optional-content layer名、
 text、image、annotationは返しませんが、optional-contentの表示状態は適用されます。
@@ -275,7 +276,7 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `Base14_fontnames` / `Base14_fontdict` | pymupdfのStandard 14のPostScript名と、`fontname=`が使う読み取り専用の対応表。略称と正式名を大文字小文字を問わず受け付ける |
 | `LinkKind` / `TextAlign` | メンバーがpymupdfの`LINK_*`・`TEXT_ALIGN_*`定数であるIntEnum |
 | `Rect` | 矩形の NamedTuple（`width` / `height` 付き） |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` の TypedDict 階層 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page・document操作・form・vector drawing の辞書形式結果を表す TypedDict |
 | `DrawingItem` | line/cubic 描画コマンドを表す型 alias |
 | `PageLabelInfo` / `PageLabelSpec` | 正規化済みページラベル出力／setter入力の契約 |
@@ -285,7 +286,8 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`、`units_per_em`を持つ再利用可能なStandard 14またはOpenTypeの書体。`weight=`は可変フォントのファイルのインスタンスも選ぶ |
 | `Shape(page)` | 経路と文字を1回で描くpymupdfの`Shape`。`page.new_shape()`でも作れる |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低レベルのPDF値とライブなオブジェクトハンドル（[低レベルオブジェクト](#low-level-objects)） |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
+| `Word` / `Block` | pymupdfのtuple順の`get_text("words")`・`get_text("blocks")` NamedTuple |
+| `OcrRotation` / `FormFieldType` | runtimeでimportできるOCR回転・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底）。読めない入力は`FileDataError`（`RuntimeError`でもある）、空の入力は`EmptyFileError`、存在しないファイルは組み込みの`FileNotFoundError` |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(path)`。すべてのwheelでread-only・zero-copyの`memoryview()`にも対応 |

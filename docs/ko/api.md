@@ -75,10 +75,11 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 마무리한 도형 하나를 그리고 pymupdf와 같은 끝점 `Point`를 반환. `fill`과 `closePath`는 pymupdf가 제공하는 메서드에만 있고, `draw_rect`에는 `radius=`, `draw_sector`에는 `fullSector=`, 물결선에는 `breadth`가 있음(pymupdf처럼 점 뒤에 위치 인수로도 전달 가능) |
 | `insert_ocr_text_layer(words, rotation=)` | 방향을 유지한 OCR 비가시 텍스트 레이어. call당4,096단어와UTF-8 text 1 MiB로 제한 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 입출력 제한과 copy-on-write를 갖춘 원자적 단순 인코딩 교체 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 제한된 주석／link 읽기와 생성. link는 pymupdf의 `xref`와 `id`(`/NM`)를 가짐. named destination은 최대65,536 entry/node, 131,072 edge, 깊이32, key 16 MiB의 name tree로 해석하며, tree는 한 번만index화해 다음 편집 전까지 이후 읽기에서 재사용. 렌더링 시 유효한`QuadPoints`를 가진 상한 내 RGB Highlight, Underline, StrikeOut, Squiggly의 누락 appearance를 원본 PDF 변경 없이 보수적으로 보완 |
 
 `get_drawings()`는`type="f"` / `"s"` / `"fs"`, 자체 완결형line/cubic `items`,
-`rect`, RGB/opacity, fill rule, width, cap, join, dashes를 포함한`DrawingInfo`
+`rect`, RGB/opacity, fill rule, width, cap, join, dashes, 페이지의 path·text·image
+가운데 그리기 순서인 `seqno`를 포함한`DrawingInfo`
 딕셔너리를 반환합니다. pattern paint는 도형을 유지하고 색상과opacity는`None`으로
 둡니다. clip path, clip 적용 후 가시성 판단, group/soft-mask 구조, optional-content
 layer 이름, text, image, annotation은 반환하지 않지만 optional-content 표시 상태는
@@ -267,7 +268,7 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | `Base14_fontnames` / `Base14_fontdict` | pymupdf의 Standard 14 PostScript 이름과 `fontname=`이 쓰는 읽기 전용 대응표. 약칭과 정식 이름을 대소문자 구분 없이 받음 |
 | `LinkKind` / `TextAlign` | 멤버가 pymupdf의`LINK_*`·`TEXT_ALIGN_*` 상수인 IntEnum |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page, document 작업, form, vector drawing의 사전 형식 결과를 위한 TypedDict 계약 |
 | `DrawingItem` | line/cubic 그리기 명령을 나타내는 타입 별칭 |
 | `PageLabelInfo` / `PageLabelSpec` | 정규화된 페이지 레이블 출력／setter 입력 계약 |
@@ -277,7 +278,8 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴. `weight=`는 가변 글꼴 파일의 인스턴스도 선택 |
 | `Shape(page)` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. `page.new_shape()`로도 만들 수 있음 |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 저수준 PDF 값과 실시간 객체 핸들([저수준 객체](#low-level-objects)) |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
+| `Word` / `Block` | pymupdf tuple 순서의 `get_text("words")`·`get_text("blocks")` NamedTuple |
+| `OcrRotation` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반）. 읽을 수 없는 입력은`FileDataError`(`RuntimeError`이기도 함), 빈 입력은`EmptyFileError`, 없는 파일은 내장`FileNotFoundError` |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |

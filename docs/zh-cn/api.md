@@ -73,11 +73,11 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth`（与pymupdf相同，也可在点之后按位置传入） |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
+| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；link包含pymupdf的`xref`与`id`（`/NM`）；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
 
 `get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、
-自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join和
-dashes。对于pattern paint，会保留几何形状，而颜色和opacity为`None`。它不返回
+自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join、
+dashes，以及在页面path、text与image中的绘制顺序`seqno`。对于pattern paint，会保留几何形状，而颜色和opacity为`None`。它不返回
 clip path、clip应用后的可见性判断、group/soft-mask结构、optional-content layer名称、
 text、image或annotation，但仍会应用optional-content的可见性。结果超过8,192 paths
 或131,072 commands时会拒绝，而不是静默截断。
@@ -240,7 +240,7 @@ doc.objects[content].read()                    # 已解码，默认上限64 MiB
 | `Base14_fontnames` / `Base14_fontdict` | pymupdf的Standard 14 PostScript名称，以及`fontname=`使用的只读对照表；不区分大小写地接受缩写与完整名称 |
 | `LinkKind` / `TextAlign` | 成员即pymupdf的`LINK_*`与`TEXT_ALIGN_*`常量的IntEnum |
 | `Rect` | 带`width` / `height`的矩形NamedTuple |
-| `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
+| `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")`的TypedDict层级 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | 页面、文档操作、表单与矢量绘制结果的TypedDict契约 |
 | `DrawingItem` | 表示line/cubic绘制命令的类型别名 |
 | `PageLabelInfo` / `PageLabelSpec` | 规范化页码标签输出／setter输入契约 |
@@ -250,7 +250,8 @@ doc.objects[content].read()                    # 已解码，默认上限64 MiB
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | 带`text_length`、`ascender`／`descender`、`has_glyph`、`name`、`family`、`weight`、`is_bold`、`is_italic`、`is_serif`与`units_per_em`的可复用Standard 14或OpenType字体；`weight=`也可选择可变字体文件的实例 |
 | `Shape(page)` | 一次绘制路径和文字的pymupdf `Shape`；也可用`page.new_shape()`创建 |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低层PDF值与实时对象句柄（[低层对象](#low-level-objects)） |
-| `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
+| `Word` / `Block` | 按pymupdf元组顺序的`get_text("words")`与`get_text("blocks")` NamedTuple |
+| `OcrRotation` / `FormFieldType` | 可在runtime导入的OCR旋转和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError）；无法读取的输入抛出`FileDataError`（同时是`RuntimeError`），空输入抛出`EmptyFileError`，文件不存在时抛出内置`FileNotFoundError` |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 流式写入且失败时保留现有file的PNG专用`save(path)`；所有wheel还支持只读、零复制的`memoryview()` |
