@@ -754,7 +754,7 @@ class Page:
         Input identical to an earlier placement in this document, encoded
         bytes or Pixmap samples, places the image XObject and soft mask of that
         placement again, whatever the rectangle and rotation, instead of
-        embedding another copy. :meth:`Document.compress_images`,
+        embedding another copy. :meth:`Document.rewrite_images`,
         :meth:`replace_text`, :meth:`Document.set_form_field`, and
         ``deflate=True`` saves end this sharing, so the next placement embeds
         the input again. A reopened document shares only its new placements.

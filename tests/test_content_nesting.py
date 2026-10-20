@@ -48,7 +48,7 @@ OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "render_pages": lambda doc: doc.render_pages(alpha=True, workers=2),
     "render_page_svg": lambda doc: doc[0].get_svg_image(),
     "to_markdown": lambda doc: doc.to_markdown(),
-    "compress_images": lambda doc: doc.compress_images(),
+    "rewrite_images": lambda doc: doc.rewrite_images(quality=75),
 }
 
 # Each operation runs on its own document, so that one refusal cannot hide a
@@ -848,4 +848,4 @@ def test_real_world_pages_pass_the_check() -> None:
         doc = pylopdf.open(root / name)
         assert doc.get_text() is not None
         assert doc.render_pages([0], alpha=True)
-        doc.compress_images()
+        doc.rewrite_images(quality=75)

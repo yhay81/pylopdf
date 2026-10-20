@@ -165,12 +165,11 @@ impl _Document {
     }
 }
 
-/// Implements [`_Document::compress_images`].
-pub(super) fn compress_images(
+/// Implements [`_Document::rewrite_images`].
+pub(super) fn rewrite_images(
     this: &mut _Document,
     py: Python<'_>,
-    target_dpi: Option<f64>,
-    quality: u8,
+    options: image_compression::RewriteOptions,
 ) -> PyResult<image_compression::CompressionResult> {
     let settings = this.interpreter_settings();
     let usages = this.contain_renderer_panics(|this| {
@@ -180,7 +179,7 @@ pub(super) fn compress_images(
     })?;
     let mut edited = this.doc.clone();
     let result = py
-        .detach(|| image_compression::compress_images(&mut edited, &usages, target_dpi, quality))
+        .detach(|| image_compression::rewrite_images(&mut edited, &usages, options))
         .map_err(PdfError::new_err)?;
     if result.1 > 0 {
         this.doc.replace(edited);

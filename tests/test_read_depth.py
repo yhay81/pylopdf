@@ -92,7 +92,7 @@ def test_only_the_page_nested_too_deeply_is_refused() -> None:
     assert _refusal(lambda: doc.get_page_text(1)).code == CODE
     assert _refusal(doc.get_text).code == CODE
     assert _refusal(doc.render_pages).code == CODE
-    assert _refusal(doc.compress_images).code == CODE
+    assert _refusal(lambda: doc.rewrite_images(quality=75)).code == CODE
 
 
 def test_a_deep_page_stays_refused_across_refusals_and_edits() -> None:
