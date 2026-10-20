@@ -368,6 +368,27 @@ class _Document:
     def extract_images(
         self, page_number: int
     ) -> list[tuple[int, int, tuple[float, float, float, float], str, bytes]]: ...
+    def page_image_inventory(
+        self, page_number: int
+    ) -> list[tuple[int, int, int, int, int, str, str, str, str, int]]: ...
+    def page_image_info(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            int,
+            tuple[float, float, float, float],
+            tuple[float, float, float, float, float, float],
+            int,
+            int,
+            int,
+            str,
+            int,
+            int,
+            bool,
+            tuple[int, int],
+        ]
+    ]: ...
+    def extract_image(self, xref: int) -> tuple[str, int, int, int, str, int, int, tuple[int, int], bytes]: ...
     def extract_drawings(
         self, page_number: int
     ) -> list[

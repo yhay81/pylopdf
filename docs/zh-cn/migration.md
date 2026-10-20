@@ -26,7 +26,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 相同 | 默认不透明RGB，`alpha=True`时为RGBA；`dpi=`优先；仅支持缩放matrix，尚无`colorspace=`与`annots=` |
 | `page.get_svg_image()` | 相同 | `matrix`仅限恒等；`text_as_path=False`会抛出异常 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 相同 | RGB，`alpha=True`时为straight-alpha RGBA；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(filename)`生成PNG，`save`需要`.png` |
-| `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
+| `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 相同 | `extract_image`以JPEG直通DCT，其他filter解码为PNG；`get_image_info(hashes=True)`在支持digest前会抛出异常 |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
 | `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |

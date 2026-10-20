@@ -94,7 +94,7 @@ repeated source pages before mutation.
 `page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
-`image_pixel_count`, `font_input_size`, `text_input_size`, `text_line_count`,
+`image_pixel_count`, `image_inventory_count`, `font_input_size`, `text_input_size`, `text_line_count`,
 `path_point_count`, `search_input_size`, `search_hit_count`,
 `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
@@ -332,9 +332,11 @@ error.
   beyond that bound before graph mutation, raising `page_entry_count`.
   `insert_pdf()` imports any complete source range. Empty deletion preserves
   caches, generation, and existing `Page` views.
-- `Page.get_images()` rejects partial results above 4,096 placements,
-  64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page.
-  Flate-wrapped JPEG passthrough stops decompression at the remaining budget.
+- `Page.get_images()` stops at 4,096 listed images or Form XObjects with
+  `image_inventory_count`, and `Page.get_image_info()` at 4,096 placements.
+  `Document.extract_image()` decodes one image under the 64,000,000-pixel and
+  64 MiB payload limits, with the content and colour-space guards, and
+  Flate-wrapped JPEG passthrough stops decompression at that budget.
 - `Document.embfile_add()` rejects input above 64 MiB before its PyO3 copy, and
   `embfile_get()` applies the same default to every decoded filter layer. Raise
   `max_size=` for a known large attachment; `max_size=None` explicitly accepts

@@ -11,7 +11,7 @@ import zlib
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf, build_raw_pdf
+from conftest import build_pdf, build_raw_pdf, drawn_images
 
 import pylopdf
 
@@ -666,14 +666,14 @@ def test_insert_image_on_rotated_page_uses_display_coordinates() -> None:
 
 def test_insert_jpeg_roundtrips_bytes_exactly() -> None:
     src = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    jpegs = [i for i in src[0].get_images() if i["ext"] == "jpeg"]
+    jpegs = [i for i in drawn_images(src[0]) if i["ext"] == "jpeg"]
     assert jpegs
     original = jpegs[0]["image"]
 
     doc = _new_page_doc(400, 400)
     page = doc[0]
     page.insert_image((0, 0, 400, 400), stream=original)
-    extracted = page.get_images()
+    extracted = drawn_images(page)
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "jpeg"
     assert extracted[0]["image"] == original  # DCTDecode passthrough round trip.
@@ -705,7 +705,7 @@ def test_insert_image_rejects_bad_input() -> None:
     with pytest.raises(ValueError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=45)
     assert page.get_pixmap(background=WHITE, alpha=True).samples == before
-    assert page.get_images() == []
+    assert drawn_images(page) == []
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
     with pytest.raises(pylopdf.PdfError, match="image format"):
@@ -735,11 +735,11 @@ def test_insert_image_bounds_encoded_stream_before_core_copy() -> None:
 
     assert caught.value.code == "image_input_size"
     assert rejected.complexity == before
-    assert rejected[0].get_images() == []
+    assert drawn_images(rejected[0]) == []
 
     boundary = _new_page_doc()
     boundary[0].insert_image((0, 0, 10, 10), stream=png, max_size=len(png))
-    assert len(boundary[0].get_images()) == 1
+    assert len(drawn_images(boundary[0])) == 1
 
 
 def test_insert_image_reads_filename_through_bounded_core_path(tmp_path: Path) -> None:
@@ -754,10 +754,10 @@ def test_insert_image_reads_filename_through_bounded_core_path(tmp_path: Path) -
 
     assert caught.value.code == "image_input_size"
     assert doc.complexity == before
-    assert doc[0].get_images() == []
+    assert drawn_images(doc[0]) == []
 
     doc[0].insert_image((0, 0, 10, 10), filename=path, max_size=None)
-    assert len(doc[0].get_images()) == 1
+    assert len(drawn_images(doc[0])) == 1
 
 
 def test_insert_image_bounds_png_pixels_before_decode() -> None:
@@ -770,7 +770,7 @@ def test_insert_image_bounds_png_pixels_before_decode() -> None:
 
     assert caught.value.code == "image_pixel_count"
     assert rejected.complexity == before
-    assert rejected[0].get_images() == []
+    assert drawn_images(rejected[0]) == []
 
     png = _solid_png(2, 2, RED)
     with pytest.raises(pylopdf.LimitError) as exact_rejection:
@@ -779,7 +779,7 @@ def test_insert_image_bounds_png_pixels_before_decode() -> None:
 
     boundary = _new_page_doc()
     boundary[0].insert_image((0, 0, 10, 10), stream=png, max_pixels=4)
-    assert len(boundary[0].get_images()) == 1
+    assert len(drawn_images(boundary[0])) == 1
 
 
 def test_insert_image_budgets_do_not_apply_to_pixmap() -> None:
@@ -788,7 +788,7 @@ def test_insert_image_budgets_do_not_apply_to_pixmap() -> None:
 
     target[0].insert_image((0, 0, 10, 10), pixmap=pixmap, max_size=1, max_pixels=1)
 
-    assert len(target[0].get_images()) == 1
+    assert len(drawn_images(target[0])) == 1
 
 
 def test_show_pdf_page_overlays_vector_text() -> None:
@@ -1220,7 +1220,7 @@ def test_get_images_bbox_on_rotated_page_is_display_space() -> None:
     page = doc[0]
     page.set_rotation(90)
     page.insert_image((150, 25, 190, 75), stream=_solid_png(2, 2, RED), keep_proportion=False)
-    bbox = page.get_images()[0]["bbox"]
+    bbox = drawn_images(page)[0]["bbox"]
     assert abs(bbox.x0 - 150) < 1
     assert abs(bbox.y0 - 25) < 1
     assert abs(bbox.x1 - 190) < 1

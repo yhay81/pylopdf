@@ -30,6 +30,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 기본은 전체page, 명시entry는 page 수와4,096 중 큰 값까지이며 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
+| `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdf와 같은 키로 이미지 하나의 데이터를 반환(DCT는 JPEG 그대로, 다른 filter는 PNG로 디코딩, soft mask는 제외). 페이지의 이미지 목록 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 페이지 `Pixmap`(pymupdf의 `doc[pno].get_pixmap()` 간편형), 또는 누적encoded output 상한 안에서 전체page나 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
@@ -62,7 +63,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
 | `find_tables(clip=None, strategy=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
-| `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
+| `get_images(*, full=False)` / `get_image_info(*, hashes=False, xrefs=False)` | pymupdf와 같은 이미지 XObject 목록(`ImageItem` NamedTuple, `ImageItemFull`은 `referencer` 추가)과 그려진 배치의 사전(`bbox`, `transform`, 크기, 색 공간, `xrefs=True`면 `xref`) |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성. 페이지당 8,192개 경로, 131,072개 명령 또는 누적 131,072개 dash 값을 넘으면 부분 결과 없이 거부 |
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdf와 같은 렌더링. 기본은 흰 바탕의 불투명 RGB, `alpha=True`면 straight-alpha RGBA, `dpi`가 배율 `matrix`보다 우선, `clip`은 표시 좌표. text를 path로 그리는 상한이 있는 UTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |

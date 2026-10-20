@@ -15,6 +15,7 @@ from pylopdf._fonts import (
     _resolve_generation_font,
     _validate_font_choice,
 )
+from pylopdf._geometry import Matrix
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -43,6 +44,8 @@ from pylopdf._types import (
     LINK_NONE,
     LINK_URI,
     TEXT_ALIGN_LEFT,
+    ImageItem,
+    ImageItemFull,
     Point,
     Rect,
 )
@@ -55,7 +58,6 @@ if TYPE_CHECKING:
 
     from pylopdf._document import Document
     from pylopdf._fonts import Font
-    from pylopdf._geometry import Matrix
     from pylopdf._types import (
         AnnotationInfo,
         Block,
@@ -547,30 +549,80 @@ class Page:
             )
         return TableFinder(self, tables, strategy, None if clip_rect is None else Rect(*clip_rect))
 
-    def get_images(self) -> list[ImageInfo]:
-        """Extract images drawn on the page.
+    @overload
+    def get_images(self, *, full: Literal[False] = False) -> list[ImageItem]: ...
+    @overload
+    def get_images(self, *, full: Literal[True]) -> list[ImageItemFull]: ...
+    def get_images(self, *, full: bool = False) -> list[ImageItem] | list[ImageItemFull]:
+        """List the image XObjects that the page's resources reach, as pymupdf does.
 
-        Each item is a ``{"width", "height", "bbox", "ext", "image"}`` dict.
-        An image filtered by DCTDecode alone, or by FlateDecode followed by
-        DCTDecode, returns its JPEG payload with ``ext="jpeg"``. Other formats,
-        including CCITT, JBIG2, and Flate, are decoded to PNG with
-        ``ext="png"``. ``bbox`` is the drawn location as a top-left-origin
-        :class:`Rect`. Extraction rejects rather than returns a partial result
-        above 4,096 placements, 64,000,000 cumulative source pixels, or 64 MiB
-        of encoded image payloads on one page.
+        Each item is an :class:`ImageItem` ``(xref, smask, width, height, bpc,
+        colorspace, alt_colorspace, name, filter)``; ``full=True`` returns
+        :class:`ImageItemFull` items that add ``referencer``, the xref of the
+        Form XObject whose resources list the image, or 0 for the page. The
+        page's resources and, depth first, those of the Form XObjects they
+        list are read in resource order, and each image appears once. Inline
+        images and images that only annotations draw are not listed, and an
+        image need not be drawn to be listed. Use :meth:`get_image_info` for
+        drawn placements and :meth:`Document.extract_image` for image data. A
+        page that lists more than 4,096 images or 4,096 Form XObjects raises
+        :class:`LimitError` with code ``image_inventory_count``.
         """
-        raw = self._document._doc.extract_images(self._page_number())
+        raw = self._document._doc.page_image_inventory(self._page_number())
+        if full:
+            return [ImageItemFull(*item) for item in raw]
+        return [ImageItem(*item[:9]) for item in raw]
+
+    def get_image_info(self, *, hashes: bool = False, xrefs: bool = False) -> list[ImageInfo]:
+        """Describe each image drawn on the page, in drawing order, as pymupdf does.
+
+        Each dictionary has pymupdf's keys: ``number``, ``bbox`` in display
+        coordinates, ``transform`` (the :class:`Matrix` that maps the unit
+        square to ``bbox``), ``width`` and ``height`` in pixels,
+        ``colorspace`` (its number of components), ``cs-name``, ``xres`` and
+        ``yres``, ``bpc``, ``size`` (encoded bytes), and ``has-mask``.
+        ``xrefs=True`` adds ``xref``, 0 for an inline image or an image mask.
+        ``hashes=True`` raises :class:`PdfError` until pylopdf computes image
+        digests. More than 4,096 placements on one page raise
+        :class:`PdfError` instead of returning a partial list.
+        """
+        if hashes:
+            msg = "hashes=True is not supported yet"
+            raise PdfError(msg)
+        raw = self._document._doc.page_image_info(self._page_number())
         self._document._emit_warnings()
-        return [
-            {
+        infos: list[ImageInfo] = []
+        for number, (
+            xref,
+            bbox,
+            transform,
+            width,
+            height,
+            components,
+            cs_name,
+            bpc,
+            size,
+            has_mask,
+            (xres, yres),
+        ) in enumerate(raw):
+            info: ImageInfo = {
+                "number": number,
+                "bbox": Rect(*bbox),
+                "transform": Matrix(*transform),
                 "width": width,
                 "height": height,
-                "bbox": Rect(*bbox),
-                "ext": cast("Literal['jpeg', 'png']", ext),
-                "image": data,
+                "colorspace": components,
+                "cs-name": cs_name,
+                "xres": xres,
+                "yres": yres,
+                "bpc": bpc,
+                "size": size,
+                "has-mask": has_mask,
             }
-            for width, height, bbox, ext, data in raw
-        ]
+            if xrefs:
+                info["xref"] = xref
+            infos.append(info)
+        return infos
 
     def get_drawings(self) -> list[DrawingInfo]:
         """Extract interpreted vector paint operations in display coordinates.

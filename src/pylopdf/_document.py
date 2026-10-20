@@ -64,10 +64,13 @@ if TYPE_CHECKING:
         CjkFontLanguage,
         DocumentComplexity,
         DocumentMetadata,
+        ExtractedImage,
         FontLanguage,
         FormFieldInfo,
         FormFieldType,
         ImageCompressionResult,
+        ImageItem,
+        ImageItemFull,
         MetadataProbe,
         MetadataUpdate,
         PageLabelInfo,
@@ -1577,6 +1580,48 @@ class Document:
                         provider.language,
                     )
         self._fallback_configured = True
+
+    def extract_image(self, xref: int) -> ExtractedImage:
+        """Return the data of image XObject ``xref``, as pymupdf does.
+
+        The dictionary has pymupdf's keys. DCT data passes through unchanged
+        with ``ext == "jpeg"``; other image data, including JPX, JBIG2, CCITT,
+        and Flate, is decoded to PNG with ``ext == "png"``. The image is
+        returned without its soft mask, whose xref ``smask`` names (0 when
+        absent), and ``colorspace`` counts the returned image's components.
+        Decoding runs under the same content and colour-space guards and
+        resource limits as rendering. An xref that is not an image raises
+        :class:`PdfError`.
+        """
+        self._ensure_open()
+        if isinstance(xref, bool) or not isinstance(xref, int) or xref <= 0:
+            msg = f"xref must be a positive integer: {xref!r}"
+            raise ValueError(msg)
+        ext, width, height, components, cs_name, bpc, smask, (xres, yres), data = self._doc.extract_image(xref)
+        self._emit_warnings()
+        return {
+            "ext": cast("Literal['jpeg', 'png']", ext),
+            "smask": smask,
+            "width": width,
+            "height": height,
+            "colorspace": components,
+            "cs-name": cs_name,
+            "bpc": bpc,
+            "xres": xres,
+            "yres": yres,
+            "image": data,
+        }
+
+    @overload
+    def get_page_images(self, pno: int, *, full: Literal[False] = False) -> list[ImageItem]: ...
+    @overload
+    def get_page_images(self, pno: int, *, full: Literal[True]) -> list[ImageItemFull]: ...
+    def get_page_images(self, pno: int, *, full: bool = False) -> list[ImageItem] | list[ImageItemFull]:
+        """List the image XObjects of zero-based page ``pno``.
+
+        pymupdf's convenience for ``doc[pno].get_images(full=full)``.
+        """
+        return self[pno].get_images(full=full)
 
     def get_page_pixmap(  # noqa: PLR0913 - get_pixmap's keyword-only options.
         self,

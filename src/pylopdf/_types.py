@@ -5,7 +5,7 @@ from __future__ import annotations
 import enum
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
-from pylopdf._geometry import Point, Rect
+from pylopdf._geometry import Matrix, Point, Rect
 
 
 class LinkKind(enum.IntEnum):
@@ -224,14 +224,84 @@ class RawTextPageDict(TypedDict):
     blocks: list[RawTextBlock]
 
 
-class ImageInfo(TypedDict):
-    """One image returned by :meth:`Page.get_images`."""
+class ImageItem(NamedTuple):
+    """One image XObject of :meth:`Page.get_images`, in pymupdf's tuple order."""
 
+    xref: int
+    smask: int
     width: int
     height: int
-    bbox: Rect
-    ext: Literal["jpeg", "png"]
-    image: bytes
+    bpc: int
+    colorspace: str
+    alt_colorspace: str
+    name: str
+    filter: str
+
+
+class ImageItemFull(NamedTuple):
+    """One item of ``get_images(full=True)``: :class:`ImageItem` plus ``referencer``.
+
+    ``referencer`` is the xref of the Form XObject whose resources list the
+    image, or 0 when the page's own resources do.
+    """
+
+    xref: int
+    smask: int
+    width: int
+    height: int
+    bpc: int
+    colorspace: str
+    alt_colorspace: str
+    name: str
+    filter: str
+    referencer: int
+
+
+_ImageInfoRequired = TypedDict(
+    "_ImageInfoRequired",
+    {
+        "number": int,
+        "bbox": Rect,
+        "transform": Matrix,
+        "width": int,
+        "height": int,
+        "colorspace": int,
+        "cs-name": str,
+        "xres": int,
+        "yres": int,
+        "bpc": int,
+        "size": int,
+        "has-mask": bool,
+    },
+)
+
+
+class ImageInfo(_ImageInfoRequired, total=False):
+    """One drawn image returned by :meth:`Page.get_image_info`, with pymupdf's keys.
+
+    ``transform`` maps the unit square to ``bbox``. ``xref`` is present with
+    ``xrefs=True`` and is 0 for an inline image or an image mask.
+    """
+
+    xref: int
+
+
+ExtractedImage = TypedDict(
+    "ExtractedImage",
+    {
+        "ext": Literal["jpeg", "png"],
+        "smask": int,
+        "width": int,
+        "height": int,
+        "colorspace": int,
+        "cs-name": str,
+        "bpc": int,
+        "xres": int,
+        "yres": int,
+        "image": bytes,
+    },
+)
+ExtractedImage.__doc__ = """The image that :meth:`Document.extract_image` returns, with pymupdf's keys."""
 
 
 class ImageCompressionResult(TypedDict):
@@ -429,7 +499,10 @@ for _public in (
     RawTextLine,
     RawTextBlock,
     RawTextPageDict,
+    ImageItem,
+    ImageItemFull,
     ImageInfo,
+    ExtractedImage,
     ImageCompressionResult,
     DrawingInfo,
     AnnotationInfo,

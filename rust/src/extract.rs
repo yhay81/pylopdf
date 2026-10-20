@@ -4577,6 +4577,239 @@ impl Device<'_> for ImageCollector {
     }
 }
 
+/// One drawn image for `Page.get_image_info`: xref (0 inline), display bbox,
+/// the transform from the unit square to the bbox, pixel width and height,
+/// color components, color space name, bits per component, encoded size,
+/// whether a mask applies, and the horizontal and vertical resolution.
+pub(crate) type ImageInfoTuple = (
+    u32,
+    BBox,
+    [f64; 6],
+    u32,
+    u32,
+    u8,
+    String,
+    u8,
+    usize,
+    bool,
+    (u32, u32),
+);
+
+/// The resolution pymupdf reports for an image that states none.
+const DEFAULT_IMAGE_RESOLUTION: u32 = 96;
+
+/// Return the dots-per-inch density of a JFIF header, or the default.
+pub(crate) fn jpeg_resolution(data: &[u8]) -> (u32, u32) {
+    // SOI, then an APP0 segment whose identifier is "JFIF\0".
+    if data.len() >= 18 && data[..4] == [0xFF, 0xD8, 0xFF, 0xE0] && &data[6..11] == b"JFIF\0" {
+        let units = data[13];
+        let x = u32::from(u16::from_be_bytes([data[14], data[15]]));
+        let y = u32::from(u16::from_be_bytes([data[16], data[17]]));
+        let to_dpi = |value: u32| match units {
+            1 => value,
+            // Dots per centimetre.
+            2 => (f64::from(value) * 2.54).round() as u32,
+            _ => 0,
+        };
+        let (x, y) = (to_dpi(x), to_dpi(y));
+        if x > 0 && y > 0 {
+            return (x, y);
+        }
+    }
+    (DEFAULT_IMAGE_RESOLUTION, DEFAULT_IMAGE_RESOLUTION)
+}
+
+/// Return the color components that a JPEG's start-of-frame segment declares.
+pub(crate) fn jpeg_components(data: &[u8]) -> Option<u8> {
+    let mut position = 2usize;
+    while position + 4 <= data.len() {
+        if data[position] != 0xFF {
+            position += 1;
+            continue;
+        }
+        let marker = data[position + 1];
+        if marker == 0xFF || (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
+            position += 2;
+            continue;
+        }
+        let length = usize::from(u16::from_be_bytes([data[position + 2], data[position + 3]]));
+        if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
+            return data.get(position + 9).copied();
+        }
+        position = position.checked_add(2 + length)?;
+    }
+    None
+}
+
+/// Return the color components of a PNG, not counting its alpha channel.
+pub(crate) fn png_components(data: &[u8]) -> Option<u8> {
+    match data.get(25)? {
+        0 | 3 | 4 => Some(1),
+        2 | 6 => Some(3),
+        _ => None,
+    }
+}
+
+/// Return an image dictionary's color components and color space name.
+///
+/// Inline images may abbreviate the keys and the device names.
+fn image_color_space(dict: &hayro::hayro_syntax::object::Dict<'_>) -> (u8, String) {
+    use hayro::hayro_syntax::object::{Array, Name, Stream};
+    let expand = |name: &str| -> String {
+        match name {
+            "G" => "DeviceGray",
+            "RGB" => "DeviceRGB",
+            "CMYK" => "DeviceCMYK",
+            "I" => "Indexed",
+            other => other,
+        }
+        .to_owned()
+    };
+    let device_components = |name: &str| match name {
+        "DeviceGray" | "CalGray" | "Indexed" | "Separation" | "Pattern" => 1,
+        "DeviceCMYK" => 4,
+        _ => 3,
+    };
+    if dict
+        .get::<bool>(b"ImageMask")
+        .or_else(|| dict.get::<bool>(b"IM"))
+        == Some(true)
+    {
+        return (1, String::new());
+    }
+    let key = if dict.contains_key(b"ColorSpace") {
+        &b"ColorSpace"[..]
+    } else {
+        &b"CS"[..]
+    };
+    if let Some(name) = dict.get::<Name<'_>>(key) {
+        let name = expand(name.as_str());
+        return (device_components(&name), name);
+    }
+    if let Some(array) = dict.get::<Array<'_>>(key) {
+        let mut items = array.iter::<hayro::hayro_syntax::object::Object<'_>>();
+        let family = items
+            .next()
+            .and_then(|first| first.into_name())
+            .map(|name| expand(name.as_str()))
+            .unwrap_or_default();
+        let mut operands = array.flex_iter();
+        let _ = operands.next::<Name<'_>>();
+        let components = match family.as_str() {
+            "ICCBased" => operands
+                .next::<Stream<'_>>()
+                .and_then(|profile| profile.dict().get::<u8>(b"N"))
+                .unwrap_or(3),
+            "DeviceN" => operands.next::<Array<'_>>().map_or(1, |names| {
+                u8::try_from(names.iter::<Name<'_>>().count()).unwrap_or(u8::MAX)
+            }),
+            other => device_components(other),
+        };
+        return (components, family);
+    }
+    (0, String::new())
+}
+
+/// A Device that records each drawn image's placement and encoding facts.
+struct ImageInfoCollector {
+    infos: Vec<ImageInfoTuple>,
+    error: Option<String>,
+}
+
+impl Device<'_> for ImageInfoCollector {
+    fn draw_path(&mut self, _: &kurbo::BezPath, _: DrawProps<'_>, _: &DrawMode) {}
+    fn push_clip_path(&mut self, _: &ClipPath) {}
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
+    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {}
+    fn pop_clip(&mut self) {}
+    fn pop_transparency_group(&mut self) {}
+
+    fn draw_image(&mut self, image: Image<'_, '_>, props: ImageDrawProps<'_>) {
+        if self.error.is_some() {
+            return;
+        }
+        if self.infos.len() >= MAX_EXTRACTED_IMAGE_PLACEMENTS {
+            self.error = Some(IMAGE_PLACEMENT_LIMIT_ERROR.to_owned());
+            return;
+        }
+        let (width, height) = (image.width(), image.height());
+        let Image::Raster(raster) = &image else {
+            // hayro does not expose the stream of an image mask.
+            let unit =
+                props.transform * Affine::scale_non_uniform(f64::from(width), f64::from(height));
+            let info = (
+                0,
+                image_bbox(props.transform, f64::from(width), f64::from(height)),
+                unit.as_coeffs(),
+                width,
+                height,
+                1,
+                String::new(),
+                1,
+                0,
+                false,
+                (DEFAULT_IMAGE_RESOLUTION, DEFAULT_IMAGE_RESOLUTION),
+            );
+            if let Err(error) = drawing_push(&mut self.infos, info, "image information") {
+                self.error = Some(error);
+            }
+            return;
+        };
+        let stream = raster.stream();
+        let id = stream.obj_id();
+        let xref = u32::try_from(id.obj_number).unwrap_or(0);
+        let dict = stream.dict();
+        let (components, color_space) = image_color_space(dict);
+        let bits = dict
+            .get::<u8>(b"BitsPerComponent")
+            .or_else(|| dict.get::<u8>(b"BPC"))
+            .unwrap_or(0);
+        let has_mask = dict.contains_key(b"SMask") || dict.contains_key(b"Mask");
+        let raw = stream.raw_data();
+        let resolution = if stream.filters().last() == Some(&Filter::DctDecode) {
+            jpeg_resolution(&raw)
+        } else {
+            (DEFAULT_IMAGE_RESOLUTION, DEFAULT_IMAGE_RESOLUTION)
+        };
+        let unit = props.transform * Affine::scale_non_uniform(f64::from(width), f64::from(height));
+        let info = (
+            xref,
+            image_bbox(props.transform, f64::from(width), f64::from(height)),
+            unit.as_coeffs(),
+            width,
+            height,
+            components,
+            color_space,
+            bits,
+            raw.len(),
+            has_mask,
+            resolution,
+        );
+        if let Err(error) = drawing_push(&mut self.infos, info, "image information") {
+            self.error = Some(error);
+        }
+    }
+}
+
+/// Describe every image drawn on the given page, in drawing order.
+pub(crate) fn extract_page_image_info(
+    pdf: &Pdf,
+    page: &Page<'_>,
+    settings: InterpreterSettings,
+) -> Result<Vec<ImageInfoTuple>, String> {
+    let cache = InterpreterCache::new();
+    let mut context = extraction_context(pdf, page, &cache, settings);
+    let mut collector = ImageInfoCollector {
+        infos: Vec::new(),
+        error: None,
+    };
+    interpret_page(page, &mut context, &mut collector);
+    match collector.error {
+        Some(error) => Err(error),
+        None => Ok(collector.infos),
+    }
+}
+
 /// Build the extraction Context.
 ///
 /// Use the renderer's `initial_transform(true)` so Device coordinates are in

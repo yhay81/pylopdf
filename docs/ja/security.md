@@ -89,7 +89,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `xmp_metadata_size`、`render_output_size`、
 `markdown_output_size`、`svg_output_size`、`replacement_input_size`、
 `replacement_output_size`、`pdf_output_size`、`image_input_size`、
-`image_pixel_count`、`font_input_size`、`text_input_size`、`text_line_count`、
+`image_pixel_count`、`image_inventory_count`、`font_input_size`、`text_input_size`、`text_line_count`、
 `path_point_count`、`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
 `decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、
@@ -276,8 +276,10 @@ Rustが標準エラー出力に書き出します。
   文書より大きくなりません。iterableは上限を超えた最初のentryでgraph変更前に停止し、
   `page_entry_count`を返します。`insert_pdf()`は取り込み元の全範囲を受け付けます。
   空deleteはcache・generation・既存`Page` viewを保持します。
-- `Page.get_images()`は1ページで4,096配置、累積64,000,000 source画素、返却payload
-  64 MiBを超える部分結果を拒否します。Flate-wrapped JPEG passthroughも残りbyte
+- `Page.get_images()`は画像またはForm XObjectが4,096を超えると
+  `image_inventory_count`で、`Page.get_image_info()`は4,096配置で停止します。
+  `Document.extract_image()`は64,000,000画素と64 MiB payloadの上限、content・
+  色空間のguardの下で1つの画像を復号し、Flate-wrapped JPEG passthroughもその
   上限までしか展開しません。
 - `Document.embfile_add()`はPyO3 copy前に64 MiB超の入力を拒否し、
   `embfile_get()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量

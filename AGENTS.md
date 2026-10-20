@@ -309,8 +309,19 @@ overview.
   avoiding one String and point-Vec allocation per command. Dash syntax and
   public command/path tuples materialize only after their aggregate admissions,
   grow fallibly, and return no partial result on allocation refusal.
-- `Page.get_images` releases the GIL and materializes each drawn placement as
-  JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
+- `Page.get_images(full=)` lists the image XObjects that the page's inherited
+  resources and, depth first, its Form XObjects' resources reach, once each in
+  resource order, from the lopdf graph (`page_image_inventory`, at most 4,096
+  images and Forms and 32 levels, `image_inventory_count`).
+  `Page.get_image_info` describes drawn placements through a hayro device;
+  hayro hides an image mask's stream, so masks report xref 0.
+  `Document.extract_image(xref)` copies the image without its masks, and the
+  objects it reaches, into a one-page document drawing it at pixel size,
+  runs a fresh `ContentGuard` on it, and decodes it with the placement
+  extractor below inside `contain_renderer_panics`. The core
+  `extract_images` placement decoder stays as the test hook behind
+  `tests/conftest.py`'s `drawn_images`. It materializes each drawn placement
+  as JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.
   Bound Flate-to-DCT passthrough decompression to the remaining byte budget;
   non-passthrough PNG encoding writes into that same remaining budget. Combine

@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import build_pdf
+from conftest import build_pdf, drawn_images
 
 import pylopdf
 
@@ -301,7 +301,7 @@ def test_image_above_the_limit_is_compressed() -> None:
 
     assert (result["considered"], result["rewritten"]) == (1, 1)
     for current in _with_reloaded(doc):
-        compressed = current[0].get_images()[0]
+        compressed = drawn_images(current[0])[0]
         assert (compressed["ext"], compressed["width"], compressed["height"]) == ("jpeg", 64, 64)
 
 
