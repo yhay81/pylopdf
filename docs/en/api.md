@@ -38,7 +38,7 @@ Password input stops at 127 UTF-8 bytes.
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input; `font` draws with a loaded OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with symmetric input/decoded-output defaults plus 1 MiB caller text, bounded metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |
 | `get_pdfa_claim(max_size=1 MiB)` | bounded XMP PDF/A declaration read; `max_size=None` explicitly opts out, and this is not validation |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=0`–`4` (pymupdf's levels; 3 and 4 merge identical objects and streams) `deflate=` `use_objstms=` and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | atomic replacement after a complete same-directory streamed write / bounded PDF bytes; `garbage=0`–`4` (pymupdf's levels; 3 and 4 merge identical objects and streams) `deflate=` `use_objstms=`, `encryption=` (`PDF_ENCRYPT_NONE` by default or `PDF_ENCRYPT_AES_256`; a password without `PDF_ENCRYPT_AES_256` raises), and 127-byte-bounded `user_pw=` / `owner_pw=`; `max_size=None` opts out |
 | `close()` | also via `with` |
 
 `compress_images()` interprets every page to find each indirect raster object's
@@ -346,7 +346,9 @@ raw edits semantically valid is the caller's responsibility.
 | Name | Purpose |
 |---|---|
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | fast metadata/page-count probe with optional input-size rejection and a 127-byte password boundary; `repaired` reports cross-reference recovery |
-| `Permissions` | encryption permission flags (IntFlag) |
+| `Permissions` | encryption permission flags (IntFlag) whose members are pymupdf's `PDF_PERM_*` constants |
+| `EncryptionMethod` | `save(encryption=)` methods (IntEnum) whose members are pymupdf's `PDF_ENCRYPT_*` constants |
+| `LinkKind` / `TextAlign` | IntEnums whose members are pymupdf's `LINK_*` and `TEXT_ALIGN_*` constants |
 | `Rect` / `IRect` | immutable `(x0, y0, x1, y1)` NamedTuples with containment, union, intersection, transformation, and rounding |
 | `Quad` | immutable `(ul, ur, ll, lr)` NamedTuple of four `Point`s with transformation, containment, and shape tests |
 | `Point` | immutable `(x, y)` NamedTuple with vector arithmetic, affine transforms, distance, and direction |

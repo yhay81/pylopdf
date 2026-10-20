@@ -48,7 +48,7 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import Permissions
+from pylopdf._types import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_NONE, EncryptionMethod, Permissions
 from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
 if sys.platform == "win32":
@@ -1550,6 +1550,7 @@ class Document:
         garbage: int = 0,
         deflate: bool = False,
         use_objstms: bool = False,
+        encryption: int = PDF_ENCRYPT_NONE,
         user_pw: str | None = None,
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
@@ -1566,22 +1567,27 @@ class Document:
         ``use_objstms=True`` writes PDF 1.5+ object and xref streams, often
         reducing size and raising the version to 1.5 when necessary.
 
-        Providing ``user_pw`` or ``owner_pw`` writes AES-256 PDF 2.0 encryption
-        while the in-memory document stays plaintext. ``owner_pw`` defaults to
-        ``user_pw``. An empty user password plus an owner password permits
-        unrestricted opening with permission controls. Each password is capped
-        at 127 UTF-8 bytes. ``permissions`` combines :class:`Permissions` and
-        defaults to all. Encryption cannot be combined with object streams.
+        ``encryption`` takes pymupdf's :class:`EncryptionMethod` values and
+        defaults to :data:`PDF_ENCRYPT_NONE`, which writes plaintext;
+        :data:`PDF_ENCRYPT_AES_256` writes AES-256 PDF 2.0 encryption while the
+        in-memory document stays plaintext. The other methods raise
+        :class:`PdfError`, and so does ``user_pw`` or ``owner_pw`` without
+        :data:`PDF_ENCRYPT_AES_256`, instead of being ignored. ``user_pw``
+        defaults to empty and ``owner_pw`` to ``user_pw``. An empty user
+        password plus an owner password permits unrestricted opening with
+        permission controls. Each password is capped at 127 UTF-8 bytes.
+        ``permissions`` combines :class:`Permissions` and defaults to all.
+        Encryption cannot be combined with object streams.
         Every mode streams to a same-directory temporary file and replaces
         ``filename`` only after a complete successful write.
         """
         self._ensure_open()
         level = _garbage_level(garbage)
-        encryption = self._encryption_args(user_pw, owner_pw, permissions, use_objstms=use_objstms)
+        encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
         self._apply_save_options(garbage=level, deflate=deflate)
         writer: Callable[[str], None]
-        if encryption is not None:
-            user, owner, perms = encryption
+        if encrypt_args is not None:
+            user, owner, perms = encrypt_args
             writer = functools.partial(
                 self._doc.save_encrypted,
                 user_password=user,
@@ -1601,6 +1607,7 @@ class Document:
         garbage: int = 0,
         deflate: bool = False,
         use_objstms: bool = False,
+        encryption: int = PDF_ENCRYPT_NONE,
         user_pw: str | None = None,
         owner_pw: str | None = None,
         permissions: int = Permissions.ALL,
@@ -1616,10 +1623,10 @@ class Document:
         self._ensure_open()
         _validate_optional_positive_int("max_size", max_size)
         level = _garbage_level(garbage)
-        encryption = self._encryption_args(user_pw, owner_pw, permissions, use_objstms=use_objstms)
+        encrypt_args = self._encryption_args(encryption, user_pw, owner_pw, permissions, use_objstms=use_objstms)
         self._apply_save_options(garbage=level, deflate=deflate)
-        if encryption is not None:
-            user, owner, perms = encryption
+        if encrypt_args is not None:
+            user, owner, perms = encrypt_args
             return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32), max_size)
         if use_objstms:
             return self._doc.save_bytes_with_object_streams(max_size)
@@ -1637,6 +1644,7 @@ class Document:
 
     @staticmethod
     def _encryption_args(
+        encryption: int,
         user_pw: str | None,
         owner_pw: str | None,
         permissions: int,
@@ -1644,8 +1652,21 @@ class Document:
         use_objstms: bool,
     ) -> tuple[str, str, int] | None:
         """Validate encryption arguments, returning ``None`` when disabled."""
-        if user_pw is None and owner_pw is None:
+        if isinstance(encryption, bool) or not isinstance(encryption, int):
+            msg = f"encryption must be a PDF_ENCRYPT_* value: {encryption!r}"
+            raise TypeError(msg)
+        if encryption == PDF_ENCRYPT_NONE:
+            if user_pw is not None or owner_pw is not None:
+                msg = "user_pw and owner_pw need encryption=PDF_ENCRYPT_AES_256"
+                raise PdfError(msg)
             return None
+        if encryption != PDF_ENCRYPT_AES_256:
+            try:
+                name = f"PDF_ENCRYPT_{EncryptionMethod(encryption).name}"
+            except ValueError:
+                name = repr(encryption)
+            msg = f"encryption={name} is not supported; use PDF_ENCRYPT_NONE or PDF_ENCRYPT_AES_256"
+            raise PdfError(msg)
         if use_objstms:
             msg = "encryption (user_pw / owner_pw) and use_objstms cannot both be specified"
             raise ValueError(msg)

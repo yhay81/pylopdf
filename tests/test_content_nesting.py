@@ -511,7 +511,7 @@ def test_no_nesting_depth_crashes_any_operation(placement: str, tmp_path: Path) 
 SAVED_FORMS: dict[str, Callable[[pylopdf.Document], bytes]] = {
     "compressed": lambda doc: doc.tobytes(deflate=True),
     "object-streams": lambda doc: doc.tobytes(deflate=True, use_objstms=True),
-    "encrypted": lambda doc: doc.tobytes(deflate=True, user_pw="secret"),
+    "encrypted": lambda doc: doc.tobytes(deflate=True, encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret"),
 }
 
 

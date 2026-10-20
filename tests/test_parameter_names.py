@@ -97,7 +97,7 @@ def test_save_takes_pymupdf_use_objstms_keyword(tmp_path: Path, method: str) -> 
     reopened = pylopdf.open(stream=data)
     assert [page.get_text().strip() for page in reopened] == ["Compact"] * 3
     with pytest.raises(ValueError, match="use_objstms cannot both be specified"):
-        doc.tobytes(user_pw="secret", use_objstms=True)
+        doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret", use_objstms=True)
 
 
 def _word_left_edges(expandtabs: int | None) -> list[tuple[str, float]]:

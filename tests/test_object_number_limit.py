@@ -239,7 +239,10 @@ _SAVES: dict[str, tuple[Callable[[pylopdf.Document], bytes], str | None]] = {
     "default": (lambda doc: doc.tobytes(), None),
     "garbage": (lambda doc: doc.tobytes(garbage=True), None),
     "object-streams": (lambda doc: doc.tobytes(use_objstms=True), None),
-    "encrypted": (lambda doc: doc.tobytes(user_pw="user", owner_pw="owner"), "user"),
+    "encrypted": (
+        lambda doc: doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"),
+        "user",
+    ),
 }
 
 
@@ -328,7 +331,9 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     """
     objects = _objects("[5 0 R 6 0 R]")
     objects[6] = _stream("SECRET", 200)
-    encrypted = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes(user_pw="user", owner_pw="owner")
+    encrypted = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    )
     encrypt_id = re.search(rb"/Encrypt (\d+) 0 R", encrypted)
     assert encrypt_id is not None
     patched = _renumber_raw(encrypted, {6: NEAR_U32_MAX, int(encrypt_id[1]): NEAR_U32_MAX - 1})
