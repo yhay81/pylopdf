@@ -227,8 +227,10 @@ overview.
   paragraph and consecutive-list assembly must remain linear rather than using
   repeated immutable-string concatenation.
   Extraction coordinates use the same display space as rendering by passing
-  `initial_transform(true)` to the context, resolving page rotation and CropBox
-  offsets. Baseline direction is retained and exposed in line dicts. Rotated
+  `initial_transform(true)` to the context, resolving page rotation and the
+  offset of the CropBox clipped to the MediaBox, the box that drawing and
+  `Page.rect` use (see the drawing bullet). Baseline direction is retained and
+  exposed in line dicts. Rotated
   baselines assemble along their direction while remaining writing mode 0.
   Uniform axis-aligned pages derive logical inline and block axes from that
   direction, so 90/180/270-degree lines and sustained columns preserve reading
@@ -1375,7 +1377,20 @@ overview.
   the collection of Form-reachable source objects before cache invalidation or
   target mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
-  resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
+  resolved, then convert to `cm`/`Tm`. Display space is the box that
+  hayro-syntax 0.8's `Page::initial_transform` maps, `draw::display_box`: the
+  CropBox, or the MediaBox without one, clipped to the MediaBox, or to an A4
+  MediaBox at the origin without one, which is pymupdf's `Page.rect` apart
+  from the fallbacks. A clipped box without area keeps its corner and takes
+  A4's size, where MuPDF uses Letter at the origin, and a side under one point
+  grows to one point; hayro clips rendering to the clipped box, so such a page
+  shows nothing. `resolve_display_geometry` gives that box to drawing,
+  annotations, link destinations, the OCR text layer, and `Page.rect` (through
+  `page_display_size`), and Form imports take the source page's box as their
+  BBox, so `show_pdf_page` places what rendering shows of the source. pymupdf's
+  `insert_text` measures from the unclipped CropBox corner instead and draws
+  off the visible page; pylopdf keeps one display space (G1). `mediabox` and
+  `cropbox` still report the stored boxes. `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
   alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
