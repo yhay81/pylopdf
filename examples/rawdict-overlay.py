@@ -41,7 +41,7 @@ def _glyph_markup(char: pylopdf.TextChar, index: int) -> str:
     )
 
 
-def _create_html(layout: pylopdf.RawTextPage, png: bytes, source: str) -> str:
+def _create_html(layout: pylopdf.RawTextPageDict, png: bytes, source: str) -> str:
     width, height = layout["width"], layout["height"]
     spans = [span for block in layout["blocks"] for line in block["lines"] for span in line["spans"]]
     total = sum(len(span["chars"]) for span in spans)

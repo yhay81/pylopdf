@@ -726,6 +726,8 @@ def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
         {
             "kind": 2,
             "from": pylopdf.Rect(69.0, 139.0, 542.0, 159.0),
+            "xref": 12,
+            "id": "",
             "uri": "https://www.google.com/",
         }
     ]

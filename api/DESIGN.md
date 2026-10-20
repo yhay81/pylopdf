@@ -362,7 +362,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `Page.get_image_info(*, hashes=False, xrefs=False)` | same | same | M0 for placements and `xrefs=`; `hashes=` in M1. A TypedDict with pymupdf's keys. |
 | `Document.extract_image(xref)` | same | same | M0. JPEG passthrough or PNG, under the existing image limits. |
 | `Document.get_page_images(pno, *, full=False)` | same | same | A convenience (R2.6). |
-| `Page.get_drawings(*, extended=False)` | same | same | M0 adds pymupdf's `seqno` and `layer` keys; `extended=True` arrives in M1. The camelCase keys stay (R3). |
+| `Page.get_drawings(*, extended=False)` | same | same | M0 adds pymupdf's `seqno` key and M5, with layers, its `layer` key, because hayro 0.8 reports marked content without its properties; `extended=True` arrives in M1. The camelCase keys stay (R3). |
 | `Page.get_fonts`, `get_xobjects`, `Document.extract_font`, and the related inventory | same | same | M1. |
 
 ## 6. Rendering and Pixmap
@@ -525,13 +525,13 @@ one-to-one onto these rows.
 | `Page.get_pixmap(scale=, *, dpi, background, clip)` | pymupdf's defaults (opaque RGB) and `matrix=`, without `scale=` | R1, R2 |
 | `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1 |
 | `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2 |
-| `Page.get_drawings()` keys | adds `seqno` and `layer` | R2 |
+| `Page.get_drawings()` keys | adds `seqno` and `layer` | R2; `seqno` done, `layer` with layers in M5 |
 | `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1; done |
 | `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2; done |
 | `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2; done |
 | `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2; done |
 | `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2; done |
-| `TextPage` and `RawTextPage` TypedDicts | `TextPageDict` and `RawTextPageDict`; M1 gives `TextPage` to pymupdf's handle | R2 |
+| `TextPage` and `RawTextPage` TypedDicts | `TextPageDict` and `RawTextPageDict`; M1 gives `TextPage` to pymupdf's handle | R2; done |
 | `Rect.width` and `height` going negative; tuple `+`, `*`, `in`, and truth testing on `Point` and `Rect` | clamped widths and pymupdf's geometric operators (roadmap F4) | R2, R6 |
 | `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3; done |
 | `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2; done |
@@ -541,7 +541,7 @@ one-to-one onto these rows.
 | `Page.annots()` (dictionaries) | read-only `Annot` handles | R2 |
 | `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2 |
 | `Page.add_link_annot(rect, uri)` | `Page.insert_link(link)` | R2 |
-| `Page.get_links()` keys | adds `xref` and `id` | R2 |
+| `Page.get_links()` keys | adds `xref` and `id` | R2; done |
 | `Document.get_toc()`, `set_toc(toc)` | `get_outline()`, `set_outline(entries)`, zero-based | R3: one-based numbering |
 | `Document.embfile_add`, `embfile_get`, `embfile_del`, `embfile_names` | `Document.attachments` | R3: the mapping protocol |
 | `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1 |
@@ -549,7 +549,7 @@ one-to-one onto these rows.
 | `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3; done |
 | `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3; done with F5 |
 | `LINK_*` and `TEXT_ALIGN_*` as plain integers | IntEnum members with the same names and values | R6; done |
-| `get_text("words")` and `get_text("blocks")` tuples | `Word` and `Block` NamedTuples | R6 |
+| `get_text("words")` and `get_text("blocks")` tuples | `Word` and `Block` NamedTuples | R6; done |
 
 Unchanged in M0: `get_form_fields()` and `set_form_field()` stay until M3
 provides `Document.form` and widget handles. `get_text_ocr()`, `apply_ocr()`,

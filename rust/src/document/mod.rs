@@ -1219,7 +1219,7 @@ impl _Document {
     /// Support `/A` actions (URI, GoTo, GoToR, Launch, Named) and direct `/Dest`.
     /// Resolve GoTo names from `/Names` trees and legacy `/Dests`. The page
     /// index and name-tree index persist until the next edit.
-    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<LinkTuple>> {
+    fn read_links(&mut self, py: Python<'_>, page_number: u32) -> PyResult<Vec<IdentifiedLink>> {
         navigation::read_links(self, py, page_number)
     }
 

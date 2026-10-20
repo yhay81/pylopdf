@@ -25,7 +25,7 @@ from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from pylopdf import TextLine, TextPage, TextSpan, WordEntry
+    from pylopdf import TextLine, TextPageDict, TextSpan, Word
 
 _BBox = tuple[float, float, float, float]
 _MarkdownTable = tuple[_BBox, str]
@@ -64,7 +64,7 @@ def _line_inside_bbox(line: TextLine, bbox: _BBox) -> bool:
     return bbox[0] <= center_x <= bbox[2] and bbox[1] <= center_y <= bbox[3]
 
 
-def _word_inside_bbox(word: WordEntry, bbox: _BBox) -> bool:
+def _word_inside_bbox(word: Word, bbox: _BBox) -> bool:
     """Return whether a word center lies inside a display-coordinate bbox."""
     center_x = (word[0] + word[2]) * 0.5
     center_y = (word[1] + word[3]) * 0.5
@@ -87,7 +87,7 @@ def _dominant_orientation(lines: list[TextLine]) -> _AxisOrientation:
     return directions.most_common(1)[0][0] if directions else "right"
 
 
-def table_orientation(layout: TextPage, bbox: _BBox) -> _AxisOrientation:
+def table_orientation(layout: TextPageDict, bbox: _BBox) -> _AxisOrientation:
     """Return table text direction, falling back to the surrounding page."""
     lines = [line for block in layout["blocks"] for line in block["lines"]]
     inside = [line for line in lines if _line_inside_bbox(line, bbox)]
@@ -212,7 +212,7 @@ def _escape_table_cell(value: str | None) -> str:
 
 
 def collect_sizes(
-    layouts: list[TextPage],
+    layouts: list[TextPageDict],
     excluded_bboxes: list[list[_BBox]] | None = None,
 ) -> Counter[float]:
     """Count non-table characters by rounded font size across page dicts."""
@@ -325,9 +325,9 @@ def _normalize_list_item(text: str) -> str | None:
 
 
 def _table_events(
-    layout: TextPage,
+    layout: TextPageDict,
     tables: list[_MarkdownTable],
-    words: list[WordEntry] | None,
+    words: list[Word] | None,
 ) -> tuple[dict[int, list[int]], list[set[int]], dict[int, tuple[str, str]]]:
     """Place tables at their first contained line or nearest geometric slot."""
     indexed_lines = [
@@ -337,7 +337,7 @@ def _table_events(
     ]
     lines = [line for _, line in indexed_lines]
     line_positions = {key: index for index, (key, _) in enumerate(indexed_lines)}
-    line_words: dict[tuple[int, int], list[WordEntry]] = {}
+    line_words: dict[tuple[int, int], list[Word]] = {}
     for word in [] if words is None else words:
         line_words.setdefault((word[5], word[6]), []).append(word)
     memberships: list[set[int]] = [set() for _ in lines]
@@ -365,7 +365,7 @@ def _contained_line_positions(
     bbox: _BBox,
     lines: list[TextLine],
     line_positions: dict[tuple[int, int], int],
-    line_words: dict[tuple[int, int], list[WordEntry]],
+    line_words: dict[tuple[int, int], list[Word]],
     *,
     use_words: bool,
 ) -> list[int]:
@@ -419,7 +419,7 @@ def _join_words(words: list[str]) -> str:
 
 def _residual_line_texts(
     indexed_lines: list[tuple[tuple[int, int], TextLine]],
-    line_words: dict[tuple[int, int], list[WordEntry]],
+    line_words: dict[tuple[int, int], list[Word]],
     memberships: list[set[int]],
     tables: list[_MarkdownTable],
 ) -> dict[int, tuple[str, str]]:
@@ -555,10 +555,10 @@ class _MarkdownBuilder:
 
 
 def page_to_markdown(
-    layout: TextPage,
+    layout: TextPageDict,
     levels: dict[float, int],
     tables: list[_MarkdownTable] | None = None,
-    words: list[WordEntry] | None = None,
+    words: list[Word] | None = None,
     max_size: int | None = None,
 ) -> str:
     """Convert one page while bounding retained Markdown entries and output."""

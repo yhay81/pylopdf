@@ -449,6 +449,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     form_markdown = form[0].to_markdown()
     form_tables = form[0].find_tables()
     form_drawings = form[0].get_drawings()
+    seqnos = [drawing["seqno"] for drawing in form_drawings]
+    _require(seqnos == sorted(set(seqnos)), "drawing paint order is not strictly increasing")
     _require(form.page_count == _EXPECTED_TWO_PAGES, "Form 1040 fixture has the wrong page count")
     _require("U.S. Individual Income Tax Return" in form_text, "Form 1040 text is incomplete")
     _require(len(form_tables) == 1, "Form 1040 bordered table was not detected")
@@ -707,7 +709,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     _require(len(drawings) == 1, "a finished shape did not draw one path")
     data = document.tobytes()
     _require(data.count(b"/FontFile") == 1, "a shape commit embedded a font more than once")
-    words = [[word[4], round(word[0], 2), round(word[1], 2)] for word in page.get_text("words")]
+    words = [[word.word, round(word.x0, 2), round(word.y0, 2)] for word in page.get_text("words")]
     return {
         "ends": [[round(value, 6) for value in point] for point in ends],
         "drawing": [drawings[0]["type"], [round(value, 2) for value in drawings[0]["rect"]]],

@@ -59,7 +59,7 @@ end"""
     return _courier_pdf("BT /F1 20 Tf 40 140 Td (AB) Tj ET", to_unicode=cmap)
 
 
-def _chars(layout: pylopdf.RawTextPage) -> list[pylopdf.TextChar]:
+def _chars(layout: pylopdf.RawTextPageDict) -> list[pylopdf.TextChar]:
     return [
         char
         for block in layout["blocks"]
@@ -69,7 +69,7 @@ def _chars(layout: pylopdf.RawTextPage) -> list[pylopdf.TextChar]:
     ]
 
 
-def _raw_line_texts(layout: pylopdf.RawTextPage) -> list[str]:
+def _raw_line_texts(layout: pylopdf.RawTextPageDict) -> list[str]:
     return [
         "".join(char["c"] for span in line["spans"] for char in span["chars"])
         for block in layout["blocks"]
@@ -81,7 +81,7 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf("日本語"))
     doc.set_fallback_font(None)
     page = doc[0]
-    layout: pylopdf.RawTextPage = page.get_text("rawdict")
+    layout: pylopdf.RawTextPageDict = page.get_text("rawdict")
     assert set(layout) == {"width", "height", "blocks"}
     assert (layout["width"], layout["height"]) == (612.0, 792.0)
     block = layout["blocks"][0]
@@ -101,7 +101,7 @@ def test_rawdict_schema_and_horizontal_japanese_geometry() -> None:
         x = 72 + 24 * index
         assert char["origin"] == pytest.approx((x, 72))
         assert char["bbox"] == pytest.approx((x, 52.8, x + 24, 76.8))
-    document_layout: pylopdf.RawTextPage = doc.get_page_text(0, "rawdict")
+    document_layout: pylopdf.RawTextPageDict = doc.get_page_text(0, "rawdict")
     assert document_layout == layout
     assert page.get_text() == "日本語\n"
 
@@ -390,7 +390,7 @@ def test_rawdict_public_typing_contracts_describe_glyph_values() -> None:
         "RawTextSpan": {"bbox", "origin", "size", "font", "flags", "chars"},
         "RawTextLine": {"bbox", "dir", "wmode", "spans"},
         "RawTextBlock": {"number", "type", "bbox", "lines"},
-        "RawTextPage": {"width", "height", "blocks"},
+        "RawTextPageDict": {"width", "height", "blocks"},
     }
     for name, keys in contracts.items():
         contract = getattr(pylopdf, name)

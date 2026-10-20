@@ -49,7 +49,7 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_NONE, EncryptionMethod, Permissions
+from pylopdf._types import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_NONE, Block, EncryptionMethod, Permissions, Word
 from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
 if sys.platform == "win32":
@@ -62,7 +62,6 @@ if TYPE_CHECKING:
 
     from pylopdf._fonts import Font
     from pylopdf._types import (
-        BlockEntry,
         CjkFontLanguage,
         DocumentComplexity,
         DocumentMetadata,
@@ -74,9 +73,8 @@ if TYPE_CHECKING:
         MetadataUpdate,
         PageLabelInfo,
         PageLabelSpec,
-        RawTextPage,
-        TextPage,
-        WordEntry,
+        RawTextPageDict,
+        TextPageDict,
     )
 
 
@@ -1112,16 +1110,16 @@ class Document:
     @overload
     def get_page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["words"]) -> list[WordEntry]: ...
+    def get_page_text(self, pno: int, option: Literal["words"]) -> list[Word]: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[BlockEntry]: ...
+    def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[Block]: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["dict"]) -> TextPage: ...
+    def get_page_text(self, pno: int, option: Literal["dict"]) -> TextPageDict: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPage: ...
+    def get_page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPageDict: ...
     def get_page_text(
         self, pno: int, option: str = "text"
-    ) -> str | list[WordEntry] | list[BlockEntry] | TextPage | RawTextPage:
+    ) -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
         """Extract text or positioned layout from zero-based page ``pno``.
 
         ``option`` uses pymupdf-style names without promising full compatibility:
@@ -1155,27 +1153,28 @@ class Document:
         return self._page_layout(self._lopdf_page_number(pno), option)
 
     @overload
-    def _page_layout(self, page_number: int, option: Literal["words"]) -> list[WordEntry]: ...
+    def _page_layout(self, page_number: int, option: Literal["words"]) -> list[Word]: ...
     @overload
-    def _page_layout(self, page_number: int, option: Literal["dict"]) -> TextPage: ...
+    def _page_layout(self, page_number: int, option: Literal["dict"]) -> TextPageDict: ...
     @overload
-    def _page_layout(self, page_number: int, option: str) -> list[WordEntry] | list[BlockEntry] | TextPage: ...
-    def _page_layout(self, page_number: int, option: str) -> list[WordEntry] | list[BlockEntry] | TextPage:
+    def _page_layout(self, page_number: int, option: str) -> list[Word] | list[Block] | TextPageDict: ...
+    def _page_layout(self, page_number: int, option: str) -> list[Word] | list[Block] | TextPageDict:
         """Build words, blocks, or dict layout for a validated one-based page."""
         width, height, blocks = self._doc.extract_layout(page_number)
         # Attribute warnings to the public caller rather than this helper.
         self._emit_warnings(stacklevel=4)
         if option == "words":
-            words: list[WordEntry] = []
+            words: list[Word] = []
             for bno, (_, lines) in enumerate(blocks):
                 for lno, (_, _, line_words, _, _) in enumerate(lines):
                     words.extend(
-                        (x0, y0, x1, y1, text, bno, lno, wno) for wno, ((x0, y0, x1, y1), text) in enumerate(line_words)
+                        Word(x0, y0, x1, y1, text, bno, lno, wno)
+                        for wno, ((x0, y0, x1, y1), text) in enumerate(line_words)
                     )
             return words
         if option == "blocks":
             return [
-                (
+                Block(
                     x0,
                     y0,
                     x1,
@@ -1221,7 +1220,7 @@ class Document:
         msg = f"option must be one of 'text' / 'words' / 'blocks' / 'dict' / 'rawdict': {option!r}"
         raise ValueError(msg)
 
-    def _get_page_rawdict(self, pno: int) -> RawTextPage:
+    def _get_page_rawdict(self, pno: int) -> RawTextPageDict:
         """Materialize glyph mappings only for an explicitly requested raw layout."""
         width, height, blocks = self._doc.extract_raw_layout(self._lopdf_page_number(pno))
         self._emit_warnings()

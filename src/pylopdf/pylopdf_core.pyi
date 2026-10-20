@@ -379,6 +379,7 @@ class _Document:
                 str | None,
             ],
             tuple[tuple[float, float, float] | None, float | None, bool | None],
+            int,
         ]
     ]: ...
     def compress_images(self, target_dpi: float | None, quality: int) -> tuple[int, int, int, int, int]: ...
@@ -446,14 +447,18 @@ class _Document:
         self, page_number: int
     ) -> list[
         tuple[
+            tuple[
+                str,
+                tuple[float, float, float, float],
+                str | None,
+                int | None,
+                tuple[float, float] | None,
+                float | None,
+                str | None,
+                str | None,
+            ],
+            int,
             str,
-            tuple[float, float, float, float],
-            str | None,
-            int | None,
-            tuple[float, float] | None,
-            float | None,
-            str | None,
-            str | None,
         ]
     ]: ...
     def add_highlight_annotation(

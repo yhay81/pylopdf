@@ -12,7 +12,7 @@ import pylopdf
 def test_public_type_contracts_are_runtime_importable() -> None:
     names = {
         "AnnotationInfo",
-        "BlockEntry",
+        "Block",
         "DocumentComplexity",
         "DocumentLimits",
         "DocumentMetadata",
@@ -32,9 +32,9 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "PageLabelSpec",
         "TextBlock",
         "TextLine",
-        "TextPage",
+        "TextPageDict",
         "TextSpan",
-        "WordEntry",
+        "Word",
     }
     assert names <= set(pylopdf.__all__)
     assert all(hasattr(pylopdf, name) for name in names)
@@ -67,11 +67,11 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.PageLabelSpec,
         pylopdf.TextBlock,
         pylopdf.TextLine,
-        pylopdf.TextPage,
+        pylopdf.TextPageDict,
         pylopdf.TextSpan,
     )
     assert all(is_typeddict(contract) for contract in typed_dicts)
-    assert pylopdf.LinkInfo.__required_keys__ == frozenset({"kind", "from"})
+    assert pylopdf.LinkInfo.__required_keys__ == frozenset({"kind", "from", "xref", "id"})
     assert pylopdf.LinkInfo.__optional_keys__ == frozenset({"uri", "page", "to", "zoom", "nameddest", "file", "name"})
     assert pylopdf.PageLabelSpec.__required_keys__ == frozenset({"startpage"})
     assert pylopdf.PageLabelSpec.__optional_keys__ == frozenset({"style", "prefix", "firstpagenum"})
@@ -82,7 +82,7 @@ def test_typed_dict_required_and_optional_keys() -> None:
 
 def test_public_return_annotations_describe_real_values() -> None:
     doc = pylopdf.open(stream=build_pdf(["Typed layout"]))
-    layout: pylopdf.TextPage = doc[0].get_text("dict")
+    layout: pylopdf.TextPageDict = doc[0].get_text("dict")
     metadata: pylopdf.DocumentMetadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()

@@ -4644,6 +4644,7 @@ pub(crate) type DrawingTuple = (
     bool,
     DrawingStrokeTuple,
     DrawingFillTuple,
+    usize,
 );
 
 /// Bound materialized output for adversarial pages.
@@ -4694,6 +4695,8 @@ struct DrawingGeometry {
 
 struct DrawingRecord {
     geometry: DrawingGeometry,
+    /// The paint operation's position among the page's paint operations.
+    seqno: usize,
     kind: &'static str,
     stroke_color: Option<(f64, f64, f64)>,
     fill_color: Option<(f64, f64, f64)>,
@@ -4736,12 +4739,15 @@ impl DrawingRecord {
                 self.dashes,
             ),
             (self.fill_color, self.fill_opacity, self.even_odd),
+            self.seqno,
         ))
     }
 }
 
 struct DrawingCollector {
     drawings: Vec<DrawingRecord>,
+    /// Paint operations (paths, glyph runs, and images) seen so far.
+    paint_count: usize,
     command_count: usize,
     dash_value_count: usize,
     error: Option<String>,
@@ -4965,6 +4971,7 @@ impl DrawingCollector {
         let mut record = match mode {
             DrawingMode::Fill(rule) => DrawingRecord {
                 geometry,
+                seqno: self.paint_count,
                 kind: "f",
                 stroke_color: None,
                 fill_color: color,
@@ -4980,6 +4987,7 @@ impl DrawingCollector {
                 let cap = drawing_cap(stroke.line_cap);
                 DrawingRecord {
                     geometry,
+                    seqno: self.paint_count,
                     kind: "s",
                     stroke_color: color,
                     fill_color: None,
@@ -5051,11 +5059,16 @@ impl Device<'_> for DrawingCollector {
             }
             DrawMode::Invisible => {}
         }
+        self.paint_count = self.paint_count.saturating_add(1);
     }
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'_>>, _: BlendMode) {}
-    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {}
-    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {}
+    fn draw_glyph_run(&mut self, _: &GlyphRun<'_, '_>, _: DrawProps<'_>, _: &DrawMode) {
+        self.paint_count = self.paint_count.saturating_add(1);
+    }
+    fn draw_image(&mut self, _: Image<'_, '_>, _: ImageDrawProps<'_>) {
+        self.paint_count = self.paint_count.saturating_add(1);
+    }
     fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 }
@@ -5070,6 +5083,7 @@ pub(crate) fn extract_page_drawings(
     let mut context = extraction_context(pdf, page, &cache, settings);
     let mut collector = DrawingCollector {
         drawings: Vec::new(),
+        paint_count: 0,
         command_count: 0,
         dash_value_count: 0,
         error: None,
