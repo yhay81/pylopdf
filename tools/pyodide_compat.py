@@ -1120,7 +1120,7 @@ def _rectangle_results() -> dict[str, Any]:
         crop_rect = list(boxed.rect)
         boxed.set_mediabox((0, 0, 200, 300))
         reset_cropbox = list(boxed.cropbox)
-        image_xref = boxed.insert_image((10, 10, 60, 60), pixmap=page.get_pixmap(scale=0.1))
+        image_xref = boxed.insert_image((10, 10, 60, 60), pixmap=document[0].get_pixmap(scale=0.1))
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")
