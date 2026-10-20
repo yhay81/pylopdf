@@ -337,7 +337,23 @@ rectilinearity. Point arithmetic and truth testing now have geometric
 semantics, resolving those M0 entries. Python regressions cover boundaries,
 singular transforms, and drawing/save/reopen at all four page rotations;
 the native/PyEmscripten contract includes the same affine workflow.
-`Rect` algebra, `IRect`, `Quad`, and geometry constants remain pending.
+
+Done on 2026-10-20: `Rect` gained pymupdf's constructors, members, and
+operators, and the new `IRect`, `Quad`, `IdentityMatrix`, `Identity`,
+`planish_line`, `EMPTY_*`, `INFINITE_*`, `FZ_MIN_INF_RECT`, and
+`FZ_MAX_INF_RECT` follow pymupdf 1.28.2, including MuPDF's rules for empty,
+invalid, and infinite rectangles in unions, intersections, and transforms.
+`bench/geometry.py` compares 30,483 results of 2,000 seeded cases with
+pymupdf. Two choices differ from pymupdf on purpose: a rectangle or quad
+inside a quad needs all four corners inside, where pymupdf tests two corners
+and accepts any empty rectangle, and convexity of collinear corners does not
+depend on single-precision rounding. Validation makes `Rect(1, 2, 3, 4)`
+with four integers cost what pymupdf's does (0.8 µs); four floats, as
+extraction returns them, take a fast path at 0.3 µs against 0.16 µs before.
+The Rect, IRect, Quad, and constant entries of the manifest, 122 in all,
+became available, and the `Rect` reset items of M0 are resolved, raising
+coverage from 26.3% to 40.5%. `calc_matrix`, which pymupdf 1.28.2 does not
+yet provide, stays planned.
 
 ### F5 — Low-level object API
 

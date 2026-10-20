@@ -1061,11 +1061,45 @@ def _geometry_results() -> dict[str, Any]:
         line = reopened[0].get_drawings()[0]["items"][0]
         _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
         _require(reopened[0].get_pixmap().width == page_size, "transformed drawing failed to render")
+    rectangles = _rectangle_results()
     return {
         "matrix": list(transform),
         "point": list(mapped),
         "inverse_point": list(mapped / transform),
         "text": text,
+        **rectangles,
+    }
+
+
+def _rectangle_results() -> dict[str, Any]:
+    """Check Rect, IRect, and Quad operators and their use with page geometry."""
+    from pylopdf import INFINITE_RECT, Document, IRect, Matrix, Point, Quad, Rect  # noqa: PLC0415
+
+    rect = Rect(1, 2, 3, 4)
+    _require(rect | Point(10, 10) == (1, 2, 10, 10), "rectangle union with a point changed")
+    _require(rect & Rect(2, 3, 5, 5) == (2, 3, 3, 4), "rectangle intersection changed")
+    _require(rect * Matrix(90) == (-4, 1, -2, 3), "rectangle rotation changed")
+    _require(Rect(3, 4, 1, 2).width == 0, "rectangle width must not be negative")
+    _require(Point(1, 2) in rect and Point(3, 4) not in rect, "point containment changed")
+    _require((INFINITE_RECT() * Matrix(30)).is_infinite, "infinite rectangle changed under rotation")
+    _require(IRect(1.5, 2.5, 3.5, 4.5) == (1, 2, 4, 5), "integer rectangle rounding changed")
+    _require(Rect(-0.5, -1.5, 2.0001, 3.9999).round() == (-1, -2, 2, 4), "rectangle rounding changed")
+    quad = rect.quad * Matrix(90)
+    _require(quad.is_rectangular and quad.rect == rect * Matrix(90), "rotated quad changed")
+    _require(Point(-3, 2) in quad, "quad containment changed")
+    _require(Quad(quad) == quad and abs(rect.quad) == abs(rect), "quad round trip changed")
+    with Document() as document:
+        page = document.new_page(width=300, height=200)
+        page.set_rotation(90)
+        box = page.rect * Matrix(0.5, 0.5) + 20
+        page.insert_text(box.tl + Point(10, 30), "Boxed")
+        (hit,) = page.search_for("Boxed")
+    _require(isinstance(hit, Rect) and hit in box and hit.intersects(box), "search hit left its box")
+    return {
+        "rect_union": list(rect | Rect(0, 0, 2, 2)),
+        "rect_torect": list(rect.torect(Rect(0, 0, 10, 10))),
+        "quad_rect": list(quad.rect),
+        "box": list(box),
     }
 
 

@@ -25,7 +25,9 @@ PUBLIC_DUNDERS = frozenset(
     {
         "__abs__",
         "__add__",
+        "__and__",
         "__bool__",
+        "__contains__",
         "__enter__",
         "__exit__",
         "__getitem__",
@@ -34,6 +36,7 @@ PUBLIC_DUNDERS = frozenset(
         "__len__",
         "__mul__",
         "__neg__",
+        "__or__",
         "__pos__",
         "__radd__",
         "__rmul__",
@@ -183,6 +186,13 @@ def _class_members(value: type[object]) -> JsonObject:
         if name.startswith("_") and name not in PUBLIC_DUNDERS:
             continue
         members[name] = _member_contract(value, name, raw_value)
+    # Rect and IRect share their members through a private base class, which
+    # is part of each public class's contract.
+    for base in value.__mro__[1:]:
+        if base.__name__.startswith("_") and base.__module__.startswith("pylopdf"):
+            for name, raw_value in sorted(vars(base).items()):
+                if name not in members and (not name.startswith("_") or name in PUBLIC_DUNDERS):
+                    members[name] = _member_contract(value, name, raw_value)
     # Geometry subclasses a typed NamedTuple to customize construction.
     # Its inherited coordinate descriptors still belong to the public API.
     for name in getattr(value, "_fields", ()):

@@ -18,7 +18,22 @@ from pylopdf import _types
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning, StalePageError
 from pylopdf._fonts import Font
-from pylopdf._geometry import Matrix
+from pylopdf._geometry import (
+    EMPTY_IRECT,
+    EMPTY_QUAD,
+    EMPTY_RECT,
+    FZ_MAX_INF_RECT,
+    FZ_MIN_INF_RECT,
+    INFINITE_IRECT,
+    INFINITE_QUAD,
+    INFINITE_RECT,
+    Identity,
+    IdentityMatrix,
+    IRect,
+    Matrix,
+    Quad,
+    planish_line,
+)
 from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
@@ -66,6 +81,14 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 
 __version__ = "0.14.0"
 __all__ = [
+    "EMPTY_IRECT",
+    "EMPTY_QUAD",
+    "EMPTY_RECT",
+    "FZ_MAX_INF_RECT",
+    "FZ_MIN_INF_RECT",
+    "INFINITE_IRECT",
+    "INFINITE_QUAD",
+    "INFINITE_RECT",
     "LINK_GOTO",
     "LINK_GOTOR",
     "LINK_LAUNCH",
@@ -93,6 +116,9 @@ __all__ = [
     "FontLanguage",
     "FormFieldInfo",
     "FormFieldType",
+    "IRect",
+    "Identity",
+    "IdentityMatrix",
     "ImageCompressionResult",
     "ImageInfo",
     "LimitError",
@@ -113,6 +139,7 @@ __all__ = [
     "PdfError",
     "Permissions",
     "Point",
+    "Quad",
     "RawTextBlock",
     "RawTextLine",
     "RawTextPage",
@@ -134,6 +161,7 @@ __all__ = [
     "WordEntry",
     "open",
     "peek_metadata",
+    "planish_line",
 ]
 __all__ += ["Pixmap", "PylopdfWarning"]
 
