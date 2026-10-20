@@ -513,9 +513,9 @@ one-to-one onto these rows.
 | `Document.set_metadata(m)` | pymupdf's round trip, `trapped`, and empty-dictionary semantics | R2 |
 | `Document.insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | pymupdf's negative-index and clamping rules, with keyword-only ranges | R2 |
 | `Document.delete_page(pno)`, `delete_pages(page_numbers)` | pymupdf's default and argument forms | R2 |
-| `Document.new_page(pno, width, height)` | keyword-only `width` and `height` | R2.3 |
+| `Document.new_page(pno, width, height)` | keyword-only `width` and `height` | R2.3; done |
 | `Document.copy_page(pno, to=-1)` (an independent copy) | `fullcopy_page(pno, to=-1)`; `copy_page` is not provided | R2, G8 |
-| `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2 |
+| `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2; done |
 | `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7 |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2 |
 | `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
@@ -528,16 +528,16 @@ one-to-one onto these rows.
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2 |
 | `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1 |
 | `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2 |
-| `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2 |
+| `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2; `insert_text` done |
 | `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2 |
-| `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2 |
+| `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2; done |
 | `TextPage` and `RawTextPage` TypedDicts | `TextPageDict` and `RawTextPageDict`; M1 gives `TextPage` to pymupdf's handle | R2 |
 | `Rect.width` and `height` going negative; tuple `+`, `*`, `in`, and truth testing on `Point` and `Rect` | clamped widths and pymupdf's geometric operators (roadmap F4) | R2, R6 |
-| `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3 |
-| `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2 |
-| `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2 |
-| `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart, and `insert_text(...)` splitting text only at `\n`, drawing every line, and raising for empty text | pymupdf's lines: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart, and `insert_text` text split with `str.splitlines()`, in which a trailing line break adds no line and empty text inserts nothing, without the lines whose baseline falls below the page | R2, G1 |
-| `Page.show_pdf_page(rect, src, pno=0, ...)` | the parameter name `docsrc` | R2 |
+| `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3; done |
+| `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2; done |
+| `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2; done |
+| `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart, and `insert_text(...)` splitting text only at `\n`, drawing every line, and raising for empty text | pymupdf's lines: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart, and `insert_text` text split with `str.splitlines()`, in which a trailing line break adds no line and empty text inserts nothing, without the lines whose baseline falls below the page | R2, G1; done |
+| `Page.show_pdf_page(rect, src, pno=0, ...)` | the parameter name `docsrc` | R2; done |
 | `Page.annots()` (dictionaries) | read-only `Annot` handles | R2 |
 | `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2 |
 | `Page.add_link_annot(rect, uri)` | `Page.insert_link(link)` | R2 |

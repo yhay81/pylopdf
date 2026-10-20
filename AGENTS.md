@@ -139,7 +139,7 @@ overview.
   Raw materialization must reuse dict grouping and existing text/glyph admission,
   without retaining additional data in the cache or allocating raw output for
   other extraction options.
-  `search_for` caps the UTF-8 needle at 4,096 bytes before PyO3 copying and
+  `search_for` caps the UTF-8 search text at 4,096 bytes before PyO3 copying and
   defaults returned geometry to 4,096 hits. Direct Rust calls repeat both
   checks, `max_hits=None` explicitly opts trusted result sets out, and
   failures use `search_input_size` or `search_hit_count` without returning a
@@ -1404,7 +1404,7 @@ overview.
   trailer writes after every successful or failed byte/file serialization so
   repeated no-op output is deterministic. Preserve the documented mutation
   semantics of `garbage`, `deflate`, and the PDF-version/xref-mode changes from
-  `object_streams` on output refusal.
+  `use_objstms` on output refusal.
 - TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
   compatibility. All other page APIs are zero-based.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted

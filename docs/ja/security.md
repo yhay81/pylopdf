@@ -208,7 +208,7 @@ Rustが標準エラー出力に書き出します。
   越えるwriteを拒否し、`max_size=None`で明示的に解除できます。`save()`はtargetと
   同じdirectoryに安全に作成したsiblingへstreamし、完全なwrite後だけ要求pathを
   原子的に置換するため、serialization/置換失敗時も既存fileを保持します。この
-  in-memory上限の対象外です。`garbage`、`deflate`、`object_streams`などのsave
+  in-memory上限の対象外です。`garbage`、`deflate`、`use_objstms`などのsave
   optionは、その後I/Oが失敗しても文書化済みのmutation semanticsを維持します。
 - `Pixmap.save()`はtarget directory内に予測不能かつ排他的に作成したsiblingへ
   PNG encodeを直接streamし、完全なwriteが成功した後だけ要求pathを原子的に

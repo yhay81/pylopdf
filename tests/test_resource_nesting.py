@@ -804,7 +804,7 @@ def test_no_scope_crashes_any_operation(tmp_path: Path) -> None:
 
 SAVED: dict[str, dict[str, Any]] = {
     "compressed": {"deflate": True},
-    "object-streams": {"deflate": True, "object_streams": True},
+    "object-streams": {"deflate": True, "use_objstms": True},
     "encrypted": {"deflate": True, "user_pw": "secret"},
 }
 

@@ -251,7 +251,7 @@ error.
   sibling in the target directory and atomically replaces the requested path
   only after a complete write, so serialization or replacement failures
   preserve an existing file. It is not governed by the in-memory output
-  budget. Save options such as `garbage`, `deflate`, and `object_streams`
+  budget. Save options such as `garbage`, `deflate`, and `use_objstms`
   retain their documented mutation semantics even when later I/O fails.
 - `Pixmap.save()` streams PNG encoding directly to an unpredictable,
   exclusively created sibling in the target directory and atomically replaces

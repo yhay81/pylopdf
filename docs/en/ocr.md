@@ -41,7 +41,7 @@ engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, object_streams=True)
+    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
 
 `apply_ocr()` preserves rendered pixels and existing page content. It skips a

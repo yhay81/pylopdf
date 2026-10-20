@@ -37,7 +37,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance. `font`에는 불러온 OpenType `Font`를 전달할 수 있음 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `object_streams=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `use_objstms=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |
 
 `compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
@@ -55,10 +55,10 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
 | `xref` / `obj` | 페이지 사전의 객체 번호 / 실시간 저수준 핸들. 상속되는 속성은 조상에 남음 |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | 추출 및 상한이 있는 대소문자 구분 없는 검색. 검색어는UTF-8 4,096 byte, 신뢰 가능한 결과 집합은`None`으로 해제 |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | 추출 및 상한이 있는 대소문자 구분 없는 검색. 검색어는UTF-8 4,096 byte, 신뢰 가능한 결과 집합은`None`으로 해제 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `rotation`은 입력을 시계 방향으로 보정하고 `clip`은 표시 좌표 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
-| `find_tables(strategy="lines", clip=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
+| `find_tables(clip=None, strategy=None)` | 완전하거나 보수적으로 보완한 희소 벡터 테두리와 병합 셀. `"text"`로 테두리 없는 표를 감지하고 `clip`으로 표시 좌표 영역 지정 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성. 페이지당 8,192개 경로, 131,072개 명령 또는 누적 131,072개 dash 값을 넘으면 부분 결과 없이 거부 |
@@ -66,7 +66,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 페이지 박스 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `src`는 같은 문서여도 됨; 편집하지 않은 `src`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | PDF 페이지를 벡터로 겹치기; `docsrc`는 같은 문서여도 됨; 편집하지 않은 `docsrc`의 같은 페이지를 다시 배치하면 Form XObject를 공유 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8과4,096줄 상한이 있는Standard-14 또는 shaping subset text. pymupdf와 같이 문자열은 `str.splitlines()`로 줄을 나누고 리스트는 항목 하나를 한 줄로 쓰며, 줄 간격은 `fontsize`의 `lineheight`배이고 기본값은 글꼴의 `ascender`에서 `descender`를 뺀 값. 페이지 아래로 벗어나는 줄은 그리지 않고 그린 줄 수를 반환. `font`에는 불러온`Font`를 전달할 수 있음. 설치된script／locale provider를 자동 선택하고 모호한 한자는`font_language`로 지정. 해당 신뢰 가능한input은`None`으로 해제 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | text와tab 확장을 미리 검사하고 Core 14, OpenType, 불러온`Font` 또는 설치된provider 폭으로UAX #14 줄바꿈. 줄은 pymupdf와 같은 위치에 배치. 물리줄과 줄바꿈 후layout은4,096줄이 상한이며 넘치면 그리지 않음 |
 | `new_shape()` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. [도형](#shapes) 참조 |

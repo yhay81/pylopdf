@@ -431,40 +431,41 @@ class Page:
 
     def search_for(
         self,
-        needle: str,
+        text: str,
         *,
         max_hits: int | None = _DEFAULT_MAX_SEARCH_HITS,
     ) -> list[Rect]:
-        """Search page text case-insensitively.
+        """Search page text case-insensitively for ``text``.
 
         Return one :class:`Rect` per match. Search is line-based and does not
-        detect matches spanning lines. The search term is limited to 4,096
-        UTF-8 bytes. Results default to 4,096 matches; ``max_hits=None``
-        explicitly opts trusted workloads out.
+        detect matches spanning lines. ``text`` is limited to 4,096 UTF-8
+        bytes. Results default to 4,096 matches; ``max_hits=None`` explicitly
+        opts trusted workloads out.
         """
-        if not needle:
-            msg = "needle must be at least 1 character"
+        if not text:
+            msg = "text must be at least 1 character"
             raise ValueError(msg)
         _validate_optional_positive_int("max_hits", max_hits)
         _validate_utf8_text_input(
-            needle,
+            text,
             _MAX_SEARCH_INPUT_BYTES,
             limit_code="search_input_size",
-            input_label="search needle",
+            input_label="search text",
         )
-        hits = self._document._doc.search_page(self._page_number(), needle, max_hits)
+        hits = self._document._doc.search_page(self._page_number(), text, max_hits)
         self._document._emit_warnings()
         return [Rect(*hit) for hit in hits]
 
     def find_tables(
         self,
-        strategy: Literal["lines", "text"] = "lines",
         *,
         clip: Sequence[float] | None = None,
+        strategy: Literal["lines", "text"] | None = None,
     ) -> TableFinder:
         """Find high-confidence tables from vector borders or aligned text.
 
-        The default ``"lines"`` strategy is deterministic and does not rasterize
+        ``strategy=None`` selects ``"lines"``, as in pymupdf. The ``"lines"``
+        strategy is deterministic and does not rasterize
         the page. It accepts stroked rules and thin filled rectangles, requires
         an outer grid with at least two rows and two columns, and reconstructs
         rectangular merged cells. Coarse grid spans are conservatively split
@@ -484,6 +485,8 @@ class Page:
         :class:`TableDiagnostics`. Confidence ranks this deterministic
         detector's results and is not a statistical probability.
         """
+        if strategy is None:
+            strategy = "lines"
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         raw = self._document._doc.find_tables(self._page_number(), strategy, clip_rect)
         self._document._emit_warnings()
@@ -684,34 +687,36 @@ class Page:
     def show_pdf_page(
         self,
         rect: Sequence[float],
-        src: Document,
+        docsrc: Document,
         pno: int = 0,
         *,
         keep_proportion: bool = True,
         overlay: bool = True,
     ) -> None:
-        """Overlay page ``pno`` from ``src`` into ``rect`` as vector content.
+        """Overlay page ``pno`` from ``docsrc`` into ``rect`` as vector content.
 
         ``pno`` is zero-based and may be negative. This is the pymupdf-style
         primitive for watermarks, stamps, and letterheads. The source page is
         embedded as a Form XObject, preserving text, vectors, and embedded
         fonts. Overlaying a one-page typst PDF enables CJK watermarks, headers,
         and footers; see the README ecosystem recipe. Source rotation and
-        CropBox are resolved visually to fit ``rect``. ``src`` may be the same
-        document; pylopdf imports from a pre-edit snapshot so the source page,
-        including the target page itself, remains stable during placement.
+        CropBox are resolved visually to fit ``rect``. ``docsrc`` may be the
+        same document; pylopdf imports from a pre-edit snapshot so the source
+        page, including the target page itself, remains stable during
+        placement.
 
-        Placing a page of ``src`` again places the Form XObject of the earlier
-        placement, with its fonts and images, instead of importing another
-        copy, as long as ``src`` has not been edited since; any edit of ``src``
-        makes the next placement import the page again. Edits that end
+        Placing a page of ``docsrc`` again places the Form XObject of the
+        earlier placement, with its fonts and images, instead of importing
+        another copy, as long as ``docsrc`` has not been edited since; any
+        edit of ``docsrc`` makes the next placement import the page again.
+        Edits that end
         image sharing, as described in :meth:`insert_image`, end this sharing
         too. A same-document source page stays shared across consecutive
         placements on other pages.
         """
         x0, y0, x1, y1 = _validate_rect(rect)
-        src_number = src[pno]._page_number()
-        if src is self._document:
+        src_number = docsrc[pno]._page_number()
+        if docsrc is self._document:
             self._document._doc.show_pdf_page_self(
                 self._page_number(),
                 (x0, y0, x1, y1),
@@ -723,7 +728,7 @@ class Page:
             self._document._doc.show_pdf_page(
                 self._page_number(),
                 (x0, y0, x1, y1),
-                src._doc,
+                docsrc._doc,
                 src_number,
                 keep_proportion,
                 overlay,
@@ -934,6 +939,7 @@ class Page:
         self,
         rect: Sequence[float],
         text: str,
+        /,
         *,
         fontsize: float = 11.0,
         font: Font | None = None,
@@ -944,7 +950,7 @@ class Page:
         font_language: FontLanguage | None = None,
         color: tuple[float, float, float] = (0.0, 0.0, 0.0),
         align: int = TEXT_ALIGN_LEFT,
-        expandtabs: int = 8,
+        expandtabs: int = 1,
         lineheight: float | None = None,
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
@@ -960,8 +966,9 @@ class Page:
         ``align`` accepts :data:`TEXT_ALIGN_LEFT`,
         :data:`TEXT_ALIGN_CENTER`, :data:`TEXT_ALIGN_RIGHT`, or
         :data:`TEXT_ALIGN_JUSTIFY`. Justification expands spaces on soft-wrapped
-        lines, never the final line of a paragraph. Tabs are expanded before
-        Unicode line breaking; explicit newlines always start a new line.
+        lines, never the final line of a paragraph. Tabs are expanded to
+        ``expandtabs`` columns, 1 by default as in pymupdf, before Unicode line
+        breaking; explicit newlines always start a new line.
 
         Lines are placed as pymupdf places them. ``lineheight`` is a font-size
         multiplier that defaults to the font's :attr:`Font.ascender` minus its

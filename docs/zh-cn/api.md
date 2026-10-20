@@ -37,7 +37,7 @@ password input上限为127个UTF-8 byte。
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |
 | `get_pdfa_claim(max_size=1 MiB)` | 有上限地读取XMP PDF/A声明；`max_size=None`显式取消上限，且这不是验证 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `object_streams=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `use_objstms=`及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |
 
 `compress_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地
@@ -53,10 +53,10 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 |---|---|
 | `number` / `parent` / `get_label()` | 标识与显示标签 |
 | `xref` / `obj` | 页面字典的对象编号 / 实时低层句柄；继承的属性仍位于其祖先节点 |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | 提取与有界的不区分大小写搜索；搜索词上限为4,096 UTF-8 byte，可信结果集可用`None`取消 |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | 提取与有界的不区分大小写搜索；搜索词上限为4,096 UTF-8 byte，可信结果集可用`None`取消 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 不编辑页面，通过本地PP-OCRv6返回带位置的单词；`rotation`顺时针校正输入，`clip`使用显示坐标 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 插入保留方向的不可见可搜索层；默认跳过所选区域的已有文本 |
-| `find_tables(strategy="lines", clip=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
+| `find_tables(clip=None, strategy=None)` | 完整或保守补全的稀疏矢量边框与合并单元格；`"text"`启用无边框检测，`clip`指定显示坐标区域 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 使用相同表格及UTF-8输出控制的单页Markdown |
 | `get_images()` | 已绘制图像（含`bbox`，JPEG直通 / PNG）；超过4,096个placement、累计64,000,000像素或64 MiB payload时拒绝部分结果 |
 | `get_drawings()` | 页面中已解释的矢量fill/stroke路径；显示坐标中的line/cubic几何与规范化绘制属性；超过8,192条路径、131,072条命令或页面累计131,072个虚线值时拒绝返回部分结果 |
@@ -64,7 +64,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `rotation` / `set_rotation(deg)` | 显示旋转 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | 页面框 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 绘制有上限的JPEG/PNG或复用已有边界的RGBA `Pixmap`；可信encoded input／PNG像素可用`None`取消上限；`rotate`按90度顺时针旋转；再次放置相同输入时共享同一图像XObject |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`src`可为同一文档；再次放置未编辑`src`的同一页面时共享其Form XObject |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | 以矢量叠加PDF页面；`docsrc`可为同一文档；再次放置未编辑`docsrc`的同一页面时共享其Form XObject |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 有界UTF-8与4,096行Standard-14或shape subset文本；与pymupdf相同，字符串用`str.splitlines()`分行，列表每项为一行，行距为`fontsize`的`lineheight`倍，默认为字体的`ascender`减去`descender`，超出页面底边的行不绘制，并返回绘制的行数；`font`可传入已加载的`Font`；自动选择已安装script／locale provider，歧义汉字可用`font_language`指定；对应可信input可用`None`取消上限 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | 预检文本与tab展开，并使用Core 14、OpenType、已加载的`Font`或已安装provider宽度进行UAX #14换行；行的位置与pymupdf相同；物理行与换行后layout上限为4,096行，溢出时不绘制 |
 | `new_shape()` | 一次绘制路径和文字的pymupdf `Shape`；参见[图形](#shapes) |

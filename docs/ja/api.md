@@ -37,7 +37,7 @@ password inputはUTF-8 127 byteが上限です。
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | field tree・caller名／値1 MiB・button state・font inputに上限を持つ、ネイティブ外観付きAcroFormの一覧と記入。`font`には読み込み済みのOpenTypeの`Font`を渡せる |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 入力と展開出力に対称な既定上限を持ち、caller text 1 MiB、追加metadata・inline FileSpec clone形状も制限する添付ファイル操作。`max_size=None`で明示的に解除 |
 | `get_pdfa_claim(max_size=1 MiB)` | 上限付きXMP PDF/A宣言読み取り。`max_size=None`で明示的に上限解除。検証ではない |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `object_streams=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `use_objstms=`、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
 `compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
@@ -55,10 +55,10 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 |---|---|
 | `number` / `parent` / `get_label()` | 素性と表示ラベル |
 | `xref` / `obj` | ページ辞書のオブジェクト番号 / 低レベルのライブハンドル。継承される属性は祖先に残る |
-| `get_text(option)` / `search_for(needle, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | 抽出と上限付き検索（大文字小文字を区別しない）。検索語はUTF-8 4,096 byte、信頼できる結果集合は`None`で解除 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 編集せずローカルPP-OCRv6で位置付き単語を認識。`rotation`は入力を時計回りに補正し、`clip`は表示座標 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 向きを保持した不可視の検索可能層を挿入。選択領域の既存テキストは既定でスキップ |
-| `find_tables(strategy="lines", clip=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
+| `find_tables(clip=None, strategy=None)` | 完全なベクタ罫線、保守的に補完した疎な罫線、結合セル。`"text"`で罫線なし検出、`clip`で表示座標の領域を指定 |
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | documentと同じtable・UTF-8出力制御を持つ1 page Markdown |
 | `get_images()` | 描画された画像（`bbox`付き、JPEG passthrough / PNG）。4,096配置、累積64,000,000画素、payload 64 MiBを超える部分結果は拒否 |
 | `get_drawings()` | ページで解釈されたベクターの fill/stroke パス。表示座標の line/cubic 形状と正規化された描画属性。8,192パス、131,072コマンド、またはページ集約131,072 dash値を超える場合は部分結果を返さず拒否 |
@@ -66,7 +66,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `rotation` / `set_rotation(deg)` | 表示回転 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | ページボックス |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` | 上限付きJPEG/PNG、または既に上限管理されたRGBA `Pixmap`を挿入。信頼できるencoded input／PNG画素は`None`で解除。`rotate`は90度単位の時計回り回転。同一入力の再配置は画像XObjectを共有 |
-| `show_pdf_page(rect, src, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`src`は同じ文書でもよい。編集していない`src`の同じページを再配置するとForm XObjectを共有 |
+| `show_pdf_page(rect, docsrc, pno=, keep_proportion=, overlay=)` | PDFページをベクタのまま重ねる。`docsrc`は同じ文書でもよい。編集していない`docsrc`の同じページを再配置するとForm XObjectを共有 |
 | `insert_text(point, text, fontsize=, lineheight=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | UTF-8と4,096行を上限として標準14またはshape済みsubset textを印字。pymupdfと同じく、文字列は`str.splitlines()`で行に分け、リストは1項目を1行とする。行の間隔は`fontsize`の`lineheight`倍で、既定は書体の`ascender`から`descender`を引いた値。頁の下にはみ出す行は描かず、描いた行数を返す。`font`には読み込み済みの`Font`を渡せる。導入済みscript／locale providerを自動選択し、曖昧な漢字は`font_language`で指定。信頼できる各inputは`None`で解除 |
 | `insert_textbox(rect, text, fontsize=, font=, fontname=, fontfile=, fontbuffer=, fontindex=, font_language=, color=, align=, expandtabs=, lineheight=, overlay=, max_font_size=64 MiB, max_text_size=1 MiB)` | textとtab展開を事前検査し、Core 14、OpenType、読み込み済みの`Font`、または導入済みproviderの実幅でUAX #14折り返し。行はpymupdfと同じ位置に置く。物理行・折り返し後layoutは4,096行が上限で、収まらなければ描画しない |
 | `new_shape()` | 経路と文字を1回で描くpymupdfの`Shape`。[図形](#shapes)を参照 |

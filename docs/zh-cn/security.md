@@ -181,7 +181,7 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   `max_size=None`可显式取消。`save()`先流式写入target同directory中安全创建的
   sibling，仅在完整写入后原子替换请求path，因此serialization或替换失败会保留
   现有file。它不受此in-memory预算限制。即使后续I/O失败，`garbage`、`deflate`、
-  `object_streams`等save option仍保持已记录的mutation语义。
+  `use_objstms`等save option仍保持已记录的mutation语义。
 - `Pixmap.save()`把PNG encode直接流式写入target directory中不可预测且排他创建的
   sibling，仅在完整write成功后原子替换请求path，不会在内存中再保留一份完成PNG。
   替换失败会保留现有output并删除临时file。

@@ -773,13 +773,13 @@
               {
                 "annotation": "float",
                 "default": 595.0,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "width"
               },
               {
                 "annotation": "float",
                 "default": 842.0,
-                "kind": "positional_or_keyword",
+                "kind": "keyword_only",
                 "name": "height"
               }
             ],
@@ -952,7 +952,7 @@
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
-                "name": "object_streams"
+                "name": "use_objstms"
               },
               {
                 "annotation": "str | None",
@@ -1197,7 +1197,7 @@
                 "annotation": "bool",
                 "default": false,
                 "kind": "keyword_only",
-                "name": "object_streams"
+                "name": "use_objstms"
               },
               {
                 "annotation": "str | None",
@@ -3864,16 +3864,16 @@
                 "name": "self"
               },
               {
-                "annotation": "Literal['lines', 'text']",
-                "default": "lines",
-                "kind": "positional_or_keyword",
-                "name": "strategy"
-              },
-              {
                 "annotation": "Sequence[float] | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "clip"
+              },
+              {
+                "annotation": "Literal['lines', 'text'] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "strategy"
               }
             ],
             "returns": "TableFinder"
@@ -4226,17 +4226,17 @@
           "signature": {
             "parameters": [
               {
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "self"
               },
               {
                 "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "rect"
               },
               {
                 "annotation": "str",
-                "kind": "positional_or_keyword",
+                "kind": "positional_only",
                 "name": "text"
               },
               {
@@ -4299,7 +4299,7 @@
               },
               {
                 "annotation": "int",
-                "default": 8,
+                "default": 1,
                 "kind": "keyword_only",
                 "name": "expandtabs"
               },
@@ -4466,7 +4466,7 @@
               {
                 "annotation": "str",
                 "kind": "positional_or_keyword",
-                "name": "needle"
+                "name": "text"
               },
               {
                 "annotation": "int | None",
@@ -4545,7 +4545,7 @@
               {
                 "annotation": "Document",
                 "kind": "positional_or_keyword",
-                "name": "src"
+                "name": "docsrc"
               },
               {
                 "annotation": "int",
@@ -4697,7 +4697,7 @@
               },
               {
                 "kind": "positional_or_keyword",
-                "name": "path"
+                "name": "filename"
               }
             ]
           }

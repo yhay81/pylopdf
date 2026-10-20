@@ -34,7 +34,7 @@ engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
-    doc.save("searchable.pdf", garbage=3, deflate=True, object_streams=True)
+    doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
 
 `apply_ocr()` 会保留渲染像素和现有页面内容。默认情况下，它会跳过已有可提取文本的页面，因此重新运行流程不会重复添加不可见文本层。对于混合内容页面，可用显示坐标 `clip=(x0, y0, x1, y1)` 选择扫描区域；只有与该区域相交的现有文本才会触发跳过。仅在需要无视相交文本继续追加时使用 `skip_existing=False`。

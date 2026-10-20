@@ -241,7 +241,7 @@ def test_edits_that_keep_placed_objects_keep_sharing_them() -> None:
     doc.set_metadata({"title": "Shared"})
     doc[2].set_rotation(90)
     doc[2].add_highlight_annot((40, 30, 160, 90))
-    doc.tobytes(garbage=True, object_streams=True)
+    doc.tobytes(garbage=True, use_objstms=True)
     for page in doc:
         page.insert_image(LOGO_RECT, stream=logo)
 

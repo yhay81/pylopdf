@@ -395,7 +395,7 @@ def test_tobytes_validates_output_limit(one_page_pdf: bytes, max_size: object) -
 def test_tobytes_bounds_object_stream_output(one_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=one_page_pdf)
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.tobytes(object_streams=True, max_size=16)
+        doc.tobytes(use_objstms=True, max_size=16)
     assert caught.value.code == "pdf_output_size"
 
 
@@ -766,7 +766,7 @@ def test_render_page_background_wrong_length(one_page_pdf: bytes) -> None:
 def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     out = tmp_path / "optimized.pdf"
-    doc.save(out, garbage=True, deflate=True, object_streams=True)
+    doc.save(out, garbage=True, deflate=True, use_objstms=True)
     reopened = pylopdf.Document(out)
     assert reopened.page_count == 3
     assert "Page two" in reopened.get_page_text(1)
@@ -774,11 +774,11 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
     assert reopened.metadata["format"] == "PDF 1.5"
 
 
-def test_tobytes_object_streams_render_consistent(three_page_pdf: bytes) -> None:
+def test_tobytes_use_objstms_render_consistent(three_page_pdf: bytes) -> None:
     """Rendering survives document mutation during object-stream saving."""
     doc = pylopdf.Document(stream=three_page_pdf)
     before = doc.render_page(0)
-    data = doc.tobytes(object_streams=True)
+    data = doc.tobytes(use_objstms=True)
     assert doc.render_page(0) == before
     assert pylopdf.Document(stream=data).render_page(0) == before
 

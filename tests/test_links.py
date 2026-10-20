@@ -448,7 +448,7 @@ def test_usrguide_named_destinations_survive_merge() -> None:
 
 def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> None:
     """Keep a bounded original snapshot usable after source-navigation refusal."""
-    compressed = pylopdf.Document(stream=build_pdf(["Unchanged"] * 8)).tobytes(object_streams=True, deflate=True)
+    compressed = pylopdf.Document(stream=build_pdf(["Unchanged"] * 8)).tobytes(use_objstms=True, deflate=True)
     limit = len(compressed) + 10
     assert len(pylopdf.Document(stream=compressed).tobytes()) > limit
     target = pylopdf.Document(stream=compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
