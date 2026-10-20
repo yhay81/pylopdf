@@ -4,6 +4,110 @@ use super::*;
 
 /// Bound lopdf's simple-font replacement inputs before encoding work.
 pub(super) const MAX_TEXT_REPLACEMENT_INPUT_BYTES: usize = 4096;
+/// Bound one decoded stream that content interpretation reads.
+const MAX_INTERPRETED_STREAM_BYTES: usize = 64 * 1024 * 1024;
+
+/// One glyph as the content-interpretation hook reports it: display-space
+/// origin; character code; advance in glyph space (1000 units per em); text
+/// rendering mode; the object number of the Form XObject that holds the code,
+/// or 0 for page content; the operation, operand, byte offset, and byte length
+/// of the code; whether its width was approximate or its font a Helvetica
+/// fallback; and the object number of the annotation whose appearance drew
+/// it, or 0.
+pub(super) type ContentGlyphTuple = (
+    (f64, f64),
+    u32,
+    (f64, f64),
+    u8,
+    (u32, usize, usize, usize, usize),
+    (bool, bool),
+    u32,
+);
+
+/// Implements [`_Document::content_glyphs`].
+pub(super) fn content_glyphs(
+    this: &_Document,
+    py: Python<'_>,
+    page_number: u32,
+) -> PyResult<Vec<ContentGlyphTuple>> {
+    let page_id = this.page_id(page_number)?;
+    let rotation = this.resolve_page_rotation(page_id)?;
+    let page_box = |key: &str| -> Option<[f64; 4]> {
+        let (x0, y0, x1, y1) = this.resolve_page_box(page_id, key).ok()??;
+        Some([x0, y0, x1, y1])
+    };
+    let display =
+        crate::content::display_transform(page_box("MediaBox"), page_box("CropBox"), rotation);
+    let resources = this.resolve_page_attr(page_id, b"Resources")?;
+    let resources = match &resources {
+        Some(Object::Dictionary(dict)) => Some(dict),
+        _ => None,
+    };
+    let doc: &Document = &this.doc;
+    let glyphs = py.detach(|| -> PyResult<_> {
+        let mut content = Vec::new();
+        for stream_id in draw::inspect_page_contents(doc, page_id).map_err(PdfError::new_err)? {
+            let Ok(stream) = doc.get_object(stream_id).and_then(Object::as_stream) else {
+                continue;
+            };
+            let data = interpreted_stream(stream).map_err(content_error)?;
+            content.try_reserve(data.len() + 1).map_err(|error| {
+                PdfError::new_err(format!("failed to allocate page content: {error}"))
+            })?;
+            content.extend_from_slice(&data);
+            content.push(b'\n');
+        }
+        let page = doc.get_dictionary(page_id).map_err(to_py_err)?;
+        crate::content::interpret_page(doc, page, &content, resources, &interpreted_stream)
+            .map_err(content_error)
+    })?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(glyphs.len())
+        .map_err(|error| PdfError::new_err(format!("failed to allocate glyph list: {error}")))?;
+    for glyph in glyphs {
+        let origin = display * glyph.origin();
+        let (x, y) = (origin.x, origin.y);
+        let source = glyph.source;
+        let container = match source.container {
+            crate::content::Container::Page => 0,
+            crate::content::Container::Form((number, _)) => number,
+        };
+        out.push((
+            (x, y),
+            glyph.code,
+            glyph.advance,
+            glyph.render_mode,
+            (
+                container,
+                source.operation,
+                source.operand,
+                source.offset,
+                source.len,
+            ),
+            (glyph.approximate, glyph.fallback),
+            glyph.annotation.map_or(0, |(number, _)| number),
+        ));
+    }
+    Ok(out)
+}
+
+fn interpreted_stream(stream: &Stream) -> Result<Vec<u8>, crate::content::ContentError> {
+    decoded_stream_content(
+        stream,
+        Some(MAX_INTERPRETED_STREAM_BYTES),
+        "content_stream_size",
+        "interpreted content stream",
+    )
+    .map_err(|error| crate::content::ContentError::Malformed(error.to_string()))
+}
+
+fn content_error(error: crate::content::ContentError) -> PyErr {
+    match error {
+        crate::content::ContentError::Limit { code, message } => limit_err(code, message),
+        crate::content::ContentError::Malformed(message)
+        | crate::content::ContentError::Allocation(message) => PdfError::new_err(message),
+    }
+}
 
 /// Implements [`_Document::replace_text_on_page`].
 pub(super) fn replace_text_on_page(

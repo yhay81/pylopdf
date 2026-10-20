@@ -1838,6 +1838,17 @@ impl _Document {
         )
     }
 
+    /// Interpret a one-based page's content with the redaction engine and
+    /// return each glyph's display-space origin, code, and approximation
+    /// flags. A private hook for the geometry agreement tests (roadmap F8).
+    fn content_glyphs(
+        &self,
+        py: Python<'_>,
+        page_number: u32,
+    ) -> PyResult<Vec<replacement::ContentGlyphTuple>> {
+        replacement::content_glyphs(self, py, page_number)
+    }
+
     /// Replace text on a one-based page and return the replacement count.
     ///
     /// Prepare bounded, copy-on-write replacement for simply encoded fonts.
