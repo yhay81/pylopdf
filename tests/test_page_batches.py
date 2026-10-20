@@ -164,16 +164,16 @@ def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> No
 
 def test_large_manual_toc_round_trips_through_page_edits(large_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=large_pdf)
-    toc: list[list[int | str]] = []
+    outline: list[tuple[int, str, int]] = []
     for index in range(LARGE_PAGE_COUNT):
-        toc.append([1, f"Chapter {index}", index + 1])
-        toc.append([2, f"Section {index}.1", index + 1])
-    doc.set_toc(toc)
+        outline.append((1, f"Chapter {index}", index))
+        outline.append((2, f"Section {index}.1", index))
+    doc.set_outline(outline)
 
-    assert len(toc) > 4_096
-    assert doc.get_toc() == toc
-    assert pylopdf.Document(stream=doc.tobytes()).get_toc() == toc
+    assert len(outline) > 4_096
+    assert doc.get_outline() == outline
+    assert pylopdf.Document(stream=doc.tobytes()).get_outline() == outline
 
     doc.delete_pages(range(LARGE_PAGE_COUNT // 2))
-    retained = [[level, title, int(page) - LARGE_PAGE_COUNT // 2] for level, title, page in toc[LARGE_PAGE_COUNT:]]
-    assert doc.get_toc() == retained
+    retained = [(level, title, page - LARGE_PAGE_COUNT // 2) for level, title, page in outline[LARGE_PAGE_COUNT:]]
+    assert doc.get_outline() == retained

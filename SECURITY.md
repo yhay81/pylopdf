@@ -134,7 +134,7 @@ risky. When processing untrusted files:
   above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
   above 16 MiB of key bytes with `named_destination_text_size`, or above 32
   levels, instead of silently reporting a truncated tree as unresolved.
-  `get_toc()`, `Page.get_links()`, link import in `insert_pdf()`, and the
+  `get_outline()`, `Page.get_links()`, link import in `insert_pdf()`, and the
   rewrite of the name tree and legacy `/Dests` during page deletion and
   selection share these limits, so every well-formed tree that resolves can
   also be cleaned and imported. The rewrite copies retained destination values

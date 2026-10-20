@@ -279,7 +279,7 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 - named destination lookup只访问引用cycle一次；超过65,536个entry/node或131,072条
   edge时以`named_destination_count`拒绝，超过16 MiB key byte时以
   `named_destination_text_size`拒绝，并限制为32层，而不会静默地将截断结果报告为
-  未解析。`get_toc()`、`Page.get_links()`、`insert_pdf()`的link导入，以及页面删除与
+  未解析。`get_outline()`、`Page.get_links()`、`insert_pdf()`的link导入，以及页面删除与
   选择时对name tree和旧式`/Dests`的改写共享这些上限，因此格式正确且可以解析的
   tree也能被清理和导入。改写会在1,048,576个direct object（每个entry 16个）和
   16 MiB文本的范围内copy保留的destination值。查找的destination名计入正在遍历的

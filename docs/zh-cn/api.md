@@ -6,7 +6,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 # API概览
 
 完整docstring包含在包内，可运行`help(pylopdf.Document)`查看。本页提供API地图。
-除`get_toc` / `set_toc`为兼容pymupdf而从1开始外，所有页码均从0开始。
+包括书签在内，所有页码均从0开始。
 所有坐标均为左上角原点的显示空间。
 [API稳定性政策](stability.md)定义了公共边界和弃用流程。
 
@@ -35,7 +35,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围并注册导入页面的表单字段，navigation清理与link导入共享TOC和named destination上限 |
-| `get_toc()` / `set_toc(toc)` | 面向大型手册、可处理cycle且有上限的书签（页码从1开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
+| `get_outline()` / `set_outline(entries)` | 面向大型手册、可处理cycle且有上限的书签，以`OutlineEntry(level, title, page)`表示（页码从0开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
 | `get_page_labels()` / `set_page_labels(labels)` | 页码标签范围；固定上限为4,096个entry/node、32层、1 MiB标签文本 |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | 有界地列出与填写AcroForm，caller名称／值限制为1 MiB，并限制原生widget外观和font input；`font`可传入已加载的OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 对输入与解码输出采用对称默认上限，并限制1 MiB caller文本、添加metadata及inline FileSpec clone形状；`max_size=None`可显式取消上限 |

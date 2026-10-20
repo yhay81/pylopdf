@@ -63,6 +63,7 @@
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "OutlineEntry",
     "PDF_ANNOT_3D",
     "PDF_ANNOT_CARET",
     "PDF_ANNOT_CIRCLE",
@@ -932,6 +933,18 @@
             "returns": "list[FormFieldInfo]"
           }
         },
+        "get_outline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "list[OutlineEntry]"
+          }
+        },
         "get_page_images": {
           "kind": "method",
           "signature": {
@@ -1071,18 +1084,6 @@
               }
             ],
             "returns": "str"
-          }
-        },
-        "get_toc": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[list[int | str]]"
           }
         },
         "insert_pdf": {
@@ -1458,6 +1459,23 @@
             "returns": "None"
           }
         },
+        "set_outline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[OutlineEntry | Sequence[int | str]]",
+                "kind": "positional_only",
+                "name": "entries"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "set_page_labels": {
           "kind": "method",
           "signature": {
@@ -1470,23 +1488,6 @@
                 "annotation": "Sequence[PageLabelSpec]",
                 "kind": "positional_or_keyword",
                 "name": "labels"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_toc": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[Sequence[int | str]]",
-                "kind": "positional_or_keyword",
-                "name": "toc"
               }
             ],
             "returns": "None"
@@ -3490,6 +3491,49 @@
         "confidence",
         "text"
       ]
+    },
+    "OutlineEntry": {
+      "annotations": {
+        "level": "int",
+        "page": "int",
+        "title": "str"
+      },
+      "kind": "class",
+      "members": {
+        "level": {
+          "kind": "property"
+        },
+        "page": {
+          "kind": "property"
+        },
+        "title": {
+          "kind": "property"
+        }
+      },
+      "named_tuple_fields": [
+        "level",
+        "title",
+        "page"
+      ],
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "level"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "title"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          }
+        ]
+      }
     },
     "PDF_ANNOT_3D": {
       "kind": "constant",
@@ -8155,6 +8199,18 @@
             "returns": "list[FormFieldInfo]"
           }
         },
+        "get_outline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "list[OutlineEntry]"
+          }
+        },
         "get_page_images": {
           "kind": "method",
           "signature": {
@@ -8294,18 +8350,6 @@
               }
             ],
             "returns": "str"
-          }
-        },
-        "get_toc": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[list[int | str]]"
           }
         },
         "insert_pdf": {
@@ -8681,6 +8725,23 @@
             "returns": "None"
           }
         },
+        "set_outline": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Sequence[OutlineEntry | Sequence[int | str]]",
+                "kind": "positional_only",
+                "name": "entries"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "set_page_labels": {
           "kind": "method",
           "signature": {
@@ -8693,23 +8754,6 @@
                 "annotation": "Sequence[PageLabelSpec]",
                 "kind": "positional_or_keyword",
                 "name": "labels"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "set_toc": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[Sequence[int | str]]",
-                "kind": "positional_or_keyword",
-                "name": "toc"
               }
             ],
             "returns": "None"

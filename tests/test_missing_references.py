@@ -170,14 +170,14 @@ def test_page_import_starts_a_null_xobject_category(value: str) -> None:
 
 @null_values
 def test_toc_reads_a_null_outlines_entry_as_absent(value: str) -> None:
-    """Reading the TOC raised `PdfError` for every null-equivalent outline root."""
+    """Reading the outline raised `PdfError` for every null-equivalent outline root."""
     doc = pylopdf.Document(stream=_pdf(catalog=f"/Outlines {value}"))
-    assert doc.get_toc() == []
+    assert doc.get_outline() == []
 
-    doc.set_toc([[1, "Start", 1]])
+    doc.set_outline([(1, "Start", 0)])
 
     for current in _with_reloaded(doc):
-        assert current.get_toc() == [[1, "Start", 1]]
+        assert current.get_outline() == [(1, "Start", 0)]
 
 
 @null_values

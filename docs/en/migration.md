@@ -41,7 +41,7 @@ deliberately does not implement.
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | same | `delete_pages` takes pymupdf's forms (one number, two numbers, `from_page=`/`to_page=`, an iterable); `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects (G8) |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | same | pymupdf's range rules (negative `from_page` is the first page, negative `to_page` the last, both clamp); registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
-| `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
+| `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)` with a 0-based `page`, where pymupdf's are 1-based |
 | `doc.save(garbage=4, deflate=True)` | same | pymupdf's levels 0–4; pages, annotations, form fields, structure elements, and layers are never merged |
 | `doc.save(encryption=…, user_pw=…)` | same | `PDF_ENCRYPT_NONE` (the default) and `PDF_ENCRYPT_AES_256` only, other methods raise; a password under `PDF_ENCRYPT_NONE` raises instead of being ignored; each password stops at 127 UTF-8 bytes |
 | `doc.needs_pass` / `authenticate()` | same | same return semantics (0/1/2/4/6) |
