@@ -281,8 +281,8 @@ Rustが標準エラー出力に書き出します。
   `Document.extract_image()`は64,000,000画素と64 MiB payloadの上限、content・
   色空間のguardの下で1つの画像を復号し、Flate-wrapped JPEG passthroughもその
   上限までしか展開しません。
-- `Document.embfile_add()`はPyO3 copy前に64 MiB超の入力を拒否し、
-  `embfile_get()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量
+- `doc.attachments.add()`と`Attachment.write()`はPyO3 copy前に64 MiB超の入力を拒否し、
+  `Attachment.read()`は各filter層の展開結果に同じ既定上限を適用します。既知の大容量
   添付では`max_size=`を増やせます。`max_size=None`は無制限の入力または
   materializationを明示的に許可します。添付名treeも4,096 entry/node、深さ32、
   encoded/decoded name合計1 MiBを超えると拒否します。callerのlookup／削除名と

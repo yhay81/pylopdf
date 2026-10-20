@@ -242,8 +242,8 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
   停止，`Page.get_image_info()`在4,096个placement时停止。`Document.extract_image()`
   在64,000,000像素与64 MiB payload上限及content和颜色空间guard下解码单个图像，
   Flate-wrapped JPEG直通也只解压到该上限。
-- `Document.embfile_add()`会在PyO3 copy前拒绝超过64 MiB的输入，
-  `embfile_get()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
+- `doc.attachments.add()`与`Attachment.write()`会在PyO3 copy前拒绝超过64 MiB的输入，
+  `Attachment.read()`对每个解码filter层采用相同默认上限。对于已知的大型附件可提高
   `max_size=`；`max_size=None`会显式接受无限制输入或materialization。附件name tree
   超过4,096个entry/node、32层或encoded/decoded名称合计1 MiB时也会拒绝。
   caller查找／删除名称与添加时key/filename/description输入会在tree遍历或data copy前

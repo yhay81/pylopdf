@@ -76,12 +76,12 @@ def test_insert_pdf_does_not_keep_unreachable_source_data() -> None:
     secret = b"SECRET-UNREFERENCED-ATTACHMENT-7c3f"
     source = pylopdf.Document()
     source.new_page(width=100, height=100)
-    source.embfile_add("secret.txt", secret)
+    source.attachments.add("secret.txt", secret)
 
     target = pylopdf.Document()
     target.insert_pdf(source)
 
-    assert target.embfile_names() == []
+    assert list(target.attachments) == []
     assert secret not in target.tobytes()
 
 

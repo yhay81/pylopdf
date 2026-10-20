@@ -134,7 +134,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     ),
     "add_highlight_annot": (lambda doc: doc[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
     "garbage_tobytes": (lambda doc: doc.tobytes(garbage=True), UNCHANGED),
-    "embfile_add": (lambda doc: doc.embfile_add("notes.txt", b"notes"), UNCHANGED),
+    "attachments.add": (lambda doc: doc.attachments.add("notes.txt", b"notes"), UNCHANGED),
 }
 
 

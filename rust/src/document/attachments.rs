@@ -601,3 +601,207 @@ pub(super) fn embfile_del(this: &mut _Document, py: Python<'_>, name: &str) -> P
     }
     result
 }
+
+/// One attachment's metadata: filename, description, `/Params /Size` (-1
+/// when absent, as pymupdf reports it), and the raw creation and
+/// modification date strings (empty when absent).
+pub(super) type EmbeddedFileInfo = (String, String, i64, String, String);
+
+/// Resolve a FileSpec value of the name tree to its dictionary.
+fn filespec_dict<'a>(doc: &'a Document, filespec: &'a Object) -> PyResult<&'a Dictionary> {
+    match filespec {
+        Object::Reference(id) => doc
+            .get_object(*id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err),
+        Object::Dictionary(dict) => Ok(dict),
+        _ => Err(PdfError::new_err("attachment's FileSpec is corrupt")),
+    }
+}
+
+/// Return the embedded-file stream ID that a FileSpec's `/EF` names.
+fn embedded_stream_id(doc: &Document, filespec: &Dictionary) -> PyResult<ObjectId> {
+    let ef = match filespec.get(b"EF").map_err(to_py_err)? {
+        Object::Reference(id) => doc
+            .get_object(*id)
+            .and_then(Object::as_dict)
+            .map_err(to_py_err)?,
+        Object::Dictionary(d) => d,
+        _ => return Err(PdfError::new_err("attachment's EF dictionary is corrupt")),
+    };
+    ef.get(b"F")
+        .or_else(|_| ef.get(b"UF"))
+        .and_then(Object::as_reference)
+        .map_err(to_py_err)
+}
+
+/// Decode one optional text entry, charging its encoded bytes to `budget`.
+fn info_text(
+    doc: &Document,
+    dict: &Dictionary,
+    key: &[u8],
+    budget: &mut usize,
+) -> PyResult<String> {
+    let Some(object) = dict
+        .get(key)
+        .ok()
+        .and_then(|value| non_null_value(doc, value).ok().flatten())
+    else {
+        return Ok(String::new());
+    };
+    let Object::String(bytes, _) = object else {
+        return Ok(String::new());
+    };
+    *budget = budget.checked_sub(bytes.len()).ok_or_else(|| {
+        PdfError::new_err(format!(
+            "attachment metadata text exceeds the {MAX_EMBEDDED_FILE_DIRECT_BYTES}-byte safety limit"
+        ))
+    })?;
+    Ok(decode_text_string(object).unwrap_or_default())
+}
+
+/// Implements [`_Document::embfile_info`].
+pub(super) fn embfile_info(
+    this: &_Document,
+    py: Python<'_>,
+    name: &str,
+) -> PyResult<Option<EmbeddedFileInfo>> {
+    validate_embedded_file_lookup_name(name)?;
+    py.detach(|| {
+        let Some(filespec_obj) = visit_embedded_files(&this.doc, |entry_name, value| {
+            Ok((entry_name == name).then_some(value))
+        })?
+        else {
+            return Ok(None);
+        };
+        let doc = &this.doc;
+        let filespec = filespec_dict(doc, filespec_obj)?;
+        let mut budget = MAX_EMBEDDED_FILE_DIRECT_BYTES;
+        let mut filename = info_text(doc, filespec, b"UF", &mut budget)?;
+        if filename.is_empty() {
+            filename = info_text(doc, filespec, b"F", &mut budget)?;
+        }
+        let description = info_text(doc, filespec, b"Desc", &mut budget)?;
+        let params = embedded_stream_id(doc, filespec)
+            .ok()
+            .and_then(|id| doc.get_object(id).ok())
+            .and_then(|object| object.as_stream().ok())
+            .and_then(|stream| stream.dict.get(b"Params").ok())
+            .and_then(|params| non_null_value(doc, params).ok().flatten())
+            .and_then(|params| params.as_dict().ok());
+        let (size, creation_date, mod_date) = match params {
+            Some(params) => (
+                params
+                    .get(b"Size")
+                    .ok()
+                    .and_then(|size| non_null_value(doc, size).ok().flatten())
+                    .and_then(|size| size.as_i64().ok())
+                    .filter(|size| *size >= 0)
+                    .unwrap_or(-1),
+                info_text(doc, params, b"CreationDate", &mut budget)?,
+                info_text(doc, params, b"ModDate", &mut budget)?,
+            ),
+            None => (-1, String::new(), String::new()),
+        };
+        Ok(Some((filename, description, size, creation_date, mod_date)))
+    })
+}
+
+/// Implements [`_Document::embfile_upd`].
+///
+/// The new data goes into a new stream that keeps the old stream's
+/// dictionary entries other than its filters and length, with `/Params
+/// /Size` set and `/CheckSum` dropped; the FileSpec's `/EF` then names it.
+pub(super) fn embfile_upd(
+    this: &mut _Document,
+    py: Python<'_>,
+    name: &str,
+    data: Vec<u8>,
+    max_size: Option<usize>,
+) -> PyResult<()> {
+    validate_embedded_file_lookup_name(name)?;
+    if max_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    if let Some(limit) = max_size
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "embedded_file_size",
+            format!(
+                "attachment input is {} bytes, exceeding the {limit}-byte limit",
+                data.len()
+            ),
+        ));
+    }
+    let result = py.detach(|| {
+        let target = embedded_files_write_target(&this.doc)?;
+        let mut entries = collect_embedded_files(&this.doc)?;
+        let index = entries
+            .iter()
+            .position(|(entry_name, _)| entry_name == name)
+            .ok_or_else(|| PdfError::new_err(format!("attachment not found: {name:?}")))?;
+        let size = i64::try_from(data.len()).map_err(|e| PdfError::new_err(e.to_string()))?;
+        let mut stream_dict = {
+            let filespec = filespec_dict(&this.doc, &entries[index].1)?;
+            embedded_stream_id(&this.doc, filespec)
+                .ok()
+                .and_then(|id| this.doc.get_object(id).ok())
+                .and_then(|object| object.as_stream().ok())
+                .map(|stream| stream.dict.clone())
+                .unwrap_or_else(|| dictionary! { "Type" => "EmbeddedFile" })
+        };
+        for key in [
+            &b"Filter"[..],
+            b"DecodeParms",
+            b"DL",
+            b"Length",
+            b"F",
+            b"FFilter",
+            b"FDecodeParms",
+        ] {
+            stream_dict.remove(key);
+        }
+        let mut params = match stream_dict.get(b"Params") {
+            Ok(Object::Dictionary(params)) => params.clone(),
+            Ok(Object::Reference(id)) => this
+                .doc
+                .get_object(*id)
+                .and_then(Object::as_dict)
+                .cloned()
+                .unwrap_or_default(),
+            _ => Dictionary::new(),
+        };
+        params.remove(b"CheckSum");
+        params.set("Size", size);
+        stream_dict.set("Params", params);
+        let previous_max_id = this.doc.max_id;
+        let stream_id = this.doc.add_object(Stream::new(stream_dict, data));
+        let ef = dictionary! { "F" => stream_id, "UF" => stream_id };
+        let edited = match entries[index].1 {
+            Object::Reference(id) => this
+                .doc
+                .get_object_mut(id)
+                .and_then(Object::as_dict_mut)
+                .map(|filespec| filespec.set("EF", ef))
+                .map_err(to_py_err),
+            Object::Dictionary(ref mut filespec) => {
+                filespec.set("EF", ef);
+                write_embedded_files(&mut this.doc, entries, target)
+            }
+            _ => Err(PdfError::new_err("attachment's FileSpec is corrupt")),
+        };
+        if let Err(error) = edited {
+            this.doc.objects.remove(&stream_id);
+            this.doc.max_id = previous_max_id;
+            return Err(error);
+        }
+        Ok(())
+    });
+    if result.is_ok() {
+        this.invalidate_hayro_pdf_keeping_placements();
+    }
+    result
+}

@@ -5,6 +5,8 @@
     "AnnotFlags",
     "AnnotType",
     "Array",
+    "Attachment",
+    "Attachments",
     "Base14_fontdict",
     "Base14_fontnames",
     "Block",
@@ -352,6 +354,204 @@
         "returns": "None"
       }
     },
+    "Attachment": {
+      "kind": "class",
+      "members": {
+        "creation_date": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "description": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "filename": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "mod_date": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "read": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "bytes"
+          }
+        },
+        "size": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "write": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "Attachments": {
+      "kind": "class",
+      "members": {
+        "__contains__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "object",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "name"
+              }
+            ],
+            "returns": "Attachment"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_only",
+                "name": "name"
+              },
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "filename"
+              },
+              {
+                "annotation": "str | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "description"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "Attachment"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "Base14_fontdict": {
       "kind": "constant",
       "value": {
@@ -681,6 +881,10 @@
             "returns": "int"
           }
         },
+        "attachments": {
+          "kind": "property",
+          "returns": "Attachments"
+        },
         "authenticate": {
           "kind": "method",
           "signature": {
@@ -787,98 +991,6 @@
               }
             ],
             "returns": "None"
-          }
-        },
-        "embfile_add": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "bytes",
-                "kind": "positional_or_keyword",
-                "name": "data"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "filename"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "desc"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "embfile_del": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "embfile_get": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "embfile_names": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[str]"
           }
         },
         "extract_image": {
@@ -7947,6 +8059,10 @@
             "returns": "int"
           }
         },
+        "attachments": {
+          "kind": "property",
+          "returns": "Attachments"
+        },
         "authenticate": {
           "kind": "method",
           "signature": {
@@ -8053,98 +8169,6 @@
               }
             ],
             "returns": "None"
-          }
-        },
-        "embfile_add": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "bytes",
-                "kind": "positional_or_keyword",
-                "name": "data"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "filename"
-              },
-              {
-                "annotation": "str | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "desc"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "embfile_del": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              }
-            ],
-            "returns": "None"
-          }
-        },
-        "embfile_get": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "name"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "embfile_names": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              }
-            ],
-            "returns": "list[str]"
           }
         },
         "extract_image": {

@@ -1452,6 +1452,27 @@ impl _Document {
         attachments::embfile_del(self, py, name)
     }
 
+    /// Return one attachment's metadata, or `None` when it is absent.
+    fn embfile_info(
+        &self,
+        py: Python<'_>,
+        name: &str,
+    ) -> PyResult<Option<attachments::EmbeddedFileInfo>> {
+        attachments::embfile_info(self, py, name)
+    }
+
+    /// Replace one attachment's data, raising an error when absent.
+    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    fn embfile_upd(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        data: Vec<u8>,
+        max_size: Option<usize>,
+    ) -> PyResult<()> {
+        attachments::embfile_upd(self, py, name, data, max_size)
+    }
+
     /// Insert display-coordinate OCR words as an invisible text layer.
     ///
     /// Store only Unicode and position using a non-embedded Identity-H CID font,

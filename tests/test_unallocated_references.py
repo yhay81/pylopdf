@@ -109,7 +109,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
-    "embfile_add": lambda doc: doc.embfile_add("note.txt", b"note"),
+    "attachments.add": lambda doc: doc.attachments.add("note.txt", b"note"),
 }
 
 
