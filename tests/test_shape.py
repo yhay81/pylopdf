@@ -627,7 +627,7 @@ def test_weight_instances_of_one_variable_face_keep_their_names() -> None:
 
 def test_path_points_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     _, page = _new_page()
-    monkeypatch.setattr(pylopdf, "_MAX_SHAPE_PATH_POINTS", 8)
+    monkeypatch.setattr("pylopdf._shape._MAX_SHAPE_PATH_POINTS", 8)
     shape = page.new_shape()
     shape.draw_polyline([(i, i) for i in range(8)])
     with pytest.raises(pylopdf.LimitError) as error:

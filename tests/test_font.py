@@ -387,7 +387,7 @@ def test_a_missing_weight_raises_unless_regular_fallback_is_allowed() -> None:
 
 
 def test_language_requires_its_font_extra(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("pylopdf._bundled_font_providers", lambda: ())
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: ())
     with pytest.raises(pylopdf.PdfError, match=r"language='ko' requires pylopdf\[ko\]"):
         pylopdf.Font(language="ko")
     with pytest.raises(pylopdf.PdfError, match=r"requires pylopdf\[jp\]"):
