@@ -95,7 +95,7 @@ svg = doc.render_page_svg(0)
 ```python
 doc.delete_pages([1, 2])
 doc.select([2, 0])                                   # 유지/재정렬（반복하면 복제）
-doc.new_page(); doc.copy_page(0, to=1)
+doc.new_page(); doc.fullcopy_page(0, to=1)
 
 merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))

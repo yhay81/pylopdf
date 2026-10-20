@@ -102,7 +102,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
     "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.copy_page(0),
+    "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_toc": lambda doc: doc.set_toc([[1, "Start", 1]]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "embfile_add": lambda doc: doc.embfile_add("note.txt", b"note"),

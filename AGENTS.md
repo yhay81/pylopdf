@@ -1218,7 +1218,7 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `copy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  `fullcopy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
   objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic

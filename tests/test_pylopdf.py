@@ -225,7 +225,7 @@ def test_empty_page_lists(one_page_pdf: bytes) -> None:
 
 def test_delete_page_out_of_range(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
-    with pytest.raises(IndexError, match="out of range"):
+    with pytest.raises(ValueError, match="bad page number"):
         doc.delete_page(3)
 
 

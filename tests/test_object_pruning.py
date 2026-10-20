@@ -81,7 +81,7 @@ def _structural_edit_pdf() -> bytes:
         (lambda doc: doc.delete_pages([1]), [b"SECOND-PAGE-CONTENT"]),
         (lambda doc: doc.select([0]), [b"SECOND-PAGE-CONTENT"]),
         (lambda doc: doc.new_page(), []),
-        (lambda doc: doc.copy_page(0), []),
+        (lambda doc: doc.fullcopy_page(0), []),
         (lambda doc: doc.set_toc([[1, "New outline", 1]]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.set_toc([]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Inserted"]))), []),

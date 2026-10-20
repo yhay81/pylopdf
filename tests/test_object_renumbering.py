@@ -233,7 +233,7 @@ def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> 
     doc = pylopdf.Document(stream=build_pdf(["Target"]))
 
     start = time.perf_counter()
-    doc.insert_pdf(source, from_page=-1, to_page=-1)
+    doc.insert_pdf(source, from_page=page_count - 1, to_page=page_count - 1)
     doc[0].show_pdf_page((0, 0, 100, 100), source, 0)
     elapsed = time.perf_counter() - start
 

@@ -511,10 +511,10 @@ one-to-one onto these rows.
 | `open(filename, stream, password, max_decompressed_size, *, limits)` and the same `Document(...)` constructor | `Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)`, with `open = Document` | R2: the third positional parameter is `filetype`; R2.6: `open` is pymupdf's alias; done |
 | `Document.authenticate(password)` | pymupdf's return codes even after an empty user password opened the document | R2; done |
 | `Document.set_metadata(m)` | pymupdf's round trip, `trapped`, and empty-dictionary semantics | R2; done |
-| `Document.insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | pymupdf's negative-index and clamping rules, with keyword-only ranges | R2 |
-| `Document.delete_page(pno)`, `delete_pages(page_numbers)` | pymupdf's default and argument forms | R2 |
+| `Document.insert_pdf(other, from_page=0, to_page=-1, start_at=-1)` | pymupdf's negative-index and clamping rules, with keyword-only ranges | R2; done |
+| `Document.delete_page(pno)`, `delete_pages(page_numbers)` | pymupdf's default and argument forms | R2; done |
 | `Document.new_page(pno, width, height)` | keyword-only `width` and `height` | R2.3; done |
-| `Document.copy_page(pno, to=-1)` (an independent copy) | `fullcopy_page(pno, to=-1)`; `copy_page` is not provided | R2, G8 |
+| `Document.copy_page(pno, to=-1)` (an independent copy) | `fullcopy_page(pno, to=-1)`; `copy_page` is not provided | R2, G8; done |
 | `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2; done |
 | `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7; done |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2; done |

@@ -28,8 +28,9 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.get_images()` / 提取 | `page.get_images()` | 返回带bbox的已绘制图像；JPEG直通 |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
-| `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | 注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
+| `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象（G8） |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |
 | `doc.save(garbage=4, deflate=True)` | 相同 | 与pymupdf相同的0–4级；页面、注释、表单字段、结构元素和图层不会合并 |
 | `doc.save(encryption=…, user_pw=…)` | 相同 | 仅支持`PDF_ENCRYPT_NONE`（默认）与`PDF_ENCRYPT_AES_256`，其他方式抛出异常；`PDF_ENCRYPT_NONE`下传入password会抛出异常而不是被忽略；每个password上限127 UTF-8 byte |

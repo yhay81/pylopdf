@@ -31,8 +31,9 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.get_images()` | `page.get_images()` | 描画位置 bbox 付き。JPEG はパススルー |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
-| `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
-| `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | 取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
+| `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
+| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
 | `doc.save(garbage=4, deflate=True)` | 同じ | pymupdfと同じ0〜4の段階。ページ、注釈、フォームフィールド、構造要素、レイヤーは統合しない |
 | `doc.save(encryption=…, user_pw=…)` | 同じ | `PDF_ENCRYPT_NONE`（既定）と`PDF_ENCRYPT_AES_256`のみで、ほかの方式は例外。`PDF_ENCRYPT_NONE`でのpasswordは無視せず例外。各passwordはUTF-8 127 byte上限 |
