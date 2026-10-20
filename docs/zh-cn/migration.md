@@ -30,7 +30,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 相同 | 在M3加入setter前为只读；`rect`使用显示坐标 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 相同 | `Quad`按外接矩形处理；`insert_link`仅支持`LINK_URI` |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 仅将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG，因此缩小需要`quality` 1–100；`set_to_gray`和`options`会引发异常；跳过bitonal图像；返回计数而非`None` |
 | `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象（G8） |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |

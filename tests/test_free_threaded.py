@@ -40,7 +40,7 @@ def _compress_jpeg(data: bytes) -> tuple[pylopdf.ImageCompressionResult, tuple[i
     doc = pylopdf.Document()
     page = doc.new_page(width=100, height=100)
     page.insert_image((0, 0, 72, 72), stream=data)
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
     image = drawn_images(page)[0]
     return result, (image["width"], image["height"]), image["image"]
 
@@ -75,7 +75,7 @@ def test_distinct_documents_are_correct_and_scale_across_threads() -> None:
         )
 
 
-def test_distinct_documents_compress_images_concurrently() -> None:
+def test_distinct_documents_rewrite_images_concurrently() -> None:
     source = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0])[0]["image"]
     expected = _compress_jpeg(source)
 

@@ -299,7 +299,7 @@ def test_image_above_the_limit_is_compressed() -> None:
     }
     doc = pylopdf.Document(stream=_numbered_pdf(objects))
 
-    result = doc.compress_images(dpi=64, quality=65)
+    result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     assert (result["considered"], result["rewritten"]) == (1, 1)
     for current in _with_reloaded(doc):

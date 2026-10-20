@@ -922,30 +922,6 @@
           "kind": "property",
           "returns": "DocumentComplexity"
         },
-        "compress_images": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "float | None",
-                "default": 150,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "int",
-                "default": 75,
-                "kind": "keyword_only",
-                "name": "quality"
-              }
-            ],
-            "returns": "ImageCompressionResult"
-          }
-        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -1377,6 +1353,78 @@
               }
             ],
             "returns": "list[bytes]"
+          }
+        },
+        "rewrite_images": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dpi_threshold"
+              },
+              {
+                "annotation": "float",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "dpi_target"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "quality"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "lossy"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "lossless"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "bitonal"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "gray"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "set_to_gray"
+              },
+              {
+                "annotation": "object",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "options"
+              }
+            ],
+            "returns": "ImageCompressionResult"
           }
         },
         "save": {
@@ -8100,30 +8148,6 @@
           "kind": "property",
           "returns": "DocumentComplexity"
         },
-        "compress_images": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "float | None",
-                "default": 150,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "int",
-                "default": 75,
-                "kind": "keyword_only",
-                "name": "quality"
-              }
-            ],
-            "returns": "ImageCompressionResult"
-          }
-        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -8555,6 +8579,78 @@
               }
             ],
             "returns": "list[bytes]"
+          }
+        },
+        "rewrite_images": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dpi_threshold"
+              },
+              {
+                "annotation": "float",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "dpi_target"
+              },
+              {
+                "annotation": "int",
+                "default": 0,
+                "kind": "keyword_only",
+                "name": "quality"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "lossy"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "lossless"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "bitonal"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "color"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "gray"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "set_to_gray"
+              },
+              {
+                "annotation": "object",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "options"
+              }
+            ],
+            "returns": "ImageCompressionResult"
           }
         },
         "save": {

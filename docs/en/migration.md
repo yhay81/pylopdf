@@ -37,7 +37,7 @@ deliberately does not implement.
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | same | read-only handles until M3 adds setters; `rect` is in display coordinates |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | same | a `Quad` contributes its bounding rectangle; `insert_link` writes `LINK_URI` links only |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | same | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG only, so resampling needs `quality` 1–100; `set_to_gray` and `options` raise; bitonal images are skipped; returns counts instead of `None` |
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | same | `delete_pages` takes pymupdf's forms (one number, two numbers, `from_page=`/`to_page=`, an iterable); `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects (G8) |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | same | pymupdf's range rules (negative `from_page` is the first page, negative `to_page` the last, both clamp); registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |

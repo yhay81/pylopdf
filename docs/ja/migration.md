@@ -33,7 +33,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | M3でsetterが加わるまで読み取り専用。`rect`は表示座標 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 同じ | `Quad`は外接矩形として扱う。`insert_link`は`LINK_URI`のみ |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへのみ変換するため、縮小には`quality` 1–100が必要。`set_to_gray`と`options`は例外、bitonal画像はスキップ。`None`ではなく件数を返す |
 | `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |

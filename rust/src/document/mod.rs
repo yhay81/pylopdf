@@ -787,14 +787,29 @@ impl _Document {
         extraction::extract_drawings(self, py, page_number)
     }
 
-    /// Downsample and JPEG-recompress safe DCT or Flate XObjects atomically.
-    fn compress_images(
+    /// Downsample and JPEG-recompress the selected safe raster images.
+    #[allow(clippy::too_many_arguments)] // Mirrors pymupdf's keyword arguments.
+    fn rewrite_images(
         &mut self,
         py: Python<'_>,
-        target_dpi: Option<f64>,
+        dpi_threshold: Option<f64>,
+        dpi_target: f64,
         quality: u8,
+        lossy: bool,
+        lossless: bool,
+        color: bool,
+        gray: bool,
     ) -> PyResult<image_compression::CompressionResult> {
-        images::compress_images(self, py, target_dpi, quality)
+        let options = image_compression::RewriteOptions {
+            dpi_threshold,
+            dpi_target,
+            quality,
+            lossy,
+            lossless,
+            color,
+            gray,
+        };
+        images::rewrite_images(self, py, options)
     }
 
     /// Search a one-based page case-insensitively.

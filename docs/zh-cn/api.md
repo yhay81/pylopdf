@@ -32,7 +32,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；默认转换所有页，显式entry最多为页数与4,096中较大者，并有累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `extract_image(xref)` / `get_page_images(pno, *, full=False)` | 以与pymupdf相同的键返回单个图像的数据（DCT以JPEG直通，其他filter解码为PNG，不含soft mask）；页面的图像清单 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 页面`Pixmap`（pymupdf的`doc[pno].get_pixmap()`简便形式），或在累计encoded output上限内渲染所有页或最多为页数与4,096中较大者的显式entry的保序并行PNG批次（`None`取消） |
-| `compress_images(dpi=150, quality=75)` | 按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
+| `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, lossy=True, lossless=True, color=True, gray=True)` | 与pymupdf相同的参数（超过`dpi_threshold`的轴缩小到`dpi_target`；`quality`为0表示不重压缩，因此缩小需要`quality`；`set_to_gray`和`options`会引发异常）；按实际放置DPI对安全DCT/Flate raster XObject进行有损缩小和JPEG重压缩，并返回类型化byte/count统计 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | 区分Adobe Japan1／Korea1／GB1／CNS1的有界CJK后备font；可信font input可用`None`取消上限 |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | 页面管理；select/delete的entry上限为页数与4,096中较大者，`insert_pdf`接受源文档的完整范围并注册导入页面的表单字段，navigation清理与link导入共享TOC和named destination上限 |
 | `get_outline()` / `set_outline(entries)` | 面向大型手册、可处理cycle且有上限的书签，以`OutlineEntry(level, title, page)`表示（页码从0开始；65,536个entry/node、131,072条edge、64层、16 MiB文本；named destination与`get_links()`相同） |
@@ -43,7 +43,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `use_objstms=`、`encryption=`（默认`PDF_ENCRYPT_NONE`，加密用`PDF_ENCRYPT_AES_256`；未指定`PDF_ENCRYPT_AES_256`时传入password会抛出异常）及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |
 
-`compress_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地
+`rewrite_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地
 编辑lopdf副本。`dpi=None`时不缩小，仅按quality重压缩。保守边界仅包含无mask或自定义
 decode array的直接单filter 8-bit DeviceGray/DeviceRGB DCT/Flate stream。DCT decode
 parameter不受支持；Flate可无predictor或使用与字典一致的PNG predictor。已解释但

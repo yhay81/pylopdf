@@ -349,7 +349,13 @@ overview.
   attachment-data copying in Python and again in Rust, and validate inline
   FileSpecs before cloning at 4,096 direct objects, 32 levels, and 1 MiB of
   direct string/name/stream data. Indirect references are leaves.
-- `Document.compress_images` interprets indirect raster XObject placements
+- `Document.rewrite_images` follows pymupdf's keywords: an axis above
+  `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no
+  recompression, `lossy`/`lossless` and `color`/`gray` select DCT/Flate and
+  RGB/gray sources, and `set_to_gray` or `options` raise. Because every
+  rewrite produces JPEG, resampling with `quality=0` raises, and a call with
+  neither returns zero counts without interpreting. It interprets indirect
+  raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest
   placement. It atomically edits a lopdf clone, releases the GIL, and rewrites
@@ -657,7 +663,7 @@ overview.
   interpret a page must start with `_Document::hayro_view_for`, which builds the
   snapshot and has `ContentGuard::check` (`rust/src/content_guard.rs`) clear
   the pages first: `One`, `Many` for explicit batches, `All` for
-  `compress_images`. A refusal raises `LimitError` with the stable code
+  `rewrite_images`. A refusal raises `LimitError` with the stable code
   `content_nesting_depth` before any interpretation, cache insertion, or
   output. The bound is `MAX_NESTING_DEPTH` = 64 levels of arrays and
   dictionaries, the one hayro 0.8 uses, and is unconditional rather than a
@@ -1332,7 +1338,7 @@ overview.
   remove unreachable objects call `invalidate_hayro_pdf_keeping_placements`:
   drawing, annotations, page geometry, structural edits, outline, label,
   attachment, and metadata edits, `prune_objects` for `garbage=True`, and
-  object-stream saves. `compress`, `decompress`, `compress_images`,
+  object-stream saves. `compress`, `decompress`, `rewrite_images`,
   `replace_text`, and `set_form_field` forget. Both replace the revision.
   Classify a new editing method before giving it the keeping variant. A
   same-document `show_pdf_page` re-keys its Form under the revision of its own
