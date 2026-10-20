@@ -1773,6 +1773,21 @@ overview.
   at the imported page that lists it. A complete import does not walk the
   tree, so only the 1 MiB top-level name budget, which every import shares
   when the receiving document has a form, can refuse one.
+- `delete_pages` and `select` remove the form widgets and fields of dropped
+  pages with `FormPagePrune` in the same module, which reuses the partial
+  import's walk on the document itself, with the remaining pages as the
+  imported ones. It is prepared next to `PageCleanupPlan`, before any
+  mutation, and applied after the page-tree rebuild and before pruning; the
+  commit only filters arrays and replaces existing `/P` entries, so it cannot
+  fail. Two rules differ from a partial import: a widget that no page lists
+  stays unless its `/P` names a dropped page, and a top-level field without
+  any widget stays, because deletion must not touch fields unrelated to the
+  dropped pages. `/Fields` and `/CO` lose the entries of removed fields; an
+  array that also serves as a walked `/Kids` is filtered once, by the `/Kids`
+  plan. A field tree beyond the read limits refuses the deletion. A tagged
+  PDF's structure tree still references dropped pages and their widgets
+  through `/Pg` and OBJR entries, so pruning keeps them; cleaning the
+  structure tree is separate work.
 - Page annotation and link reads borrow direct/indirect `/Annots` arrays,
   release the GIL, and reject complete results above 4,096 array entries or
   1 MiB of aggregate encoded/returned subtype, Contents, URI, file, and

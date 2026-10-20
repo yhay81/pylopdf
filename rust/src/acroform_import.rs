@@ -311,6 +311,9 @@ struct PageAnnotations<'a> {
     /// Every annotation that any source page lists.
     listed: HashSet<ObjectId>,
     imported_pages: &'a HashSet<ObjectId>,
+    /// When pages are deleted in place, the deleted ones: an annotation that
+    /// no page lists then stays unless its `/P` names one of them.
+    deleted_pages: Option<HashSet<ObjectId>>,
 }
 
 impl<'a> PageAnnotations<'a> {
@@ -363,21 +366,47 @@ impl<'a> PageAnnotations<'a> {
             imported,
             listed,
             imported_pages,
+            deleted_pages: None,
         })
+    }
+
+    /// Read the annotations of a deletion, where `pages` lists every page
+    /// before it and `retained` the pages that remain.
+    fn read_deletion(
+        doc: &Document,
+        pages: &[ObjectId],
+        retained: &'a HashSet<ObjectId>,
+    ) -> PyResult<Self> {
+        let mut annotations = Self::read(doc, pages, retained)?;
+        let mut deleted = HashSet::new();
+        for &page in pages {
+            if !retained.contains(&page) {
+                insert(&mut deleted, page)?;
+            }
+        }
+        annotations.deleted_pages = Some(deleted);
+        Ok(annotations)
     }
 
     /// An annotation is on the imported pages when one lists it in `/Annots`,
     /// or when no source page lists it and its `/P` names an imported page, as
     /// an invisible signature widget often does.
     fn contains(&self, source: &Document, id: ObjectId) -> bool {
-        self.imported.contains_key(&id)
-            || (!self.listed.contains(&id)
-                && source
-                    .get_object(id)
-                    .and_then(Object::as_dict)
-                    .and_then(|annotation| annotation.get(b"P"))
-                    .and_then(Object::as_reference)
-                    .is_ok_and(|page| self.imported_pages.contains(&page)))
+        if self.imported.contains_key(&id) {
+            return true;
+        }
+        if self.listed.contains(&id) {
+            return false;
+        }
+        let page = source
+            .get_object(id)
+            .and_then(Object::as_dict)
+            .and_then(|annotation| annotation.get(b"P"))
+            .and_then(Object::as_reference);
+        match &self.deleted_pages {
+            Some(deleted) => !page.is_ok_and(|page| deleted.contains(&page)),
+            None => page.is_ok_and(|page| self.imported_pages.contains(&page)),
+        }
     }
 }
 
@@ -1775,6 +1804,165 @@ impl AcroFormImport {
                         items.extend(values);
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Remove the widgets and fields of deleted pages from a document's own form.
+///
+/// `delete_pages` and `select` drop pages from the page tree, but the field
+/// tree still references their widgets, whose `/P` keeps each deleted page
+/// reachable through every save. The removal reads the remaining pages as a
+/// partial import reads its imported pages: it walks the field tree under the
+/// limits of `get_form_fields()`, removes from every walked `/Kids` the
+/// widgets of deleted pages and the fields whose widgets all lay there, trims
+/// a button field's matching `/Opt`, drops such top-level fields from
+/// `/Fields` and their entries from `/CO`, and points a remaining widget whose
+/// `/P` names a deleted page at the remaining page that lists it. Fields that
+/// never had a widget stay. Pruning then collects what nothing reaches.
+pub(crate) struct FormPagePrune {
+    kids: Vec<(ArrayLocation, Vec<usize>)>,
+    fields: Option<(Location, Vec<usize>)>,
+    calculation_order: Option<(Location, Vec<usize>)>,
+    pages: Vec<(ObjectId, ObjectId)>,
+}
+
+impl FormPagePrune {
+    /// Plan the removal; `pages` lists every page before the edit and
+    /// `retained` the pages that remain. Returns `None` when nothing changes.
+    pub(crate) fn prepare(
+        doc: &Document,
+        pages: &[ObjectId],
+        retained: &HashSet<ObjectId>,
+    ) -> PyResult<Option<Self>> {
+        let Ok(catalog) = doc.trailer.get(b"Root").and_then(Object::as_reference) else {
+            return Ok(None);
+        };
+        let catalog = Location {
+            id: catalog,
+            path: Vec::new(),
+        };
+        let Slot::Found(form_location) = slot(doc, &catalog, b"AcroForm")? else {
+            return Ok(None);
+        };
+        let Some(form) = form_location.dictionary(doc) else {
+            return Ok(None);
+        };
+        if is_page_tree_or_catalog(form) {
+            return Ok(None);
+        }
+        let top_level = source_top_level_fields(doc, form)?;
+        if top_level.is_empty() {
+            return Ok(None);
+        }
+        let annotations = PageAnnotations::read_deletion(doc, pages, retained)?;
+        let tree = PartialTree::walk(doc, &top_level, annotations)?;
+        let kids = tree.removals(doc)?;
+        // A malformed form can share one array between `/Kids` and `/Fields`
+        // or `/CO`; it is then filtered once, by the `/Kids` plan.
+        let planned = |location: &Location| {
+            location.path.is_empty()
+                && kids
+                    .iter()
+                    .any(|(array, _)| *array == ArrayLocation::Object(location.id))
+        };
+
+        let fields = match slot(doc, &form_location, b"Fields")? {
+            Slot::Found(location) if !planned(&location) => {
+                let mut removed = Vec::new();
+                for (index, entry) in location
+                    .array(doc)
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .enumerate()
+                {
+                    if let Object::Reference(id) = entry
+                        && tree.coverage.contains_key(id)
+                        && !tree.keeps(doc, entry)
+                    {
+                        push(&mut removed, index)?;
+                    }
+                }
+                (!removed.is_empty()).then_some((location, removed))
+            }
+            _ => None,
+        };
+        let mut kept_top_level = Vec::new();
+        for &id in &top_level {
+            if tree.keeps(doc, &Object::Reference(id)) {
+                push(&mut kept_top_level, id)?;
+            }
+        }
+        let kept = tree.retained_fields(doc, &kept_top_level)?;
+        let calculation_order = match slot(doc, &form_location, b"CO")? {
+            Slot::Found(location) if !planned(&location) => {
+                let mut removed = Vec::new();
+                for (index, entry) in location
+                    .array(doc)
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .enumerate()
+                {
+                    if let Object::Reference(id) = entry
+                        && tree.coverage.contains_key(id)
+                        && !kept.contains(id)
+                    {
+                        push(&mut removed, index)?;
+                    }
+                }
+                (!removed.is_empty()).then_some((location, removed))
+            }
+            _ => None,
+        };
+        let pages = tree.page_fixes(doc, &kept)?;
+        if kids.is_empty() && fields.is_none() && calculation_order.is_none() && pages.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            kids,
+            fields,
+            calculation_order,
+            pages,
+        }))
+    }
+
+    /// Apply the planned removals; every edit shrinks an array or replaces an
+    /// existing `/P`, so nothing allocates.
+    pub(crate) fn apply(self, doc: &mut Document) {
+        for (array, removed) in self.kids {
+            let items = match array {
+                ArrayLocation::Entry(id, key) => doc
+                    .objects
+                    .get_mut(&id)
+                    .and_then(|object| object.as_dict_mut().ok())
+                    .and_then(|dictionary| dictionary.get_mut(key).ok())
+                    .and_then(|items| items.as_array_mut().ok()),
+                ArrayLocation::Object(id) => doc
+                    .objects
+                    .get_mut(&id)
+                    .and_then(|object| object.as_array_mut().ok()),
+            };
+            if let Some(items) = items {
+                filter(items, &removed);
+            }
+        }
+        for (location, removed) in self.fields.into_iter().chain(self.calculation_order) {
+            if let Some(items) = location
+                .object_mut(doc)
+                .and_then(|object| object.as_array_mut().ok())
+            {
+                filter(items, &removed);
+            }
+        }
+        for (widget, page) in self.pages {
+            if let Some(dictionary) = doc
+                .objects
+                .get_mut(&widget)
+                .and_then(|object| object.as_dict_mut().ok())
+                && let Ok(entry) = dictionary.get_mut(b"P")
+            {
+                *entry = Object::Reference(page);
             }
         }
     }
