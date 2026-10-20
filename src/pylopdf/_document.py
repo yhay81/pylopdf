@@ -27,6 +27,7 @@ from pylopdf._fonts import (
     _resolve_font_source,
     _validate_form_font,
 )
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
@@ -416,6 +417,9 @@ class Document:
     arguments. Documents are context managers and expose :class:`Page` objects
     through ``doc[i]`` and iteration.
     """
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(  # noqa: PLR0913 - pymupdf's constructor plus keyword-only limits.
         self,

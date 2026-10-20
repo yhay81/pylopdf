@@ -10,7 +10,9 @@ from __future__ import annotations
 # that the class reports, which is this package, so the Literal annotations of
 # Table, TableDiagnostics, and TableFinder resolve through this import.
 from typing import (
+    TYPE_CHECKING,
     Literal,  # noqa: F401 - read by typing.get_type_hints(); see above.
+    NoReturn,
     TypeAlias,
 )
 
@@ -86,6 +88,7 @@ from pylopdf._geometry import (
     Quad,
     planish_line,
 )
+from pylopdf._hints import missing_attribute
 from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
@@ -325,3 +328,12 @@ FontLanguage: TypeAlias = _types.FontLanguage
 CjkFontLanguage: TypeAlias = _types.CjkFontLanguage
 DrawingItem: TypeAlias = _types.DrawingItem
 FormFieldType: TypeAlias = _types.FormFieldType
+
+
+if not TYPE_CHECKING:
+
+    def __getattr__(name: str) -> NoReturn:
+        """Raise AttributeError for a missing name, naming pylopdf's replacement for a pymupdf name."""
+        import sys  # noqa: PLC0415 - only a failed lookup reaches this.
+
+        raise missing_attribute(None, sys.modules[__name__], name)

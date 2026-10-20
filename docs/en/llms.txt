@@ -43,3 +43,72 @@ Key facts:
   LimitError.code and doc.complexity provide a shared native/Wasm policy
   boundary for untrusted uploads.
 - PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.
+
+Migrating pymupdf code:
+- python -m pylopdf.migrate PATH (pip install "pylopdf[migrate]") renames the
+  fitz and pymupdf imports, rewrites mechanical replacements such as
+  get_toc/set_toc, embfile_*, xref_* readers and in-place geometry methods,
+  and adds a "# TODO(pylopdf): <hint>" comment above every statement that
+  still needs a person; it then lists those steps as path:line: message.
+- Looking up a pymupdf name that pylopdf lacks raises AttributeError whose
+  message names the replacement or the milestone that plans it.
+
+pymupdf name map (generated from api/pymupdf-parity.json; each pymupdf name that pylopdf replaced, its
+replacement, and the migration hint):
+- Document.copy_page -> Document.fullcopy_page: pylopdf never shares page objects; use fullcopy_page.
+- Document.embfile_add -> Document.attachments: Use doc.attachments.add(name, data, filename=..., description=...).
+- Document.embfile_count -> Document.attachments: Use len(doc.attachments).
+- Document.embfile_del -> Document.attachments: Use del doc.attachments[name].
+- Document.embfile_get -> Document.attachments: Use doc.attachments[name].read().
+- Document.embfile_info -> Document.attachments: Read name, filename, description, size, creation_date, and mod_date from doc.attachments[name].
+- Document.embfile_names -> Document.attachments: Use list(doc.attachments).
+- Document.embfile_upd -> Document.attachments: Use doc.attachments[name].write(data).
+- Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
+- Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
+- Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
+- Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
+- Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
+- Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
+- Document.to_text -> Document.get_text: Call Document.get_text() for the plain text of every page.
+- Document.update_object -> Document.objects: Assign a typed value to doc.objects[xref] instead of PDF syntax.
+- Document.update_stream -> Stream.write: Call doc.objects[xref].write(data), which Flate-compresses unless filter=None.
+- Document.xref_copy -> Document.objects: Assign doc.objects[source] to doc.objects[target], which copies the object.
+- Document.xref_get_key -> Dictionary: Use doc.objects[xref].get(key), which returns a typed value instead of a (type, syntax) pair.
+- Document.xref_get_keys -> Dictionary: Use list(doc.objects[xref]), whose keys carry no leading slash.
+- Document.xref_is_font -> Dictionary: Check doc.objects[xref].get('Type') == 'Font'.
+- Document.xref_is_image -> Dictionary: Check doc.objects[xref].get('Subtype') == 'Image'.
+- Document.xref_is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
+- Document.xref_is_xobject -> Dictionary: Check doc.objects[xref].get('Type') == 'XObject'.
+- Document.xref_length -> Document.objects: Use max(doc.objects) + 1; len(doc.objects) counts the object numbers in use.
+- Document.xref_object -> Document.objects: Use doc.objects[xref], a typed value or handle, instead of its PDF syntax.
+- Document.xref_set_key -> Dictionary: Assign doc.objects[xref][key] = value with a typed value, such as pylopdf.Name('Page') for a name.
+- Document.xref_stream -> Stream.read: Use doc.objects[xref].read().
+- Document.xref_stream_raw -> Stream.read: Use doc.objects[xref].read(decode=False).
+- Document.xref_xml_metadata -> Document.catalog: Use doc.catalog.get('Metadata'), a Stream whose xref is the metadata object number.
+- FileNotFoundError -> FileNotFoundError: Catch Python's built-in FileNotFoundError, which pylopdf raises for a missing file.
+- IRect.__setitem__ -> IRect: IRect values are immutable; build a new IRect instead.
+- IRect.include_point -> IRect.__or__: Use r | p, which returns a new IRect.
+- IRect.include_rect -> IRect.__or__: Use r | other, which returns a new IRect.
+- IRect.intersect -> IRect.__and__: Use r & other, which returns a new IRect.
+- IRect.normalize -> IRect.normalized: Use r.normalized(), which returns a new IRect.
+- IRect.transform -> IRect.__mul__: Use r * m, which returns a new IRect.
+- Matrix.__setitem__ -> Matrix: Matrix values are immutable; build a new Matrix instead.
+- Matrix.concat -> Matrix.__mul__: Use one * two, which returns a new Matrix.
+- Matrix.invert -> Matrix.__invert__: Use ~m, which returns the inverse.
+- Matrix.prerotate -> Matrix.__mul__: Use pylopdf.Matrix(deg) * m, which returns a new Matrix.
+- Matrix.prescale -> Matrix.__mul__: Use pylopdf.Matrix(sx, sy) * m, which returns a new Matrix.
+- Matrix.preshear -> Matrix.__mul__: Use pylopdf.Matrix(h, v, 1) * m, which returns a new Matrix.
+- Matrix.pretranslate -> Matrix.__mul__: Use pylopdf.Matrix(1, 0, 0, 1, tx, ty) * m, which returns a new Matrix.
+- Point.__setitem__ -> Point: Point values are immutable; build a new Point instead.
+- Point.transform -> Point.__mul__: Use p * m, which returns a new Point.
+- Quad.__setitem__ -> Quad: Quad values are immutable; build a new Quad instead.
+- Quad.transform -> Quad.__mul__: Use q * m, which returns a new Quad.
+- Rect.__setitem__ -> Rect: Rect values are immutable; build a new Rect instead.
+- Rect.include_point -> Rect.__or__: Use r | p, which returns a new Rect.
+- Rect.include_rect -> Rect.__or__: Use r | other, which returns a new Rect.
+- Rect.intersect -> Rect.__and__: Use r & other, which returns a new Rect.
+- Rect.normalize -> Rect.normalized: Use r.normalized(), which returns a new Rect.
+- Rect.transform -> Rect.__mul__: Use r * m, which returns a new Rect.
+- get_pdf_str -> String: Write a Python str into the object model, which encodes it as a PDF text string, or read String.text.
+- set_log -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.
+- set_messages -> PylopdfWarning: Filter or record pylopdf's diagnostics as PylopdfWarning with the warnings module.

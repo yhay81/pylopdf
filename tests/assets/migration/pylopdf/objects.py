@@ -1,0 +1,20 @@
+"""Read and rewrite low-level objects through pymupdf's xref methods."""
+
+import pylopdf
+
+doc = pylopdf.open()
+page = doc.new_page(width=100, height=100)
+pixmap = page.get_pixmap(dpi=18)
+xref = page.insert_image(pylopdf.Rect(0, 0, 50, 50), pixmap=pixmap)
+
+catalog = doc.catalog.xref
+assert catalog > 0
+assert max(doc.objects) + 1 > max(catalog, xref)
+
+samples = doc.objects[xref].read()
+assert samples == pixmap.samples
+assert doc.objects[xref].read(decode=False) != samples
+
+doc.objects[xref].write(bytes(len(samples)))
+assert doc.objects[xref].read() == bytes(len(samples))
+print("objects ok")
