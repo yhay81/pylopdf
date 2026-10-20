@@ -40,6 +40,16 @@ def test_public_type_contracts_are_runtime_importable() -> None:
     assert all(hasattr(pylopdf, name) for name in names)
 
 
+def test_public_names_report_the_package_rather_than_a_private_module() -> None:
+    """Reprs, pickles, and documentation name ``pylopdf.X``, not the module that defines it."""
+    private = {
+        name: module
+        for name in pylopdf.__all__
+        if (module := getattr(getattr(pylopdf, name), "__module__", None)) and module.startswith("pylopdf._")
+    }
+    assert private == {}
+
+
 def test_typed_dict_required_and_optional_keys() -> None:
     typed_dicts = (
         pylopdf.AnnotationInfo,

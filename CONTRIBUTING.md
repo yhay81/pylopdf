@@ -92,7 +92,10 @@ must provide an integer commit timestamp through
 Keep each pull request focused on one coherent behavior. Before submitting:
 
 1. Add or update Python tests for behavior changes.
-2. Update `CHANGELOG.md` for user-visible changes.
+2. Add one fragment to `changelog.d/` per user-visible change, as
+   [changelog.d/README.md](changelog.d/README.md) describes; do not edit
+   `CHANGELOG.md` directly. A change to shipped files that changes nothing for
+   users takes the `no-changelog` label instead.
 3. Update the English documentation when the public API or behavior changes.
    English is canonical; translations may follow in the same or a later change.
 4. Run the relevant commands above.

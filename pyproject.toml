@@ -176,8 +176,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Page and Document are cooperating classes that intentionally share internal state.
-"src/pylopdf/__init__.py" = ["SLF001"]
+# Document, Page, and the classes that they create cooperate and intentionally
+# share internal state across these modules.
+"src/pylopdf/{_document,_fonts,_page,_shape,_tables}.py" = ["SLF001"]
 # S106: fixed test-fixture passwords are not secrets.
 # FBT003: set_form_field intentionally accepts bool checkbox values, like pymupdf.
 "tests/**" = ["INP001", "S101", "D103", "PLR2004", "TC003", "S106", "FBT003"]
