@@ -173,8 +173,8 @@ def test_auto_discovery_via_extra() -> None:
 def test_auto_discovery_uses_only_canonical_font_packages(monkeypatch: pytest.MonkeyPatch) -> None:
     """Do not probe the removed Japanese compatibility package."""
     requested: list[str] = []
-    bundled_font_providers = pylopdf._bundled_font_providers  # noqa: SLF001
-    provider_specs = pylopdf._FONT_PROVIDER_SPECS  # noqa: SLF001
+    bundled_font_providers = pylopdf._fonts._bundled_font_providers  # noqa: SLF001
+    provider_specs = pylopdf._fonts._FONT_PROVIDER_SPECS  # noqa: SLF001
 
     def missing_module(module_name: str) -> None:
         requested.append(module_name)
@@ -182,7 +182,7 @@ def test_auto_discovery_uses_only_canonical_font_packages(monkeypatch: pytest.Mo
     bundled_font_providers.cache_clear()
     try:
         with monkeypatch.context() as context:
-            context.setattr(pylopdf, "_import_optional_font_module", missing_module)
+            context.setattr("pylopdf._fonts._import_optional_font_module", missing_module)
             assert bundled_font_providers() == ()
     finally:
         bundled_font_providers.cache_clear()
@@ -245,7 +245,7 @@ def test_auto_discovery_rereads_a_replaced_font_file(tmp_path: Path, monkeypatch
     serif = tmp_path / "serif.otf"
     shutil.copy(SERIF, serif)
     provider = SimpleNamespace(language="ja", extra="jp", sans=SANS, serif=serif)
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     pdf = build_nonembedded_cjk_pdf()
     mincho = pylopdf.open(stream=pdf).render_page(0, 1.0)
     assert mincho == render_with_explicit_serif(SERIF)
@@ -262,7 +262,7 @@ def test_concurrent_first_renders_share_locale_fonts(tmp_path: Path, monkeypatch
         SimpleNamespace(language=language, extra="", sans=Path(sans), serif=Path(serif))
         for language, sans, serif in locale_font_files(tmp_path)
     )
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: providers)
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: providers)
     pdf = build_nonembedded_cjk_pdf()
 
     def render(_: int) -> bytes:
@@ -276,7 +276,7 @@ def test_concurrent_first_renders_share_locale_fonts(tmp_path: Path, monkeypatch
 def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Generated text, textboxes, and form values share installed package files."""
     provider = package_font_provider(tmp_path)
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
 
     def generate(sans: dict[str, object], serif: dict[str, object]) -> bytes:
         doc = pylopdf.open(stream=text_field_pdf())
@@ -297,7 +297,7 @@ def test_package_generation_fonts_are_read_once(tmp_path: Path, monkeypatch: pyt
 def test_package_generation_fonts_are_checked_on_every_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Cached package fonts still fail size and path checks without editing."""
     provider = package_font_provider(tmp_path)
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     doc = pylopdf.open(stream=text_field_pdf())
     page = doc[0]
     page.insert_text((20, 30), "日本語")
@@ -345,7 +345,7 @@ def test_rendering_and_generation_share_package_font_slots(
 ) -> None:
     """Fallback configuration and generation reuse one read of each JP face."""
     provider = package_font_provider(tmp_path)
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     reads = _Document.package_font_reads()
     doc = pylopdf.open(stream=build_nonembedded_cjk_pdf())
     doc.render_page(0, 1.0)
@@ -357,7 +357,7 @@ def test_rendering_and_generation_share_package_font_slots(
 def test_concurrent_generation_shares_package_fonts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Fresh documents racing to generate with unread package fonts match explicit fonts."""
     provider = package_font_provider(tmp_path)
-    monkeypatch.setattr(pylopdf, "_bundled_font_providers", lambda: (provider,))
+    monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
 
     def generate(**options: object) -> bytes:
         doc = pylopdf.Document()

@@ -17,6 +17,12 @@ overview.
   `main` is protected: direct pushes are rejected, and merging requires the six
   required status checks. Squash-merge so one merged pull request becomes one
   `main` commit.
+- Record each user-visible change as one `changelog.d/<slug>.<type>.md`
+  fragment ([changelog.d/README.md](changelog.d/README.md)) instead of editing
+  `CHANGELOG.md`. The `Changelog` workflow requires a fragment from every pull
+  request that changes `src/`, `rust/`, `fonts/`, `models/`, or
+  `pyproject.toml`, unless it is labeled `no-changelog` (a change that users
+  cannot observe, such as a refactor) or `dependencies`.
 - Write commit messages, code comments, docstrings, repository documentation,
   configuration comments, and user-facing messages in English.
 - Non-English text is allowed only in localized documentation and data required
@@ -66,9 +72,43 @@ overview.
 
 ## Architecture and invariants
 
-- `_Document` (`rust/src/document.rs`) is a thin conversion and error-mapping
+- `_Document` (`rust/src/document/`) is a thin conversion and error-mapping
   layer. The Python `Document` (`src/pylopdf/__init__.py`) owns validation,
   zero-/one-based conversion, and closed-state handling.
+- `rust/src/document/mod.rs` holds `_Document`, its shared state, cache
+  invalidation, and the class's single `#[pymethods]` block; PyO3's
+  `multiple-pymethods` stays off because its `inventory` registration has not
+  been validated on PyEmscripten. A method whose body is longer than a few
+  lines delegates to a function of the same name in its domain submodule
+  (`loading::load(...)`), whose body takes `this` in place of `self`; private
+  helpers live in `impl _Document` blocks of those submodules. Every
+  submodule starts with `use super::*`, and `mod.rs` glob-imports each
+  submodule, re-exporting with `pub(crate)` the ones whose items other crate
+  modules use, so moved items keep their `crate::document::` paths. A new
+  pymethod adds its signature to `mod.rs` and its body to its domain module.
+- Workstream module ownership (ROADMAP.md workstreams; shared files take only
+  append-only registrations):
+  - A, extraction: `extract.rs`; `document/extraction.rs`;
+    `src/pylopdf/_markdown.py`.
+  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`.
+  - C, generation: `draw.rs`, `generate.rs`, `generated_pdf.rs`,
+    `layout.rs`, `shape.rs`, `font.rs`, `bundled_font_cache.rs`,
+    `placement_reuse.rs`;
+    `document/{drawing,images,text_insertion,geometry,fonts}.rs`.
+  - D, interactive: `form.rs`, `acroform_import.rs`;
+    `document/{forms,annotations}.rs`.
+  - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
+    `document/{page_tree,navigation,labels,metadata,attachments}.rs`.
+  - F, content engine: `text_replace.rs`, `content_guard.rs`,
+    `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
+    `read_depth.rs`; `document/replacement.rs`.
+  - G, persistence: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
+    `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`,
+    `image_compression.rs`; `document/{loading,saving,limits,streams}.rs`.
+  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`.
+  - Shared: `lib.rs`, `document/mod.rs`,
+    `document/{errors,input,objects,indexed}.rs`, and
+    `src/pylopdf/__init__.py` until the Python half of F1 splits it.
 - Python API page numbers are zero-based; Rust/lopdf page numbers are one-based.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
@@ -1247,9 +1287,9 @@ overview.
   members.
 - Readers treat a null value, an indirect null, and a reference to a missing
   object alike, as an absent entry, following ISO 32000-2 §7.3.7 and §7.3.10.
-  `non_null_object` and `non_null_value` in `rust/src/document.rs` resolve a
-  reference chain this way, and lopdf's reference-limit error for a cyclic or
-  over-long chain still surfaces. Annotation appends start a new `/Annots`
+  `non_null_object` and `non_null_value` in `rust/src/document/objects.rs`
+  resolve a reference chain this way, and lopdf's reference-limit error for a
+  cyclic or over-long chain still surfaces. Annotation appends start a new `/Annots`
   array, `set_metadata` replaces trailer `/Info`, both page-attribute
   inheritance walks end at such a `/Parent`, Font and XObject registration
   starts an empty category, `get_toc` returns no entries for such an
@@ -1326,7 +1366,7 @@ overview.
   files carry at most a truncated final stream there. `DocumentLimits` apply
   to recovered documents unchanged.
 - CJK fallback replaces hayro's `font_resolver`
-  (`pick_cjk_fallback` in `rust/src/document.rs`). Detect CJK through
+  (`pick_cjk_fallback` in `rust/src/document/fonts.rs`). Detect CJK through
   `CIDSystemInfo` or the `BaseFont` name, route Adobe-Japan1, Korea1, GB1, and
   CNS1 to independent `ja`, `ko`, `zh-CN`, and `zh-TW` slots, and use
   conservative BaseFont-name hints only when collection metadata is absent.
@@ -1384,13 +1424,14 @@ overview.
   from the fallbacks. A clipped box without area keeps its corner and takes
   A4's size, where MuPDF uses Letter at the origin, and a side under one point
   grows to one point; hayro clips rendering to the clipped box, so such a page
-  shows nothing. `resolve_display_geometry` gives that box to drawing,
-  annotations, link destinations, the OCR text layer, and `Page.rect` (through
-  `page_display_size`), and Form imports take the source page's box as their
-  BBox, so `show_pdf_page` places what rendering shows of the source. pymupdf's
-  `insert_text` measures from the unclipped CropBox corner instead and draws
-  off the visible page; pylopdf keeps one display space (G1). `mediabox` and
-  `cropbox` still report the stored boxes. `insert_image(pixmap=)` splits immutable
+  shows nothing. `resolve_display_geometry` (`document/geometry.rs`) gives
+  that box to drawing, annotations, link destinations, the OCR text layer,
+  and `Page.rect` (through `page_display_size`), and Form imports take the
+  source page's box as their BBox, so `show_pdf_page` places what rendering
+  shows of the source. pymupdf's `insert_text` measures from the unclipped
+  CropBox corner instead and draws off the visible page; pylopdf keeps one
+  display space (G1). `mediabox` and `cropbox` still report the stored boxes.
+  `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
   alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
@@ -2233,8 +2274,10 @@ overview.
 
 ## Release procedure
 
-1. Update the version in all three locations, add the changelog entry, commit,
-   and push.
+1. Update the version in all three locations, run
+   `uv run python tools/changelog.py assemble --version X.Y.Z` to fold the
+   `changelog.d/` fragments into `CHANGELOG.md` and delete them, review the
+   new release section, commit, and push.
 2. Run `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
 3. GitHub Actions (`release.yml`) builds abi3, cp314t, and cp315t wheels plus
    the sdist for five platforms and publishes through PyPI Trusted Publishing.
@@ -2274,12 +2317,14 @@ Git history (`git show a233814:ROADMAP.md`).
   leaves the pymupdf name out. Do not add aliases, synonyms, or compatibility
   layers; migration is served by the parity manifest and its tools (F9). There
   are no deprecation windows before 1.0.
-- Current phase: closing wave 0 of the parity program (2026-10-20). The
-  hayro 0.8 migration (#233), AcroForm registration on `insert_pdf` (#234),
-  XObject reuse for repeated insertion (#231), CPython 3.15 support (#230),
-  the F3 parity manifest (#235), and the F0 API design draft (#236) have
-  merged, and save-time merging of identical objects is the last wave-0 item.
-  The F1 module split runs alone next; the M0 API reset follows F0 approval.
+- Current phase: wave 1 of the parity program (2026-10-20). Wave 0 is done:
+  the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
+  (#234), XObject reuse (#231), save-time merging of identical objects
+  (#251), CPython 3.15 support (#230), and the F3 parity manifest (#235)
+  merged, and the F0 API design (#236) was approved on 2026-10-20. The F1
+  module split runs alone during a freeze of `document.rs` and
+  `__init__.py`; F2, F4, and F9 follow it, and the M0 API reset follows F1
+  and F4.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.

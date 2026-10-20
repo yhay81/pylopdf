@@ -8,7 +8,7 @@ Describe the user-visible problem and the chosen solution.
 - [ ] Ran the relevant pytest suite
 - [ ] Ran Ruff and ty
 - [ ] Ran rustfmt and Clippy when Rust changed
-- [ ] Updated `CHANGELOG.md` for user-visible changes
+- [ ] Added a `changelog.d/` fragment per user-visible change, or the `no-changelog` label
 - [ ] Updated canonical English documentation when behavior or API changed
 
 List the exact commands and results:

@@ -1184,7 +1184,7 @@ def test_insert_textbox_tabs_custom_leading_and_bad_arguments(monkeypatch: pytes
     with pytest.raises(ValueError, match="lineheight"):
         page.insert_textbox((10, 10, 100, 80), "x", lineheight=0)
     with monkeypatch.context() as context:
-        context.setattr("pylopdf._bundled_font_providers", lambda: ())
+        context.setattr("pylopdf._fonts._bundled_font_providers", lambda: ())
         with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
             page.insert_textbox((10, 10, 100, 80), "日本語")
     with pytest.raises(pylopdf.PdfError, match="does not contain all glyphs"):
@@ -1255,7 +1255,7 @@ def test_insert_text_rejects_unicode_without_optional_or_explicit_font(monkeypat
     doc = pylopdf.Document()
     doc.new_page()
     with monkeypatch.context() as context:
-        context.setattr("pylopdf._bundled_font_providers", lambda: ())
+        context.setattr("pylopdf._fonts._bundled_font_providers", lambda: ())
         with pytest.raises(ValueError, match=r"optional font extra.*fontfile or fontbuffer"):
             doc[0].insert_text((50, 50), "社外秘")
         with pytest.raises(ValueError, match=r"font_language='ko'.*fontfile/fontbuffer"):
