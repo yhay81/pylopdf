@@ -205,7 +205,7 @@ def _normalized_box(box: Sequence[float]) -> Rect:
 
 
 def _highlight_rects(
-    quads: Sequence[float] | Sequence[Sequence[float]] | None,
+    quads: Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None,
 ) -> Sequence[float] | Sequence[Sequence[float]]:
     """Resolve pymupdf's ``quads`` argument to rectangles; a quad gives its bounding rectangle."""
     if quads is None:
@@ -219,9 +219,9 @@ def _highlight_rects(
             "Sequence[Sequence[float]]",
             (quad.rect if isinstance(quad, Quad) else quad for quad in quads),
         )
-    if quads and isinstance(quads[0], Quad):
+    if any(isinstance(quad, Quad) for quad in quads):
         return [quad.rect if isinstance(quad, Quad) else cast("Sequence[float]", quad) for quad in quads]
-    return quads
+    return cast("Sequence[float] | Sequence[Sequence[float]]", quads)
 
 
 class Page:
@@ -1785,7 +1785,7 @@ class Page:
 
     def add_highlight_annot(
         self,
-        quads: Sequence[float] | Sequence[Sequence[float]] | None = None,
+        quads: Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None = None,
         *,
         color: tuple[float, float, float] = (1.0, 1.0, 0.0),
         opacity: float = 0.4,

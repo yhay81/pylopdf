@@ -3719,7 +3719,7 @@
                 "name": "self"
               },
               {
-                "annotation": "Sequence[float] | Sequence[Sequence[float]] | None",
+                "annotation": "Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None",
                 "default": null,
                 "kind": "positional_or_keyword",
                 "name": "quads"

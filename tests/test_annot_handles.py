@@ -105,6 +105,7 @@ def test_add_highlight_annot_returns_its_annot() -> None:
     quad_annot = page.add_highlight_annot(hit.quad)
     assert quad_annot.rect == pytest.approx(annot.rect, abs=1e-3)
     assert page.add_highlight_annot([hit.quad, hit]).xref > quad_annot.xref
+    assert page.add_highlight_annot([hit, hit.quad]).rect == pytest.approx(annot.rect, abs=1e-3)
     with pytest.raises(TypeError, match="quads is required"):
         page.add_highlight_annot()
 
@@ -122,7 +123,7 @@ def test_insert_link_takes_a_pymupdf_link_dictionary() -> None:
     with pytest.raises(pylopdf.PdfError, match="LINK_URI only"):
         page.insert_link({"kind": pylopdf.LINK_GOTO, "from": (0, 0, 1, 1), "page": 0})
     with pytest.raises(TypeError):
-        page.insert_link((0, 0, 1, 1), "https://e.test/")  # ty: ignore[too-many-positional-arguments]
+        page.insert_link((0, 0, 1, 1), "https://e.test/")  # ty: ignore[too-many-positional-arguments, invalid-argument-type]
     assert not hasattr(page, "add_link_annot")
 
 
