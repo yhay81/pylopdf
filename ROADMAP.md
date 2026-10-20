@@ -359,6 +359,18 @@ point to the object model.
 - The API is covered by SemVer but documented as raw access whose semantic
   correctness is the caller's responsibility.
 
+Done on 2026-10-20: `Document.objects`, `trailer`, `catalog`, `page_xref`,
+`Page.xref`, and `Page.obj`, with `Name`, `String`, `Array`, `Dictionary`,
+`Stream`, `Objects`, and `StaleObjectError`, as section 13 of
+`api/DESIGN.md` describes. Every write compares the page order with a fresh
+walk and bumps the page generation only when the order changed, which covers
+writes that retype an object the page tree reaches as well as writes to the
+named structures. The 20 `xref_*`, catalog, trailer, and stream entries of
+the manifest became available, raising its coverage from 18.6% to 21.5%.
+Remaining: references to scalar indirect objects (a `/Length 12 0 R` reads
+as its value and cannot be written as a reference), and skipping the page
+walk for writes to objects that the walk provably did not read.
+
 ### F6 — Resource reuse and duplicate collection
 
 - In review as #231: reuse one XObject for repeated `insert_image` input and
@@ -812,7 +824,11 @@ comparison with pymupdf `insert_htmlbox` on the supported subset.
   stencil-mask performance (LaurenzV/hayro#1315), and `num_threads`
   (LaurenzV/hayro#1317). Depth parameters for `Function::new`,
   `ColorSpace::new`, and `parse_procedure_inner` would let pylopdf drop its
-  guards.
+  guards. In the content parser: a linear search for the end of inline image
+  data and an operand stack that holds the 33 operands of a DeviceN `scn`,
+  both with tested patches, and whether to skip incomplete path operators and
+  stray delimiters as pdf.js does instead of ending the stream (AGENTS.md,
+  Known pitfalls).
 - **lopdf**: a public object parser and serializer (F5), recovery reporting
   through the API instead of `log`, a linear unterminated-`stream` scan,
   xref-stream rebuilds from the catalog, consistent `compression_level`, and

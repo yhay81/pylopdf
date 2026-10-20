@@ -1,12 +1,17 @@
 //! Drawing primitives for image insertion and overlaying pages from another PDF.
 //!
-//! Existing content streams are never decoded or re-encoded because a round trip
-//! through lopdf's content parser can trigger #535-class edge cases. Drawing only
-//! appends streams to `/Contents`. Existing graphics state is isolated by wrapping
-//! the original sequence in q/Q streams once.
+//! Existing content streams are never modified or re-encoded, because a round
+//! trip through lopdf's content parser can trigger #535-class edge cases.
+//! Drawing only appends streams to `/Contents`. Existing graphics state is
+//! isolated by wrapping the original sequence once in streams holding as many
+//! `q` and `Q` as hayro's content parser finds it to need.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
+use std::panic::catch_unwind;
 
+use hayro::hayro_syntax::content::TypedIter;
+use hayro::hayro_syntax::content::ops::TypedInstruction;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, dictionary};
 use pdf_base14_metrics::Base14Font;
 
@@ -1133,9 +1138,6 @@ fn append_pdf_string(out: &mut Vec<u8>, text: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Wrap existing `/Contents` in q/Q streams once to isolate graphics state.
-///
-/// Do nothing when already wrapped by standalone `b"q\n"` and `b"Q\n"` streams.
 fn content_is_exact_stream(doc: &Document, id: ObjectId, expected: &[u8]) -> bool {
     doc.get_object(id)
         .ok()
@@ -1143,6 +1145,12 @@ fn content_is_exact_stream(doc: &Document, id: ObjectId, expected: &[u8]) -> boo
         .is_some_and(|stream| stream.content == expected)
 }
 
+/// Whether existing `/Contents` already sit between standalone `b"q\n"` and
+/// `b"Q\n"` streams.
+///
+/// The shape alone does not isolate the streams between them, which may
+/// restore the opening `q` early or leave a `q` of their own open, so it
+/// spares a wrapper only together with a self-contained [`StateBalance`].
 fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
     streams.len() >= 2
         && streams
@@ -1151,6 +1159,95 @@ fn contents_have_outer_wrapper(doc: &Document, streams: &[ObjectId]) -> bool {
         && streams
             .last()
             .is_some_and(|&id| content_is_exact_stream(doc, id, b"Q\n"))
+}
+
+/// How existing page content leaves the graphics-state stack.
+///
+/// The counts follow the instructions that hayro's content parser yields to
+/// its interpreter, so strings, comments, and inline image data hold no
+/// operators, and counting ends where hayro stops interpreting the page.
+#[derive(Clone, Copy, Default)]
+struct StateBalance {
+    /// `Q` operators that find no `q` of the content left to restore.
+    unmatched_restores: usize,
+    /// `q` operators that the content leaves without a `Q`.
+    open_saves: usize,
+    /// Whether any operator other than `q` runs outside every `q`/`Q` pair
+    /// of the content.
+    touches_base: bool,
+}
+
+impl StateBalance {
+    /// Count the graphics states that one content stream saves and restores.
+    ///
+    /// hayro has panicked on malformed input elsewhere, so a panic of its
+    /// parser is contained here as it is around interpretation. The content
+    /// then counts as balanced, which leaves the single `q`/`Q` pair that
+    /// drawing used before counting; hayro cannot interpret such a page.
+    fn of(content: &[u8]) -> Self {
+        catch_unwind(|| {
+            let mut balance = Self::default();
+            let mut instructions = TypedIter::new(content);
+            while let Some(instruction) = instructions.next() {
+                match instruction {
+                    TypedInstruction::SaveState(_) => balance.open_saves += 1,
+                    TypedInstruction::RestoreState(_) if balance.open_saves > 0 => {
+                        balance.open_saves -= 1;
+                    }
+                    TypedInstruction::RestoreState(_) => {
+                        balance.unmatched_restores += 1;
+                        balance.touches_base = true;
+                    }
+                    _ => balance.touches_base |= balance.open_saves == 0,
+                }
+            }
+            balance
+        })
+        .unwrap_or_default()
+    }
+
+    /// Whether the content restores every state that it saves and changes
+    /// none outside its own `q`/`Q` pairs.
+    fn is_self_contained(self) -> bool {
+        !self.touches_base && self.open_saves == 0
+    }
+}
+
+/// Count how the existing `/Contents` streams leave the graphics-state stack.
+///
+/// hayro joins the streams with a space and parses the result as one content
+/// stream, so a string, comment, or inline image may continue from one stream
+/// into the next. An entry that is no stream, or a stream that `decode`
+/// cannot read, contributes nothing, as hayro skips a stream that it cannot
+/// decode.
+fn content_state_balance<'d>(
+    doc: &'d Document,
+    streams: &[ObjectId],
+    decode: impl Fn(&'d Stream) -> Option<Cow<'d, [u8]>>,
+) -> Result<StateBalance, String> {
+    let mut parts = streams
+        .iter()
+        .filter_map(|id| doc.objects.get(id)?.as_stream().ok())
+        .filter_map(decode);
+    let Some(first) = parts.next() else {
+        return Ok(StateBalance::default());
+    };
+    let Some(second) = parts.next() else {
+        return Ok(StateBalance::of(&first));
+    };
+    let mut joined = Vec::new();
+    for part in [first, second].into_iter().chain(parts) {
+        let additional = part
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| "page content exceeds the platform size limit".to_owned())?;
+        joined.try_reserve(additional).map_err(|error| {
+            format!("failed to allocate page content for graphics-state counting: {error}")
+        })?;
+        joined.extend_from_slice(&part);
+        joined.push(b' ');
+    }
+    Ok(StateBalance::of(&joined))
 }
 
 /// Inspect a page's bounded raw content-stream shape.
@@ -1232,34 +1329,57 @@ pub struct ContentAppendPlan {
     is_isolated: bool,
 }
 
-fn isolation_stream(content: &[u8]) -> Result<Stream, String> {
-    let mut bytes = reserve_bytes(content.len(), "page Contents isolation stream")?;
-    bytes.extend_from_slice(content);
+/// Build an isolation stream holding `prefix` and then `count` operators.
+fn isolation_stream(prefix: &[u8], operator: &[u8], count: usize) -> Result<Stream, String> {
+    let length = operator
+        .len()
+        .checked_mul(count)
+        .and_then(|length| length.checked_add(prefix.len()))
+        .ok_or_else(|| {
+            "page Contents isolation stream exceeds the platform size limit".to_owned()
+        })?;
+    let mut bytes = reserve_bytes(length, "page Contents isolation stream")?;
+    bytes.extend_from_slice(prefix);
+    for _ in 0..count {
+        bytes.extend_from_slice(operator);
+    }
     Ok(Stream::new(Dictionary::new(), bytes).with_compression(false))
 }
 
 /// Prepare a bounded final `/Contents` array before the PDF is changed.
 ///
-/// The final count includes q/Q isolation streams when the existing contents
-/// have not already been wrapped.
-pub fn prepare_push_content(
-    doc: &Document,
+/// Unless the page is known to be isolated, its existing streams are read
+/// with `decode` and counted. The opening isolation stream then holds one `q`
+/// more than the `Q` operators that find no `q` of the content, and the
+/// closing stream one `Q` more than the `q` operators that the content leaves
+/// open, so appended content starts from the page's initial graphics state.
+/// The final count includes both streams unless the count shows that the
+/// existing contents need none.
+pub fn prepare_push_content<'d>(
+    doc: &'d Document,
     page_id: ObjectId,
     already_isolated: bool,
     overlay: bool,
+    decode: impl Fn(&'d Stream) -> Option<Cow<'d, [u8]>>,
 ) -> Result<ContentAppendPlan, String> {
     let streams = inspect_page_contents(doc, page_id)?;
-    let already_wrapped = already_isolated || contents_have_outer_wrapper(doc, &streams);
-    let needs_wrapper = !streams.is_empty() && !already_wrapped;
-    let additions = if needs_wrapper { 3 } else { 1 };
-    let Some(final_count) = streams.len().checked_add(additions) else {
-        return Err("drawing page Contents count exceeds the platform size limit".to_owned());
-    };
-    if final_count > MAX_PAGE_CONTENT_STREAMS {
-        return Err(format!(
+    let final_count = |additions: usize| match streams.len().checked_add(additions) {
+        Some(count) if count <= MAX_PAGE_CONTENT_STREAMS => Ok(count),
+        Some(_) => Err(format!(
             "drawing would exceed the {MAX_PAGE_CONTENT_STREAMS}-stream page Contents safety limit"
-        ));
-    }
+        )),
+        None => Err("drawing page Contents count exceeds the platform size limit".to_owned()),
+    };
+    // A page with no room for even the new stream is refused before decoding.
+    final_count(1)?;
+    let wrapper = if already_isolated || streams.is_empty() {
+        None
+    } else {
+        let balance = content_state_balance(doc, &streams, decode)?;
+        let wrapped = balance.is_self_contained() && contents_have_outer_wrapper(doc, &streams);
+        (!wrapped).then_some(balance)
+    };
+    let final_count = final_count(if wrapper.is_some() { 3 } else { 1 })?;
 
     let mut contents = Vec::new();
     contents
@@ -1269,20 +1389,26 @@ pub fn prepare_push_content(
     if !overlay {
         contents.push(Object::Null);
     }
-    let opening = if needs_wrapper {
-        let index = contents.len();
-        contents.push(Object::Null);
-        Some((index, isolation_stream(b"q\n")?))
-    } else {
-        None
+    let opening = match wrapper {
+        Some(balance) => {
+            let index = contents.len();
+            contents.push(Object::Null);
+            let count = balance.unmatched_restores.saturating_add(1);
+            Some((index, isolation_stream(b"", b"q\n", count)?))
+        }
+        None => None,
     };
     contents.extend(streams.iter().copied().map(Object::Reference));
-    let closing = if needs_wrapper {
-        let index = contents.len();
-        contents.push(Object::Null);
-        Some((index, isolation_stream(b"Q\n")?))
-    } else {
-        None
+    let closing = match wrapper {
+        Some(balance) => {
+            let index = contents.len();
+            contents.push(Object::Null);
+            // The leading newline ends a comment that the last existing
+            // stream leaves open, which would otherwise swallow the first `Q`.
+            let count = balance.open_saves.saturating_add(1);
+            Some((index, isolation_stream(b"\n", b"Q\n", count)?))
+        }
+        None => None,
     };
     if overlay {
         new_index = contents.len();

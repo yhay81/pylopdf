@@ -254,7 +254,12 @@ Rustが標準エラー出力に書き出します。
 - 描画挿入はcache無効化・入力decode・dependent object作成の前に、page
   `/Contents`のraw arrayと参照chainを検査します。raw arrayは4,096 entry、
   chainは深さ32、最終arrayは一度だけ追加する`q`/`Q` isolation pair込みで
-  4,096 stream参照が上限です。失敗時はdocumentを変更しません。
+  4,096 stream参照が上限です。失敗時はdocumentを変更しません。pageへの最初の
+  挿入は既存contentを一度decodeし、hayroのcontent parserと同じ読み方で`q`と
+  `Q`を数えて、isolation pairにcontentの対応しない`Q`より1つ多い`q`と、閉じ
+  残す`q`より1つ多い`Q`を入れます。interpretationと同様に、load時に適用した
+  上限以外のdecompression limitは再適用せず、decodeできないstreamは空として
+  数えます。
 - `Page.replace_text()`はsearch・replacement・fallbackの合計を4,096 UTF-8
   byteに制限し、展開page content、font encoding data、置換増幅、最終streamの
   既定上限を64 MiBにします。page専用streamをcommit前に準備するため、複製pageの

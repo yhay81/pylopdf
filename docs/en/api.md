@@ -24,6 +24,7 @@ Password input stops at 127 UTF-8 bytes.
 | `limits` / `complexity` | immutable open-time resource policy / cheap structural facts without stream decoding |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | encryption state & unlock with a 127-byte password boundary (pymupdf semantics) |
 | `is_repaired` | whether opening recovered damaged cross-reference data (a corrected offset or a rebuilt table); saving normalizes the xref data |
+| `objects` / `trailer` / `catalog` / `page_xref(pno)` | typed low-level access to the object graph, replacing pymupdf's `xref_*` methods ([low-level objects](#low-level-objects)) |
 | `metadata` / `set_metadata(dict)` | eight standard Info fields (UTF-16BE aware); 1 MiB aggregate text boundary and atomic writes |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
 | `get_text(pages=None)` | batched plain text for every page (`None`) or up to the larger of the page count and 4,096 explicit entries; 4,096-entry chunks each share one interpreter font cache |
@@ -55,6 +56,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | Member | Purpose |
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
+| `xref` / `obj` | the page dictionary's object number / live low-level handle; inherited attributes stay on its ancestors |
 | `get_text(option)` / `search_for(needle, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (since 0.14.0), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
@@ -304,6 +306,41 @@ sparse-rule hybrid grids score 0.95, and both have `None` for those text-only
 metrics. `TableFinder.strategy` and
 `TableFinder.clip` preserve the settings used.
 
+## Low-level objects { #low-level-objects }
+
+`doc.objects` maps object numbers to the indirect objects of the document;
+`doc.trailer`, `doc.catalog`, and `page.obj` are dictionary handles. This
+typed model replaces pymupdf's string-based `xref_*` methods: objects are
+Python values instead of PDF syntax.
+
+```python
+from pylopdf import Name
+
+catalog = doc.catalog
+catalog["PageLayout"] = Name("TwoColumnLeft")   # a name; a plain str is a text string
+font = doc.objects.add({"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica")})
+content = doc.objects.add_stream(b"BT /F9 24 Tf 72 72 Td (Hi) Tj ET")
+page.obj["Resources"] = {"Font": {"F9": doc.objects[font]}}   # an indirect handle is stored as a reference
+page.obj["Contents"] = doc.objects[content]
+doc.objects[content].read()                    # decoded, bounded to 64 MiB by default
+```
+
+| Value | Python |
+|---|---|
+| null, boolean, integer, real | `None`, `bool`, `int`, `float` |
+| name | `Name`, a `str` subclass without the slash |
+| string | `String`, a `bytes` subclass whose `.text` decodes a PDF text string |
+| array / dictionary / stream | live `Array` (a mutable sequence) / `Dictionary` (a mutable mapping) / `Stream` (a dictionary with `read(*, decode=True, max_size=64 MiB)` and `write(data, *, filter="FlateDecode")`) |
+
+References resolve on read, and a reference to a missing object reads as
+`None`. Writes take effect at once and drop rendering and extraction caches;
+a write that changes the page order also invalidates existing `Page` views.
+Lists and mappings are written as direct objects, an indirect handle stored in
+a container becomes a reference, and assigning a handle to `doc.objects[xref]`
+or passing it to `add()` copies it. Handles raise `StaleObjectError` once their
+object is removed or `save(garbage=2)` and higher renumber objects. Keeping
+raw edits semantically valid is the caller's responsibility.
+
 ## Module level { #module-level }
 
 | Name | Purpose |
@@ -322,9 +359,10 @@ metrics. `TableFinder.strategy` and
 | `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`; `weight=` also selects an instance of a variable font file |
 | `Shape(page)` | pymupdf's builder for paths and text drawn in one step; `page.new_shape()` creates one |
+| `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | low-level PDF values and live object handles ([low-level objects](#low-level-objects)) |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(path)`; every wheel also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | recoverable interpretation warnings (xref repair, font resolution, image decode) |
 

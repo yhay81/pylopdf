@@ -2,8 +2,10 @@
   "api_line": "0.14",
   "exports": [
     "AnnotationInfo",
+    "Array",
     "BlockEntry",
     "CjkFontLanguage",
+    "Dictionary",
     "Document",
     "DocumentClosedError",
     "DocumentComplexity",
@@ -29,6 +31,8 @@
     "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
+    "Name",
+    "Objects",
     "OcrEngine",
     "OcrError",
     "OcrRotation",
@@ -48,7 +52,10 @@
     "RawTextSpan",
     "Rect",
     "Shape",
+    "StaleObjectError",
     "StalePageError",
+    "Stream",
+    "String",
     "TEXT_ALIGN_CENTER",
     "TEXT_ALIGN_JUSTIFY",
     "TEXT_ALIGN_LEFT",
@@ -83,6 +90,83 @@
         "uri"
       ]
     },
+    "Array": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | slice",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              }
+            ],
+            "returns": "Any"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "insert": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "index"
+              },
+              {
+                "annotation": "Any",
+                "kind": "positional_or_keyword",
+                "name": "value"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "_Root",
+            "kind": "positional_or_keyword",
+            "name": "root"
+          },
+          {
+            "annotation": "_Path",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "path"
+          }
+        ],
+        "returns": "None"
+      }
+    },
     "BlockEntry": {
       "kind": "type-alias",
       "target": "tuple[float, float, float, float, str, int, int]"
@@ -90,6 +174,73 @@
     "CjkFontLanguage": {
       "kind": "type-alias",
       "target": "Literal['ja', 'ko', 'zh-CN', 'zh-TW']"
+    },
+    "Dictionary": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "key"
+              }
+            ],
+            "returns": "Any"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[str]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "_Root",
+            "kind": "positional_or_keyword",
+            "name": "root"
+          },
+          {
+            "annotation": "_Path",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "path"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Document": {
       "kind": "class",
@@ -190,6 +341,10 @@
             ],
             "returns": "int"
           }
+        },
+        "catalog": {
+          "kind": "property",
+          "returns": "Dictionary"
         },
         "close": {
           "kind": "method",
@@ -577,9 +732,30 @@
             "returns": "Page"
           }
         },
+        "objects": {
+          "kind": "property",
+          "returns": "Objects"
+        },
         "page_count": {
           "kind": "property",
           "returns": "int"
+        },
+        "page_xref": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              }
+            ],
+            "returns": "int"
+          }
         },
         "render_page": {
           "kind": "method",
@@ -996,6 +1172,10 @@
             ],
             "returns": "bytes"
           }
+        },
+        "trailer": {
+          "kind": "property",
+          "returns": "Dictionary"
         }
       },
       "signature": {
@@ -1835,6 +2015,122 @@
         "title"
       ],
       "required_keys": []
+    },
+    "Name": {
+      "kind": "class",
+      "members": {},
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "str",
+            "kind": "positional_or_keyword",
+            "name": "name"
+          }
+        ],
+        "returns": "Self"
+      }
+    },
+    "Objects": {
+      "kind": "class",
+      "members": {
+        "__getitem__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "xref"
+              }
+            ],
+            "returns": "Any"
+          }
+        },
+        "__iter__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "Iterator[int]"
+          }
+        },
+        "__len__": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Any",
+                "kind": "positional_or_keyword",
+                "name": "value"
+              }
+            ],
+            "returns": "int"
+          }
+        },
+        "add_stream": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "Mapping[str, Any] | None",
+                "default": null,
+                "kind": "positional_or_keyword",
+                "name": "dictionary"
+              },
+              {
+                "annotation": "Literal['FlateDecode'] | None",
+                "default": "FlateDecode",
+                "kind": "keyword_only",
+                "name": "filter"
+              }
+            ],
+            "returns": "int"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "OcrEngine": {
       "kind": "class",
@@ -3484,6 +3780,10 @@
           "kind": "property",
           "returns": "int"
         },
+        "obj": {
+          "kind": "property",
+          "returns": "Dictionary"
+        },
         "parent": {
           "kind": "property",
           "returns": "Document"
@@ -3721,6 +4021,10 @@
             ],
             "returns": "str"
           }
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
         }
       },
       "signature": {
@@ -4856,12 +5160,102 @@
         "returns": "None"
       }
     },
-    "StalePageError": {
+    "StaleObjectError": {
       "bases": [
         "pylopdf.PdfError"
       ],
       "kind": "exception",
       "members": {}
+    },
+    "StalePageError": {
+      "bases": [
+        "pylopdf.StaleObjectError"
+      ],
+      "kind": "exception",
+      "members": {}
+    },
+    "Stream": {
+      "kind": "class",
+      "members": {
+        "read": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "decode"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "bytes"
+          }
+        },
+        "write": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "bytes",
+                "kind": "positional_only",
+                "name": "data"
+              },
+              {
+                "annotation": "Literal['FlateDecode'] | None",
+                "default": "FlateDecode",
+                "kind": "keyword_only",
+                "name": "filter"
+              }
+            ],
+            "returns": "None"
+          }
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Document",
+            "kind": "positional_or_keyword",
+            "name": "document"
+          },
+          {
+            "annotation": "_Root",
+            "kind": "positional_or_keyword",
+            "name": "root"
+          },
+          {
+            "annotation": "_Path",
+            "default": [],
+            "kind": "positional_or_keyword",
+            "name": "path"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "String": {
+      "kind": "class",
+      "members": {
+        "text": {
+          "kind": "property",
+          "returns": "str"
+        }
+      },
+      "signature": null
     },
     "TEXT_ALIGN_CENTER": {
       "kind": "constant",

@@ -17,11 +17,11 @@ These choices follow from the rules below. The maintainer confirmed all twelve
 on 2026-10-20, before M0 starts.
 
 1. **Display coordinates everywhere** ([G1](#g1--display-coordinates)). On
-   rotated pages, pymupdf interprets insertion and placement coordinates in
-   unrotated space, while `Page.rect` and extraction use rotated space.
-   pylopdf keeps one rotation-resolved space for every API, even under pymupdf
-   names, and also measures the room left on a page in it, as `insert_text`
-   does when it leaves out lines below the page.
+   rotated pages, pymupdf uses rotated space only for `Page.rect`; it
+   extracts text and interprets insertion and placement coordinates in
+   unrotated space. pylopdf keeps one rotation-resolved space for every API,
+   even under pymupdf names, and also measures the room left on a page in it,
+   as `insert_text` does when it leaves out lines below the page.
 2. **Reading order is a quality attribute** ([G7](#g7--result-quality)).
    `get_text` returns pylopdf's reading order whatever pymupdf's `sort=False`
    default would produce, and an explicit `sort=False` raises instead of being
@@ -141,16 +141,22 @@ deliberate, documented exception to R2 and appears in the migration guide.
 Every page-level coordinate, in and out, is in rotation-resolved display
 space: points, with the origin at the top-left of the visible page and y
 downward, after the CropBox offset and `/Rotate`. `Page.rect` describes this
-space. pymupdf uses it for `Page.rect` and extraction but maps insertion and
-placement coordinates through a transformation that, on rotated pages, flips
-y without rotating, so they land in unrotated space. pylopdf does not. Code
-that multiplies by pymupdf's `derotation_matrix` before inserting must drop
-that step, and the codemod flags it. The same holds where pymupdf measures
-the room left on a page: `insert_text` leaves out the lines whose baseline
-falls below the page, which pymupdf measures in unrotated space down to
-user-space y = 0, and pylopdf in display space down to the bottom of
-`Page.rect`. The two agree on unrotated pages whose visible area ends at
-y = 0, which includes every page that `new_page` creates.
+space. pymupdf uses it for `Page.rect` only. It extracts text (`get_text`,
+`search_for`) in unrotated space, with y flipped against the page top but no
+rotation applied, and maps insertion and placement coordinates through a
+transformation that, on rotated pages, likewise flips y without rotating, so
+they land in unrotated space too. pylopdf does neither: on a page with
+`/Rotate 90`, a word that pymupdf reports running across the unrotated page
+runs down the display page in pylopdf, inside `Page.rect`. Code that
+multiplies pymupdf's extraction results by `rotation_matrix`, or insertion
+coordinates by `derotation_matrix`, must drop that step, and the codemod flags
+both. On unrotated pages the two spaces coincide, CropBox offset included.
+The same holds where pymupdf measures the room left on a page: `insert_text`
+leaves out the lines whose baseline falls below the page, which pymupdf
+measures in unrotated space down to user-space y = 0, and pylopdf in display
+space down to the bottom of `Page.rect`. The two agree on unrotated pages
+whose visible area ends at y = 0, which includes every page that `new_page`
+creates.
 
 Page boxes are the exception, because display space is derived from them.
 They follow pymupdf's box convention: `mediabox` and `set_mediabox` use PDF
@@ -434,19 +440,44 @@ extension whose truth value is pymupdf's boolean result.
 ## 13. Low-level objects
 
 The typed object model replaces pymupdf's string-based `xref_*` methods
-(roadmap F5). F5's design review details the target:
+(roadmap F5). Its first release implements this design:
 
-- `Document.trailer` and `Document.catalog` return dictionary handles,
-  `Document.objects` is a `Mapping[int, PdfObject]` keyed by object number,
-  and `Page.obj` is the page dictionary.
-- Values map to Python types: `None`, `bool`, `int`, `float`, `Name`,
-  `String` (bytes with a `text` view), `Array` (a sequence), `Dictionary` (a
-  mapping), `Stream` (a dictionary with a bounded `read(*, decode=True,
-  max_size=...)` and `write(data, /, *, filter=...)`), and lazily resolved
-  references.
-- Every write invalidates derived caches, and writes reachable from the
-  trailer, the catalog, the page tree, or a page also bump the page generation
-  (R7).
+- `Document.objects` is an `Objects` mapping from object numbers to indirect
+  objects, with `add(value)` and `add_stream(data, dictionary=None, *,
+  filter="FlateDecode")` returning the new object number, assignment
+  replacing an existing object, and `len()` counting the numbers in use.
+  `Document.trailer` and `Document.catalog` are dictionary handles,
+  `Page.obj` is the page dictionary, and `Document.page_xref(pno)` and
+  `Page.xref` return its object number.
+- Values map to Python types: `None`, `bool`, `int`, `float`, `Name` (a `str`
+  subclass without the slash, so it compares equal to its text), `String`
+  (`bytes` with a `text` view that decodes PDF text strings), and live
+  handles: `Array` (a mutable sequence), `Dictionary` (a mutable mapping
+  keyed by name text), and `Stream` (a dictionary with `read(*, decode=True,
+  max_size=64 MiB)` and `write(data, /, *, filter="FlateDecode")`).
+- A handle addresses an indirect object, or a direct container inside one, by
+  object number and a path of keys and indexes, and reads the document on
+  every access. References resolve on read; a reference to a missing object
+  reads as `None` (ISO 32000-2 §7.3.10), and a chain longer than 32
+  references raises.
+- Writing is explicit about types. A `str` is a text string (ASCII as is,
+  otherwise UTF-16BE), `bytes` and `String` are strings, a name needs
+  `Name`, lists and mappings become direct objects nested at most 32 levels
+  (`object_value_depth`), an indirect handle inside a container becomes a
+  reference, and a handle assigned to `doc.objects[xref]` or passed to
+  `add()` is copied, which replaces `xref_copy`. A handle from another
+  document is refused; `insert_pdf` and `show_pdf_page` import across
+  documents.
+- Every write invalidates derived caches and remembered placements. Any
+  write can retype an object that the page tree reaches, so each write
+  compares the page order with a fresh walk and bumps the page generation
+  when it changed (R7).
+- Generation numbers are hidden from the mapping: the number is the key, and
+  a number stored under several generations resolves to the highest.
+  Handles report `xref` and `generation`.
+- A handle raises `StaleObjectError` when its object no longer exists, when
+  its path no longer leads to a container, or after `garbage=2` and higher
+  or a reopening `authenticate()` renumbered the objects.
 - The manifest maps each `xref_*` method to its object-model expression for
   the codemod, for example `doc.xref_get_key(xref, "Rotate")` to
   `doc.objects[xref].get("Rotate")`.
@@ -516,7 +547,7 @@ one-to-one onto these rows.
 | `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1 |
 | `Permissions` members | pymupdf's `PDF_PERM_*` suffixes, with module constants | R2 |
 | `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3 |
-| `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3 |
+| `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3; done with F5 |
 | `LINK_*` and `TEXT_ALIGN_*` as plain integers | IntEnum members with the same names and values | R6 |
 | `get_text("words")` and `get_text("blocks")` tuples | `Word` and `Block` NamedTuples | R6 |
 
@@ -529,8 +560,6 @@ their names.
 
 ## 16. Open questions
 
-- Whether `Document.objects` should expose generation numbers or hide them
-  completely (F5 design review).
 - Whether `Pixmap` should accept pymupdf's positional constructor forms at
   all, or offer only classmethods, given how ambiguous the forms are (M1).
 - How far `insert_htmlbox` and `TextWriter` can follow pymupdf in M8 before an

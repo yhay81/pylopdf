@@ -628,6 +628,12 @@ pub(super) fn import_page_as_form(
 
 impl _Document {
     /// Validate one drawing insertion before caches or PDF objects are changed.
+    ///
+    /// The first insertion on a page decodes its existing content to count
+    /// the graphics states it leaves unbalanced. Like the content guard, it
+    /// re-applies no decompression limit: loading measured every stream under
+    /// the configured budgets, and interpretation decodes the same content. A
+    /// stream that fails to decode counts as empty, as hayro skips it.
     pub(super) fn prepare_page_content(
         &self,
         page_number: u32,
@@ -639,6 +645,9 @@ impl _Document {
             page_id,
             self.isolated_content_pages.contains(&page_id),
             overlay,
+            |stream| {
+                decoded_stream_content_cow(stream, None, "page_content_size", "page content").ok()
+            },
         )
         .map_err(PdfError::new_err)?;
         Ok((page_id, plan))
@@ -733,8 +742,9 @@ impl _Document {
     ) -> PyResult<()> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
         let page_size = draw::display_size(crop, rotation);
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (page_id, drawing_plan) = py.detach(|| {
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
+        })?;
         let plan = shape.plan().map_err(PdfError::new_err)?;
         let generated = py
             .detach(|| shape.generate(&plan, page_size))
@@ -921,7 +931,7 @@ pub(super) fn show_pdf_page(
 ) -> PyResult<()> {
     let (crop, rotation) = this.page_display_geometry(page_number)?;
     let (page_id, drawing_plan) =
-        this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
     let placement = PagePlacement {
         rect: [rect.0, rect.1, rect.2, rect.3],
         keep_proportion,
@@ -958,7 +968,7 @@ pub(super) fn show_pdf_page_self(
 ) -> PyResult<()> {
     let (crop, rotation) = this.page_display_geometry(page_number)?;
     let (page_id, drawing_plan) =
-        this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject))?;
     let placement = PagePlacement {
         rect: [rect.0, rect.1, rect.2, rect.3],
         keep_proportion,
