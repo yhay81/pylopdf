@@ -745,6 +745,31 @@ def test_f1040_metadata_title() -> None:
     assert doc.metadata["title"] == "2025 Form 1040"
 
 
+@pytest.mark.parametrize("edit", ["delete", "select"])
+def test_f1040_page_deletion_drops_the_page_from_the_structure_tree(edit: str) -> None:
+    """The structure tree of the tagged form names page 2 and its 71 widgets.
+
+    `/Pg`, OBJR `/Obj`, `/ParentTree`, and `/IDTree` entries kept the deleted
+    page and its widgets reachable through every garbage-collecting save.
+    """
+    doc = pylopdf.open(ASSETS / "f1040.pdf")
+    first_page = doc[0].get_text()
+    if edit == "delete":
+        doc.delete_pages([1])
+    else:
+        doc.select([0])
+    saved = doc.tobytes(garbage=True)
+
+    assert len(re.findall(rb"/Type\s*/Page(?![a-zA-Z])", saved)) == 1
+    assert len(re.findall(rb"/Subtype\s*/Widget", saved)) == 128
+    assert b"topmostSubform[0].Page2[0]" not in saved
+    assert b"/StructTreeRoot" in saved
+    reopened = pylopdf.open(stream=saved)
+    assert reopened.page_count == 1
+    assert reopened[0].get_text() == first_page
+    assert len(reopened.get_form_fields()) == 128
+
+
 def test_f1040_bordered_table() -> None:
     """Extract a real stroked dependency grid without rasterization."""
     tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables()

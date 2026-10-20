@@ -92,7 +92,7 @@ materialization을 멈추고`page_entry_count`를 반환하므로, 반복해도 
 `path_point_count`, `search_input_size`, `search_hit_count`, `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
 `decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
-`resource_nesting_depth` 중 하나이며 같은 값은`error.args[0]`에도 있습니다.
+`resource_nesting_depth`, `structure_tree_count` 중 하나이며 같은 값은`error.args[0]`에도 있습니다.
 안전하게 상한을 계산할 수 없는 filter chain은 낙관적으로 디코딩하지 않고 거부합니다.
 pylopdf가 소유한 제한된lopdf 디코딩 경로는 filter 목록을materialize하기 전에
 16개 layer를 초과하는`/Filter` chain도 거부합니다.

@@ -5505,7 +5505,12 @@ class Document:
         :meth:`Page.get_links`. The AcroForm loses the widgets of deleted pages
         and the fields whose widgets all lay there, under the
         :meth:`get_form_fields` limits; fields that never had a widget stay.
-        A refusal leaves the document unchanged.
+        A tagged PDF's structure tree loses the marked content and annotation
+        references of deleted pages, the elements left without kids, and
+        their ``/ParentTree`` and ``/IDTree`` entries; a structure tree beyond
+        1,048,576 nodes, 4,194,304 edges, or 256 levels raises
+        :class:`LimitError` with code ``structure_tree_count``. A refusal
+        leaves the document unchanged.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         if not numbers:
@@ -5521,8 +5526,8 @@ class Document:
         iterable may contain up to the larger of the page count and 4,096
         entries, so a selection never grows a large document; further entries
         raise :class:`LimitError` with code ``page_entry_count``. Navigation to
-        excluded pages and their AcroForm widgets and fields are cleaned as in
-        :meth:`delete_pages`.
+        excluded pages, their AcroForm widgets and fields, and their
+        structure-tree content are cleaned as in :meth:`delete_pages`.
         """
         numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
         self._doc.select(numbers)

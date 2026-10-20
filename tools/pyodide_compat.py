@@ -933,6 +933,64 @@ def _form_page_deletion_results() -> dict[str, Any]:
     return results
 
 
+def _structure_page_deletion_results() -> dict[str, Any]:
+    """Remove the structure content of pages that deletion and selection drop."""
+    import pylopdf  # noqa: PLC0415
+
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
+            3: "<< /Type /Page /Parent 2 0 R /StructParents 0 >>",
+            4: "<< /Type /Page /Parent 2 0 R /StructParents 1 /Annots [10 0 R] >>",
+            5: "<< /Type /StructTreeRoot /K 6 0 R /ParentTree << /Nums [0 [7 0 R] 1 [8 0 R] 2 9 0 R] >> >>",
+            6: "<< /S /Document /P 5 0 R /K [7 0 R 8 0 R 9 0 R] >>",
+            7: "<< /S /P /P 6 0 R /Pg 3 0 R /K 0 >>",
+            8: "<< /S /P /P 6 0 R /Pg 4 0 R /K [0 << /Type /MCR /MCID 1 >>] >>",
+            9: "<< /S /Link /P 6 0 R /K << /Type /OBJR /Obj 10 0 R >> >>",
+            10: "<< /Type /Annot /Subtype /Link /Rect [10 10 90 30] /P 4 0 R /StructParent 2 >>",
+        }
+    )
+
+    results: dict[str, Any] = {}
+    edits = (("delete_second", lambda doc: doc.delete_pages([1])), ("select_first", lambda doc: doc.select([0])))
+    for label, edit in edits:
+        document = pylopdf.Document(stream=data)
+        edit(document)
+        saved = document.tobytes(garbage=True)
+        results[label] = {
+            "pages": saved.count(b"/Type/Page") - saved.count(b"/Type/Pages"),
+            "elements": saved.count(b"/S/"),
+            "annotations": saved.count(b"/Type/Annot"),
+            "parent_tree": saved.count(b"/Nums[0[7 0 R]]"),
+        }
+    expected = {"pages": 1, "elements": 2, "annotations": 0, "parent_tree": 1}
+    _require(results["delete_second"] == expected, "delete kept the structure of a deleted page")
+    _require(results["select_first"] == expected, "select kept the structure of an excluded page")
+
+    depth = 257
+    deep: dict[int, str] = {
+        1: "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R >>",
+        2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
+        3: "<< /Type /Page /Parent 2 0 R >>",
+        4: "<< /Type /Page /Parent 2 0 R >>",
+        5: "<< /Type /StructTreeRoot /K 6 0 R >>",
+    }
+    for level in range(depth):
+        deep[6 + level] = f"<< /S /Div /K [{7 + level} 0 R] >>" if level < depth - 1 else "<< /S /P /Pg 4 0 R /K 0 >>"
+    document = pylopdf.Document(stream=_build_raw_pdf(deep))
+    try:
+        document.delete_pages([1])
+    except pylopdf.LimitError as error:
+        results["deep_refusal"] = {"code": error.code, "pages": document.page_count}
+    _require(
+        results.get("deep_refusal") == {"code": "structure_tree_count", "pages": 2},
+        "a structure tree beyond 256 levels was not refused",
+    )
+
+    return results
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -948,6 +1006,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "layout": _layout_results(),
         "generation": _generation_results(root),
         "form_page_deletion": _form_page_deletion_results(),
+        "structure_page_deletion": _structure_page_deletion_results(),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

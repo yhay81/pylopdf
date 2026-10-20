@@ -318,8 +318,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PdfError` and leaves the document unchanged. Deleting each of the first six
   pages of the 40 multi-page pdf.js corpus forms (152 deletions) removed 3,540
   fields in 38 of them and raised nothing, and every result read the same
-  fields after saving and reopening. Objects that a tagged PDF's structure
-  tree still references, including widgets of dropped pages, are kept.
+  fields after saving and reopening.
+- `delete_pages()`, `delete_page()`, and `select()` remove the structure-tree
+  content of the pages they drop. A tagged PDF's structure tree names the page
+  of its marked content through `/Pg` and its annotations through OBJR
+  `/Obj`, and `/ParentTree` and `/IDTree` name its elements, so every
+  garbage-collecting save kept each dropped page and its annotations:
+  deleting the second page of `f1040.pdf` still wrote both pages and all 199
+  widgets, and now writes one page and its 128 widgets (396 KB to 293 KB).
+  The edit removes MCID, MCR, and OBJR kids whose page (their own `/Pg`, else
+  their element's) was dropped, OBJR kids of annotations that only dropped
+  pages list or that navigation cleanup removes, and elements left without
+  kids, then the `/ParentTree` entries of dropped pages and annotations, the
+  `/ParentTree` and `/IDTree` entries of removed elements, and removed
+  elements in a remaining element's `/Ref`. A remaining element's `/Pg` that
+  names a dropped page goes, and a remaining OBJR's moves to the page that
+  lists its annotation. Elements that only the lookup trees name are walked
+  as well. Deleting the first and the last page of each of the 67 tagged
+  multi-page documents in the bundled and pdf.js corpora (134 deletions)
+  left the deleted page object in the garbage-collected output 7 times
+  instead of 77, each time through references outside the structure tree
+  (outline `/SE`, article threads, and link annotations' `/P`), and raised
+  nothing new.
+  The walk is planned before the document changes and stops at 1,048,576
+  elements and lookup-tree nodes, 4,194,304 kids and entries, 256 element
+  levels, or 32 lookup-tree levels with `LimitError.code ==
+  "structure_tree_count"`, leaving the document unchanged.
 - Hebrew text generated with `pylopdf[he]` was drawn in Thin, the default
   instance of the variable Noto Sans Hebrew, and extraction reported its font
   as `NotoSansHebrew-Thin`. `insert_text`, `insert_textbox`, `set_form_field`,
