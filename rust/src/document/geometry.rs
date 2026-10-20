@@ -178,20 +178,21 @@ impl _Document {
         Ok(None)
     }
 
-    /// Page display geometry: CropBox, then MediaBox, then A4, plus rotation.
+    /// Page display geometry: the box that rendering displays, plus rotation.
     pub(super) fn page_display_geometry(&self, page_number: u32) -> PyResult<([f64; 4], i64)> {
         self.resolve_display_geometry(self.page_id(page_number)?)
     }
 
     /// Display geometry of one page object, without walking the page tree.
+    ///
+    /// The box is `draw::display_box`, the CropBox clipped to the MediaBox,
+    /// so drawing, annotations, and `Page.rect` share hayro's display space.
     pub(super) fn resolve_display_geometry(&self, page_id: ObjectId) -> PyResult<([f64; 4], i64)> {
         let rotation = self.resolve_page_rotation(page_id)?;
-        let boxed = self
-            .resolve_page_box(page_id, "CropBox")?
-            .or(self.resolve_page_box(page_id, "MediaBox")?)
-            .unwrap_or((0.0, 0.0, 595.0, 842.0));
-        let (x0, y0, x1, y1) = boxed;
-        Ok(([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)], rotation))
+        let as_array = |(x0, y0, x1, y1)| [x0, y0, x1, y1];
+        let media = self.resolve_page_box(page_id, "MediaBox")?.map(as_array);
+        let crop = self.resolve_page_box(page_id, "CropBox")?.map(as_array);
+        Ok((draw::display_box(media, crop), rotation))
     }
 
     /// Return inherited, normalized 0..360 rotation for one page object.

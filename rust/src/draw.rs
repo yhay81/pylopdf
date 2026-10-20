@@ -318,10 +318,41 @@ pub fn add_image_xobject(doc: &mut impl ObjectSink, parts: ImageParts) -> Result
     Ok(doc.add_object(Stream::new(dict, parts.data).with_compression(false)))
 }
 
+/// Width of hayro-syntax's default A4 page in points.
+pub(crate) const A4_WIDTH: f64 = 210.0 * 72.0 / 25.4;
+/// Height of hayro-syntax's default A4 page in points.
+pub(crate) const A4_HEIGHT: f64 = 297.0 * 72.0 / 25.4;
+
+/// Return the user-space box that rendering and extraction display.
+///
+/// `media` and `crop` are a page's inherited MediaBox and CropBox, absent
+/// when the page has none. This follows hayro-syntax 0.8, whose
+/// `Page::initial_transform` maps this box to display space: the CropBox,
+/// or the MediaBox without one, clipped to the MediaBox, or to an A4
+/// MediaBox at the origin without one. A clipped box without area keeps the
+/// corner where the clipping left it and takes the size of A4, and a side
+/// shorter than one point grows to one point.
+pub(crate) fn display_box(media: Option<[f64; 4]>, crop: Option<[f64; 4]>) -> [f64; 4] {
+    let normalized = |[x0, y0, x1, y1]: [f64; 4]| [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)];
+    let media = media.map_or([0.0, 0.0, A4_WIDTH, A4_HEIGHT], normalized);
+    let crop = crop.map_or(media, normalized);
+    let x0 = crop[0].max(media[0]);
+    let y0 = crop[1].max(media[1]);
+    let x1 = crop[2].min(media[2]).max(x0);
+    let y1 = crop[3].min(media[3]).max(y0);
+    // hayro compares the extents in f32 with its 2^-12 tolerance.
+    let nearly_zero = |extent: f64| (extent as f32).abs() <= 1.0 / 4096.0;
+    if nearly_zero(x1 - x0) || nearly_zero(y1 - y0) {
+        return [x0, y0, x0 + A4_WIDTH, y0 + A4_HEIGHT];
+    }
+    [x0, y0, x1.max(x0 + 1.0), y1.max(y0 + 1.0)]
+}
+
 /// Map a top-left-origin, downward-y display point to unrotated PDF user space.
 ///
-/// `crop` is the page CropBox; `rotation` is normalized to 0/90/180/270.
-/// The mapping follows PDF's convention of displaying clockwise rotation.
+/// `crop` is the page's `display_box`; `rotation` is normalized to
+/// 0/90/180/270. The mapping follows PDF's convention of displaying clockwise
+/// rotation.
 pub(crate) fn display_to_pdf(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (f64, f64) {
     let [cx0, cy0, cx1, cy1] = crop;
     match rotation {
@@ -552,7 +583,8 @@ pub fn highlight_ap_ops(
 pub enum PlacedContent {
     /// Image XObject drawn in a unit square; aspect ratio is width/height.
     Image { width: u32, height: u32 },
-    /// Form XObject in source-page coordinates, with BBox equal to source CropBox.
+    /// Form XObject in source-page coordinates, with BBox equal to the source
+    /// page's `display_box`.
     Form { crop: [f64; 4], rotation: i64 },
 }
 

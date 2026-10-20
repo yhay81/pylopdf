@@ -73,7 +73,7 @@ overview.
 ## Architecture and invariants
 
 - `_Document` (`rust/src/document/`) is a thin conversion and error-mapping
-  layer. The Python `Document` (`src/pylopdf/__init__.py`) owns validation,
+  layer. The Python `Document` (`src/pylopdf/_document.py`) owns validation,
   zero-/one-based conversion, and closed-state handling.
 - `rust/src/document/mod.rs` holds `_Document`, its shared state, cache
   invalidation, and the class's single `#[pymethods]` block; PyO3's
@@ -86,15 +86,19 @@ overview.
   submodule, re-exporting with `pub(crate)` the ones whose items other crate
   modules use, so moved items keep their `crate::document::` paths. A new
   pymethod adds its signature to `mod.rs` and its body to its domain module.
+  uv's rebuild cache key covers `rust/src/**/*.rs`, so edits in these
+  subdirectories rebuild the extension like any other Rust change.
 - Workstream module ownership (ROADMAP.md workstreams; shared files take only
   append-only registrations):
   - A, extraction: `extract.rs`; `document/extraction.rs`;
-    `src/pylopdf/_markdown.py`.
-  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`.
+    `src/pylopdf/_tables.py` and `_markdown.py`.
+  - B, rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
+    `src/pylopdf/_pixmap.py`.
   - C, generation: `draw.rs`, `generate.rs`, `generated_pdf.rs`,
     `layout.rs`, `shape.rs`, `font.rs`, `bundled_font_cache.rs`,
     `placement_reuse.rs`;
-    `document/{drawing,images,text_insertion,geometry,fonts}.rs`.
+    `document/{drawing,images,text_insertion,geometry,fonts}.rs`;
+    `src/pylopdf/_fonts.py` and `_shape.py`.
   - D, interactive: `form.rs`, `acroform_import.rs`;
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
@@ -105,10 +109,14 @@ overview.
   - G, persistence: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
     `object_recovery.rs`, `object_stream_work.rs`, `unallocated.rs`,
     `image_compression.rs`; `document/{loading,saving,limits,streams}.rs`.
-  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`.
+  - H, intelligence: `ocr.rs`, `ocr_engine.rs`, `ocr_engine_emscripten.rs`;
+    `src/pylopdf/_ocr.py`.
   - Shared: `lib.rs`, `document/mod.rs`,
-    `document/{errors,input,objects,indexed}.rs`, and
-    `src/pylopdf/__init__.py` until the Python half of F1 splits it.
+    `document/{errors,input,objects,indexed}.rs`; and in `src/pylopdf/`,
+    the re-export surface `__init__.py` plus `_document.py`, `_page.py`,
+    `_types.py`, `_errors.py`, and `_limits.py`. `Document` and `Page` gather
+    every workstream's methods, so add a method next to its domain's
+    neighbours rather than at the end of the class.
 - Python API page numbers are zero-based; Rust/lopdf page numbers are one-based.
   Keep the conversion centralized in `_lopdf_page_number`.
 - `merge` and `select` must materialize inherited page attributes (`Resources`,
@@ -267,8 +275,10 @@ overview.
   paragraph and consecutive-list assembly must remain linear rather than using
   repeated immutable-string concatenation.
   Extraction coordinates use the same display space as rendering by passing
-  `initial_transform(true)` to the context, resolving page rotation and CropBox
-  offsets. Baseline direction is retained and exposed in line dicts. Rotated
+  `initial_transform(true)` to the context, resolving page rotation and the
+  offset of the CropBox clipped to the MediaBox, the box that drawing and
+  `Page.rect` use (see the drawing bullet). Baseline direction is retained and
+  exposed in line dicts. Rotated
   baselines assemble along their direction while remaining writing mode 0.
   Uniform axis-aligned pages derive logical inline and block axes from that
   direction, so 90/180/270-degree lines and sustained columns preserve reading
@@ -525,30 +535,87 @@ overview.
   table by scanning object headers, so its view of a malformed file depends on
   read order. lopdf stores an uncompressed object under its header number even
   when the entry names another, skips objects it cannot parse, and adds
-  object-stream members that no entry lists, raising `max_id` over them. A
-  load whose objects match the in-use entries one for one keeps its bytes
-  after a single merge pass; lopdf records no free entries, and well-formed
-  files, incremental updates, and object streams all match. Otherwise loading
-  re-parses each skipped uncompressed object whose header matches its entry
-  with a bounded, iterative parser that reads a bare keyword value such as
-  `/Type XObject` as null, stops at lopdf's 100-level nesting bound, never
-  reads past the next entry's offset, and takes stream data only from a valid
-  `/Length` or a sole `endstream` that `endobj` follows. It then walks every
-  reference reachable from the trailer, drops objects that no entry locates
-  and nothing reaches, such as members that a damaged object stream decodes
-  under arbitrary numbers, and lowers `max_id` to the highest entry or
+  object-stream members that no entry lists, raising `max_id` over them. It
+  stores every member under the number that its object stream's table gives
+  it, keeping the last pair for a number, while hayro reads, for a compressed
+  entry, the member that the table lists at the entry's index, whatever its
+  number there, and none past `/N`. While parsing, lopdf reads `/Length` only
+  as an integer, direct or from an object that it can read, and loads any
+  other stream without data, marked by `start_position`; a later pass takes
+  as many bytes as an integer or integral real that it then resolves declares,
+  without looking for `endstream`. hayro takes the declared bytes, truncating
+  a real, only when `stream`, one end-of-line marker directly after it, the
+  bytes, white space, and `endstream` follow the dictionary, and otherwise
+  everything from the end-of-line marker after the first `stream` up to the
+  first `endstream` in the file, less trailing white space.
+  One pass over the in-use entries and the loaded objects finds whether they
+  match one for one, the loaded compressed members, and the marked streams.
+  Loading re-reads every marked stream as hayro does, within its entry's
+  bounds (the next distinct entry offset, the cross-reference section, or the
+  end of input, as for the recovery parse below), and stores the data that
+  hayro reads with a direct `/Length`, so saving keeps it: pdf.js
+  `issue1293r.pdf` and `operator-in-TJ-array.pdf` draw content streams written
+  `<< >>` and lost their text in every save. A stream that hayro would read
+  past those bounds, or not at all, such as one with a space before its
+  end-of-line marker, becomes a suspect; one with `/F`, which hayro reads as
+  no stream from either source, is left as it is. Every object stream that
+  holds a loaded member is decoded only as far as `/First` (unfiltered or a
+  single `/FlateDecode` without decode parameters, through one reused decoder
+  and buffer; any other stream makes every member a suspect, which is right
+  for `/BrotliDecode`, a filter hayro-syntax 0.8 does not know). A table of
+  runs of digits between ASCII white space, which both readers split alike,
+  is read once, and members that fill its slots in order need no other check.
+  Any other table is read twice: hayro's `/N` pairs, runs of digits between
+  white space and comments from the start of the data, and lopdf's pairs, the
+  bytes before `/First` split at Unicode white space and paired in order. A
+  member is a suspect unless hayro's pair at the entry's index names it and
+  every pair that lopdf reads for its number gives the same offset; a comment
+  after the table, as qpdf's QDF output writes (pdf.js `issue14165.pdf`),
+  matches. pdf.js `bug1978317.pdf` writes 65,542 members with a two-byte index
+  field, so the entries of its last six, `/Root`, `/Info`, and its page among
+  them, name slots 0 to 5. A load whose objects match the in-use entries one
+  for one and that has no suspect keeps its bytes; lopdf records no free
+  entries, and well-formed files, incremental updates, and object streams all
+  match. Otherwise loading re-parses each skipped uncompressed object whose
+  header matches its entry with a bounded, iterative parser that reads a bare
+  keyword value such as `/Type XObject` as null, stops at lopdf's 100-level
+  nesting bound, never reads past the next entry's offset, and takes stream
+  data only from a valid `/Length` or a sole `endstream` that `endobj`
+  follows. A loaded object whose header names another number than the entry
+  that locates it becomes a suspect under that number, which lopdf may hold in
+  place of the object or member that hayro reads for it. Loading then walks
+  every reference reachable from the trailer, drops objects that no entry
+  locates and nothing reaches, such as members that a damaged object stream
+  decodes under arbitrary numbers, and lowers `max_id` to the highest entry or
   remaining object when no reachable reference names a higher number, because
   lopdf's cross-reference writer runs in time linear in `max_id`. The bytes
-  stay only when the walk meets no recovered object, no object that no entry
-  locates, and no in-use entry that lopdf could not load. lopdf skips objects
-  nested deeper than 100 levels, so a reachable one also kept them from hayro
-  0.7's unbounded recursive parser; hayro 0.8 reads none deeper than 64.
-  Audit and recovery buffers grow fallibly,
-  and refusal raises `PdfError`. Encrypted and recovered loads skip the pass
-  and already render from the graph. The pass runs before
-  `normalize_object_numbers`, because it compares lopdf's numbers with the
-  cross-reference entries; a renumbering load also renders from the graph, and
-  dropping unreachable debris first spares most such loads the move.
+  stay only when the walk meets no recovered object or other suspect, no
+  object that no entry locates, and no in-use entry that lopdf could not load.
+  On the first six pages of the 1,455 pdf.js corpus files, text before and
+  after a save differed for two files with only the recovery parse and for
+  none with these checks, and no file changed its text before a save or its
+  snapshot; the loads that keep their bytes fell from 1,279 to 1,277, the two
+  files above, which already read from the serialized graph. Cold first calls
+  on the bundled corpus did not change (two runs of 15 interleaved rounds of
+  CPU-time minimums, thin-LTO builds: 1,748.9 to 1,742.6 ms and 1,723.7 to
+  1,714.2 ms), nor did its loads (20.49 to 20.42 ms). The member check costs
+  about 17 ms on pdf.js `pdf.pdf`, whose 2,234 object streams hold 223,316
+  members and whose load takes about 1 s, and at most 1.3 ms on the other
+  large object-stream files measured; `bug1978317.pdf` loads 26 ms slower
+  because its suspects send it through the recovery parse and the walk. Two
+  shapes stay unmarked because lopdf leaves no trace of them: a wrong integer
+  `/Length` that lopdf recovers from the sole `endstream`, whose data can
+  differ from hayro's by trailing white space, and a valid one with a space
+  before the end-of-line marker, which hayro reads as no stream; no pdf.js
+  file has either. lopdf skips objects nested deeper than 100 levels, so a
+  reachable one also kept them from hayro 0.7's unbounded recursive parser;
+  hayro 0.8 reads none deeper than 64. Survey, re-read, table, audit, and
+  recovery buffers grow fallibly, and refusal raises `PdfError`. Encrypted and
+  recovered loads skip the pass and already render from the graph. The pass
+  runs before `normalize_object_numbers`, because it compares lopdf's numbers
+  with the cross-reference entries; a renumbering load also renders from the
+  graph, and dropping unreachable debris first spares most such loads the
+  move. `tests/test_original_bytes.py` pins each shape.
 - Content streams are cleared for nesting depth before hayro interprets them.
   hayro 0.7 skipped and read arrays and dictionaries in content streams by
   unbounded recursion (LaurenzV/hayro#1347), so a stream with about 300,000
@@ -636,10 +703,10 @@ overview.
   generated pages, the walk alone 0.01, 0.01, and 0.03 s). The loop keeps
   resolving every element through hayro and not through
   lopdf's graph, although the graph holds the same dictionaries without a
-  rebuild: `object_recovery` verifies only that a compressed entry exists, not
-  the container and index that hayro reads, and the object streams' contents
-  could be parsed differently by lopdf, so a walk that took `/AP` from the
-  graph could leave unscanned a stream that hayro interprets. Reading the
+  rebuild: `object_recovery` checks the container and index that hayro reads
+  for a member, but lopdf and hayro parse its object with their own parsers,
+  so a walk that took `/AP` from the graph could leave unscanned a stream that
+  hayro interprets. Reading the
   elements through a table of its own would speed up only the walk's half and
   would have to replicate hayro's table parser and xref lookup exactly. Refusing
   a page after its last annotation measures the walk alone, because the
@@ -1469,7 +1536,21 @@ overview.
   the collection of Form-reachable source objects before cache invalidation or
   target mutation; commit then has no recoverable source-side work.
   Inputs use display coordinates with a top-left origin and page rotation
-  resolved, then convert to `cm`/`Tm`. `insert_image(pixmap=)` splits immutable
+  resolved, then convert to `cm`/`Tm`. Display space is the box that
+  hayro-syntax 0.8's `Page::initial_transform` maps, `draw::display_box`: the
+  CropBox, or the MediaBox without one, clipped to the MediaBox, or to an A4
+  MediaBox at the origin without one, which is pymupdf's `Page.rect` apart
+  from the fallbacks. A clipped box without area keeps its corner and takes
+  A4's size, where MuPDF uses Letter at the origin, and a side under one point
+  grows to one point; hayro clips rendering to the clipped box, so such a page
+  shows nothing. `resolve_display_geometry` (`document/geometry.rs`) gives
+  that box to drawing, annotations, link destinations, the OCR text layer,
+  and `Page.rect` (through `page_display_size`), and Form imports take the
+  source page's box as their BBox, so `show_pdf_page` places what rendering
+  shows of the source. pymupdf's `insert_text` measures from the unclipped
+  CropBox corner instead and draws off the visible page; pylopdf keeps one
+  display space (G1). `mediabox` and `cropbox` still report the stored boxes.
+  `insert_image(pixmap=)` splits immutable
   straight-alpha RGBA8 storage through fallibly allocated RGB and optional
   alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
