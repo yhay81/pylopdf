@@ -17,11 +17,11 @@ These choices follow from the rules below. The maintainer confirmed all twelve
 on 2026-10-20, before M0 starts.
 
 1. **Display coordinates everywhere** ([G1](#g1--display-coordinates)). On
-   rotated pages, pymupdf interprets insertion and placement coordinates in
-   unrotated space, while `Page.rect` and extraction use rotated space.
-   pylopdf keeps one rotation-resolved space for every API, even under pymupdf
-   names, and also measures the room left on a page in it, as `insert_text`
-   does when it leaves out lines below the page.
+   rotated pages, pymupdf uses rotated space only for `Page.rect`; it
+   extracts text and interprets insertion and placement coordinates in
+   unrotated space. pylopdf keeps one rotation-resolved space for every API,
+   even under pymupdf names, and also measures the room left on a page in it,
+   as `insert_text` does when it leaves out lines below the page.
 2. **Reading order is a quality attribute** ([G7](#g7--result-quality)).
    `get_text` returns pylopdf's reading order whatever pymupdf's `sort=False`
    default would produce, and an explicit `sort=False` raises instead of being
@@ -141,16 +141,22 @@ deliberate, documented exception to R2 and appears in the migration guide.
 Every page-level coordinate, in and out, is in rotation-resolved display
 space: points, with the origin at the top-left of the visible page and y
 downward, after the CropBox offset and `/Rotate`. `Page.rect` describes this
-space. pymupdf uses it for `Page.rect` and extraction but maps insertion and
-placement coordinates through a transformation that, on rotated pages, flips
-y without rotating, so they land in unrotated space. pylopdf does not. Code
-that multiplies by pymupdf's `derotation_matrix` before inserting must drop
-that step, and the codemod flags it. The same holds where pymupdf measures
-the room left on a page: `insert_text` leaves out the lines whose baseline
-falls below the page, which pymupdf measures in unrotated space down to
-user-space y = 0, and pylopdf in display space down to the bottom of
-`Page.rect`. The two agree on unrotated pages whose visible area ends at
-y = 0, which includes every page that `new_page` creates.
+space. pymupdf uses it for `Page.rect` only. It extracts text (`get_text`,
+`search_for`) in unrotated space, with y flipped against the page top but no
+rotation applied, and maps insertion and placement coordinates through a
+transformation that, on rotated pages, likewise flips y without rotating, so
+they land in unrotated space too. pylopdf does neither: on a page with
+`/Rotate 90`, a word that pymupdf reports running across the unrotated page
+runs down the display page in pylopdf, inside `Page.rect`. Code that
+multiplies pymupdf's extraction results by `rotation_matrix`, or insertion
+coordinates by `derotation_matrix`, must drop that step, and the codemod flags
+both. On unrotated pages the two spaces coincide, CropBox offset included.
+The same holds where pymupdf measures the room left on a page: `insert_text`
+leaves out the lines whose baseline falls below the page, which pymupdf
+measures in unrotated space down to user-space y = 0, and pylopdf in display
+space down to the bottom of `Page.rect`. The two agree on unrotated pages
+whose visible area ends at y = 0, which includes every page that `new_page`
+creates.
 
 Page boxes are the exception, because display space is derived from them.
 They follow pymupdf's box convention: `mediabox` and `set_mediabox` use PDF
