@@ -106,21 +106,36 @@ fn temporary_sibling(target: &Path) -> io::Result<(PathBuf, File)> {
 
 /// Pixel map for a rendered page.
 ///
-/// Data is row-major RGBA8 with straight, non-premultiplied alpha.
+/// Data is row-major RGB8, or RGBA8 with straight, non-premultiplied alpha.
 #[pyclass(frozen, module = "pylopdf.pylopdf_core")]
 pub struct Pixmap {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    /// Row-major straight-alpha RGBA8 data.
+    /// Whether each pixel carries an alpha byte after its RGB bytes.
+    pub(crate) alpha: bool,
+    /// Row-major RGB8 or straight-alpha RGBA8 data.
     pub(crate) data: Arc<Vec<u8>>,
 }
 
 impl Pixmap {
+    /// Bytes per pixel: 3 for RGB, 4 for RGBA.
+    pub(crate) fn components(&self) -> u32 {
+        if self.alpha { 4 } else { 3 }
+    }
+
+    fn color_type(&self) -> png::ColorType {
+        if self.alpha {
+            png::ColorType::Rgba
+        } else {
+            png::ColorType::Rgb
+        }
+    }
+
     fn encode_png(&self, max_size: Option<usize>) -> PyResult<Vec<u8>> {
         match crate::extract::encode_png_bounded(
             self.width,
             self.height,
-            png::ColorType::Rgba,
+            self.color_type(),
             &self.data,
             png::Compression::Fast,
             max_size,
@@ -155,19 +170,31 @@ impl Pixmap {
         self.height
     }
 
-    /// Components per pixel, always 4 for RGBA.
+    /// Components per pixel: 3 for RGB, 4 for RGBA.
     #[getter]
     fn n(&self) -> u32 {
-        4
+        self.components()
     }
 
-    /// Bytes per row: width × 4.
+    /// Whether the pixels carry an alpha component.
+    #[getter]
+    fn alpha(&self) -> bool {
+        self.alpha
+    }
+
+    /// The color space, ``csRGB``, as pymupdf reports it.
+    #[getter]
+    fn colorspace<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        py.import("pylopdf._pixmap")?.getattr("csRGB")
+    }
+
+    /// Bytes per row: width × n.
     #[getter]
     fn stride(&self) -> u32 {
-        self.width * 4
+        self.width * self.components()
     }
 
-    /// Return row-major RGBA8 pixel data as bytes.
+    /// Return row-major RGB8 or RGBA8 pixel data as bytes.
     #[getter]
     fn samples<'py>(&self, py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
         pyo3::types::PyBytes::new(py, &self.data)
@@ -226,7 +253,7 @@ impl Pixmap {
                     &mut output,
                     self.width,
                     self.height,
-                    png::ColorType::Rgba,
+                    self.color_type(),
                     &self.data,
                     png::Compression::Fast,
                 )
@@ -248,7 +275,8 @@ impl Pixmap {
     }
 
     fn __repr__(&self) -> String {
-        format!("<Pixmap {}x{} rgba>", self.width, self.height)
+        let layout = if self.alpha { "rgba" } else { "rgb" };
+        format!("<Pixmap {}x{} {layout}>", self.width, self.height)
     }
 
     /// Expose immutable pixel storage without copying.

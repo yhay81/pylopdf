@@ -123,7 +123,9 @@ def _probe_document() -> pylopdf.Document:
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "insert_text": lambda doc: doc[0].insert_text((20, 250), "Stamp"),
     "insert_text_embedded_font": lambda doc: doc[0].insert_text((20, 250), "Stamp", fontfile=NOTO_SANS_JP),
-    "insert_image": lambda doc: doc[0].insert_image((10, 10, 50, 50), pixmap=doc[0].get_pixmap(scale=0.05)),
+    "insert_image": lambda doc: doc[0].insert_image(
+        (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
+    ),
     "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
     "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),

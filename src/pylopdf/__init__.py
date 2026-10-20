@@ -45,6 +45,7 @@ from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
 from pylopdf._page import Page
+from pylopdf._pixmap import CS_CMYK, CS_GRAY, CS_RGB, Colorspace, csCMYK, csGRAY, csRGB
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics, TableFinder
 from pylopdf._types import (
@@ -108,6 +109,9 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 
 __version__ = "0.15.0"
 __all__ = [
+    "CS_CMYK",
+    "CS_GRAY",
+    "CS_RGB",
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
@@ -147,6 +151,7 @@ __all__ = [
     "Base14_fontnames",
     "Block",
     "CjkFontLanguage",
+    "Colorspace",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -208,6 +213,9 @@ __all__ = [
     "TextPageDict",
     "TextSpan",
     "Word",
+    "csCMYK",
+    "csGRAY",
+    "csRGB",
     "open",
     "peek_metadata",
     "planish_line",

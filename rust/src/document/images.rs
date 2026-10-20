@@ -11,10 +11,11 @@ pub(super) const DEFAULT_MAX_IMAGE_PIXELS: u64 = 64_000_000;
 pub(super) enum ImageInput {
     /// Accepted JPEG or PNG bytes.
     Encoded(Vec<u8>),
-    /// A Pixmap's straight-alpha RGBA8 samples.
-    Rgba {
+    /// A Pixmap's RGB8 or straight-alpha RGBA8 samples.
+    Pixmap {
         width: u32,
         height: u32,
+        alpha: bool,
         data: Arc<Vec<u8>>,
     },
 }
@@ -23,11 +24,12 @@ impl ImageInput {
     pub(super) fn digest(&self) -> placement_reuse::ImageDigest {
         match self {
             Self::Encoded(data) => placement_reuse::encoded_image_digest(data),
-            Self::Rgba {
+            Self::Pixmap {
                 width,
                 height,
+                alpha,
                 data,
-            } => placement_reuse::rgba_image_digest(*width, *height, data),
+            } => placement_reuse::pixmap_image_digest(*width, *height, *alpha, data),
         }
     }
 
@@ -40,11 +42,12 @@ impl ImageInput {
                         "unsupported image format (pass JPEG or PNG; convert other formats with Pillow or similar first)",
                     )
                 }),
-            Self::Rgba {
+            Self::Pixmap {
                 width,
                 height,
+                alpha,
                 data,
-            } => draw::rgba_parts(width, height, &data).map_err(PdfError::new_err),
+            } => draw::pixmap_parts(width, height, alpha, &data).map_err(PdfError::new_err),
         }
     }
 }
@@ -262,9 +265,10 @@ pub(super) fn insert_pixmap(
     keep_proportion: bool,
     overlay: bool,
 ) -> PyResult<u32> {
-    let input = ImageInput::Rgba {
+    let input = ImageInput::Pixmap {
         width: pixmap.width,
         height: pixmap.height,
+        alpha: pixmap.alpha,
         data: Arc::clone(&pixmap.data),
     };
     drop(pixmap);

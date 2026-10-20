@@ -380,9 +380,11 @@ overview.
   the explicit trusted-input opt-out. Path reads use fallible 64 KiB chunks and
   admit at most one byte beyond the remaining bounded budget. Dictionary
   materialization stops at 65,536 entries. Loading and inference release the
-  GIL. OCR clones the
-  Pixmap's shared immutable RGBA backing, composites
-  RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
+  GIL. `OcrEngine.recognize(pixmap)` reads any Pixmap in pixel
+  coordinates, and `Page.get_text_ocr` renders opaque RGBA on white and maps
+  boxes back to the page. OCR clones the Pixmap's shared immutable RGBA
+  backing, expands an RGB Pixmap to opaque RGBA in one fallible copy,
+  composites RGBA onto white, and uses overlapping detector tiles bounded to 256–2048
   pixels, a 4096-candidate cap, and deterministic edge deduplication.
   Rotation rasters, detector/recognizer inputs, probability-map masks,
   connected-component growth, tile starts, candidates, and results allocate
@@ -1139,7 +1141,7 @@ overview.
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
   and never crosses a thread: each thread keeps at most one slot that owns an
   `Arc` of the snapshot together with the cache through `self_cell`.
-  `render_page`, `Page.get_pixmap`/`render`, and serial `render_pages` use the
+  `Page.get_pixmap`, `Document.get_page_pixmap`, and serial `render_pages` use the
   slot only on the thread that created the document, and only while the
   document's generation token and the snapshot identity both match.
   `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
@@ -1176,13 +1178,20 @@ overview.
   retaining it; `max_size=None` is the explicit unbounded opt-out and limit
   failures return no partial list. Other simultaneous calls or edits on the same
   `Document` are outside the contract.
-- `Document.render_page`, `Page.render`, and `Pixmap.tobytes` default to a
-  64 MiB encoded-PNG output boundary. The shared PNG writer refuses the write
-  crossing the limit before Python bytes conversion and grows its retained
-  output fallibly. `max_size=None` is the explicit trusted-output opt-out.
-  Render failures use `render_output_size`; direct Pixmap failures use
-  `pixmap_output_size`.
-- `Document.render_page_svg` and `Page.render_svg` default to a 64 MiB UTF-8
+- `Pixmap.tobytes` defaults to a 64 MiB encoded-PNG output boundary. The
+  shared PNG writer refuses the write crossing the limit before Python bytes
+  conversion and grows its retained output fallibly. `max_size=None` is the
+  explicit trusted-output opt-out. Failures use `pixmap_output_size`; the
+  `render_pages` batch budget uses `render_output_size`.
+- `Page.get_pixmap` follows pymupdf: opaque RGB (`n == 3`) on white by
+  default, straight-alpha RGBA with `alpha=True`, `dpi` taking precedence
+  over `matrix`, and only scaling matrices (rotation, shear, and flips raise
+  `PdfError`; a translation moves no pixels). The core takes separate x and y
+  scale factors, which hayro's transform applies, and `raster_samples` drops
+  the alpha bytes of an opaque raster in place rather than copying it.
+  `background=` must be opaque without `alpha`. `render_pages` takes the same
+  options and writes RGB or RGBA PNG accordingly.
+- `Page.get_svg_image` defaults to a 64 MiB UTF-8
   output cap and raise `LimitError` with code `svg_output_size` before PyO3
   creates the Python string; `max_size=None` explicitly opts out. hayro-svg 0.8
   returns only a completed `String`, so this boundary does not cap the
@@ -1193,8 +1202,9 @@ overview.
   transform shifted by the clip origin, so only the clipped region is
   rasterized; hayro still interprets the complete page, and the full-page
   render-size limits still apply. `Pixmap::take_rgba8` converts the raster to
-  straight alpha and hands over its buffer, and the completed `Vec<u8>` moves
-  into an `Arc<Vec<u8>>` without copying the raster.
+  straight alpha and hands over its buffer, an RGB Pixmap compacts it in
+  place, and the completed `Vec<u8>` moves into an `Arc<Vec<u8>>` without
+  copying the raster.
 - Release the GIL with `Python::detach` for heavy operations: load, save, render,
   extraction, merge, and compression.
 - `Page` is a lightweight view of a `Document` plus a generation number.
@@ -1566,9 +1576,9 @@ overview.
   shows of the source. pymupdf's `insert_text` measures from the unclipped
   CropBox corner instead and draws off the visible page; pylopdf keeps one
   display space (G1). `mediabox` and `cropbox` still report the stored boxes.
-  `insert_image(pixmap=)` splits immutable
-  straight-alpha RGBA8 storage through fallibly allocated RGB and optional
-  alpha planes, then Flate-compresses through a fallible writer; fully opaque
+  `insert_image(pixmap=)` Flate-compresses an RGB Pixmap's storage as it is
+  and splits straight-alpha RGBA8 storage through fallibly allocated RGB and
+  optional alpha planes, then Flate-compresses through a fallible writer; fully opaque
   Pixmaps must not create a mask. Encoded JPEG insertion moves the admitted
   input directly into its XObject. PNG alpha separation compacts decoded color
   samples in place and fallibly allocates only the separate alpha plane.
@@ -2373,7 +2383,7 @@ overview.
 - Hayro warnings are collected by the interpreter settings sink in
   `pending_warnings`; Python's `_emit_warnings` drains them as
   `PylopdfWarning` after each operation.
-- `Pixmap` is immutable. Every build exposes its RGBA8 storage through a
+- `Pixmap` is immutable. Every build exposes its RGB or RGBA storage through a
   read-only zero-copy buffer, the `abi3-py311` wheels included, because
   `Py_buffer` entered the stable ABI in Python 3.11; `Pixmap.samples` returns
   a one-copy `bytes` value. `tests/test_pixmap.py`, `tools/smoke_artifact.py`

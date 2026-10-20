@@ -29,8 +29,6 @@ from pylopdf._fonts import (
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
-    _DEFAULT_MAX_RENDER_PAGE_SIZE,
-    _DEFAULT_MAX_SVG_SIZE,
     _FLOAT32_MAX,
     _UINT32_MAX,
     DocumentLimits,
@@ -41,7 +39,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary, Objects
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
-from pylopdf._pixmap import _normalize_background
+from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._tables import (
     _bounded_markdown_page_output,
     _markdown_output_limit_error,
@@ -50,7 +48,7 @@ from pylopdf._tables import (
     _MarkdownBudget,
 )
 from pylopdf._types import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_NONE, Block, EncryptionMethod, Permissions, Word
-from pylopdf.pylopdf_core import LimitError, PdfError, _Document
+from pylopdf.pylopdf_core import LimitError, PdfError, Pixmap, _Document
 
 if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
@@ -61,6 +59,7 @@ if TYPE_CHECKING:
     from typing import Self
 
     from pylopdf._fonts import Font
+    from pylopdf._geometry import Matrix
     from pylopdf._types import (
         CjkFontLanguage,
         DocumentComplexity,
@@ -1579,49 +1578,38 @@ class Document:
                     )
         self._fallback_configured = True
 
-    def render_page(
+    def get_page_pixmap(  # noqa: PLR0913 - get_pixmap's keyword-only options.
         self,
         pno: int,
-        scale: float = 1.0,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
+        clip: Sequence[float] | None = None,
+        alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
-        max_size: int | None = _DEFAULT_MAX_RENDER_PAGE_SIZE,
-    ) -> bytes:
-        """Render zero-based page ``pno`` to PNG.
+    ) -> Pixmap:
+        """Render zero-based page ``pno`` to a :class:`Pixmap`.
 
-        ``scale`` is a positive finite factor where 1.0 equals 72 dpi. ``dpi``
-        may be used instead (144 equals scale 2.0) but not together with a
-        nondefault scale. ``background`` is an RGB or RGBA tuple with components
-        from 0 to 255; the default is transparent. Output is limited to 65,535
-        pixels per side and 64,000,000 total pixels. ``max_size`` defaults to
-        64 MiB of encoded PNG output; pass ``None`` only for trusted workloads.
+        pymupdf's convenience for ``doc[pno].get_pixmap(...)``, with the same
+        options; :meth:`Pixmap.tobytes` gives the encoded PNG.
         """
-        _validate_optional_positive_int("max_size", max_size)
-        if dpi is not None:
-            if scale != 1.0:
-                msg = "scale and dpi cannot both be specified"
-                raise ValueError(msg)
-            scale = dpi / 72.0
-        rgba = _normalize_background(background)
-        page_number = self._lopdf_page_number(pno)
-        self._ensure_fallback_fonts()
-        result = self._doc.render_page_png(page_number, scale, rgba, max_size)
-        self._emit_warnings()
-        return result
+        return self[pno].get_pixmap(matrix=matrix, dpi=dpi, clip=clip, alpha=alpha, background=background)
 
     def render_pages(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,
         pages: Iterable[int] | None = None,
-        scale: float = 1.0,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
+        alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         workers: int | None = None,
         max_size: int | None = _DEFAULT_MAX_RENDER_BATCH_SIZE,
     ) -> list[bytes]:
         """Render pages to PNG concurrently while preserving input order.
 
+        ``matrix``, ``dpi``, ``alpha``, and ``background`` have the meaning of
+        :meth:`Page.get_pixmap`, so the default is opaque RGB at 72 dpi.
         ``pages`` contains zero-based page numbers and defaults to every page.
         Duplicates are allowed. ``workers=None`` uses up to four CPUs; explicit
         values must be between 1 and 64. Actual concurrency is also capped to
@@ -1640,11 +1628,8 @@ class Document:
         parallel rendering boundary.
         """
         self._ensure_open()
-        if dpi is not None:
-            if scale != 1.0:
-                msg = "scale and dpi cannot both be specified"
-                raise ValueError(msg)
-            scale = dpi / 72.0
+        scale = _render_scale(matrix, dpi)
+        rgba = _render_background(background, alpha=alpha)
         if workers is None:
             workers = min(4, os.cpu_count() or 1)
         elif isinstance(workers, bool) or not isinstance(workers, int):
@@ -1656,31 +1641,10 @@ class Document:
         _validate_optional_positive_int("max_size", max_size)
         count = self.page_count
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
-        rgba = _normalize_background(background)
         if not page_numbers:
             return []
         self._ensure_fallback_fonts()
-        result = self._doc.render_pages_png(page_numbers, scale, rgba, workers, max_size)
-        self._emit_warnings()
-        return result
-
-    def render_page_svg(
-        self,
-        pno: int,
-        *,
-        max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
-    ) -> str:
-        """Render zero-based page ``pno`` to a bounded SVG string.
-
-        ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
-        explicitly opts out. hayro-svg currently materializes its internal
-        Rust string before this boundary is enforced, but over-limit output is
-        rejected before conversion to a Python string.
-        """
-        page_number = self._lopdf_page_number(pno)
-        _validate_optional_positive_int("max_size", max_size)
-        self._ensure_fallback_fonts()
-        result = self._doc.render_page_svg(page_number, max_size)
+        result = self._doc.render_pages_png(page_numbers, scale, alpha, rgba, workers, max_size)
         self._emit_warnings()
         return result
 

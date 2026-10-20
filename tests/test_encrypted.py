@@ -37,7 +37,7 @@ def test_open_with_user_password(name: str) -> None:
     assert doc.needs_pass
     assert not doc.is_encrypted
     assert "Encrypted page one" in doc.get_page_text(0)
-    assert doc.render_page(0, 0.5).startswith(b"\x89PNG")
+    assert doc.get_page_pixmap(0, matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).tobytes().startswith(b"\x89PNG")
 
 
 @USER
@@ -173,7 +173,7 @@ def test_save_encrypted_file_and_password_arg(tmp_path: Path, three_page_pdf: by
     opened = pylopdf.Document(out, password="secret")
     assert opened.page_count == 3
     assert "Page one" in opened.get_page_text(0)
-    assert opened.render_page(0).startswith(b"\x89PNG")
+    assert opened.get_page_pixmap(0, alpha=True).tobytes().startswith(b"\x89PNG")
     with pytest.raises(pylopdf.PasswordError):
         pylopdf.Document(out, password="wrong")
 

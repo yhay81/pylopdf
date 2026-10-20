@@ -835,10 +835,10 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     font_results = _font_results(first, font)
-    first_pixmap = first.get_pixmap(0.5)
+    first_pixmap = first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
     _require(
-        first.get_pixmap(0.5).samples == first_pixmap.samples,
+        first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples == first_pixmap.samples,
         "a repeated render on the retained cache changed the raster",
     )
     pixmap_buffer = memoryview(first_pixmap)
@@ -861,8 +861,10 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require("Generated on Wasm" in texts[0] and _JAPANESE in texts[0], "generated text did not round-trip")
     _require("Second page wraps text" in texts[1], "textbox text did not round-trip")
 
-    serial_renders = reopened.render_pages([1, 0, 1], scale=0.5, workers=1)
-    requested_parallel_renders = reopened.render_pages([1, 0, 1], scale=0.5, workers=4)
+    serial_renders = reopened.render_pages([1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=1)
+    requested_parallel_renders = reopened.render_pages(
+        [1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=4
+    )
     _require(serial_renders == requested_parallel_renders, "workers=4 changed serial-fallback rendering")
     render_sizes = [_png_size(data) for data in requested_parallel_renders]
     _require(render_sizes == [[90, 120], [120, 90], [90, 120]], "batch rendering lost input order")
@@ -1082,7 +1084,7 @@ def _geometry_results() -> dict[str, Any]:
         _require(text == "Affine", "transformed text failed to survive save/reopen")
         line = reopened[0].get_drawings()[0]["items"][0]
         _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
-        _require(reopened[0].get_pixmap().width == page_size, "transformed drawing failed to render")
+        _require(reopened[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
     rectangles = _rectangle_results()
     return {
         "matrix": list(transform),
@@ -1122,7 +1124,9 @@ def _rectangle_results() -> dict[str, Any]:
         crop_rect = list(boxed.rect)
         boxed.set_mediabox((0, 0, 200, 300))
         reset_cropbox = list(boxed.cropbox)
-        image_xref = boxed.insert_image((10, 10, 60, 60), pixmap=document[0].get_pixmap(scale=0.1))
+        image_xref = boxed.insert_image(
+            (10, 10, 60, 60), pixmap=document[0].get_pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
+        )
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
         boxed.insert_text((20, 250), "Full name", fontname="Times-Bold")

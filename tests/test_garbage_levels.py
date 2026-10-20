@@ -25,7 +25,7 @@ def _object_body(data: bytes, number: int) -> bytes:
 
 
 def _signature(doc: pylopdf.Document) -> list[tuple[str, bytes]]:
-    return [(doc[i].get_text(), doc[i].get_pixmap(dpi=24).samples) for i in range(doc.page_count)]
+    return [(doc[i].get_text(), doc[i].get_pixmap(dpi=24, alpha=True).samples) for i in range(doc.page_count)]
 
 
 def _twice_imported() -> pylopdf.Document:
@@ -211,7 +211,7 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
 
 
 def test_images_placed_after_merging_save_and_merge_again() -> None:
-    pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf")[0].get_pixmap(dpi=24)
+    pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf")[0].get_pixmap(dpi=24, alpha=True)
     doc = pylopdf.open(stream=build_pdf(["A", "B"]))
     doc[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
     doc.tobytes(garbage=4)
@@ -224,8 +224,8 @@ def test_images_placed_after_merging_save_and_merge_again() -> None:
     expected = len(re.findall(rb"/Subtype\s*/Image", once.tobytes(garbage=4)))
     assert len(re.findall(rb"/Subtype\s*/Image", saved)) == expected
     reopened = pylopdf.open(stream=saved)
-    assert reopened[0].get_pixmap(dpi=24).samples == doc[0].get_pixmap(dpi=24).samples
-    assert reopened[1].get_pixmap(dpi=24).samples == doc[1].get_pixmap(dpi=24).samples
+    assert reopened[0].get_pixmap(dpi=24, alpha=True).samples == doc[0].get_pixmap(dpi=24, alpha=True).samples
+    assert reopened[1].get_pixmap(dpi=24, alpha=True).samples == doc[1].get_pixmap(dpi=24, alpha=True).samples
 
 
 def test_saving_to_a_file_accepts_levels(tmp_path: Path) -> None:

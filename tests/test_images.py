@@ -157,7 +157,7 @@ def test_image_extraction_streams_rgb_alpha_without_changing_pixels() -> None:
     """Keep straight RGBA samples exact while avoiding a complete interleaved copy."""
     source = pylopdf.Document()
     source.new_page(width=2, height=1)
-    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40))
+    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=2, height=1)

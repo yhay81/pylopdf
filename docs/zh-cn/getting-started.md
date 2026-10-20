@@ -80,10 +80,10 @@ hits = page.search_for("合计")             # 不区分大小写，返回 list[
 ## 渲染 { #rendering }
 
 ```python
-png = doc.render_page(0, dpi=300)                    # bytes（PNG）
-pix = page.get_pixmap(scale=2)                       # 供NumPy/PIL使用的RGBA8像素
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg = doc.render_page_svg(0)
+png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # bytes（PNG）
+pix = page.get_pixmap(dpi=144)                       # 供NumPy/PIL使用的RGB像素
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg = doc[0].get_svg_image()
 ```
 
 ## 编辑 { #editing }

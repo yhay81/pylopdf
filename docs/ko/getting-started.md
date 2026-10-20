@@ -84,10 +84,10 @@ hits = page.search_for("합계")             # 대소문자 구분 없음, list[
 ## 렌더링 { #rendering }
 
 ```python
-png = doc.render_page(0, dpi=300)                    # bytes（PNG）
-pix = page.get_pixmap(scale=2)                       # NumPy/PIL용 RGBA8 픽셀
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg = doc.render_page_svg(0)
+png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # bytes（PNG）
+pix = page.get_pixmap(dpi=144)                       # NumPy/PIL용 RGB 픽셀
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg = doc[0].get_svg_image()
 ```
 
 ## 편집 { #editing }

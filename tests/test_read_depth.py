@@ -68,7 +68,7 @@ def test_a_page_at_the_limit_is_read() -> None:
     for operation in OPERATIONS.values():
         operation(doc)
     assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
 
 
 @pytest.mark.parametrize("levels", [READ_DEPTH, 99])
@@ -87,8 +87,8 @@ def test_only_the_page_nested_too_deeply_is_refused() -> None:
 
     assert "PAGE TEXT" in doc.get_page_text(0)
     assert "PAGE TEXT" in doc.get_page_text(2)
-    assert doc[2].get_pixmap().width == 300
-    assert len(doc.render_pages([0, 2], workers=2)) == 2
+    assert doc[2].get_pixmap(alpha=True).width == 300
+    assert len(doc.render_pages([0, 2], alpha=True, workers=2)) == 2
     assert _refusal(lambda: doc.get_page_text(1)).code == CODE
     assert _refusal(doc.get_text).code == CODE
     assert _refusal(doc.render_pages).code == CODE
@@ -126,7 +126,7 @@ def test_inherited_resources_nested_too_deeply_refuse_the_pages_that_inherit_the
     doc = pylopdf.Document(stream=data)
 
     assert "PAGE TEXT" in doc.get_page_text(0)
-    assert doc[0].get_pixmap().width == 300
+    assert doc[0].get_pixmap(alpha=True).width == 300
     assert _refusal(lambda: doc.get_page_text(1)).code == CODE
 
 
@@ -145,7 +145,7 @@ def test_a_document_root_nested_too_deeply_still_opens(where: str) -> None:
     for operation in OPERATIONS.values():
         operation(doc)
     assert doc.get_text().count("PAGE TEXT") == 2
-    assert [pixmap.width for pixmap in (doc[0].get_pixmap(), doc[1].get_pixmap())] == [300, 300]
+    assert [pixmap.width for pixmap in (doc[0].get_pixmap(alpha=True), doc[1].get_pixmap(alpha=True))] == [300, 300]
 
 
 def test_the_web_profile_refuses_such_documents_when_they_open() -> None:

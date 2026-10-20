@@ -55,7 +55,7 @@ def _png_header(width: int, height: int) -> bytes:
 
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
-    pix = page.get_pixmap(background=WHITE)
+    pix = page.get_pixmap(background=WHITE, alpha=True)
     offset = y * pix.stride + x * 4
     r, g, b = pix.samples[offset : offset + 3]
     return (r, g, b)
@@ -221,7 +221,7 @@ def _split_pixmap() -> pylopdf.Pixmap:
     source = _new_page_doc(20, 10)
     source[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
     source[0].insert_image((10, 0, 20, 10), stream=_solid_png(2, 2, GREEN), keep_proportion=False)
-    return source[0].get_pixmap(background=WHITE)
+    return source[0].get_pixmap(background=WHITE, alpha=True)
 
 
 def test_drawing_wraps_existing_contents_only_once() -> None:
@@ -541,7 +541,7 @@ def test_insert_grayscale_png_alpha_is_preserved() -> None:
 def test_insert_pixmap_directly_preserves_alpha() -> None:
     source = _new_page_doc(20, 10)
     source[0].insert_image((0, 0, 10, 10), stream=_solid_png(2, 2, RED), keep_proportion=False)
-    pixmap = source[0].get_pixmap()
+    pixmap = source[0].get_pixmap(alpha=True)
 
     target = _new_page_doc(40, 20)
     target[0].insert_image((0, 0, 40, 20), pixmap=pixmap, keep_proportion=False)
@@ -554,7 +554,7 @@ def test_insert_pixmap_directly_preserves_alpha() -> None:
 
 def test_insert_opaque_pixmap_omits_soft_mask() -> None:
     source = _new_page_doc(4, 2)
-    pixmap = source[0].get_pixmap(background=GREEN)
+    pixmap = source[0].get_pixmap(background=GREEN, alpha=True)
 
     target = _new_page_doc(40, 20)
     target[0].insert_image((0, 0, 40, 20), pixmap=pixmap)
@@ -564,7 +564,7 @@ def test_insert_opaque_pixmap_omits_soft_mask() -> None:
 
 def test_insert_pixmap_on_rotated_page_uses_display_coordinates() -> None:
     source = _new_page_doc(2, 2)
-    pixmap = source[0].get_pixmap(background=RED)
+    pixmap = source[0].get_pixmap(background=RED, alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=100, height=200)
@@ -695,16 +695,16 @@ def test_insert_image_rejects_bad_input() -> None:
         page.insert_image(
             (0, 0, 10, 10),
             stream=_solid_png(1, 1, RED),
-            pixmap=page.get_pixmap(),
+            pixmap=page.get_pixmap(alpha=True),
         )
     with pytest.raises(TypeError, match="pixmap must be a Pixmap"):
         page.insert_image((0, 0, 10, 10), pixmap=b"not a pixmap")  # ty: ignore[invalid-argument-type]
-    before = page.get_pixmap(background=WHITE).samples
+    before = page.get_pixmap(background=WHITE, alpha=True).samples
     with pytest.raises(TypeError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=True)
     with pytest.raises(ValueError, match="rotate must be a multiple of 90"):
         page.insert_image((0, 0, 10, 10), stream=_solid_png(1, 1, RED), rotate=45)
-    assert page.get_pixmap(background=WHITE).samples == before
+    assert page.get_pixmap(background=WHITE, alpha=True).samples == before
     assert page.get_images() == []
     with pytest.raises(ValueError, match="rect"):
         page.insert_image((50, 50, 10, 10), stream=_solid_png(1, 1, RED))
@@ -783,7 +783,7 @@ def test_insert_image_bounds_png_pixels_before_decode() -> None:
 
 
 def test_insert_image_budgets_do_not_apply_to_pixmap() -> None:
-    pixmap = _new_page_doc(2, 2)[0].get_pixmap()
+    pixmap = _new_page_doc(2, 2)[0].get_pixmap(alpha=True)
     target = _new_page_doc()
 
     target[0].insert_image((0, 0, 10, 10), pixmap=pixmap, max_size=1, max_pixels=1)
@@ -916,7 +916,7 @@ def test_insert_text_on_rotated_page_reads_upright() -> None:
     page = doc[0]
     page.set_rotation(90)
     page.insert_text((20, 50), "Rotated")
-    pix = page.get_pixmap(background=WHITE)
+    pix = page.get_pixmap(background=WHITE, alpha=True)
     assert (pix.width, pix.height) == (200, 100)  # Rendering uses display space.
     # Extraction/search share rendering's rotation-resolved display space.
     words = page.get_text("words")
@@ -1053,7 +1053,7 @@ def test_insert_text_embedded_fontbuffer_multiline_and_rotation() -> None:
     assert abs(words["一行目"][0] - 30) < 2
     assert words["一行目"][1] < 55 < words["一行目"][3]
     assert words["二行目"][1] > words["一行目"][1]
-    assert page.get_pixmap().width == 300
+    assert page.get_pixmap(alpha=True).width == 300
 
 
 def test_insert_text_embedded_overlay_order() -> None:
@@ -1069,7 +1069,9 @@ def test_insert_text_embedded_overlay_order() -> None:
         color=(1.0, 0.0, 0.0),
         overlay=False,
     )
-    underlay_rgb = bytes(channel for offset, channel in enumerate(underlay[0].get_pixmap().samples) if offset % 4 != 3)
+    underlay_rgb = bytes(
+        channel for offset, channel in enumerate(underlay[0].get_pixmap(alpha=True).samples) if offset % 4 != 3
+    )
     assert set(underlay_rgb) == {0, 128}
 
     overlay = _new_page_doc(160, 80)
@@ -1081,7 +1083,9 @@ def test_insert_text_embedded_overlay_order() -> None:
         fontbuffer=font_data,
         color=(1.0, 0.0, 0.0),
     )
-    overlay_rgb = bytes(channel for offset, channel in enumerate(overlay[0].get_pixmap().samples) if offset % 4 != 3)
+    overlay_rgb = bytes(
+        channel for offset, channel in enumerate(overlay[0].get_pixmap(alpha=True).samples) if offset % 4 != 3
+    )
     assert set(overlay_rgb) != {0, 128}
 
     standard_underlay = _new_page_doc(160, 80)
@@ -1094,7 +1098,7 @@ def test_insert_text_embedded_overlay_order() -> None:
         overlay=False,
     )
     standard_rgb = bytes(
-        channel for offset, channel in enumerate(standard_underlay[0].get_pixmap().samples) if offset % 4 != 3
+        channel for offset, channel in enumerate(standard_underlay[0].get_pixmap(alpha=True).samples) if offset % 4 != 3
     )
     assert set(standard_rgb) == {0, 128}
 
@@ -1133,13 +1137,13 @@ def test_insert_textbox_justifies_only_soft_wrapped_lines() -> None:
 def test_insert_textbox_overflow_is_non_drawing_and_empty_text_is_free() -> None:
     doc = _new_page_doc(200, 100)
     page = doc[0]
-    before = page.get_pixmap(background=WHITE).samples
+    before = page.get_pixmap(background=WHITE, alpha=True).samples
 
     spare = page.insert_textbox((10, 10, 110, 15), "one two three four", fontsize=10)
 
     assert spare < 0
     assert page.get_text() == ""
-    assert page.get_pixmap(background=WHITE).samples == before
+    assert page.get_pixmap(background=WHITE, alpha=True).samples == before
     assert page.insert_textbox((10, 10, 110, 25), "", fontsize=10) == 15
     assert page.get_text() == ""
 
@@ -1206,7 +1210,7 @@ def test_insert_textbox_underlay_stays_below_existing_content(fontfile: Path | N
         overlay=False,
     )
 
-    rgb = bytes(channel for offset, channel in enumerate(page.get_pixmap().samples) if offset % 4 != 3)
+    rgb = bytes(channel for offset, channel in enumerate(page.get_pixmap(alpha=True).samples) if offset % 4 != 3)
     assert set(rgb) == {0, 128}
 
 

@@ -48,7 +48,7 @@ with ThreadPoolExecutor() as pool:
 말고 `render_pages()`를 사용합니다.
 
 ```python
-png_pages = document.render_pages(scale=2, workers=4)
+png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 `render_pages()`는 하나의 불변 렌더러 snapshot을 사용하고 요청한 페이지 순서와 중복을
@@ -56,7 +56,7 @@ png_pages = document.render_pages(scale=2, workers=4)
 
 ## 반복 렌더링 { #repeated-rendering }
 
-Document를 연 스레드에서 `render_page()`, `Page.get_pixmap()`, `Page.render()`,
+Document를 연 스레드에서 `Page.get_pixmap()`, `Document.get_page_pixmap()`,
 직렬 `render_pages()`를 반복 호출하면 이전 호출에서 파싱한 font, 색 공간, glyph
 윤곽선을 재사용하며, 출력은 새로 연 Document와 동일합니다. 각 스레드는 이러한
 cache를 최대 하나 유지하고, 호출 사이에는 서로 다른 페이지 최대 64개 분량만
@@ -68,7 +68,7 @@ cache를 사용합니다.
 
 ## Pixmap 버퍼 { #pixmap-buffers }
 
-모든 wheel은 불변 RGBA8 저장소를 읽기 전용, 1차원, zero-copy buffer로
+모든 wheel은 불변 RGB 또는 RGBA 픽셀 저장소를 읽기 전용, 1차원, zero-copy buffer로
 노출합니다.
 
 ```python

@@ -85,18 +85,34 @@ fn zeroed_bytes(length: usize, label: &str) -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
-/// Convert straight-alpha RGBA8 pixels directly to a PDF Image XObject.
-pub fn rgba_parts(width: u32, height: u32, data: &[u8]) -> Result<ImageParts, String> {
+/// Convert RGB8, or straight-alpha RGBA8, pixels directly to a PDF Image XObject.
+pub fn pixmap_parts(
+    width: u32,
+    height: u32,
+    alpha: bool,
+    data: &[u8],
+) -> Result<ImageParts, String> {
     if width == 0 || height == 0 {
         return Err("Pixmap dimensions are zero".to_owned());
     }
     let pixel_count = usize::try_from(u64::from(width) * u64::from(height))
         .map_err(|_| "Pixmap dimensions are too large".to_owned())?;
     let expected_len = pixel_count
-        .checked_mul(4)
+        .checked_mul(if alpha { 4 } else { 3 })
         .ok_or_else(|| "Pixmap dimensions are too large".to_owned())?;
     if data.len() != expected_len {
-        return Err("Pixmap RGBA buffer length does not match its dimensions".to_owned());
+        return Err("Pixmap buffer length does not match its dimensions".to_owned());
+    }
+    if !alpha {
+        // RGB samples are already the XObject's plane, and opaque.
+        return Ok(ImageParts {
+            width,
+            height,
+            color_space: "DeviceRGB",
+            filter: "FlateDecode",
+            data: flate_compress(data)?,
+            alpha: None,
+        });
     }
 
     let rgb_len = pixel_count

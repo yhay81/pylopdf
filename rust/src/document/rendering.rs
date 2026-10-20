@@ -84,6 +84,29 @@ pub(super) fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
     pixmap.take_rgba8(ImageAlphaType::Alpha)
 }
 
+/// Horizontal and vertical render scale factors, where 1.0 is 72 dpi.
+pub(super) type RenderScale = (f32, f32);
+
+/// Return a rendered raster's samples and PNG color type: straight-alpha RGBA,
+/// or RGB when `alpha` is false. Without alpha the raster was cleared to an
+/// opaque background, so every pixel is opaque and premultiplication is moot;
+/// the alpha bytes are dropped in place without a second buffer.
+pub(super) fn raster_samples(
+    pixmap: hayro::vello_cpu::Pixmap,
+    alpha: bool,
+) -> (Vec<u8>, png::ColorType) {
+    let mut data = rgba_bytes(pixmap);
+    if alpha {
+        return (data, png::ColorType::Rgba);
+    }
+    let pixels = data.len() / 4;
+    for index in 0..pixels {
+        data.copy_within(index * 4..index * 4 + 3, index * 3);
+    }
+    data.truncate(pixels * 3);
+    (data, png::ColorType::Rgb)
+}
+
 /// Pixel viewport of a display-coordinate clip on the scaled page raster.
 ///
 /// The clip is intersected with the page and rounded outward to pixel
@@ -91,7 +114,7 @@ pub(super) fn rgba_bytes(pixmap: hayro::vello_cpu::Pixmap) -> Vec<u8> {
 pub(super) fn clip_viewport(
     page_width: u16,
     page_height: u16,
-    scale: f32,
+    scale: RenderScale,
     clip: (f64, f64, f64, f64),
 ) -> Result<(f64, f64, u16, u16), String> {
     if ![clip.0, clip.1, clip.2, clip.3]
@@ -102,12 +125,12 @@ pub(super) fn clip_viewport(
     {
         return Err("clip must be a finite rectangle with x0 < x1 and y0 < y1".to_owned());
     }
-    let scale = f64::from(scale);
+    let (x_scale, y_scale) = (f64::from(scale.0), f64::from(scale.1));
     let (width, height) = (f64::from(page_width), f64::from(page_height));
-    let x0 = (clip.0 * scale).floor().clamp(0.0, width);
-    let y0 = (clip.1 * scale).floor().clamp(0.0, height);
-    let x1 = (clip.2 * scale).ceil().clamp(0.0, width);
-    let y1 = (clip.3 * scale).ceil().clamp(0.0, height);
+    let x0 = (clip.0 * x_scale).floor().clamp(0.0, width);
+    let y0 = (clip.1 * y_scale).floor().clamp(0.0, height);
+    let x1 = (clip.2 * x_scale).ceil().clamp(0.0, width);
+    let y1 = (clip.3 * y_scale).ceil().clamp(0.0, height);
     if x0 >= x1 || y0 >= y1 {
         return Err("clip does not intersect the rendered page".to_owned());
     }
@@ -116,8 +139,12 @@ pub(super) fn clip_viewport(
 }
 
 /// Validate one page and return its raster pixel count.
-pub(super) fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Result<u64, String> {
-    if !scale.is_finite() || scale <= 0.0 {
+pub(super) fn render_pixel_count(
+    pdf: &Pdf,
+    page_number: u32,
+    scale: RenderScale,
+) -> Result<u64, String> {
+    if !(scale.0.is_finite() && scale.1.is_finite() && scale.0 > 0.0 && scale.1 > 0.0) {
         return Err("scale must be a finite, positive value".to_owned());
     }
     let pages = pdf.pages();
@@ -126,8 +153,8 @@ pub(super) fn render_pixel_count(pdf: &Pdf, page_number: u32, scale: f32) -> Res
         .and_then(|index| pages.get(index as usize))
         .ok_or_else(|| format!("page {page_number} does not exist"))?;
     let (page_width, page_height) = page.render_dimensions();
-    let pixel_width = (f64::from(page_width) * f64::from(scale)).floor();
-    let pixel_height = (f64::from(page_height) * f64::from(scale)).floor();
+    let pixel_width = (f64::from(page_width) * f64::from(scale.0)).floor();
+    let pixel_height = (f64::from(page_height) * f64::from(scale.1)).floor();
     if !pixel_width.is_finite()
         || !pixel_height.is_finite()
         || pixel_width < 1.0
@@ -159,7 +186,7 @@ pub(super) fn render_pdf_page<'a>(
     cache: &RenderCache<'a>,
     interpreter_settings: &InterpreterSettings,
     page_number: u32,
-    scale: f32,
+    scale: RenderScale,
     background: Option<(u8, u8, u8, u8)>,
     clip: Option<(f64, f64, f64, f64)>,
 ) -> Result<hayro::vello_cpu::Pixmap, String> {
@@ -171,13 +198,16 @@ pub(super) fn render_pdf_page<'a>(
         .ok_or_else(|| format!("page {page_number} does not exist"))?;
     let (page_width, page_height) = page.render_dimensions();
     // Match hayro::render, which truncates the scaled page size.
-    let (width, height) = ((page_width * scale) as u16, (page_height * scale) as u16);
+    let (width, height) = (
+        (page_width * scale.0) as u16,
+        (page_height * scale.1) as u16,
+    );
     let (x0, y0, width, height) = match clip {
         Some(clip) => clip_viewport(width, height, scale, clip)?,
         None => (0.0, 0.0, width, height),
     };
     let transform = Affine::translate((-x0, -y0))
-        * Affine::scale(f64::from(scale))
+        * Affine::scale_non_uniform(f64::from(scale.0), f64::from(scale.1))
         * page.initial_transform(true).to_kurbo();
     let mut context = RenderContext::new(width, height);
     render_into(
@@ -207,15 +237,16 @@ pub(super) fn render_pdf_page<'a>(
 /// Convert a rendered pixmap into the bounded fast PNG representation used publicly.
 pub(super) fn rendered_png(
     pixmap: hayro::vello_cpu::Pixmap,
+    alpha: bool,
     max_size: Option<usize>,
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap);
+    let (data, color_type) = raster_samples(pixmap, alpha);
     match crate::extract::encode_png_bounded(
         width,
         height,
-        png::ColorType::Rgba,
+        color_type,
         &data,
         png::Compression::Fast,
         max_size,
@@ -314,18 +345,19 @@ impl Drop for BatchPngOutput<'_> {
 /// Encode one batch page while charging each retained PNG chunk atomically.
 pub(super) fn rendered_batch_png(
     pixmap: hayro::vello_cpu::Pixmap,
+    alpha: bool,
     max_size: usize,
     output_bytes: &AtomicUsize,
 ) -> PyResult<Vec<u8>> {
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let data = rgba_bytes(pixmap);
+    let (data, color_type) = raster_samples(pixmap, alpha);
     let mut output = BatchPngOutput::new(max_size, output_bytes);
     let result = crate::extract::write_png(
         &mut output,
         width,
         height,
-        png::ColorType::Rgba,
+        color_type,
         &data,
         png::Compression::Fast,
     );
@@ -341,7 +373,8 @@ pub(super) fn rendered_batch_png(
 
 pub(super) struct BatchRenderer<'shared> {
     pub(super) interpreter_settings: &'shared InterpreterSettings,
-    pub(super) scale: f32,
+    pub(super) scale: RenderScale,
+    pub(super) alpha: bool,
     pub(super) background: Option<(u8, u8, u8, u8)>,
     pub(super) max_output_size: Option<usize>,
     pub(super) output_bytes: &'shared AtomicUsize,
@@ -366,8 +399,8 @@ impl BatchRenderer<'_> {
         )
         .map_err(PdfError::new_err)?;
         match self.max_output_size {
-            Some(limit) => rendered_batch_png(pixmap, limit, self.output_bytes),
-            None => rendered_png(pixmap, None),
+            Some(limit) => rendered_batch_png(pixmap, self.alpha, limit, self.output_bytes),
+            None => rendered_png(pixmap, self.alpha, None),
         }
     }
 
@@ -711,7 +744,7 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: f32,
+        scale: RenderScale,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<hayro::vello_cpu::Pixmap> {
@@ -755,7 +788,8 @@ pub(super) fn render_page_png(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-    scale: f32,
+    scale: RenderScale,
+    alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
     max_output_size: Option<usize>,
 ) -> PyResult<Vec<u8>> {
@@ -768,15 +802,17 @@ pub(super) fn render_page_png(
     // PNG encoding can cost more than rasterization, so release the GIL and
     // use Fast/fdeflate. Balanced is tens of times slower for about 10%
     // smaller output and made PNG the dominant render cost in benchmarks.
-    py.detach(|| rendered_png(pixmap, max_output_size))
+    py.detach(|| rendered_png(pixmap, alpha, max_output_size))
 }
 
 /// Implements [`_Document::render_pages_png`].
+#[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
 pub(super) fn render_pages_png(
     this: &mut _Document,
     py: Python<'_>,
     page_numbers: Vec<u32>,
-    scale: f32,
+    scale: RenderScale,
+    alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
     workers: usize,
     max_output_size: Option<usize>,
@@ -806,6 +842,7 @@ pub(super) fn render_pages_png(
             let renderer = BatchRenderer {
                 interpreter_settings: &interpreter_settings,
                 scale,
+                alpha,
                 background,
                 max_output_size,
                 output_bytes: &output_bytes,
@@ -913,7 +950,8 @@ pub(super) fn render_page_pixmap(
     this: &mut _Document,
     py: Python<'_>,
     page_number: u32,
-    scale: f32,
+    scale: RenderScale,
+    alpha: bool,
     background: Option<(u8, u8, u8, u8)>,
     clip: Option<(f64, f64, f64, f64)>,
 ) -> PyResult<crate::pixmap::Pixmap> {
@@ -921,10 +959,11 @@ pub(super) fn render_page_pixmap(
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
     // Release the GIL: unpremultiplication touches every rendered pixel.
-    let data = py.detach(|| rgba_bytes(pixmap));
+    let (data, _) = py.detach(|| raster_samples(pixmap, alpha));
     Ok(crate::pixmap::Pixmap {
         width,
         height,
+        alpha,
         data: Arc::new(data),
     })
 }

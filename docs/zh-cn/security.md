@@ -172,10 +172,8 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 仍会把panic消息写到标准错误输出。
 
 - 每页渲染上限为6400万像素。
-- `Document.render_page()`、`Page.render()`与`Pixmap.tobytes()`的encoded PNG
-  输出默认上限为64 MiB。writer会在返回Python `bytes`前拒绝越界write；
-  `max_size=None`可显式取消。rendering使用`render_output_size`，
-  Pixmap直接encode使用`pixmap_output_size`。
+- `Pixmap.tobytes()`的encoded PNG输出默认上限为64 MiB。writer会在返回Python
+  `bytes`前以`pixmap_output_size`拒绝越界write；`max_size=None`可显式取消。
 - `Document.tobytes()`对普通、object/xref stream及加密输出统一应用512 MiB默认
   serialization上限。Rust writer会在转换为Python `bytes`之前拒绝越界write；
   `max_size=None`可显式取消。`save()`先流式写入target同directory中安全创建的
@@ -219,7 +217,7 @@ renderer state会像编辑时一样被丢弃，因此之后的调用会从头开
 - open、authenticate、快速metadata probe与AES-256输出使用的password在PyO3 copy或
   password KDF前限制为127 UTF-8 byte。Rust直接调用会再次检查；拒绝code为
   `password_input_size`，保存拒绝发生在document mutation或创建output之前。
-- `render_page_svg()`和`Page.render_svg()`的UTF-8输出默认上限为64 MiB，在
+- `Page.get_svg_image()`的UTF-8输出默认上限为64 MiB，在
   PyO3创建Python string前拒绝超限结果；`max_size=None`可显式取消。
   hayro-svg 0.8只返回完整`String`，因此pylopdf应用边界前的一份内部Rust string
   不受此限制。

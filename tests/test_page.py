@@ -30,15 +30,15 @@ def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
     doc = pylopdf.Document(stream=three_page_pdf)
     page = doc[1]
     assert "Page two" in page.get_text()
-    png = page.render(max_size=None)
-    assert png == doc.render_page(1)
-    assert page.render(max_size=len(png)) == png
+    png = page.get_pixmap(alpha=True).tobytes(max_size=None)
+    assert png == doc.get_page_pixmap(1, alpha=True).tobytes()
+    assert page.get_pixmap(alpha=True).tobytes(max_size=len(png)) == png
     with pytest.raises(pylopdf.LimitError) as caught:
-        page.render(max_size=len(png) - 1)
-    assert caught.value.code == "render_output_size"
-    svg = page.render_svg(max_size=None)
-    assert svg == doc.render_page_svg(1, max_size=None)
-    assert page.render_svg(max_size=len(svg.encode())) == svg
+        page.get_pixmap(alpha=True).tobytes(max_size=len(png) - 1)
+    assert caught.value.code == "pixmap_output_size"
+    svg = page.get_svg_image(max_size=None)
+    assert svg == doc[1].get_svg_image(max_size=None)
+    assert page.get_svg_image(max_size=len(svg.encode())) == svg
 
 
 def test_stale_page_after_structure_change(three_page_pdf: bytes) -> None:
@@ -75,7 +75,7 @@ def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
     # Persist the box through save and apply it to rendering dimensions.
     reopened = pylopdf.Document(stream=doc.tobytes())
     assert reopened[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
-    assert png_size(reopened.render_page(0)) == (300, 400)
+    assert png_size(reopened.get_page_pixmap(0, alpha=True).tobytes()) == (300, 400)
 
 
 def test_set_cropbox(one_page_pdf: bytes) -> None:
@@ -84,7 +84,7 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
     assert doc[0].cropbox == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
     assert doc[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
     # Rendering uses the CropBox dimensions.
-    assert png_size(doc.render_page(0)) == (300, 400)
+    assert png_size(doc.get_page_pixmap(0, alpha=True).tobytes()) == (300, 400)
 
 
 @pytest.mark.parametrize(
@@ -111,7 +111,7 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
     page.set_rotation(90)
     assert page.rotation == 90
     # Rotation swaps rendered dimensions from 612 x 792 to 792 x 612.
-    assert png_size(doc.render_page(0)) == (792, 612)
+    assert png_size(doc.get_page_pixmap(0, alpha=True).tobytes()) == (792, 612)
     page.set_rotation(-90)
     assert page.rotation == 270
     reopened = pylopdf.Document(stream=doc.tobytes())

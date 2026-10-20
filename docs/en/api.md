@@ -31,7 +31,7 @@ in pymupdf's `open("pdf", data)`. Password input stops at 127 UTF-8 bytes.
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
 | `get_text(pages=None)` | batched plain text for every page (`None`) or up to the larger of the page count and 4,096 explicit entries; 4,096-entry chunks each share one interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; every page by default, explicit entries up to the larger of the page count and 4,096, and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
-| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | bounded PNG bytes, ordered parallel batches of every page or up to the larger of the page count and 4,096 explicit entries under a cumulative encoded-output cap, or bounded UTF-8 SVG (`None` opts out) |
+| `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | a page `Pixmap` (pymupdf's convenience for `doc[pno].get_pixmap()`), or ordered parallel PNG batches of every page or up to the larger of the page count and 4,096 explicit entries under a cumulative encoded-output cap (`None` opts out) |
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | page management; select/delete entries are bounded by the larger of the page count and 4,096, `insert_pdf` accepts any complete source range and registers the form fields of imported pages, select/delete remove the widgets, fields, and tagged structure content of dropped pages, and navigation cleanup and link import share the TOC and named-destination limits |
@@ -66,7 +66,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | single-page Markdown with the same table and UTF-8 output controls |
 | `get_images()` | drawn images (`bbox`, JPEG passthrough / PNG); rejects partial output above 4,096 placements, 64,000,000 cumulative pixels, or 64 MiB of payloads |
 | `get_drawings()` | interpreted vector fill/stroke paths with display-space line/cubic geometry and normalized paint/stroke properties; rejects partial output above 8,192 paths, 131,072 commands, or 131,072 aggregate dash values |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | bounded PNG / UTF-8 SVG rendering; `clip` uses display coordinates |
+| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdf's rendering: opaque RGB on white by default, straight-alpha RGBA with `alpha=True`, `dpi` taking precedence over a scaling `matrix`, and `clip` in display coordinates; bounded UTF-8 SVG with text as paths |
 | `rotation` / `set_rotation(deg)` | display rotation |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | page boxes in pymupdf's convention: `mediabox` in PDF coordinates, `cropbox` with y flipped against the MediaBox top; `set_cropbox` requires a box inside the MediaBox, and `set_mediabox` removes the CropBox, BleedBox, TrimBox, and ArtBox |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` → xref | draw bounded JPEG/PNG or reuse an already bounded RGBA `Pixmap`; `None` opts trusted encoded input or PNG pixels out; `rotate` turns clockwise in 90-degree steps; identical input placed again shares one image XObject |
@@ -364,7 +364,7 @@ raw edits semantically valid is the caller's responsibility.
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
 | `DocumentLimits` / `DocumentComplexity` | immutable untrusted-input budgets, including `max_interpretation_size` for the PDF snapshot and `max_text_glyphs` for positioned layout / cheap structural TypedDict |
-| `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine / positioned result contract |
+| `OcrEngine` / `OcrWord` | reusable pure-Rust PP-OCR engine whose `recognize(pixmap, *, tile_size=, overlap=, min_confidence=, rotation=)` reads any `Pixmap` in pixel coordinates / positioned result contract |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | reusable Standard 14 or OpenType font with `text_length`, `ascender` / `descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, and `units_per_em`; `weight=` also selects an instance of a variable font file |
 | `Shape(page)` | pymupdf's builder for paths and text drawn in one step; `page.new_shape()` creates one |
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | low-level PDF values and live object handles ([low-level objects](#low-level-objects)) |
@@ -372,7 +372,8 @@ raw edits semantically valid is the caller's responsibility.
 | `OcrRotation` / `DrawingItem` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base); unreadable input raises `FileDataError` (also a `RuntimeError`), empty input `EmptyFileError`, and a missing file the built-in `FileNotFoundError` |
-| `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(path)`; every wheel also supports read-only zero-copy `memoryview()` |
+| `Pixmap` | Immutable RGB (`n == 3`) or straight-alpha RGBA (`n == 4`) pixels: `samples` / `width` / `height` / `stride` / `n` / `alpha` / `colorspace` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(filename)`; every wheel also supports read-only zero-copy `memoryview()` |
+| `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdf's device color spaces and their codes |
 | `PylopdfWarning` | recoverable interpretation warnings (xref repair, font resolution, image decode) |
 
 The `TypedDict` contracts affect static typing only; values remain ordinary
@@ -427,8 +428,8 @@ Inputs are bounded sequences, not arbitrary iterables. Mutating methods such as 
 Addition and scalar multiplication place the geometry on the left.
 
 These are value operations, so passing a transformed point to drawing changes
-its position, not the text's orientation or size. Rendering still accepts
-`scale=` / `dpi=`; `get_pixmap(matrix=)` remains roadmap work.
+its position, not the text's orientation or size. `get_pixmap(matrix=)`
+accepts scaling matrices; rotation and shear arrive with M1.
 
 ## Rectangles and quads { #rectangles }
 
