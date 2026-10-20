@@ -1245,7 +1245,7 @@ def test_insert_text_standard14_escapes_binary_and_delimiters() -> None:
 
 
 def test_insert_text_page_numbering_recipe() -> None:
-    # Exact page-number recipe published in the README.
+    # Page-number footer recipe.
     doc = pylopdf.Document()
     for _ in range(3):
         doc.new_page()

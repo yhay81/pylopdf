@@ -240,7 +240,7 @@ jobs:
       - name: Rust lint
         run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
       - name: Build and install
-        # The interop group tests the ecosystem recipes documented in the README.
+        # The interop group tests the ecosystem recipes documented in the ecosystem guide.
         run: uv sync --all-extras --group interop --no-editable-package pylopdf --python 3.14
       - name: Validate project metadata
         run: uv run --no-sync pre-commit run validate-pyproject --all-files

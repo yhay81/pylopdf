@@ -1,4 +1,4 @@
-"""Integration tests for the ecosystem recipes documented in the README.
+"""Integration tests for the ecosystem recipes documented in the ecosystem guide (docs/en/ecosystem.md).
 
 Verify the roadmap policy of integrating rather than reimplementing: typst-py
 for typesetting/new-document PDF/A and pyHanko for signatures. Tests skip when
@@ -33,7 +33,7 @@ Interop recipe test document.
 
 
 def test_typst_compile_to_pylopdf() -> None:
-    # README recipe: pass typst.compile() PDF bytes directly to open(stream=).
+    # Ecosystem guide recipe: pass typst.compile() PDF bytes directly to open(stream=).
     pdf_bytes = typst.compile(TYP_SOURCE)
     assert isinstance(pdf_bytes, bytes)
     with pylopdf.open(stream=pdf_bytes) as doc:
@@ -143,7 +143,7 @@ def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_pyhanko_signs_pylopdf_output_incrementally(tmp_path: Path) -> None:
-    # README recipe: pyHanko incrementally signs pylopdf output. Incremental
+    # Ecosystem guide recipe: pyHanko incrementally signs pylopdf output. Incremental
     # updates append bytes, preserving pylopdf's complete output unchanged.
     doc = pylopdf.Document()
     doc.new_page()

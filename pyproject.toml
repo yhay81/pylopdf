@@ -67,7 +67,7 @@ dev = [
     # the version that CI and the pre-commit hook run.
     "ty>=0.0.89",
 ]
-# Integration tests for the ecosystem recipes in the README; skipped when absent.
+# Integration tests for the ecosystem recipes in the ecosystem guide; skipped when absent.
 interop = [
     "typst>=0.15",
     "pyhanko>=0.36.1",
