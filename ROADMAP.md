@@ -210,8 +210,8 @@ complete, and version numbers are assigned at release time.
 | Wave | Work that runs in parallel | Gate for the next wave |
 | --- | --- | --- |
 | 0 — done | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion (#249, #250); XObject reuse (#231); save-time merging of identical objects (#251); CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design (#236), approved 2026-10-20 | Merged to main; F0 approved |
-| 1 — foundations (current) | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each | F1 merged with an unchanged API snapshot and corpus |
-| 2 — API reset | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
+| 1 — done | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each. F1, F2, F4, and F5 shipped in v0.15.0; F9 continues into wave 2 | F1 merged with an unchanged API snapshot and corpus |
+| 2 — API reset (current) | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
 | 3 — breadth | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
 | 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
 | 5 — depth | M6 (A, H), M7 (G) | Milestone acceptance |

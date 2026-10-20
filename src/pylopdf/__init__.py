@@ -79,7 +79,7 @@ from pylopdf._types import (
 )
 from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 __all__ = [
     "EMPTY_IRECT",
     "EMPTY_QUAD",
