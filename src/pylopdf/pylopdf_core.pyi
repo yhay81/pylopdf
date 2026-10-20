@@ -2,6 +2,8 @@
 import os
 from typing import TypeAlias
 
+def _copy_windows_dacl(source: os.PathLike[str], destination: os.PathLike[str]) -> None: ...
+
 _RawCharTuple: TypeAlias = tuple[str, tuple[float, float, float, float], tuple[float, float]]
 _RawSpanTuple: TypeAlias = tuple[
     tuple[float, float, float, float], list[_RawCharTuple], float, tuple[float, float], str, int

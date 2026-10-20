@@ -1386,6 +1386,13 @@ overview.
   its resolved target, while keeping the requested path in errors. Save options
   still mutate the in-memory document before I/O. Direct `_Document` path
   writers remain a low-level non-atomic boundary.
+  On Windows, PDF and PNG saves share `windows_permissions::copy_dacl` to
+  preserve an existing regular file's DACL and inheritance protection on the
+  sibling before writing data. A failed security read/copy must refuse the
+  save. Keep atomic rename rather than `ReplaceFileW`, whose documented
+  failure modes can remove the original. Python normalizes extended-length
+  Windows paths before any output I/O and clears only a failed temporary's
+  read-only attribute for cleanup; never clear it on the requested target.
 - `Document.tobytes` defaults to a 512 MiB serialized PDF output boundary.
   Normal, object/xref-stream, and encrypted core paths must all write through
   `BoundedPdfOutput`, which refuses the write crossing the limit before Python

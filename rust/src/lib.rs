@@ -36,6 +36,8 @@ mod shape;
 mod structure_prune;
 mod text_replace;
 mod unallocated;
+#[cfg(windows)]
+mod windows_permissions;
 use document::{_Document, LimitError, PasswordError, PdfError};
 use font::_Font;
 use ocr_engine::{_OcrEngine, OcrError};
@@ -53,5 +55,10 @@ fn pylopdf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("LimitError", m.py().get_type::<LimitError>())?;
     m.add("PasswordError", m.py().get_type::<PasswordError>())?;
     m.add("OcrError", m.py().get_type::<OcrError>())?;
+    #[cfg(windows)]
+    m.add_function(wrap_pyfunction!(
+        windows_permissions::_copy_windows_dacl,
+        m
+    )?)?;
     Ok(())
 }

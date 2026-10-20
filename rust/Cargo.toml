@@ -61,6 +61,10 @@ log = "0.4.33"
 # Identify repeated image input so drawing places one XObject again. lopdf
 # already links this crate, with the same features, for AES-256 encryption.
 sha2 = "0.11.1"
+[target.'cfg(windows)'.dependencies]
+# Preserve an existing output file's DACL without changing atomic rename semantics.
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem"] }
+
 [target.'cfg(not(target_os = "emscripten"))'.dependencies]
 # Expose the already-linked rayon runtime for supported batch rendering.
 rayon = "1"
