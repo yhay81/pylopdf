@@ -501,9 +501,11 @@ pub(super) fn prepare_pages_form_import(
         let source_id = page_id_from_index(&source_pages, page_number)
             .map_err(|_| missing_page(page_number))?;
         let source_dict = resolve_inherited_page_dict(&source, source_id)?;
-        let source_crop = resolve_box(&source, &source_dict, b"CropBox")
-            .or_else(|| resolve_box(&source, &source_dict, b"MediaBox"))
-            .unwrap_or([0.0, 0.0, 595.0, 842.0]);
+        // The Form shows what rendering shows of the source page.
+        let source_crop = draw::display_box(
+            resolve_box(&source, &source_dict, b"MediaBox"),
+            resolve_box(&source, &source_dict, b"CropBox"),
+        );
         let source_rotation = source_dict
             .get(b"Rotate")
             .ok()

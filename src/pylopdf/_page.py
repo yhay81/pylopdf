@@ -256,11 +256,15 @@ class Page:
 
     @property
     def rect(self) -> Rect:
-        """Return the display rectangle with origin 0,0 and rotation resolved."""
-        box = self.cropbox
-        if self.rotation in (90, 270):
-            return Rect(0.0, 0.0, box.height, box.width)
-        return Rect(0.0, 0.0, box.width, box.height)
+        """Return the display rectangle with origin 0,0 and rotation resolved.
+
+        The visible page is the CropBox clipped to the MediaBox, as pymupdf
+        defines it, and the rectangle is the one that rendering, extraction,
+        and drawing share. A CropBox that misses the MediaBox leaves the A4
+        page that the renderer then draws, where pymupdf uses Letter.
+        """
+        width, height = self._document._doc.page_display_size(self._page_number())
+        return Rect(0.0, 0.0, width, height)
 
     def set_mediabox(self, rect: Sequence[float]) -> None:
         """Set the MediaBox as ``(x0, y0, x1, y1)``."""
