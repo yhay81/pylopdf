@@ -8,6 +8,7 @@ mod draw;
 mod extract;
 mod font;
 mod form;
+mod garbage;
 mod generate;
 mod generated_pdf;
 mod graph_guard;

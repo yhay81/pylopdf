@@ -1129,6 +1129,28 @@ overview.
   therefore costs time in its source rather than in every target object, and
   objects the target already could not reach stay until a garbage save, as
   after every other drawing edit.
+- `garbage=` levels 2–4 run in `rust/src/garbage.rs` from
+  `_Document.collect_garbage`, in pymupdf's cumulative order: merge (3 and
+  4), prune unreachable objects (1), then compact numbering (2). Merging is
+  hash-consing over the reference graph's strongly connected components,
+  computed by an iterative Tarjan walk from ascending IDs, so children are
+  classified before their referrers: an object's hash and its equality check
+  replace each reference with the equality class of its target (or the
+  missing ID), and each class keeps its smallest ID. Objects in a cycle or
+  with a self-reference are never merged, nor are objects the trailer names,
+  objects named under an identity key (`/Annots`, `/K`, `/Kids`, `/Parent`,
+  `/P`, `/Pg`, `/OCGs`, and the rest of `IDENTITY_KEYS`), and dictionaries
+  that look like pages, annotations, fields, structure elements, outline
+  items, threads, or layers (`IDENTITY_TYPES`, `/Parent`, `/Kids`, `/P`,
+  `/FT`, `/T`, or `/Subtype` with `/Rect`): pylopdf edits those per owner, so
+  sharing them would let one edit change another page, field, or layer.
+  Compaction numbers objects from 1 with generation 0 and turns references
+  to missing objects into null, because their numbers would otherwise name a
+  renumbered object. Both reserve their rewrite stack from a container count
+  before the first change, so neither returns an error after mutating.
+  Levels 2–4 change object IDs and therefore forget placements and remap
+  `isolated_content_pages`; level 1 keeps placements. Add any new per-owner
+  structure to the identity lists before it can be merged.
 - `insert_pdf`, `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
@@ -2237,12 +2259,12 @@ Git history (`git show a233814:ROADMAP.md`).
   leaves the pymupdf name out. Do not add aliases, synonyms, or compatibility
   layers; migration is served by the parity manifest and its tools (F9). There
   are no deprecation windows before 1.0.
-- Current phase: wave 0 of the parity program (2026-10-19). The hayro 0.8
-  migration (#233), AcroForm registration on `insert_pdf` (#234), XObject
-  reuse for repeated insertion (#231), save-time merging of identical
-  objects, CPython 3.15 support (#230), the F3 parity manifest (#235), and
-  the F0 API design draft are in flight. The F1 module split runs alone after
-  they merge; the M0 API reset follows F0 approval.
+- Current phase: closing wave 0 of the parity program (2026-10-20). The
+  hayro 0.8 migration (#233), AcroForm registration on `insert_pdf` (#234),
+  XObject reuse for repeated insertion (#231), CPython 3.15 support (#230),
+  the F3 parity manifest (#235), and the F0 API design draft (#236) have
+  merged, and save-time merging of identical objects is the last wave-0 item.
+  The F1 module split runs alone next; the M0 API reset follows F0 approval.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.

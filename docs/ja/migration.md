@@ -34,7 +34,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.select`・`delete_page(s)`・`copy_page`・`new_page` | 同じ | `select` の重複指定は複製になる |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 同じ | 取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
-| `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` は bool |
+| `doc.save(garbage=4, deflate=True)` | 同じ | pymupdfと同じ0〜4の段階。ページ、注釈、フォームフィールド、構造要素、レイヤーは統合しない |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256のみ。各passwordはUTF-8 127 byte上限 |
 | `doc.needs_pass` / `authenticate()` | 同じ | 戻り値の意味（0/1/2/4/6）も同じ |
 | `page.rect / rotation / set_rotation` | 同じ | |
@@ -129,5 +129,5 @@ doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合計"))   # リストごと渡せる
 page.get_pixmap(scale=2).save("page.png")
-doc.save("out.pdf", garbage=True, deflate=True)
+doc.save("out.pdf", garbage=4, deflate=True)
 ```

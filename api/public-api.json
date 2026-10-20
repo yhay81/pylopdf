@@ -706,8 +706,8 @@
                 "name": "filename"
               },
               {
-                "annotation": "bool",
-                "default": false,
+                "annotation": "int",
+                "default": 0,
                 "kind": "keyword_only",
                 "name": "garbage"
               },
@@ -951,8 +951,8 @@
                 "name": "self"
               },
               {
-                "annotation": "bool",
-                "default": false,
+                "annotation": "int",
+                "default": 0,
                 "kind": "keyword_only",
                 "name": "garbage"
               },

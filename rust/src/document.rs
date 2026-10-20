@@ -10862,10 +10862,43 @@ impl _Document {
         py.detach(|| self.doc.decompress());
     }
 
-    /// Remove unreferenced objects.
-    fn prune_objects(&mut self) -> PyResult<()> {
-        self.invalidate_hayro_pdf_keeping_placements();
-        prune_unreachable_objects(&mut self.doc)
+    /// Collect garbage at one of pymupdf's cumulative `garbage` levels.
+    ///
+    /// 1 removes objects that the trailer cannot reach, 2 also numbers the
+    /// remaining objects consecutively, 3 also merges identical objects that
+    /// are not streams, and 4 also merges identical streams. Merging and
+    /// renumbering change the IDs of placed objects, so they forget
+    /// placements; removing unreachable objects keeps them.
+    fn collect_garbage(&mut self, py: Python<'_>, level: u8) -> PyResult<()> {
+        if level == 0 || level > 4 {
+            return Err(PdfError::new_err(format!(
+                "garbage must be between 0 and 4, got {level}"
+            )));
+        }
+        if level >= 2 {
+            self.invalidate_hayro_pdf();
+        } else {
+            self.invalidate_hayro_pdf_keeping_placements();
+        }
+        let doc: &mut Document = &mut self.doc;
+        let renumbered = py.detach(|| -> PyResult<_> {
+            if level >= 3 {
+                crate::garbage::merge_identical_objects(doc, level >= 4)?;
+            }
+            prune_unreachable_objects(doc)?;
+            if level >= 2 {
+                return crate::garbage::compact_object_numbers(doc).map(Some);
+            }
+            Ok(None)
+        })?;
+        if let Some(renumbered) = renumbered {
+            let isolated = std::mem::take(&mut self.isolated_content_pages);
+            self.isolated_content_pages = isolated
+                .into_iter()
+                .filter_map(|id| renumbered.get(&id).copied())
+                .collect();
+        }
+        Ok(())
     }
 
     /// Draw JPEG/PNG bytes into display `rect` on a one-based page.

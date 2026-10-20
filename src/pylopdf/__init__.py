@@ -246,6 +246,20 @@ def _validate_optional_positive_int(name: str, value: int | None) -> None:
         raise ValueError(msg)
 
 
+_MAX_GARBAGE_LEVEL = 4
+
+
+def _garbage_level(garbage: int) -> int:
+    """Validate a ``garbage`` save option; ``True`` and ``False`` mean 1 and 0."""
+    if not isinstance(garbage, int):
+        msg = f"garbage must be an integer from 0 to 4: {garbage!r}"
+        raise TypeError(msg)
+    if not 0 <= garbage <= _MAX_GARBAGE_LEVEL:
+        msg = f"garbage must be an integer from 0 to 4: {garbage!r}"
+        raise PdfError(msg)
+    return int(garbage)
+
+
 def _markdown_output_limit_error(max_size: int) -> LimitError:
     """Build the public error for any bounded Markdown conversion path."""
     return LimitError(
@@ -5931,7 +5945,7 @@ class Document:
         self,
         filename: str | os.PathLike[str],
         *,
-        garbage: bool = False,
+        garbage: int = 0,
         deflate: bool = False,
         object_streams: bool = False,
         user_pw: str | None = None,
@@ -5940,8 +5954,13 @@ class Document:
     ) -> None:
         """Save to a file.
 
-        ``garbage=True`` removes unreferenced objects and ``deflate=True``
-        applies Flate compression before saving; both mutate the document.
+        ``garbage`` takes pymupdf's cumulative levels: 1 removes objects that
+        nothing references, 2 also numbers the remaining objects
+        consecutively, 3 also merges identical objects other than streams, and
+        4 also merges identical streams. ``True`` and ``False`` mean 1 and 0.
+        Pages, annotations, form fields, structure elements, outline items,
+        and optional-content groups are never merged. ``deflate=True`` applies
+        Flate compression before saving. Both mutate the document.
         ``object_streams=True`` writes PDF 1.5+ object and xref streams, often
         reducing size and raising the version to 1.5 when necessary.
 
@@ -5955,8 +5974,9 @@ class Document:
         ``filename`` only after a complete successful write.
         """
         self._ensure_open()
+        level = _garbage_level(garbage)
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
-        self._apply_save_options(garbage=garbage, deflate=deflate)
+        self._apply_save_options(garbage=level, deflate=deflate)
         writer: Callable[[str], None]
         if encryption is not None:
             user, owner, perms = encryption
@@ -5976,7 +5996,7 @@ class Document:
     def tobytes(  # noqa: PLR0913  # Save options are keyword-only, like pymupdf.
         self,
         *,
-        garbage: bool = False,
+        garbage: int = 0,
         deflate: bool = False,
         object_streams: bool = False,
         user_pw: str | None = None,
@@ -5993,8 +6013,9 @@ class Document:
         """
         self._ensure_open()
         _validate_optional_positive_int("max_size", max_size)
+        level = _garbage_level(garbage)
         encryption = self._encryption_args(user_pw, owner_pw, permissions, object_streams=object_streams)
-        self._apply_save_options(garbage=garbage, deflate=deflate)
+        self._apply_save_options(garbage=level, deflate=deflate)
         if encryption is not None:
             user, owner, perms = encryption
             return self._doc.save_bytes_encrypted(user, owner, perms, os.urandom(32), max_size)
@@ -6002,10 +6023,10 @@ class Document:
             return self._doc.save_bytes_with_object_streams(max_size)
         return self._doc.save_bytes(max_size)
 
-    def _apply_save_options(self, *, garbage: bool, deflate: bool) -> None:
-        """Apply object pruning and stream compression before saving."""
+    def _apply_save_options(self, *, garbage: int, deflate: bool) -> None:
+        """Apply garbage collection and stream compression before saving."""
         if garbage:
-            self._doc.prune_objects()
+            self._doc.collect_garbage(garbage)
         if deflate:
             self._doc.compress()
 

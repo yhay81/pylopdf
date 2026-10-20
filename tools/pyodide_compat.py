@@ -991,6 +991,41 @@ def _structure_page_deletion_results() -> dict[str, Any]:
     return results
 
 
+def _garbage_results() -> dict[str, Any]:
+    """Merge identical objects and compact numbering at pymupdf's garbage levels."""
+    import pylopdf  # noqa: PLC0415
+
+    data = _build_raw_pdf(
+        {
+            1: "<< /Type /Catalog /Pages 2 0 R >>",
+            2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
+            3: "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 7 0 R >> >> >>",
+            4: "<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Resources << /Font << /F1 8 0 R >> >> >>",
+            5: "<< /Length 31 >>\nstream\nBT /F1 12 Tf 20 100 Td (A) Tj ET\nendstream",
+            6: "<< /Length 31 >>\nstream\nBT /F1 12 Tf 20 100 Td (A) Tj ET\nendstream",
+            7: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            8: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            9: "(UNREACHABLE)",
+        }
+    )
+    results: dict[str, Any] = {}
+    for level in range(5):
+        document = pylopdf.Document(stream=data)
+        saved = document.tobytes(garbage=level)
+        reopened = pylopdf.Document(stream=saved)
+        _require(
+            [reopened.get_page_text(pno).strip() for pno in range(2)] == ["A", "A"],
+            f"garbage={level} changed the text",
+        )
+        results[str(level)] = {
+            "objects": saved.count(b" 0 obj"),
+            "fonts": saved.count(b"/BaseFont/Helvetica"),
+            "pages": saved.count(b"/Type/Page") - saved.count(b"/Type/Pages"),
+        }
+    _require(results["4"] == {"objects": 6, "fonts": 1, "pages": 2}, "garbage=4 did not merge duplicates")
+    return results
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1007,6 +1042,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "generation": _generation_results(root),
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
+        "garbage": _garbage_results(),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

@@ -31,7 +31,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `doc.select`、`delete_page(s)`、`copy_page`、`new_page` | 相同 | `select`重复页码即复制页面 |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 相同 | 注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | 相同 | 两者页码均从1开始 |
-| `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage`为bool |
+| `doc.save(garbage=4, deflate=True)` | 相同 | 与pymupdf相同的0–4级；页面、注释、表单字段、结构元素和图层不会合并 |
 | `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | 仅AES-256；每个password上限127 UTF-8 byte |
 | `doc.needs_pass` / `authenticate()` | 相同 | 返回值语义相同（0/1/2/4/6） |
 | `page.rect / rotation / set_rotation` | 相同 | |
@@ -121,5 +121,5 @@ doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("合计"))   # 可直接传入整个列表
 page.get_pixmap(scale=2).save("page.png")
-doc.save("out.pdf", garbage=True, deflate=True)
+doc.save("out.pdf", garbage=4, deflate=True)
 ```
