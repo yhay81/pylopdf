@@ -100,7 +100,7 @@ def _page_views(doc: pylopdf.Document) -> list[tuple[str, str]]:
     return [
         (
             doc.get_page_text(index),
-            hashlib.sha256(doc[index].get_pixmap(scale=0.25).samples).hexdigest(),
+            hashlib.sha256(doc[index].get_pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True).samples).hexdigest(),
         )
         for index in range(doc.page_count)
     ]
@@ -616,7 +616,7 @@ def test_walker_pages_render_under_an_interpretation_limit() -> None:
     doc = pylopdf.Document(stream=data, limits=limits)
 
     assert [doc.get_page_text(index).splitlines() for index in range(2)] == [["PAGE ONE"], ["PAGE TWO"]]
-    assert doc.render_pages()[1] == doc[1].render()
+    assert doc.render_pages(alpha=True)[1] == doc[1].get_pixmap(alpha=True).tobytes()
 
 
 def test_walker_pages_render_without_changing_the_saved_tree() -> None:
@@ -647,7 +647,7 @@ def test_rendered_walker_pages_keep_inherited_attributes() -> None:
     assert _consistent_page_texts(data) == [["PAGE ONE"], ["PAGE TWO"]]
     doc = pylopdf.Document(stream=data)
     assert doc[0].rotation == 90
-    rotated = doc[0].get_pixmap()
+    rotated = doc[0].get_pixmap(alpha=True)
     assert (rotated.width, rotated.height) == (200, 400)
-    square = doc[1].get_pixmap()
+    square = doc[1].get_pixmap(alpha=True)
     assert (square.width, square.height) == (300, 300)

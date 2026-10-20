@@ -6,7 +6,11 @@
     "Base14_fontdict",
     "Base14_fontnames",
     "Block",
+    "CS_CMYK",
+    "CS_GRAY",
+    "CS_RGB",
     "CjkFontLanguage",
+    "Colorspace",
     "Dictionary",
     "Document",
     "DocumentClosedError",
@@ -103,6 +107,9 @@
     "TextPageDict",
     "TextSpan",
     "Word",
+    "csCMYK",
+    "csGRAY",
+    "csRGB",
     "open",
     "peek_metadata",
     "planish_line"
@@ -322,9 +329,47 @@
         ]
       }
     },
+    "CS_CMYK": {
+      "kind": "constant",
+      "value": 3
+    },
+    "CS_GRAY": {
+      "kind": "constant",
+      "value": 2
+    },
+    "CS_RGB": {
+      "kind": "constant",
+      "value": 1
+    },
     "CjkFontLanguage": {
       "kind": "type-alias",
       "target": "Literal['ja', 'ko', 'zh-CN', 'zh-TW']"
+    },
+    "Colorspace": {
+      "annotations": {
+        "_type": "int"
+      },
+      "kind": "class",
+      "members": {
+        "n": {
+          "kind": "property",
+          "returns": "int"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str"
+        }
+      },
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "int",
+            "kind": "positional_only",
+            "name": "type"
+          }
+        ],
+        "returns": "None"
+      }
     },
     "Dictionary": {
       "kind": "class",
@@ -752,6 +797,53 @@
             "returns": "list[PageLabelInfo]"
           }
         },
+        "get_page_pixmap": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dpi"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
+              },
+              {
+                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "background"
+              }
+            ],
+            "returns": "Pixmap"
+          }
+        },
         "get_page_text": {
           "kind": "method",
           "signature": {
@@ -950,70 +1042,6 @@
             "returns": "int"
           }
         },
-        "render_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "render_page_svg": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
         "render_pages": {
           "kind": "method",
           "signature": {
@@ -1029,16 +1057,22 @@
                 "name": "pages"
               },
               {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
               },
               {
                 "annotation": "float | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "dpi"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
               },
               {
                 "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
@@ -2926,15 +2960,9 @@
                 "name": "self"
               },
               {
-                "annotation": "Page",
+                "annotation": "Pixmap",
                 "kind": "positional_or_keyword",
-                "name": "page"
-              },
-              {
-                "annotation": "float",
-                "default": 300,
-                "kind": "keyword_only",
-                "name": "dpi"
+                "name": "pixmap"
               },
               {
                 "annotation": "int",
@@ -2959,12 +2987,6 @@
                 "default": 0,
                 "kind": "keyword_only",
                 "name": "rotation"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
               }
             ],
             "returns": "list[OcrWord]"
@@ -4207,10 +4229,10 @@
                 "name": "self"
               },
               {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
               },
               {
                 "annotation": "float | None",
@@ -4219,19 +4241,55 @@
                 "name": "dpi"
               },
               {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              },
-              {
                 "annotation": "Sequence[float] | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
+              },
+              {
+                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "background"
               }
             ],
             "returns": "Pixmap"
+          }
+        },
+        "get_svg_image": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "text_as_path"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
           }
         },
         "get_text": {
@@ -4634,60 +4692,6 @@
           "kind": "property",
           "returns": "Rect"
         },
-        "render": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "render_svg": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
         "replace_text": {
           "kind": "method",
           "signature": {
@@ -4949,6 +4953,12 @@
     "Pixmap": {
       "kind": "class",
       "members": {
+        "alpha": {
+          "kind": "property"
+        },
+        "colorspace": {
+          "kind": "property"
+        },
         "height": {
           "kind": "property"
         },
@@ -7173,6 +7183,24 @@
         ]
       }
     },
+    "csCMYK": {
+      "kind": "constant",
+      "value": {
+        "repr": "Colorspace(CS_CMYK) - DeviceCMYK"
+      }
+    },
+    "csGRAY": {
+      "kind": "constant",
+      "value": {
+        "repr": "Colorspace(CS_GRAY) - DeviceGray"
+      }
+    },
+    "csRGB": {
+      "kind": "constant",
+      "value": {
+        "repr": "Colorspace(CS_RGB) - DeviceRGB"
+      }
+    },
     "open": {
       "kind": "class",
       "members": {
@@ -7503,6 +7531,53 @@
             "returns": "list[PageLabelInfo]"
           }
         },
+        "get_page_pixmap": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int",
+                "kind": "positional_or_keyword",
+                "name": "pno"
+              },
+              {
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dpi"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
+              },
+              {
+                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "background"
+              }
+            ],
+            "returns": "Pixmap"
+          }
+        },
         "get_page_text": {
           "kind": "method",
           "signature": {
@@ -7701,70 +7776,6 @@
             "returns": "int"
           }
         },
-        "render_page": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "bytes"
-          }
-        },
-        "render_page_svg": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "int",
-                "kind": "positional_or_keyword",
-                "name": "pno"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
         "render_pages": {
           "kind": "method",
           "signature": {
@@ -7780,16 +7791,22 @@
                 "name": "pages"
               },
               {
-                "annotation": "float",
-                "default": 1.0,
-                "kind": "positional_or_keyword",
-                "name": "scale"
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
               },
               {
                 "annotation": "float | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "dpi"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
               },
               {
                 "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",

@@ -25,8 +25,9 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.metadata` / `set_metadata` | 동일 | 같은 키 이름 |
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
 | `page.search_for(t)` | 동일, 추가로`max_hits=4096` | 상한이 있는`list[Rect]` 반환. 검색어는4,096 byte, `max_hits=None`으로 해제, `quads=` 없음 |
-| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` | `page.get_pixmap(scale=2)` | 또는 `dpi=144`, Matrix 클래스 없음 |
-| `pix.samples / width / height / stride / save()` | 동일 | 항상 straight-alpha RGBA8, pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(path)`는 PNG를 만들며 `save`에는 `.png` 확장자 필요 |
+| `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 동일 | 기본은 불투명 RGB, `alpha=True`면 RGBA. `dpi=`가 우선. 배율 matrix만 지원하며 `colorspace=`와 `annots=`는 아직 없음 |
+| `page.get_svg_image()` | 동일 | `matrix`는 항등만. `text_as_path=False`는 예외 |
+| `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 동일 | RGB, `alpha=True`면 straight-alpha RGBA. pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(filename)`는 PNG를 만들며 `save`는 `.png`가 필요 |
 | `page.get_images()` / 추출 | `page.get_images()` | 그려진 이미지와 bbox 반환, JPEG 직접 추출 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로 변환. `dpi`는 최대 배치를 직접 제한하며lossless 변환은 미지원 |
@@ -133,6 +134,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc[0]
 page.add_highlight_annot(page.search_for("total"))   # 전체 목록을 한 번에 전달
-page.get_pixmap(scale=2).save("page.png")
+page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)
 ```

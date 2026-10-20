@@ -38,7 +38,7 @@ Key facts:
   r | p (include), r & o (intersect), r * m (transform), p in r, r.round(),
   r.torect(o), rect.quad, quad.rect. Replace include_point, include_rect,
   intersect, normalize and transform with assignment (r = r.normalized()).
-  Rendering still takes scale= / dpi=, not matrix=.
+  get_pixmap(matrix=) takes scaling matrices; dpi= takes precedence.
 - DocumentLimits.web(), including its renderer/extractor PDF snapshot cap,
   LimitError.code and doc.complexity provide a shared native/Wasm policy
   boundary for untrusted uploads.

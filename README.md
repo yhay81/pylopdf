@@ -29,9 +29,9 @@ text and form appearances.
 > for PDF documents. Its rule is one API in which a pymupdf name keeps
 > pymupdf's meaning and a redesign takes a new name, with no aliases. One
 > breaking release before 1.0 brings the existing API in line: for example,
-> `render_page` gives way to pymupdf's `get_page_pixmap`, `render_page_svg`
-> and `Page.render_svg` to `Page.get_svg_image`, and `add_link_annot` to
-> `insert_link`. The [stability policy](https://pylopdf.haya.works/stability/)
+> `render_page` gave way to pymupdf's `get_page_pixmap`, `render_page_svg`
+> and `Page.render_svg` to `Page.get_svg_image`, and `add_link_annot` gives
+> way to `insert_link`. The [stability policy](https://pylopdf.haya.works/stability/)
 > says what may change.
 
 ## How pylopdf compares
@@ -135,10 +135,10 @@ tables = doc[0].find_tables()                # bordered grids incl. merged cells
 markdown = doc.to_markdown()                 # RAG / LLM preprocessing
 
 # Render: PNG / SVG / raw pixels
-png: bytes = doc.render_page(0, dpi=300)
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg: str = doc.render_page_svg(0)
-pix = doc[0].get_pixmap(dpi=144)             # immutable RGBA8 for NumPy / PIL
+png: bytes = doc.get_page_pixmap(0, dpi=300).tobytes()
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg: str = doc[0].get_svg_image()
+pix = doc[0].get_pixmap(dpi=144)             # immutable RGB pixels for NumPy / PIL
 
 # Edit: reorganize pages, merge documents
 doc.delete_pages([1, 2])

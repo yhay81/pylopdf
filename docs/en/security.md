@@ -239,11 +239,9 @@ error.
   `structure_tree_count` before the document changes. These operations are
   not secure redaction: arbitrary custom references, attachments, metadata,
   and other copies of the content require their own inspection and removal.
-- `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()` default to
-  a 64 MiB encoded-PNG output boundary. Their writers refuse the crossing
-  write before returning Python `bytes`; `max_size=None` explicitly opts out.
-  Render refusals use `render_output_size`, while direct Pixmap encoding uses
-  `pixmap_output_size`.
+- `Pixmap.tobytes()` defaults to a 64 MiB encoded-PNG output boundary. Its
+  writer refuses the crossing write before returning Python `bytes`, with
+  `pixmap_output_size`; `max_size=None` explicitly opts out.
 - `Document.tobytes()` defaults to a 512 MiB serialized-output limit across
   normal, object/xref-stream, and encrypted output. Its Rust writer refuses
   the write crossing the boundary before Python `bytes` conversion;
@@ -305,7 +303,7 @@ error.
   output stop at 127 UTF-8 bytes before PyO3 copying or password-KDF work.
   Direct Rust calls repeat the boundary. Refusals use `password_input_size`;
   save rejection occurs before document mutation or output creation.
-- `render_page_svg()` and `Page.render_svg()` default to a 64 MiB UTF-8 output
+- `Page.get_svg_image()` defaults to a 64 MiB UTF-8 output
   limit and reject over-limit output before PyO3 creates the Python string;
   `max_size=None` explicitly opts out. hayro-svg 0.8 materializes one internal
   Rust string before pylopdf can enforce this boundary.

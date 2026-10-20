@@ -19,7 +19,6 @@ from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
-    _DEFAULT_MAX_RENDER_PAGE_SIZE,
     _DEFAULT_MAX_SVG_SIZE,
     _bounded_utf8_size,
     _insert_text_lines,
@@ -33,7 +32,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, _default_ocr_engine, _validate_ocr_rotation
-from pylopdf._pixmap import _normalize_background
+from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics, TableFinder
 from pylopdf._types import (
@@ -56,6 +55,7 @@ if TYPE_CHECKING:
 
     from pylopdf._document import Document
     from pylopdf._fonts import Font
+    from pylopdf._geometry import Matrix
     from pylopdf._types import (
         AnnotationInfo,
         Block,
@@ -374,7 +374,7 @@ class Page:
         if not isinstance(resolved_engine, OcrEngine):
             msg = f"engine must be an OcrEngine or None: {engine!r}"
             raise TypeError(msg)
-        return resolved_engine.recognize(
+        return resolved_engine._recognize_page(
             self,
             dpi=dpi,
             tile_size=tile_size,
@@ -1789,68 +1789,73 @@ class Page:
 
     def get_pixmap(
         self,
-        scale: float = 1.0,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
-        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         clip: Sequence[float] | None = None,
+        alpha: bool = False,
+        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     ) -> Pixmap:
-        """Render the page to a straight-alpha RGBA8 :class:`Pixmap`.
+        """Render the page to a :class:`Pixmap`, as pymupdf does.
 
-        Arguments match :meth:`Document.render_page`. The pixmap exposes
-        ``width``, ``height``, ``stride``, ``n``, ``samples`` as bytes, and
-        ``tobytes()`` as PNG. Convert it to NumPy with
-        ``np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 4)``.
+        The default is opaque RGB (``n == 3``) on white. ``alpha=True`` keeps
+        transparency in straight-alpha RGBA (``n == 4``). ``matrix`` scales
+        the page, where the identity is 72 dpi; ``dpi`` takes precedence over
+        it. Only scaling matrices are supported: rotation, shear, and flips
+        raise :class:`PdfError`. ``background`` is an extension: an RGB or RGBA
+        tuple with components from 0 to 255 painted beneath the page, which
+        must be opaque without ``alpha``.
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
         not intersect the page raises :class:`PdfError`. Only the clipped
-        region is rasterized, but full-page render-size limits still apply.
+        region is rasterized, but full-page render-size limits still apply:
+        65,535 pixels per side and 64,000,000 pixels in all.
+
+        The pixmap exposes ``width``, ``height``, ``n``, ``alpha``,
+        ``stride``, ``samples``, a zero-copy buffer, and ``tobytes()`` as PNG.
+        Convert it to NumPy with
+        ``np.frombuffer(pix, np.uint8).reshape(pix.height, pix.width, pix.n)``.
         """
-        if dpi is not None:
-            if scale != 1.0:
-                msg = "scale and dpi cannot both be specified"
-                raise ValueError(msg)
-            scale = dpi / 72.0
-        rgba = _normalize_background(background)
+        scale = _render_scale(matrix, dpi)
+        rgba = _render_background(background, alpha=alpha)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, rgba, clip_rect)
+        result = document._doc.render_page_pixmap(page_number, scale, alpha, rgba, clip_rect)
         document._emit_warnings()
         return result
 
-    def render(
-        self,
-        scale: float = 1.0,
-        *,
-        dpi: float | None = None,
-        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
-        max_size: int | None = _DEFAULT_MAX_RENDER_PAGE_SIZE,
-    ) -> bytes:
-        """Render the page to bounded PNG with :meth:`Document.render_page` arguments."""
-        self._page_number()
-        return self._document.render_page(
-            self._pno,
-            scale,
-            dpi=dpi,
-            background=background,
-            max_size=max_size,
-        )
-
-    def render_svg(
+    def get_svg_image(
         self,
         *,
+        matrix: Matrix | Sequence[float] | None = None,
+        text_as_path: bool = True,
         max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
     ) -> str:
-        """Render the page to a bounded SVG string.
+        """Render the page to a bounded SVG string, as pymupdf does.
 
+        ``matrix`` must be omitted or the identity, and ``text_as_path=False``
+        raises :class:`PdfError`, because text is always drawn as paths.
         ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
-        explicitly opts out.
+        explicitly opts out. hayro-svg materializes its internal Rust string
+        before this boundary is enforced, but over-limit output is rejected
+        before conversion to a Python string.
         """
-        self._page_number()
-        return self._document.render_page_svg(self._pno, max_size=max_size)
+        if _render_scale(matrix, None) != (1.0, 1.0):
+            msg = f"get_svg_image supports only the identity matrix: {matrix!r}"
+            raise PdfError(msg)
+        if not text_as_path:
+            msg = "text_as_path=False is not supported; SVG text is drawn as paths"
+            raise PdfError(msg)
+        _validate_optional_positive_int("max_size", max_size)
+        page_number = self._page_number()
+        document = self._document
+        document._ensure_fallback_fonts()
+        result = document._doc.render_page_svg(page_number, max_size)
+        document._emit_warnings()
+        return result
 
     def __repr__(self) -> str:
         """Return a representation containing the page number and document."""

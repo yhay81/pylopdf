@@ -92,7 +92,7 @@ def test_new_page_appends_blank(one_page_pdf: bytes) -> None:
     assert page.number == 1
     assert page.mediabox == pylopdf.Rect(0.0, 0.0, 595.0, 842.0)
     assert page.get_text() == ""
-    assert png_size(doc.render_page(1)) == (595, 842)
+    assert png_size(doc.get_page_pixmap(1, alpha=True).tobytes()) == (595, 842)
 
 
 def test_new_page_preserves_indirect_root_kids() -> None:
@@ -130,7 +130,7 @@ def test_new_page_insert_position_and_size(three_page_pdf: bytes) -> None:
     assert "Page two" in doc.get_page_text(2)
     reloaded = pylopdf.Document(stream=doc.tobytes())
     assert reloaded.page_count == 4
-    assert png_size(reloaded.render_page(1)) == (300, 400)
+    assert png_size(reloaded.get_page_pixmap(1, alpha=True).tobytes()) == (300, 400)
 
 
 def test_new_page_invalid_size(one_page_pdf: bytes) -> None:
@@ -152,7 +152,7 @@ def test_copy_page_append_and_position(three_page_pdf: bytes) -> None:
     reloaded = pylopdf.Document(stream=doc.tobytes())
     assert reloaded.page_count == 5
     assert "Page three" in reloaded.get_page_text(0)
-    assert reloaded.render_page(0) == reloaded.render_page(3)
+    assert reloaded.get_page_pixmap(0, alpha=True).tobytes() == reloaded.get_page_pixmap(3, alpha=True).tobytes()
 
 
 def test_structure_ops_invalidate_pages(three_page_pdf: bytes) -> None:
@@ -240,37 +240,37 @@ def test_insert_pdf_preserves_geometry_under_cropped_rotated_parent(source_attri
     )
     expected_crop = source[0].cropbox
     expected_rotation = source[0].rotation
-    expected_png = source.render_page(0)
+    expected_png = source.get_page_pixmap(0, alpha=True).tobytes()
     source_bytes = source.tobytes()
     target = pylopdf.open(stream=_build_cropped_parent_pdf())
-    original_png = target.render_page(0)
+    original_png = target.get_page_pixmap(0, alpha=True).tobytes()
 
     target.insert_pdf(source)
 
     assert target[1].cropbox == expected_crop
     assert target[1].rotation == expected_rotation
-    assert target.render_page(1) == expected_png
-    assert target.render_page(0) == original_png
+    assert target.get_page_pixmap(1, alpha=True).tobytes() == expected_png
+    assert target.get_page_pixmap(0, alpha=True).tobytes() == original_png
     assert source.tobytes() == source_bytes
     reopened = pylopdf.open(stream=target.tobytes())
     assert reopened[1].cropbox == expected_crop
     assert reopened[1].rotation == expected_rotation
-    assert reopened.render_page(1) == expected_png
+    assert reopened.get_page_pixmap(1, alpha=True).tobytes() == expected_png
 
 
 def test_new_page_uses_requested_geometry_under_cropped_rotated_parent() -> None:
     target = pylopdf.open(stream=_build_cropped_parent_pdf())
-    original_png = target.render_page(0)
+    original_png = target.get_page_pixmap(0, alpha=True).tobytes()
 
     page = target.new_page(width=612, height=792)
 
     assert page.rotation == 0
     assert page.mediabox == page.cropbox == pylopdf.Rect(0, 0, 612, 792)
-    assert png_size(page.render()) == (612, 792)
-    assert target.render_page(0) == original_png
+    assert png_size(page.get_pixmap(alpha=True).tobytes()) == (612, 792)
+    assert target.get_page_pixmap(0, alpha=True).tobytes() == original_png
     reopened = pylopdf.open(stream=target.tobytes())
     assert reopened[1].rotation == 0
-    assert png_size(reopened.render_page(1)) == (612, 792)
+    assert png_size(reopened.get_page_pixmap(1, alpha=True).tobytes()) == (612, 792)
 
 
 @pytest.mark.parametrize("null_value", ["null", "5 0 R", "99 0 R"], ids=["null", "indirect-null", "missing-object"])
@@ -303,7 +303,7 @@ def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
     assert source[0].mediabox == pylopdf.Rect(0, 0, 612, 792)
     assert source[0].cropbox == expected_crop
     assert source[0].rotation == expected_rotation
-    expected_png = source.render_page(0)
+    expected_png = source.get_page_pixmap(0, alpha=True).tobytes()
     source_bytes = source.tobytes()
     target = pylopdf.open(stream=_build_cropped_parent_pdf())
 
@@ -313,7 +313,7 @@ def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
         assert current[1].mediabox == pylopdf.Rect(0, 0, 612, 792)
         assert current[1].cropbox == expected_crop
         assert current[1].rotation == expected_rotation
-        assert current.render_page(1) == expected_png
+        assert current.get_page_pixmap(1, alpha=True).tobytes() == expected_png
     assert source.tobytes() == source_bytes
 
 
@@ -344,7 +344,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
     # pymupdf's cropbox flips the stored [0 0 300 400] against the MediaBox top.
     geometry = (pylopdf.Rect(0, 0, 612, 792), pylopdf.Rect(0, 392, 300, 792), 90)
     assert (doc[0].mediabox, doc[0].cropbox, doc[0].rotation) == geometry
-    expected_png = doc.render_page(0)
+    expected_png = doc.get_page_pixmap(0, alpha=True).tobytes()
 
     index = 0
     if operation == "select":
@@ -363,7 +363,7 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
         if operation == "insert_text":
             assert current.get_page_text(index).split() == ["Drawn", "MISSING-REFERENCES"]
         else:
-            assert current.render_page(index) == expected_png
+            assert current.get_page_pixmap(index, alpha=True).tobytes() == expected_png
 
 
 @pytest.mark.parametrize("operation", ["new_page", "insert_pdf", "fullcopy_page"])

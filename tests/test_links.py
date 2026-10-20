@@ -454,7 +454,7 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
     target = pylopdf.Document(stream=compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
     page = target[0]
     original_text = page.get_text()
-    original_png = page.render()
+    original_png = page.get_pixmap(alpha=True).tobytes()
     original_bytes = target.tobytes()
 
     objects: dict[int, str | bytes] = {}
@@ -468,4 +468,4 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
 
     assert target.tobytes() == original_bytes
     assert page.get_text() == original_text
-    assert page.render() == original_png
+    assert page.get_pixmap(alpha=True).tobytes() == original_png

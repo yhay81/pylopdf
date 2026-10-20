@@ -114,7 +114,9 @@ def main() -> None:
     with document:
         page = document[args.page]
         layout = page.get_text("rawdict")
-        png = page.render(scale=args.scale, background=(255, 255, 255))
+        png = page.get_pixmap(
+            matrix=pylopdf.Matrix(args.scale, args.scale), background=(255, 255, 255), alpha=True
+        ).tobytes()
         source = f"{args.pdf.name if args.pdf is not None else 'Generated demo'} — page {page.number}"
         output = _create_html(layout, png, source)
     args.output.parent.mkdir(parents=True, exist_ok=True)

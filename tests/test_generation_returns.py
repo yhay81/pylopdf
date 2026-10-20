@@ -11,7 +11,7 @@ import pylopdf
 
 
 def _png() -> bytes:
-    pixmap = pylopdf.open(stream=build_pdf(["Pixels"]))[0].get_pixmap(scale=0.2)
+    pixmap = pylopdf.open(stream=build_pdf(["Pixels"]))[0].get_pixmap(matrix=pylopdf.Matrix(0.2, 0.2), alpha=True)
     return pixmap.tobytes()
 
 
@@ -30,7 +30,7 @@ def test_insert_image_returns_the_image_xref(tmp_path: Path) -> None:
     # Identical input places the same XObject and returns its xref.
     assert page.insert_image((120, 10, 220, 110), stream=data) == xref
     assert page.insert_image((10, 120, 110, 220), filename=path) == xref
-    pixmap = page.get_pixmap(scale=0.1)
+    pixmap = page.get_pixmap(matrix=pylopdf.Matrix(0.1, 0.1), alpha=True)
     pixmap_xref = page.insert_image((120, 120, 220, 220), pixmap=pixmap)
     assert pixmap_xref != xref
     assert doc.objects[pixmap_xref]["Subtype"] == "Image"

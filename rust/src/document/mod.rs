@@ -841,19 +841,30 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         max_output_size: Option<usize>,
     ) -> PyResult<Vec<u8>> {
-        rendering::render_page_png(self, py, page_number, scale, background, max_output_size)
+        rendering::render_page_png(
+            self,
+            py,
+            page_number,
+            scale,
+            alpha,
+            background,
+            max_output_size,
+        )
     }
 
     /// Render one-based pages to PNG in input order on a bounded worker pool.
+    #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
     fn render_pages_png(
         &mut self,
         py: Python<'_>,
         page_numbers: Vec<u32>,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         workers: usize,
         max_output_size: Option<usize>,
@@ -863,22 +874,24 @@ impl _Document {
             py,
             page_numbers,
             scale,
+            alpha,
             background,
             workers,
             max_output_size,
         )
     }
 
-    /// Render a one-based page and return a straight-alpha RGBA8 Pixmap.
+    /// Render a one-based page and return an RGB, or straight-alpha RGBA, Pixmap.
     fn render_page_pixmap(
         &mut self,
         py: Python<'_>,
         page_number: u32,
-        scale: f32,
+        scale: (f32, f32),
+        alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> PyResult<crate::pixmap::Pixmap> {
-        rendering::render_page_pixmap(self, py, page_number, scale, background, clip)
+        rendering::render_page_pixmap(self, py, page_number, scale, alpha, background, clip)
     }
 
     /// Release the render cache retained for this document on the calling thread.

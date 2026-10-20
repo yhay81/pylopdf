@@ -166,7 +166,7 @@ def _views(doc: pylopdf.Document) -> tuple[str, str, str, str]:
     return (
         doc.get_text(),
         repr(page.get_text("words")),
-        hashlib.sha256(page.get_pixmap(scale=0.5).samples).hexdigest(),
+        hashlib.sha256(page.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples).hexdigest(),
         repr(page.get_drawings()),
     )
 

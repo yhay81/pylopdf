@@ -87,10 +87,10 @@ hits = page.search_for("合計")            # 大文字小文字を区別しな�
 ## レンダリング { #rendering }
 
 ```python
-png = doc.render_page(0, dpi=300)                    # PNG（bytes）
-pix = page.get_pixmap(scale=2)                       # NumPy / PIL 向け RGBA8 画素
-batch = doc.render_pages([0, 1, 2], scale=2, workers=4)
-svg = doc.render_page_svg(0)
+png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # PNG（bytes）
+pix = page.get_pixmap(dpi=144)                       # NumPy / PIL 向け RGB 画素
+batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
+svg = doc[0].get_svg_image()
 ```
 
 ## 編集 { #editing }

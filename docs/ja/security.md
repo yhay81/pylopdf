@@ -199,10 +199,9 @@ colour spaceのshadingなど、一部の不正な色データでpanicします
 Rustが標準エラー出力に書き出します。
 
 - レンダリングは1ページ64メガピクセルまでです。
-- `Document.render_page()`、`Page.render()`、`Pixmap.tobytes()`のencoded
-  PNG出力上限は既定64 MiBです。writerがPython `bytes`を返す前に境界を越える
-  writeを拒否し、`max_size=None`で明示解除できます。renderingは
-  `render_output_size`、Pixmap直接encodeは`pixmap_output_size`を返します。
+- `Pixmap.tobytes()`のencoded PNG出力上限は既定64 MiBです。writerがPython
+  `bytes`を返す前に境界を越えるwriteを`pixmap_output_size`で拒否し、
+  `max_size=None`で明示解除できます。
 - `Document.tobytes()`は通常・object/xref stream・暗号化出力すべてに512 MiBの
   既定serialization上限を適用します。Rust writerがPython `bytes`変換前に境界を
   越えるwriteを拒否し、`max_size=None`で明示的に解除できます。`save()`はtargetと
@@ -253,7 +252,7 @@ Rustが標準エラー出力に書き出します。
 - open、authenticate、高速metadata probe、AES-256出力のpasswordはUTF-8 127 byteで
   PyO3 copy／password KDF前に拒否します。Rust直呼びも再検査し、codeは
   `password_input_size`です。保存拒否はdocument mutation／output作成より前です。
-- `render_page_svg()`と`Page.render_svg()`のUTF-8出力上限は既定64 MiBで、
+- `Page.get_svg_image()`のUTF-8出力上限は既定64 MiBで、
   PyO3がPython stringを作る前に超過を拒否します。`max_size=None`で明示的に
   解除できます。hayro-svg 0.8が完成した`String`だけを返すため、pylopdfが
   制限を適用する前の内部Rust string 1つはこの境界の対象外です。

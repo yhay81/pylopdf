@@ -78,12 +78,12 @@ def _count(data: bytes, pattern: bytes) -> int:
 
 
 def _samples(page: pylopdf.Page) -> bytes:
-    return page.get_pixmap(background=WHITE).samples
+    return page.get_pixmap(background=WHITE, alpha=True).samples
 
 
 def _pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int]:
     """Return RGB at display point ``(x, y)`` after rendering on white."""
-    pix = page.get_pixmap(background=WHITE)
+    pix = page.get_pixmap(background=WHITE, alpha=True)
     offset = y * pix.stride + x * 4
     r, g, b = pix.samples[offset : offset + 3]
     return (r, g, b)
@@ -111,7 +111,7 @@ def _logo_inserter(kind: str, tmp_path: Path) -> Callable[[pylopdf.Page], int]:
     # Each call renders a new Pixmap; identical samples share one XObject.
     source = _pages(1, 32, 24)
     source[0].insert_image((0, 0, 32, 24), stream=_logo_png())
-    return lambda page: page.insert_image(LOGO_RECT, pixmap=source[0].get_pixmap())
+    return lambda page: page.insert_image(LOGO_RECT, pixmap=source[0].get_pixmap(alpha=True))
 
 
 @pytest.mark.parametrize("kind", ["png", "jpeg", "filename", "pixmap"])
@@ -186,8 +186,8 @@ def test_pixmaps_with_equal_samples_but_other_dimensions_stay_distinct() -> None
     wide[0].insert_image((0, 0, 4, 1), stream=_solid_png(RED), keep_proportion=False)
     square = _pages(1, 2, 2)
     square[0].insert_image((0, 0, 2, 2), stream=_solid_png(RED), keep_proportion=False)
-    wide_pixmap = wide[0].get_pixmap(background=WHITE)
-    square_pixmap = square[0].get_pixmap(background=WHITE)
+    wide_pixmap = wide[0].get_pixmap(background=WHITE, alpha=True)
+    square_pixmap = square[0].get_pixmap(background=WHITE, alpha=True)
     assert wide_pixmap.samples == square_pixmap.samples
     doc = _pages(1, 200, 100)
     page = doc[0]

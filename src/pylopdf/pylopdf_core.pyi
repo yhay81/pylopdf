@@ -3,6 +3,8 @@ import os
 import sys
 from typing import TypeAlias
 
+from pylopdf._pixmap import Colorspace
+
 if sys.platform == "win32":
     def _copy_windows_dacl(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None: ...
 
@@ -128,6 +130,10 @@ class Pixmap:
     def height(self) -> int: ...
     @property
     def n(self) -> int: ...
+    @property
+    def alpha(self) -> bool: ...
+    @property
+    def colorspace(self) -> Colorspace: ...
     @property
     def stride(self) -> int: ...
     @property
@@ -386,7 +392,8 @@ class _Document:
     def render_page_pixmap(
         self,
         page_number: int,
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         clip: tuple[float, float, float, float] | None,
     ) -> Pixmap: ...
@@ -621,14 +628,16 @@ class _Document:
     def render_page_png(
         self,
         page_number: int,
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         max_output_size: int | None,
     ) -> bytes: ...
     def render_pages_png(
         self,
         page_numbers: list[int],
-        scale: float,
+        scale: tuple[float, float],
+        alpha: bool,
         background: tuple[int, int, int, int] | None,
         workers: int,
         max_output_size: int | None,

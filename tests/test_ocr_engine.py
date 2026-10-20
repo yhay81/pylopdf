@@ -50,12 +50,33 @@ def test_ocr_engine_recognizes_rendered_text(ocr_engine: pylopdf.OcrEngine) -> N
     doc.new_page(width=360, height=120)
     doc[0].insert_text((20, 75), "Invoice 123", fontsize=36)
 
-    words = ocr_engine.recognize(doc[0], dpi=150, tile_size=512, overlap=64)
+    words = doc[0].get_text_ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
     assert [word["text"] for word in words] == ["Invoice 123"]
     assert words[0]["confidence"] > 0.99
     assert words[0]["bbox"].x0 < 20 < words[0]["bbox"].x1
     assert words[0]["bbox"].y0 < 60 < words[0]["bbox"].y1
+
+
+@pytest.mark.parametrize("alpha", [False, True])
+def test_ocr_engine_recognizes_any_pixmap_in_pixel_coordinates(
+    ocr_engine: pylopdf.OcrEngine,
+    *,
+    alpha: bool,
+) -> None:
+    doc = pylopdf.Document()
+    doc.new_page(width=360, height=120)
+    doc[0].insert_text((20, 75), "Invoice 123", fontsize=36)
+    pixmap = doc[0].get_pixmap(dpi=150, alpha=alpha, background=(255, 255, 255))
+
+    words = ocr_engine.recognize(pixmap, tile_size=512, overlap=64)
+
+    assert [word["text"] for word in words] == ["Invoice 123"]
+    scale = 150 / 72
+    assert words[0]["bbox"].x0 < 20 * scale < words[0]["bbox"].x1
+    assert words[0]["bbox"].y0 < 60 * scale < words[0]["bbox"].y1
+    with pytest.raises(TypeError, match=r"pixmap must be a pylopdf\.Pixmap"):
+        ocr_engine.recognize(doc[0])  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_engine_recognizes_japanese(ocr_engine: pylopdf.OcrEngine) -> None:
@@ -68,7 +89,7 @@ def test_ocr_engine_recognizes_japanese(ocr_engine: pylopdf.OcrEngine) -> None:
         fontfile=FONT_ROOT / "NotoSansJP-Regular.otf",
     )
 
-    words = ocr_engine.recognize(doc[0], dpi=150, tile_size=512, overlap=64)
+    words = doc[0].get_text_ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
     assert [word["text"] for word in words] == ["請求書 123"]
     assert words[0]["confidence"] > 0.9
@@ -83,7 +104,7 @@ def test_ocr_engine_orders_sustained_columns(ocr_engine: pylopdf.OcrEngine) -> N
     page.insert_text((290, 60), "Right one", fontsize=24)
     page.insert_text((290, 120), "Right two", fontsize=24)
 
-    words = ocr_engine.recognize(page, dpi=150, tile_size=512, overlap=64)
+    words = page.get_text_ocr(engine=ocr_engine, dpi=150, tile_size=512, overlap=64)
 
     assert [word["text"] for word in words] == ["Left one", "Left two", "Right one", "Right two"]
 
@@ -155,10 +176,10 @@ def test_ocr_engine_bounds_complete_concurrent_calls(monkeypatch: pytest.MonkeyP
 
     def second_call() -> list[pylopdf.OcrWord]:
         second_started.set()
-        return engine.recognize(documents[1][0], dpi=72, tile_size=256, overlap=32)
+        return documents[1][0].get_text_ocr(engine=engine, dpi=72, tile_size=256, overlap=32)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(engine.recognize, documents[0][0], dpi=72, tile_size=256, overlap=32)
+        first = pool.submit(documents[0][0].get_text_ocr, engine=engine, dpi=72, tile_size=256, overlap=32)
         assert probe.first_entered.wait(timeout=5)
         second = pool.submit(second_call)
         assert second_started.wait(timeout=5)
@@ -207,7 +228,7 @@ def test_ocr_engine_can_raise_measured_concurrency(monkeypatch: pytest.MonkeyPat
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(
             pool.map(
-                lambda document: engine.recognize(document[0], dpi=72, tile_size=256, overlap=32),
+                lambda document: document[0].get_text_ocr(engine=engine, dpi=72, tile_size=256, overlap=32),
                 documents,
             )
         )
@@ -221,34 +242,34 @@ def test_apply_ocr_adds_searchable_invisible_text(ocr_engine: pylopdf.OcrEngine)
     source = pylopdf.Document()
     source.new_page(width=360, height=120)
     source[0].insert_text((20, 75), "Search 456", fontsize=36)
-    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255))
+    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=360, height=120)
     target[0].insert_image(target[0].rect, stream=raster.tobytes())
-    before = target[0].get_pixmap(background=(255, 255, 255)).samples
+    before = target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target[0].apply_ocr(dpi=150, engine=ocr_engine, tile_size=512, overlap=64)
 
     assert [word["text"] for word in words] == ["Search 456"]
     assert target[0].search_for("Search 456")
-    assert target[0].get_pixmap(background=(255, 255, 255)).samples == before
+    assert target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(stream=target.tobytes())
     assert reopened[0].search_for("Search 456")
-    assert reopened[0].get_pixmap(background=(255, 255, 255)).samples == before
+    assert reopened[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> None:
     source = pylopdf.Document()
     source.new_page(width=360, height=120)
     source[0].insert_text((20, 75), "Region 789", fontsize=36)
-    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255))
+    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=360, height=220)
     target[0].insert_text((20, 30), "Digital header", fontsize=14)
     target[0].insert_image((0, 80, 360, 200), stream=raster.tobytes())
-    before = target[0].get_pixmap(background=(255, 255, 255)).samples
+    before = target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target[0].apply_ocr(
         dpi=150,
@@ -261,7 +282,7 @@ def test_apply_ocr_clip_handles_mixed_content(ocr_engine: pylopdf.OcrEngine) -> 
     assert [word["text"] for word in words] == ["Region 789"]
     assert words[0]["bbox"].y0 > 70
     assert target[0].search_for("Region 789")
-    assert target[0].get_pixmap(background=(255, 255, 255)).samples == before
+    assert target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 @pytest.mark.parametrize(
@@ -277,13 +298,13 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
     source.new_page(width=360, height=200)
     source[0].insert_text((20, 65), "First line 111", fontsize=28)
     source[0].insert_text((20, 145), "Second line 222", fontsize=28)
-    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255))
+    raster = source[0].get_pixmap(dpi=150, background=(255, 255, 255), alpha=True)
 
     target = pylopdf.Document()
     target.new_page(width=360, height=200)
     target[0].insert_image(target[0].rect, stream=raster.tobytes())
     target[0].set_rotation(page_rotation)
-    before = target[0].get_pixmap(background=(255, 255, 255)).samples
+    before = target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples
 
     words = target[0].apply_ocr(
         dpi=150,
@@ -304,13 +325,13 @@ def test_apply_ocr_corrects_rotated_scan_without_rotating_page(
         assert len(hits) == 1
         assert tuple(hits[0]) == pytest.approx(tuple(word["bbox"]), abs=0.2)
     assert target[0].rotation == page_rotation
-    assert target[0].get_pixmap(background=(255, 255, 255)).samples == before
+    assert target[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
     reopened = pylopdf.open(stream=target.tobytes())
     assert reopened[0].get_text() == "First line 111\nSecond line 222\n"
     assert reopened[0].search_for("First line 111")
     assert reopened[0].search_for("Second line 222")
     assert reopened[0].rotation == page_rotation
-    assert reopened[0].get_pixmap(background=(255, 255, 255)).samples == before
+    assert reopened[0].get_pixmap(background=(255, 255, 255), alpha=True).samples == before
 
 
 def test_apply_ocr_skips_existing_text_by_default() -> None:
@@ -328,7 +349,7 @@ def test_ocr_engine_rejects_invalid_dpi(ocr_engine: pylopdf.OcrEngine, dpi: obje
     doc = pylopdf.Document()
     doc.new_page(width=100, height=100)
     with pytest.raises(pylopdf.OcrError, match="dpi"):
-        ocr_engine.recognize(doc[0], dpi=dpi)  # ty: ignore[invalid-argument-type]
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=dpi)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_engine_rejects_incomplete_or_missing_model_paths(tmp_path: Path) -> None:
@@ -395,7 +416,7 @@ def test_ocr_engine_rejects_mismatched_dictionary(tmp_path: Path) -> None:
     doc[0].insert_text((20, 60), "Text", fontsize=30)
 
     with pytest.raises(pylopdf.OcrError, match="dictionary requires"):
-        engine.recognize(doc[0], dpi=150, tile_size=512, overlap=64)
+        doc[0].get_text_ocr(engine=engine, dpi=150, tile_size=512, overlap=64)
 
 
 def test_ocr_engine_discovers_installed_model_extra() -> None:
@@ -444,28 +465,28 @@ def test_ocr_engine_validates_input_rotation(
     doc = pylopdf.Document()
     doc.new_page(width=100, height=100)
     with pytest.raises(error, match="rotation"):
-        ocr_engine.recognize(doc[0], dpi=72, rotation=rotation)  # ty: ignore[invalid-argument-type]
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, rotation=rotation)  # ty: ignore[invalid-argument-type]
 
 
 def test_ocr_engine_validates_runtime_options(ocr_engine: pylopdf.OcrEngine) -> None:
     doc = pylopdf.Document()
     doc.new_page(width=100, height=100)
     with pytest.raises(pylopdf.OcrError, match="tile_size"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=500)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, tile_size=500)
     with pytest.raises(pylopdf.OcrError, match="overlap"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=512, overlap=16)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, tile_size=512, overlap=16)
     with pytest.raises(pylopdf.OcrError, match="min_confidence"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=512, overlap=64, min_confidence=2)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, tile_size=512, overlap=64, min_confidence=2)
     with pytest.raises(TypeError, match="tile_size"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=512.0)  # ty: ignore[invalid-argument-type]
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, tile_size=512.0)  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="overlap"):
-        ocr_engine.recognize(doc[0], dpi=72, tile_size=512, overlap=True)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, tile_size=512, overlap=True)
     with pytest.raises(TypeError, match="dpi"):
-        ocr_engine.recognize(doc[0], dpi=True)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=True)
     with pytest.raises(TypeError, match="min_confidence"):
-        ocr_engine.recognize(doc[0], dpi=72, min_confidence=True)
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, min_confidence=True)
     with pytest.raises(pylopdf.PdfError, match="clip does not intersect"):
-        ocr_engine.recognize(doc[0], dpi=72, clip=(200, 200, 300, 300))
+        doc[0].get_text_ocr(engine=ocr_engine, dpi=72, clip=(200, 200, 300, 300))
 
 
 def test_ocr_error_hierarchy() -> None:

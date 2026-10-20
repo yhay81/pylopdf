@@ -30,7 +30,7 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 기본은 전체page, 명시entry는 page 수와4,096 중 큰 값까지이며 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
-| `render_page(..., max_size=64 MiB)` / `render_pages(..., workers=, max_size=512 MiB)` / `render_page_svg(..., max_size=64 MiB)` | 상한이 있는PNG, 누적encoded output 상한 안에서 전체page 또는 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음, 상한이 있는UTF-8 SVG(`None`으로 해제) |
+| `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 페이지 `Pixmap`(pymupdf의 `doc[pno].get_pixmap()` 간편형), 또는 누적encoded output 상한 안에서 전체page나 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음(`None`으로 해제) |
 | `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고 가져온 페이지의 폼 필드를 등록하며, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
@@ -64,7 +64,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | `to_markdown(table_strategy="lines", max_size=64 MiB)` | 같은 표 및UTF-8 출력 제어를 사용하는 단일page Markdown |
 | `get_images()` | 그려진 이미지（`bbox`, JPEG passthrough / PNG）. 4,096 placement, 누적64,000,000픽셀, payload 64 MiB를 넘는 부분 결과는 거부 |
 | `get_drawings()` | 페이지에서 해석된 벡터fill/stroke 경로. 표시 좌표의line/cubic 도형과 정규화된 그리기 속성. 페이지당 8,192개 경로, 131,072개 명령 또는 누적 131,072개 dash 값을 넘으면 부분 결과 없이 거부 |
-| `get_pixmap(scale=, dpi=, background=, clip=)` / `render(max_size=64 MiB)` / `render_svg(max_size=64 MiB)` | 상한이 있는PNG / UTF-8 SVG 렌더링. `clip`은 표시 좌표 사용 |
+| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` / `get_svg_image(*, matrix=None, text_as_path=True, max_size=64 MiB)` | pymupdf와 같은 렌더링. 기본은 흰 바탕의 불투명 RGB, `alpha=True`면 straight-alpha RGBA, `dpi`가 배율 `matrix`보다 우선, `clip`은 표시 좌표. text를 path로 그리는 상한이 있는 UTF-8 SVG |
 | `rotation` / `set_rotation(deg)` | 표시 회전 |
 | `mediabox` / `cropbox` / `rect` / `set_mediabox` / `set_cropbox` | pymupdf 규약의 페이지 박스. `mediabox`는 PDF 좌표, `cropbox`는 MediaBox 위쪽 기준으로 y축 반전. `set_cropbox`는 MediaBox 안의 사각형만 받고 `set_mediabox`는 CropBox, BleedBox, TrimBox, ArtBox를 삭제 |
 | `insert_image(rect, filename= / stream= / pixmap=, rotate=, keep_proportion=, overlay=, max_size=64 MiB, max_pixels=64,000,000)` → xref | 상한이 있는JPEG/PNG를 그리거나 이미 제한된RGBA `Pixmap` 재사용. 신뢰 가능한encoded input／PNG 픽셀은`None`으로 해제. `rotate`는90도 단위 시계 방향 회전. 같은 입력을 다시 배치하면 이미지 XObject를 공유 |
@@ -282,7 +282,8 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | `OcrRotation` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
 | `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반）. 읽을 수 없는 입력은`FileDataError`(`RuntimeError`이기도 함), 빈 입력은`EmptyFileError`, 없는 파일은 내장`FileNotFoundError` |
-| `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `Pixmap` | 불변 RGB(`n == 3`) 또는 straight-alpha RGBA(`n == 4`) 픽셀: `samples` / `width` / `height` / `stride` / `n` / `alpha` / `colorspace` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(filename)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
+| `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdf의 장치 색 공간과 그 번호 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 
 `TypedDict` 계약은 정적 타입에만 영향을 주며 값은 기존과 같은 일반 pymupdf 형식의

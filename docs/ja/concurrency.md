@@ -48,7 +48,7 @@ with ThreadPoolExecutor() as pool:
 呼び出さず、`render_pages()`を使います。
 
 ```python
-png_pages = document.render_pages(scale=2, workers=4)
+png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 `render_pages()`は1つの不変なレンダラsnapshotを使い、指定したページ順と重複を保ち、
@@ -56,7 +56,7 @@ png_pages = document.render_pages(scale=2, workers=4)
 
 ## 繰り返しレンダリング { #repeated-rendering }
 
-Documentを開いたスレッドで`render_page()`、`Page.get_pixmap()`、`Page.render()`、
+Documentを開いたスレッドで`Page.get_pixmap()`、`Document.get_page_pixmap()`、
 直列の`render_pages()`を繰り返し呼び出すと、以前の呼び出しで解析したfont、色空間、
 glyph outlineを再利用します。出力は新しく開いたDocumentと同一です。各スレッドが
 保持するこのcacheは最大1つで、呼び出し間に保持するのは最大64の異なるページ分です。
@@ -68,7 +68,7 @@ Documentの編集、代替fontの変更、closeによってcacheは無効にな�
 
 ## Pixmapバッファ { #pixmap-buffers }
 
-すべてのwheelが、不変のRGBA8ストレージをread-only・1次元・ゼロコピーの
+すべてのwheelが、不変のRGBまたはRGBA画素ストレージをread-only・1次元・ゼロコピーの
 bufferとして公開します。
 
 ```python

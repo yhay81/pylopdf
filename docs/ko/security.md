@@ -197,11 +197,9 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
 표준 오류 출력에 씁니다.
 
 - 렌더링은 페이지당 6,400만 픽셀로 제한됩니다.
-- `Document.render_page()`, `Page.render()`, `Pixmap.tobytes()`의 encoded PNG
-  출력 기본 상한은64 MiB입니다. writer는Python `bytes`를 반환하기 전에 경계를
-  넘는write를 거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
-  rendering은`render_output_size`, Pixmap 직접encode는`pixmap_output_size`를
-  사용합니다.
+- `Pixmap.tobytes()`의 encoded PNG 출력 기본 상한은64 MiB입니다. writer는
+  Python `bytes`를 반환하기 전에 경계를 넘는write를`pixmap_output_size`로
+  거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
 - `Document.tobytes()`는 일반, object/xref stream, 암호화 출력 모두에512 MiB 기본
   serialization 상한을 적용합니다. Rust writer는Python `bytes` 변환 전에 경계를
   넘는write를 거부하며`max_size=None`으로 명시적으로 해제할 수 있습니다.
@@ -256,7 +254,7 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   password KDF 전에UTF-8 127 byte로 제한됩니다. Rust 직접 호출도 경계를 반복하며
   거부code는`password_input_size`입니다. 저장 거부는document mutation 또는output
   생성 전에 발생합니다.
-- `render_page_svg()`와`Page.render_svg()`의UTF-8 출력 기본 상한은64 MiB이며
+- `Page.get_svg_image()`의UTF-8 출력 기본 상한은64 MiB이며
   PyO3가Python string을 만들기 전에 초과 결과를 거부합니다. `max_size=None`으로
   명시적으로 해제할 수 있습니다. hayro-svg 0.8은 완성된`String`만 반환하므로
   pylopdf가 경계를 적용하기 전의 내부Rust string 하나는 이 제한의 대상이 아닙니다.

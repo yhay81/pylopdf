@@ -519,11 +519,11 @@ one-to-one onto these rows.
 | `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7; done |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2; done |
 | `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
-| `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1 |
-| `Document.render_page_svg(pno)`, `Page.render_svg()` | `Page.get_svg_image()` | R1, R2 |
-| `Page.render(...)` | `get_pixmap(...).tobytes()` | R1 |
-| `Page.get_pixmap(scale=, *, dpi, background, clip)` | pymupdf's defaults (opaque RGB) and `matrix=`, without `scale=` | R1, R2 |
-| `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1 |
+| `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1; done |
+| `Document.render_page_svg(pno)`, `Page.render_svg()` | `Page.get_svg_image()` | R1, R2; done |
+| `Page.render(...)` | `get_pixmap(...).tobytes()` | R1; done |
+| `Page.get_pixmap(scale=, *, dpi, background, clip)` | pymupdf's defaults (opaque RGB) and `matrix=`, without `scale=` | R1, R2; done |
+| `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1; done |
 | `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2 |
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2; `seqno` done, `layer` with layers in M5 |
 | `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1; done |
@@ -544,7 +544,7 @@ one-to-one onto these rows.
 | `Page.get_links()` keys | adds `xref` and `id` | R2; done |
 | `Document.get_toc()`, `set_toc(toc)` | `get_outline()`, `set_outline(entries)`, zero-based | R3: one-based numbering |
 | `Document.embfile_add`, `embfile_get`, `embfile_del`, `embfile_names` | `Document.attachments` | R3: the mapping protocol |
-| `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1 |
+| `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1; done |
 | `Permissions` members | pymupdf's `PDF_PERM_*` suffixes, with module constants | R2; done |
 | `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3; done |
 | `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3; done with F5 |
