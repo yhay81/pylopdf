@@ -20,7 +20,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | pymupdf | pylopdf | 비고 |
 |---|---|---|
 | `import pymupdf`(`fitz`는 이전 이름) | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 같은 형태, `password=`도 지원하며UTF-8 127 byte로 제한 |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 동일 | `open`은 `Document` 그 자체. `filetype=`은 `"pdf"`만 지원. `password=`는 keyword-only이며 UTF-8 127 byte로 제한 |
 | `doc[i]`, `len(doc)`, 반복 | 동일 | 0부터 시작, 음수 인덱스 |
 | `doc.metadata` / `set_metadata` | 동일 | 같은 키 이름 |
 | `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |

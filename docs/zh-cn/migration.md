@@ -18,7 +18,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | pymupdf | pylopdf | 说明 |
 |---|---|---|
 | `import pymupdf`（`fitz`为旧名称） | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | 形式相同，也支持`password=`，上限127 UTF-8 byte |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 相同 | `open`就是`Document`；`filetype=`仅接受`"pdf"`；`password=`为仅限关键字参数，上限127 UTF-8 byte |
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
 | `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |

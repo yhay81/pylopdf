@@ -494,6 +494,11 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: pylopdf.Document(stream=encrypted_bytes, password="wrong")  # noqa: S106
     )
     _require(authentication_error == "PasswordError", "wrong password returned the wrong exception")
+    _require(pylopdf.open is pylopdf.Document, "open is not the Document class")
+    reauthentication = [decrypted.authenticate(password) for password in ("wrong", "userpw", "ownerpw")]
+    _require(reauthentication == [0, 2, 4], "a decrypted document returned the wrong authentication codes")
+    encryption_description = decrypted.metadata["encryption"]
+    _require(encryption_description == "Standard V5 R6 256-bit AES", "metadata described the wrong encryption")
     reencrypted = decrypted.tobytes(
         encryption=pylopdf.PDF_ENCRYPT_AES_256,
         user_pw="user",
@@ -534,6 +539,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,
             "decrypted_pages": decrypted.page_count,
+            "reauthentication": reauthentication,
+            "metadata_encryption": encryption_description,
             "implicit_password_exception": implicit_error,
             "link_kind": repr(pylopdf.LINK_URI),
         },

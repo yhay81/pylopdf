@@ -12,19 +12,21 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()` は別名コンストラクタ。with 文に対応。
-password inputはUTF-8 127 byteが上限です。
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+`pylopdf.open`はpymupdfと同じく同一の呼び出し可能オブジェクト。with 文に対応。
+`stream`はbytes、`bytearray`、`memoryview`、`io.BytesIO`を受け付け、`filetype`は
+`"pdf"`を取ります。pymupdfの`open("pdf", data)`と同じく、`stream`と並ぶ文字列の
+`filename`はファイル形式を表します。password inputはUTF-8 127 byteが上限です。
 
 | メンバ | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / イテレーション | `Page` ビュー（負数可。構造変更後は取得し直す） |
 | `page_count` / `len(doc)` | ページ数 |
 | `limits` / `complexity` | 読み込み時の不変な資源ポリシー / streamを展開しない軽量な構造指標 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号（pymupdf互換の意味論） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | UTF-8 127 byte上限付きの暗号化状態と復号。pymupdfと同じ戻り値0/1/2/4/6で、空のuser passwordで開いた文書も検査する |
 | `is_repaired` | 読み込み時に破損したcross-reference dataを復旧したか（offsetの補正またはtableの再構築）。保存するとxref dataを正規化 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | オブジェクトグラフへの型付き低レベルアクセス。pymupdfの`xref_*`メソッドを置き換える（[低レベルオブジェクト](#low-level-objects)） |
-| `metadata` / `set_metadata(dict)` | 標準Info 8項目（UTF-16BE対応）。aggregate text 1 MiB、書き込みは原子的 |
+| `metadata` / `set_metadata(m)` | pymupdfと同じキー：`format`、`trapped`を含むInfo項目、`encryption`（UTF-16BE対応）。`set_metadata`は`format`と`encryption`を無視し、偽の値で項目を削除し、`{}`でInfo辞書を削除。aggregate text 1 MiB、書き込みは原子的 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 全page（`None`）またはpage数と4,096の大きい方までの明示entryを1回のbatchで抽出するplain text。4,096 entryごとのchunkでinterpreter font cacheを共有 |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。既定は全page、明示entryはpage数と4,096の大きい方まで、累積UTF-8出力上限付き（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |

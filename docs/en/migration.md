@@ -21,7 +21,7 @@ deliberately does not implement.
 | pymupdf | pylopdf | Notes |
 |---|---|---|
 | `import pymupdf` (`fitz` is the legacy name) | `import pylopdf` | |
-| `pymupdf.open(path)` / `open(stream=…)` | `pylopdf.open(path)` / `open(stream=…)` | same shape; `password=` too, capped at 127 UTF-8 bytes |
+| `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | same | `open` is `Document`; `filetype=` takes `"pdf"` only; `password=` is keyword-only and capped at 127 UTF-8 bytes |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |

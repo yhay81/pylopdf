@@ -12,19 +12,21 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, password=None, max_decompressed_size=None, *, limits=None)` —
-`pylopdf.open()`是别名构造函数，并支持上下文管理器。
-password input上限为127个UTF-8 byte。
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
+与pymupdf相同，`pylopdf.open`是同一个可调用对象，并支持上下文管理器。
+`stream`接受bytes、`bytearray`、`memoryview`或`io.BytesIO`，`filetype`接受
+`"pdf"`；与pymupdf的`open("pdf", data)`相同，与`stream`一同传入的字符串
+`filename`表示文件类型。password input上限为127个UTF-8 byte。
 
 | 成员 | 用途 |
 |---|---|
 | `doc[i]` / `load_page(pno)` / 迭代 | `Page`视图（支持负数；结构变更后需重新获取） |
 | `page_count` / `len(doc)` | 页数 |
 | `limits` / `complexity` | 打开时的不可变资源策略 / 无需解码stream的轻量结构指标 |
-| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 带127-byte password上限的加密状态与解锁（兼容pymupdf语义） |
+| `needs_pass` / `is_encrypted` / `authenticate(pw)` | 带127-byte password上限的加密状态与解锁；返回值与pymupdf相同（0/1/2/4/6），以空user password打开的文档也会检查 |
 | `is_repaired` | 打开时是否恢复了损坏的cross-reference数据（修正offset或重建table）；保存会规范化xref数据 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | 对对象图的类型化低层访问，取代pymupdf的`xref_*`方法（[低层对象](#low-level-objects)） |
-| `metadata` / `set_metadata(dict)` | 8个标准Info字段（支持UTF-16BE）；aggregate文本上限1 MiB，写入为原子操作 |
+| `metadata` / `set_metadata(m)` | 与pymupdf相同的键：`format`、包括`trapped`在内的Info字段与`encryption`（支持UTF-16BE）；`set_metadata`忽略`format`与`encryption`，值为假时删除该项，传入`{}`时删除Info字典；aggregate文本上限1 MiB，写入为原子操作 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；默认转换所有页，显式entry最多为页数与4,096中较大者，并有累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |

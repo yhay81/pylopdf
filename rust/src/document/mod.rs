@@ -677,6 +677,23 @@ impl _Document {
         self.set_metadata_entries(entries)
     }
 
+    /// Remove the trailer's Info dictionary entry.
+    fn remove_metadata(&mut self) {
+        self.remove_info_dictionary();
+    }
+
+    /// Describe the encryption the document was loaded with, or None.
+    fn encryption_method(&self) -> Option<String> {
+        self.encryption_description()
+    }
+
+    /// Check a password against the encryption the document was loaded with,
+    /// even after decryption; return (user matches, owner matches).
+    fn check_original_password(&self, password: &str) -> PyResult<(bool, bool)> {
+        validate_password_input(Some(password), "password")?;
+        Ok(self.original_password_matches(password))
+    }
+
     /// Delete one-based pages; duplicates name the same page.
     fn delete_pages(&mut self, page_numbers: Vec<u32>) -> PyResult<()> {
         page_tree::delete_pages(self, page_numbers)
