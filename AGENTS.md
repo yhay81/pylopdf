@@ -552,8 +552,10 @@ overview.
   One pass over the in-use entries and the loaded objects finds whether they
   match one for one, the loaded compressed members, and the marked streams.
   Loading re-reads every marked stream as hayro does, within its entry's
-  bounds (the next distinct entry offset, the cross-reference section, or the
-  end of input, as for the recovery parse below), and stores the data that
+  bounds (the next distinct entry offset at which an object header starts,
+  the cross-reference section, or the end of input, as for the recovery parse
+  below; an entry offset that starts no header, such as one that points into
+  another object's stream data, ends no object), and stores the data that
   hayro reads with a direct `/Length`, so saving keeps it: pdf.js
   `issue1293r.pdf` and `operator-in-TJ-array.pdf` draw content streams written
   `<< >>` and lost their text in every save. A stream that hayro would read
@@ -580,9 +582,15 @@ overview.
   match. Otherwise loading re-parses each skipped uncompressed object whose
   header matches its entry with a bounded, iterative parser that reads a bare
   keyword value such as `/Type XObject` as null, stops at lopdf's 100-level
-  nesting bound, never reads past the next entry's offset, and takes stream
-  data only from a valid `/Length` or a sole `endstream` that `endobj`
-  follows. A loaded object whose header names another number than the entry
+  nesting bound, never reads past those bounds, and takes stream data from a
+  valid `/Length`, else from the sole `endstream` that `endobj` follows, else,
+  as hayro does, up to the first `endstream`, less trailing white space. pdf.js
+  `issue11678.pdf` needs both the bounds and the last rule: entry 21 points
+  into the data of page 2's content stream, whose `/Length` falls short of its
+  `endstream`, so lopdf and the recovery parse, which stopped at that offset,
+  skipped the stream and the page extracted nothing, and entry 21's own
+  object, which follows the stream, has an `endstream` that `endobj` follows
+  as well. A loaded object whose header names another number than the entry
   that locates it becomes a suspect under that number, which lopdf may hold in
   place of the object or member that hayro reads for it. Loading then walks
   every reference reachable from the trailer, drops objects that no entry
@@ -596,7 +604,10 @@ overview.
   after a save differed for two files with only the recovery parse and for
   none with these checks, and no file changed its text before a save or its
   snapshot; the loads that keep their bytes fell from 1,279 to 1,277, the two
-  files above, which already read from the serialized graph. Cold first calls
+  files above, which already read from the serialized graph. The header-bound
+  sections and the first-`endstream` rule changed the text of one corpus file,
+  page 2 of `issue11678.pdf`, which now renders pixel for pixel as hayro
+  renders the original bytes, and no file's snapshot. Cold first calls
   on the bundled corpus did not change (two runs of 15 interleaved rounds of
   CPU-time minimums, thin-LTO builds: 1,748.9 to 1,742.6 ms and 1,723.7 to
   1,714.2 ms), nor did its loads (20.49 to 20.42 ms). The member check costs
@@ -1424,6 +1435,26 @@ overview.
   unparseable objects, which `object_recovery` re-parses where it can) are not
   reported. Reconstruction never runs for damaged xref-stream files without a
   classic trailer; they remain rejected.
+  lopdf trusts any table that it resolves, including one that it reached by
+  correcting `startxref`, whose entries miss their objects in a file that
+  lost bytes before them: pdf.js `bug1130815.pdf` loaded 2 of its 66 objects
+  and every page operation raised. When an unencrypted load that did not
+  rebuild the table leaves the catalog, its `/Pages` reference, or the root
+  `/Pages` dictionary unreadable as the page-tree walker reads them,
+  `load_document` loads a copy of the input again whose added final
+  `startxref` points past the end, which makes lopdf's standard resolution
+  fail and the table be rebuilt from the same bytes at the same offsets, and
+  keeps the rebuilt document, with the `Reconstructed` report, when its page
+  tree is reachable. hayro, MuPDF, and pdf.js rebuild such tables as well.
+  lopdf's metadata probe reports only a page count, which is zero when it
+  cannot read those objects, so `load_metadata` repeats an unencrypted probe
+  that counts no pages in the same way and keeps the rebuilt one when it
+  counts pages. A refused copy keeps the first load. Nine pdf.js corpus files
+  that opened without a readable page tree now open with hayro's page count
+  and render pixel for pixel as hayro renders their original bytes, and no
+  other corpus file opens differently; the `endobj-removed-2` damage in
+  `test_damaged_corpus_outcome` and
+  `test_unreachable_page_tree_rebuilds_the_xref_table` pin the behavior.
   Before every lenient load, a linear pre-scan estimates lopdf's
   reconstruction work: each `stream` keyword after the last `endstream`
   repeats a scan to the end of the input and a backward `obj`/`/Length`
@@ -2384,6 +2415,11 @@ overview.
 - lopdf's cross-reference reconstruction rescans the remaining input for every
   unterminated `stream` keyword. Keep the `recovery_scan_size` pre-scan until
   upstream makes that scan linear.
+- lopdf 0.45 rebuilds the cross-reference table only when standard resolution
+  fails, and exposes no way to ask for a rebuild, so pylopdf forces one for a
+  document whose page tree did not load by adding a `startxref` past the end
+  of a copy of the input. Rebuilding when the catalog or the root page-tree
+  node does not load is an upstream contribution candidate.
 - lopdf's `traverse_objects` tracks visited IDs in a `Vec`, so every lopdf
   helper built on it is quadratic in object count. pylopdf replaces
   `prune_objects` and `renumber_objects_with`; do not call them or the other

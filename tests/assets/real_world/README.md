@@ -48,6 +48,16 @@ Every bundled document has a redistributable license.
   protects the regression and the same engine also extracts non-embedded CJK
   text using `90ms-RKSJ-H`.
 
+- **Deleting bytes before the final xref left no readable page tree.** The
+  deletion shifts every later object, and lopdf corrects the nearby
+  `startxref` onto a table whose entries then miss the catalog, so the
+  `endobj-removed-2` damage opened with `is_repaired` and raised on every
+  page operation. Loading now rebuilds such a table by scanning object
+  headers when the catalog or the root page-tree node did not load, as for
+  pdf.js `bug1130815.pdf`. `test_damaged_corpus_outcome` pins the damage as
+  `rebuilt`, and `test_unreachable_page_tree_rebuilds_the_xref_table` covers
+  entries that miss either object without a `startxref` correction.
+
 - **`pdfium-smask-blend.pdf` lost its soft mask after any edit or save.** Its
   three Form XObjects spell `/Type XObject` without the name's slash. lopdf
   skipped them as unparseable while hayro read the bare keyword as null, so
@@ -76,10 +86,7 @@ Every bundled document has a redistributable license.
 - Known recovery limits: lopdf rebuilds only from a classic `trailer`, so
   damaged xref-stream files (`f1040.pdf`, `mhlw-doc.pdf`, `usrguide.pdf`,
   `bunka-kokugo-series-019-p4.pdf`) and truncations that lose every trailer
-  are rejected. Deleting bytes before the final xref shifts later object
-  offsets; lopdf corrects the nearby `startxref` but the shifted objects stay
-  unreachable, so those documents open with `is_repaired` and no readable page
-  tree.
+  are rejected.
 
 Choose additions using three criteria: a redistributable license, a size below
 1 MB, and coverage not already represented in the corpus.

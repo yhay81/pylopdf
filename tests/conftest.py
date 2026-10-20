@@ -49,6 +49,18 @@ def build_raw_pdf(objects: dict[int, bytes | str], *, version: str = "1.7") -> b
     return bytes(out)
 
 
+def with_xref_entry_offset(data: bytes, number: int, offset: int) -> bytes:
+    """Point the classic cross-reference entry for `number` at `offset`, moving no other byte.
+
+    The final table must hold one subsection that starts at object 0.
+    """
+    # Skip the `xref` line and the subsection header to the 20-byte entries.
+    xref = data.rindex(b"\nxref\n") + 1
+    entry = data.index(b"\n", data.index(b"\n", xref) + 1) + 1 + number * 20
+    assert data[entry + 10 : entry + 18] == b" 00000 n", data[entry : entry + 20]
+    return data[:entry] + f"{offset:010d}".encode() + data[entry + 10 :]
+
+
 def build_pdf(page_texts: list[str], page_size: tuple[int, int] = (612, 792)) -> bytes:
     """Build a minimal PDF with one text value per page.
 

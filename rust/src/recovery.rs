@@ -5,12 +5,14 @@
 //! a nearby `xref` keyword, and rebuilds the table by scanning object headers
 //! when standard resolution fails. It reports both only as `log` warnings,
 //! emitted on the loading thread before object parsing moves to the rayon pool,
-//! so one thread-local capture scope attributes them to a single load.
+//! so one thread-local capture scope attributes them to a single load. lopdf
+//! trusts any table that it resolves, so a load that leaves the page tree
+//! unreachable is repeated with the rebuild forced.
 
 use std::cell::Cell;
 use std::sync::Once;
 
-use lopdf::{Document, LoadOptions, PdfMetadata};
+use lopdf::{Document, LoadOptions, Object, PdfMetadata};
 
 /// lopdf's reader module, which resolves and rebuilds cross-reference data.
 const LOPDF_READER_TARGET: &str = "lopdf::reader";
@@ -170,14 +172,68 @@ fn check_recovery_scan_work(data: &[u8]) -> Result<(), LoadError> {
     Ok(())
 }
 
+/// Return a copy of `data` that ends with a `startxref` past the end of the
+/// input, or `None` when the copy cannot be allocated.
+///
+/// lopdf rebuilds the cross-reference table only when standard resolution
+/// fails, and it resolves the last `startxref`, so loading the copy rebuilds
+/// the table from the same bytes at the same offsets. lopdf finds no trailer
+/// or object header in the added bytes, and a `startxref` past the end of the
+/// input stops it before it corrects any offset.
+fn rebuild_input(data: &[u8]) -> Option<Vec<u8>> {
+    // The value exceeds the copy's length, whose tail is shorter than 64 bytes.
+    let tail = format!("\nstartxref\n{}\n%%EOF\n", data.len().checked_add(64)?);
+    let mut input = Vec::new();
+    input.try_reserve_exact(data.len() + tail.len()).ok()?;
+    input.extend_from_slice(data);
+    input.extend_from_slice(tail.as_bytes());
+    Some(input)
+}
+
+/// Whether the catalog that the trailer names leads to a root page-tree node,
+/// read as the page-tree walker reads them.
+fn page_tree_reachable(document: &Document) -> bool {
+    document
+        .catalog()
+        .and_then(|catalog| catalog.get(b"Pages"))
+        .and_then(Object::as_reference)
+        .and_then(|root| document.get_dictionary(root))
+        .is_ok_and(|root| root.get_type().ok() == Some(b"Pages".as_slice()))
+}
+
 /// Load a complete document leniently and report cross-reference recovery.
+///
+/// lopdf trusts any cross-reference data that it resolves, and it moves a
+/// `startxref` that misses by at most 64 bytes onto a nearby table, whose
+/// entries can miss their objects in a file that lost bytes. When the
+/// objects that lead to the page tree then did not load, the document is
+/// unusable, so an unencrypted one is loaded again with the table rebuilt by
+/// scanning object headers, as hayro, MuPDF, and pdf.js rebuild it, and the
+/// rebuilt document replaces it when its page tree is reachable.
 pub fn load_document(
     data: &[u8],
     options: LoadOptions,
 ) -> Result<(Document, Option<XrefRecovery>), LoadError> {
     check_recovery_scan_work(data)?;
-    let (result, recovery) = capture_recovery(|| Document::load_mem_with_options(data, options));
+    let (result, mut recovery) =
+        capture_recovery(|| Document::load_mem_with_options(data, options.clone()));
     let mut document = result.map_err(LoadError::Pdf)?;
+    if recovery != Some(XrefRecovery::Reconstructed)
+        && !document.is_encrypted()
+        && !document.was_encrypted()
+        && !page_tree_reachable(&document)
+        && let Some(input) = rebuild_input(data)
+    {
+        let (rebuilt, retried) =
+            capture_recovery(|| Document::load_mem_with_options(&input, options));
+        if let Ok(rebuilt) = rebuilt
+            && retried == Some(XrefRecovery::Reconstructed)
+            && page_tree_reachable(&rebuilt)
+        {
+            document = rebuilt;
+            recovery = retried;
+        }
+    }
     if recovery == Some(XrefRecovery::Reconstructed) {
         // lopdf keeps the newest scanned trailer verbatim, including offsets
         // into the damaged input. The rebuilt table has no on-disk predecessor,
@@ -189,16 +245,36 @@ pub fn load_document(
 }
 
 /// Read metadata without loading every object and report cross-reference recovery.
+///
+/// lopdf's probe counts no page when it cannot read the catalog or the root
+/// page-tree node, so an unencrypted probe that counts none is repeated with
+/// the table rebuilt, as [`load_document`] loads again, and the rebuilt probe
+/// replaces it when it counts pages.
 pub fn load_metadata(
     data: &[u8],
     password: Option<&str>,
 ) -> Result<(PdfMetadata, Option<XrefRecovery>), LoadError> {
     check_recovery_scan_work(data)?;
-    let (result, recovery) = capture_recovery(|| match password {
-        Some(password) => Document::load_metadata_mem_with_password(data, password),
-        None => Document::load_metadata_mem(data),
-    });
-    result
-        .map(|metadata| (metadata, recovery))
-        .map_err(LoadError::Pdf)
+    let probe = |input: &[u8]| {
+        capture_recovery(|| match password {
+            Some(password) => Document::load_metadata_mem_with_password(input, password),
+            None => Document::load_metadata_mem(input),
+        })
+    };
+    let (result, recovery) = probe(data);
+    let metadata = result.map_err(LoadError::Pdf)?;
+    if recovery != Some(XrefRecovery::Reconstructed)
+        && !metadata.encrypted
+        && metadata.page_count == 0
+        && let Some(input) = rebuild_input(data)
+    {
+        let (rebuilt, retried) = probe(&input);
+        if let Ok(rebuilt) = rebuilt
+            && retried == Some(XrefRecovery::Reconstructed)
+            && rebuilt.page_count > 0
+        {
+            return Ok((rebuilt, retried));
+        }
+    }
+    Ok((metadata, recovery))
 }

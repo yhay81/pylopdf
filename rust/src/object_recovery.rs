@@ -13,7 +13,10 @@
 //!   then rebuilds its whole table by scanning object headers, so what it
 //!   resolves depends on what it read first.
 //! - lopdf skips an object it cannot parse, such as a dictionary that spells a
-//!   name value without its slash, while hayro reads the bare keyword as null.
+//!   name value without its slash, while hayro reads the bare keyword as null,
+//!   or a stream whose declared bytes `endstream` does not follow and that has
+//!   no sole `endstream` before the next entry offset, while hayro reads it up
+//!   to its first `endstream`.
 //! - lopdf adds object-stream members that no entry lists, including members
 //!   that a damaged stream decodes under arbitrary numbers, and raises
 //!   `max_id` over them, while hayro reads those numbers as null.
@@ -28,7 +31,8 @@
 //!
 //! Loading gives each such stream the data that hayro reads, finds the members
 //! that hayro would read from another slot, re-parses each skipped uncompressed
-//! object with a small parser that reads such a bare keyword as null, walks
+//! object with a small parser that reads such a bare keyword as null and such
+//! a stream up to its first `endstream` within the object's bounds, walks
 //! every reference reachable from the trailer, and drops objects that no entry
 //! locates and nothing reaches. The original-byte fast path stays only when
 //! that walk meets no object that hayro could resolve differently. Any other
@@ -92,7 +96,7 @@ pub(crate) fn reconcile_loaded_objects(doc: &mut Document, input: &[u8]) -> PyRe
     let buffer = lopdf_buffer(input);
     let sections = match sections {
         Some(sections) => sections,
-        None => Sections::new(doc, buffer.len()).map_err(allocation_error)?,
+        None => Sections::new(doc, buffer).map_err(allocation_error)?,
     };
     let recovered =
         recover_skipped_objects(doc, buffer, &sections, &mut suspects).map_err(allocation_error)?;
@@ -283,20 +287,24 @@ fn audit_references(
 
 /// The bytes that each uncompressed object may occupy.
 ///
-/// An object is read no further than the next distinct entry offset, the
-/// cross-reference section, or the end of input, as lopdf bounds its own
-/// stream-length recovery. These bounds never overlap, so every pass that
-/// examines each distinct offset once stays linear in input size even when
-/// many entries share an offset.
+/// An object is read no further than the next distinct entry offset at which
+/// an object header starts, the cross-reference section, or the end of input,
+/// as lopdf bounds its own stream-length recovery by every entry offset. An
+/// entry offset that starts no header, such as one that points into another
+/// object's stream data, marks no object, so it does not cut short the object
+/// that holds it. These bounds never overlap, so every pass that examines each
+/// distinct offset once stays linear in input size even when many entries
+/// share an offset.
 struct Sections {
-    /// Distinct offsets of in-use uncompressed entries, ascending.
+    /// Distinct offsets of in-use uncompressed entries at which a header
+    /// starts, ascending.
     offsets: Vec<usize>,
     xref_start: usize,
     len: usize,
 }
 
 impl Sections {
-    fn new(doc: &Document, len: usize) -> Result<Self, TryReserveError> {
+    fn new(doc: &Document, buffer: &[u8]) -> Result<Self, TryReserveError> {
         let mut offsets = Vec::new();
         offsets.try_reserve_exact(doc.reference_table.entries.len())?;
         for entry in doc.reference_table.entries.values() {
@@ -306,21 +314,45 @@ impl Sections {
         }
         offsets.sort_unstable();
         offsets.dedup();
-        Ok(Self {
+        let mut sections = Self {
             offsets,
             xref_start: doc.xref_start,
-            len,
-        })
+            len: buffer.len(),
+        };
+        // Read each header within the next distinct offset, so that every
+        // offset is examined once over disjoint bytes. The offsets after
+        // `index` are still all present while `kept` trails it.
+        let mut kept = 0;
+        for index in 0..sections.offsets.len() {
+            let start = sections.offsets[index];
+            let end = sections.bound(start, sections.offsets.get(index + 1).copied());
+            let header = start < end
+                && Parser {
+                    data: &buffer[..end],
+                    pos: start,
+                }
+                .header()
+                .is_some();
+            if header {
+                sections.offsets[kept] = start;
+                kept += 1;
+            }
+        }
+        sections.offsets.truncate(kept);
+        Ok(sections)
     }
 
     /// The end of the object that starts at `start`.
     fn end(&self, start: usize) -> usize {
         let next = self.offsets.partition_point(|&offset| offset <= start);
+        self.bound(start, self.offsets.get(next).copied())
+    }
+
+    /// The end of an object that starts at `start` when the next object
+    /// starts at `next`.
+    fn bound(&self, start: usize, next: Option<usize>) -> usize {
         let section = (self.xref_start > start).then_some(self.xref_start);
-        self.offsets
-            .get(next)
-            .copied()
-            .into_iter()
+        next.into_iter()
             .chain(section)
             .min()
             .unwrap_or(self.len)
@@ -630,7 +662,7 @@ fn mirror_stream_data(
         return Ok(None);
     }
     let buffer = lopdf_buffer(input);
-    let sections = Sections::new(doc, buffer.len())?;
+    let sections = Sections::new(doc, buffer)?;
     streams.sort_unstable();
     let mut header_at = None;
     for (start, id) in streams {
@@ -847,11 +879,7 @@ impl Window<'_> {
     fn searched_extent(&self, dict_end: usize) -> Option<Range<usize>> {
         let keyword = dict_end + find(&self.data[dict_end..], b"stream")?;
         let start = self.data_start(keyword + b"stream".len())??;
-        let end = start + find(&self.data[start..], b"endstream")?;
-        let length = self.data[start..end]
-            .iter()
-            .rposition(|&byte| !is_whitespace(byte))
-            .map_or(0, |last| last + 1);
+        let length = first_endstream(&self.data[start..])?;
         Some(start..start + length)
     }
 }
@@ -1354,8 +1382,10 @@ impl<'a> Parser<'a> {
     /// Read stream data after the `stream` keyword.
     ///
     /// Use `/Length` when `endstream` follows that many bytes; otherwise,
-    /// like lopdf, accept only a sole end-of-line-framed `endstream` that
-    /// `endobj` follows before the object's boundary.
+    /// like lopdf, the sole end-of-line-framed `endstream` that `endobj`
+    /// follows before the object's boundary, or else, as hayro reads a stream
+    /// whose declared bytes `endstream` does not follow, the first `endstream`
+    /// less trailing white space.
     fn stream_content(&mut self, dict: &Dictionary, doc: &Document) -> Result<Vec<u8>, Failure> {
         while matches!(self.data.get(self.pos), Some(b' ' | b'\t')) {
             self.pos += 1;
@@ -1370,6 +1400,7 @@ impl<'a> Parser<'a> {
             .and_then(|length| start.checked_add(length))
             .filter(|&end| end <= self.data.len() && self.endstream_follows(end))
             .or_else(|| sole_endstream(&self.data[start..]).map(|length| start + length))
+            .or_else(|| first_endstream(&self.data[start..]).map(|length| start + length))
             .ok_or(Failure::Syntax)?;
         let mut content = Vec::new();
         content.try_reserve_exact(end - start)?;
@@ -1452,4 +1483,16 @@ fn sole_endstream(data: &[u8]) -> Option<usize> {
         found = Some(length);
     }
     found
+}
+
+/// Return the data length before the first `endstream`, less trailing white
+/// space, as hayro's fallback reads a stream.
+fn first_endstream(data: &[u8]) -> Option<usize> {
+    let end = find(data, b"endstream")?;
+    Some(
+        data[..end]
+            .iter()
+            .rposition(|&byte| !is_whitespace(byte))
+            .map_or(0, |last| last + 1),
+    )
 }
