@@ -16,7 +16,14 @@ from typing import (
 
 from pylopdf import _types
 from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymupdf's open().
-from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning, StalePageError
+from pylopdf._errors import (
+    DocumentClosedError,
+    EmptyFileError,
+    EncryptedDocumentError,
+    FileDataError,
+    PylopdfWarning,
+    StalePageError,
+)
 from pylopdf._fonts import Font
 from pylopdf._geometry import (
     EMPTY_IRECT,
@@ -144,8 +151,10 @@ __all__ = [
     "DocumentMetadata",
     "DrawingInfo",
     "DrawingItem",
+    "EmptyFileError",
     "EncryptedDocumentError",
     "EncryptionMethod",
+    "FileDataError",
     "Font",
     "FontLanguage",
     "FormFieldInfo",

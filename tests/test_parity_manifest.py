@@ -38,6 +38,7 @@ def test_parity_manifest_is_classified_and_resolves() -> None:
     ("key", "changes", "message"),
     [
         ("Document.load_page", {"pylopdf": "Document.no_such_method"}, "is not in api/public-api.json"),
+        ("FileNotFoundError", {"pylopdf": "NoSuchBuiltinError"}, "is not in api/public-api.json"),
         ("Page.get_label", {"pylopdf": "Page.render"}, "needs a reset that gives it the pymupdf name"),
         ("Document.get_outline_xrefs", {"milestone": None}, "a planned entry must name its milestone"),
         ("set_log", {"hint": None}, "needs a hint for migrating callers"),

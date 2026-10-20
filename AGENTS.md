@@ -1367,9 +1367,14 @@ overview.
   that is not a stream. Use these helpers instead of mapping lopdf's
   `ObjectNotFound` to `PdfError` wherever a reader already skips null.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
-  Python defines `DocumentClosedError`, `EncryptedDocumentError`, and
-  `StalePageError`. Add new errors under the `PdfError` hierarchy instead of
-  introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
+  Python defines `DocumentClosedError`, `EncryptedDocumentError`,
+  `StalePageError`, and pymupdf's `FileDataError(PdfError, RuntimeError)` and
+  `EmptyFileError(FileDataError)`, which Rust raises through
+  `import_exception!` (`document/errors.rs`). Opening input that lopdf cannot
+  parse raises `FileDataError` and empty input `EmptyFileError`, while password
+  and limit failures keep their types; a missing caller path raises the
+  built-in `FileNotFoundError` through `path_io_err`. Add new errors under the
+  `PdfError` hierarchy instead of introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
   appear only through `Error::source`; format lopdf errors through
   `LopdfErrorChain` so limit and decoder details stay in messages.
 - Encryption during `save` operates on a clone, so the in-memory document always

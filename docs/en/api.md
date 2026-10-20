@@ -366,7 +366,7 @@ raw edits semantically valid is the caller's responsibility.
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | low-level PDF values and live object handles ([low-level objects](#low-level-objects)) |
 | `OcrRotation` / `DrawingItem` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime-importable OCR-rotation, vector-command, tuple and literal type aliases |
 | `TableFinder` / `Table` / `TableDiagnostics` | owned table geometry, cell text (`None` for merged continuations), strategy and confidence evidence; `Table.to_markdown(max_size=64 MiB)` preflights escaped UTF-8 output |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base) |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | exception hierarchy; limit failures expose a stable `.code` (ValueError-compatible base); unreadable input raises `FileDataError` (also a `RuntimeError`), empty input `EmptyFileError`, and a missing file the built-in `FileNotFoundError` |
 | `Pixmap` | Immutable RGBA8 pixels: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streaming, failure-atomic PNG-only `save(path)`; every wheel also supports read-only zero-copy `memoryview()` |
 | `PylopdfWarning` | recoverable interpretation warnings (xref repair, font resolution, image decode) |
 

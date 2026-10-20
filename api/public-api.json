@@ -16,10 +16,12 @@
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
+    "EmptyFileError",
     "EncryptedDocumentError",
     "EncryptionMethod",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
+    "FileDataError",
     "Font",
     "FontLanguage",
     "FormFieldInfo",
@@ -1539,6 +1541,13 @@
         "returns": "Rect"
       }
     },
+    "EmptyFileError": {
+      "bases": [
+        "pylopdf.FileDataError"
+      ],
+      "kind": "exception",
+      "members": {}
+    },
     "EncryptedDocumentError": {
       "bases": [
         "pylopdf.PdfError"
@@ -1565,6 +1574,14 @@
     "FZ_MIN_INF_RECT": {
       "kind": "constant",
       "value": -2147483648
+    },
+    "FileDataError": {
+      "bases": [
+        "pylopdf.PdfError",
+        "RuntimeError"
+      ],
+      "kind": "exception",
+      "members": {}
     },
     "Font": {
       "kind": "class",

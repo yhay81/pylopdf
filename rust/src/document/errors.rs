@@ -71,14 +71,60 @@ pub(super) fn load_err(
     }
 }
 
+// pymupdf's error categories for unreadable input, defined in Python because
+// FileDataError derives from both PdfError and RuntimeError.
+pyo3::import_exception!(pylopdf._errors, FileDataError);
+pyo3::import_exception!(pylopdf._errors, EmptyFileError);
+
+/// Reject empty PDF input before parsing it, as pymupdf does.
+pub(super) fn reject_empty_input(data: &[u8], prefix: Option<&str>) -> PyResult<()> {
+    if data.is_empty() {
+        let message = match prefix {
+            Some(prefix) => format!("{prefix}: the input is empty"),
+            None => "cannot open an empty stream".to_owned(),
+        };
+        return Err(EmptyFileError::new_err(message));
+    }
+    Ok(())
+}
+
+/// Convert an I/O failure on a caller's path, raising Python's built-in
+/// `FileNotFoundError` for a missing file and `PdfError` otherwise.
+pub(crate) fn path_io_err(prefix: &str, path: &str, error: &std::io::Error) -> PyErr {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        // ENOENT is 2 on every supported platform, as Python's own open() reports it.
+        pyo3::exceptions::PyFileNotFoundError::new_err((
+            2,
+            "No such file or directory",
+            path.to_owned(),
+        ))
+    } else {
+        PdfError::new_err(format!("{prefix} {path}: {error}"))
+    }
+}
+
 /// Convert a lenient-load failure, including a refused recovery scan.
+///
+/// Input that cannot be parsed raises `FileDataError`; a wrong password and an
+/// exceeded decompression budget keep `PasswordError` and `LimitError`.
 pub(super) fn recovery_load_err(
     prefix: Option<&str>,
     error: &recovery::LoadError,
     limit_code: &'static str,
 ) -> PyErr {
     match error {
-        recovery::LoadError::Pdf(error) => load_err(prefix, error, limit_code),
+        recovery::LoadError::Pdf(
+            error @ (lopdf::Error::Decryption(_)
+            | lopdf::Error::InvalidPassword
+            | lopdf::Error::Decompress(DecompressError::MemoryLimitExceeded { .. })),
+        ) => load_err(prefix, error, limit_code),
+        recovery::LoadError::Pdf(error) => {
+            let chain = LopdfErrorChain(error);
+            FileDataError::new_err(match prefix {
+                Some(prefix) => format!("{prefix}: {chain}"),
+                None => chain.to_string(),
+            })
+        }
         recovery::LoadError::RecoveryScan { work, budget } => {
             let message = format!(
                 "cross-reference recovery could scan about {work} bytes, exceeding the \

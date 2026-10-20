@@ -96,7 +96,7 @@ pub(crate) fn read_bounded_file(
     size_label: &str,
     error_prefix: &str,
 ) -> PyResult<(Vec<u8>, std::fs::Metadata)> {
-    let io_error = |error| PdfError::new_err(format!("{error_prefix} {path}: {error}"));
+    let io_error = |error: std::io::Error| path_io_err(error_prefix, path, &error);
     let file = std::fs::File::open(path).map_err(io_error)?;
     let metadata = file.metadata().map_err(io_error)?;
     validate_file_size(metadata.len(), max_size, limit_code, size_label)?;
@@ -220,7 +220,7 @@ pub(crate) fn font_file_metadata(
     max_font_size: Option<usize>,
 ) -> PyResult<std::fs::Metadata> {
     let metadata = std::fs::metadata(path)
-        .map_err(|error| PdfError::new_err(format!("failed to load font {path}: {error}")))?;
+        .map_err(|error| path_io_err("failed to load font", path, &error))?;
     validate_file_size(
         metadata.len(),
         max_font_size,

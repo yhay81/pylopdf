@@ -249,7 +249,7 @@ doc.objects[content].read()                    # 已解码，默认上限64 MiB
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低层PDF值与实时对象句柄（[低层对象](#low-level-objects)） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | 可在runtime导入的OCR旋转、tuple和literal类型别名 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 自包含的表格几何、单元格文本（合并延续位置为`None`）、策略与置信依据；`Table.to_markdown(max_size=64 MiB)`预检转义后的UTF-8输出 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError） |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 异常层级；资源拒绝提供稳定`.code`（基类兼容ValueError）；无法读取的输入抛出`FileDataError`（同时是`RuntimeError`），空输入抛出`EmptyFileError`，文件不存在时抛出内置`FileNotFoundError` |
 | `Pixmap` | 不可变RGBA8像素：`samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 流式写入且失败时保留现有file的PNG专用`save(path)`；所有wheel还支持只读、零复制的`memoryview()` |
 | `PylopdfWarning` | 可恢复的解释警告（xref修复、字体解析、图像解码） |
 

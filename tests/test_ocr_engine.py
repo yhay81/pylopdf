@@ -334,7 +334,7 @@ def test_ocr_engine_rejects_invalid_dpi(ocr_engine: pylopdf.OcrEngine, dpi: obje
 def test_ocr_engine_rejects_incomplete_or_missing_model_paths(tmp_path: Path) -> None:
     with pytest.raises(pylopdf.OcrError, match="provided together"):
         pylopdf.OcrEngine(tmp_path / "det.onnx", None, tmp_path / "dict.txt")
-    with pytest.raises(pylopdf.OcrError, match="failed to load OCR detector"):
+    with pytest.raises(FileNotFoundError, match=r"det\.onnx"):
         pylopdf.OcrEngine(tmp_path / "det.onnx", tmp_path / "rec.onnx", tmp_path / "dict.txt")
 
 

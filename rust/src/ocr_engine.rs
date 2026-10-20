@@ -170,7 +170,14 @@ impl Engine {
         max_model_size: Option<usize>,
         consumed: &mut usize,
     ) -> PyResult<Vec<u8>> {
-        let io_error = |error| {
+        let io_error = |error: std::io::Error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return pyo3::exceptions::PyFileNotFoundError::new_err((
+                    2,
+                    "No such file or directory",
+                    path.display().to_string(),
+                ));
+            }
             OcrError::new_err(format!(
                 "failed to {error_action} OCR {label} {}: {error}",
                 path.display()

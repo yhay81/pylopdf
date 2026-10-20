@@ -284,7 +284,7 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 低レベルのPDF値とライブなオブジェクトハンドル（[低レベルオブジェクト](#low-level-objects)） |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtimeでimportできるOCR回転・tuple・literal型alias |
 | `TableFinder` / `Table` / `TableDiagnostics` | 所有権を持つ表の座標、セル文字列（結合継続位置は`None`）、strategy、confidence根拠。`Table.to_markdown(max_size=64 MiB)`はescape後のUTF-8出力を事前検査 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底） |
+| `PdfError` / `LimitError` / `PasswordError` / `FileDataError` / `EmptyFileError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 例外階層。上限違反は安定した`.code`を公開（ValueError互換の基底）。読めない入力は`FileDataError`（`RuntimeError`でもある）、空の入力は`EmptyFileError`、存在しないファイルは組み込みの`FileNotFoundError` |
 | `Pixmap` | 不変のRGBA8画素: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / streamingし、失敗時も既存fileを保持するPNG専用`save(path)`。すべてのwheelでread-only・zero-copyの`memoryview()`にも対応 |
 | `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 

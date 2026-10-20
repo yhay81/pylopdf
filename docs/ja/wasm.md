@@ -124,7 +124,8 @@ native/Wasm共有suiteは、現在次を検証します。
   rendering、`Pixmap`、serialization、virtual filesystemへの保存、merge、reorder、
   duplicate、select
 - `PdfError`、stable resource codeを持つ`LimitError`、`PasswordError`、
-  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`と、
+  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、
+  `FileDataError`、`EmptyFileError`と、
   malformed input後のruntime再利用
 - `render_pages(workers=4)`の入力順序と`workers=1`とのbyte一致
 

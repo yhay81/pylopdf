@@ -64,7 +64,10 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
   取得し直してください。
 - **例外**: 基底は `PdfError`（`ValueError` のサブクラス）。`PasswordError` /
   `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` が
-  それを細分化します。`except ValueError` は動き続けます。
+  それを細分化します。`except ValueError` は動き続けます。pymupdfの
+  `FileDataError`と`EmptyFileError`は同じ名前で、`RuntimeError`も継承します。
+  存在しないファイルはPython組み込みの`FileNotFoundError`になるため、
+  `except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えます。
 - **資源ポリシー**: `DocumentLimits.web()`はrendering／extractionへ渡す完全な
   PDF snapshotを64 MiB、累積位置付きtextを65,536 glyph recordに制限します。
   独自ポリシーでは`max_interpretation_size`と`max_text_glyphs`を指定でき、`None`は
