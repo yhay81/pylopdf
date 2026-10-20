@@ -20,7 +20,8 @@ approval before M0 starts.
    rotated pages, pymupdf interprets insertion and placement coordinates in
    unrotated space, while `Page.rect` and extraction use rotated space.
    pylopdf keeps one rotation-resolved space for every API, even under pymupdf
-   names.
+   names, and also measures the room left on a page in it, as `insert_text`
+   does when it leaves out lines below the page.
 2. **Reading order is a quality attribute** ([G7](#g7--result-quality)).
    `get_text` returns pylopdf's reading order whatever pymupdf's `sort=False`
    default would produce, and an explicit `sort=False` raises instead of being
@@ -144,7 +145,12 @@ space. pymupdf uses it for `Page.rect` and extraction but maps insertion and
 placement coordinates through a transformation that, on rotated pages, flips
 y without rotating, so they land in unrotated space. pylopdf does not. Code
 that multiplies by pymupdf's `derotation_matrix` before inserting must drop
-that step, and the codemod flags it.
+that step, and the codemod flags it. The same holds where pymupdf measures
+the room left on a page: `insert_text` leaves out the lines whose baseline
+falls below the page, which pymupdf measures in unrotated space down to
+user-space y = 0, and pylopdf in display space down to the bottom of
+`Page.rect`. The two agree on unrotated pages whose visible area ends at
+y = 0, which includes every page that `new_page` creates.
 
 Page boxes are the exception, because display space is derived from them.
 They follow pymupdf's box convention: `mediabox` and `set_mediabox` use PDF
@@ -358,7 +364,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 
 | Target | pymupdf | Relation | Notes |
 | --- | --- | --- | --- |
-| `Page.insert_text(point, text, *, fontsize=11, lineheight=None, fontname="helv", fontfile=None, color=None, ...)` → `int` | same | same | M0 returns pymupdf's count of inserted lines instead of `None`, splits text with `str.splitlines()`, leaves out lines whose baseline falls below the page, and places lines at pymupdf's line height. `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
+| `Page.insert_text(point, text, *, fontsize=11, lineheight=None, fontname="helv", fontfile=None, color=None, ...)` → `int` | same | same | M0 returns pymupdf's count of inserted lines instead of `None`, splits a string with `str.splitlines()` and uses a list of lines as given, leaves out lines whose baseline falls below the page ([G1](#g1--display-coordinates)), inserts nothing for empty text instead of raising, and places lines at pymupdf's line height. `fontbuffer=`, `fontindex=`, and `font_language=` are extensions. `rotate=`, `morph=`, `render_mode=`, and opacities land in M2. |
 | `fontname=` on `insert_text` and `insert_textbox` | same | same | M0 accepts pymupdf's full Standard 14 names (`Helvetica`, `Times-Roman`, `Courier-Bold`, and the rest) besides the short aliases (`helv`, `tiro`, `cobo`, ...) that work today, and exports `Base14_fontnames` and `Base14_fontdict`. |
 | `Page.insert_textbox(rect, text, /, *, ..., expandtabs=1, lineheight=None, ...)` | same | same | M0 changes the `expandtabs` default from 8 to pymupdf's 1 and places lines at pymupdf's line height. The second parameter is positional-only because pymupdf names it `buffer`. |
 | `Page.insert_image(rect, *, filename=None, stream=None, pixmap=None, rotate=0, keep_proportion=True, overlay=True, ...)` → `int` | same | same | M0 returns the image xref, as pymupdf does, instead of `None`. `xref=`, `mask=`, `alpha=`, and `oc=` land in M2. |
@@ -488,8 +494,7 @@ one-to-one onto these rows.
 | `Page.find_tables(strategy="lines", *, clip=None)` | `find_tables(*, clip=None, strategy=None, ...)` | R2.3 |
 | `Page.search_for(needle, ...)` | `search_for(text, ...)` | R2 |
 | `Page.insert_textbox(..., expandtabs=8)` | `expandtabs=1` | R2 |
-| `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart | pymupdf's line placement: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), and `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart | R2 |
-| `Page.insert_text(...)` and `Shape.insert_text(...)` splitting text only at `\n` and drawing and counting every line | pymupdf's `str.splitlines()` splitting, in which a trailing line break adds no line, and no lines whose baseline falls below the page, so that the returned line count counts the lines drawn | R2 |
+| `Page.insert_text(...)` and `insert_textbox(...)` placing lines 1.2 times `fontsize` apart, and `insert_text(...)` splitting text only at `\n`, drawing every line, and raising for empty text | pymupdf's lines: `lineheight=` on `insert_text`, a default line height of the font's ascender minus its descender (1.2 when that is at most 1), `insert_textbox` baselines that start one ascender below the top and follow `lineheight` times the ascender apart, and `insert_text` text split with `str.splitlines()`, in which a trailing line break adds no line and empty text inserts nothing, without the lines whose baseline falls below the page | R2, G1 |
 | `Page.show_pdf_page(rect, src, pno=0, ...)` | the parameter name `docsrc` | R2 |
 | `Page.annots()` (dictionaries) | read-only `Annot` handles | R2 |
 | `Page.add_highlight_annot(rects, ...)` returning `None` | `add_highlight_annot(quads, ...)` returning an `Annot` | R2 |

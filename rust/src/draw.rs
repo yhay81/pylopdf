@@ -340,6 +340,16 @@ pub(crate) fn pdf_to_display(crop: [f64; 4], rotation: i64, x: f64, y: f64) -> (
     }
 }
 
+/// Return the display width and height of a page with `crop` and `rotation`.
+pub(crate) fn display_size(crop: [f64; 4], rotation: i64) -> (f64, f64) {
+    let (width, height) = (crop[2] - crop[0], crop[3] - crop[1]);
+    if matches!(rotation, 90 | 270) {
+        (height, width)
+    } else {
+        (width, height)
+    }
+}
+
 /// Map a PDF-space rectangle to normalized display `(x0, y0, x1, y1)`.
 pub fn pdf_rect_to_display(crop: [f64; 4], rotation: i64, rect: [f64; 4]) -> [f64; 4] {
     let (ax, ay) = pdf_to_display(crop, rotation, rect[0], rect[1]);

@@ -700,6 +700,32 @@ def _shape_results(font: bytes) -> dict[str, Any]:
     }
 
 
+def _insert_text_line_results(font: bytes) -> list[int]:
+    """Count the lines that insert_text draws, as pymupdf 1.28.2 splits and counts them.
+
+    On a page 130 points high, lines whose baseline would fall below the page
+    are left out, with the line distance computed from single-precision
+    metrics: 13.7400004 points leave no room for a Helvetica baseline at 130
+    from 102.52, while Noto Sans JP's 14.4799995 points leave room for one
+    from 101.04.
+    """
+    import pylopdf  # noqa: PLC0415
+
+    page = pylopdf.Document().new_page(width=200, height=130)
+    counts = [
+        page.insert_text((72, 100), "A\nB\nC\nD", fontsize=10),
+        page.insert_text((72, 102.52), "A\nB\nC\nD", fontsize=10),
+        page.insert_text((72, 101.04), "\n".join([_JAPANESE] * 4), fontsize=10, fontbuffer=font),
+        page.insert_text((20, 20), "Aa\n", fontsize=10),
+        page.insert_text((20, 40), "A\vB\u2028C", fontsize=10),
+        page.insert_text((20, 60), "\n", fontsize=10),
+    ]
+    with page.new_shape() as shape:
+        counts.append(shape.insert_text((150, 100), ["A", "B", "C", "D"], fontsize=10))
+    _require(counts == [3, 2, 3, 1, 3, 0, 3], "insert_text split or counted lines differently from pymupdf")
+    return counts
+
+
 def _variable_font_results(font: bytes) -> dict[str, Any]:
     """Select weights of a variable font from bytes and require the bold instance to draw its measured width.
 
@@ -854,6 +880,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "roundtrip_pages": document.page_count,
         "font": font_results,
         "shape": _shape_results(font),
+        "insert_text_lines": _insert_text_line_results(font),
         "variable_font": _variable_font_results(
             (root / "fonts/pylopdf-fonts-he/src/pylopdf_fonts_he/NotoSansHebrew-Variable.ttf").read_bytes(),
         ),

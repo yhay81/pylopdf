@@ -223,8 +223,9 @@ Rustが標準エラー出力に書き出します。
   filenameはGILを解放した上限付きRust pathで読みます。信頼できるworkloadは
   `max_font_size=None`で明示解除できます。
 - `insert_text()`と`insert_textbox()`の生成text inputは既定でUTF-8 1 MiB、
-  物理行・折り返し後layoutは4,096行が上限です。PythonはPyO3 copy前に物理行を
-  検査し、Rust境界も再検査してmutation前に折り返し行を止めます。textboxのtab
+  物理行・折り返し後layoutは4,096行が上限です。`insert_text()`は
+  `str.splitlines()`が分ける行、またはリストの項目を1行と数えます。Pythonは
+  行に分ける前、PyO3 copy前に物理行を検査し、Rust境界も再検査してmutation前に折り返し行を止めます。textboxのtab
   展開量は展開済みstringを確保する前に計算します。信頼できる挿入inputは
   `max_text_size=None`で明示解除でき、拒否codeは`text_input_size`または
   `text_line_count`です。AcroFormのtext／choice外観は固定4,096行上限を維持します。

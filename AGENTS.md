@@ -1610,11 +1610,31 @@ overview.
   the ascender differs from 1 em; that is pymupdf's behaviour, so keep it.
   Form appearances keep the OS/2 or AFM-bounding-box metrics
   (`font_vertical_metrics`, `standard_vertical_metrics`) and
-  `LinePlacement::Stacked`, so their output did not change. pymupdf splits
-  `insert_text` text with `str.splitlines()`, so a trailing line break adds no
-  line, and leaves out the lines whose baseline falls below the page, counting
-  only the lines it drew; pylopdf does neither yet, and section 15 of
-  `api/DESIGN.md` lists both as M0 work.
+  `LinePlacement::Stacked`, so their output did not change. `LineMetrics`
+  holds the decimal font-unit ratios that `Font.ascender` reports, while
+  MuPDF hands pymupdf single-precision values; pymupdf compares those with 1
+  for the 1.2 fallback, so `line_height` does too, and a face with 0.8 and
+  -0.2, also MuPDF's replacements for untrusted metrics, keeps its 1 em lines.
+  `insert_text` on `Page` and `Shape` splits a string with `str.splitlines()`
+  and uses a list or tuple as given (`_insert_text_lines`, whose 4,096-line
+  limit counts lines the same way before splitting); text with nothing to
+  draw, `""`, `[]`, or one empty line, returns 0 before the point, size,
+  colour, and font arguments are checked, as pymupdf returns early.
+  `LineMetrics::lines_on_page` then
+  reproduces pymupdf's cutoff: the first line always, and each later one
+  while the room left, the first baseline's distance above the page bottom
+  less one line distance per drawn line, is at least one line distance,
+  computed from the single-precision metrics so that a baseline on the bottom
+  edge is drawn or left out exactly as pymupdf decides. The bottom is that of
+  `Page.rect` in display coordinates (`draw::display_size`, which `Shape`
+  reads through `_Document.page_display_size`), where pymupdf measures in
+  unrotated space down to user-space y = 0 (`api/DESIGN.md` G1). Every input
+  line is still encoded or shaped, so the font refuses a character on a line
+  below the page, and the call returns the number of lines drawn.
+  `tests/test_insert_text_lines.py` pins pymupdf 1.28.2's counts. pymupdf's
+  `rotate=`, which M2 adds, turns the direction in which lines advance, and
+  pymupdf then measures the room along that direction, so the room passed to
+  `lines_on_page` must follow it.
 - `Page.insert_textbox` completes layout before mutating the PDF and returns
   negative spare height without drawing on overflow. Standard 14 measurement
   uses canonical Adobe AFM widths; embedded OpenType measurement uses HarfRust

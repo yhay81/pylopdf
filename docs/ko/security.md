@@ -223,8 +223,9 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
   해제한 상한 적용Rust path에서 읽습니다. 신뢰 가능한workload는
   `max_font_size=None`으로 명시적으로 해제할 수 있습니다.
 - `insert_text()`와`insert_textbox()`의 생성text input은 기본UTF-8 1 MiB이며
-  물리줄과 줄바꿈 후layout은4,096줄로 제한됩니다. Python은PyO3 copy 전에 물리줄을
-  검사하고Rust 경계도 다시 검사하여mutation 전에 줄바꿈layout을 중단합니다.
+  물리줄과 줄바꿈 후layout은4,096줄로 제한됩니다. `insert_text()`는
+  `str.splitlines()`가 나누는 줄 또는 리스트 항목 하나를 한 줄로 셉니다. Python은
+  줄을 나누기 전, PyO3 copy 전에 물리줄을 검사하고Rust 경계도 다시 검사하여mutation 전에 줄바꿈layout을 중단합니다.
   textbox는확장된string을 할당하기 전에tab 확장량을 미리 검사합니다. 신뢰 가능한
   삽입input은`max_text_size=None`으로 명시적으로 해제할 수 있고 거부code는
   `text_input_size` 또는`text_line_count`입니다. AcroForm text／choice appearance는

@@ -119,6 +119,9 @@ _DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 _DEFAULT_MAX_FONT_INPUT_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_GENERATED_TEXT_SIZE = 1024 * 1024
 _MAX_GENERATED_TEXT_LINES = 4096
+#: The characters that end a line for str.splitlines(), which also treats
+#: "\r\n" as one line break.
+_LINE_BREAKS = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
 _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
@@ -1359,11 +1362,65 @@ def _validate_utf8_text_input(
 def _validate_generated_text_lines(text: str, max_text_size: int | None) -> None:
     """Bound physical lines before split or layout object materialization."""
     if max_text_size is not None and text.count("\n") >= _MAX_GENERATED_TEXT_LINES:
-        code = "text_line_count"
-        raise LimitError(
-            code,
-            f"text input exceeds the {_MAX_GENERATED_TEXT_LINES}-line safety limit",
-        )
+        raise _text_line_limit()
+
+
+def _text_line_limit() -> LimitError:
+    """Return the refusal of text input beyond the generated-line limit."""
+    return LimitError(
+        "text_line_count",
+        f"text input exceeds the {_MAX_GENERATED_TEXT_LINES}-line safety limit",
+    )
+
+
+def _insert_text_lines(text: str | Sequence[str], max_text_size: int | None) -> list[str]:
+    r"""Return the lines of ``insert_text`` text, split as pymupdf splits them.
+
+    A string is split with :meth:`str.splitlines`, so a trailing line break
+    adds no line and ``\v``, ``\f``, ``\x1c`` to ``\x1e``, ``\x85``,
+    ``\u2028``, and ``\u2029`` break lines as ``\n``, ``\r``, and ``\r\n`` do.
+    A list or tuple holds one line per item, used as given. The text budgets
+    apply before a string is split.
+    """
+    if isinstance(text, (list, tuple)):
+        lines = list(text)
+        _validate_text_line_list(lines, max_text_size)
+        return lines
+    if not isinstance(text, str):
+        msg = f"text must be a string or a list of strings: {text!r}"
+        raise TypeError(msg)
+    _validate_utf8_text_input(text, max_text_size)
+    if max_text_size is not None and _splitlines_count(text) > _MAX_GENERATED_TEXT_LINES:
+        raise _text_line_limit()
+    return text.splitlines()
+
+
+def _splitlines_count(text: str) -> int:
+    """Return how many lines :meth:`str.splitlines` makes of ``text`` without splitting it."""
+    # One line per break, "\r\n" being a single break, and one more for the
+    # text after the last break, when there is any.
+    count = sum(map(text.count, _LINE_BREAKS)) - text.count("\r\n")
+    return count + 1 if text and text[-1] not in _LINE_BREAKS else count
+
+
+def _validate_text_line_list(lines: list[str], max_text_size: int | None) -> None:
+    """Refuse list items that are not strings and lines beyond the text budgets."""
+    for line in lines:
+        if not isinstance(line, str):
+            msg = f"text must be a string or a list of strings, not a list holding {type(line).__name__}"
+            raise TypeError(msg)
+    _validate_optional_positive_int("max_text_size", max_text_size)
+    if max_text_size is None:
+        return
+    if len(lines) > _MAX_GENERATED_TEXT_LINES:
+        raise _text_line_limit()
+    remaining = max_text_size
+    for line in lines:
+        size = _bounded_utf8_size(line, remaining)
+        if size is None:
+            code = "text_input_size"
+            raise LimitError(code, f"text input exceeds the {max_text_size}-byte UTF-8 limit")
+        remaining -= size
 
 
 def _bounded_utf8_size(text: str, remaining: int) -> int | None:
@@ -2861,17 +2918,16 @@ class Shape:
     ) -> int:
         r"""Add text whose first baseline starts at ``point`` and return its line count.
 
-        ``text`` is a string, in which ``\n`` starts a new line, or a list of
-        lines. Lines are placed as :meth:`Page.insert_text` places them,
-        ``lineheight`` included, and the font options and limits are its own.
-        ``color`` defaults to black. Empty text adds nothing and returns 0.
+        ``text`` is a string, split into lines with :meth:`str.splitlines`, or
+        a list of lines used as given. Lines are split, placed, and left out
+        below the page as :meth:`Page.insert_text` does, ``lineheight``
+        included, and the returned count counts the lines added; the font
+        options and limits are its own. ``color`` defaults to black. Text with
+        nothing to draw adds nothing and returns 0.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
-        lines_text = "\n".join(text) if isinstance(text, (list, tuple)) else text
-        if not isinstance(lines_text, str):
-            msg = f"text must be a string or a list of strings: {text!r}"
-            raise TypeError(msg)
-        if not lines_text:
+        lines = _insert_text_lines(text, max_text_size)
+        if not lines or lines == [""]:
             return 0
         origin = _shape_point(point, "point")
         size = _shape_number(fontsize, "fontsize")
@@ -2880,11 +2936,8 @@ class Shape:
             raise PdfError(msg)
         resolved_lineheight = _validate_lineheight(lineheight)
         text_color = _shape_color(color, "color") or (0.0,)
-        _validate_utf8_text_input(lines_text, max_text_size)
-        normalized = lines_text.replace("\r\n", "\n").replace("\r", "\n")
-        _validate_generated_text_lines(normalized, max_text_size)
         core_font = self._font_for_text(
-            normalized,
+            "\n".join(lines),
             font=font,
             fontname=fontname,
             fontfile=fontfile,
@@ -2893,13 +2946,15 @@ class Shape:
             font_language=font_language,
             max_font_size=max_font_size,
         )
+        _, page_height = self.doc._doc.page_display_size(self.page._page_number())
         return self._record.insert_text(
             tuple(origin),
-            normalized.split("\n"),
+            lines,
             core_font,
             size,
             resolved_lineheight,
             list(text_color),
+            page_height,
             max_text_size,
         )
 
@@ -3561,7 +3616,7 @@ class Page:
     def insert_text(  # noqa: PLR0913 - mirrors pymupdf's keyword-oriented drawing API
         self,
         point: Sequence[float],
-        text: str,
+        text: str | Sequence[str],
         *,
         fontsize: float = 11.0,
         lineheight: float | None = None,
@@ -3575,8 +3630,8 @@ class Page:
         overlay: bool = True,
         max_font_size: int | None = _DEFAULT_MAX_FONT_INPUT_SIZE,
         max_text_size: int | None = _DEFAULT_MAX_GENERATED_TEXT_SIZE,
-    ) -> None:
-        r"""Draw text at ``point``, the first line's baseline-left display point.
+    ) -> int:
+        r"""Draw text at ``point``, the first line's baseline-left display point, and return its line count.
 
         ``fontname`` is a pymupdf-style Standard 14 alias: the ``"helv"``,
         ``"tiro"``, and ``"cour"`` families with ``bo``/``it`` variants, plus
@@ -3612,22 +3667,36 @@ class Page:
         current pylopdf extractor does not consume it, so some reordered or
         context-dependent clusters can extract approximately after reopening.
 
-        ``\n`` starts a new line, ``lineheight`` times ``fontsize`` below the
-        previous one. Without ``lineheight``, lines are pymupdf's default
-        distance apart: the font's :attr:`Font.ascender` minus its
-        :attr:`Font.descender`, times ``fontsize``, or 1.2 times ``fontsize``
-        when that difference is at most 1. Text remains
-        visually upright on rotated pages. ``overlay=False`` draws below
-        existing content. Loop over pages for headers, footers, page numbers,
-        or Bates numbers. Explicit and automatically selected font input
-        defaults to a 64 MiB boundary; ``max_font_size=None`` opts trusted
-        workloads out. Refusal raises :class:`LimitError` with code
+        ``text`` is a string, which is split into lines as pymupdf splits it,
+        with :meth:`str.splitlines`, or a list or tuple of lines used as given.
+        A trailing line break therefore adds no line, and ``\v``, ``\f``,
+        ``\x1c`` to ``\x1e``, ``\x85``, ``\u2028``, and ``\u2029`` break
+        lines as ``\n``, ``\r``, and ``\r\n`` do. Each line starts
+        ``lineheight`` times ``fontsize`` below the previous one. Without
+        ``lineheight``, lines are pymupdf's default distance apart: the font's
+        :attr:`Font.ascender` minus its :attr:`Font.descender`, times
+        ``fontsize``, or 1.2 times ``fontsize`` when that difference is at
+        most 1. As in pymupdf, the first line is always drawn, every later
+        line only while its baseline does not fall below the bottom of the
+        page, and the return value counts the lines drawn. The bottom is that
+        of :attr:`rect`, the page in display coordinates. Text with nothing to
+        draw, an empty string or list or one empty line such as ``"\n"``,
+        inserts nothing and returns 0, as in pymupdf.
+
+        Text remains visually upright on rotated pages. ``overlay=False`` draws
+        below existing content. Loop over pages for headers, footers, page
+        numbers, or Bates numbers. Explicit and automatically selected font
+        input defaults to a 64 MiB boundary; ``max_font_size=None`` opts
+        trusted workloads out. Refusal raises :class:`LimitError` with code
         ``font_input_size``. Text input defaults to a 1 MiB UTF-8 and 4,096
-        physical-line boundary. ``max_text_size=None`` is the explicit
-        trusted-input opt-out for both limits. Refusals use
-        ``text_input_size`` or ``text_line_count``.
+        line boundary, and the font checks every line, also those below the
+        page. ``max_text_size=None`` is the explicit trusted-input opt-out for
+        both limits. Refusals use ``text_input_size`` or ``text_line_count``.
         """
         _validate_optional_positive_int("max_font_size", max_font_size)
+        lines = _insert_text_lines(text, max_text_size)
+        if not lines or lines == [""]:
+            return 0
         try:
             x, y = (float(v) for v in point)
         except (TypeError, ValueError) as exc:
@@ -3641,20 +3710,15 @@ class Page:
             raise ValueError(msg)
         resolved_lineheight = _validate_lineheight(lineheight)
         red, green, blue = _validate_unit_rgb(color)
-        if not text:
-            msg = "text must be at least 1 character"
-            raise ValueError(msg)
-        _validate_utf8_text_input(text, max_text_size)
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        _validate_generated_text_lines(normalized, max_text_size)
+        joined = "\n".join(lines)
         if font is not None:
             core_font = _validate_font_choice(font, fontfile, fontbuffer, fontindex, font_language)
             standard_name = core_font.standard_name
             if standard_name is None:
-                self._document._doc.insert_font_text(
+                return self._document._doc.insert_font_text(
                     self._page_number(),
                     (x, y),
-                    normalized.split("\n"),
+                    lines,
                     core_font,
                     float(fontsize),
                     resolved_lineheight,
@@ -3662,11 +3726,10 @@ class Page:
                     overlay,
                     max_text_size,
                 )
-                return
-            _require_winansi(normalized)
-            self._insert_standard_text(
+            _require_winansi(joined)
+            return self._insert_standard_text(
                 (x, y),
-                normalized,
+                lines,
                 base_font=standard_name,
                 fontsize=float(fontsize),
                 lineheight=resolved_lineheight,
@@ -3674,20 +3737,19 @@ class Page:
                 overlay=overlay,
                 max_text_size=max_text_size,
             )
-            return
         font_data = _resolve_font_source(fontfile, fontbuffer, max_font_size)
         base_font, font_data, package_font = _resolve_generation_font(
-            normalized,
+            joined,
             fontname,
             font_data,
             fontindex,
             font_language,
         )
         if isinstance(font_data, Path):
-            self._document._doc.insert_embedded_text_file(
+            return self._document._doc.insert_embedded_text_file(
                 self._page_number(),
                 (x, y),
-                normalized.split("\n"),
+                lines,
                 str(font_data),
                 fontindex,
                 float(fontsize),
@@ -3699,12 +3761,11 @@ class Page:
                 package_font,
                 _package_face_weight(package_font),
             )
-            return
         if isinstance(font_data, bytes):
-            self._document._doc.insert_embedded_text(
+            return self._document._doc.insert_embedded_text(
                 self._page_number(),
                 (x, y),
-                normalized.split("\n"),
+                lines,
                 font_data,
                 fontindex,
                 float(fontsize),
@@ -3715,11 +3776,10 @@ class Page:
                 max_text_size,
                 _package_face_weight(package_font),
             )
-            return
 
-        self._insert_standard_text(
+        return self._insert_standard_text(
             (x, y),
-            normalized,
+            lines,
             base_font=cast("str", base_font),
             fontsize=float(fontsize),
             lineheight=resolved_lineheight,
@@ -3731,7 +3791,7 @@ class Page:
     def _insert_standard_text(  # noqa: PLR0913 - the validated insert_text arguments.
         self,
         point: tuple[float, float],
-        text: str,
+        lines: list[str],
         *,
         base_font: str,
         fontsize: float,
@@ -3739,13 +3799,12 @@ class Page:
         color: tuple[float, float, float],
         overlay: bool,
         max_text_size: int | None,
-    ) -> None:
-        """Draw validated WinAnsi text in a Standard 14 font."""
-        lines = [line.encode("cp1252") for line in text.split("\n")]
-        self._document._doc.insert_page_text(
+    ) -> int:
+        """Draw validated WinAnsi lines in a Standard 14 font and return how many were drawn."""
+        return self._document._doc.insert_page_text(
             self._page_number(),
             point,
-            lines,
+            [line.encode("cp1252") for line in lines],
             base_font,
             base_font not in _SYMBOLIC_BASE14_NAMES,
             fontsize,

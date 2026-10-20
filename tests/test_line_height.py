@@ -114,7 +114,7 @@ def _baselines(page: pylopdf.Page) -> list[float]:
     ]
 
 
-def _insert_text(page: pylopdf.Page, via: str, text: str, **options: Any) -> int | None:  # noqa: ANN401
+def _insert_text(page: pylopdf.Page, via: str, text: str, **options: Any) -> int:  # noqa: ANN401
     options.setdefault("fontsize", 10)
     if via == "page":
         return page.insert_text(POINT, text, **options)
@@ -178,6 +178,19 @@ def test_faces_report_the_metrics_mupdf_reads(patch: dict[str, Any], metrics: tu
         pytest.param(HEBREW, {"fontfile": NOTO_SANS_HEBREW}, [100, 113.6, 127.2], id="noto-sans-hebrew"),
         # An ascender minus descender of at most 1 em falls back to 1.2 em.
         pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(700, -200))}, [100, 112, 124], id="small-extent"),
+        # pymupdf compares MuPDF's single-precision metrics: 0.75 and -0.25
+        # span exactly 1 em and 0.88 and -0.12 slightly less, while 0.8 and
+        # -0.2, also MuPDF's replacements for untrusted metrics, span
+        # 1.000000015 em and keep lines 1 em apart.
+        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(750, -250))}, [100, 112, 124], id="exact-1-em"),
+        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(880, -120))}, [100, 112, 124], id="below-1-em"),
+        pytest.param(JAPANESE, {"fontbuffer": _patched(hhea=(800, -200))}, [100, 110, 120], id="above-1-em"),
+        pytest.param(
+            JAPANESE,
+            {"fontbuffer": _patched(hhea=(8001, -3001))},
+            [100, 110, 120],
+            id="untrusted-metrics",
+        ),
     ],
 )
 def test_insert_text_places_lines_as_pymupdf_does(
@@ -190,7 +203,7 @@ def test_insert_text_places_lines_as_pymupdf_does(
 
     count = _insert_text(page, via, text, **options)
 
-    assert count == (None if via == "page" else 3)
+    assert count == 3
     assert _baselines(page) == pytest.approx(baselines, abs=1e-3)
 
 
@@ -242,6 +255,27 @@ def test_zapf_dingbats_falls_back_to_pymupdfs_default_leading(via: str) -> None:
             [107.0, 115.4, 123.8],
             162.0,
             id="small-extent",
+        ),
+        pytest.param(
+            JAPANESE,
+            {"fontbuffer": _patched(hhea=(750, -250))},
+            [107.5, 116.5, 125.5],
+            161.5,
+            id="exact-1-em",
+        ),
+        pytest.param(
+            JAPANESE,
+            {"fontbuffer": _patched(hhea=(880, -120))},
+            [108.8, 119.36, 129.92],
+            162.8,
+            id="below-1-em",
+        ),
+        pytest.param(
+            JAPANESE,
+            {"fontbuffer": _patched(hhea=(800, -200))},
+            [108.0, 116.0, 124.0],
+            168.0,
+            id="above-1-em",
         ),
     ],
 )

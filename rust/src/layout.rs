@@ -42,12 +42,50 @@ pub struct LineMetrics {
 impl LineMetrics {
     /// Return the distance between baselines that pymupdf's `insert_text`
     /// uses, in em: `lineheight` when given, else the ascender minus the
-    /// descender, or 1.2 when that is at most 1.
+    /// descender, or 1.2 when that is at most 1. pymupdf compares the
+    /// single-precision metrics that MuPDF reports, in which 0.8 and -0.2
+    /// span 1.000000015 em, so such a face keeps its extent of 1 em.
     pub fn line_height(self, lineheight: Option<f64>) -> f64 {
         lineheight.unwrap_or_else(|| {
-            let extent = self.ascender - self.descender;
-            if extent <= 1.0 { 1.2 } else { extent }
+            let single = self.single_precision();
+            if single.ascender - single.descender <= 1.0 {
+                1.2
+            } else {
+                self.ascender - self.descender
+            }
         })
+    }
+
+    /// Return how many of `count` lines `insert_text` draws when its first
+    /// baseline lies `space` points above the bottom of the page. As in
+    /// pymupdf, the first line is always drawn, and each later line only
+    /// while the space left is at least one line distance, which the line
+    /// then takes up. pymupdf measures that distance with MuPDF's
+    /// single-precision metrics, and so does this, so that a baseline on the
+    /// bottom edge is drawn or left out as pymupdf decides.
+    pub fn lines_on_page(
+        self,
+        count: usize,
+        space: f64,
+        font_size: f64,
+        lineheight: Option<f64>,
+    ) -> usize {
+        let distance = font_size * self.single_precision().line_height(lineheight);
+        let mut space = space;
+        let mut lines = count.min(1);
+        while lines < count && space >= distance {
+            space -= distance;
+            lines += 1;
+        }
+        lines
+    }
+
+    /// The metrics rounded to single precision, as MuPDF reports them.
+    fn single_precision(self) -> Self {
+        Self {
+            ascender: f64::from(self.ascender as f32),
+            descender: f64::from(self.descender as f32),
+        }
     }
 
     /// Return the distance between `insert_text` baselines in points, which
