@@ -196,6 +196,12 @@ def _format_page_label(style: str, prefix: str, number: int) -> str:
     return prefix + digits
 
 
+def _normalized_box(box: Sequence[float]) -> Rect:
+    """Return a stored page box with ``x0 <= x1`` and ``y0 <= y1``, as MuPDF reads it."""
+    x0, y0, x1, y1 = box
+    return Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
 class Page:
     """A view of one page in a document, obtained through ``doc[i]``.
 
@@ -261,15 +267,26 @@ class Page:
 
     @property
     def mediabox(self) -> Rect:
-        """Return the resolved MediaBox in PDF page-box coordinates, or A4 when absent."""
+        """Return the MediaBox in PDF coordinates, as stored, or A4 when absent.
+
+        As in pymupdf, the corners are normalized so that ``x0 <= x1`` and
+        ``y0 <= y1``.
+        """
         box = self._document._doc.get_page_box(self._page_number(), "MediaBox")
-        return Rect(*(box if box is not None else _DEFAULT_MEDIABOX))
+        return _normalized_box(box if box is not None else _DEFAULT_MEDIABOX)
 
     @property
     def cropbox(self) -> Rect:
-        """Return the CropBox in PDF page-box coordinates, falling back to the MediaBox."""
+        """Return the CropBox in pymupdf's box convention, or the MediaBox.
+
+        The x coordinates are the stored ones, and the y axis is flipped
+        against the top of the MediaBox, so the CropBox of an uncropped page
+        that starts at the origin equals its MediaBox (DESIGN.md G1).
+        """
+        mediabox = self.mediabox
         box = self._document._doc.get_page_box(self._page_number(), "CropBox")
-        return Rect(*box) if box is not None else self.mediabox
+        crop = mediabox if box is None else _normalized_box(box)
+        return Rect(crop.x0, mediabox.y1 - crop.y1, crop.x1, mediabox.y1 - crop.y0)
 
     @property
     def rect(self) -> Rect:
@@ -284,17 +301,35 @@ class Page:
         return Rect(0.0, 0.0, width, height)
 
     def set_mediabox(self, rect: Sequence[float]) -> None:
-        """Set the MediaBox as ``(x0, y0, x1, y1)``."""
-        self._set_box("MediaBox", rect)
+        """Set the MediaBox in PDF coordinates and remove the other page boxes.
+
+        As in pymupdf, the CropBox, BleedBox, TrimBox, and ArtBox are removed,
+        so the whole new MediaBox becomes visible; a CropBox that the page
+        would inherit from the page tree is replaced by the MediaBox. An empty
+        rectangle raises ``ValueError``.
+        """
+        x0, y0, x1, y1 = _validate_rect(rect, name="MediaBox")
+        self._document._doc.set_mediabox(self._page_number(), x0, y0, x1, y1)
 
     def set_cropbox(self, rect: Sequence[float]) -> None:
-        """Set the CropBox as ``(x0, y0, x1, y1)``."""
-        self._set_box("CropBox", rect)
+        """Set the CropBox in pymupdf's box convention.
 
-    def _set_box(self, key: str, rect: Sequence[float]) -> None:
-        """Validate and set a page box."""
-        x0, y0, x1, y1 = _validate_rect(rect, name=key)
-        self._document._doc.set_page_box(self._page_number(), key, x0, y0, x1, y1)
+        ``rect`` uses the coordinates that :attr:`cropbox` returns: stored x,
+        and y flipped against the top of the MediaBox. As in pymupdf, the box
+        must have area and lie inside the MediaBox; otherwise ``ValueError``
+        is raised and the page is unchanged.
+        """
+        x0, y0, x1, y1 = _validate_rect(rect, name="CropBox")
+        mediabox = self.mediabox
+        stored = Rect(x0, mediabox.y1 - y1, x1, mediabox.y1 - y0)
+        if not (
+            mediabox.x0 <= stored.x0 < stored.x1 <= mediabox.x1 and mediabox.y0 <= stored.y0 < stored.y1 <= mediabox.y1
+        ):
+            msg = (
+                f"CropBox not in MediaBox: {rect!r} lies outside {Rect(mediabox.x0, 0, mediabox.x1, mediabox.height)!r}"
+            )
+            raise ValueError(msg)
+        self._document._doc.set_page_box(self._page_number(), "CropBox", *stored)
 
     @overload
     def get_text(self, option: Literal["text"] = "text") -> str: ...

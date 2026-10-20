@@ -526,8 +526,8 @@ one-to-one onto these rows.
 | `Document.render_pages(pages, scale=, ...)` | the `get_pixmap` options, without `scale=` | R1 |
 | `Page.get_images()` (decoded placements) | pymupdf's `get_images(full=)` inventory, `get_image_info()`, and `extract_image(xref)` | R2 |
 | `Page.get_drawings()` keys | adds `seqno` and `layer` | R2 |
-| `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1 |
-| `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2 |
+| `Page.cropbox`, `set_cropbox(rect)` in bottom-left PDF coordinates | pymupdf's box convention, with the MediaBox containment check | R2, G1; done |
+| `Page.set_mediabox(rect)` keeping the other boxes | removes the CropBox, ArtBox, BleedBox, and TrimBox, as pymupdf does | R2; done |
 | `Page.insert_text(...)`, `insert_image(...)`, `show_pdf_page(...)` returning `None` | the inserted line count, the image xref, and the Form xref | R2; `insert_text` done |
 | `fontname=` accepting only the short Standard 14 aliases | also the full names, with `Base14_fontnames` and `Base14_fontdict` | R2 |
 | `Pixmap.save(path)` | `Pixmap.save(filename, ...)` | R2; done |

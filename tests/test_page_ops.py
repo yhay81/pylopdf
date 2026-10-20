@@ -298,7 +298,7 @@ def test_insert_pdf_treats_null_page_and_parent_attributes_as_absent(
             }
         )
     )
-    expected_crop = pylopdf.Rect(0, 0, 300, 400) if inherited_values else pylopdf.Rect(0, 0, 612, 792)
+    expected_crop = pylopdf.Rect(0, 392, 300, 792) if inherited_values else pylopdf.Rect(0, 0, 612, 792)
     expected_rotation = 180 if inherited_values else 0
     assert source[0].mediabox == pylopdf.Rect(0, 0, 612, 792)
     assert source[0].cropbox == expected_crop
@@ -341,7 +341,8 @@ def test_page_edits_inherit_past_attributes_that_name_missing_objects(operation:
             }
         )
     )
-    geometry = (pylopdf.Rect(0, 0, 612, 792), pylopdf.Rect(0, 0, 300, 400), 90)
+    # pymupdf's cropbox flips the stored [0 0 300 400] against the MediaBox top.
+    geometry = (pylopdf.Rect(0, 0, 612, 792), pylopdf.Rect(0, 392, 300, 792), 90)
     assert (doc[0].mediabox, doc[0].cropbox, doc[0].rotation) == geometry
     expected_png = doc.render_page(0)
 
