@@ -246,7 +246,11 @@ Split `rust/src/document.rs` (11,804 lines) and `src/pylopdf/__init__.py`
   annotations, drawing, saving, and validation helpers. Keep one
   `#[pymethods]` block that delegates to submodule functions; do not enable
   PyO3 `multiple-pymethods`, whose `inventory` registration this project has
-  not validated on PyEmscripten.
+  not validated on PyEmscripten. Done on 2026-10-20: the 12,586-line file
+  became `mod.rs` (1,866 lines, mostly the 94 method signatures and their
+  docstrings, 70 of which delegate) and 23 domain submodules of 86 to 1,548
+  lines, by a mechanical move that changed only visibility, indentation, and
+  `this` in place of `self` in the moved method bodies.
 - Python: private `_errors.py`, `_types.py`, `_limits.py`, `_document.py`,
   `_page.py`, `_pixmap.py`, `_tables.py`, and `_ocr.py` modules, with
   `__init__.py` as the re-export surface. Public classes keep
