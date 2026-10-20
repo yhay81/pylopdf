@@ -34,6 +34,10 @@ Key facts:
 - Immutable Point and Matrix NamedTuples support affine operators: p * m,
   left * right (left transform first), and ~m. Replace mutating transform
   or pretranslate calls with assignment of the corresponding operator result.
+- Rect, IRect and Quad are immutable NamedTuples with pymupdf's operators:
+  r | p (include), r & o (intersect), r * m (transform), p in r, r.round(),
+  r.torect(o), rect.quad, quad.rect. Replace include_point, include_rect,
+  intersect, normalize and transform with assignment (r = r.normalized()).
   Rendering still takes scale= / dpi=, not matrix=.
 - DocumentLimits.web(), including its renderer/extractor PDF snapshot cap,
   LimitError.code and doc.complexity provide a shared native/Wasm policy

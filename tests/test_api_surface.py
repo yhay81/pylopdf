@@ -26,8 +26,20 @@ def test_public_api_matches_reviewed_snapshot() -> None:
 def test_geometry_snapshot_keeps_inherited_coordinates_and_operators() -> None:
     """NamedTuple subclassing must not hide coordinate or operator contracts."""
     symbols = json.loads((ROOT / "api" / "public-api.json").read_text(encoding="utf-8"))["symbols"]
-    for name, fields in (("Point", ("x", "y")), ("Matrix", ("a", "b", "c", "d", "e", "f"))):
+    for name, fields, kind in (
+        ("Point", ("x", "y"), "float"),
+        ("Matrix", ("a", "b", "c", "d", "e", "f"), "float"),
+        ("Rect", ("x0", "y0", "x1", "y1"), "float"),
+        ("IRect", ("x0", "y0", "x1", "y1"), "int"),
+        ("Quad", ("ul", "ur", "ll", "lr"), "Point"),
+    ):
         contract = symbols[name]
-        assert contract["annotations"] == dict.fromkeys(fields, "float")
+        assert contract["annotations"] == dict.fromkeys(fields, kind)
         assert all(contract["members"][field]["kind"] == "property" for field in fields)
-        assert all(op in contract["members"] for op in ("__mul__", "__truediv__", "__bool__"))
+        assert all(
+            op in contract["members"]
+            for op in ("__mul__", "__truediv__", "__contains__" if name in {"IRect", "Quad"} else "__bool__")
+        )
+    # Members shared through the private rectangle base belong to both classes.
+    for name in ("Rect", "IRect"):
+        assert all(op in symbols[name]["members"] for op in ("__or__", "__and__", "__contains__", "torect", "tl"))
