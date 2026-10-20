@@ -399,6 +399,18 @@ graph.
   copy shared Form XObjects before editing them, and re-serialize.
 - No public API until M4; private Python hooks drive the tests.
 
+Interpretation and font metrics landed on 2026-10-20 in `rust/src/content/`
+behind the private `_Document.content_glyphs` hook. Glyph origins agree with
+hayro's extraction within 0.0001 pt for all 375,334 glyphs of the bundled
+corpus, and within 0.01 pt for 3,502,056 of 3,504,546 glyphs (99.93%) on the
+first six pages of the 1,412 pdf.js corpus files that both read. The rest are
+embedded fonts without `/Widths`, whose widths live only in the font program
+(4 files); two streams without a usable `/Length` that lopdf loads empty
+(`issue1293r.pdf`, `operator-in-TJ-array.pdf`), which the object-recovery fix
+in #259 resolves; and one stream that lopdf cannot decode. Content that
+lopdf's strict parse rejects (13 files) or cannot decode (5) is refused.
+Rewriting follows.
+
 ### F9 — Migration tooling
 
 - `python -m pylopdf.migrate` rewrites pymupdf programs with LibCST from an
