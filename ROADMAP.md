@@ -402,13 +402,14 @@ graph.
 Interpretation and font metrics landed on 2026-10-20 in `rust/src/content/`
 behind the private `_Document.content_glyphs` hook. Glyph origins agree with
 hayro's extraction within 0.0001 pt for all 375,334 glyphs of the bundled
-corpus, and within 0.01 pt for 3,502,031 of 3,504,546 glyphs (99.93%) on the
+corpus, and within 0.01 pt for 3,502,056 of 3,504,546 glyphs (99.93%) on the
 first six pages of the 1,412 pdf.js corpus files that both read. The rest are
 embedded fonts without `/Widths`, whose widths live only in the font program
-(4 files); two files where lopdf and hayro read different objects or stream
-data from the same bytes; one `TJ` array that holds operators; and one stream
-that lopdf cannot decode. Content that lopdf's strict parse rejects (13 files)
-or cannot decode (5) is refused. Rewriting follows.
+(4 files); two streams without a usable `/Length` that lopdf loads empty
+(`issue1293r.pdf`, `operator-in-TJ-array.pdf`), which the object-recovery fix
+in #259 resolves; and one stream that lopdf cannot decode. Content that
+lopdf's strict parse rejects (13 files) or cannot decode (5) is refused.
+Rewriting follows.
 
 ### F9 — Migration tooling
 

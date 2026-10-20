@@ -1484,9 +1484,13 @@ overview.
   `/Off`, and §12.5.5 rectangle mapping; Type0 codes are read and mapped to
   CIDs by trying one to four bytes; simple-font widths come from `/Widths`
   and `/MissingWidth`, or from the AFM widths of the standard font that hayro
-  substitutes for a non-embedded font, by glyph names from WinAnsi,
-  MacRoman, the built-in encoding, and `/Differences`, with `.notdef` 250
-  units wide; Type3 widths are scaled by `/FontMatrix` in single precision.
+  substitutes for a non-embedded font, by glyph names from `/Differences`
+  over WinAnsi, MacRoman, Standard, or the built-in encoding; as in hayro,
+  code 0 is `.notdef` (250 units) in a table encoding, unmapped WinAnsi codes
+  above 40 are `bullet`, MacRoman falls back to the rest of Mac OS Roman, the
+  Helvetica fallback uses its built-in encoding, and Symbol and ZapfDingbats
+  ignore the base encoding; Type3 widths are scaled by `/FontMatrix` in
+  single precision.
   Unlike hayro, it records every glyph whatever its visibility, rendering
   mode, optional content, or font usability, because redaction must find
   every byte that can draw one. A width that only an embedded font program
