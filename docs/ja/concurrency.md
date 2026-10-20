@@ -7,7 +7,7 @@ description: Document、Page、Pixmap、並列レンダリング、CPython 3.14t
 
 pylopdfは、GILありCPython 3.11–3.15向けのプラットフォーム別`abi3` wheelに加え、
 free-threaded CPython向けにPythonのバージョンごとのwheelを公開します。
-`cp314-cp314t`はv0.10以降、`cp315-cp315t`はv0.14.0より後のリリースで提供します。
+`cp314-cp314t`はv0.10以降、`cp315-cp315t`はv0.15以降で提供します。
 free-threaded wheelをimportしてもGILは再有効化されません。
 
 ## サポート契約 { #support-contract }
@@ -78,6 +78,6 @@ assert view.readonly and view.format == "B"
 
 viewはPixmapを生かし続けるため、NumPyは`np.frombuffer(pixmap, dtype=np.uint8)`で
 画素をコピーせずに読めます。独立した`bytes`のコピーが必要な場合は、引き続き
-`pixmap.samples`を使えます。v0.14.0より後のリリースはPython 3.11以上を必要とし、
+`pixmap.samples`を使えます。v0.15以降はPython 3.11以上を必要とし、
 そのstable ABIには`Py_buffer`が含まれるため、abi3 wheelも同じbufferを公開します。
 v0.14.0以前はfree-threaded wheelだけがこのbufferを公開していました。

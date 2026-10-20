@@ -8,6 +8,8 @@ Changes that are not released yet may also wait as fragments in
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-20
+
 ### Added
 - `Document.save` and `Document.tobytes` take pymupdf's cumulative `garbage`
   levels: 1 removes unreferenced objects, as `True` did, 2 also numbers the
@@ -119,6 +121,22 @@ Changes that are not released yet may also wait as fragments in
   shape each with pymupdf's options. The styling options are keyword-only,
   `breadth` keeps pymupdf's position after the points, and `morph=` and
   `oc=` are not available.
+- The abi3 and Pyodide wheels expose `Pixmap` pixels through the buffer
+  protocol, which only the free-threaded wheels did before: `memoryview(pixmap)`
+  and `np.frombuffer(pixmap, dtype=np.uint8)` read the immutable RGBA8 storage
+  without a copy, where `Pixmap.samples` copies about 33 MiB for an A4 page at
+  300 dpi. The view is read-only and keeps its Pixmap alive, and the type stubs
+  declare `Pixmap.__buffer__` so that type checkers accept it.
+- A typed low-level object model replaces pymupdf's string-based `xref_*`
+  methods (roadmap F5). `Document.objects` maps object numbers to indirect
+  objects, with `add()` and `add_stream()` creating new ones;
+  `Document.trailer`, `Document.catalog`, and `Page.obj` are live dictionary
+  handles; and `Document.page_xref()` and `Page.xref` return page object
+  numbers. Values are `None`, `bool`, `int`, `float`, `Name`, `String`, and
+  live `Array`, `Dictionary`, and `Stream` handles whose writes take effect at
+  once. `Stream.read()` decodes through every filter under a 64 MiB default
+  bound (`stream_data_size`), and handles raise `StaleObjectError` once their
+  object is removed or renumbered.
 
 ### Changed
 - The pymupdf parity manifest tracks pymupdf 2.0, which the `bench`
@@ -315,6 +333,33 @@ Changes that are not released yet may also wait as fragments in
   changes. The development-only
   `tools/pymupdf_inventory.py` lists pymupdf's API from the `bench` group so
   that the manifest stays complete.
+- Add immutable `Matrix` values and extend `Point` with constructors, vector
+  arithmetic, affine transformation, distances, and unit directions (roadmap F4).
+  `Point` addition and multiplication now perform geometry instead of tuple
+  concatenation/repetition, and the origin is false in truth testing. Coordinates
+  must be finite. Both types retain NamedTuple indexing, unpacking, equality,
+  hashing, and pickling. Mutating geometry methods are replaced by operators;
+  `Rect`, `IRect`, `Quad`, and rendering's `matrix=` option remain future work.
+- Complete pymupdf's geometry types (roadmap F4): `Rect` gains pymupdf's
+  constructors, corners, `contains`, `intersects`, `round`, `torect`, `morph`,
+  `get_area`, `normalized`, and the `+`, `-`, `*`, `/`, `|`, `&`, `in`,
+  `abs()`, and truth-testing operators, and its `width` and `height` no longer
+  go negative. New immutable `IRect` and `Quad` values, `IdentityMatrix` and
+  `Identity`, `planish_line`, the `EMPTY_*` and `INFINITE_*` constructors, and
+  `FZ_MIN_INF_RECT` and `FZ_MAX_INF_RECT` follow pymupdf as well. `Rect`
+  coordinates must now be finite, and tuple concatenation, repetition, and
+  membership on a `Rect` give way to the geometric meanings.
+- `StalePageError` derives from the new `StaleObjectError`, the base for every
+  stale document-backed handle, so `except StaleObjectError` catches stale pages
+  as well. Both remain `PdfError` subclasses.
+
+### Removed
+- Python 3.10, which reaches end of life in October 2026, is no longer
+  supported. pylopdf now requires Python 3.11 or later, as pymupdf 2.0 does, and
+  its GIL-enabled wheels target the `abi3-py311` stable ABI (`cp311-abi3`, and
+  `cp311-abi3-pyemscripten_2025_0_wasm32` for Pyodide). pip on Python 3.10 keeps
+  installing pylopdf 0.14.0. The locale font and OCR model packages still
+  support Python 3.10.
 
 ### Fixed
 - `delete_pages()`, `delete_page()`, and `select()` remove the AcroForm
@@ -606,6 +651,74 @@ Changes that are not released yet may also wait as fragments in
   of `f1040.pdf` decodes members numbered up to 521,291,308; they no longer
   need the move above 8,388,607 described above, and the document keeps its
   numbering.
+- Rendering and extraction read each object-stream member from the slot that
+  editing and saving use. For a compressed cross-reference entry, hayro reads
+  the member that the object stream's table lists at the entry's index,
+  whatever number the table gives it there, and none past `/N`, while lopdf
+  stores every member under its number in the table; an uncompressed object
+  whose header names another number could likewise stand in for a member.
+  Loading kept the original bytes for such files, so a page could draw with one
+  font before any edit and another after it. Loading now reads every object
+  stream's table as both readers do, decoding it only as far as `/First`, and
+  renders from the serialized graph when they disagree, as for pdf.js
+  `bug1978317.pdf`, whose 65,542 members overflow a two-byte index field. On the
+  first six pages of the 1,455 pdf.js corpus files, text before and after a save
+  differed for two files and now differs for none, and cold first calls and
+  loads of the bundled corpus did not change.
+- On pages whose CropBox extends past the MediaBox, `insert_text`,
+  `insert_textbox`, `insert_image`, `show_pdf_page`, `Shape`, the OCR text
+  layer, and new annotations now place content where `get_text` and the
+  renderer show the same display point, and `Page.rect` is the size of the
+  rendered page. All of them used the whole CropBox, while rendering and
+  extraction show the CropBox clipped to the MediaBox, which is also pymupdf's
+  `Page.rect`. On pdf.js `bug956965.pdf`, `Page.rect` was 852.71 by 665.62
+  points for a page that renders 782 by 595 pixels at 72 dpi and is now 782.36
+  by 595.28 points, and text drawn at (36, 72) was extracted at (0.83, 36.83)
+  and now at (36, 72); on `issue9713.pdf` it was extracted at (36, -324).
+  Annotation rectangles, link rectangles, and link destinations read back in
+  the same space, and `show_pdf_page` places only what rendering shows of the
+  source page. A CropBox that misses the MediaBox leaves the A4 page that the
+  renderer then draws, empty because it shows nothing outside the MediaBox,
+  where pymupdf uses Letter, and a page without a MediaBox draws on the A4 page
+  that `Page.mediabox` reports instead of 595 by 842 points. `mediabox` and
+  `cropbox` still report the stored boxes.
+- Editing and saving keep the data of a stream whose `/Length` is missing or
+  unusable. lopdf loaded a stream whose `/Length` is missing, is not an
+  integer, or names an object without one with no data, or took as many bytes
+  as an integral real declared without looking for `endstream`, while
+  rendering and extraction read the original bytes through hayro, which reads
+  such a stream up to `endstream`. Any edit or save therefore dropped content
+  that pylopdf had just shown: pdf.js `issue1293r.pdf` extracted `Issue 1293`
+  before `tobytes()` and nothing after. Loading now stores the data that hayro
+  reads, with a direct `/Length`, and renders from the serialized graph when
+  hayro would read the stream past its object or not at all.
+- Drawing on a page whose content leaves `q` and `Q` unbalanced starts from
+  the page's initial graphics state. `insert_text`, `insert_textbox`,
+  `insert_image`, `show_pdf_page`, `insert_ocr_text_layer`, the `Page.draw_*`
+  methods, and `Shape.commit` wrapped the existing content in one `q` and one
+  `Q`, so the wrapper's `Q` closed a `q` that the content left open, a `Q` of
+  the content closed the wrapper's `q`, and a transform that the content set
+  stayed in force for what was drawn next: text inserted at (36, 72) on pdf.js
+  `bug1795263.pdf` and `issue13971.pdf` landed at (3.6, 765) and (319, 1131).
+  The first drawing on a page now decodes its content once and counts `q` and
+  `Q` as hayro's content parser reads them, skipping strings, comments, and
+  inline image data, and wraps the content in one `q` more than the `Q` that
+  find no `q` and one `Q` more than the `q` that it leaves open. The closing
+  stream starts with a newline, so a comment that ends the content, as on
+  pdf.js `calgray.pdf`, can no longer swallow it. Both pages now place the text
+  at (36, 72), as pymupdf does, and MuPDF reads the result as balanced; text
+  drawn on the first three pages of 1,412 pdf.js corpus files moved on no
+  other page. Decoding and counting took a median of 57 µs per page: stamping
+  every page of the 27-page `usrguide.pdf` once took 1.67 ms instead of
+  0.54 ms, and a single page with 8.7 to 29 MB of content 42 to 115 ms more.
+  Later drawings on a page cost what they did.
+- `Document.save` supports Windows paths longer than `MAX_PATH` without
+  requiring a machine-wide policy change or an explicit extended-length path
+  prefix. Relative paths, Unicode names, and existing output files use the
+  same handling in normal, object-stream, and encrypted saves.
+- Failed `Document.save` calls targeting read-only Windows files remove their
+  temporary output instead of leaving a complete PDF beside the original.
+  The original file and its read-only attribute remain unchanged.
 
 ### Security
 - AcroForm field-tree reads now share a field's full name and inherited type
@@ -773,6 +886,10 @@ Changes that are not released yet may also wait as fragments in
   thread, against 52 KiB with hayro 0.7 and the 128 KiB that musl gives
   spawned threads; at 16 levels it needs 68 KiB, and every other accepted
   structure the 52 KiB of a plain page. Real documents nest at most about six.
+- `Document.save` and `Pixmap.save` preserve an existing Windows file's
+  discretionary access-control list and inheritance protection when replacing
+  it. Access restrictions are copied to the temporary output before writing
+  data; failure to copy them refuses the save and preserves the original.
 
 ### Performance
 - Freshly opened documents no longer reread every installed locale fallback

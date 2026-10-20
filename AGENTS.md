@@ -2554,10 +2554,10 @@ Git history (`git show a233814:ROADMAP.md`).
   the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
   (#234), XObject reuse (#231), save-time merging of identical objects
   (#251), CPython 3.15 support (#230), and the F3 parity manifest (#235)
-  merged, and the F0 API design (#236) was approved on 2026-10-20. The F1
-  module split runs alone during a freeze of `document.rs` and
-  `__init__.py`; F2, F4, and F9 follow it, and the M0 API reset follows F1
-  and F4.
+  merged, and the F0 API design (#236) was approved on 2026-10-20. F1, F2,
+  F4, and F5 are done and F8 has its interpreter; v0.15.0 ships them before
+  the M0 API reset, which follows as one breaking release while F8
+  rewriting and F9 continue.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.
