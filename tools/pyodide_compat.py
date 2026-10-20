@@ -1083,9 +1083,9 @@ def _object_model_results() -> dict[str, Any]:
     page = document[0].obj
     page["Resources"] = {"Font": {"F9": document.objects[font]}}
     page["Contents"] = document.objects[content]
-    document.trailer["Info"] = {"Title": "低レベル"}
+    document.trailer["Info"] = {"Title": "Grüße ∑"}
     _require(document[0].get_text().strip() == "Raw", "object model content was not drawn")
-    _require(document.metadata["title"] == "低レベル", "object model Info text changed")
+    _require(document.metadata["title"] == "Grüße ∑", "object model Info text changed")
     stream = document.objects[content]
     _require(stream.read() == b"BT /F9 12 Tf 20 100 Td (Raw) Tj ET", "stream data did not round-trip")
     saved = pylopdf.Document(stream=document.tobytes(garbage=2))
