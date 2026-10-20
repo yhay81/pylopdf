@@ -109,7 +109,6 @@ _TEMPORARY_FILE_ATTEMPTS = 100
 
 _IMAGE_COMPRESSION_MIN_DPI = 36.0
 _IMAGE_COMPRESSION_MAX_DPI = 2400.0
-_IMAGE_COMPRESSION_MIN_QUALITY = 1
 _IMAGE_COMPRESSION_MAX_QUALITY = 100
 _MAX_RENDER_WORKERS = 64
 
@@ -396,6 +395,18 @@ def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
     if not password and code == 4:  # noqa: PLR2004 - MuPDF's owner-only code.
         return 0
     return code
+
+
+def _rewrite_dpi(name: str, value: object) -> float:
+    """Validate one ``rewrite_images`` resolution: a finite number from 36 through 2400."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"{name} must be a finite number from 36 through 2400"
+        raise PdfError(msg)
+    dpi = float(value)
+    if not math.isfinite(dpi) or not _IMAGE_COMPRESSION_MIN_DPI <= dpi <= _IMAGE_COMPRESSION_MAX_DPI:
+        msg = f"{name} must be a finite number from 36 through 2400"
+        raise PdfError(msg)
+    return dpi
 
 
 class Document:
@@ -1628,53 +1639,86 @@ class Document:
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=stacklevel)
 
-    def compress_images(
+    def rewrite_images(  # noqa: PLR0913  # pymupdf's keyword arguments.
         self,
         *,
-        dpi: float | None = 150,
-        quality: int = 75,
+        dpi_threshold: float | None = None,
+        dpi_target: float = 0,
+        quality: int = 0,
+        lossy: bool = True,
+        lossless: bool = True,
+        bitonal: bool = True,
+        color: bool = True,
+        gray: bool = True,
+        set_to_gray: bool = False,
+        options: object = None,
     ) -> ImageCompressionResult:
-        """Downsample and JPEG-recompress safe raster images in place.
+        """Downsample and JPEG-recompress raster images in place, as pymupdf's ``rewrite_images`` does.
 
-        ``dpi`` limits the effective resolution of each source-image axis.
-        Reused images retain the pixels required by their largest placement
-        across the document. Pass ``None`` to disable downsampling
-        while retaining JPEG quality recompression. ``quality`` is 1 through
-        100; both operations are lossy.
+        An image axis whose effective resolution exceeds ``dpi_threshold`` is
+        resampled to ``dpi_target``, which must be lower; reused images keep
+        the pixels that their largest placement across the document needs.
+        ``quality`` (1 through 100) is the JPEG quality of every rewritten
+        image; the default 0 asks for no recompression. ``lossy`` and
+        ``lossless`` select DCT and Flate sources, ``color`` and ``gray``
+        DeviceRGB and DeviceGray ones. Both operations are lossy, and a
+        rewritten image is kept only when its JPEG payload is smaller.
+
+        pylopdf re-encodes every image it rewrites as JPEG, so resampling
+        requires a ``quality`` above 0; ``set_to_gray`` and MuPDF's
+        ``options`` raise :class:`PdfError` rather than being ignored.
+        Bitonal images, and every other image outside the conservative set
+        below, are counted as ``skipped``. With ``quality=0`` and no
+        ``dpi_threshold`` there is nothing to do, and the call returns zero
+        counts without interpreting the document.
 
         The conservative implementation rewrites only indirect, single-filter,
         8-bit DeviceGray/DeviceRGB DCT or Flate XObjects without masks or custom
         decode arrays. DCT decode parameters are excluded; Flate may use no
-        predictor or a consistent PNG predictor. Unsupported interpreted
-        indirect images and outputs that would not be smaller are counted as
-        ``skipped``; inline images are not considered. The operation releases
-        the GIL, is atomic on decoding errors, rejects more than 65,536
-        interpreted indirect image placements, 16,384 unique image objects, or
-        250 million eligible source pixels, and skips an individual source
-        above 64 million pixels.
+        predictor or a consistent PNG predictor. Inline images are not
+        considered. The operation releases the GIL, is atomic on decoding
+        errors, rejects more than 65,536 interpreted indirect image
+        placements, 16,384 unique image objects, or 250 million eligible
+        source pixels, and skips an individual source above 64 million
+        pixels.
 
-        Byte totals compare rewritten source payloads with their resulting JPEG
-        payloads, not complete PDF serialization. Save to a new output and
-        inspect it before replacing an original document.
+        pymupdf returns ``None``; pylopdf returns an
+        :class:`ImageCompressionResult`, whose byte totals compare rewritten
+        source payloads with their resulting JPEG payloads, not complete PDF
+        serialization. Save to a new output and inspect it before replacing
+        an original document.
         """
         self._ensure_open()
+        if set_to_gray:
+            msg = "rewrite_images(set_to_gray=True) is not supported; pylopdf keeps each image's colour space"
+            raise PdfError(msg)
+        if options is not None:
+            msg = "rewrite_images(options=...) is not supported; pass its keyword arguments instead"
+            raise PdfError(msg)
+        del bitonal  # Bitonal images are never rewritten; they count as skipped.
         if (
             isinstance(quality, bool)
             or not isinstance(quality, int)
-            or not _IMAGE_COMPRESSION_MIN_QUALITY <= quality <= _IMAGE_COMPRESSION_MAX_QUALITY
+            or not 0 <= quality <= _IMAGE_COMPRESSION_MAX_QUALITY
         ):
-            msg = "quality must be an integer from 1 through 100"
+            msg = "quality must be an integer from 0 through 100"
             raise PdfError(msg)
-        if dpi is not None:
-            if isinstance(dpi, bool) or not isinstance(dpi, (int, float)):
-                msg = "dpi must be a finite number from 36 through 2400, or None"
+        threshold = None if not dpi_threshold else _rewrite_dpi("dpi_threshold", dpi_threshold)
+        target = 0.0
+        if threshold is not None:
+            target = _rewrite_dpi("dpi_target", dpi_target)
+            if target >= threshold:
+                msg = f"dpi_target={dpi_target} must be less than dpi_threshold={dpi_threshold}"
+                raise ValueError(msg)
+            if quality == 0:
+                msg = "resampling requires quality= from 1 through 100; pylopdf re-encodes rewritten images as JPEG"
                 raise PdfError(msg)
-            dpi = float(dpi)
-            if not math.isfinite(dpi) or not _IMAGE_COMPRESSION_MIN_DPI <= dpi <= _IMAGE_COMPRESSION_MAX_DPI:
-                msg = "dpi must be a finite number from 36 through 2400, or None"
-                raise PdfError(msg)
-        considered, rewritten, skipped, bytes_before, bytes_after = self._doc.compress_images(dpi, quality)
-        self._emit_warnings()
+        if quality == 0:
+            counts = (0, 0, 0, 0, 0)
+        else:
+            counts = self._doc.rewrite_images(threshold, target, quality, lossy, lossless, color, gray)
+            self._emit_warnings()
+        considered, rewritten, skipped, bytes_before, bytes_after = counts
         return {
             "considered": considered,
             "rewritten": rewritten,

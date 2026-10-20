@@ -411,7 +411,16 @@ class _Document:
             int,
         ]
     ]: ...
-    def compress_images(self, target_dpi: float | None, quality: int) -> tuple[int, int, int, int, int]: ...
+    def rewrite_images(
+        self,
+        dpi_threshold: float | None,
+        dpi_target: float,
+        quality: int,
+        lossy: bool,
+        lossless: bool,
+        color: bool,
+        gray: bool,
+    ) -> tuple[int, int, int, int, int]: ...
     def render_page_pixmap(
         self,
         page_number: int,

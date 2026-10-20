@@ -220,11 +220,50 @@ fn is_safe_image_stream<'a>(
     })
 }
 
-fn target_dimension(original: u32, min_dpi: Option<f64>, target_dpi: Option<f64>) -> u32 {
-    let (Some(min_dpi), Some(target_dpi)) = (min_dpi, target_dpi) else {
-        return original;
-    };
-    if !min_dpi.is_finite() || min_dpi <= target_dpi {
+/// Which images a rewrite touches and how, in pymupdf's `rewrite_images` terms.
+#[derive(Clone, Copy)]
+pub(crate) struct RewriteOptions {
+    /// Resample an axis whose smallest placement resolution exceeds this.
+    pub(crate) dpi_threshold: Option<f64>,
+    /// The resolution that a resampled axis keeps.
+    pub(crate) dpi_target: f64,
+    pub(crate) quality: u8,
+    /// Rewrite DCT (lossy) sources.
+    pub(crate) lossy: bool,
+    /// Rewrite Flate (lossless) sources.
+    pub(crate) lossless: bool,
+    /// Rewrite DeviceRGB sources.
+    pub(crate) color: bool,
+    /// Rewrite DeviceGray sources.
+    pub(crate) gray: bool,
+}
+
+impl RewriteOptions {
+    fn selects(&self, candidate: &Candidate<'_>) -> bool {
+        let source = match candidate.source {
+            CandidateSource::Jpeg(_) => self.lossy,
+            CandidateSource::Flate { .. } => self.lossless,
+        };
+        let color = match candidate.color {
+            ColorModel::Rgb => self.color,
+            ColorModel::Gray => self.gray,
+        };
+        source && color
+    }
+
+    fn target_dimension(&self, original: u32, min_dpi: Option<f64>) -> u32 {
+        let (Some(min_dpi), Some(threshold)) = (min_dpi, self.dpi_threshold) else {
+            return original;
+        };
+        if !min_dpi.is_finite() || min_dpi <= threshold {
+            return original;
+        }
+        target_dimension(original, min_dpi, self.dpi_target)
+    }
+}
+
+fn target_dimension(original: u32, min_dpi: f64, target_dpi: f64) -> u32 {
+    if min_dpi <= target_dpi {
         return original;
     }
     let scaled = f64::from(original) * target_dpi / min_dpi;
@@ -593,13 +632,13 @@ fn encode_jpeg(
     Ok(Some(output.bytes))
 }
 
-/// Rewrite safe JPEG or Flate XObjects when the encoded result is smaller.
-pub(crate) fn compress_images(
+/// Rewrite selected safe JPEG or Flate XObjects when the encoded result is smaller.
+pub(crate) fn rewrite_images(
     doc: &mut Document,
     usages: &[ImageUsage],
-    target_dpi: Option<f64>,
-    quality: u8,
+    options: RewriteOptions,
 ) -> Result<CompressionResult, String> {
+    let quality = options.quality;
     let considered =
         u32::try_from(usages.len()).map_err(|_| "image count overflowed".to_owned())?;
     let mask_ids = mask_references(doc, usages)?;
@@ -610,11 +649,13 @@ pub(crate) fn compress_images(
 
     for usage in usages {
         let (target_width, target_height, previous_quality, source_len, encoded) = {
-            let Some(candidate) = is_safe_image_stream(doc, *usage, &mask_ids) else {
+            let Some(candidate) = is_safe_image_stream(doc, *usage, &mask_ids)
+                .filter(|candidate| options.selects(candidate))
+            else {
                 continue;
             };
-            let target_width = target_dimension(candidate.width, usage.min_dpi_x, target_dpi);
-            let target_height = target_dimension(candidate.height, usage.min_dpi_y, target_dpi);
+            let target_width = options.target_dimension(candidate.width, usage.min_dpi_x);
+            let target_height = options.target_dimension(candidate.height, usage.min_dpi_y);
             if (target_width, target_height) == (candidate.width, candidate.height)
                 && candidate
                     .previous_quality

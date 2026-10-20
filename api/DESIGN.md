@@ -518,7 +518,7 @@ one-to-one onto these rows.
 | `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2; done |
 | `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7; done |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2; done |
-| `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
+| `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2; done |
 | `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1; done |
 | `Document.render_page_svg(pno)`, `Page.render_svg()` | `Page.get_svg_image()` | R1, R2; done |
 | `Page.render(...)` | `get_pixmap(...).tobytes()` | R1; done |

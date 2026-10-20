@@ -316,7 +316,7 @@ ExtractedImage.__doc__ = """The image that :meth:`Document.extract_image` return
 
 
 class ImageCompressionResult(TypedDict):
-    """Summary returned by :meth:`Document.compress_images`."""
+    """Summary returned by :meth:`Document.rewrite_images`."""
 
     considered: int
     rewritten: int

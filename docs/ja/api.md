@@ -31,7 +31,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 上限付き線形entry builderによるpage単位2-pass Markdown変換。既定は全page、明示entryはpage数と4,096の大きい方まで、累積UTF-8出力上限付き（`None`で解除）、見出し・CJK・強調・list・column・縦書き順・table制御 |
 | `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdfと同じキーで1つの画像のデータを返す（DCTはJPEGのまま、ほかのfilterはPNGに復号し、soft maskは含めない）。ページの画像一覧 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | ページの`Pixmap`（pymupdfの`doc[pno].get_pixmap()`の簡便形）、または全pageかpage数と4,096の大きい方までの明示entryを累積encoded output上限付きで描画する順序保証並列PNG群（`None`で解除） |
-| `compress_images(dpi=150, quality=75)` | 安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
+| `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, lossy=True, lossless=True, color=True, gray=True)` | pymupdf と同じ引数（`dpi_threshold` を超える軸を `dpi_target` へ縮小。`quality` 0 は再圧縮なしなので縮小には `quality` が必要。`set_to_gray` と `options` は例外）。安全なDCT/Flate raster XObjectを配置DPIに応じて非可逆縮小・JPEG再圧縮し、型付きのbyte/count統計を返す |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1を区別する非埋め込みCJKの上限付き代替font。信頼できるfont inputは`None`で解除 |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | page操作。select/deleteのentryはpage数と4,096の大きい方まで、`insert_pdf`は取り込み元の全範囲を受け付けて取り込んだページのフォームフィールドを登録し、navigationのcleanupとlink取り込みはTOC・named destinationの上限を共有 |
 | `get_outline()` / `set_outline(entries)` | 大規模manualに対応するcycle対応・上限付きのしおり。`OutlineEntry(level, title, page)`で表す（0始まり。65,536 entry/node、131,072 edge、深さ64、text 16 MiB。named destinationは`get_links()`と同じ） |
@@ -42,7 +42,7 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `use_objstms=`、`encryption=`（既定は`PDF_ENCRYPT_NONE`、暗号化は`PDF_ENCRYPT_AES_256`。`PDF_ENCRYPT_AES_256`なしのpasswordは例外）、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
-`compress_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
+`rewrite_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
 寸法を求めてから、lopdfのcloneへ原子的に編集します。`dpi=None`では縮小せず、
 quality再圧縮だけを行います。対象はmaskや独自decode arrayを持たない、直接かつ
 単一filterの8-bit DeviceGray/DeviceRGB DCT/Flate streamに限定します。DCTの
