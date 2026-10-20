@@ -114,8 +114,8 @@ def test_a_direct_link_annotation_has_xref_zero() -> None:
 def test_created_links_report_their_xref() -> None:
     doc = pylopdf.open(stream=build_pdf(["Links"]))
     page = doc[0]
-    page.add_link_annot((10, 10, 60, 30), "https://a.test/")
-    page.add_link_annot((10, 40, 60, 60), "https://b.test/")
+    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 60, 30), "uri": "https://a.test/"})
+    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 40, 60, 60), "uri": "https://b.test/"})
 
     links = page.get_links()
 

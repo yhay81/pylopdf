@@ -470,7 +470,18 @@ class _Document:
     ) -> int: ...
     def read_annotations(
         self, page_number: int
-    ) -> list[tuple[str, tuple[float, float, float, float], str | None, str | None]]: ...
+    ) -> list[
+        tuple[
+            int,
+            int,
+            str,
+            tuple[float, float, float, float],
+            int,
+            tuple[str | None, str | None, str | None, str | None, str | None, str | None, str | None, str | None],
+            list[float],
+            list[float],
+        ]
+    ]: ...
     def read_links(
         self, page_number: int
     ) -> list[
@@ -496,7 +507,7 @@ class _Document:
         color: tuple[float, float, float],
         opacity: float,
         content: str | None,
-    ) -> None: ...
+    ) -> int: ...
     def add_link_annotation(self, page_number: int, rect: tuple[float, float, float, float], uri: str) -> None: ...
     def insert_ocr_layer(
         self,

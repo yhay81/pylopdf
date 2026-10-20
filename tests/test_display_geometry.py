@@ -178,15 +178,15 @@ def test_annotations_and_links_share_the_display_space(name: str, rotation: int)
     stored, destination = page.get_links()
     link = stored["from"]
     assert _contains(link, word)
-    assert page.annots()[0]["rect"] == link
+    assert page.annots()[0].rect == link
     assert destination["to"] == pytest.approx(_display_point(name, rotation, x, y), abs=1e-3)
 
     # Added annotations read back as written and render where they were written.
-    page.add_link_annot((300, 20, 360, 60), "https://example.org/")
+    page.insert_link({"kind": pylopdf.LINK_URI, "from": (300, 20, 360, 60), "uri": "https://example.org/"})
     page.add_highlight_annot((10, 10, 60, 40), color=(1.0, 0.0, 0.0), opacity=1.0)
     added_link, highlight = page.annots()[2:]
-    assert tuple(added_link["rect"]) == pytest.approx((300, 20, 360, 60), abs=1e-3)
-    assert tuple(highlight["rect"]) == pytest.approx((10, 10, 60, 40), abs=1e-3)
+    assert tuple(added_link.rect) == pytest.approx((300, 20, 360, 60), abs=1e-3)
+    assert tuple(highlight.rect) == pytest.approx((10, 10, 60, 40), abs=1e-3)
     assert tuple(page.get_links()[2]["from"]) == pytest.approx((300, 20, 360, 60), abs=1e-3)
     pixmap = page.get_pixmap(dpi=72, background=(255, 255, 255), alpha=True)
     if name == "cropbox-misses":

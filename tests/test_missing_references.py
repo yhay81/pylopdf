@@ -88,11 +88,11 @@ def test_annotations_start_a_new_array_for_a_null_annots_entry(value: str) -> No
     doc = pylopdf.Document(stream=_pdf(page=f"/Annots {value}"))
     assert doc[0].annots() == []
 
-    doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/")
+    doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
     doc[0].add_highlight_annot([(10, 40, 100, 60)])
 
     for current in _with_reloaded(doc):
-        assert [annot["type"] for annot in current[0].annots()] == ["Link", "Highlight"]
+        assert [annot.type[1] for annot in current[0].annots()] == ["Link", "Highlight"]
         assert [link["uri"] for link in current[0].get_links()] == ["https://example.com/"]
 
 

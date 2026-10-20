@@ -30,6 +30,8 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.get_svg_image()` | 同じ | `matrix`は恒等のみ。`text_as_path=False`は例外 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 同じ | RGB、`alpha=True`ではstraight-alpha RGBA。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(filename)`はPNGを生成し、`save`は`.png`が必須 |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 同じ | `extract_image`はDCTをJPEGのまま返し、ほかのfilterはPNGに復号。`get_image_info(hashes=True)`はdigest対応まで例外 |
+| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | M3でsetterが加わるまで読み取り専用。`rect`は表示座標 |
+| `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 同じ | `Quad`は外接矩形として扱う。`insert_link`は`LINK_URI`のみ |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
 | `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |

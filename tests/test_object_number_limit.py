@@ -127,7 +127,9 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
         (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
     "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
-    "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
+    "add_link_annot": lambda doc: doc[0].insert_link(
+        {"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"}
+    ),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
     "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Source"]))),
     "show_pdf_page": lambda doc: doc[0].show_pdf_page(

@@ -11,7 +11,6 @@ import pylopdf
 
 def test_public_type_contracts_are_runtime_importable() -> None:
     names = {
-        "AnnotationInfo",
         "Block",
         "DocumentComplexity",
         "DocumentLimits",
@@ -52,7 +51,6 @@ def test_public_names_report_the_package_rather_than_a_private_module() -> None:
 
 def test_typed_dict_required_and_optional_keys() -> None:
     typed_dicts = (
-        pylopdf.AnnotationInfo,
         pylopdf.DocumentComplexity,
         pylopdf.DocumentMetadata,
         pylopdf.DrawingInfo,

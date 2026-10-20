@@ -74,7 +74,7 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 绘制一个已完成的图形，并返回与pymupdf相同的终点`Point`；`fill`与`closePath`仅在pymupdf提供的方法上可用，`draw_rect`有`radius=`，`draw_sector`有`fullSector=`，波浪线有`breadth`（与pymupdf相同，也可在点之后按位置传入） |
 | `insert_ocr_text_layer(words, rotation=)` | 保留方向的OCR不可见文本层；每次call固定上限为4,096词和1 MiB UTF-8文本 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 有界批注／link读取与创建；link包含pymupdf的`xref`与`id`（`/NM`）；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
+| `annots(*, types=None)` / `get_links()` / `add_highlight_annot(quads, ...)` / `insert_link(link, /)` | 只读`Annot`句柄（`type`、`rect`、`info`、`colors`、`flags`、`xref`，类型为`PDF_ANNOT_*`，标志为`PDF_ANNOT_IS_*`）、link读取、返回`Annot`的highlight创建，以及从link字典创建URI link；link包含pymupdf的`xref`与`id`（`/NM`）；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
 
 `get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、
 自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join、

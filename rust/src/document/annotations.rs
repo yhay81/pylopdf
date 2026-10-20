@@ -13,7 +13,54 @@ pub(super) const MAX_HIGHLIGHT_RECTS: usize = 4_096;
 pub(super) const MAX_TEXT_MARKUP_SEGMENTS: usize = 65_536;
 
 /// One annotation returned by read_annotations: Subtype, display Rect, Contents, URI.
-pub(super) type AnnotationTuple = (String, (f64, f64, f64, f64), Option<String>, Option<String>);
+/// One page annotation: its xref (0 for a direct dictionary), its position in
+/// `/Annots`, subtype, display rect, `/F` flags, the text entries `/Contents`,
+/// `/Name`, `/T`, `/CreationDate`, `/M`, `/Subj`, `/NM`, and `/IT`, and the
+/// `/C` and `/IC` colours.
+pub(super) type AnnotationTuple = (
+    u32,
+    u32,
+    String,
+    (f64, f64, f64, f64),
+    i64,
+    [Option<String>; 8],
+    Vec<f64>,
+    Vec<f64>,
+);
+
+/// The annotation text entries that `AnnotationTuple` carries, in its order.
+const ANNOTATION_TEXT_KEYS: [&[u8]; 8] = [
+    b"Contents",
+    b"Name",
+    b"T",
+    b"CreationDate",
+    b"M",
+    b"Subj",
+    b"NM",
+    b"IT",
+];
+
+/// Read an annotation colour array of up to four numbers.
+fn annotation_color(doc: &Document, dict: &Dictionary, key: &[u8]) -> Vec<f64> {
+    let Ok(color) = dict.get(key).map(|value| deref_object(doc, value)) else {
+        return Vec::new();
+    };
+    let Ok(items) = color.as_array() else {
+        return Vec::new();
+    };
+    if items.len() > 4 {
+        return Vec::new();
+    }
+    let mut components = Vec::with_capacity(items.len());
+    for item in items {
+        match deref_object(doc, item) {
+            Object::Integer(value) => components.push(*value as f64),
+            Object::Real(value) => components.push(f64::from(*value)),
+            _ => return Vec::new(),
+        }
+    }
+    components
+}
 
 /// Preallocated target for appending one page annotation without later growth.
 pub(super) enum PageAnnotationAppendPlan {
@@ -556,13 +603,13 @@ pub(super) fn read_annotations(
         let mut out = Vec::new();
         let mut encoded_bytes = 0usize;
         let mut returned_bytes = 0usize;
-        for item in annots {
-            let dict = match item {
+        for (index, item) in annots.iter().enumerate() {
+            let (xref, dict) = match item {
                 Object::Reference(id) => match this.doc.get_object(*id).and_then(Object::as_dict) {
-                    Ok(dict) => dict,
+                    Ok(dict) => (id.0, dict),
                     Err(_) => continue,
                 },
-                Object::Dictionary(dict) => dict,
+                Object::Dictionary(dict) => (0, dict),
                 _ => continue,
             };
             let subtype = match dict.get(b"Subtype").and_then(Object::as_name) {
@@ -578,38 +625,53 @@ pub(super) fn read_annotations(
                 continue;
             };
             let display = draw::pdf_rect_to_display(crop, rotation, rect);
-            let contents = match dict.get(b"Contents") {
-                Ok(object) => bounded_annotation_text(
-                    &this.doc,
-                    object,
-                    &mut encoded_bytes,
-                    &mut returned_bytes,
-                    "Contents text",
-                )?,
-                Err(_) => None,
-            };
-            let uri_bytes = dict
-                .get(b"A")
-                .ok()
-                .and_then(|action| deref_object(&this.doc, action).as_dict().ok())
-                .filter(|action| matches!(action.get(b"S").and_then(Object::as_name), Ok(b"URI")))
-                .and_then(|action| action.get(b"URI").ok())
-                .map(|object| deref_object(&this.doc, object))
-                .and_then(|object| object.as_str().ok());
-            let uri = match uri_bytes {
-                Some(bytes) => Some(bounded_annotation_bytes(
-                    bytes,
-                    &mut encoded_bytes,
-                    &mut returned_bytes,
-                    "URI text",
-                )?),
-                None => None,
-            };
+            let flags = dict
+                .get(b"F")
+                .map(|value| deref_object(&this.doc, value))
+                .and_then(Object::as_i64)
+                .unwrap_or(0);
+            let mut texts: [Option<String>; 8] = Default::default();
+            for (slot, key) in texts.iter_mut().zip(ANNOTATION_TEXT_KEYS) {
+                let Ok(object) = dict.get(key) else {
+                    continue;
+                };
+                *slot = if key == b"Name" || key == b"IT" {
+                    match deref_object(&this.doc, object).as_name() {
+                        Ok(name) => Some(bounded_annotation_bytes(
+                            name,
+                            &mut encoded_bytes,
+                            &mut returned_bytes,
+                            "icon name",
+                        )?),
+                        Err(_) => None,
+                    }
+                } else {
+                    bounded_annotation_text(
+                        &this.doc,
+                        object,
+                        &mut encoded_bytes,
+                        &mut returned_bytes,
+                        if key == b"Contents" {
+                            "Contents text"
+                        } else {
+                            "annotation text"
+                        },
+                    )?
+                };
+            }
+            let index = u32::try_from(index).unwrap_or(u32::MAX);
+            out.try_reserve(1).map_err(|error| {
+                PdfError::new_err(format!("failed to grow returned annotations: {error}"))
+            })?;
             out.push((
+                xref,
+                index,
                 subtype,
                 (display[0], display[1], display[2], display[3]),
-                contents,
-                uri,
+                flags,
+                texts,
+                annotation_color(&this.doc, dict, b"C"),
+                annotation_color(&this.doc, dict, b"IC"),
             ));
         }
         Ok(out)
@@ -624,7 +686,7 @@ pub(super) fn add_highlight_annotation(
     color: (f64, f64, f64),
     opacity: f64,
     content: Option<String>,
-) -> PyResult<()> {
+) -> PyResult<u32> {
     if rects.is_empty() || rects.len() > MAX_HIGHLIGHT_RECTS {
         return Err(PdfError::new_err(format!(
             "highlight annotations require 1 to {MAX_HIGHLIGHT_RECTS} rectangles"
@@ -731,7 +793,8 @@ pub(super) fn add_highlight_annotation(
         annot.set("Contents", encoded_content);
     }
     let annot_id = this.doc.add_object(annot);
-    this.commit_page_annotation_append(page_id, annotation_append, annot_id)
+    this.commit_page_annotation_append(page_id, annotation_append, annot_id)?;
+    Ok(annot_id.0)
 }
 
 /// Implements [`_Document::add_link_annotation`].

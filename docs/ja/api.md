@@ -76,7 +76,7 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `draw_line` / `draw_polyline` / `draw_rect` / `draw_quad` / `draw_circle` / `draw_oval` / `draw_sector` / `draw_curve` / `draw_bezier` / `draw_squiggle` / `draw_zigzag`(geometry, *, color=(0,), fill=None, width=1, dashes=None, lineCap=0, lineJoin=0, closePath=, overlay=True, stroke_opacity=1, fill_opacity=1) | 仕上げた図形を1つ描き、pymupdfと同じ終点の`Point`を返す。`fill`と`closePath`はpymupdfが持つものだけ。`draw_rect`には`radius=`、`draw_sector`には`fullSector=`、波線には`breadth`がある（pymupdfと同じく点の後に位置引数でも渡せる） |
 | `insert_ocr_text_layer(words, rotation=)` | 向きを保持した不可視OCRテキスト層。1 callあたり4,096語・UTF-8 text 1 MiBが上限 |
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
-| `annots()` / `get_links()` / `add_highlight_annot(...)` / `add_link_annot(rect, uri)` | 上限付き注釈・link読み取りと作成。linkはpymupdfの`xref`と`id`（`/NM`）を持つ。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
+| `annots(*, types=None)` / `get_links()` / `add_highlight_annot(quads, ...)` / `insert_link(link, /)` | 読み取り専用の`Annot`ハンドル（`type`、`rect`、`info`、`colors`、`flags`、`xref`。種類は`PDF_ANNOT_*`、フラグは`PDF_ANNOT_IS_*`）、link読み取り、`Annot`を返すhighlight作成、link辞書からのURI link作成。linkはpymupdfの`xref`と`id`（`/NM`）を持つ。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
 
 `get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
 `items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes、ページのpath・text・

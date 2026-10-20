@@ -30,8 +30,8 @@ text and form appearances.
 > pymupdf's meaning and a redesign takes a new name, with no aliases. One
 > breaking release before 1.0 brings the existing API in line: for example,
 > `render_page` gave way to pymupdf's `get_page_pixmap`, `render_page_svg`
-> and `Page.render_svg` to `Page.get_svg_image`, and `add_link_annot` gives
-> way to `insert_link`. The [stability policy](https://pylopdf.haya.works/stability/)
+> and `Page.render_svg` to `Page.get_svg_image`, and `add_link_annot` to
+> `insert_link`. The [stability policy](https://pylopdf.haya.works/stability/)
 > says what may change.
 
 ## How pylopdf compares

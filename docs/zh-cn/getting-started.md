@@ -124,7 +124,7 @@ with page.new_shape() as shape:                              # 一个Form；每�
     shape.insert_textbox((48, 260, 390, 310), "正文段落。", fontsize=11, font_language="zh-CN")
 page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf的draw_*
 page.add_highlight_annot(page.search_for("重要"))            # 搜索并高亮
-page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
+page.insert_link({"kind": pylopdf.LINK_URI, "from": page.search_for("Example")[0], "uri": "https://example.com/"})
 ```
 
 ## 扫描PDF、表单与Markdown { #scans-forms-markdown }

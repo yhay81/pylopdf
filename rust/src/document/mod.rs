@@ -1266,7 +1266,7 @@ impl _Document {
         color: (f64, f64, f64),
         opacity: f64,
         content: Option<String>,
-    ) -> PyResult<()> {
+    ) -> PyResult<u32> {
         annotations::add_highlight_annotation(self, page_number, rects, color, opacity, content)
     }
 

@@ -59,7 +59,7 @@ def test_permissions_drop_the_old_member_names() -> None:
 
 def test_get_links_reports_link_kind_members() -> None:
     page = pylopdf.open(stream=build_pdf(["Link"]))[0]
-    page.add_link_annot((10, 10, 100, 30), "https://example.com/")
+    page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
 
     (link,) = page.get_links()
 

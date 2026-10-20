@@ -132,7 +132,7 @@ with page.new_shape() as shape:                              # one Form; each fo
     shape.insert_textbox((48, 260, 390, 310), "本文の段落。", fontsize=11)
 page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf's draw_* helpers
 page.add_highlight_annot(page.search_for("important"))       # search & mark
-page.add_link_annot(page.search_for("Example")[0], "https://example.com/")
+page.insert_link({"kind": pylopdf.LINK_URI, "from": page.search_for("Example")[0], "uri": "https://example.com/"})
 ```
 
 ## Scanned PDFs, forms, Markdown { #scans-forms-markdown }

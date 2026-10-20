@@ -101,7 +101,9 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
         (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
     "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
-    "add_link_annot": lambda doc: doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/"),
+    "add_link_annot": lambda doc: doc[0].insert_link(
+        {"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"}
+    ),
     "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
     "new_page": lambda doc: doc.new_page(),
     "copy_page": lambda doc: doc.fullcopy_page(0),
@@ -239,7 +241,7 @@ def test_link_annotation_replaces_an_unallocated_annots_array() -> None:
     objects[3] = "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Annots 90 0 R >>"
     doc = pylopdf.Document(stream=build_raw_pdf(objects))
 
-    doc[0].add_link_annot((10, 10, 100, 30), "https://example.com/")
+    doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
 
     for current in _with_reloaded(doc):
         assert [link["uri"] for link in current[0].get_links()] == ["https://example.com/"]

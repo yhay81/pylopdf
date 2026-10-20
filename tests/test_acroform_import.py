@@ -153,7 +153,7 @@ def test_insert_pdf_after_existing_pages_registers_f1040_fields(one_page_pdf: by
     dst.insert_pdf(pylopdf.open(F1040), start_at=0)
     assert dst.page_count == 3
     assert len(dst.get_form_fields()) == 199
-    assert sum(annot["type"] == "Widget" for annot in dst[0].annots()) == 128
+    assert len(dst[0].annots(types=[pylopdf.PDF_ANNOT_WIDGET])) == 128
     assert "Hello PDF" in dst[2].get_text()
 
 

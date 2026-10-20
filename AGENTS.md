@@ -2082,8 +2082,13 @@ overview.
   innermost path first so a filter cannot shift a later edit's index.
 - Page annotation and link reads borrow direct/indirect `/Annots` arrays,
   release the GIL, and reject complete results above 4,096 array entries or
-  1 MiB of aggregate encoded/returned subtype, Contents, URI, file, and
-  destination text per call. Creation must preflight the same page count,
+  1 MiB of aggregate encoded/returned subtype, annotation text (`/Contents`,
+  `/Name`, `/T`, dates, `/Subj`, `/NM`, `/IT`), URI, file, and destination
+  text per call. `Page.annots()` returns read-only `Annot` handles
+  (`src/pylopdf/_annots.py`, workstream D) that store the page, the
+  annotation's xref, and its `/Annots` index, and re-read the page's
+  annotations on every property access; a handle whose page went stale or
+  whose annotation left `/Annots` raises `StaleObjectError`. Creation must preflight the same page count,
   1 MiB aggregate generated subtype plus Contents/URI input, and 4,096
   highlight rectangles before creating dependent objects or invalidating
   caches. Caller annotation text must stop before PyO3 copying with

@@ -130,11 +130,11 @@ def test_named_destination_with_out_of_range_integer_page_is_unresolved() -> Non
 
 
 def test_uri_link_roundtrip() -> None:
-    """Read back a URI link created with add_link_annot."""
+    """Read back a URI link created with insert_link."""
     doc = pylopdf.open(stream=build_pdf(["Hello link"]))
     page = doc[0]
     rect = (10.0, 20.0, 110.0, 40.0)
-    page.add_link_annot(rect, "https://example.com/")
+    page.insert_link({"kind": pylopdf.LINK_URI, "from": rect, "uri": "https://example.com/"})
     links = page.get_links()
     assert len(links) == 1
     link = links[0]

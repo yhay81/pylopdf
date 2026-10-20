@@ -1,7 +1,9 @@
 {
   "api_line": "0.15",
   "exports": [
-    "AnnotationInfo",
+    "Annot",
+    "AnnotFlags",
+    "AnnotType",
     "Array",
     "Base14_fontdict",
     "Base14_fontnames",
@@ -61,6 +63,45 @@
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "PDF_ANNOT_3D",
+    "PDF_ANNOT_CARET",
+    "PDF_ANNOT_CIRCLE",
+    "PDF_ANNOT_FILE_ATTACHMENT",
+    "PDF_ANNOT_FREE_TEXT",
+    "PDF_ANNOT_HIGHLIGHT",
+    "PDF_ANNOT_INK",
+    "PDF_ANNOT_IS_HIDDEN",
+    "PDF_ANNOT_IS_INVISIBLE",
+    "PDF_ANNOT_IS_LOCKED",
+    "PDF_ANNOT_IS_LOCKED_CONTENTS",
+    "PDF_ANNOT_IS_NO_ROTATE",
+    "PDF_ANNOT_IS_NO_VIEW",
+    "PDF_ANNOT_IS_NO_ZOOM",
+    "PDF_ANNOT_IS_PRINT",
+    "PDF_ANNOT_IS_READ_ONLY",
+    "PDF_ANNOT_IS_TOGGLE_NO_VIEW",
+    "PDF_ANNOT_LINE",
+    "PDF_ANNOT_LINK",
+    "PDF_ANNOT_MOVIE",
+    "PDF_ANNOT_POLYGON",
+    "PDF_ANNOT_POLY_LINE",
+    "PDF_ANNOT_POPUP",
+    "PDF_ANNOT_PRINTER_MARK",
+    "PDF_ANNOT_PROJECTION",
+    "PDF_ANNOT_REDACT",
+    "PDF_ANNOT_RICH_MEDIA",
+    "PDF_ANNOT_SCREEN",
+    "PDF_ANNOT_SOUND",
+    "PDF_ANNOT_SQUARE",
+    "PDF_ANNOT_SQUIGGLY",
+    "PDF_ANNOT_STAMP",
+    "PDF_ANNOT_STRIKE_OUT",
+    "PDF_ANNOT_TEXT",
+    "PDF_ANNOT_TRAP_NET",
+    "PDF_ANNOT_UNDERLINE",
+    "PDF_ANNOT_UNKNOWN",
+    "PDF_ANNOT_WATERMARK",
+    "PDF_ANNOT_WIDGET",
     "PDF_ENCRYPT_AES_128",
     "PDF_ENCRYPT_AES_256",
     "PDF_ENCRYPT_KEEP",
@@ -119,21 +160,107 @@
   ],
   "schema": 1,
   "symbols": {
-    "AnnotationInfo": {
-      "fields": {
-        "contents": "str | None",
-        "rect": "Rect",
-        "type": "str",
-        "uri": "str | None"
+    "Annot": {
+      "kind": "class",
+      "members": {
+        "colors": {
+          "kind": "property",
+          "returns": "dict[str, tuple[float, ...]]"
+        },
+        "flags": {
+          "kind": "property",
+          "returns": "AnnotFlags"
+        },
+        "info": {
+          "kind": "property",
+          "returns": "dict[str, str]"
+        },
+        "parent": {
+          "kind": "property",
+          "returns": "Page"
+        },
+        "rect": {
+          "kind": "property",
+          "returns": "Rect"
+        },
+        "type": {
+          "kind": "property",
+          "returns": "tuple[AnnotType, str] | tuple[AnnotType, str, str]"
+        },
+        "xref": {
+          "kind": "property",
+          "returns": "int"
+        }
       },
-      "kind": "typed-dict",
-      "optional_keys": [],
-      "required_keys": [
-        "contents",
-        "rect",
-        "type",
-        "uri"
-      ]
+      "signature": {
+        "parameters": [
+          {
+            "annotation": "Page",
+            "kind": "positional_or_keyword",
+            "name": "page"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "xref"
+          },
+          {
+            "annotation": "int",
+            "kind": "positional_or_keyword",
+            "name": "index"
+          }
+        ],
+        "returns": "None"
+      }
+    },
+    "AnnotFlags": {
+      "kind": "enum",
+      "members": {
+        "HIDDEN": 2,
+        "INVISIBLE": 1,
+        "LOCKED": 128,
+        "LOCKED_CONTENTS": 512,
+        "NO_ROTATE": 16,
+        "NO_VIEW": 32,
+        "NO_ZOOM": 8,
+        "PRINT": 4,
+        "READ_ONLY": 64,
+        "TOGGLE_NO_VIEW": 256
+      }
+    },
+    "AnnotType": {
+      "kind": "enum",
+      "members": {
+        "CARET": 14,
+        "CIRCLE": 5,
+        "FILE_ATTACHMENT": 17,
+        "FREE_TEXT": 2,
+        "HIGHLIGHT": 8,
+        "INK": 15,
+        "LINE": 3,
+        "LINK": 1,
+        "MOVIE": 19,
+        "POLYGON": 6,
+        "POLY_LINE": 7,
+        "POPUP": 16,
+        "PRINTER_MARK": 23,
+        "PROJECTION": 27,
+        "REDACT": 12,
+        "RICH_MEDIA": 20,
+        "SCREEN": 22,
+        "SOUND": 18,
+        "SQUARE": 4,
+        "SQUIGGLY": 10,
+        "STAMP": 13,
+        "STRIKE_OUT": 11,
+        "TEXT": 0,
+        "THREE_D": 26,
+        "TRAP_NET": 24,
+        "UNDERLINE": 9,
+        "UNKNOWN": -1,
+        "WATERMARK": 25,
+        "WIDGET": 21
+      }
     },
     "Array": {
       "kind": "class",
@@ -3364,6 +3491,162 @@
         "text"
       ]
     },
+    "PDF_ANNOT_3D": {
+      "kind": "constant",
+      "value": 26
+    },
+    "PDF_ANNOT_CARET": {
+      "kind": "constant",
+      "value": 14
+    },
+    "PDF_ANNOT_CIRCLE": {
+      "kind": "constant",
+      "value": 5
+    },
+    "PDF_ANNOT_FILE_ATTACHMENT": {
+      "kind": "constant",
+      "value": 17
+    },
+    "PDF_ANNOT_FREE_TEXT": {
+      "kind": "constant",
+      "value": 2
+    },
+    "PDF_ANNOT_HIGHLIGHT": {
+      "kind": "constant",
+      "value": 8
+    },
+    "PDF_ANNOT_INK": {
+      "kind": "constant",
+      "value": 15
+    },
+    "PDF_ANNOT_IS_HIDDEN": {
+      "kind": "constant",
+      "value": 2
+    },
+    "PDF_ANNOT_IS_INVISIBLE": {
+      "kind": "constant",
+      "value": 1
+    },
+    "PDF_ANNOT_IS_LOCKED": {
+      "kind": "constant",
+      "value": 128
+    },
+    "PDF_ANNOT_IS_LOCKED_CONTENTS": {
+      "kind": "constant",
+      "value": 512
+    },
+    "PDF_ANNOT_IS_NO_ROTATE": {
+      "kind": "constant",
+      "value": 16
+    },
+    "PDF_ANNOT_IS_NO_VIEW": {
+      "kind": "constant",
+      "value": 32
+    },
+    "PDF_ANNOT_IS_NO_ZOOM": {
+      "kind": "constant",
+      "value": 8
+    },
+    "PDF_ANNOT_IS_PRINT": {
+      "kind": "constant",
+      "value": 4
+    },
+    "PDF_ANNOT_IS_READ_ONLY": {
+      "kind": "constant",
+      "value": 64
+    },
+    "PDF_ANNOT_IS_TOGGLE_NO_VIEW": {
+      "kind": "constant",
+      "value": 256
+    },
+    "PDF_ANNOT_LINE": {
+      "kind": "constant",
+      "value": 3
+    },
+    "PDF_ANNOT_LINK": {
+      "kind": "constant",
+      "value": 1
+    },
+    "PDF_ANNOT_MOVIE": {
+      "kind": "constant",
+      "value": 19
+    },
+    "PDF_ANNOT_POLYGON": {
+      "kind": "constant",
+      "value": 6
+    },
+    "PDF_ANNOT_POLY_LINE": {
+      "kind": "constant",
+      "value": 7
+    },
+    "PDF_ANNOT_POPUP": {
+      "kind": "constant",
+      "value": 16
+    },
+    "PDF_ANNOT_PRINTER_MARK": {
+      "kind": "constant",
+      "value": 23
+    },
+    "PDF_ANNOT_PROJECTION": {
+      "kind": "constant",
+      "value": 27
+    },
+    "PDF_ANNOT_REDACT": {
+      "kind": "constant",
+      "value": 12
+    },
+    "PDF_ANNOT_RICH_MEDIA": {
+      "kind": "constant",
+      "value": 20
+    },
+    "PDF_ANNOT_SCREEN": {
+      "kind": "constant",
+      "value": 22
+    },
+    "PDF_ANNOT_SOUND": {
+      "kind": "constant",
+      "value": 18
+    },
+    "PDF_ANNOT_SQUARE": {
+      "kind": "constant",
+      "value": 4
+    },
+    "PDF_ANNOT_SQUIGGLY": {
+      "kind": "constant",
+      "value": 10
+    },
+    "PDF_ANNOT_STAMP": {
+      "kind": "constant",
+      "value": 13
+    },
+    "PDF_ANNOT_STRIKE_OUT": {
+      "kind": "constant",
+      "value": 11
+    },
+    "PDF_ANNOT_TEXT": {
+      "kind": "constant",
+      "value": 0
+    },
+    "PDF_ANNOT_TRAP_NET": {
+      "kind": "constant",
+      "value": 24
+    },
+    "PDF_ANNOT_UNDERLINE": {
+      "kind": "constant",
+      "value": 9
+    },
+    "PDF_ANNOT_UNKNOWN": {
+      "kind": "constant",
+      "value": -1
+    },
+    "PDF_ANNOT_WATERMARK": {
+      "kind": "constant",
+      "value": 25
+    },
+    "PDF_ANNOT_WIDGET": {
+      "kind": "constant",
+      "value": 21
+    },
     "PDF_ENCRYPT_AES_128": {
       "kind": "constant",
       "value": 4
@@ -3436,9 +3719,10 @@
                 "name": "self"
               },
               {
-                "annotation": "Sequence[float] | Sequence[Sequence[float]]",
+                "annotation": "Sequence[float] | Quad | Sequence[Sequence[float] | Quad] | None",
+                "default": null,
                 "kind": "positional_or_keyword",
-                "name": "rects"
+                "name": "quads"
               },
               {
                 "annotation": "tuple[float, float, float]",
@@ -3463,29 +3747,7 @@
                 "name": "content"
               }
             ],
-            "returns": "None"
-          }
-        },
-        "add_link_annot": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Sequence[float]",
-                "kind": "positional_or_keyword",
-                "name": "rect"
-              },
-              {
-                "annotation": "str",
-                "kind": "positional_or_keyword",
-                "name": "uri"
-              }
-            ],
-            "returns": "None"
+            "returns": "Annot"
           }
         },
         "annots": {
@@ -3495,9 +3757,15 @@
               {
                 "kind": "positional_or_keyword",
                 "name": "self"
+              },
+              {
+                "annotation": "Iterable[int] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "types"
               }
             ],
-            "returns": "list[AnnotationInfo]"
+            "returns": "list[Annot]"
           }
         },
         "apply_ocr": {
@@ -4761,6 +5029,23 @@
               }
             ],
             "returns": "int"
+          }
+        },
+        "insert_link": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_only",
+                "name": "self"
+              },
+              {
+                "annotation": "Mapping[str, Any]",
+                "kind": "positional_only",
+                "name": "link"
+              }
+            ],
+            "returns": "None"
           }
         },
         "insert_ocr_text_layer": {
