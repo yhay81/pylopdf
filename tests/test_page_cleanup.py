@@ -81,7 +81,7 @@ def test_excluded_page_navigation_is_removed(operation: Literal["delete", "selec
             pylopdf.LINK_GOTOR,
             pylopdf.LINK_GOTO,
         ]
-        assert current.get_toc() == [[2, "Retained child", target + 1], [1, "Retained", target + 1]]
+        assert current.get_outline() == [(2, "Retained child", target), (1, "Retained", target)]
         assert _EXCLUDED_TEXT not in current.get_text()
 
 
@@ -110,7 +110,7 @@ def test_removing_every_page_drops_outline_and_destination_references(operation:
     assert _EXCLUDED_TEXT.encode() not in saved
     for current in (doc, pylopdf.Document(stream=saved)):
         assert current.page_count == 0
-        assert current.get_toc() == []
+        assert current.get_outline() == []
 
 
 @pytest.mark.parametrize("operation", ["delete", "select"])

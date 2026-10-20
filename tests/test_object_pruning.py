@@ -82,11 +82,11 @@ def _structural_edit_pdf() -> bytes:
         (lambda doc: doc.select([0]), [b"SECOND-PAGE-CONTENT"]),
         (lambda doc: doc.new_page(), []),
         (lambda doc: doc.fullcopy_page(0), []),
-        (lambda doc: doc.set_toc([[1, "New outline", 1]]), [b"OLD-OUTLINE-TITLE"]),
-        (lambda doc: doc.set_toc([]), [b"OLD-OUTLINE-TITLE"]),
+        (lambda doc: doc.set_outline([(1, "New outline", 0)]), [b"OLD-OUTLINE-TITLE"]),
+        (lambda doc: doc.set_outline([]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Inserted"]))), []),
     ],
-    ids=["delete_pages", "select", "new_page", "copy_page", "set_toc", "clear_toc", "insert_pdf"],
+    ids=["delete_pages", "select", "new_page", "copy_page", "set_outline", "clear_outline", "insert_pdf"],
 )
 def test_structural_edits_drop_unreachable_objects(
     edit: Callable[[pylopdf.Document], object],
@@ -144,7 +144,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     # that isolates the page's existing content.
     assert doc.complexity["object_count"] == objects + 5
     assert doc.embfile_names() == []
-    assert [entry[1] for entry in doc.get_toc()] == ["OLD-OUTLINE-TITLE"]
+    assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.tobytes(garbage=True)
     assert "SOURCE-PAGE-TEXT" in pylopdf.Document(stream=saved).get_page_text(0)
 
@@ -158,15 +158,15 @@ def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:
     """
     page_count = 30_000
     doc = pylopdf.Document(stream=build_pdf([f"P{index}" for index in range(page_count)]))
-    toc: list[list[int | str]] = [[1, f"Entry {index}", index + 1] for index in range(4096)]
+    outline = [(1, f"Entry {index}", index) for index in range(4096)]
 
     start = time.perf_counter()
-    doc.set_toc(toc)
+    doc.set_outline(outline)
     doc.delete_pages([0])
     saved = doc.tobytes(garbage=True)
     elapsed = time.perf_counter() - start
 
-    assert elapsed < 2.0, f"set_toc, delete_pages, and a garbage save took {elapsed:.2f}s"
+    assert elapsed < 2.0, f"set_outline, delete_pages, and a garbage save took {elapsed:.2f}s"
     assert doc.page_count == page_count - 1
-    assert doc.get_toc()[0] == [1, "Entry 1", 1]
+    assert doc.get_outline()[0] == (1, "Entry 1", 0)
     assert pylopdf.Document(stream=saved).page_count == page_count - 1

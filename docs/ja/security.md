@@ -323,7 +323,7 @@ Rustが標準エラー出力に書き出します。
 - named destination lookupは参照cycleを一度だけ訪問し、65,536 entry/nodeまたは
   131,072 edgeを超えるtreeを`named_destination_count`、key byte 16 MiBを超える
   treeを`named_destination_text_size`で拒否し、深さ32も超えさせません。途中で
-  打ち切ったtreeを通常の未解決として黙って扱うことはありません。`get_toc()`、
+  打ち切ったtreeを通常の未解決として黙って扱うことはありません。`get_outline()`、
   `Page.get_links()`、`insert_pdf()`のlink取り込み、page削除・選択時のname tree
   と旧形式`/Dests`の書き換えはこの上限を共有するため、解決できる正しい形式の
   treeはcleanupと取り込みもできます。書き換えでは、保持するdestination値を

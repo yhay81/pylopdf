@@ -326,7 +326,7 @@ Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic
 - named destination lookup은 참조cycle을 한 번만 방문하고65,536 entry/node 또는
   131,072 edge를 넘는tree는`named_destination_count`로, key byte 16 MiB를 넘는
   tree는`named_destination_text_size`로 거부하며 깊이32도 넘지 않게 합니다.
-  중간에 잘린tree를 단순 미해결로 조용히 처리하지 않습니다. `get_toc()`,
+  중간에 잘린tree를 단순 미해결로 조용히 처리하지 않습니다. `get_outline()`,
   `Page.get_links()`, `insert_pdf()`의link 가져오기, page 삭제와 선택 시name
   tree와 구형식`/Dests`의 재작성은 이 상한을 공유하므로 해석되는 올바른 형식의
   tree는 정리와 가져오기도 가능합니다. 재작성은 유지하는destination 값을direct

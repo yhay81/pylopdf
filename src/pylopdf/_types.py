@@ -107,6 +107,17 @@ class Word(NamedTuple):
     word_no: int
 
 
+class OutlineEntry(NamedTuple):
+    """One outline (bookmark) item of :meth:`Document.get_outline`.
+
+    ``page`` is zero-based, unlike pymupdf's ``get_toc()`` page numbers.
+    """
+
+    level: int
+    title: str
+    page: int
+
+
 class Block(NamedTuple):
     """One ``get_text("blocks")`` item, in pymupdf's tuple order.
 
@@ -476,6 +487,7 @@ class OcrWord(TypedDict):
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
     Word,
+    OutlineEntry,
     Block,
     LinkKind,
     TextAlign,

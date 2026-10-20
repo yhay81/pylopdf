@@ -104,7 +104,7 @@ merged = pylopdf.Document()
 merged.insert_pdf(pylopdf.open("a.pdf"))
 merged.insert_pdf(pylopdf.open("b.pdf"), from_page=0, to_page=2, start_at=0)
 
-doc.set_toc([[1, "Chapter 1", 1], [2, "Section 1.1", 2]])
+doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
 page.set_rotation(90)
 ```
 

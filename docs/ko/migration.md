@@ -36,7 +36,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음(G8) |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 동일 | pymupdf의 범위 규칙(음수 `from_page`는 첫 페이지, 음수 `to_page`는 마지막 페이지이며 둘 다 범위 안으로 맞춤). 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
-| `doc.get_toc()` / `set_toc()` | 동일 | 둘 다 페이지 번호는 1부터 시작 |
+| `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)`의 `page`는 0부터 시작（pymupdf는 1부터） |
 | `doc.save(garbage=4, deflate=True)` | 동일 | pymupdf와 같은 0~4단계. 페이지, 주석, 폼 필드, 구조 요소, 레이어는 병합하지 않음 |
 | `doc.save(encryption=…, user_pw=…)` | 동일 | `PDF_ENCRYPT_NONE`(기본값)과 `PDF_ENCRYPT_AES_256`만 지원하며 다른 방식은 예외. `PDF_ENCRYPT_NONE`에서 password는 무시하지 않고 예외. 각password는UTF-8 127 byte로 제한 |
 | `doc.needs_pass` / `authenticate()` | 동일 | 같은 반환값 의미(0/1/2/4/6) |

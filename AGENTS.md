@@ -1239,7 +1239,7 @@ overview.
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
 - Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `fullcopy_page`, and `set_toc`) and `garbage=True` saves remove unreachable
+  `fullcopy_page`, and `set_outline`) and `garbage=True` saves remove unreachable
   objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
@@ -1379,7 +1379,7 @@ overview.
   cyclic or over-long chain still surfaces. Annotation appends start a new `/Annots`
   array, `set_metadata` replaces trailer `/Info`, both page-attribute
   inheritance walks end at such a `/Parent`, Font and XObject registration
-  starts an empty category, `get_toc` returns no entries for such an
+  starts an empty category, `get_outline` returns no entries for such an
   `/Outlines`, attachment writes replace catalog `/Names`, and the
   EmbeddedFiles walker skips such a FileSpec, so attachment rewrites drop it.
   Page cleanup reads such navigation entries as absent. Drawing drops such
@@ -1431,8 +1431,9 @@ overview.
   repeated no-op output is deterministic. Preserve the documented mutation
   semantics of `garbage`, `deflate`, and the PDF-version/xref-mode changes from
   `use_objstms` on output refusal.
-- TOC page numbers in `get_toc` and `set_toc` are one-based for pymupdf
-  compatibility. All other page APIs are zero-based.
+- Outline page numbers in `get_outline` and `set_outline` are zero-based like
+  every other page API; the core's `get_toc` and `set_toc` keep one-based
+  numbers, and only the Python layer converts them.
 - lopdf automatically decrypts PDFs with an empty user password. Other encrypted
   PDFs require the `password` argument or `authenticate()`, which reopens the
   document with a password. `_ensure_open` must check `is_encrypted` because an
@@ -2137,7 +2138,7 @@ overview.
   which also charges looked-up destination names to the TOC text budget, so
   every written outline remains readable and editable. Page indexes,
   destination and outline cycle sets, outline stacks, and returned entries grow
-  fallibly. `set_toc` preflights the entry, depth, and source/encoded-title
+  fallibly. `set_outline` preflights the entry, depth, and source/encoded-title
   boundaries before PyO3 copying, using `toc_entry_count` and
   `toc_input_size`; direct Rust calls repeat the entry and text boundaries, then
   prepare entries and the parent stack fallibly before PDF mutation.

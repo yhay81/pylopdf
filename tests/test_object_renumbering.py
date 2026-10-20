@@ -223,13 +223,13 @@ def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> 
 
     lopdf's `renumber_objects_with` scans a list of visited IDs for every
     reference, walks the graph twice when page numbers descend in page order,
-    and rescans the bookmark table that `set_toc` fills once per renumbered
+    and rescans the bookmark table that `set_outline` fills once per renumbered
     object. These two imports from a source of about 64,000 objects took about
     7.7 s locally with it; the generous bound only catches that regression.
     """
     page_count = 30_000
     source = pylopdf.Document(stream=_descending_pages_pdf([f"P{index}" for index in range(page_count)]))
-    source.set_toc([[1, f"Entry {index}", index + 1] for index in range(2048)])
+    source.set_outline([(1, f"Entry {index}", index) for index in range(2048)])
     doc = pylopdf.Document(stream=build_pdf(["Target"]))
 
     start = time.perf_counter()

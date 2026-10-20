@@ -47,7 +47,15 @@ from pylopdf._tables import (
     _markdown_table_output,
     _MarkdownBudget,
 )
-from pylopdf._types import PDF_ENCRYPT_AES_256, PDF_ENCRYPT_NONE, Block, EncryptionMethod, Permissions, Word
+from pylopdf._types import (
+    PDF_ENCRYPT_AES_256,
+    PDF_ENCRYPT_NONE,
+    Block,
+    EncryptionMethod,
+    OutlineEntry,
+    Permissions,
+    Word,
+)
 from pylopdf.pylopdf_core import LimitError, PdfError, Pixmap, _Document
 
 if sys.platform == "win32":
@@ -1302,7 +1310,7 @@ class Document:
         entries; further entries raise :class:`LimitError` with code
         ``page_entry_count`` before the document changes. Links, outline
         destinations, the open action, and named destinations that target
-        deleted pages are removed under the same limits as :meth:`get_toc` and
+        deleted pages are removed under the same limits as :meth:`get_outline` and
         :meth:`Page.get_links`. The AcroForm loses the widgets of deleted pages
         and the fields whose widgets all lay there, under the
         :meth:`get_form_fields` limits; fields that never had a widget stay.
@@ -1442,69 +1450,74 @@ class Document:
             raise IndexError(msg)
         return value
 
-    def get_toc(self) -> list[list[int | str]]:
-        """Return bookmarks as ``[[level, title, page number], ...]``.
+    def get_outline(self) -> list[OutlineEntry]:
+        """Return the outline (bookmarks) as :class:`OutlineEntry` items.
 
-        Levels and page numbers are one-based for pymupdf compatibility, unlike
-        other page APIs. Return an empty list when no TOC exists. Traversal is
-        cycle-aware and rejects more than 65,536 nodes or entries or 131,072
-        edges with ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
+        Each item is ``(level, title, page)``: levels start at 1, and ``page``
+        is zero-based like every other pylopdf page number. This replaces
+        pymupdf's ``get_toc()``, whose page numbers are one-based. Items whose
+        destination does not resolve to a page are left out. Return an empty
+        list when no outline exists. Traversal is cycle-aware and rejects more
+        than 65,536 nodes or entries or 131,072 edges with
+        ``LimitError.code == "toc_entry_count"``, more than 16 MiB of
         source/returned text with ``"toc_text_size"``, and more than 64 levels
         or 32 destination indirections. Named destinations resolve under the
         same name-tree limits as :meth:`Page.get_links`.
         """
         self._ensure_open()
-        return [[level, title, page] for level, title, page in self._doc.get_toc()]
+        return [OutlineEntry(level, title, page - 1) for level, title, page in self._doc.get_toc()]
 
-    def set_toc(self, toc: Sequence[Sequence[int | str]]) -> None:
-        """Replace bookmarks from ``[[level, title, page number], ...]``.
+    def set_outline(self, entries: Sequence[OutlineEntry | Sequence[int | str]], /) -> None:
+        """Replace the outline from ``(level, title, page)`` items.
 
-        An empty sequence removes them. At most 65,536 entries, 64 levels, and
-        16 MiB each of input and encoded title text are accepted, enough for
-        large manuals while matching :meth:`get_toc`. Levels start at 1 and can
-        increase by at most one from the previous entry. Page numbers are
-        one-based, matching :meth:`get_toc`. Validation is atomic. Refusals occur
-        before PyO3 copying with ``LimitError.code == "toc_entry_count"`` for
-        entries or ``"toc_input_size"`` for title text.
+        ``page`` is zero-based, as :meth:`get_outline` returns it; this
+        replaces pymupdf's ``set_toc()``, whose page numbers are one-based,
+        and editing the list replaces ``set_toc_item()`` and
+        ``del_toc_item()``. An empty sequence removes the outline. Levels start
+        at 1 and can increase by at most one from the previous item. At most
+        65,536 items, 64 levels, and 16 MiB each of input and encoded title
+        text are accepted, enough for large manuals. Validation is atomic.
+        Refusals occur before PyO3 copying with ``LimitError.code ==
+        "toc_entry_count"`` for items or ``"toc_input_size"`` for title text.
         """
         self._ensure_open()
-        if len(toc) > _MAX_TOC_ENTRIES:
+        if len(entries) > _MAX_TOC_ENTRIES:
             limit_code = "toc_entry_count"
-            msg = f"toc cannot contain more than {_MAX_TOC_ENTRIES} entries"
+            msg = f"the outline cannot contain more than {_MAX_TOC_ENTRIES} entries"
             raise LimitError(limit_code, msg)
         count = self.page_count
-        entries: list[tuple[int, str, int]] = []
+        prepared: list[tuple[int, str, int]] = []
         previous_level = 0
-        for i, item in enumerate(toc):
+        for i, item in enumerate(entries):
             try:
                 level_raw, title, page_raw = item
                 level = int(level_raw)
                 page = int(page_raw)
             except (TypeError, ValueError) as exc:
-                msg = f"toc[{i}] must be 3 elements [level, title, page number]: {item!r}"
+                msg = f"entries[{i}] must be (level, title, page): {item!r}"
                 raise ValueError(msg) from exc
             if level < 1 or level > previous_level + 1:
-                msg = f"toc[{i}] has an invalid level {level} (must be >= 1 and at most the previous level + 1)"
+                msg = f"entries[{i}] has an invalid level {level} (must be >= 1 and at most the previous level + 1)"
                 raise ValueError(msg)
-            if not 1 <= page <= count:
-                msg = f"toc[{i}] page number {page} is out of range (1..{count})"
+            if not 0 <= page < count:
+                msg = f"entries[{i}] page {page} is out of range (0..{count - 1})"
                 raise ValueError(msg)
-            entries.append((level, str(title), page))
+            prepared.append((level, str(title), page + 1))
             previous_level = level
-        titles = [title for _, title, _ in entries]
+        titles = [title for _, title, _ in prepared]
         _validate_cumulative_utf8_input(
             titles,
             _MAX_TOC_INPUT_TEXT_SIZE,
             limit_code="toc_input_size",
-            input_label="TOC title input",
+            input_label="outline title input",
         )
         _validate_cumulative_pdf_text_input(
             titles,
             _MAX_TOC_INPUT_TEXT_SIZE,
             limit_code="toc_input_size",
-            input_label="encoded TOC title input",
+            input_label="encoded outline title input",
         )
-        self._doc.set_toc(entries)
+        self._doc.set_toc(prepared)
 
     def set_fallback_font(
         self,

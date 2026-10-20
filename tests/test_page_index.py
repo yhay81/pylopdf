@@ -79,7 +79,7 @@ PNG = _png()
 STAMP = pylopdf.Document(stream=build_pdf(["Stamp"]))
 
 
-def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[list[int | str]]]:
+def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[pylopdf.OutlineEntry]]:
     """Return every page-index-backed read: count, per-page facts, and the TOC.
 
     Text extraction serializes the document for its renderer, which drops the
@@ -97,7 +97,7 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
         )
         for page in views
     ]
-    toc = doc.get_toc()
+    toc = doc.get_outline()
     texts = [page.get_text().strip() for page in views]
     pages: list[tuple[object, ...]] = [
         (width, rotation, rect, text, annots, links)
@@ -116,7 +116,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
     "insert_pdf_append": (lambda doc: doc.insert_pdf(_other()), [*UNCHANGED, "other"]),
     "new_page": (lambda doc: doc.new_page(1, width=50, height=60), [0, "new", 1, 2, 3, 4]),
     "copy_page": (lambda doc: doc.fullcopy_page(3, 0), [3, *UNCHANGED]),
-    "set_toc": (lambda doc: doc.set_toc([[1, "Last", 5], [1, "First", 1]]), UNCHANGED),
+    "set_outline": (lambda doc: doc.set_outline([(1, "Last", 4), (1, "First", 0)]), UNCHANGED),
     "set_rotation": (lambda doc: doc[2].set_rotation(270), UNCHANGED),
     "set_mediabox": (lambda doc: doc[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
     "insert_text": (lambda doc: doc[0].insert_text((10, 20), "Stamp"), UNCHANGED),
@@ -401,7 +401,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
         )
         for page in views
     ]
-    toc = doc.get_toc()
+    toc = doc.get_outline()
     texts = [_text_outcome(page) for page in views]
     return len(views), facts, toc, texts
 

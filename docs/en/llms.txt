@@ -29,7 +29,7 @@ Key facts:
   3.15.
 - A release-gated PyEmscripten wheel targets Pyodide 0.28.3 and Cloudflare
   Python Workers starting after v0.10.0.
-- 0-based pages except get_toc/set_toc, which are 1-based for pymupdf compatibility.
+- 0-based pages everywhere; get_outline/set_outline replace pymupdf's 1-based get_toc/set_toc.
 - Top-left-origin display coordinates across extraction, drawing and rendering.
 - Immutable Point and Matrix NamedTuples support affine operators: p * m,
   left * right (left transform first), and ~m. Replace mutating transform

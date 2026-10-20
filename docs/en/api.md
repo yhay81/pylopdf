@@ -6,8 +6,8 @@ description: A compact map of pylopdf Document, Page, Pixmap, Rect, permissions,
 # API overview
 
 Full docstrings live in the package (`help(pylopdf.Document)`); this page is a
-map. All page numbers are 0-based except `get_toc` / `set_toc` (1-based,
-pymupdf-compatible). All coordinates are top-left-origin display space.
+map. All page numbers are 0-based, outline pages included. All coordinates
+are top-left-origin display space.
 The [API stability policy](stability.md) defines the public boundary and
 deprecation lifecycle.
 
@@ -36,7 +36,7 @@ in pymupdf's `open("pdf", data)`. Password input stops at 127 UTF-8 bytes.
 | `compress_images(dpi=150, quality=75)` | lossy, placement-aware downsampling and JPEG recompression of safe DCT or Flate raster XObjects; returns typed byte/count statistics |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | bounded locale-aware CJK fallback for non-embedded Adobe Japan1, Korea1, GB1, or CNS1 fonts; `None` opts trusted font input out |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | page management; select/delete entries are bounded by the larger of the page count and 4,096, `insert_pdf` accepts any complete source range and registers the form fields of imported pages, select/delete remove the widgets, fields, and tagged structure content of dropped pages, and navigation cleanup and link import share the TOC and named-destination limits |
-| `get_toc()` / `set_toc(toc)` | cycle-aware bounded outlines sized for large manuals (1-based pages; 65,536 entries/nodes, 131,072 edges, 64 levels, 16 MiB text; named destinations as in `get_links()`) |
+| `get_outline()` / `set_outline(entries)` | cycle-aware bounded outlines sized for large manuals as `OutlineEntry(level, title, page)` items (0-based pages; 65,536 entries/nodes, 131,072 edges, 64 levels, 16 MiB text; named destinations as in `get_links()`) |
 | `get_page_labels()` / `set_page_labels(labels)` | page label ranges; fixed caps: 4,096 entries/nodes, 32 levels, 1 MiB label text |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | bounded AcroForm list & fill with 1 MiB caller name/value input plus native, bounded widget appearances and font input; `font` draws with a loaded OpenType `Font` |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | attachments with symmetric input/decoded-output defaults plus 1 MiB caller text, bounded metadata, and inline FileSpec clone shapes; `max_size=None` explicitly opts out |

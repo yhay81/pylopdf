@@ -37,7 +37,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
-| `doc.get_toc()` / `set_toc()` | 同じ | ページ番号は両者とも 1 始まり |
+| `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)` の `page` は 0 始まり（pymupdf は 1 始まり） |
 | `doc.save(garbage=4, deflate=True)` | 同じ | pymupdfと同じ0〜4の段階。ページ、注釈、フォームフィールド、構造要素、レイヤーは統合しない |
 | `doc.save(encryption=…, user_pw=…)` | 同じ | `PDF_ENCRYPT_NONE`（既定）と`PDF_ENCRYPT_AES_256`のみで、ほかの方式は例外。`PDF_ENCRYPT_NONE`でのpasswordは無視せず例外。各passwordはUTF-8 127 byte上限 |
 | `doc.needs_pass` / `authenticate()` | 同じ | 戻り値の意味（0/1/2/4/6）も同じ |
