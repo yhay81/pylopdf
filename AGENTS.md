@@ -99,7 +99,7 @@ overview.
     `document/{forms,annotations}.rs`.
   - E, structure: `page_cleanup.rs`, `structure_prune.rs`;
     `document/{page_tree,navigation,labels,metadata,attachments}.rs`.
-  - F, content engine: `text_replace.rs`, `content_guard.rs`,
+  - F, content engine: `content/`, `text_replace.rs`, `content_guard.rs`,
     `content_scan.rs`, `graph_guard.rs`, `postscript_scan.rs`,
     `read_depth.rs`; `document/replacement.rs`.
   - G, persistence: `garbage.rs`, `prune.rs`, `renumber.rs`, `recovery.rs`,
@@ -1470,6 +1470,34 @@ overview.
   no-match and failure paths must preserve document bytes and caches. A
   successful replacement materializes inherited page attributes and clears
   the drawing isolation marker for that page.
+- The content engine (`rust/src/content/`, roadmap F8) interprets content
+  over lopdf's `Content::decode_strict`, which redaction can edit and
+  serialize, and places glyphs as hayro-interpret 0.8 does, so that hayro's
+  extraction is its oracle and hayro re-interpretation can verify an edit.
+  Mirror hayro, not the specification, wherever they differ: the text state is
+  saved by `q`; every content stream and Form runs inside a saved state that
+  is restored afterwards; fixed-arity operators take their last operands;
+  `Tf` with a missing font, and text without a font, fall back to Helvetica;
+  ExtGState `/Font` sets the font; Forms nest to hayro's depth of 50 with
+  their `/Matrix` and with their own resources or the drawing stream's;
+  annotation normal appearances follow the page with hayro's `/F`, `/AS`,
+  `/Off`, and §12.5.5 rectangle mapping; Type0 codes are read and mapped to
+  CIDs by trying one to four bytes; simple-font widths come from `/Widths`
+  and `/MissingWidth`, or from the AFM widths of the standard font that hayro
+  substitutes for a non-embedded font, by glyph names from WinAnsi,
+  MacRoman, the built-in encoding, and `/Differences`, with `.notdef` 250
+  units wide; Type3 widths are scaled by `/FontMatrix` in single precision.
+  Unlike hayro, it records every glyph whatever its visibility, rendering
+  mode, optional content, or font usability, because redaction must find
+  every byte that can draw one. A width that only an embedded font program
+  holds is marked approximate rather than guessed. Interpretation stops at
+  16,777,216 operations counting Form repetitions (`content_operation_count`)
+  or 1,048,576 glyphs (`content_glyph_count`) and returns no partial result;
+  content that the strict parse rejects is refused. `_Document.content_glyphs`
+  is the private test hook, and `tests/test_content_interpreter.py` checks it
+  against hayro's extraction on the bundled corpus. Re-run the pdf.js-corpus
+  agreement sweep recorded in ROADMAP.md F8 after any change to the
+  interpreter or to hayro.
 - Embedded-font text generation lives in `rust/src/generate.rs`. krilla is
   pinned to 0.8.2 with all default features disabled; HarfRust 0.14 supplies
   shaping without krilla's unmaintained rustybuzz/ttf-parser path. Raster and
