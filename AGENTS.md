@@ -1784,10 +1784,36 @@ overview.
   any widget stays, because deletion must not touch fields unrelated to the
   dropped pages. `/Fields` and `/CO` lose the entries of removed fields; an
   array that also serves as a walked `/Kids` is filtered once, by the `/Kids`
-  plan. A field tree beyond the read limits refuses the deletion. A tagged
-  PDF's structure tree still references dropped pages and their widgets
-  through `/Pg` and OBJR entries, so pruning keeps them; cleaning the
-  structure tree is separate work.
+  plan. A field tree beyond the read limits refuses the deletion.
+- `delete_pages` and `select` also remove a tagged PDF's structure content
+  of dropped pages with `StructurePagePrune` (`rust/src/structure_prune.rs`),
+  prepared beside `FormPagePrune` and applied after it; otherwise `/Pg`,
+  OBJR `/Obj`, `/ParentTree`, and `/IDTree` keep dropped pages and their
+  annotations reachable through every pruning save. An integer MCID, MCR, or
+  OBJR kid goes when its own `/Pg`, else its element's (ISO 32000-2 §14.7.2;
+  `/Pg` is not inherited further), names a dropped page; an OBJR goes when
+  only dropped pages list its annotation, navigation cleanup removes that
+  link (`PageCleanupPlan::removed_links`), or no page lists it and its `/P`
+  names a dropped page, and stays, with its `/Pg` moved to the listing page,
+  when a remaining page lists it. An element goes when it had kids and lost
+  all of them; the root never goes. A remaining element's `/Pg` that names a
+  dropped page is removed. `/ParentTree` loses the keys of dropped pages'
+  `/StructParents` and dropped annotations' `/StructParent` that no
+  remaining page or annotation uses, and pairs whose value names only removed
+  elements; `/IDTree` loses pairs naming removed elements, and a remaining
+  element's `/Ref` loses them (the key goes when none remain). Outline `/SE`
+  and action `/SD` structure destinations are not cleaned. `/Limits` stay,
+  which leaves them wider than the remaining keys and keeps lookups valid.
+  Elements that only those lookup trees name are walked as detached roots.
+  The walk is iterative and post-order, memoizes indirect elements by ID
+  (one on the walk stack counts as kept), walks a shared indirect `/K` array
+  once, edits direct elements through key/index paths, and reads null,
+  missing, and cyclic references as absent. It stops at 1,048,576 elements
+  and lookup-tree nodes, 4,194,304 kids, entries, and annotation entries, 256
+  element levels, 32 lookup-tree levels, or 32 references with `LimitError`
+  code `structure_tree_count`. Every collection grows fallibly, and apply
+  only filters arrays, removes keys, and replaces existing `/Pg` values,
+  innermost path first so a filter cannot shift a later edit's index.
 - Page annotation and link reads borrow direct/indirect `/Annots` arrays,
   release the GIL, and reject complete results above 4,096 array entries or
   1 MiB of aggregate encoded/returned subtype, Contents, URI, file, and

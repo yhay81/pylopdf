@@ -93,7 +93,7 @@ text抽出とrenderingはcall単位のhayro cacheを4,096 entryごとに作り�
 `path_point_count`、`search_input_size`、`search_hit_count`、`password_input_size`、`pixmap_output_size`、
 `ocr_model_size`、`ocr_dictionary_entries`、`stream_filter_count`、
 `decompression_unverifiable`、`recovery_scan_size`、`content_nesting_depth`、
-`resource_nesting_depth`のいずれかです。同じ値を`error.args[0]`でも取得できます。
+`resource_nesting_depth`、`structure_tree_count`のいずれかです。同じ値を`error.args[0]`でも取得できます。
 安全に上限計算できないfilter chainは、楽観的に展開せず拒否します。
 pylopdfが所有する上限付きlopdf decode経路では、filter listをmaterializeする
 前に16層を超える`/Filter` chainも拒否します。

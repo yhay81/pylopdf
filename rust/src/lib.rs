@@ -31,6 +31,7 @@ mod recovery;
 mod render_cache;
 mod renumber;
 mod shape;
+mod structure_prune;
 mod text_replace;
 mod unallocated;
 use document::{_Document, LimitError, PasswordError, PdfError};

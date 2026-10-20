@@ -31,7 +31,7 @@ deliberately does not implement.
 | `page.get_images()` / extract | `page.get_images()` | returns drawn images with bbox; JPEG passthrough |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |
-| `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages; select/delete remove the form widgets and fields of dropped pages |
+| `doc.select`, `delete_page(s)`, `copy_page`, `new_page` | same | `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | same | registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc()` | same | pages 1-based (both) |
 | `doc.save(garbage=4, deflate=True)` | `doc.save(garbage=True, deflate=True, object_streams=True)` | `garbage` is a bool |

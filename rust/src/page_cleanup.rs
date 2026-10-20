@@ -177,6 +177,8 @@ struct DictionaryPatch {
 pub(crate) struct PageCleanupPlan {
     page_links: HashMap<ObjectId, Vec<usize>>,
     indirect_links: HashMap<ObjectId, Vec<usize>>,
+    /// Indirect link annotations that the filtered arrays drop.
+    removed_links: Vec<ObjectId>,
     dictionaries: Vec<DictionaryPatch>,
     replacements: Vec<(Target, Object)>,
     remove_outlines: bool,
@@ -276,6 +278,9 @@ impl PageCleanupPlan {
                 )?;
                 if direct || action {
                     push(&mut excluded, index)?;
+                    if let Object::Reference(id) = item {
+                        push(&mut plan.removed_links, *id)?;
+                    }
                 }
             }
             if !excluded.is_empty() {
@@ -586,6 +591,11 @@ impl PageCleanupPlan {
             )?;
         }
         Ok(())
+    }
+
+    /// The indirect link annotations that leave the remaining pages.
+    pub(crate) fn removed_links(&self) -> &[ObjectId] {
+        &self.removed_links
     }
 
     /// Filter inline annotation arrays on every selected original or duplicate.

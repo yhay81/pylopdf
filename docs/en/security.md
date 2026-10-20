@@ -98,8 +98,8 @@ repeated source pages before mutation.
 `path_point_count`, `search_input_size`, `search_hit_count`,
 `password_input_size`, `pixmap_output_size`,
 `ocr_model_size`, `ocr_dictionary_entries`, `stream_filter_count`,
-`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`, or
-`resource_nesting_depth`. The same code is also
+`decompression_unverifiable`, `recovery_scan_size`, `content_nesting_depth`,
+`resource_nesting_depth`, or `structure_tree_count`. The same code is also
 `error.args[0]`. A filter chain that cannot be bounded safely is rejected
 instead of being decoded optimistically. Pylopdf-owned bounded lopdf decode
 paths also reject more than 16 sequential `/Filter` layers before materializing
@@ -231,11 +231,14 @@ the document stays usable. Rust still prints the panic message to standard
 error.
 
 - Rendering is capped at 64 megapixels per page.
-- Page deletion and selection clean navigation to excluded pages before
-  pruning. AcroForm widget `/P` references can still retain excluded page
-  objects. These operations are not secure redaction: form references,
-  arbitrary custom references, attachments, metadata, and other copies of the
-  content require their own inspection and removal.
+- Page deletion and selection clean navigation to excluded pages, the
+  AcroForm widgets and fields of those pages, and the structure-tree content
+  of a tagged PDF that lay only there before pruning. The structure-tree walk
+  stops at 1,048,576 elements and lookup-tree nodes, 4,194,304 kids and
+  entries, 256 element levels, or 32 `/ParentTree` and `/IDTree` levels with
+  `structure_tree_count` before the document changes. These operations are
+  not secure redaction: arbitrary custom references, attachments, metadata,
+  and other copies of the content require their own inspection and removal.
 - `Document.render_page()`, `Page.render()`, and `Pixmap.tobytes()` default to
   a 64 MiB encoded-PNG output boundary. Their writers refuse the crossing
   write before returning Python `bytes`; `max_size=None` explicitly opts out.

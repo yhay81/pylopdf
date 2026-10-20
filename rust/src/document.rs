@@ -51,6 +51,7 @@ use crate::read_depth::{self, MAX_READ_DEPTH};
 use crate::recovery::{self, XrefRecovery};
 use crate::renumber::renumber_objects;
 use crate::shape::{_Shape, Segment};
+use crate::structure_prune::StructurePagePrune;
 use crate::text_replace::{self, TextReplacementError};
 use crate::unallocated::normalize_object_numbers;
 use indexed::IndexedDocument;
@@ -9870,11 +9871,17 @@ impl _Document {
             .map_err(|_| PdfError::new_err("Catalog Pages must be an indirect page-tree node"))?;
 
         let cleanup = PageCleanupPlan::prepare(&self.doc, &retained, &deleted)?;
-        let form_prune = FormPagePrune::prepare(&self.doc, pages, &retained_set(&retained)?)?;
+        let retained_ids = retained_set(&retained)?;
+        let form_prune = FormPagePrune::prepare(&self.doc, pages, &retained_ids)?;
+        let structure_prune =
+            StructurePagePrune::prepare(&self.doc, pages, &retained_ids, cleanup.removed_links())?;
         self.rebuild_page_tree_with_cleanup(pages_id, retained, Some(&cleanup))?;
         cleanup.apply(&mut self.doc);
         if let Some(form_prune) = form_prune {
             form_prune.apply(&mut self.doc);
+        }
+        if let Some(structure_prune) = structure_prune {
+            structure_prune.apply(&mut self.doc);
         }
         self.invalidate_hayro_pdf_keeping_placements();
         prune_unreachable_objects(&mut self.doc)?;
@@ -10293,10 +10300,19 @@ impl _Document {
             removed.remove(page_id);
         }
         let cleanup = PageCleanupPlan::prepare(&self.doc, &selected_ids, &removed)?;
-        let form_prune = if removed.is_empty() {
-            None
+        let (form_prune, structure_prune) = if removed.is_empty() {
+            (None, None)
         } else {
-            FormPagePrune::prepare(&self.doc, pages, &retained_set(&selected_ids)?)?
+            let retained_ids = retained_set(&selected_ids)?;
+            (
+                FormPagePrune::prepare(&self.doc, pages, &retained_ids)?,
+                StructurePagePrune::prepare(
+                    &self.doc,
+                    pages,
+                    &retained_ids,
+                    cleanup.removed_links(),
+                )?,
+            )
         };
 
         // For repeated pages, create a copy with inheritance materialized because
@@ -10365,6 +10381,9 @@ impl _Document {
         cleanup.apply(&mut self.doc);
         if let Some(form_prune) = form_prune {
             form_prune.apply(&mut self.doc);
+        }
+        if let Some(structure_prune) = structure_prune {
+            structure_prune.apply(&mut self.doc);
         }
         // Remove pages and intermediate nodes that became unreachable.
         prune_unreachable_objects(&mut self.doc)?;

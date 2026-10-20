@@ -84,7 +84,7 @@ page batch根据一次获取的页数校验entry。`pages=None`与`insert_pdf()`
 `font_input_size`、`text_input_size`、`text_line_count`、`path_point_count`、`search_input_size`、`search_hit_count`、
 `password_input_size`、`pixmap_output_size`、`ocr_model_size`、`ocr_dictionary_entries`、
 `stream_filter_count`、`decompression_unverifiable`、`recovery_scan_size`、
-`content_nesting_depth`、`resource_nesting_depth`之一；
+`content_nesting_depth`、`resource_nesting_depth`、`structure_tree_count`之一；
 同一值也位于`error.args[0]`。无法安全估算上限的filter chain会被拒绝，而不是
 乐观解码。pylopdf自有的有界lopdf解码路径还会在materialize filter列表前拒绝
 超过16层的`/Filter` chain。
