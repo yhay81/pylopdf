@@ -209,8 +209,8 @@ complete, and version numbers are assigned at release time.
 
 | Wave | Work that runs in parallel | Gate for the next wave |
 | --- | --- | --- |
-| 0 — in flight | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion; XObject reuse (#231); save-time merging of identical objects; CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design draft | Merged to main; F0 approved |
-| 1 — foundations | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each | F1 merged with an unchanged API snapshot and corpus |
+| 0 — done | hayro 0.8 (#233); AcroForm registration on `insert_pdf` (#234) and field pruning on page deletion (#249, #250); XObject reuse (#231); save-time merging of identical objects (#251); CPython 3.15 and 3.15t (#230); F3 parity manifest (#235), which touches only `api/`, `tools/`, and `tests/`; the F0 API design (#236), approved 2026-10-20 | Merged to main; F0 approved |
+| 1 — foundations (current) | F1 alone during a short freeze of `document.rs` and `__init__.py`; then F2, F4, and F9, one owner each | F1 merged with an unchanged API snapshot and corpus |
 | 2 — API reset | M0 by workstream, released together as one breaking release; F5–F8 in parallel | M0 acceptance |
 | 3 — breadth | M1 (A, B), M2 (C), M5 (E), F8 continued (F) | Milestone acceptance |
 | 4 — interaction | M3 (D), then M4 (F) | Milestone acceptance |
@@ -233,7 +233,12 @@ signature of every existing API and every redesigned capability. Workstreams
 implement against it, and a change to a rule goes through it.
 
 Acceptance: maintainer review; every M0 reset item resolved in the design;
-the parity manifest's provisional names finalized.
+the parity manifest's provisional names finalized. Met on 2026-10-20: the
+maintainer approved the design and its twelve decisions, the design names
+every pymupdf API that the manifest's 66 reset items change, and the five
+provisional names were finalized as proposed (`Page.get_layout`,
+`set_outline` for `set_toc_item` and `del_toc_item`, and `Rect.normalized`
+and `IRect.normalized`).
 
 ### F1 — Module split
 
@@ -863,6 +868,8 @@ answer.
   ships as one breaking release.
 - **D13**: the API design (F0) is written and reviewed before implementation
   fans out.
+- **D14**: on 2026-10-20 the maintainer approved the API design (F0) with all
+  twelve of its decisions, which closed wave 0.
 
 ## Evidence log
 
