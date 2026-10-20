@@ -803,7 +803,11 @@ comparison with pymupdf `insert_htmlbox` on the supported subset.
   stencil-mask performance (LaurenzV/hayro#1315), and `num_threads`
   (LaurenzV/hayro#1317). Depth parameters for `Function::new`,
   `ColorSpace::new`, and `parse_procedure_inner` would let pylopdf drop its
-  guards.
+  guards. In the content parser: a linear search for the end of inline image
+  data and an operand stack that holds the 33 operands of a DeviceN `scn`,
+  both with tested patches, and whether to skip incomplete path operators and
+  stray delimiters as pdf.js does instead of ending the stream (AGENTS.md,
+  Known pitfalls).
 - **lopdf**: a public object parser and serializer (F5), recovery reporting
   through the API instead of `log`, a linear unterminated-`stream` scan,
   xref-stream rebuilds from the catalog, consistent `compression_level`, and
