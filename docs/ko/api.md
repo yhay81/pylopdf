@@ -37,7 +37,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance. `font`에는 불러온 OpenType `Font`를 전달할 수 있음 |
 | `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
-| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `use_objstms=` 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
+| `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `use_objstms=`, `encryption=`(기본값`PDF_ENCRYPT_NONE`, 암호화는`PDF_ENCRYPT_AES_256`; `PDF_ENCRYPT_AES_256` 없는password는 예외) 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |
 
 `compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
@@ -260,7 +260,9 @@ doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 
 | 이름 | 용도 |
 |---|---|
 | `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 입력 크기를 선택적으로 제한하고password를127 byte로 제한하는 빠른 메타데이터·페이지 수 조회. `repaired`는 cross-reference 복구를 표시 |
-| `Permissions` | 암호화 권한 플래그（IntFlag） |
+| `Permissions` | 암호화 권한 플래그（IntFlag）. 멤버는 pymupdf의`PDF_PERM_*` 상수 |
+| `EncryptionMethod` | `save(encryption=)` 방식（IntEnum）. 멤버는 pymupdf의`PDF_ENCRYPT_*` 상수 |
+| `LinkKind` / `TextAlign` | 멤버가 pymupdf의`LINK_*`·`TEXT_ALIGN_*` 상수인 IntEnum |
 | `Rect` | `width` / `height`가 있는 사각형 NamedTuple |
 | `TextPage` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict 계층 |
 | `ImageInfo` / `ImageCompressionResult` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` / `DrawingInfo` | page, document 작업, form, vector drawing의 사전 형식 결과를 위한 TypedDict 계약 |

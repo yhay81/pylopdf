@@ -180,7 +180,9 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     """
     objects = _target_objects("[5 0 R 6 0 R]", catalog="/PylopdfProbe 6 0 R")
     objects[6] = _stream("PLACEHOLDER", 200)
-    encrypted = pylopdf.Document(stream=build_raw_pdf(objects)).tobytes(user_pw="user", owner_pw="owner")
+    encrypted = pylopdf.Document(stream=build_raw_pdf(objects)).tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
+    )
     patched = encrypted.replace(b"/Contents[5 0 R 6 0 R]", b"/Contents[5 0 R 9 0 R]").replace(
         b"/PylopdfProbe 6 0 R", b"/PylopdfProbe 9 0 R"
     )

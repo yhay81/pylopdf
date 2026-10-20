@@ -516,7 +516,7 @@ one-to-one onto these rows.
 | `Document.new_page(pno, width, height)` | keyword-only `width` and `height` | R2.3; done |
 | `Document.copy_page(pno, to=-1)` (an independent copy) | `fullcopy_page(pno, to=-1)`; `copy_page` is not provided | R2, G8 |
 | `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2; done |
-| `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7 |
+| `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7; done |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2 |
 | `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
 | `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1 |
@@ -545,10 +545,10 @@ one-to-one onto these rows.
 | `Document.get_toc()`, `set_toc(toc)` | `get_outline()`, `set_outline(entries)`, zero-based | R3: one-based numbering |
 | `Document.embfile_add`, `embfile_get`, `embfile_del`, `embfile_names` | `Document.attachments` | R3: the mapping protocol |
 | `OcrEngine.recognize(page, ...)` | `OcrEngine.recognize(pixmap, ...)` | R1 |
-| `Permissions` members | pymupdf's `PDF_PERM_*` suffixes, with module constants | R2 |
+| `Permissions` members | pymupdf's `PDF_PERM_*` suffixes, with module constants | R2; done |
 | `PdfError` for missing and malformed files | the built-in `FileNotFoundError`, `FileDataError`, and `EmptyFileError` | G3 |
 | `StalePageError(PdfError)` | `StalePageError(StaleObjectError)` | G3; done with F5 |
-| `LINK_*` and `TEXT_ALIGN_*` as plain integers | IntEnum members with the same names and values | R6 |
+| `LINK_*` and `TEXT_ALIGN_*` as plain integers | IntEnum members with the same names and values | R6; done |
 | `get_text("words")` and `get_text("blocks")` tuples | `Word` and `Block` NamedTuples | R6 |
 
 Unchanged in M0: `get_form_fields()` and `set_form_field()` stay until M3

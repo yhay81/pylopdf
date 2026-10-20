@@ -45,7 +45,12 @@ doc.set_metadata({"title": "보고서", "author": "Alice"})
 doc.save("out.pdf")
 data = doc.tobytes()
 doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 ```
 
 암호화된 PDF는`password=`로 열거나 나중에`doc.authenticate()`를 호출합니다.

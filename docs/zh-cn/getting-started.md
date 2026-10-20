@@ -43,7 +43,12 @@ doc.set_metadata({"title": "报告", "author": "Alice"})
 doc.save("out.pdf")
 data = doc.tobytes()
 doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 ```
 
 使用`password=`打开加密PDF，也可稍后调用`doc.authenticate()`。

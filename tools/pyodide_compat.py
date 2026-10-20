@@ -494,6 +494,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         lambda: pylopdf.Document(stream=encrypted_bytes, password="wrong")  # noqa: S106
     )
     _require(authentication_error == "PasswordError", "wrong password returned the wrong exception")
+    reencrypted = decrypted.tobytes(
+        encryption=pylopdf.PDF_ENCRYPT_AES_256,
+        user_pw="user",
+        permissions=pylopdf.PDF_PERM_PRINT | pylopdf.PDF_PERM_COPY,
+    )
+    _require(pylopdf.Document(stream=reencrypted).needs_pass, "PDF_ENCRYPT_AES_256 did not encrypt")
+    implicit_error = _exception_name(lambda: decrypted.tobytes(user_pw="user"))
+    _require(implicit_error == "PdfError", "a password without an encrypting method was not refused")
 
     return {
         "pdf20": {
@@ -526,6 +534,8 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,
             "decrypted_pages": decrypted.page_count,
+            "implicit_password_exception": implicit_error,
+            "link_kind": repr(pylopdf.LINK_URI),
         },
         "limits": _limit_results(
             pdf20_bytes,

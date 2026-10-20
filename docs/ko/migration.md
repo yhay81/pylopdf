@@ -34,7 +34,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `doc.insert_pdf(src, from_page=, to_page=, start_at=)` | 동일 | 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
 | `doc.get_toc()` / `set_toc()` | 동일 | 둘 다 페이지 번호는 1부터 시작 |
 | `doc.save(garbage=4, deflate=True)` | 동일 | pymupdf와 같은 0~4단계. 페이지, 주석, 폼 필드, 구조 요소, 레이어는 병합하지 않음 |
-| `doc.save(encryption=…, user_pw=…)` | `doc.save(user_pw=…, owner_pw=…, permissions=…)` | AES-256만 지원. 각password는UTF-8 127 byte로 제한 |
+| `doc.save(encryption=…, user_pw=…)` | 동일 | `PDF_ENCRYPT_NONE`(기본값)과 `PDF_ENCRYPT_AES_256`만 지원하며 다른 방식은 예외. `PDF_ENCRYPT_NONE`에서 password는 무시하지 않고 예외. 각password는UTF-8 127 byte로 제한 |
 | `doc.needs_pass` / `authenticate()` | 동일 | 같은 반환값 의미(0/1/2/4/6) |
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 동일 | JPEG 패스스루, PNG 알파, RGBA `Pixmap` 직접 재사용과 시계 방향 직각 회전; 그 밖의 인코딩 형식은 Pillow로 변환; 같은 입력은 이미지 XObject를 공유하므로 `xref=` 재사용이 불필요 |

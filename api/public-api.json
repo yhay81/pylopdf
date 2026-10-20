@@ -17,6 +17,7 @@
     "EMPTY_QUAD",
     "EMPTY_RECT",
     "EncryptedDocumentError",
+    "EncryptionMethod",
     "FZ_MAX_INF_RECT",
     "FZ_MIN_INF_RECT",
     "Font",
@@ -39,6 +40,7 @@
     "LINK_URI",
     "LimitError",
     "LinkInfo",
+    "LinkKind",
     "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
@@ -48,6 +50,21 @@
     "OcrError",
     "OcrRotation",
     "OcrWord",
+    "PDF_ENCRYPT_AES_128",
+    "PDF_ENCRYPT_AES_256",
+    "PDF_ENCRYPT_KEEP",
+    "PDF_ENCRYPT_NONE",
+    "PDF_ENCRYPT_RC4_128",
+    "PDF_ENCRYPT_RC4_40",
+    "PDF_ENCRYPT_UNKNOWN",
+    "PDF_PERM_ACCESSIBILITY",
+    "PDF_PERM_ANNOTATE",
+    "PDF_PERM_ASSEMBLE",
+    "PDF_PERM_COPY",
+    "PDF_PERM_FORM",
+    "PDF_PERM_MODIFY",
+    "PDF_PERM_PRINT",
+    "PDF_PERM_PRINT_HQ",
     "Page",
     "PageLabelInfo",
     "PageLabelSpec",
@@ -75,6 +92,7 @@
     "Table",
     "TableDiagnostics",
     "TableFinder",
+    "TextAlign",
     "TextBlock",
     "TextChar",
     "TextLine",
@@ -955,6 +973,12 @@
                 "name": "use_objstms"
               },
               {
+                "annotation": "int",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "encryption"
+              },
+              {
                 "annotation": "str | None",
                 "default": null,
                 "kind": "keyword_only",
@@ -1198,6 +1222,12 @@
                 "default": false,
                 "kind": "keyword_only",
                 "name": "use_objstms"
+              },
+              {
+                "annotation": "int",
+                "default": 1,
+                "kind": "keyword_only",
+                "name": "encryption"
               },
               {
                 "annotation": "str | None",
@@ -1515,6 +1545,18 @@
       ],
       "kind": "exception",
       "members": {}
+    },
+    "EncryptionMethod": {
+      "kind": "enum",
+      "members": {
+        "AES_128": 4,
+        "AES_256": 5,
+        "KEEP": 0,
+        "NONE": 1,
+        "RC4_128": 3,
+        "RC4_40": 2,
+        "UNKNOWN": 6
+      }
     },
     "FZ_MAX_INF_RECT": {
       "kind": "constant",
@@ -2259,7 +2301,7 @@
       "fields": {
         "file": "str | None",
         "from": "pylopdf.Rect",
-        "kind": "int",
+        "kind": "pylopdf.LinkKind",
         "name": "str | None",
         "nameddest": "str",
         "page": "int",
@@ -2281,6 +2323,17 @@
         "from",
         "kind"
       ]
+    },
+    "LinkKind": {
+      "kind": "enum",
+      "members": {
+        "GOTO": 1,
+        "GOTOR": 5,
+        "LAUNCH": 3,
+        "NAMED": 4,
+        "NONE": 0,
+        "URI": 2
+      }
     },
     "Matrix": {
       "annotations": {
@@ -2826,6 +2879,66 @@
         "confidence",
         "text"
       ]
+    },
+    "PDF_ENCRYPT_AES_128": {
+      "kind": "constant",
+      "value": 4
+    },
+    "PDF_ENCRYPT_AES_256": {
+      "kind": "constant",
+      "value": 5
+    },
+    "PDF_ENCRYPT_KEEP": {
+      "kind": "constant",
+      "value": 0
+    },
+    "PDF_ENCRYPT_NONE": {
+      "kind": "constant",
+      "value": 1
+    },
+    "PDF_ENCRYPT_RC4_128": {
+      "kind": "constant",
+      "value": 3
+    },
+    "PDF_ENCRYPT_RC4_40": {
+      "kind": "constant",
+      "value": 2
+    },
+    "PDF_ENCRYPT_UNKNOWN": {
+      "kind": "constant",
+      "value": 6
+    },
+    "PDF_PERM_ACCESSIBILITY": {
+      "kind": "constant",
+      "value": 512
+    },
+    "PDF_PERM_ANNOTATE": {
+      "kind": "constant",
+      "value": 32
+    },
+    "PDF_PERM_ASSEMBLE": {
+      "kind": "constant",
+      "value": 1024
+    },
+    "PDF_PERM_COPY": {
+      "kind": "constant",
+      "value": 16
+    },
+    "PDF_PERM_FORM": {
+      "kind": "constant",
+      "value": 256
+    },
+    "PDF_PERM_MODIFY": {
+      "kind": "constant",
+      "value": 8
+    },
+    "PDF_PERM_PRINT": {
+      "kind": "constant",
+      "value": 4
+    },
+    "PDF_PERM_PRINT_HQ": {
+      "kind": "constant",
+      "value": 2048
     },
     "Page": {
       "kind": "class",
@@ -4664,15 +4777,15 @@
     "Permissions": {
       "kind": "enum",
       "members": {
+        "ACCESSIBILITY": 512,
         "ALL": 3900,
         "ANNOTATE": 32,
         "ASSEMBLE": 1024,
         "COPY": 16,
-        "COPY_FOR_ACCESSIBILITY": 512,
-        "FILL_FORMS": 256,
+        "FORM": 256,
         "MODIFY": 8,
         "PRINT": 4,
-        "PRINT_HIGH_QUALITY": 2048
+        "PRINT_HQ": 2048
       }
     },
     "Pixmap": {
@@ -6718,6 +6831,15 @@
           }
         ],
         "returns": "None"
+      }
+    },
+    "TextAlign": {
+      "kind": "enum",
+      "members": {
+        "CENTER": 1,
+        "JUSTIFY": 3,
+        "LEFT": 0,
+        "RIGHT": 2
       }
     },
     "TextBlock": {

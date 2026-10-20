@@ -7,36 +7,91 @@ from typing import Literal, TypeAlias, TypedDict
 
 from pylopdf._geometry import Point, Rect
 
-# Link kinds with pymupdf-compatible values.
-LINK_NONE = 0
-LINK_GOTO = 1
-LINK_URI = 2
-LINK_LAUNCH = 3
-LINK_NAMED = 4
-LINK_GOTOR = 5
 
-# Text alignment values compatible with pymupdf.
-TEXT_ALIGN_LEFT = 0
-TEXT_ALIGN_CENTER = 1
-TEXT_ALIGN_RIGHT = 2
-TEXT_ALIGN_JUSTIFY = 3
+class LinkKind(enum.IntEnum):
+    """Link kinds; the members are pymupdf's ``LINK_*`` values."""
+
+    NONE = 0
+    GOTO = 1
+    URI = 2
+    LAUNCH = 3
+    NAMED = 4
+    GOTOR = 5
+
+
+LINK_NONE = LinkKind.NONE
+LINK_GOTO = LinkKind.GOTO
+LINK_URI = LinkKind.URI
+LINK_LAUNCH = LinkKind.LAUNCH
+LINK_NAMED = LinkKind.NAMED
+LINK_GOTOR = LinkKind.GOTOR
+
+
+class TextAlign(enum.IntEnum):
+    """Text alignment; the members are pymupdf's ``TEXT_ALIGN_*`` values."""
+
+    LEFT = 0
+    CENTER = 1
+    RIGHT = 2
+    JUSTIFY = 3
+
+
+TEXT_ALIGN_LEFT = TextAlign.LEFT
+TEXT_ALIGN_CENTER = TextAlign.CENTER
+TEXT_ALIGN_RIGHT = TextAlign.RIGHT
+TEXT_ALIGN_JUSTIFY = TextAlign.JUSTIFY
 
 
 class Permissions(enum.IntFlag):
     """Encrypted-PDF permission flags combined with ``|`` for ``save``.
 
-    Values correspond to the ``/P`` bit positions in the PDF specification.
+    The members are pymupdf's ``PDF_PERM_*`` values, the ``/P`` bit positions
+    of the PDF specification. ``ALL`` combines every member.
     """
 
     PRINT = 1 << 2
     MODIFY = 1 << 3
     COPY = 1 << 4
     ANNOTATE = 1 << 5
-    FILL_FORMS = 1 << 8
-    COPY_FOR_ACCESSIBILITY = 1 << 9
+    FORM = 1 << 8
+    ACCESSIBILITY = 1 << 9
     ASSEMBLE = 1 << 10
-    PRINT_HIGH_QUALITY = 1 << 11
-    ALL = PRINT | MODIFY | COPY | ANNOTATE | FILL_FORMS | COPY_FOR_ACCESSIBILITY | ASSEMBLE | PRINT_HIGH_QUALITY
+    PRINT_HQ = 1 << 11
+    ALL = PRINT | MODIFY | COPY | ANNOTATE | FORM | ACCESSIBILITY | ASSEMBLE | PRINT_HQ
+
+
+PDF_PERM_PRINT = Permissions.PRINT
+PDF_PERM_MODIFY = Permissions.MODIFY
+PDF_PERM_COPY = Permissions.COPY
+PDF_PERM_ANNOTATE = Permissions.ANNOTATE
+PDF_PERM_FORM = Permissions.FORM
+PDF_PERM_ACCESSIBILITY = Permissions.ACCESSIBILITY
+PDF_PERM_ASSEMBLE = Permissions.ASSEMBLE
+PDF_PERM_PRINT_HQ = Permissions.PRINT_HQ
+
+
+class EncryptionMethod(enum.IntEnum):
+    """Encryption methods for ``save(encryption=)``.
+
+    The members are pymupdf's ``PDF_ENCRYPT_*`` values.
+    """
+
+    KEEP = 0
+    NONE = 1
+    RC4_40 = 2
+    RC4_128 = 3
+    AES_128 = 4
+    AES_256 = 5
+    UNKNOWN = 6
+
+
+PDF_ENCRYPT_KEEP = EncryptionMethod.KEEP
+PDF_ENCRYPT_NONE = EncryptionMethod.NONE
+PDF_ENCRYPT_RC4_40 = EncryptionMethod.RC4_40
+PDF_ENCRYPT_RC4_128 = EncryptionMethod.RC4_128
+PDF_ENCRYPT_AES_128 = EncryptionMethod.AES_128
+PDF_ENCRYPT_AES_256 = EncryptionMethod.AES_256
+PDF_ENCRYPT_UNKNOWN = EncryptionMethod.UNKNOWN
 
 
 #: One get_text("words") item: (x0, y0, x1, y1, word, block, line, word index).
@@ -198,7 +253,7 @@ class AnnotationInfo(TypedDict):
     uri: str | None
 
 
-_LinkRequired = TypedDict("_LinkRequired", {"kind": int, "from": Rect})
+_LinkRequired = TypedDict("_LinkRequired", {"kind": LinkKind, "from": Rect})
 
 
 class LinkInfo(_LinkRequired, total=False):
@@ -314,7 +369,10 @@ class OcrWord(TypedDict):
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
 for _public in (
+    LinkKind,
+    TextAlign,
     Permissions,
+    EncryptionMethod,
     TextSpan,
     TextLine,
     TextBlock,

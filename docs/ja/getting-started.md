@@ -47,7 +47,12 @@ doc.set_metadata({"title": "月次レポート", "author": "山田 太郎"})
 doc.save("out.pdf")
 data = doc.tobytes()
 doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
-doc.save("locked.pdf", user_pw="secret", permissions=pylopdf.Permissions.PRINT)
+doc.save(
+    "locked.pdf",
+    encryption=pylopdf.PDF_ENCRYPT_AES_256,
+    user_pw="secret",
+    permissions=pylopdf.PDF_PERM_PRINT,
+)
 ```
 
 暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。
