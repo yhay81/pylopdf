@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from pylopdf._errors import PylopdfWarning
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -579,6 +580,9 @@ class Font:
     ``max_font_size=None`` opts trusted input out, and refusal raises
     :class:`LimitError` with code ``font_input_size``.
     """
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(  # noqa: PLR0913 - pymupdf's sources plus keyword-only lookup options.
         self,

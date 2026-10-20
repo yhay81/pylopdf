@@ -7,14 +7,33 @@ description: pymupdfの処理をpylopdfへ移し、型・挙動・スコープ�
 
 pylopdf は pymupdf「風」であって、ドロップイン互換ではありません。ただし移行
 コストを決めるデータ形状 — `"words"` タプルの並び・`"dict"` の構造・
-`search_for → list[Rect]`・TOC の 1 始まりページ番号 — は pymupdf に合わせて
-いるため、抽出やページ操作のコードは小さな修正で移植できます。このページでは
+`search_for → list[Rect]` — は pymupdf に合わせているため、抽出やページ操作のコードは小さな修正で移植できます。このページでは
 「そのまま動くもの」「変わったもの」「あえて実装せず連携で解決するもの」を
 まとめます。
 
 !!! note
     pylopdf が扱うのは **PDF のみ**です。pymupdf の XPS / EPUB / 画像を開く
     機能は対象外です。
+
+## 自動移行 { #codemod }
+
+`python -m pylopdf.migrate` は pymupdf のプログラムをその場で書き換えます。
+`migrate` extra が入れる LibCST が必要です。
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+`fitz` と `pymupdf` の import を改名し、機械的に置き換えられるもの — ページ番号を
+ずらす `get_toc`/`set_toc`、`embfile_*`、`xref_*` のストリーム読み出し、
+`copy_page`、その場で値を変える `Rect`/`Point`/`Matrix` のメソッド — を書き換え、
+人手が要る文の上には `# TODO(pylopdf): …` コメントを付けて、その一覧を
+`path:line: message` の形で出力します。`--diff` は書き込まずに差分を表示し、
+`--check` は変更が生じるファイルがあると終了コード 1 を返します。受け手の型は
+分からないので差分を確認してください。実行時に pylopdf にない pymupdf の名前を
+参照すると、置き換え先か予定しているマイルストーンを示す `AttributeError` が
+発生します。
 
 ## 対応表 { #mapping }
 
@@ -33,7 +52,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | M3でsetterが加わるまで読み取り専用。`rect`は表示座標 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 同じ | `Quad`は外接矩形として扱う。`insert_link`は`LINK_URI`のみ |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへ変換。`dpi`は最大配置を直接制限し、lossless変換は非対応 |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへのみ変換するため、縮小には`quality` 1–100が必要。`set_to_gray`と`options`は例外、bitonal画像はスキップ。`None`ではなく件数を返す |
 | `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
@@ -48,7 +67,7 @@ pylopdf は pymupdf「風」であって、ドロップイン互換ではあり�
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。行の位置と収まるかどうかの判定はpymupdfと同じ。負の戻り値なら描画しない |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ | Standard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extra。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えない。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になる。keyword-onlyの`weight=`は、可変フォントのファイルの太さの軸からインスタンスも選ぶ。書体は`insert_text` / `insert_textbox`に`font=`で渡す。`text_length`はカーニングを含み、`ascender`／`descender`はpymupdfと同じ値で、`insert_text`と`insert_textbox`はこれで行を置く |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
-| `doc.embfile_add / names / get / del` | 同じ | |
+| `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`、`list(doc.attachments)`、`doc.attachments[name].read()`、`del doc.attachments[name]`、`.write(data)`、handle のプロパティ、`len(doc.attachments)` | 存在しない名前は `KeyError`。`desc=` は `description=` |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
 | `page.widgets()` / Widget オブジェクト | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | ドキュメント単位。テキスト／選択／checkbox／radioのネイティブ外観 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`によるオフライン純Rust PP-OCR。任意の位置付き結果には`insert_ocr_text_layer`も利用可能 |

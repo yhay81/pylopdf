@@ -192,7 +192,7 @@ EDITS: dict[str, Callable[[pylopdf.Document], object]] = {
     "add_link_annot": lambda doc: doc[1].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (1, 20, 10, 30), "uri": "https://example.com/"}
     ),
-    "embfile_add": lambda doc: doc.embfile_add("notes.txt", b"notes"),
+    "attachments.add": lambda doc: doc.attachments.add("notes.txt", b"notes"),
     "set_rotation": lambda doc: doc[2].set_rotation(90),
 }
 

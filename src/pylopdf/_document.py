@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
 
 from pylopdf import _fonts, _markdown
+from pylopdf._attachments import Attachments
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning
 from pylopdf._fonts import (
     _font_input_limit_error,
@@ -26,6 +27,7 @@ from pylopdf._fonts import (
     _resolve_font_source,
     _validate_form_font,
 )
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
@@ -88,14 +90,12 @@ if TYPE_CHECKING:
     )
 
 
-_DEFAULT_MAX_EMBEDDED_FILE_SIZE = 64 * 1024 * 1024
 _DEFAULT_MAX_XMP_METADATA_SIZE = 1024 * 1024
 _DEFAULT_MAX_RENDER_BATCH_SIZE = 512 * 1024 * 1024
 _DEFAULT_MAX_PDF_OUTPUT_SIZE = 512 * 1024 * 1024
 #: The first garbage level that renumbers objects.
 _GARBAGE_RENUMBERS = 2
 _MAX_FORM_FIELD_INPUT_SIZE = 1024 * 1024
-_MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_METADATA_INPUT_TEXT_SIZE = 1024 * 1024
 _MAX_TOC_INPUT_TEXT_SIZE = 16 * 1024 * 1024
 _MAX_PAGE_LABEL_INPUT_TEXT_SIZE = 1024 * 1024
@@ -110,7 +110,6 @@ _TEMPORARY_FILE_ATTEMPTS = 100
 
 _IMAGE_COMPRESSION_MIN_DPI = 36.0
 _IMAGE_COMPRESSION_MAX_DPI = 2400.0
-_IMAGE_COMPRESSION_MIN_QUALITY = 1
 _IMAGE_COMPRESSION_MAX_QUALITY = 100
 _MAX_RENDER_WORKERS = 64
 
@@ -399,6 +398,18 @@ def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
     return code
 
 
+def _rewrite_dpi(name: str, value: object) -> float:
+    """Validate one ``rewrite_images`` resolution: a finite number from 36 through 2400."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        msg = f"{name} must be a finite number from 36 through 2400"
+        raise PdfError(msg)
+    dpi = float(value)
+    if not math.isfinite(dpi) or not _IMAGE_COMPRESSION_MIN_DPI <= dpi <= _IMAGE_COMPRESSION_MAX_DPI:
+        msg = f"{name} must be a finite number from 36 through 2400"
+        raise PdfError(msg)
+    return dpi
+
+
 class Document:
     """A PDF document.
 
@@ -406,6 +417,9 @@ class Document:
     arguments. Documents are context managers and expose :class:`Page` objects
     through ``doc[i]`` and iteration.
     """
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(  # noqa: PLR0913 - pymupdf's constructor plus keyword-only limits.
         self,
@@ -981,102 +995,20 @@ class Document:
         )
         self._doc.set_page_labels(payload)
 
-    def embfile_add(
-        self,
-        name: str,
-        data: bytes,
-        *,
-        filename: str | None = None,
-        desc: str | None = None,
-        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
-    ) -> None:
-        """Add an EmbeddedFiles attachment.
+    @property
+    def attachments(self) -> Attachments:
+        """Return the live mapping of embedded files, keyed by name.
 
-        ``name`` is the unique key used for listing and retrieval. ``filename``
-        is the viewer-facing file name and defaults to ``name``; ``desc`` is a
-        description. Both support Unicode through UTF-16BE ``UF``/``Desc``.
-        ``max_size`` bounds attachment data and defaults to 64 MiB, matching
-        :meth:`embfile_get`; ``None`` explicitly accepts unbounded input.
-        Their aggregate input text is capped at 1 MiB before data copying;
-        refusals use ``embedded_file_input_size``. Existing inline FileSpecs are
-        cloned only after bounded shape validation.
-        This can build invoice-plus-XML structures such as ZUGFeRD/Factur-X.
+        This replaces pymupdf's ``embfile_*`` methods: ``list(doc.attachments)``
+        for ``embfile_names``, ``doc.attachments[name].read()`` for
+        ``embfile_get``, ``doc.attachments.add(...)`` for ``embfile_add``,
+        ``doc.attachments[name].write(data)`` for ``embfile_upd``, and
+        ``del doc.attachments[name]`` for ``embfile_del``. The EmbeddedFiles
+        name tree is read cycle-aware and rejects more than 4,096 entries or
+        nodes, 32 levels, or 1 MiB of encoded/decoded names.
         """
         self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        if not name:
-            msg = "name must be at least 1 character"
-            raise ValueError(msg)
-        if filename is not None and not isinstance(filename, str):
-            msg = f"filename must be a string or None: {type(filename).__name__}"
-            raise TypeError(msg)
-        if desc is not None and not isinstance(desc, str):
-            msg = f"desc must be a string or None: {type(desc).__name__}"
-            raise TypeError(msg)
-        input_text = [name, name if filename is None else filename]
-        if desc is not None:
-            input_text.append(desc)
-        _validate_cumulative_utf8_input(
-            input_text,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment name, filename, and description",
-        )
-        _validate_optional_positive_int("max_size", max_size)
-        if max_size is not None and len(data) > max_size:
-            limit_code = "embedded_file_size"
-            msg = f"attachment input is {len(data)} bytes, exceeding the {max_size}-byte limit"
-            raise LimitError(limit_code, msg)
-        self._doc.embfile_add(name, bytes(data), filename, desc, max_size)
-
-    def embfile_names(self) -> list[str]:
-        """Return sorted attachment names."""
-        self._ensure_open()
-        return self._doc.embfile_names()
-
-    def embfile_get(
-        self,
-        name: str,
-        *,
-        max_size: int | None = _DEFAULT_MAX_EMBEDDED_FILE_SIZE,
-    ) -> bytes:
-        """Return attachment contents as bytes.
-
-        ``max_size`` bounds every decoding layer and defaults to 64 MiB. Pass a
-        larger positive integer for a known large attachment, or ``None`` only
-        when intentionally accepting unbounded materialization. Oversized
-        content raises :class:`LimitError` with code ``embedded_file_size``.
-        The lookup name stops at 1 MiB of UTF-8 before tree traversal, using
-        code ``embedded_file_input_size``.
-        """
-        self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        _validate_utf8_text_input(
-            name,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment lookup name",
-        )
-        _validate_optional_positive_int("max_size", max_size)
-        return self._doc.embfile_get(name, max_size)
-
-    def embfile_del(self, name: str) -> None:
-        """Delete an attachment, bounding its name before tree traversal."""
-        self._ensure_open()
-        if not isinstance(name, str):
-            msg = f"name must be a string: {type(name).__name__}"
-            raise TypeError(msg)
-        _validate_utf8_text_input(
-            name,
-            _MAX_EMBEDDED_FILE_INPUT_TEXT_SIZE,
-            limit_code="embedded_file_input_size",
-            input_label="attachment lookup name",
-        )
-        self._doc.embfile_del(name)
+        return Attachments(self)
 
     def get_pdfa_claim(
         self,
@@ -1711,53 +1643,86 @@ class Document:
         for message in self._doc.take_warnings():
             _warnings.warn(message, PylopdfWarning, stacklevel=stacklevel)
 
-    def compress_images(
+    def rewrite_images(  # noqa: PLR0913  # pymupdf's keyword arguments.
         self,
         *,
-        dpi: float | None = 150,
-        quality: int = 75,
+        dpi_threshold: float | None = None,
+        dpi_target: float = 0,
+        quality: int = 0,
+        lossy: bool = True,
+        lossless: bool = True,
+        bitonal: bool = True,
+        color: bool = True,
+        gray: bool = True,
+        set_to_gray: bool = False,
+        options: object = None,
     ) -> ImageCompressionResult:
-        """Downsample and JPEG-recompress safe raster images in place.
+        """Downsample and JPEG-recompress raster images in place, as pymupdf's ``rewrite_images`` does.
 
-        ``dpi`` limits the effective resolution of each source-image axis.
-        Reused images retain the pixels required by their largest placement
-        across the document. Pass ``None`` to disable downsampling
-        while retaining JPEG quality recompression. ``quality`` is 1 through
-        100; both operations are lossy.
+        An image axis whose effective resolution exceeds ``dpi_threshold`` is
+        resampled to ``dpi_target``, which must be lower; reused images keep
+        the pixels that their largest placement across the document needs.
+        ``quality`` (1 through 100) is the JPEG quality of every rewritten
+        image; the default 0 asks for no recompression. ``lossy`` and
+        ``lossless`` select DCT and Flate sources, ``color`` and ``gray``
+        DeviceRGB and DeviceGray ones. Both operations are lossy, and a
+        rewritten image is kept only when its JPEG payload is smaller.
+
+        pylopdf re-encodes every image it rewrites as JPEG, so resampling
+        requires a ``quality`` above 0; ``set_to_gray`` and MuPDF's
+        ``options`` raise :class:`PdfError` rather than being ignored.
+        Bitonal images, and every other image outside the conservative set
+        below, are counted as ``skipped``. With ``quality=0`` and no
+        ``dpi_threshold`` there is nothing to do, and the call returns zero
+        counts without interpreting the document.
 
         The conservative implementation rewrites only indirect, single-filter,
         8-bit DeviceGray/DeviceRGB DCT or Flate XObjects without masks or custom
         decode arrays. DCT decode parameters are excluded; Flate may use no
-        predictor or a consistent PNG predictor. Unsupported interpreted
-        indirect images and outputs that would not be smaller are counted as
-        ``skipped``; inline images are not considered. The operation releases
-        the GIL, is atomic on decoding errors, rejects more than 65,536
-        interpreted indirect image placements, 16,384 unique image objects, or
-        250 million eligible source pixels, and skips an individual source
-        above 64 million pixels.
+        predictor or a consistent PNG predictor. Inline images are not
+        considered. The operation releases the GIL, is atomic on decoding
+        errors, rejects more than 65,536 interpreted indirect image
+        placements, 16,384 unique image objects, or 250 million eligible
+        source pixels, and skips an individual source above 64 million
+        pixels.
 
-        Byte totals compare rewritten source payloads with their resulting JPEG
-        payloads, not complete PDF serialization. Save to a new output and
-        inspect it before replacing an original document.
+        pymupdf returns ``None``; pylopdf returns an
+        :class:`ImageCompressionResult`, whose byte totals compare rewritten
+        source payloads with their resulting JPEG payloads, not complete PDF
+        serialization. Save to a new output and inspect it before replacing
+        an original document.
         """
         self._ensure_open()
+        if set_to_gray:
+            msg = "rewrite_images(set_to_gray=True) is not supported; pylopdf keeps each image's colour space"
+            raise PdfError(msg)
+        if options is not None:
+            msg = "rewrite_images(options=...) is not supported; pass its keyword arguments instead"
+            raise PdfError(msg)
+        del bitonal  # Bitonal images are never rewritten; they count as skipped.
         if (
             isinstance(quality, bool)
             or not isinstance(quality, int)
-            or not _IMAGE_COMPRESSION_MIN_QUALITY <= quality <= _IMAGE_COMPRESSION_MAX_QUALITY
+            or not 0 <= quality <= _IMAGE_COMPRESSION_MAX_QUALITY
         ):
-            msg = "quality must be an integer from 1 through 100"
+            msg = "quality must be an integer from 0 through 100"
             raise PdfError(msg)
-        if dpi is not None:
-            if isinstance(dpi, bool) or not isinstance(dpi, (int, float)):
-                msg = "dpi must be a finite number from 36 through 2400, or None"
+        threshold = None if not dpi_threshold else _rewrite_dpi("dpi_threshold", dpi_threshold)
+        target = 0.0
+        if threshold is not None:
+            target = _rewrite_dpi("dpi_target", dpi_target)
+            if target >= threshold:
+                msg = f"dpi_target={dpi_target} must be less than dpi_threshold={dpi_threshold}"
+                raise ValueError(msg)
+            if quality == 0:
+                msg = "resampling requires quality= from 1 through 100; pylopdf re-encodes rewritten images as JPEG"
                 raise PdfError(msg)
-            dpi = float(dpi)
-            if not math.isfinite(dpi) or not _IMAGE_COMPRESSION_MIN_DPI <= dpi <= _IMAGE_COMPRESSION_MAX_DPI:
-                msg = "dpi must be a finite number from 36 through 2400, or None"
-                raise PdfError(msg)
-        considered, rewritten, skipped, bytes_before, bytes_after = self._doc.compress_images(dpi, quality)
-        self._emit_warnings()
+        if quality == 0:
+            counts = (0, 0, 0, 0, 0)
+        else:
+            counts = self._doc.rewrite_images(threshold, target, quality, lossy, lossless, color, gray)
+            self._emit_warnings()
+        considered, rewritten, skipped, bytes_before, bytes_after = counts
         return {
             "considered": considered,
             "rewritten": rewritten,

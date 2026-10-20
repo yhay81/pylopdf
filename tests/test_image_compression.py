@@ -124,13 +124,13 @@ def build_flate_pdf(
     return pdf, encoded
 
 
-def test_compress_images_downsamples_and_reduces_jpeg() -> None:
+def test_rewrite_images_downsamples_and_reduces_jpeg() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
     page = doc[0]
     original = drawn_images(page)[0]
     before = page.get_pixmap(alpha=True).samples
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     compressed = drawn_images(page)[0]
     after = page.get_pixmap(alpha=True).samples
@@ -151,31 +151,31 @@ def test_compress_images_downsamples_and_reduces_jpeg() -> None:
     assert (drawn_images(reopened[0])[0]["width"], drawn_images(reopened[0])[0]["height"]) == (100, 100)
 
 
-def test_compress_images_preserves_pixels_needed_by_largest_reuse() -> None:
+def test_rewrite_images_preserves_pixels_needed_by_largest_reuse() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0), (18, 18, 100, 0)]))
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert result["rewritten"] == 1
     image = drawn_images(doc[0])[0]
     assert (image["width"], image["height"]) == (100, 100)
 
 
-def test_compress_images_limits_each_placement_axis_independently() -> None:
+def test_rewrite_images_limits_each_placement_axis_independently() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(144, 72, 0, 0)]))
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert result["rewritten"] == 1
     image = drawn_images(doc[0])[0]
     assert (image["width"], image["height"]) == (200, 100)
 
 
-def test_compress_images_can_recompress_without_downsampling() -> None:
+def test_rewrite_images_can_recompress_without_downsampling() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
     original = drawn_images(doc[0])[0]
 
-    result = doc.compress_images(dpi=None, quality=60)
+    result = doc.rewrite_images(quality=60)
 
     compressed = drawn_images(doc[0])[0]
     assert result["rewritten"] == 1
@@ -186,7 +186,7 @@ def test_compress_images_can_recompress_without_downsampling() -> None:
     assert len(compressed["image"]) < len(original["image"])
 
 
-def test_compress_images_downsamples_grayscale_jpeg() -> None:
+def test_rewrite_images_downsamples_grayscale_jpeg() -> None:
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
             [(72, 72, 0, 0)],
@@ -195,7 +195,7 @@ def test_compress_images_downsamples_grayscale_jpeg() -> None:
         )
     )
 
-    result = doc.compress_images(dpi=36, quality=65)
+    result = doc.rewrite_images(dpi_threshold=48, dpi_target=36, quality=65)
 
     compressed = drawn_images(doc[0])[0]
     assert result["rewritten"] == 1
@@ -208,7 +208,7 @@ def test_compress_images_downsamples_grayscale_jpeg() -> None:
     ("color_space", "predictor"),
     [("DeviceRGB", None), ("DeviceRGB", 15), ("DeviceGray", 15)],
 )
-def test_compress_images_converts_safe_flate_rasters(
+def test_rewrite_images_converts_safe_flate_rasters(
     color_space: str,
     predictor: int | None,
 ) -> None:
@@ -217,7 +217,7 @@ def test_compress_images_converts_safe_flate_rasters(
     page = doc[0]
     before = page.get_pixmap(alpha=True).samples
 
-    result = doc.compress_images(dpi=64, quality=65)
+    result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     compressed = drawn_images(page)[0]
     after = page.get_pixmap(alpha=True).samples
@@ -240,42 +240,42 @@ def test_compress_images_converts_safe_flate_rasters(
 
 
 @pytest.mark.parametrize("predictor", [2, 9])
-def test_compress_images_skips_unsupported_flate_predictors(predictor: int) -> None:
+def test_rewrite_images_skips_unsupported_flate_predictors(predictor: int) -> None:
     source, _ = build_flate_pdf(predictor=predictor)
     doc = pylopdf.open(stream=source)
     original = doc.tobytes()
 
-    result = doc.compress_images(dpi=64, quality=65)
+    result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
     assert doc.tobytes() == original
 
 
-def test_compress_images_skips_flate_when_jpeg_is_not_smaller() -> None:
+def test_rewrite_images_skips_flate_when_jpeg_is_not_smaller() -> None:
     source, _ = build_flate_pdf(compressible=True)
     doc = pylopdf.open(stream=source)
     original = doc.tobytes()
 
-    result = doc.compress_images(dpi=None, quality=65)
+    result = doc.rewrite_images(quality=65)
 
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
     assert doc.tobytes() == original
 
 
-def test_compress_images_rejects_malformed_flate_atomically() -> None:
+def test_rewrite_images_rejects_malformed_flate_atomically() -> None:
     source, _ = build_flate_pdf(corrupt=True)
     doc = pylopdf.open(stream=source)
     original = doc.tobytes()
 
     with pytest.raises(pylopdf.PdfError, match=r"failed to decode Flate image|unexpected sample count"):
-        doc.compress_images(dpi=64, quality=65)
+        doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     assert doc.tobytes() == original
 
 
-def test_compress_images_skips_encoding_that_is_not_smaller() -> None:
+def test_rewrite_images_skips_encoding_that_is_not_smaller() -> None:
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
             [(72, 72, 0, 0)],
@@ -284,26 +284,26 @@ def test_compress_images_skips_encoding_that_is_not_smaller() -> None:
         )
     )
 
-    result = doc.compress_images(dpi=None, quality=100)
+    result = doc.rewrite_images(quality=100)
 
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
     assert drawn_images(doc[0])[0]["image"] == GRAY_GRADIENT_JPEG
 
 
-def test_compress_images_is_idempotent_at_same_settings() -> None:
+def test_rewrite_images_is_idempotent_at_same_settings() -> None:
     doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
-    assert doc.compress_images(dpi=100, quality=65)["rewritten"] == 1
+    assert doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)["rewritten"] == 1
     once = doc.tobytes()
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
     assert doc.tobytes() == once
 
 
-def test_compress_images_skips_custom_mask_semantics() -> None:
+def test_rewrite_images_skips_custom_mask_semantics() -> None:
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
             [(72, 72, 0, 0)],
@@ -312,7 +312,7 @@ def test_compress_images_skips_custom_mask_semantics() -> None:
     )
     original = doc.tobytes()
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert result["considered"] == 1
     assert result["rewritten"] == 0
@@ -320,7 +320,7 @@ def test_compress_images_skips_custom_mask_semantics() -> None:
     assert doc.tobytes() == original
 
 
-def test_compress_images_rolls_back_all_candidates_on_decode_error() -> None:
+def test_rewrite_images_rolls_back_all_candidates_on_decode_error() -> None:
     jpeg, _, _ = source_jpeg()
     doc = pylopdf.Document()
     page = doc.new_page(width=200, height=100)
@@ -329,12 +329,12 @@ def test_compress_images_rolls_back_all_candidates_on_decode_error() -> None:
     original = drawn_images(page)
 
     with pytest.raises(pylopdf.PdfError, match="failed to decode JPEG"):
-        doc.compress_images(dpi=100, quality=65)
+        doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert drawn_images(page) == original
 
 
-def test_compress_images_skips_source_above_pixel_limit_before_decode() -> None:
+def test_rewrite_images_skips_source_above_pixel_limit_before_decode() -> None:
     jpeg, _, _ = source_jpeg()
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
@@ -343,14 +343,14 @@ def test_compress_images_skips_source_above_pixel_limit_before_decode() -> None:
         )
     )
 
-    result = doc.compress_images(dpi=100, quality=65)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
 
     assert result["considered"] == 1
     assert result["rewritten"] == 0
     assert result["skipped"] == 1
 
 
-def test_compress_images_accepts_exact_placement_limit() -> None:
+def test_rewrite_images_accepts_exact_placement_limit() -> None:
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
             itertools.repeat((1, 1, 0, 0), 65_536),
@@ -359,12 +359,12 @@ def test_compress_images_accepts_exact_placement_limit() -> None:
         )
     )
 
-    result = doc.compress_images(dpi=None, quality=100)
+    result = doc.rewrite_images(quality=100)
 
     assert result["considered"] == 1
 
 
-def test_compress_images_rejects_excessive_placements_atomically() -> None:
+def test_rewrite_images_rejects_excessive_placements_atomically() -> None:
     doc = pylopdf.open(
         stream=build_jpeg_pdf(
             itertools.repeat((1, 1, 0, 0), 65_537),
@@ -375,14 +375,14 @@ def test_compress_images_rejects_excessive_placements_atomically() -> None:
     original = doc.tobytes()
 
     with pytest.raises(pylopdf.PdfError, match="65536-placement safety limit"):
-        doc.compress_images()
+        doc.rewrite_images(quality=75)
 
     assert doc.tobytes() == original
 
 
-def test_compress_images_empty_document_is_a_noop() -> None:
+def test_rewrite_images_empty_document_is_a_noop() -> None:
     doc = pylopdf.open(stream=build_pdf(["Text only"]))
-    assert doc.compress_images() == {
+    assert doc.rewrite_images(quality=75) == {
         "considered": 0,
         "rewritten": 0,
         "skipped": 0,
@@ -392,7 +392,7 @@ def test_compress_images_empty_document_is_a_noop() -> None:
     }
 
 
-def test_compress_images_does_not_count_inline_images() -> None:
+def test_rewrite_images_does_not_count_inline_images() -> None:
     commands = "q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /RGB /BPC 8 /F /AHx ID FF0000> EI Q"
     doc = pylopdf.open(
         stream=build_raw_pdf(
@@ -405,7 +405,7 @@ def test_compress_images_does_not_count_inline_images() -> None:
         )
     )
 
-    assert doc.compress_images() == {
+    assert doc.rewrite_images(quality=75) == {
         "considered": 0,
         "rewritten": 0,
         "skipped": 0,
@@ -415,13 +415,95 @@ def test_compress_images_does_not_count_inline_images() -> None:
     }
 
 
-@pytest.mark.parametrize("dpi", [True, 0, 35, 2401, float("inf"), "150"])
-def test_compress_images_rejects_invalid_dpi(dpi: object) -> None:
-    with pytest.raises(pylopdf.PdfError, match="dpi must"):
-        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(dpi=dpi)  # ty: ignore[invalid-argument-type]
+@pytest.mark.parametrize("dpi", [True, 35, 2401, float("inf"), "150"])
+def test_rewrite_images_rejects_invalid_dpi(dpi: object) -> None:
+    doc = pylopdf.open(stream=build_pdf(["Text only"]))
+    with pytest.raises(pylopdf.PdfError, match="dpi_threshold must"):
+        doc.rewrite_images(dpi_threshold=dpi, dpi_target=36, quality=75)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(pylopdf.PdfError, match="dpi_target must"):
+        doc.rewrite_images(dpi_threshold=2400, dpi_target=dpi, quality=75)  # ty: ignore[invalid-argument-type]
 
 
-@pytest.mark.parametrize("quality", [True, 0, 101, 75.5, "75"])
-def test_compress_images_rejects_invalid_quality(quality: object) -> None:
+@pytest.mark.parametrize("quality", [True, -1, 101, 75.5, "75"])
+def test_rewrite_images_rejects_invalid_quality(quality: object) -> None:
     with pytest.raises(pylopdf.PdfError, match="quality must"):
-        pylopdf.open(stream=build_pdf(["Text only"])).compress_images(quality=quality)  # ty: ignore[invalid-argument-type]
+        pylopdf.open(stream=build_pdf(["Text only"])).rewrite_images(quality=quality)  # ty: ignore[invalid-argument-type]
+
+
+def test_rewrite_images_requires_a_target_below_the_threshold() -> None:
+    doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
+    with pytest.raises(ValueError, match="must be less than"):
+        doc.rewrite_images(dpi_threshold=100, dpi_target=100, quality=65)
+    with pytest.raises(pylopdf.PdfError, match="dpi_target must"):
+        doc.rewrite_images(dpi_threshold=100, quality=65)
+
+
+def test_rewrite_images_refuses_resampling_without_recompression() -> None:
+    doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
+    original = doc.tobytes()
+    with pytest.raises(pylopdf.PdfError, match="requires quality"):
+        doc.rewrite_images(dpi_threshold=150, dpi_target=100)
+    assert doc.tobytes() == original
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value"),
+    [("set_to_gray", True), ("options", object())],
+)
+def test_rewrite_images_refuses_unsupported_options(keyword: str, value: object) -> None:
+    doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
+    with pytest.raises(pylopdf.PdfError, match=keyword):
+        doc.rewrite_images(quality=65, **{keyword: value})  # ty: ignore[invalid-argument-type]
+
+
+def test_rewrite_images_without_quality_or_threshold_does_nothing() -> None:
+    doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
+    original = doc.tobytes()
+
+    assert doc.rewrite_images() == {
+        "considered": 0,
+        "rewritten": 0,
+        "skipped": 0,
+        "bytes_before": 0,
+        "bytes_after": 0,
+        "bytes_saved": 0,
+    }
+    assert doc.tobytes() == original
+
+
+def test_rewrite_images_keeps_images_at_or_below_the_threshold() -> None:
+    # The source is drawn at its own pixel size per inch, so 200 dpi stays.
+    doc = pylopdf.open(stream=build_jpeg_pdf([(72, 72, 0, 0)]))
+    width = drawn_images(doc[0])[0]["width"]
+
+    doc.rewrite_images(dpi_threshold=width, dpi_target=100, quality=65)
+
+    assert drawn_images(doc[0])[0]["width"] == width
+
+
+@pytest.mark.parametrize(
+    ("keyword", "color_space", "flate"),
+    [
+        ("lossy", "DeviceRGB", False),
+        ("lossless", "DeviceRGB", True),
+        ("color", "DeviceRGB", True),
+        ("gray", "DeviceGray", True),
+    ],
+)
+def test_rewrite_images_selects_image_classes(keyword: str, color_space: str, *, flate: bool) -> None:
+    if flate:
+        source, _ = build_flate_pdf(color_space=color_space)
+    else:
+        source = build_jpeg_pdf([(72, 72, 0, 0)])
+    doc = pylopdf.open(stream=source)
+    original = doc.tobytes()
+
+    excluded = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65, **{keyword: False})
+
+    assert (excluded["rewritten"], excluded["skipped"]) == (0, 1)
+    assert doc.tobytes() == original
+    assert doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)["rewritten"] == 1
+
+
+def test_rewrite_images_replaces_compress_images() -> None:
+    assert not hasattr(pylopdf.Document(), "compress_images")

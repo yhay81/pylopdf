@@ -6,14 +6,34 @@ description: pymupdf 작업 흐름을 pylopdf로 옮기고 타입, 동작 및 �
 # pymupdf에서 이전
 
 pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한 대체품은 아닙니다.
-이전 비용을 좌우하는 `"words"` 튜플, `"dict"` 구조, `search_for → list[Rect]`,
-1부터 시작하는 목차 페이지 번호는 pymupdf와 일치하므로, 대부분의 텍스트 추출과
+이전 비용을 좌우하는 `"words"` 튜플, `"dict"` 구조, `search_for → list[Rect]`는
+pymupdf와 일치하므로, 대부분의 텍스트 추출과
 페이지 관리 코드는 작은 수정만으로 옮길 수 있습니다. 이 페이지에서는 그대로
 사용할 수 있는 부분, 달라진 부분, 의도적으로 구현하지 않은 기능의 대안을 설명합니다.
 
 !!! note
     pylopdf는 **PDF 파일만** 처리합니다. pymupdf가 지원하는 XPS / EPUB / 이미지
     열기는 지원하지 않습니다.
+
+## 자동 이전 { #codemod }
+
+`python -m pylopdf.migrate`는 pymupdf 프로그램을 그 자리에서 고쳐 씁니다.
+`migrate` extra가 설치하는 LibCST가 필요합니다.
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+`fitz`와 `pymupdf` import 이름을 바꾸고, 기계적으로 바꿀 수 있는 대체 —
+페이지 번호를 옮기는 `get_toc`/`set_toc`, `embfile_*`, `xref_*` 스트림 읽기,
+`copy_page`, 그 자리에서 값을 바꾸는 `Rect`/`Point`/`Matrix` 메서드 — 를
+다시 쓰며, 사람이 손봐야 하는 문장 위에는 `# TODO(pylopdf): …` 주석을 달고
+그 목록을 `path:line: message` 형식으로 출력합니다. `--diff`는 파일을 쓰지 않고
+변경 내용을 출력하고, `--check`는 바뀔 파일이 있으면 상태 1로 끝납니다.
+수신 객체의 타입은 알 수 없으므로 diff를 검토하세요. 실행 중에 pylopdf에 없는
+pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 알려 주는
+`AttributeError`가 발생합니다.
 
 ## 빠른 대응표 { #mapping }
 
@@ -32,7 +52,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 동일 | M3에서 setter가 추가될 때까지 읽기 전용. `rect`는 표시 좌표 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 동일 | `Quad`는 외접 사각형으로 처리. `insert_link`는 `LINK_URI`만 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로 변환. `dpi`는 최대 배치를 직접 제한하며lossless 변환은 미지원 |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 동일 | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로만 변환하므로 축소에는`quality` 1–100이 필요. `set_to_gray`와`options`는 예외, bitonal 이미지는 건너뜀. `None` 대신 개수를 반환 |
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음(G8) |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 동일 | pymupdf의 범위 규칙(음수 `from_page`는 첫 페이지, 음수 `to_page`는 마지막 페이지이며 둘 다 범위 안으로 맞춤). 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
@@ -47,7 +67,7 @@ pylopdf는 pymupdf와 *비슷한 방식*으로 사용할 수 있지만 완전한
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 줄 위치와 들어가는지의 판단은 pymupdf와 같음, 음수 반환 시 그리지 않음 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 동일 | Standard 14 이름과 약칭, OpenType 파일, `language=`나 `family=`로 선택하는 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴(`"cjk"`, `"figo"` 등)과 `script=`, `ordering=`, `embed=`는 쓸 수 없음. `is_bold=`, `is_italic=`, `is_serif=`는 설치된 extra의 글꼴을 정확히 일치하는 것으로 선택하며, pymupdf가 무시하는 `fontname`이나 글꼴 파일과 함께 쓰면 예외. keyword-only `weight=`는 가변 글꼴 파일의 굵기 축에서 인스턴스도 선택. 글꼴은 `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 커닝을 포함하고 `ascender`／`descender`는 pymupdf와 같은 값이며 `insert_text`와 `insert_textbox`는 이 값으로 줄을 배치 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
-| `doc.embfile_add / names / get / del` | 동일 | |
+| `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`, `list(doc.attachments)`, `doc.attachments[name].read()`, `del doc.attachments[name]`, `.write(data)`, handle 속성, `len(doc.attachments)` | 없는 이름은 `KeyError`, `desc=`는 `description=` |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
 | `page.widgets()` / widget 객체 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | 문서 수준, 텍스트／선택／checkbox／radio 네이티브 appearance |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | `pylopdf[ocr]`의 오프라인 순수 Rust PP-OCR, 임의의 위치 결과에는 `insert_ocr_text_layer`도 사용 가능 |

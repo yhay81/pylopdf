@@ -397,7 +397,7 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `metadata`, `set_metadata(m)` | same | same | |
 | `get_page_labels()`, `set_page_labels(labels)`, `Page.get_label()` | same | same | |
 | `Document.get_outline()` → `list[OutlineEntry]`, `Document.set_outline(entries)` | `get_toc()`, `set_toc()` | replaced | M0. `OutlineEntry(level, title, page)` is a NamedTuple with a zero-based `page`; M5 adds destinations, styles, and collapse state to it, so `get_outline()` and `set_outline()` round-trip everything an outline item holds. Editing that list replaces pymupdf's `set_toc_item` and `del_toc_item` (R1), while pymupdf's `Document.outline` and `Outline` items keep pymupdf's names and meaning in M5. The hint reads: "pylopdf's get_outline uses zero-based pages; get_toc used one-based pages"; done. |
-| `Document.attachments` → `Attachments` | `embfile_*` | replaced | M0. A `Mapping[str, Attachment]` with `add(name, data, /, *, filename=None, description=None, max_size=...)` and `del attachments[name]`. An `Attachment` has `name`, `filename`, `description`, `size`, `creation_date`, `mod_date`, `read(*, max_size=...)`, and `write(data, /, *, max_size=...)`. |
+| `Document.attachments` → `Attachments` | `embfile_*` | replaced | M0. A `Mapping[str, Attachment]` with `add(name, data, /, *, filename=None, description=None, max_size=...)` and `del attachments[name]`. An `Attachment` has `name`, `filename`, `description`, `size`, `creation_date`, `mod_date`, `read(*, max_size=...)`, and `write(data, /, *, max_size=...)`; done. |
 | `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | same | same | M5. |
 | Layers: `get_ocgs`, `add_ocg`, `set_layer`, `get_layer`, and the rest | same | same | M5, followed by `oc=` on the insertion APIs. |
 
@@ -518,7 +518,7 @@ one-to-one onto these rows.
 | `Document.save(..., object_streams=)`, `tobytes(..., object_streams=)` | `use_objstms=` | R2; done |
 | `Document.save(user_pw=...)`, `tobytes(user_pw=...)` encrypting implicitly with AES-256 | `encryption=` with pymupdf's constants and `PDF_ENCRYPT_NONE` default; a password under `PDF_ENCRYPT_NONE` raises | R2, R2.7; done |
 | `Document.metadata` keys | adds `trapped` and `encryption` | R2; done |
-| `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2 |
+| `Document.compress_images(*, dpi, quality)` | `rewrite_images(*, dpi_threshold=, dpi_target=, quality=, ...)` with pymupdf's meaning; unsupported parameters raise | R2; done |
 | `Document.render_page(pno, ...)` | `get_page_pixmap(pno, ...)` with `Pixmap.tobytes()` | R1; done |
 | `Document.render_page_svg(pno)`, `Page.render_svg()` | `Page.get_svg_image()` | R1, R2; done |
 | `Page.render(...)` | `get_pixmap(...).tobytes()` | R1; done |

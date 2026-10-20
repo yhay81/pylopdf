@@ -6,6 +6,7 @@ import enum
 from typing import TYPE_CHECKING, Any
 
 from pylopdf._geometry import Rect
+from pylopdf._hints import hinted_getattr
 from pylopdf.pylopdf_core import StaleObjectError
 
 if TYPE_CHECKING:
@@ -148,6 +149,9 @@ class Annot:
     """
 
     __slots__ = ("_index", "_page", "_xref")
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(self, page: Page, xref: int, index: int) -> None:
         """Create a handle; :meth:`Page.annots` and the ``add_*`` methods do this."""

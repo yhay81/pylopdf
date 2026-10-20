@@ -1566,4 +1566,4 @@ def test_real_world_pages_pass_the_check() -> None:
         doc = pylopdf.open(root / name)
         assert doc.get_text() is not None
         assert doc.render_pages([0], alpha=True)
-        doc.compress_images()
+        doc.rewrite_images(quality=75)

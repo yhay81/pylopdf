@@ -139,7 +139,7 @@ _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "copy_page": lambda doc: doc.fullcopy_page(0),
     "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
-    "embfile_add": lambda doc: doc.embfile_add(f"note{len(doc.embfile_names())}.txt", b"note"),
+    "attachments.add": lambda doc: doc.attachments.add(f"note{len(doc.attachments)}.txt", b"note"),
 }
 
 
@@ -299,7 +299,7 @@ def test_image_above_the_limit_is_compressed() -> None:
     }
     doc = pylopdf.Document(stream=_numbered_pdf(objects))
 
-    result = doc.compress_images(dpi=64, quality=65)
+    result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     assert (result["considered"], result["rewritten"]) == (1, 1)
     for current in _with_reloaded(doc):

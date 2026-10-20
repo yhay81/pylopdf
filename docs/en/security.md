@@ -340,8 +340,8 @@ error.
   `Document.extract_image()` decodes one image under the 64,000,000-pixel and
   64 MiB payload limits, with the content and colour-space guards, and
   Flate-wrapped JPEG passthrough stops decompression at that budget.
-- `Document.embfile_add()` rejects input above 64 MiB before its PyO3 copy, and
-  `embfile_get()` applies the same default to every decoded filter layer. Raise
+- `doc.attachments.add()` and `Attachment.write()` reject input above 64 MiB
+  before its PyO3 copy, and `Attachment.read()` applies the same default to every decoded filter layer. Raise
   `max_size=` for a known large attachment; `max_size=None` explicitly accepts
   unbounded input or materialization. Attachment name trees are rejected above
   4,096 entries/nodes, 32 levels, or 1 MiB of encoded or decoded names. Caller

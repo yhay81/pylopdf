@@ -952,7 +952,7 @@ def test_manuscript_compression_preserves_mismatched_masks() -> None:
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
     before = doc[0].get_pixmap(alpha=True).samples
 
-    result = doc.compress_images(dpi=100, quality=50)
+    result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=50)
 
     assert result["considered"] >= 2
     assert result["rewritten"] == 0

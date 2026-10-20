@@ -7,14 +7,34 @@ description: Map pymupdf workflows to pylopdf and understand deliberate differen
 
 pylopdf is pymupdf-*style*, not a drop-in replacement. The data shapes that
 determine migration cost — `"words"` tuples, `"dict"` structure,
-`search_for → list[Rect]`, 1-based TOC pages — match pymupdf, so most
-extraction and page-management code ports with small edits. This page lists
+`search_for → list[Rect]` — match pymupdf, so most extraction and
+page-management code ports with small edits. This page lists
 what carries over, what changed, and what to use instead of the parts pylopdf
 deliberately does not implement.
 
 !!! note
     pylopdf handles **PDF files only**. pymupdf's ability to open XPS / EPUB /
     images does not carry over.
+
+## Automated migration { #codemod }
+
+`python -m pylopdf.migrate` rewrites pymupdf programs in place. It needs
+LibCST, which the `migrate` extra installs:
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+It renames the `fitz` and `pymupdf` imports, rewrites the replacements that
+are mechanical — `get_toc`/`set_toc` with their page shift, `embfile_*`, the
+`xref_*` stream readers, `copy_page`, and the in-place `Rect`/`Point`/`Matrix`
+methods — and adds a `# TODO(pylopdf): …` comment above every statement that
+still needs a person, then lists those steps as `path:line: message`. `--diff`
+prints the changes without writing them, and `--check` exits with status 1
+when a file would change. Receivers are not typed, so review the diff. At run
+time, looking up a pymupdf name that pylopdf lacks raises an `AttributeError`
+whose message names the replacement or the milestone that plans it.
 
 ## Quick mapping { #mapping }
 
@@ -37,7 +57,7 @@ deliberately does not implement.
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | same | read-only handles until M3 adds setters; `rect` is in display coordinates |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | same | a `Quad` contributes its bounding rectangle; `insert_link` writes `LINK_URI` links only |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG; `dpi` directly caps the largest placement and there is no lossless conversion |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | same | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG only, so resampling needs `quality` 1–100; `set_to_gray` and `options` raise; bitonal images are skipped; returns counts instead of `None` |
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | same | `delete_pages` takes pymupdf's forms (one number, two numbers, `from_page=`/`to_page=`, an iterable); `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects (G8) |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | same | pymupdf's range rules (negative `from_page` is the first page, negative `to_page` the last, both clamp); registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
@@ -52,7 +72,7 @@ deliberately does not implement.
 | `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` / `font_language=` | UAX #14 wrapping with the same optional provider selection; lines are placed and fitted as in pymupdf; negative return means no drawing |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | same | Standard 14 names and aliases, OpenType files, and installed font extras through `language=` or `family=`; pymupdf's other built-in fonts (`"cjk"`, `"figo"`, ...) and `script=`, `ordering=`, and `embed=` are not available. `is_bold=`, `is_italic=`, and `is_serif=` select an installed extra's face exactly and raise with `fontname` or a font file, where pymupdf ignores them, while the keyword-only `weight=` also selects an instance on a variable font file's weight axis. Pass the font as `font=` to `insert_text` / `insert_textbox`; `text_length` includes kerning, and `ascender` / `descender` report pymupdf's values, which `insert_text` and `insert_textbox` place lines with |
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
-| `doc.embfile_add / names / get / del` | same | |
+| `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`, `list(doc.attachments)`, `doc.attachments[name].read()`, `del doc.attachments[name]`, `.write(data)`, the handle's properties, `len(doc.attachments)` | a missing name raises `KeyError`; `desc=` is `description=` |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
 | `page.widgets()` / widget objects | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | document-level; native text/choice/checkbox/radio appearances |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | offline pure-Rust PP-OCR through `pylopdf[ocr]`; arbitrary positioned results still work with `insert_ocr_text_layer` |

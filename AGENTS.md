@@ -330,8 +330,9 @@ overview.
   placement collection grow fallibly; allocator refusal must not be mistaken
   for an unsupported image or codec failure. Format tags are static. Never
   return a partial list.
-- `Document.embfile_add` and `embfile_get` share a 64 MiB default attachment
-  boundary. Adds reject byte input before its PyO3 copy and repeat the check in
+- `Document.attachments.add`, `Attachment.write`, and `Attachment.read`
+  share a 64 MiB default attachment boundary (the core's `embfile_add`,
+  `embfile_upd`, and `embfile_get`). Adds and writes reject byte input before its PyO3 copy and repeat the check in
   Rust; gets apply the decoded-size limit to every filter layer. `max_size=None`
   is the explicit unbounded opt-out; limit failures use `LimitError.code ==
   "embedded_file_size"`, while malformed or unsupported filters must not fall
@@ -348,7 +349,13 @@ overview.
   attachment-data copying in Python and again in Rust, and validate inline
   FileSpecs before cloning at 4,096 direct objects, 32 levels, and 1 MiB of
   direct string/name/stream data. Indirect references are leaves.
-- `Document.compress_images` interprets indirect raster XObject placements
+- `Document.rewrite_images` follows pymupdf's keywords: an axis above
+  `dpi_threshold` resamples to `dpi_target`, `quality` 0 means no
+  recompression, `lossy`/`lossless` and `color`/`gray` select DCT/Flate and
+  RGB/gray sources, and `set_to_gray` or `options` raise. Because every
+  rewrite produces JPEG, resampling with `quality=0` raises, and a call with
+  neither returns zero counts without interpreting. It interprets indirect
+  raster XObject placements
   through a separate hayro Device and aggregates the minimum effective DPI per
   source axis, so a reused image retains enough pixels for its largest
   placement. It atomically edits a lopdf clone, releases the GIL, and rewrites
@@ -656,7 +663,7 @@ overview.
   interpret a page must start with `_Document::hayro_view_for`, which builds the
   snapshot and has `ContentGuard::check` (`rust/src/content_guard.rs`) clear
   the pages first: `One`, `Many` for explicit batches, `All` for
-  `compress_images`. A refusal raises `LimitError` with the stable code
+  `rewrite_images`. A refusal raises `LimitError` with the stable code
   `content_nesting_depth` before any interpretation, cache insertion, or
   output. The bound is `MAX_NESTING_DEPTH` = 64 levels of arrays and
   dictionaries, the one hayro 0.8 uses, and is unconditional rather than a
@@ -1331,7 +1338,7 @@ overview.
   remove unreachable objects call `invalidate_hayro_pdf_keeping_placements`:
   drawing, annotations, page geometry, structural edits, outline, label,
   attachment, and metadata edits, `prune_objects` for `garbage=True`, and
-  object-stream saves. `compress`, `decompress`, `compress_images`,
+  object-stream saves. `compress`, `decompress`, `rewrite_images`,
   `replace_text`, and `set_form_field` forget. Both replace the revision.
   Classify a new editing method before giving it the keeping variant. A
   same-document `show_pdf_page` re-keys its Form under the revision of its own
@@ -2626,14 +2633,26 @@ Git history (`git show a233814:ROADMAP.md`).
   transform first. Constructors reject nonfinite coordinates and bound
   sequence reads to two or six entries. Keep operator changes in the API
   snapshot. Rect algebra, IRect, Quad, and geometry constants remain pending.
-- Current phase: wave 1 of the parity program (2026-10-20). Wave 0 is done:
-  the hayro 0.8 migration (#233), AcroForm registration on `insert_pdf`
-  (#234), XObject reuse (#231), save-time merging of identical objects
-  (#251), CPython 3.15 support (#230), and the F3 parity manifest (#235)
-  merged, and the F0 API design (#236) was approved on 2026-10-20. F1, F2,
-  F4, and F5 are done and F8 has its interpreter; v0.15.0 ships them before
-  the M0 API reset, which follows as one breaking release while F8
-  rewriting and F9 continue.
+- Current phase: wave 3 of the parity program (2026-10-21). Waves 0–2 are
+  done: hayro 0.8, the parity manifest, and the approved F0 API design; F1,
+  F2, F4, and F5 (v0.15.0); and the M0 API reset (#272–#286), which ships as
+  one breaking release, with F9's migration tooling. The manifest has no
+  `reset` entries. Wave 3 runs M1, M2, and M5 in parallel while F8 continues.
+- Migration tooling (F9): `tools/generate_migration_hints.py` writes
+  `src/pylopdf/_migration_hints.py` and the name map at the end of
+  `docs/en/llms.txt` from `api/pymupdf-parity.json`; run it after every
+  manifest edit, because `tests/test_migration.py` fails on stale output.
+  `src/pylopdf/_hints.py` builds the hinted `AttributeError`s. Classes assign
+  `__getattr__ = hinted_getattr` inside `if not TYPE_CHECKING:` so that type
+  checkers still reject unknown attributes; Python calls it only after normal
+  lookup fails, and dunder names never consult the hints. The LibCST codemod
+  lives in `src/pylopdf/_codemod.py`, behind `python -m pylopdf.migrate` and
+  the `migrate` extra: `CALL_RULES` rewrite calls wherever they appear,
+  `STATEMENT_RULES` rewrite in-place methods only as statements of their
+  own, and every other missing name becomes a `# TODO(pylopdf): <hint>`
+  comment. A new mechanical replacement adds a rule and a case to
+  `tests/assets/migration/`, whose `pymupdf/` programs must migrate exactly
+  to `pylopdf/` and then pass.
 - Every feature pull request meets the definition of done in ROADMAP.md and
   implements against the F0 API design. Concurrent pull requests stay inside
   one workstream's modules.

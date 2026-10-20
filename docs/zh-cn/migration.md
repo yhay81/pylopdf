@@ -6,12 +6,29 @@ description: 将pymupdf工作流映射到pylopdf，并理解类型、行为与�
 # 从pymupdf迁移
 
 pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的数据形状——`"words"`
-元组、`"dict"`结构、`search_for → list[Rect]`、从1开始的TOC页码——与pymupdf一致，
+元组、`"dict"`结构、`search_for → list[Rect]`——与pymupdf一致，
 因此多数提取与页面管理代码只需少量修改。本页列出可直接迁移的部分、行为差异，
 以及pylopdf有意不实现的功能应由什么替代。
 
 !!! note
     pylopdf**只处理PDF文件**。pymupdf打开XPS、EPUB和图像的能力不在其范围内。
+
+## 自动迁移 { #codemod }
+
+`python -m pylopdf.migrate`会就地改写pymupdf程序。它需要`migrate` extra安装的LibCST：
+
+```bash
+pip install "pylopdf[migrate]"
+python -m pylopdf.migrate src/
+```
+
+它会重命名`fitz`和`pymupdf`的import，改写可机械替换的部分——带页码换算的
+`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取、`copy_page`，以及就地修改的
+`Rect`/`Point`/`Matrix`方法——并在仍需人工处理的语句上方添加
+`# TODO(pylopdf): …`注释，最后以`path:line: message`形式列出这些步骤。`--diff`
+只打印变更而不写入，`--check`在有文件会被修改时以状态1退出。由于无法得知接收者的
+类型，请审阅diff。运行时查找pylopdf没有的pymupdf名称会引发`AttributeError`，
+其消息会给出替代API或计划提供它的里程碑。
 
 ## 快速对照 { #mapping }
 
@@ -30,7 +47,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 相同 | 在M3加入setter前为只读；`rect`使用显示坐标 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 相同 | `Quad`按外接矩形处理；`insert_link`仅支持`LINK_URI` |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
-| `doc.rewrite_images(dpi_target=, quality=)` | `doc.compress_images(dpi=, quality=)` | 将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG；`dpi`直接限制最大放置尺寸，不支持lossless转换 |
+| `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 仅将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG，因此缩小需要`quality` 1–100；`set_to_gray`和`options`会引发异常；跳过bitonal图像；返回计数而非`None` |
 | `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象（G8） |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
@@ -45,7 +62,7 @@ pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；行的位置与是否放得下的判断与pymupdf相同；返回负值时不绘制 |
 | `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`与pymupdf的值相同，`insert_text`与`insert_textbox`用它们排列行 |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
-| `doc.embfile_add / names / get / del` | 相同 | |
+| `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`、`list(doc.attachments)`、`doc.attachments[name].read()`、`del doc.attachments[name]`、`.write(data)`、handle属性、`len(doc.attachments)` | 不存在的名称引发`KeyError`；`desc=`改为`description=` |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
 | `page.widgets()` / widget对象 | `doc.get_form_fields()` / `doc.set_form_field(name, value, fontfile=)` | Document级；文本／选择／复选框／单选按钮的原生外观 |
 | `page.get_textpage_ocr(...)` | `page.get_text_ocr(...)` / `page.apply_ocr(...)` | 通过`pylopdf[ocr]`使用离线纯Rust PP-OCR；任意带坐标结果仍可传给`insert_ocr_text_layer` |

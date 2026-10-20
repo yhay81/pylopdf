@@ -31,18 +31,18 @@ description: pylopdf의 Document, Page, Pixmap, Rect, 권한, 경고, 예외를 
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 상한이 있는 선형entry builder를 사용한page 단위2-pass Markdown 변환. 기본은 전체page, 명시entry는 page 수와4,096 중 큰 값까지이며 누적UTF-8 출력 상한(`None`으로 해제), 제목·CJK·강조·목록·단·세로쓰기 순서·표 제어 |
 | `extract_image(xref)` / `get_page_images(pno, *, full=False)` | pymupdf와 같은 키로 이미지 하나의 데이터를 반환(DCT는 JPEG 그대로, 다른 filter는 PNG로 디코딩, soft mask는 제외). 페이지의 이미지 목록 |
 | `get_page_pixmap(pno, *, matrix=, dpi=, clip=, alpha=False, background=)` / `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 페이지 `Pixmap`(pymupdf의 `doc[pno].get_pixmap()` 간편형), 또는 누적encoded output 상한 안에서 전체page나 page 수와4,096 중 큰 값까지의 명시entry를 렌더링하는 순서 보장 병렬PNG 묶음(`None`으로 해제) |
-| `compress_images(dpi=150, quality=75)` | 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
+| `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, lossy=True, lossless=True, color=True, gray=True)` | pymupdf와 같은 인수(`dpi_threshold`를 넘는 축은 `dpi_target`으로 축소, `quality` 0은 재압축 없음이므로 축소에는 `quality`가 필요, `set_to_gray`와 `options`는 예외). 실제 배치DPI에 따라 안전한DCT/Flate raster XObject를 손실 축소·JPEG 재압축하고 타입 지정byte/count 통계를 반환 |
 | `set_fallback_font(font, kind=, index=, font_language="ja", max_font_size=64 MiB)` | Adobe Japan1／Korea1／GB1／CNS1을 구분하는 제한된CJK fallback font. 신뢰 가능한font input은`None`으로 해제 |
 | `select` / `delete_page(s)` / `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` / `new_page` / `fullcopy_page` | 페이지 관리. select/delete entry는 page 수와4,096 중 큰 값까지이며 `insert_pdf`는 원본의 전체 범위를 허용하고 가져온 페이지의 폼 필드를 등록하며, navigation 정리와 link 가져오기는 TOC·named destination 상한을 공유 |
 | `get_outline()` / `set_outline(entries)` | 대규모 manual에 맞춘, cycle을 처리하는 제한된 목차를`OutlineEntry(level, title, page)`로 표현（페이지는 0부터, 65,536 entry/node, 131,072 edge, 깊이64, text 16 MiB, named destination은`get_links()`와 같음） |
 | `get_page_labels()` / `set_page_labels(labels)` | 페이지 레이블 범위. 고정 상한은4,096 entry/node, 깊이32, label text 1 MiB |
 | `get_form_fields()` / `set_form_field(name, value, font=, fontfile=, fontbuffer=, fontindex=, font_language=, max_font_size=64 MiB)` | caller 이름／값1 MiB와 field/button state/font input이 제한된AcroForm 목록과 입력 및 네이티브 widget appearance. `font`에는 불러온 OpenType `Font`를 전달할 수 있음 |
-| `embfile_add(..., max_size=64 MiB) / embfile_names / embfile_get(name, max_size=64 MiB) / embfile_del` | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
+| `attachments` → `Attachments` mapping: `add(name, data, /, *, filename, description, max_size=64 MiB)`, `del`, `filename` / `description` / `size` / `creation_date` / `mod_date` / `read(*, max_size=64 MiB)` / `write(data, /, *, max_size=64 MiB)`를 가진 `Attachment` handle | 입력과 디코딩 출력에 대칭 기본 상한을 적용하고 caller text1 MiB, 추가metadata 및inline FileSpec clone 형상도 제한하는 첨부 파일. `max_size=None`은 상한을 명시적으로 해제 |
 | `get_pdfa_claim(max_size=1 MiB)` | 상한이 있는XMP PDF/A 선언 읽기. `max_size=None`으로 명시적 해제하며 검증은 아님 |
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 같은directory의stream 쓰기를 완전히 마친 뒤 원자적으로file 교체／상한이 있는PDF byte. `garbage=0`~`4`(pymupdf와 같은 단계. 3과 4는 동일한 객체와 스트림을 병합) `deflate=` `use_objstms=`, `encryption=`(기본값`PDF_ENCRYPT_NONE`, 암호화는`PDF_ENCRYPT_AES_256`; `PDF_ENCRYPT_AES_256` 없는password는 예외) 및127-byte 상한의`user_pw=`／`owner_pw=`; `max_size=None`으로 해제 |
 | `close()` | `with`로도 호출 |
 
-`compress_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
+`rewrite_images()`는 모든 페이지를 해석해 각 간접raster object의 가장 큰 배치 크기를
 찾은 뒤 lopdf clone을 원자적으로 편집합니다. `dpi=None`이면 축소 없이quality 재압축만
 수행합니다. 보수적 범위는mask나 사용자decode array가 없는 직접 단일filter
 8-bit DeviceGray/DeviceRGB DCT/Flate stream입니다. DCT decode parameter는 제외하며,

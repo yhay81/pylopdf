@@ -362,7 +362,7 @@ def test_image_compression_between_placements_keeps_the_next_placement_full_size
     photo = _noise_png(240)
     doc = _pages(2, 200, 200)
     doc[0].insert_image((0, 0, 72, 72), stream=photo)
-    assert doc.compress_images(dpi=72, quality=50)["rewritten"] == 1
+    assert doc.rewrite_images(dpi_threshold=96, dpi_target=72, quality=50)["rewritten"] == 1
 
     doc[1].insert_image((0, 0, 72, 72), stream=photo)
 

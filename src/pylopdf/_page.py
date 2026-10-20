@@ -18,6 +18,7 @@ from pylopdf._fonts import (
     _validate_font_choice,
 )
 from pylopdf._geometry import Matrix, Quad
+from pylopdf._hints import hinted_getattr
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -231,6 +232,9 @@ class Page:
     invalidated view raises :class:`StalePageError`; fetch it again with
     ``doc[i]``.
     """
+
+    if not TYPE_CHECKING:
+        __getattr__ = hinted_getattr
 
     def __init__(self, document: Document, pno: int) -> None:
         """Initialize a view for ``Document.__getitem__``; do not call directly."""
@@ -754,7 +758,7 @@ class Page:
         Input identical to an earlier placement in this document, encoded
         bytes or Pixmap samples, places the image XObject and soft mask of that
         placement again, whatever the rectangle and rotation, instead of
-        embedding another copy. :meth:`Document.compress_images`,
+        embedding another copy. :meth:`Document.rewrite_images`,
         :meth:`replace_text`, :meth:`Document.set_form_field`, and
         ``deflate=True`` saves end this sharing, so the next placement embeds
         the input again. A reopened document shares only its new placements.

@@ -787,14 +787,29 @@ impl _Document {
         extraction::extract_drawings(self, py, page_number)
     }
 
-    /// Downsample and JPEG-recompress safe DCT or Flate XObjects atomically.
-    fn compress_images(
+    /// Downsample and JPEG-recompress the selected safe raster images.
+    #[allow(clippy::too_many_arguments)] // Mirrors pymupdf's keyword arguments.
+    fn rewrite_images(
         &mut self,
         py: Python<'_>,
-        target_dpi: Option<f64>,
+        dpi_threshold: Option<f64>,
+        dpi_target: f64,
         quality: u8,
+        lossy: bool,
+        lossless: bool,
+        color: bool,
+        gray: bool,
     ) -> PyResult<image_compression::CompressionResult> {
-        images::compress_images(self, py, target_dpi, quality)
+        let options = image_compression::RewriteOptions {
+            dpi_threshold,
+            dpi_target,
+            quality,
+            lossy,
+            lossless,
+            color,
+            gray,
+        };
+        images::rewrite_images(self, py, options)
     }
 
     /// Search a one-based page case-insensitively.
@@ -1450,6 +1465,27 @@ impl _Document {
     /// Delete an attachment, raising an error when absent.
     fn embfile_del(&mut self, py: Python<'_>, name: &str) -> PyResult<()> {
         attachments::embfile_del(self, py, name)
+    }
+
+    /// Return one attachment's metadata, or `None` when it is absent.
+    fn embfile_info(
+        &self,
+        py: Python<'_>,
+        name: &str,
+    ) -> PyResult<Option<attachments::EmbeddedFileInfo>> {
+        attachments::embfile_info(self, py, name)
+    }
+
+    /// Replace one attachment's data, raising an error when absent.
+    #[pyo3(signature = (name, data, max_size=Some(DEFAULT_MAX_EMBEDDED_FILE_SIZE)))]
+    fn embfile_upd(
+        &mut self,
+        py: Python<'_>,
+        name: &str,
+        data: Vec<u8>,
+        max_size: Option<usize>,
+    ) -> PyResult<()> {
+        attachments::embfile_upd(self, py, name, data, max_size)
     }
 
     /// Insert display-coordinate OCR words as an invisible text layer.

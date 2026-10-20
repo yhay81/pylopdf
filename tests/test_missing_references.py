@@ -210,25 +210,25 @@ def test_attachments_skip_a_null_file_specification(value: str) -> None:
             },
         )
     )
-    assert doc.embfile_names() == ["b.txt"]
-    with pytest.raises(pylopdf.PdfError, match="attachment not found"):
-        doc.embfile_get("a.txt")
+    assert list(doc.attachments) == ["b.txt"]
+    with pytest.raises(KeyError):
+        doc.attachments["a.txt"]
 
-    doc.embfile_add("c.txt", b"C")
+    doc.attachments.add("c.txt", b"C")
 
     for current in _with_reloaded(doc):
-        assert current.embfile_names() == ["b.txt", "c.txt"]
-        assert current.embfile_get("b.txt") == b"B"
+        assert list(current.attachments) == ["b.txt", "c.txt"]
+        assert current.attachments["b.txt"].read() == b"B"
 
 
 @null_values
 def test_attachment_add_replaces_a_null_names_entry(value: str) -> None:
     """Adding an attachment raised `PdfError` for every null-equivalent `/Names`."""
     doc = pylopdf.Document(stream=_pdf(catalog=f"/Names {value}"))
-    assert doc.embfile_names() == []
+    assert list(doc.attachments) == []
 
-    doc.embfile_add("note.txt", b"note")
+    doc.attachments.add("note.txt", b"note")
 
     for current in _with_reloaded(doc):
-        assert current.embfile_names() == ["note.txt"]
-        assert current.embfile_get("note.txt") == b"note"
+        assert list(current.attachments) == ["note.txt"]
+        assert current.attachments["note.txt"].read() == b"note"
