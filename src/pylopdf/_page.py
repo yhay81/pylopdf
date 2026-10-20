@@ -32,6 +32,7 @@ from pylopdf._limits import (
     _validate_textbox_options,
     _validate_utf8_text_input,
 )
+from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, _default_ocr_engine, _validate_ocr_rotation
 from pylopdf._pixmap import _normalize_background
 from pylopdf._shape import Shape
@@ -218,6 +219,22 @@ class Page:
     def parent(self) -> Document:
         """Return the parent document."""
         return self._document
+
+    @property
+    def xref(self) -> int:
+        """Return the object number of the page dictionary."""
+        return self._document._doc.page_object_id(self._page_number())[0]
+
+    @property
+    def obj(self) -> Dictionary:
+        """Return the page dictionary as a live low-level handle.
+
+        Entries that the page inherits from the page tree, such as
+        ``/Resources`` or ``/MediaBox``, are read from its ancestors through
+        ``/Parent`` and are not visible here.
+        """
+        number, generation = self._document._doc.page_object_id(self._page_number())
+        return Dictionary(self._document, (number, generation))
 
     def _page_number(self) -> int:
         """Validate the view and return lopdf's one-based page number."""

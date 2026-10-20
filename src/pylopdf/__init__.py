@@ -19,6 +19,7 @@ from pylopdf._document import Document, open, peek_metadata  # noqa: A004 - pymu
 from pylopdf._errors import DocumentClosedError, EncryptedDocumentError, PylopdfWarning, StalePageError
 from pylopdf._fonts import Font
 from pylopdf._limits import DocumentLimits
+from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine
 from pylopdf._page import Page
 from pylopdf._shape import Shape
@@ -60,7 +61,7 @@ from pylopdf._types import (
     TextPage,
     TextSpan,
 )
-from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap
+from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, Pixmap, StaleObjectError
 
 __version__ = "0.14.0"
 __all__ = [
@@ -75,8 +76,10 @@ __all__ = [
     "TEXT_ALIGN_LEFT",
     "TEXT_ALIGN_RIGHT",
     "AnnotationInfo",
+    "Array",
     "BlockEntry",
     "CjkFontLanguage",
+    "Dictionary",
     "Document",
     "DocumentClosedError",
     "DocumentComplexity",
@@ -95,6 +98,8 @@ __all__ = [
     "LinkInfo",
     "MetadataProbe",
     "MetadataUpdate",
+    "Name",
+    "Objects",
     "OcrEngine",
     "OcrError",
     "OcrRotation",
@@ -112,7 +117,10 @@ __all__ = [
     "RawTextSpan",
     "Rect",
     "Shape",
+    "StaleObjectError",
     "StalePageError",
+    "Stream",
+    "String",
     "Table",
     "TableDiagnostics",
     "TableFinder",

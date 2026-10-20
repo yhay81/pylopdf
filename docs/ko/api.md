@@ -23,6 +23,7 @@ password input은UTF-8 127 byte로 제한됩니다.
 | `limits` / `complexity` | 열 때의 불변 리소스 정책 / stream 디코딩 없는 저비용 구조 지표 |
 | `needs_pass` / `is_encrypted` / `authenticate(pw)` | 127-byte password 상한이 있는 암호화 상태와 잠금 해제（pymupdf 의미론） |
 | `is_repaired` | 열 때 손상된 cross-reference data를 복구했는지 여부(offset 보정 또는 table 재구성). 저장하면 xref data를 정규화 |
+| `objects` / `trailer` / `catalog` / `page_xref(pno)` | 객체 그래프에 대한 타입 있는 저수준 접근. pymupdf의 `xref_*` 메서드를 대체([저수준 객체](#low-level-objects)) |
 | `metadata` / `set_metadata(dict)` | 표준Info 8개 필드（UTF-16BE 지원）, aggregate text 1 MiB 및 원자적 쓰기 |
 | `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
 | `get_text(pages=None)` | 전체 page(`None`) 또는 page 수와 4,096 중 큰 값까지의 명시 entry를 한 번의 batch로 추출하는 plain text. 4,096 entry마다의 chunk가 interpreter font cache를 공유 |
@@ -53,6 +54,7 @@ Flate는predictor가 없거나 사전과 일치하는PNG predictor를 사용할 
 | 멤버 | 용도 |
 |---|---|
 | `number` / `parent` / `get_label()` | 식별 정보와 표시 레이블 |
+| `xref` / `obj` | 페이지 사전의 객체 번호 / 실시간 저수준 핸들. 상속되는 속성은 조상에 남음 |
 | `get_text(option)` / `search_for(needle, max_hits=4096)` | 추출 및 상한이 있는 대소문자 구분 없는 검색. 검색어는UTF-8 4,096 byte, 신뢰 가능한 결과 집합은`None`으로 해제 |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | 편집 없이 로컬PP-OCRv6로 위치가 있는 단어 인식, `rotation`은 입력을 시계 방향으로 보정하고 `clip`은 표시 좌표 |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | 방향을 유지한 보이지 않는 검색 가능 레이어 삽입, 선택 영역의 기존 텍스트는 기본적으로 건너뜀 |
@@ -219,6 +221,40 @@ grid는 1.0, 희소 규칙을 보완한 hybrid grid는 0.95이며 두 경우 모
 metric은 `None`입니다. `TableFinder.strategy`와
 `TableFinder.clip`에는 사용한 설정이 남습니다.
 
+## 저수준 객체 { #low-level-objects }
+
+`doc.objects`는 객체 번호를 문서의 간접 객체에 대응시키고, `doc.trailer`,
+`doc.catalog`, `page.obj`는 사전 핸들입니다. 이 타입 있는 모델은 pymupdf의
+문자열 기반 `xref_*` 메서드를 대체합니다. 객체는 PDF 구문이 아니라 Python
+값입니다.
+
+```python
+from pylopdf import Name
+
+catalog = doc.catalog
+catalog["PageLayout"] = Name("TwoColumnLeft")   # 이름. 일반 str은 텍스트 문자열이 됨
+font = doc.objects.add({"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica")})
+content = doc.objects.add_stream(b"BT /F9 24 Tf 72 72 Td (Hi) Tj ET")
+page.obj["Resources"] = {"Font": {"F9": doc.objects[font]}}   # 간접 핸들은 참조로 저장됨
+page.obj["Contents"] = doc.objects[content]
+doc.objects[content].read()                    # 디코딩됨, 기본 상한 64 MiB
+```
+
+| 값 | Python |
+|---|---|
+| null, 불리언, 정수, 실수 | `None`, `bool`, `int`, `float` |
+| 이름 | `Name`, 슬래시를 뺀 `str` 서브클래스 |
+| 문자열 | `String`, `.text`로 PDF 텍스트 문자열을 디코딩하는 `bytes` 서브클래스 |
+| 배열 / 사전 / 스트림 | 실시간 `Array`(가변 시퀀스) / `Dictionary`(가변 매핑) / `Stream`(`read(*, decode=True, max_size=64 MiB)`와 `write(data, *, filter="FlateDecode")`를 가진 사전) |
+
+참조는 읽을 때 해석되며, 없는 객체에 대한 참조는 `None`으로 읽습니다. 쓰기는
+즉시 반영되고 렌더링과 추출 캐시를 버립니다. 페이지 순서를 바꾸는 쓰기는 기존
+`Page` 뷰도 무효화합니다. 리스트와 매핑은 직접 객체로 쓰이고, 컨테이너에 저장한
+간접 핸들은 참조가 되며, `doc.objects[xref]`에 대입하거나 `add()`에 넘긴 핸들은
+복사됩니다. 객체가 제거되거나 `save(garbage=2)` 이상이 번호를 다시 매기면 핸들은
+`StaleObjectError`를 발생시킵니다. 원시 편집을 의미적으로 올바르게 유지하는 것은
+호출자의 책임입니다.
+
 ## 모듈 수준 { #module-level }
 
 | 이름 | 용도 |
@@ -235,9 +271,10 @@ metric은 `None`입니다. `TableFinder.strategy`와
 | `OcrEngine` / `OcrWord` | 재사용 가능한 순수Rust PP-OCR 엔진과 위치 결과 계약 |
 | `Font(fontname=None, fontfile=None, fontbuffer=None, *, language=None, is_bold=False, is_italic=False, is_serif=False, weight=None, fontindex=0, family=None, allow_regular_fallback=False, max_font_size=64 MiB)` | `text_length`, `ascender`／`descender`, `has_glyph`, `name`, `family`, `weight`, `is_bold`, `is_italic`, `is_serif`, `units_per_em`을 가진 재사용 가능한 Standard 14 또는 OpenType 글꼴. `weight=`는 가변 글꼴 파일의 인스턴스도 선택 |
 | `Shape(page)` | 경로와 글자를 한 번에 그리는 pymupdf의 `Shape`. `page.new_shape()`로도 만들 수 있음 |
+| `Name` / `String` / `Array` / `Dictionary` / `Stream` / `Objects` | 저수준 PDF 값과 실시간 객체 핸들([저수준 객체](#low-level-objects)) |
 | `OcrRotation` / `WordEntry` / `BlockEntry` / `FormFieldType` | runtime에서 import 가능한 OCR 회전·tuple·literal 형식 별칭 |
 | `TableFinder` / `Table` / `TableDiagnostics` | 독립 보관되는 표 좌표, 셀 텍스트(병합 연속 위치는`None`), strategy와 confidence 근거. `Table.to_markdown(max_size=64 MiB)`은 escape 후UTF-8 출력을 사전 검사 |
-| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
+| `PdfError` / `LimitError` / `PasswordError` / `OcrError` / `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` / `StaleObjectError` | 예외 계층. 리소스 거부는 안정적인`.code` 제공（ValueError 호환 기반） |
 | `Pixmap` | 불변 RGBA8 픽셀: `samples` / `width` / `height` / `stride` / `n` / `tobytes(max_size=64 MiB)` / 스트리밍하며 실패 시 기존file을 보존하는PNG 전용`save(path)`; 모든 wheel에서 읽기 전용 zero-copy `memoryview()`도 지원 |
 | `PylopdfWarning` | 복구 가능한 해석 경고（xref 복구, 글꼴 해석, 이미지 디코딩） |
 
