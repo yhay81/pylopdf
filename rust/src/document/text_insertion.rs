@@ -24,8 +24,9 @@ impl _Document {
         overlay: bool,
     ) -> PyResult<usize> {
         let (crop, rotation) = self.page_display_geometry(page_number)?;
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (page_id, drawing_plan) = py.detach(|| {
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
+        })?;
         let page_size = draw::display_size(crop, rotation);
         let (generated, drawn) = py.detach(|| {
             generate::embedded_text_page(
@@ -93,8 +94,9 @@ impl _Document {
         let Some(generated) = generated else {
             return Ok(spare_height);
         };
-        let (page_id, drawing_plan) =
-            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)?;
+        let (page_id, drawing_plan) = py.detach(|| {
+            self.prepare_page_drawing(page_number, overlay, PageResourceKind::XObject)
+        })?;
         let mut generated_doc = generated_pdf::load(&generated)
             .map_err(|error| lopdf_err(Some("failed to import generated text"), &error))?;
         face.name_subset(&mut generated_doc);
@@ -207,7 +209,7 @@ pub(super) fn insert_page_text(
     lines.truncate(metrics.lines_on_page(lines.len(), page_height - point.1, fontsize, lineheight));
     let drawn = lines.len();
     let (page_id, drawing_plan) =
-        this.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
+        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::Font))?;
     this.invalidate_hayro_pdf_keeping_placements();
     py.detach(|| {
         let mut font_dict = dictionary! {
@@ -273,7 +275,7 @@ pub(super) fn insert_page_textbox(
 
     let (crop, rotation) = this.page_display_geometry(page_number)?;
     let (page_id, drawing_plan) =
-        this.prepare_page_drawing(page_number, overlay, PageResourceKind::Font)?;
+        py.detach(|| this.prepare_page_drawing(page_number, overlay, PageResourceKind::Font))?;
     this.invalidate_hayro_pdf_keeping_placements();
     py.detach(|| {
         let mut font_dict = dictionary! {

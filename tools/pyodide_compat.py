@@ -1029,6 +1029,37 @@ def _garbage_results() -> dict[str, Any]:
     return results
 
 
+def _content_isolation_results() -> dict[str, Any]:
+    """Draw on content that leaves q and Q unbalanced, counted as hayro parses it."""
+    import pylopdf  # noqa: PLC0415
+
+    contents = {
+        "open": b"2 0 0 2 0 0 cm q 0 0 1 rg 0 0 5 5 re f",
+        "excess": b"Q Q 2 0 0 2 0 0 cm 0 0 1 rg 0 0 5 5 re f",
+        "inline_image": b"q 2 0 0 2 0 0 cm q BI /W 4 /H 1 /BPC 8 /CS /G ID Q Q EI",
+        "comment": b"q 2 0 0 2 0 0 cm q % no line end",
+    }
+    point = (20.0, 40.0)
+    results: dict[str, Any] = {}
+    for label, content in contents.items():
+        data = _build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Rotate 90 /Contents [4 0 R] >>",
+                4: f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream",
+            }
+        )
+        document = pylopdf.Document(stream=data)
+        document[0].insert_text(point, "Probe", fontsize=10)
+        words = [word for word in document[0].get_text("words") if word[4] == "Probe"]
+        _require(len(words) == 1, f"{label} content lost the appended text")
+        x0, y0, x1, y1 = words[0][:4]
+        _require(round(x0, 1) == point[0] and y0 < point[1] < y1, f"{label} content moved the appended text")
+        results[label] = [round(value, 2) for value in (x0, y0, x1, y1)]
+    return results
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1046,6 +1077,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "form_page_deletion": _form_page_deletion_results(),
         "structure_page_deletion": _structure_page_deletion_results(),
         "garbage": _garbage_results(),
+        "content_isolation": _content_isolation_results(),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },
