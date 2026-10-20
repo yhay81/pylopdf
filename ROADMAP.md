@@ -15,7 +15,7 @@ that still drives decisions is condensed in the [evidence log](#evidence-log).
 
 ## Goal
 
-pylopdf reaches **parity** when every capability of pymupdf 1.28's public API
+pylopdf reaches **parity** when every capability of pymupdf 2.0's public API
 that applies to PDF documents is available — under pymupdf's name with
 pymupdf's meaning, or through a redesigned pylopdf API that replaces it — or is
 listed as a reasoned non-goal with an ecosystem answer. Parity is about
@@ -268,7 +268,7 @@ time, CI requires one fragment unless a pull request is labeled
 
 ### F3 — Parity manifest
 
-`api/pymupdf-parity.json` holds one entry per pymupdf 1.28 public API: module
+`api/pymupdf-parity.json` holds one entry per pymupdf 2.0 public API: module
 functions, constants, and the members of `Document`, `Page`, `Annot`,
 `Widget`, `Link`, `Outline`, `Pixmap`, `TextPage`, `Shape`, `TextWriter`,
 `Font`, `Point`, `Rect`, `IRect`, `Quad`, `Matrix`, `Story`,
@@ -900,3 +900,10 @@ Dated facts that still drive decisions. Earlier detail is in Git history.
   classified 948 pymupdf 1.28.0 entries as 40 supported, 120 deviations,
   593 planned, and 195 non-goals, before its reclassification under the
   same-name, same-meaning rule.
+- **2026-10-20, parity**: pymupdf 2.0 requires Python 3.11 or later and
+  installs pymupdf4llm and pymupdf-layout with onnxruntime. Its inventory adds
+  15 public names to 1.28.0's, among them `Document.to_markdown`, `to_text`,
+  `to_json`, and `to_chunks` forwarding to pymupdf4llm, `Pixmap.flip_rotate`,
+  `Page.repair_flat_rbgs`, and `calc_matrix`, and drops
+  `Annot.update_timing_test`. The manifest now lists 962 entries at 18.6%
+  coverage.
