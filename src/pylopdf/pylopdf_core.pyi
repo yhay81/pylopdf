@@ -553,6 +553,19 @@ class _Document:
         package_font: tuple[str, str] | None = None,
         weight: int | None = None,
     ) -> float: ...
+    def content_glyphs(
+        self, page_number: int
+    ) -> list[
+        tuple[
+            tuple[float, float],
+            int,
+            tuple[float, float],
+            int,
+            tuple[int, int, int, int, int],
+            tuple[bool, bool],
+            int,
+        ]
+    ]: ...
     def replace_text_on_page(
         self,
         page_number: int,
