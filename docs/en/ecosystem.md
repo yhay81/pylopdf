@@ -89,3 +89,15 @@ fields and points here instead.
 Tesseract, anything that yields `(x0, y0, x1, y1, text)` — as an invisible text
 layer, making scanned PDFs searchable with near-zero size cost (no font
 embedding). `to_markdown()` then works on scans too.
+
+```python
+import pylopdf
+
+words = [  # from your OCR engine, in display coordinates
+    (72, 90, 140, 104, "Invoice"),
+    (146, 90, 190, 104, "#1024"),
+]
+with pylopdf.open("scan.pdf") as doc:
+    doc[0].insert_ocr_text_layer(words)
+    doc.save("searchable.pdf")
+```

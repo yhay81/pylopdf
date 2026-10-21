@@ -1,3 +1,8 @@
+---
+title: WebAssembly compatibility
+description: Run pylopdf in Pyodide and Cloudflare Python Workers with the PyEmscripten wheel, its tested environment, and its limits.
+---
+
 # WebAssembly compatibility
 
 pylopdf builds a static PyEmscripten wheel for the Python 3.13 ABI used by
