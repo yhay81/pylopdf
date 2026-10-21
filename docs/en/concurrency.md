@@ -39,6 +39,7 @@ def extract(path: str) -> str:
         return document.to_markdown()
 
 
+paths = ["a.pdf", "b.pdf", "c.pdf"]
 with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
@@ -48,7 +49,8 @@ with ThreadPoolExecutor() as pool:
 Use `render_pages()` instead of calling one document from several threads:
 
 ```python
-png_pages = document.render_pages(dpi=144, workers=4)
+with pylopdf.open("report.pdf") as document:
+    png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 It returns PNG bytes in the order of the requested pages and keeps its

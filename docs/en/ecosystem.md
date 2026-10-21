@@ -88,3 +88,15 @@ Tesseract or a cloud service, pass its words as `(x0, y0, x1, y1, text)` to
 `Page.insert_ocr_text_layer(words)`. pylopdf adds them as an invisible text
 layer, which makes the scan searchable and lets `to_markdown()` read it, while
 adding very little to the file size.
+
+```python
+import pylopdf
+
+words = [  # from your OCR engine, in page coordinates
+    (72, 90, 140, 104, "Invoice"),
+    (146, 90, 190, 104, "#1024"),
+]
+with pylopdf.open("scan.pdf") as doc:
+    doc[0].insert_ocr_text_layer(words)
+    doc.save("searchable.pdf")
+```

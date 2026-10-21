@@ -242,6 +242,10 @@ pylopdfはシステムのフォントディレクトリを探さず、グロー�
 `page.new_shape()`は`Shape`を返します。複数のパスとテキストを1つの単位として描くための、pymupdfの仕組みです。
 
 ```python
+regular = pylopdf.Font("helv")
+bold = pylopdf.Font("hebo")
+body = "Findings are listed below. " * 20
+
 with page.new_shape() as shape:
     shape.draw_rect((50, 50, 545, 792))
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)

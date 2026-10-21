@@ -34,6 +34,7 @@ def extract(path: str) -> str:
         return document.to_markdown()
 
 
+paths = ["a.pdf", "b.pdf", "c.pdf"]
 with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
@@ -43,7 +44,8 @@ with ThreadPoolExecutor() as pool:
 请使用`render_pages()`，而不要从多个线程调用同一个文档：
 
 ```python
-png_pages = document.render_pages(dpi=144, workers=4)
+with pylopdf.open("report.pdf") as document:
+    png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 它按请求页面的顺序返回PNG bytes；页面较大时会减少worker数量，使估算的工作内存保持在约512 MB以内。

@@ -35,6 +35,13 @@ except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
 
+!!! warning "Enforce time limits and isolate the process"
+
+    Limits bound memory and output size, but they do not stop a call that is
+    taking too long. Enforce a CPU or wall-clock deadline in the worker,
+    process, or container, and process untrusted files in a sandbox or
+    container when you can.
+
 `DocumentLimits.web()` is a conservative starting point for web servers and
 queue workers with limited memory. It sets these limits:
 

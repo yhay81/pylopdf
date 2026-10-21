@@ -329,6 +329,10 @@ registry, so the output depends only on the fonts you pass in.
 and text runs as one unit:
 
 ```python
+regular = pylopdf.Font("helv")
+bold = pylopdf.Font("hebo")
+body = "Findings are listed below. " * 20
+
 with page.new_shape() as shape:
     shape.draw_rect((50, 50, 545, 792))
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)

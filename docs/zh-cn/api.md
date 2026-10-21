@@ -242,6 +242,10 @@ pylopdf不搜索系统字体目录，也没有全局字体注册表，因此输�
 `page.new_shape()`返回`Shape`，这是pymupdf中把多条路径和多段文本作为一个整体绘制的工具：
 
 ```python
+regular = pylopdf.Font("helv")
+bold = pylopdf.Font("hebo")
+body = "Findings are listed below. " * 20
+
 with page.new_shape() as shape:
     shape.draw_rect((50, 50, 545, 792))
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)

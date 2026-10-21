@@ -242,6 +242,10 @@ pylopdf는 시스템 글꼴 디렉터리를 검색하지 않고 전역 글꼴 �
 `page.new_shape()`는 여러 경로와 텍스트를 하나의 단위로 그리는 pymupdf의 도구인 `Shape`를 반환합니다.
 
 ```python
+regular = pylopdf.Font("helv")
+bold = pylopdf.Font("hebo")
+body = "Findings are listed below. " * 20
+
 with page.new_shape() as shape:
     shape.draw_rect((50, 50, 545, 792))
     shape.finish(color=(0.72, 0.78, 0.82), fill=(0.95, 0.96, 0.97), width=0.5)

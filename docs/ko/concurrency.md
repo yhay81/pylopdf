@@ -34,6 +34,7 @@ def extract(path: str) -> str:
         return document.to_markdown()
 
 
+paths = ["a.pdf", "b.pdf", "c.pdf"]
 with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
@@ -43,7 +44,8 @@ with ThreadPoolExecutor() as pool:
 여러 스레드에서 한 문서를 호출하는 대신 `render_pages()`를 사용하세요.
 
 ```python
-png_pages = document.render_pages(dpi=144, workers=4)
+with pylopdf.open("report.pdf") as document:
+    png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 요청한 페이지 순서대로 PNG bytes를 반환하며, 페이지가 크면 작업자 수를 줄여 추정 작업 메모리를 약 512 MB 이하로 유지합니다.

@@ -29,6 +29,10 @@ except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
 
+!!! warning "限制执行时间并隔离进程"
+
+    上限只约束内存和输出大小，不会中止耗时过长的调用。请在worker、进程或容器中强制设置CPU时间或实际时间的期限，并尽可能在沙箱或容器中处理不受信任的文件。
+
 `DocumentLimits.web()`是面向内存有限的Web服务器和队列worker的保守起点。它设置以下上限：
 
 | 资源 | 上限 |
