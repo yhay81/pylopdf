@@ -1,38 +1,38 @@
 ---
 title: エコシステム連携
-description: pylopdfをTypst、pyHanko、veraPDF、OCRエンジンとつなぐ統合テスト済みレシピ。
+description: pylopdfをTypst、pyHanko、veraPDF、OCRエンジンとつなぐ、テスト済みのレシピ。
 ---
 
 # エコシステム連携
 
-pylopdf は組版・PDF/A 生成・電子署名を**あえて再実装しません**。それぞれ実績あるライブラリとの連携で解決し、以下のレシピはすべて[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)の統合テストで保証しています。
+pylopdfは組版、PDF/Aの出力、電子署名を実装しません。これらはすでに実績あるライブラリがうまくこなしており、以下のレシピではそれらをpylopdfと組み合わせる方法を紹介します。各レシピは[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)の統合テストでカバーしています。
 
-## 組版・新規文書の生成 = typst { #typesetting }
+## typstで新しい文書を組版する { #typesetting }
 
-レポートや帳票は [typst](https://typst.app/)（[typst-py](https://pypi.org/project/typst/)経由）で組版し、bytes をそのまま pylopdf へ:
+文書を[typst](https://typst.app/)で書き、[typst-py](https://pypi.org/project/typst/)でコンパイルして、その結果をpylopdfで開きます。
 
 ```python
 import typst
 import pylopdf
 
-pdf_bytes = typst.compile("report.typ")   # 組版は typst
-doc = pylopdf.open(stream=pdf_bytes)      # 編集・抽出・結合は pylopdf
+pdf_bytes = typst.compile("report.typ")   # レイアウトはtypst
+doc = pylopdf.open(stream=pdf_bytes)      # 編集・結合・抽出はpylopdf
 ```
 
-## 新規文書の PDF/A = typst { #new-pdfa }
+## typstでPDF/Aを出力する { #new-pdfa }
 
-typst の PDF バックエンド（krilla）は検証付きの PDF/A-1b〜4・PDF/UA-1 出力に対応しています:
+typstはPDF/A（パート1〜4）とPDF/UA-1のファイルを書き出せます。
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
-既存 PDF の PDF/A 変換・検証は別問題で、検証は [veraPDF](https://verapdf.org/)（Java）が事実上の標準です。`Document.get_pdfa_claim()` は自己宣言の読み取りだけを行います。
+`Document.get_pdfa_claim()`は、ファイルがどのPDF/Aレベルを宣言しているかを読むだけです。既存のPDFが本当に適合しているかを確認するには、標準的な検証ツールである[veraPDF](https://verapdf.org/)（Javaで動作）を使ってください。
 
-## 組版した日本語の透かし・ヘッダ / フッタ = typst × show_pdf_page { #cjk-watermarks }
+## typstでデザインした透かしやヘッダー { #cjk-watermarks }
 
-pylopdfは`pylopdf[jp]`導入後、font pathなしの`insert_text()`で日本語・漢字を直接描けます。より複雑な1ページ組版が必要な透かしはtypstで組み（フォントはサブセット埋め込みされる）、全ページへベクタのまま焼き込みます:
+単純なテキストなら`insert_text()`で十分です。`pylopdf[jp]`（または`[ko]`、`[zh-cn]`、`[zh-tw]`）をインストールしていれば、CJKのテキストも書けます。スタンプに本格的なレイアウトが必要なときは、typstでページとしてデザインし、そのページを`show_pdf_page()`で文書の全ページに描きます。
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -47,11 +47,11 @@ for page in doc:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-焼き込み後もテキストはベクタのまま — `page.get_text()` で「社外秘」が抽出できます。
+スタンプは本物のテキストのままなので、後から`page.get_text()`で`社外秘`が見つかります。
 
-## 電子署名（PAdES）= pyHanko { #signatures }
+## pyHankoで電子署名する { #signatures }
 
-[pyHanko](https://pypi.org/project/pyHanko/)（MIT）は増分更新で署名するため、pylopdf の出力バイト列は署名後も先頭に無加工で残ります（統合テストでバイト単位に検証済み）:
+[pyHanko](https://pypi.org/project/pyHanko/)（MIT）はPAdES署名を作成します。署名をファイルの末尾に追記するので、pylopdfが書き出したバイト列は変わりません。
 
 ```python
 import io
@@ -67,8 +67,8 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-pylopdf 自身のフォーム API は署名フィールドへの記入を意図的に拒否し、ここへ誘導します。
+署名は最後の手順にしてください。その後にpylopdfで保存するとファイルが書き直され、署名が無効になります。`set_form_field()`は署名フィールドへの記入を拒否します。
 
-## OCR = 好きなエンジンを持ち込む { #ocr }
+## ほかのエンジンでOCRする { #ocr }
 
-`Page.insert_ocr_text_layer(words)` は、クラウド API でも Tesseract でも`(x0, y0, x1, y1, テキスト)` を返すあらゆる OCR の結果を不可視テキスト層として書き込み、スキャン PDF を searchable にします（フォント非埋め込みでサイズ増はほぼゼロ）。その後は `to_markdown()` もスキャン PDF に対して機能します。
+pylopdfには[組み込みのOCR](ocr.md)があります。代わりにTesseractやクラウドサービスなど別のエンジンを使う場合は、その単語を`(x0, y0, x1, y1, text)`として`Page.insert_ocr_text_layer(words)`に渡してください。pylopdfはそれを不可視のテキスト層として追加します。これでスキャンが検索可能になり、`to_markdown()`でも読み取れるようになり、ファイルサイズもほとんど増えません。

@@ -1,28 +1,27 @@
 ---
-title: 並行実行とfree-threaded Python
-description: Document、Page、Pixmap、並列レンダリング、CPython 3.14tと3.15tでサポートするスレッド境界。
+title: 並行実行とフリースレッド版Python
+description: 複数のスレッドからpylopdfを使う方法、ページを並列にレンダリングする方法、フリースレッド版CPython 3.14tと3.15tでの実行について。
 ---
 
-# 並行実行とfree-threaded Python
+# 並行実行とフリースレッド版Python
 
-pylopdfは、GILありCPython 3.11–3.15向けのプラットフォーム別`abi3` wheelに加え、free-threaded CPython向けにPythonのバージョンごとのwheel（`cp314-cp314t`と`cp315-cp315t`）を公開します。free-threaded wheelをimportしてもGILは再有効化されません。
+pylopdfは、開く・保存・レンダリング・抽出・結合・圧縮などの重い処理の間はGILを解放するので、通常のCPythonでもスレッドを並列に実行できます。フリースレッド版CPython 3.14tと3.15tには専用のwheelがあり、GILを無効にしたまま動作します。
 
-## サポート契約 { #support-contract }
+## サポート範囲 { #support-contract }
 
-| 利用方法 | サポート |
+| 使い方 | サポート |
 |---|---|
-| GILありCPython 3.11–3.15 | `abi3-py311` wheelでサポート |
-| free-threaded CPython 3.14tと3.15t | `cp314-cp314t`と`cp315-cp315t` wheelでサポートし、GIL無効の状態でテスト |
-| 異なる`Document`に対する並行操作 | サポート。load、save、render、抽出、merge、圧縮の重い処理はGILを解放 |
-| 同じ`Document`に対する並行呼び出し・編集 | 非サポート。ロックで直列化するか、独立したDocumentを使用 |
-| 1つのDocumentでの`Document.render_pages(workers=...)` | サポート。同一Document内での境界付き並列レンダリング手段 |
-| `Pixmap`の並行読み取り | サポート。`Pixmap`は不変 |
+| 異なるスレッドが異なる`Document`オブジェクトを扱う | 対応 |
+| 複数のスレッドが同じ`Document`を同時に呼び出す・編集する | 非対応。ロックを使うか、スレッドごとにファイルを開いてください |
+| 1つの文書で`Document.render_pages(workers=...)` | 対応。1つの文書を並列にレンダリングするための、サポートされた方法です |
+| 複数のスレッドが同じ`Pixmap`を読む | 対応。`Pixmap`は変更できません |
+| フリースレッド版CPython 3.14tと3.15t | 対応。GILを無効にした状態でテストしています |
 
-`Page`は親`Document`へのビューなので、同一Documentの規則に従います。外部から同時アクセスするとPyO3の実行時borrow検査に拒否される場合がありますが、この検査を同期手段として使わないでください。
+`Page`はその`Document`に属し、同じ規則に従います。pylopdfが1つの文書への同時呼び出しを拒否することはありますが、それをロックの代わりとして当てにしないでください。
 
-## 適切な境界を選ぶ { #choose-the-right-boundary }
+## 多数のファイルを処理する { #many-files }
 
-独立したファイルには、workerごとに独立したDocumentを持たせます。
+各ワーカーにそれぞれの文書を持たせます。
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -39,25 +38,29 @@ with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
 
-1つのDocumentの多数のページを処理する場合は、外部スレッドから同じDocumentを呼び出さず、`render_pages()`を使います。
+## 1つの文書の多数のページをレンダリングする { #render-pages }
+
+1つの文書を複数のスレッドから呼び出す代わりに、`render_pages()`を使います。
 
 ```python
 png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
-`render_pages()`は1つの不変なレンダラsnapshotを使い、指定したページ順と重複を保ち、並行処理の推定作業メモリを約512 MBまでに抑えます。
+要求したページの順にPNGのbytesを返します。ページが大きいときはワーカー数を減らして、見積もった作業メモリを約512 MB以下に保ちます。
 
-## 繰り返しレンダリング { #repeated-rendering }
+## 繰り返しのレンダリング { #repeated-rendering }
 
-Documentを開いたスレッドで`Page.get_pixmap()`、`Document.get_page_pixmap()`、直列の`render_pages()`を繰り返し呼び出すと、以前の呼び出しで解析したfont、色空間、glyph outlineを再利用します。出力は新しく開いたDocumentと同一です。各スレッドが保持するこのcacheは最大1つで、呼び出し間に保持するのは最大64の異なるページ分です。Documentの編集、代替fontの変更、closeによってcacheは無効になり、開いたスレッドで行った場合やそこでDocumentを破棄した場合は即座に解放されます。他のスレッドから無効にしたcacheは、そのスレッドが次にレンダリングするか終了したときに解放されます。他のスレッドからの呼び出しと並列`render_pages()`のworkerは、呼び出し単位のcacheを使います。
+1つの文書のページを、その文書を開いたスレッドで何度もレンダリングすると、以前の呼び出しで解析したフォントとグリフの輪郭を再利用します。出力は新しく開いた文書からの出力と同じです。このキャッシュは最大64ページ分で、文書を編集するか閉じると解放されます。
 
-## Pixmapバッファ { #pixmap-buffers }
+## PixmapとNumPy { #pixmap-buffers }
 
-すべてのwheelが、不変のRGBまたはRGBA画素ストレージをread-only・1次元・ゼロコピーのbufferとして公開します。
+`Pixmap`は画素を読み取り専用のバッファとして公開するので、NumPyはコピーせずに使えます。
 
 ```python
-view = memoryview(page.get_pixmap())
-assert view.readonly and view.format == "B"
+import numpy as np
+
+pix = page.get_pixmap()
+pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 
-viewはPixmapを生かし続けるため、NumPyは`np.frombuffer(pixmap, dtype=np.uint8)`で画素をコピーせずに読めます。独立した`bytes`のコピーが必要な場合は、引き続き`pixmap.samples`を使えます。abi3 wheelもfree-threaded wheelも、同じbufferを公開します。
+`pix.samples`は代わりに独立した`bytes`のコピーを返します。

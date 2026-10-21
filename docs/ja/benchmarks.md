@@ -5,7 +5,7 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 
 # ベンチマーク
 
-pylopdfは**速い結果も遅い結果も同時に公開**します。以下は、ひとつの環境とコーパスで得たスナップショットです。普遍的な順位ではなく、自分のワークロードで何を測るべきか判断する材料として使ってください。
+このベンチマークでは、14件の実際のPDFでpylopdfをpymupdf、pypdf、pdfplumberと比較し、pylopdfが速いケースだけでなく遅いケースも示します。1台のマシンと1つのコーパスでの結果なので、順位としてではなく、自分の文書で何を測るべきかの目安として扱ってください。
 
 !!! info "最新の実行"
     **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>
@@ -103,8 +103,7 @@ pylopdfは**速い結果も遅い結果も同時に公開**します。以下は
 
 ### ラスタライズ { #rasterization }
 
-coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのようにドキュメントより長く残るcacheは、coldでも有効です。MuPDFは開いているドキュメントの読み込み済みフォントと描画済みglyphも保持するため、テキストの多いページで特に差が出ます。pylopdfはドキュメントを開いたスレッドで解析済みのフォントとglyph
-outlineを再利用しますが、glyphのラスタライズと画像のデコードは毎回やり直すため、warmでの短縮幅はMuPDFよりはるかに小さくなります。
+coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのようにドキュメントより長く残るcacheは、coldでも有効です。MuPDFは開いているドキュメントの読み込み済みフォントと描画済みglyphも保持するため、テキストの多いページで特に差が出ます。pylopdfはドキュメントを開いたスレッドで解析済みのフォントとglyph outlineを再利用しますが、glyphのラスタライズと画像のデコードは毎回やり直すため、warmでの短縮幅はMuPDFよりはるかに小さくなります。
 
 | ファイル | pylopdf cold | pymupdf cold | pylopdf warm | pymupdf warm |
 |---|---:|---:|---:|---:|
@@ -173,9 +172,9 @@ outlineを再利用しますが、glyphのラスタライズと画像のデコ�
 
 pymupdfのテキスト抽出は、2つのmacOS runnerではLinuxやWindowsより大幅に遅くなりました。そのためLinuxとWindowsでのpylopdfの抽出のリードは、macOSのスナップショットより小さくなります。MuPDFのラスタライズは、warmではすべてのrunnerで、coldでもApple M1以外のすべてのrunnerで高速でした。それでも一連の処理ではpylopdfが上回りました。pymupdfの合計の大半をPNGエンコードが占めるためです。
 
-## free-threadedでの抽出 { #free-threaded-extraction }
+## フリースレッド版での抽出 { #free-threaded-extraction }
 
-Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部の全ページテキストを抽出しました。1回warmup後、先行モードを交互にした7組の実行の中央値です。
+Windows 11のフリースレッド版CPython 3.14.6で、独立した`bill-hr815.pdf` 2部の全ページテキストを抽出しました。1回warmup後、先行モードを交互にした7組の実行の中央値です。
 
 | モード | Workers | 時間 | 高速化 |
 |---|---:|---:|---:|
@@ -186,17 +185,12 @@ Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部
 
 ## 再現する { #reproduce }
 
-コーパスは`tests/assets/real_world`にあり、出典とライセンスも同じ場所へ記録しています。
+コーパスは[`tests/assets/real_world`](https://github.com/yhay81/pylopdf/tree/main/tests/assets/real_world)にあり、各ファイルの出典とライセンスも記載しています。リポジトリをクローンした場所で次を実行します。
 
 ```bash
 uv sync --all-extras --group bench
-uv run python bench/run.py
-uv run python tools/pyodide_compat.py --root . --benchmark-only \
-  --benchmark-output .tmp/limits-benchmark.json
-# Windowsのfree-threaded CPython 3.14インタープリタで:
-py -3.14t bench/free_threaded.py
-# POSIXで:
-python3.14t bench/free_threaded.py
+uv run python bench/run.py                 # bench/results/latest.md に書き出す
+python3.14t bench/free_threaded.py         # フリースレッド版CPython 3.14が必要
 ```
 
-生成元レポートは[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)へコミットされています。free-threaded専用の生成レポートは[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)へ分離され、`bench/run.py`を再実行してもCPython 3.14tの証跡を上書きしません。native／Pyodideのresource-policy基準値は[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)へ分けてコミットされています。2番目のcommandは上限付きopen／extractと制御された拒否を測定します。CIは同じcaseをPyodide内でも実行し、Wasm linear memoryの増加を記録します。この時間とmemory値は傾向であり、native／Wasmの性能比較ではありません。数値を引用するときは、環境とコーパスを併記してください。
+最新のレポートは[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)と[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)としてコミットしています。数値を引用するときは、計測した環境とコーパスを併記してください。

@@ -146,7 +146,7 @@ These apply to every document, with or without `DocumentLimits`:
 
 - **Deep nesting.** The rendering engine, hayro, reads nested structures
   recursively. Before rendering or extracting a page, pylopdf checks how deeply
-  its content, colour spaces, and functions nest, and refuses a page that would
+  its content, color spaces, and functions nest, and refuses a page that would
   overflow the stack or be silently cut short (`content_nesting_depth`,
   `resource_nesting_depth`, `object_depth`). Other pages of the document stay
   usable.
