@@ -1,32 +1,32 @@
 ---
 title: Concurrency and free-threaded Python
-description: The supported threading boundaries for Documents, Pages, Pixmaps, parallel rendering and CPython 3.14t and 3.15t.
+description: How to use pylopdf from several threads, render pages in parallel, and run on free-threaded CPython 3.14t and 3.15t.
 ---
 
 # Concurrency and free-threaded Python
 
-pylopdf publishes one `abi3` wheel per platform for GIL-enabled CPython
-3.11–3.15 and version-specific wheels for free-threaded CPython (`cp314-cp314t` and `cp315-cp315t`).
-Importing a free-threaded wheel does not re-enable the GIL.
+pylopdf releases the GIL during heavy work such as opening, saving,
+rendering, extraction, merging, and compression, so threads can run in
+parallel on regular CPython. Free-threaded CPython 3.14t and 3.15t have their
+own wheels, which keep the GIL disabled.
 
-## Support contract { #support-contract }
+## What is supported { #support-contract }
 
-| Use | Support |
+| Use | Supported |
 |---|---|
-| GIL-enabled CPython 3.11–3.15 | Supported by the `abi3-py311` wheel |
-| Free-threaded CPython 3.14t and 3.15t | Supported by the `cp314-cp314t` and `cp315-cp315t` wheels and tested with the GIL disabled |
-| Concurrent operations on distinct `Document` objects | Supported; heavy load, save, render, extraction, merge and compression work releases the GIL |
-| Concurrent calls or edits on the same `Document` | Not supported; serialize access with a lock or use independent documents |
-| `Document.render_pages(workers=...)` on one document | Supported; it is the bounded same-document parallel rendering boundary |
-| Concurrent reads from a `Pixmap` | Supported; `Pixmap` is immutable |
+| Different threads working on different `Document` objects | Yes |
+| Several threads calling or editing the same `Document` at once | No: use a lock, or open the file once per thread |
+| `Document.render_pages(workers=...)` on one document | Yes; this is the supported way to render one document in parallel |
+| Several threads reading the same `Pixmap` | Yes; a `Pixmap` cannot be changed |
+| Free-threaded CPython 3.14t and 3.15t | Yes, tested with the GIL disabled |
 
-A `Page` is a view into its parent `Document`, so it follows the same-document
-rule. Simultaneous external access may be rejected by PyO3's runtime borrow
-checks; it must not be used as a synchronization mechanism.
+A `Page` belongs to its `Document` and follows the same rule. pylopdf may
+reject simultaneous calls on one document, but do not count on that as a
+lock.
 
-## Choose the right boundary { #choose-the-right-boundary }
+## Process many files { #many-files }
 
-For independent files, give each worker its own document:
+Give each worker its own document:
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -43,40 +43,35 @@ with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
 
-For many pages of one document, use `render_pages()` instead of calling the
-same document from external threads:
+## Render many pages of one document { #render-pages }
+
+Use `render_pages()` instead of calling one document from several threads:
 
 ```python
 png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
-`render_pages()` uses one immutable renderer snapshot, preserves requested page
-order and duplicates, and caps estimated concurrent working memory at roughly
-512 MB.
+It returns PNG bytes in the order of the requested pages and keeps its
+estimated working memory under about 512 MB by running fewer workers when
+pages are large.
 
 ## Repeated rendering { #repeated-rendering }
 
-Repeated `Page.get_pixmap()`, `Document.get_page_pixmap()`, and serial
-`render_pages()` calls on the thread that opened a document reuse fonts, color
-spaces, and glyph outlines parsed by earlier calls, with output identical to a
-freshly opened document. Each thread retains at most one such cache, covering
-at most 64 distinct pages between calls. Editing the document, changing its
-fallback fonts, or closing it invalidates the cache; on the opening thread this
-frees it immediately, as does dropping the document. A cache invalidated from
-another thread is freed when its thread renders again or exits. Calls from
-other threads and parallel `render_pages()` workers use call-scoped caches.
+Rendering pages of one document again and again, on the thread that opened it,
+reuses the fonts and glyph outlines parsed by earlier calls. The output is the
+same as from a freshly opened document. The cache covers up to 64 pages and is
+freed when you edit or close the document.
 
-## Pixmap buffers { #pixmap-buffers }
+## Pixmaps and NumPy { #pixmap-buffers }
 
-Every wheel exposes the immutable RGB or RGBA pixel storage through a read-only,
-one-dimensional, zero-copy buffer:
+A `Pixmap` exposes its pixels as a read-only buffer, so NumPy can use them
+without copying:
 
 ```python
-view = memoryview(page.get_pixmap())
-assert view.readonly and view.format == "B"
+import numpy as np
+
+pix = page.get_pixmap()
+pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 
-The view keeps its Pixmap alive, so NumPy can read the pixels without a copy
-through `np.frombuffer(pixmap, dtype=np.uint8)`. `pixmap.samples` remains
-available when an independent `bytes` copy is wanted. Every wheel, abi3 and
-free-threaded, exposes the same buffer.
+`pix.samples` returns an independent `bytes` copy instead.

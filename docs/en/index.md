@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: Edit, render and extract PDFs with Python ergonomics and a compact Rust core.
+description: Edit, render, extract, and create PDFs in Python with a pymupdf-style API, a Rust core, and the MIT license.
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">Python-native PDF toolkit</p>
       <h1 id="living-hero-title">PDFs, with <span class="living-annotated">Python ergonomics</span> and a Rust core.</h1>
       <p class="living-lede">
-        Edit, render, extract and generate PDFs through one pymupdf-inspired API—without heavyweight runtime dependencies.
+        Edit, render, extract, and create PDFs with an API that follows pymupdf's, under the MIT license and with nothing else to install.
       </p>
 
       <div class="living-actions">
@@ -35,7 +35,7 @@ hide:
       <ul class="living-proofs" aria-label="Project facts">
         <li>MIT licensed</li>
         <li>7.8–9.1 MB wheels</li>
-        <li>No mandatory Python dependencies</li>
+        <li>No required dependencies</li>
         <li>Python 3.11–3.15</li>
       </ul>
     </div>
@@ -76,19 +76,19 @@ hide:
     <article class="living-capability">
       <span class="living-capability__number">01 / EDIT</span>
       <h2>Edit precisely</h2>
-      <p>Merge, select, annotate, fill forms and preserve the structure that matters.</p>
+      <p>Merge, reorder, and rotate pages, draw text and images, annotate, and fill forms.</p>
       <a class="living-capability__link" href="getting-started/#editing" aria-label="Explore PDF editing">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">02 / RENDER</span>
       <h2>Render faithfully</h2>
-      <p>Turn pages into dependable PNG or SVG output with a compact native engine.</p>
+      <p>Turn pages into PNG or SVG, one at a time or many in parallel.</p>
       <a class="living-capability__link" href="getting-started/#rendering" aria-label="Explore PDF rendering">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">03 / EXTRACT</span>
       <h2>Extract meaning</h2>
-      <p>Read text, words, blocks, geometry and invisible OCR layers through one API.</p>
+      <p>Read text with positions, search, tables, and Markdown, from digital and scanned pages.</p>
       <a class="living-capability__link" href="getting-started/#pages-text-search" aria-label="Explore text extraction">↗</a>
     </article>
   </section>
@@ -127,18 +127,18 @@ hide:
       <p class="living-eyebrow">Deliberate scope</p>
       <h2 id="living-scope-title">A focused PDF core that works with the Python ecosystem.</h2>
       <p>
-        The project publishes reproducible benchmarks—including losses—and uses
-        established tools instead of rebuilding adjacent domains.
+        pylopdf concentrates on working with PDFs and pairs with established
+        tools for typesetting, signatures, and validation.
       </p>
     </div>
     <div class="living-scope">
       <div class="living-scope__column">
         <h3>Inside pylopdf</h3>
         <ul>
-          <li>Page management, metadata, outlines and encryption</li>
-          <li>Positioned text extraction, search and Markdown conversion</li>
-          <li>PNG/SVG rendering, images, annotations and OCR text layers</li>
-          <li>AcroForm filling, attachments and page labels</li>
+          <li>Page management, metadata, outlines, and encryption</li>
+          <li>Text extraction with positions, search, tables, and Markdown</li>
+          <li>PNG and SVG rendering, images, drawing, annotations, and OCR</li>
+          <li>Form filling, attachments, and page labels</li>
         </ul>
       </div>
       <div class="living-scope__column">
@@ -146,8 +146,8 @@ hide:
         <ul>
           <li>Typesetting and new PDF/A documents with <a href="ecosystem/#typesetting">Typst</a></li>
           <li>PAdES signatures with <a href="ecosystem/#signatures">pyHanko</a></li>
-          <li>PDF/A validation with veraPDF</li>
-          <li>Any OCR engine that returns words and rectangles</li>
+          <li>PDF/A validation with <a href="ecosystem/#new-pdfa">veraPDF</a></li>
+          <li>Any <a href="ecosystem/#ocr">OCR engine</a> that returns words and rectangles</li>
         </ul>
       </div>
     </div>

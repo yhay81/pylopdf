@@ -1,48 +1,48 @@
 # pylopdf
 
-> Python-native PDF editing, extraction and rendering powered by Rust.
+> Edit, render, extract, and create PDFs in Python. pylopdf follows
+> pymupdf's API, is built on a Rust core, and is MIT licensed.
 
-Canonical documentation: https://pylopdf.haya.works/
+Documentation: https://pylopdf.haya.works/
 Japanese documentation: https://pylopdf.haya.works/ja/
 Simplified Chinese documentation: https://pylopdf.haya.works/zh-cn/
 Korean documentation: https://pylopdf.haya.works/ko/
 Source: https://github.com/yhay81/pylopdf
 PyPI: https://pypi.org/project/pylopdf/
 
-Core pages:
+Pages:
 - Getting started: https://pylopdf.haya.works/getting-started/
-- WebAssembly compatibility: https://pylopdf.haya.works/wasm/
-- API overview: https://pylopdf.haya.works/api/
-- Ecosystem recipes: https://pylopdf.haya.works/ecosystem/
 - Migrating from pymupdf: https://pylopdf.haya.works/migration/
-- Benchmarks: https://pylopdf.haya.works/benchmarks/
+- Offline OCR: https://pylopdf.haya.works/ocr/
 - Concurrency: https://pylopdf.haya.works/concurrency/
+- WebAssembly: https://pylopdf.haya.works/wasm/
+- Ecosystem recipes: https://pylopdf.haya.works/ecosystem/
+- API reference: https://pylopdf.haya.works/api/
 - Security: https://pylopdf.haya.works/security/
 - API stability: https://pylopdf.haya.works/stability/
-- Language policy: https://pylopdf.haya.works/languages/
+- Benchmarks: https://pylopdf.haya.works/benchmarks/
+- Contributing and support: https://pylopdf.haya.works/contributing/
 
 Key facts:
-- MIT licensed.
-- Zero runtime dependencies.
-- Approximately 6.4–7.4 MiB thin-LTO abi3 wheels for Python 3.11 through
-  3.15, plus cp314t and cp315t wheels for free-threaded Python 3.14 and
-  3.15.
-- A release-gated PyEmscripten wheel targets Pyodide 0.28.3 and Cloudflare
-  Python Workers starting after v0.10.0.
-- 0-based pages everywhere; get_outline/set_outline replace pymupdf's 1-based get_toc/set_toc.
-- Top-left-origin display coordinates across extraction, drawing and rendering.
-- Immutable Point and Matrix NamedTuples support affine operators: p * m,
-  left * right (left transform first), and ~m. Replace mutating transform
-  or pretranslate calls with assignment of the corresponding operator result.
-- Rect, IRect and Quad are immutable NamedTuples with pymupdf's operators:
-  r | p (include), r & o (intersect), r * m (transform), p in r, r.round(),
-  r.torect(o), rect.quad, quad.rect. Replace include_point, include_rect,
-  intersect, normalize and transform with assignment (r = r.normalized()).
-  get_pixmap(matrix=) takes scaling matrices; dpi= takes precedence.
-- DocumentLimits.web(), including its renderer/extractor PDF snapshot cap,
-  LimitError.code and doc.complexity provide a shared native/Wasm policy
-  boundary for untrusted uploads.
-- PDF only; typesetting, signatures and PDF/A validation use ecosystem integrations.
+- MIT licensed, no required Python dependencies, Python 3.11 or newer.
+- Wheels for Linux, macOS, and Windows, including free-threaded CPython 3.14t
+  and 3.15t, plus a WebAssembly wheel for Pyodide 0.28.3 and Cloudflare
+  Python Workers.
+- Pre-1.0: breaking changes can still happen; the documentation follows the
+  main branch.
+- PDF files only. Typesetting, digital signatures, and PDF/A validation are
+  done with typst, pyHanko, and veraPDF.
+- Page numbers start at 0 everywhere; get_outline/set_outline replace
+  pymupdf's 1-based get_toc/set_toc.
+- Coordinates are points with a top-left origin in the displayed page,
+  shared by extraction, search, drawing, and rendering.
+- Point, Matrix, Rect, IRect, and Quad are immutable NamedTuples with
+  pymupdf's operators: p * m, left * right (left transform first), ~m,
+  r | p (include), r & o (intersect), r * m (transform), p in r. Replace
+  in-place methods such as transform, normalize, or pretranslate with
+  assignment of the operator result (r = r.normalized()).
+- get_pixmap(matrix=) takes scaling matrices only; dpi= takes precedence.
+- DocumentLimits.web() and LimitError.code bound untrusted input.
 
 Migrating pymupdf code:
 - python -m pylopdf.migrate PATH (pip install "pylopdf[migrate]") renames the
