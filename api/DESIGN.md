@@ -121,6 +121,9 @@ pylopdf replaces a pymupdf design only for one of these reasons:
 - magic numbers that a typed value cannot keep compatible;
 - unsafe or surprising defaults;
 - process-global mutable state (`TOOLS`);
+- a lossy conversion that drops what the PDF holds (`language` keeps at
+  most three letters of a BCP 47 tag, so `zh-TW` and `zh-HK` both read as
+  `zh-Hant` and `en-US` as `en`);
 - a standard Python protocol — mapping, sequence, iterator, or context
   manager — that replaces a bespoke family of methods (`embfile_*`).
 
@@ -398,7 +401,8 @@ Records: Word, Block, ImageItem, TypedDict formats, frozen dataclasses
 | `get_page_labels()`, `set_page_labels(labels)`, `Page.get_label()` | same | same | |
 | `Document.get_outline()` → `list[OutlineEntry]`, `Document.set_outline(entries)` | `get_toc()`, `set_toc()` | replaced | M0. `OutlineEntry(level, title, page)` is a NamedTuple with a zero-based `page`; M5 adds destinations, styles, and collapse state to it, so `get_outline()` and `set_outline()` round-trip everything an outline item holds. Editing that list replaces pymupdf's `set_toc_item` and `del_toc_item` (R1), while pymupdf's `Document.outline` and `Outline` items keep pymupdf's names and meaning in M5. The hint reads: "pylopdf's get_outline uses zero-based pages; get_toc used one-based pages"; done. |
 | `Document.attachments` → `Attachments` | `embfile_*` | replaced | M0. A `Mapping[str, Attachment]` with `add(name, data, /, *, filename=None, description=None, max_size=...)` and `del attachments[name]`. An `Attachment` has `name`, `filename`, `description`, `size`, `creation_date`, `mod_date`, `read(*, max_size=...)`, and `write(data, /, *, max_size=...)`; done. |
-| `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | same | same | M5. |
+| `get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | same | same | M5; done. |
+| `Document.language_tag` → `str \| None`, `Document.set_language_tag(tag)` | `language`, `set_language()` | replaced | M5; done. R3: MuPDF packs `/Lang` into at most three letters, so pymupdf reads and writes `en-US` as `en`, and `zh-CN`, `zh-TW`, and `zh-HK` as `zh-Hans` or `zh-Hant`. pylopdf reads and writes the complete BCP 47 tag; `None` removes `/Lang`, and a malformed tag raises. The maintainer chose the new name on 2026-10-21. `Page.language` waits for M6, because ISO 32000 defines `/Lang` on structure elements and marked content rather than on pages. |
 | Layers: `get_ocgs`, `add_ocg`, `set_layer`, `get_layer`, and the rest | same | same | M5, followed by `oc=` on the insertion APIs. |
 
 ## 9. Annotations and links

@@ -739,10 +739,11 @@ The first M5 slice landed on 2026-10-21: `get_xml_metadata`,
 `pagelayout`, `set_pagelayout`, `markinfo`, `set_markinfo`, `has_links`,
 `has_annots`, `is_closed`, `is_pdf`, and `name`, each with pymupdf's meaning.
 On the bundled corpus the XMP text, page mode, page layout, MarkInfo, and
-link and annotation presence equal pymupdf 1.28.2's for all 14 files. The 14
-manifest entries raise coverage from 45.3% to 47.2%. `language` and
-`set_language` wait for a decision: MuPDF stores at most three letters of
-`/Lang`, so pymupdf reads `en-US` as `en` and writes only `en`.
+link and annotation presence equal pymupdf 1.28.2's for all 14 files. The 16
+manifest entries raise coverage from 45.3% to 47.4%. pymupdf's
+`language` and `set_language` are replaced by `language_tag` and
+`set_language_tag` (D15), and `Page.language` moves to M6 with tagged-PDF
+structure.
 
 ### M6 — Document intelligence
 
@@ -965,6 +966,11 @@ answer.
   fans out.
 - **D14**: on 2026-10-20 the maintainer approved the API design (F0) with all
   twelve of its decisions, which closed wave 0.
+- **D15**: on 2026-10-21 the maintainer chose to replace pymupdf's
+  `language` and `set_language`, which keep at most three letters of a BCP 47
+  tag and cannot tell `zh-TW` from `zh-HK`, with `language_tag` and
+  `set_language_tag`, which keep the complete tag. R3 of the API design gains
+  lossy conversions as a reason to redesign.
 
 ## Evidence log
 

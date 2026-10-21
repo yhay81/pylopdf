@@ -232,6 +232,7 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "xref_stream": _one_argument("xref", "{receiver}.objects[{value}].read()"),
     "xref_stream_raw": _one_argument("xref", "{receiver}.objects[{value}].read(decode=False)"),
     "update_stream": _update_stream,
+    "set_language": _one_argument("language", "{receiver}.set_language_tag({value})"),
 }
 
 

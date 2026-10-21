@@ -1280,6 +1280,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "language_tag": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
@@ -1676,6 +1680,23 @@
                 "default": 67108864,
                 "kind": "keyword_only",
                 "name": "max_font_size"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_language_tag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str | None",
+                "kind": "positional_or_keyword",
+                "name": "tag"
               }
             ],
             "returns": "None"
@@ -8672,6 +8693,10 @@
           "kind": "property",
           "returns": "bool"
         },
+        "language_tag": {
+          "kind": "property",
+          "returns": "str | None"
+        },
         "limits": {
           "kind": "property",
           "returns": "DocumentLimits"
@@ -9068,6 +9093,23 @@
                 "default": 67108864,
                 "kind": "keyword_only",
                 "name": "max_font_size"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_language_tag": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str | None",
+                "kind": "positional_or_keyword",
+                "name": "tag"
               }
             ],
             "returns": "None"

@@ -2226,10 +2226,12 @@ overview.
   `/PageMode`, `/PageLayout`, and `/MarkInfo` read through the object model
   and write through `set_catalog_name` and `set_mark_info`, which keep
   placements; `has_links` and `has_annots` scan every page's `/Annots` with
-  the page index and release the GIL. `language` and `set_language` are not
-  provided yet: MuPDF packs `/Lang` into at most three letters, so pymupdf
-  reads `en-US` as `en` and writes only that, which needs a decision under
-  the API rule before either lands.
+  the page index and release the GIL. `language_tag` and `set_language_tag`
+  replace pymupdf's `language` and `set_language` (ROADMAP D15): MuPDF packs
+  `/Lang` into at most three letters, so pymupdf reads `en-US` as `en` and
+  cannot tell `zh-TW` from `zh-HK`. They read and write the complete BCP 47
+  tag, which Python and `is_language_tag` in Rust both check for shape
+  (subtags of one to eight ASCII letters or digits, at most 256 bytes).
 - The low-level object model (`rust/src/document/lowlevel.rs`,
   `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
   `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a

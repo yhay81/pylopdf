@@ -6,6 +6,7 @@ import functools
 import io
 import math
 import os
+import re
 import secrets
 import stat
 import sys
@@ -39,7 +40,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
-from pylopdf._objects import Dictionary, Name, Objects
+from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._tables import (
@@ -278,6 +279,8 @@ _READ_ONLY_METADATA_KEYS = frozenset({"format", "encryption"})
 _PAGE_MODES = ("UseNone", "UseOutlines", "UseThumbs", "FullScreen", "UseOC", "UseAttachments")
 _PAGE_LAYOUTS = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "TwoPageLeft", "TwoPageRight")
 _MARK_INFO_KEYS = ("Marked", "UserProperties", "Suspects")
+_MAX_LANGUAGE_TAG_BYTES = 256
+_LANGUAGE_TAG = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", re.ASCII)
 # pymupdf's accepted spellings of the one file type that pylopdf opens.
 _PDF_FILETYPES = frozenset({"pdf", ".pdf", "application/pdf"})
 
@@ -412,6 +415,11 @@ def _catalog_name(value: str, valid: tuple[str, ...], key: str) -> str:
                 return name
     msg = f"bad {key} value: {value!r} (valid: {list(valid)})"
     raise PdfError(msg)
+
+
+def _is_language_tag(tag: object) -> bool:
+    """Return whether ``tag`` has the shape of a BCP 47 language tag of at most 256 bytes."""
+    return isinstance(tag, str) and len(tag) <= _MAX_LANGUAGE_TAG_BYTES and _LANGUAGE_TAG.fullmatch(tag) is not None
 
 
 def _rewrite_dpi(name: str, value: object) -> float:
@@ -829,6 +837,33 @@ class Document:
         self._ensure_open()
         self._doc.set_catalog_name("PageLayout", _catalog_name(pagelayout, _PAGE_LAYOUTS, "PageLayout"))
         return True
+
+    @property
+    def language_tag(self) -> str | None:
+        """Return the catalog's ``/Lang`` language tag as stored, or ``None``.
+
+        The complete BCP 47 tag is returned, such as ``"zh-TW"`` or
+        ``"sr-Latn-RS"``. pymupdf's ``language`` keeps at most three letters
+        and maps Chinese tags to ``zh-Hans`` or ``zh-Hant``, so pylopdf
+        replaces it under this name.
+        """
+        self._ensure_open()
+        value = self.catalog.get("Lang")
+        return value.text if isinstance(value, String) else None
+
+    def set_language_tag(self, tag: str | None) -> None:
+        """Store ``tag`` as the catalog's ``/Lang``, or remove it for ``None``.
+
+        The tag is written unchanged and must be a well-formed BCP 47 tag
+        (ISO 32000-2 §14.9.2.2) of at most 256 bytes: hyphen-separated
+        subtags of one to eight ASCII letters or digits, the first of letters
+        only. Anything else raises :class:`PdfError`, a ``ValueError``.
+        """
+        self._ensure_open()
+        if tag is not None and not _is_language_tag(tag):
+            msg = f"not a well-formed BCP 47 language tag: {tag!r}"
+            raise PdfError(msg)
+        self._doc.set_language_tag(tag)
 
     @property
     def markinfo(self) -> MarkInfo:

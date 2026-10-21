@@ -1327,6 +1327,12 @@ impl _Document {
         metadata::set_catalog_name(self, key, value)
     }
 
+    /// Write or, for `None`, remove the catalog's `/Lang` language tag.
+    #[pyo3(signature = (tag))]
+    fn set_language_tag(&mut self, tag: Option<&str>) -> PyResult<()> {
+        metadata::set_language_tag(self, tag)
+    }
+
     /// Replace the catalog's `/MarkInfo` dictionary.
     fn set_mark_info(
         &mut self,

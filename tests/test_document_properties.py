@@ -358,3 +358,82 @@ def test_property_edits_keep_page_views_valid() -> None:
     doc.set_markinfo({"Marked": True})
     doc.del_xml_metadata()
     assert page.get_text().strip() == "plain"
+
+
+# --- language tags -----------------------------------------------------------
+
+
+def test_language_tag_reads_the_stored_tag_unchanged() -> None:
+    assert pylopdf.open(stream=build_pdf(["plain"])).language_tag is None
+    # pymupdf reads these as "en" and "zh-Hant"; pylopdf keeps the whole tag.
+    assert pylopdf.open(stream=_catalog_pdf("/Lang (en-GB)")).language_tag == "en-GB"
+    assert pylopdf.open(stream=_catalog_pdf("/Lang 4 0 R", "(zh-HK)")).language_tag == "zh-HK"
+    utf16 = "<FEFF007A0068002D00540057>"  # "zh-TW" as a UTF-16BE text string
+    assert pylopdf.open(stream=_catalog_pdf(f"/Lang {utf16}")).language_tag == "zh-TW"
+    # A malformed stored value reads as stored; a value that is no string reads as absent.
+    assert pylopdf.open(stream=_catalog_pdf("/Lang (not a tag)")).language_tag == "not a tag"
+    assert pylopdf.open(stream=_catalog_pdf("/Lang /en")).language_tag is None
+
+
+@pytest.mark.parametrize(
+    "tag", ["zh-CN", "zh-TW", "zh-HK", "en-US", "pt-BR", "sr-Latn-RS", "ja", "x-private", "de-CH-1996"]
+)
+def test_set_language_tag_keeps_the_complete_tag(tag: str) -> None:
+    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    assert doc.set_language_tag(tag) is None
+    assert doc.language_tag == tag
+    lang = doc.catalog["Lang"]
+    assert isinstance(lang, pylopdf.String)
+    assert bytes(lang) == tag.encode()
+    assert pylopdf.open(stream=doc.tobytes()).language_tag == tag
+
+
+def test_set_language_tag_none_removes_lang() -> None:
+    doc = pylopdf.open(stream=_catalog_pdf("/Lang (en-US)"))
+    doc.set_language_tag(None)
+    assert "Lang" not in doc.catalog
+    assert doc.language_tag is None
+    doc.set_language_tag(None)  # Removing an absent tag changes nothing.
+    assert pylopdf.open(stream=doc.tobytes()).language_tag is None
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "",
+        "-",
+        "en-",
+        "en--US",
+        "1en",
+        "en_US",
+        "en US",
+        "toolongtag",
+        "en-123456789",
+        "ja\n",
+        "日本語",
+        "a" + "-a" * 128,
+        5,
+    ],
+)
+def test_set_language_tag_rejects_malformed_tags(tag: object) -> None:
+    doc = pylopdf.open(stream=_catalog_pdf("/Lang (ja)"))
+    with pytest.raises(pylopdf.PdfError, match="BCP 47"):
+        doc.set_language_tag(tag)  # ty: ignore[invalid-argument-type]
+    assert doc.language_tag == "ja"
+
+
+def test_set_language_tag_repeats_the_check_in_rust() -> None:
+    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    for tag in ("en_US", "a" + "-a" * 128):
+        with pytest.raises(pylopdf.PdfError, match="BCP 47"):
+            doc._doc.set_language_tag(tag)  # noqa: SLF001 - the core repeats the check.
+    doc._doc.set_language_tag("a" + "-a" * 127)  # noqa: SLF001 - 255 bytes is accepted.
+    assert doc.language_tag == "a" + "-a" * 127
+
+
+def test_pymupdf_language_names_raise_migration_hints() -> None:
+    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    with pytest.raises(AttributeError, match="language_tag"):
+        _ = doc.language  # ty: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match="set_language_tag"):
+        doc.set_language("en-US")  # ty: ignore[unresolved-attribute]

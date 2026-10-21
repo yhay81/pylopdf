@@ -681,6 +681,54 @@ pub(super) fn set_catalog_name(this: &mut _Document, key: &str, value: &str) -> 
     Ok(())
 }
 
+/// The longest `/Lang` tag that `set_language_tag` writes.
+const MAX_LANGUAGE_TAG_BYTES: usize = 256;
+
+/// Whether `tag` has the shape of a BCP 47 language tag (ISO 32000-2
+/// §14.9.2.2): hyphen-separated subtags of one to eight ASCII letters and
+/// digits, the first of letters only, at most 256 bytes in all.
+pub(super) fn is_language_tag(tag: &str) -> bool {
+    tag.len() <= MAX_LANGUAGE_TAG_BYTES
+        && tag.split('-').enumerate().all(|(index, subtag)| {
+            (1..=8).contains(&subtag.len())
+                && subtag.bytes().all(|byte| {
+                    if index == 0 {
+                        byte.is_ascii_alphabetic()
+                    } else {
+                        byte.is_ascii_alphanumeric()
+                    }
+                })
+        })
+}
+
+/// Implements [`_Document::set_language_tag`]: write the complete tag as the
+/// catalog's `/Lang` text string, or remove `/Lang` for `None`.
+pub(super) fn set_language_tag(this: &mut _Document, tag: Option<&str>) -> PyResult<()> {
+    if let Some(tag) = tag
+        && !is_language_tag(tag)
+    {
+        return Err(PdfError::new_err(format!(
+            "not a well-formed BCP 47 language tag: {tag:?}"
+        )));
+    }
+    let catalog = this.doc.catalog().map_err(to_py_err)?;
+    if tag.is_none() && !catalog.has(b"Lang") {
+        return Ok(());
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    let catalog = this.doc.catalog_mut().map_err(to_py_err)?;
+    match tag {
+        Some(tag) => catalog.set(
+            "Lang",
+            Object::String(tag.as_bytes().to_vec(), StringFormat::Literal),
+        ),
+        None => {
+            catalog.remove(b"Lang");
+        }
+    }
+    Ok(())
+}
+
 /// Implements [`_Document::set_mark_info`]: replace `/MarkInfo` with a
 /// direct dictionary of all three entries, as pymupdf writes it.
 pub(super) fn set_mark_info(

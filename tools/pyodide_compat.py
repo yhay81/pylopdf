@@ -1263,6 +1263,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     _require(document.set_pagemode("/useoutlines"), "set_pagemode did not return True")
     _require(document.set_pagelayout("TwoColumnRight"), "set_pagelayout did not return True")
     _require(document.set_markinfo({"Marked": True}), "set_markinfo did not return True")
+    document.set_language_tag("zh-TW")
     data = document.tobytes(deflate=True)
     _require(packet.encode() in data, "deflate compressed the XMP packet")
     saved = pylopdf.Document(stream=data)
@@ -1274,6 +1275,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "pagemode": saved.pagemode,
         "pagelayout": saved.pagelayout,
         "markinfo": saved.markinfo,
+        "language_tag": saved.language_tag,
         "xmp_limit": _exception_name(lambda: saved.set_xml_metadata("x" * 10, max_size=9)),
         "name": [form.name is not None, saved.name, saved.is_pdf, saved.is_closed],
     }
