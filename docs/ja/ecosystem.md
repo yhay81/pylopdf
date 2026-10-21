@@ -72,3 +72,15 @@ pylopdf 自身のフォーム API は署名フィールドへの記入を意図�
 ## OCR = 好きなエンジンを持ち込む { #ocr }
 
 `Page.insert_ocr_text_layer(words)` は、クラウド API でも Tesseract でも`(x0, y0, x1, y1, テキスト)` を返すあらゆる OCR の結果を不可視テキスト層として書き込み、スキャン PDF を searchable にします（フォント非埋め込みでサイズ増はほぼゼロ）。その後は `to_markdown()` もスキャン PDF に対して機能します。
+
+```python
+import pylopdf
+
+words = [  # OCR エンジンの結果（表示座標）
+    (72, 90, 140, 104, "Invoice"),
+    (146, 90, 190, 104, "#1024"),
+]
+with pylopdf.open("scan.pdf") as doc:
+    doc[0].insert_ocr_text_layer(words)
+    doc.save("searchable.pdf")
+```

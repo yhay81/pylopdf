@@ -39,6 +39,7 @@ def extract(path: str) -> str:
         return document.to_markdown()
 
 
+paths = ["a.pdf", "b.pdf", "c.pdf"]
 with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
@@ -47,7 +48,8 @@ with ThreadPoolExecutor() as pool:
 말고 `render_pages()`를 사용합니다.
 
 ```python
-png_pages = document.render_pages(dpi=144, workers=4)
+with pylopdf.open("report.pdf") as document:
+    png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 `render_pages()`는 하나의 불변 렌더러 snapshot을 사용하고 요청한 페이지 순서와 중복을

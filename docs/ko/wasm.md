@@ -1,3 +1,8 @@
+---
+title: WebAssembly 호환성
+description: PyEmscripten wheel로 Pyodide와 Cloudflare Python Workers에서 pylopdf를 실행하는 방법과 테스트된 환경, 제한 사항입니다.
+---
+
 # WebAssembly 호환성
 
 pylopdf는 Pyodide 0.28.3과 Cloudflare Python Workers가 사용하는 Python 3.13 ABI용
