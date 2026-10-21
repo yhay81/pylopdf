@@ -24,5 +24,4 @@ description: pylopdf文档的重要语言、翻译优先级与维护规则。
 - 版本、性能数字与安全建议必须在同一变更中同步。
 - 新内容先修改英文正本，再更新P1语言。
 
-完整的选择依据、晋级条件与资料来源见仓库中的
-[`LANGUAGES.md`](https://github.com/yhay81/pylopdf/blob/main/LANGUAGES.md)。
+完整的选择依据、晋级条件与资料来源见仓库中的[`LANGUAGES.md`](https://github.com/yhay81/pylopdf/blob/main/LANGUAGES.md)。

@@ -5,10 +5,7 @@ description: 将pymupdf工作流映射到pylopdf，并理解类型、行为与�
 
 # 从pymupdf迁移
 
-pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的数据形状——`"words"`
-元组、`"dict"`结构、`search_for → list[Rect]`——与pymupdf一致，
-因此多数提取与页面管理代码只需少量修改。本页列出可直接迁移的部分、行为差异，
-以及pylopdf有意不实现的功能应由什么替代。
+pylopdf的风格接近pymupdf，但并非直接替代品。影响迁移成本的数据形状——`"words"`元组、`"dict"`结构、`search_for → list[Rect]`——与pymupdf一致，因此多数提取与页面管理代码只需少量修改。本页列出可直接迁移的部分、行为差异，以及pylopdf有意不实现的功能应由什么替代。
 
 !!! note
     pylopdf**只处理PDF文件**。pymupdf打开XPS、EPUB和图像的能力不在其范围内。
@@ -22,13 +19,7 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-它会重命名`fitz`和`pymupdf`的import，改写可机械替换的部分——带页码换算的
-`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取、`copy_page`，以及就地修改的
-`Rect`/`Point`/`Matrix`方法——并在仍需人工处理的语句上方添加
-`# TODO(pylopdf): …`注释，最后以`path:line: message`形式列出这些步骤。`--diff`
-只打印变更而不写入，`--check`在有文件会被修改时以状态1退出。由于无法得知接收者的
-类型，请审阅diff。运行时查找pylopdf没有的pymupdf名称会引发`AttributeError`，
-其消息会给出替代API或计划提供它的里程碑。
+它会重命名`fitz`和`pymupdf`的import，改写可机械替换的部分——带页码换算的`get_toc`/`set_toc`、`embfile_*`、`xref_*`流读取、`copy_page`，以及就地修改的`Rect`/`Point`/`Matrix`方法——并在仍需人工处理的语句上方添加`# TODO(pylopdf): …`注释，最后以`path:line: message`形式列出这些步骤。`--diff`只打印变更而不写入，`--check`在有文件会被修改时以状态1退出。由于无法得知接收者的类型，请审阅diff。运行时查找pylopdf没有的pymupdf名称会引发`AttributeError`，其消息会给出替代API，或说明该功能尚不支持。
 
 ## 快速对照 { #mapping }
 
@@ -38,18 +29,18 @@ python -m pylopdf.migrate src/
 | `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 相同 | `open`就是`Document`；`filetype=`仅接受`"pdf"`；`password=`为仅限关键字参数，上限127 UTF-8 byte |
 | `doc[i]`、`len(doc)`、迭代 | 相同 | 从0开始，支持负数索引 |
 | `doc.metadata` / `set_metadata` | 相同 | 键名也相同 |
-| `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` |
+| `page.get_text()` | 相同 | 选项：`text` / `words` / `blocks` / `dict` / `rawdict` |
 | `page.search_for(t)` | 相同，并有`max_hits=4096` | 返回有界`list[Rect]`；搜索词上限4,096 byte，`max_hits=None`取消，无`quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 相同 | 默认不透明RGB，`alpha=True`时为RGBA；`dpi=`优先；仅支持缩放matrix，尚无`colorspace=`与`annots=` |
 | `page.get_svg_image()` | 相同 | `matrix`仅限恒等；`text_as_path=False`会抛出异常 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 相同 | RGB，`alpha=True`时为straight-alpha RGBA；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(filename)`生成PNG，`save`需要`.png` |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 相同 | `extract_image`以JPEG直通DCT，其他filter解码为PNG；`get_image_info(hashes=True)`在支持digest前会抛出异常 |
-| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 相同 | 在M3加入setter前为只读；`rect`使用显示坐标 |
+| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 相同 | 目前为只读；`rect`使用显示坐标 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 相同 | `Quad`按外接矩形处理；`insert_link`仅支持`LINK_URI` |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 仅将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG，因此缩小需要`quality` 1–100；`set_to_gray`和`options`会引发异常；跳过bitonal图像；返回计数而非`None` |
 | `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
-| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象（G8） |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象 |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)`的`page`从0开始（pymupdf从1开始） |
 | `doc.save(garbage=4, deflate=True)` | 相同 | 与pymupdf相同的0–4级；页面、注释、表单字段、结构元素和图层不会合并 |
@@ -72,48 +63,21 @@ python -m pylopdf.migrate src/
 
 ## 行为差异 { #behavioral-differences }
 
-- **坐标**：两者均使用左上角原点的显示空间。pylopdf在提取、搜索、绘制和渲染中，
-  对旋转页面也始终保持同一坐标系。
-- **类型**：`Rect`是不可变`NamedTuple`（`x0, y0, x1, y1`以及`width` / `height`），
-  `Point`是含`x, y`的`NamedTuple`，由`draw_*`返回。没有`Matrix` / `Quad`类；API
-  使用普通元组（quad为四个点）和`scale=` / `dpi=`关键字。
-- **过期Page**：删除、插入或重排等结构变更后，先前获取的`Page`会抛出
-  `StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
-- **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、
-  `DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。
-  `except ValueError`仍然有效。pymupdf的`FileDataError`与`EmptyFileError`
-  名称相同，并同时继承`RuntimeError`；文件不存在时抛出Python内置的
-  `FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为
-  `except FileNotFoundError`。
+- **坐标**：两者均使用左上角原点的显示空间。pylopdf在提取、搜索、绘制和渲染中，对旋转页面也始终保持同一坐标系。
+- **类型**：`Rect`是不可变`NamedTuple`（`x0, y0, x1, y1`以及`width` / `height`），`Point`是含`x, y`的`NamedTuple`，由`draw_*`返回。没有`Matrix` / `Quad`类；API使用普通元组（quad为四个点）和`scale=` / `dpi=`关键字。
+- **过期Page**：删除、插入或重排等结构变更后，先前获取的`Page`会抛出`StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
+- **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、`DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。`except ValueError`仍然有效。pymupdf的`FileDataError`与`EmptyFileError`名称相同，并同时继承`RuntimeError`；文件不存在时抛出Python内置的`FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为`except FileNotFoundError`。
 - **资源策略**：`DocumentLimits.web()`将传给rendering／extraction的完整PDF
-  snapshot限制为64 MiB，并将累计带位置文本限制为65,536个glyph record。自定义策略
-  可设置`max_interpretation_size`和`max_text_glyphs`；`None`保留兼容的无上限行为。
-- **`get_text`选项**仅有`text` / `words` / `blocks` / `dict`，没有`html` /
-  `rawdict` / `xml`。对嵌入字体，span字典包含`font`和兼容pymupdf的`flags`
-  （bold/italic/serif/mono）。
-- **多栏文本**通过确定性的栏间空白检测排序：先在每栏内从上到下，再按栏从左到右。
-  小于1 em的窄栏间距只有在两侧都有充分正文且多行密集重复时才会采用；对齐标签、
-  点引导线以及包含多个分隔位置的密集行仍保持按行顺序。确认后的分栏边界会跟随
-  扫描件或OCR文本层中的小幅水平漂移。
-- **`Page.find_tables()`**可从描边线或细长填充矩形重建轴对齐边框网格，
-  并支持矩形合并单元格。指定`strategy="text"`可启用高置信度无边框表格检测；
-  与对齐的多栏正文之间仍存在几何歧义。使用`clip=`可只保留完整位于已知显示坐标
-  区域内的表格；排序无边框结果时可检查`Table.confidence` /
+  snapshot限制为64 MiB，并将累计带位置文本限制为65,536个glyph record。自定义策略可设置`max_interpretation_size`和`max_text_glyphs`；`None`保留兼容的无上限行为。
+- **`get_text`选项**仅有`text` / `words` / `blocks` / `dict` / `rawdict`，没有`html` / `xml`。对嵌入字体，span字典包含`font`和兼容pymupdf的`flags`（bold/italic/serif/mono）。
+- **多栏文本**通过确定性的栏间空白检测排序：先在每栏内从上到下，再按栏从左到右。小于1 em的窄栏间距只有在两侧都有充分正文且多行密集重复时才会采用；对齐标签、点引导线以及包含多个分隔位置的密集行仍保持按行顺序。确认后的分栏边界会跟随扫描件或OCR文本层中的小幅水平漂移。
+- **`Page.find_tables()`**可从描边线或细长填充矩形重建轴对齐边框网格，并支持矩形合并单元格。指定`strategy="text"`可启用高置信度无边框表格检测；与对齐的多栏正文之间仍存在几何歧义。使用`clip=`可只保留完整位于已知显示坐标区域内的表格；排序无边框结果时可检查`Table.confidence` /
   `Table.diagnostics`。
-- **`to_markdown()`**按阅读顺序插入完整边框表，并从周围正文中移除单元格文本。
-  指定`table_strategy="text"`可加入保守的无边框候选；设为`None`可禁用表格转换。
-- **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用
-  Helvetica自动缩小；Unicode需传入OpenType字体，或安装对应script／locale font
-  extra。地区汉字可用`font_language=`指定。comb文本字段遵循继承的`MaxLen`与
-  对齐方式。富文本、pushbutton和签名仍
-  不在API范围内。
-- **合并表单**时，`insert_pdf()`与pymupdf默认的`widgets=True`一样始终注册导入
-  页面的字段。接收文档已使用的顶层名称会像qpdf那样变为未使用的最小`name+N`，
-  因此同一表单合并后的各副本保持独立的值；没有把它们合并为一个字段的
-  `join_duplicates=`。指定页面范围时，不导入其他页面的widget以及因此不再有
-  widget的字段。
-- **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。
-  尚不解释注音、夹注及横竖混排等复杂排版。
+- **`to_markdown()`**按阅读顺序插入完整边框表，并从周围正文中移除单元格文本。指定`table_strategy="text"`可加入保守的无边框候选；设为`None`可禁用表格转换。
+- **表单填写**会写入值和原生外观，可在pylopdf及外部查看器中渲染。WinAnsi使用Helvetica自动缩小；Unicode需传入OpenType字体，或安装对应script／locale font
+  extra。地区汉字可用`font_language=`指定。comb文本字段遵循继承的`MaxLen`与对齐方式。富文本、pushbutton和签名仍不在API范围内。
+- **合并表单**时，`insert_pdf()`与pymupdf默认的`widgets=True`一样始终注册导入页面的字段。接收文档已使用的顶层名称会像qpdf那样变为未使用的最小`name+N`，因此同一表单合并后的各副本保持独立的值；没有把它们合并为一个字段的`join_duplicates=`。指定页面范围时，不导入其他页面的widget以及因此不再有widget的字段。
+- **CJK竖排文字**采用保守检测：列内从上到下，列间从右到左。尚不解释注音、夹注及横竖混排等复杂排版。
 
 ## 有意不实现的功能 — 使用生态系统 { #deliberate-scope }
 
@@ -121,7 +85,7 @@ python -m pylopdf.migrate src/
 |---|---|
 | Story API / `insert_htmlbox`（排版） | 通过typst-py使用typst — [方案](ecosystem.md) |
 | 数字签名 | pyHanko（MIT）— [方案](ecosystem.md) |
-| 增量保存 | 当前不支持；pylopdf会重写整个文件，并将其保留在观察列表中；签名由pyHanko处理 |
+| 增量保存 | 当前不支持；pylopdf会重写整个文件；增量保存已在计划中；签名由pyHanko处理 |
 | 打开XPS / EPUB / CBZ / 图像 | 超出范围，只处理PDF |
 
 ## 迁移示例 { #worked-example }

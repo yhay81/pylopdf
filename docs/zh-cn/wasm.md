@@ -1,12 +1,6 @@
 # WebAssembly 兼容性
 
-pylopdf 为 Pyodide 0.28.3 和 Cloudflare Python Workers 使用的 Python 3.13 ABI
-构建静态 PyEmscripten wheel。它包含与原生 wheel 相同的 Rust PDF 引擎，不使用
-JavaScript PDF 实现或 wasm-bindgen shim。
-
-!!! note "发布状态"
-
-    WebAssembly wheel 已从 pylopdf 0.11 开始发布。v0.10.0 仅包含原生 wheel。
+pylopdf 为 Pyodide 0.28.3 和 Cloudflare Python Workers 使用的 Python 3.13 ABI构建静态 PyEmscripten wheel。它包含与原生 wheel 相同的 Rust PDF 引擎，不使用JavaScript PDF 实现或 wasm-bindgen shim。
 
 ## 已验证环境
 
@@ -21,10 +15,7 @@ JavaScript PDF 实现或 wasm-bindgen shim。
 | Cloudflare bundler | Wrangler 4.114.0 |
 | Worker compatibility date | 2026-07-26 |
 
-发布的 artifact 使用 `cp311-abi3-pyemscripten_2025_0_wasm32`。构建器先以 runtime
-原生的 `pyodide_2025_0_wasm32` tag 运行同一 binary，再确定性地 retag 为 PEP 783
-发布格式。只有 PyEmscripten-tag artifact 会进入 PyPI、provenance attestation 和
-release SBOM。
+发布的 artifact 使用 `cp311-abi3-pyemscripten_2025_0_wasm32`。构建器先以 runtime原生的 `pyodide_2025_0_wasm32` tag 运行同一 binary，再确定性地 retag 为 PEP 783发布格式。只有 PyEmscripten-tag artifact 会进入 PyPI、provenance attestation 和release SBOM。
 
 | 环境 | 状态 | 说明 |
 |---|---|---|
@@ -35,9 +26,7 @@ release SBOM。
 
 ## Cloudflare Worker
 
-repository 包含一个
-[经过测试的抽取 Worker](https://github.com/yhay81/pylopdf/tree/main/examples/cloudflare-worker)，
-它接收有明确上限的 PDF body，并返回页数和第一页文本：
+repository 包含一个[经过测试的抽取 Worker](https://github.com/yhay81/pylopdf/tree/main/examples/cloudflare-worker)，它接收有明确上限的 PDF body，并返回页数和第一页文本：
 
 ```bash
 git clone https://github.com/yhay81/pylopdf.git
@@ -57,24 +46,13 @@ curl --request POST \
   http://localhost:8787
 ```
 
-确认所选 Cloudflare plan 的上限和 compatibility date 后，再运行
-`uv run pywrangler deploy`。CI 会复制这个实际 example，只将公开 pylopdf requirement
-替换为刚构建的 wheel，再通过 `workers-py` 解析并运行
-`wrangler deploy --dry-run`，随后启动本地 `workerd` 并请求 `/health`。因此
-module-scope 的 `import pylopdf` 必须在不依赖启动阶段不可用的 entropy 或
-request 专用 runtime state 的情况下完成。
+确认所选 Cloudflare plan 的上限和 compatibility date 后，再运行`uv run pywrangler deploy`。CI 会复制这个实际 example，只将公开 pylopdf requirement替换为刚构建的 wheel，再通过 `workers-py` 解析并运行`wrangler deploy --dry-run`，随后启动本地 `workerd` 并请求 `/health`。因此module-scope 的 `import pylopdf` 必须在不依赖启动阶段不可用的 entropy 或request 专用 runtime state 的情况下完成。
 
-example将输入限制为4 MiB，将完整rendering／extraction PDF snapshot限制为16 MiB，
-将累计带位置文本限制为16,384个glyph record，并对结构和解压后数据采用比
-`DocumentLimits.web()`更严格的budget。由于pylopdf当前接受
-path或完整bytes，request body必须完整缓冲。Cloudflare的128 MiB isolate budget还包含
-Python、JavaScript、WebAssembly linear memory和request buffer；周边代码需要更多空间时
-应进一步降低file、interpretation和text budget。
+example将输入限制为4 MiB，将完整rendering／extraction PDF snapshot限制为16 MiB，将累计带位置文本限制为16,384个glyph record，并对结构和解压后数据采用比`DocumentLimits.web()`更严格的budget。由于pylopdf当前接受path或完整bytes，request body必须完整缓冲。Cloudflare的128 MiB isolate budget还包含Python、JavaScript、WebAssembly linear memory和request buffer；周边代码需要更多空间时应进一步降低file、interpretation和text budget。
 
 ## 直接使用 Pyodide
 
-在 Pyodide 0.28.3 开发环境中，用 `tools/build_pyodide.sh` 构建，并从 runtime 可访问的
-URL 安装 runtime-tagged wheel：
+在 Pyodide 0.28.3 开发环境中，用 `tools/build_pyodide.sh` 构建，并从 runtime 可访问的URL 安装 runtime-tagged wheel：
 
 ```javascript
 const pyodide = await loadPyodide();
@@ -89,15 +67,11 @@ await micropip.install(
 ```
 
 URL 仅为示例。release artifact 为 PyPI 与 Cloudflare 使用 PEP 783
-`pyemscripten_2025_0_wasm32` tag；Pyodide 0.28.3 的旧 `micropip` 不接受该公开 tag。
-不要只修改 wheel 文件名而保留内部 `WHEEL` metadata。
+`pyemscripten_2025_0_wasm32` tag；Pyodide 0.28.3 的旧 `micropip` 不接受该公开 tag。不要只修改 wheel 文件名而保留内部 `WHEEL` metadata。
 
-browser 或 Worker 内没有受支持的 sdist fallback。构建 extension 需要固定的 Rust、
-Emscripten、Pyodide cross environment 和 retag verifier。如果未来 ABI 没有匹配 wheel，
-应将其视为不支持，而不是要求 runtime package installer 编译 sdist。
+browser 或 Worker 内没有受支持的 sdist fallback。构建 extension 需要固定的 Rust、Emscripten、Pyodide cross environment 和 retag verifier。如果未来 ABI 没有匹配 wheel，应将其视为不支持，而不是要求 runtime package installer 编译 sdist。
 
-应用可用 `sys.platform == "emscripten"` 检测 runtime。path 指向 virtual filesystem，
-而不是直接指向 browser 文件：
+应用可用 `sys.platform == "emscripten"` 检测 runtime。path 指向 virtual filesystem，而不是直接指向 browser 文件：
 
 ```python
 import sys
@@ -114,24 +88,16 @@ with pylopdf.Document(stream=pdf_bytes, limits=pylopdf.DocumentLimits.web()) as 
 native/Wasm 共享 suite 目前覆盖：
 
 - 不依赖 host filesystem 的 `bytes` 输入、页数、PDF 2.0、AES-256 加密输入；
-- plain text、word、dict、搜索、document Markdown、嵌入日文、推断 vertical CJK、
-  持续多栏顺序、纯图片页面和旋转页面；
+- plain text、word、dict、搜索、document Markdown、嵌入日文、推断 vertical CJK、持续多栏顺序、纯图片页面和旋转页面；
 - bordered 与保守 borderless table、Markdown 集成和 vector drawing 抽取；
-- 空 document、Standard 14 与 subset-embedded OpenType text、textbox layout、
-  rendering、`Pixmap`、serialization、virtual-filesystem save、merge、reorder、
-  duplicate 和 select；
-- `PdfError`、带 stable resource code 的 `LimitError`、`PasswordError`、
-  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、
-  `FileDataError`、`EmptyFileError`，以及 malformed
+- 空 document、Standard 14 与 subset-embedded OpenType text、textbox layout、rendering、`Pixmap`、serialization、virtual-filesystem save、merge、reorder、duplicate 和 select；
+- `PdfError`、带 stable resource code 的 `LimitError`、`PasswordError`、`EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、`FileDataError`、`EmptyFileError`，以及 malformed
   input 后的 runtime 复用；
 - `render_pages(workers=4)` 的输入顺序和与 `workers=1` 的 byte 一致性。
 
-fixture 包括 PDF 2.0、嵌入 CJK 的日本政府文档、IRS Form 1040、旋转的美国参议院表格、
-纯图片日文扫描件和生成的竖排文档。所有提交的 PDF 都小于 1 MiB，并在 corpus README
-中记录可再分发 license。
+fixture 包括 PDF 2.0、嵌入 CJK 的日本政府文档、IRS Form 1040、旋转的美国参议院表格、纯图片日文扫描件和生成的竖排文档。所有提交的 PDF 都小于 1 MiB，并在 corpus README中记录可再分发 license。
 
-相同 suite 会分别在 native wheel 与 Pyodide 中运行，并要求逻辑结果完全一致。它同时
-检查明确结构、预期文本以及完整抽取与 Markdown hash。
+相同 suite 会分别在 native wheel 与 Pyodide 中运行，并要求逻辑结果完全一致。它同时检查明确结构、预期文本以及完整抽取与 Markdown hash。
 
 ## 功能与依赖关系
 
@@ -149,40 +115,28 @@ Wasm wheel 保持为一个 artifact，不拆成多个部分兼容的 variant。
 | PP-OCRv6 inference | RTen 与外部 model wheel | 仅 native；从 Wasm binary 移除 |
 | 自动 CJK fallback 搜索 | 外部 CJK font wheel 与 host path | 不属于 Wasm 兼容契约 |
 
-`OcrEngine()` 仍然存在以便确定性 capability 检测，但在 Emscripten 上会抛出
-`OcrError`，提示在 Wasm 外完成 OCR 后调用 `Page.insert_ocr_text_layer()`。移除未使用的
-RTen inference runtime 不会移除 PDF 抽取、rendering、生成或外部 OCR text 插入。
+`OcrEngine()` 仍然存在以便确定性 capability 检测，但在 Emscripten 上会抛出`OcrError`，提示在 Wasm 外完成 OCR 后调用 `Page.insert_ocr_text_layer()`。移除未使用的RTen inference runtime 不会移除 PDF 抽取、rendering、生成或外部 OCR text 插入。
 
 ## 实测 deployment 范围
 
-固定 CI artifact 是 3.772 MiB wheel 和 9.910 MiB 解压后 Wasm extension。测试的
-Worker bundle 压缩后为 3.817 MiB，解压后为 10.383 MiB。因此它超过 Cloudflare
-Workers Free 的 3 MB 压缩限制，但符合 paid plan 的 10 MB 压缩限制和共享的 64 MB
-未压缩限制。pylopdf 支持 paid-plan deployment 路径，不发布功能削减的独立 distribution。
-PyEmscripten artifact 固定使用 fat LTO 与单个 codegen unit；native wheel 使用 thin
+固定 CI artifact 是 3.772 MiB wheel 和 9.910 MiB 解压后 Wasm extension。测试的Worker bundle 压缩后为 3.817 MiB，解压后为 10.383 MiB。因此它超过 Cloudflare
+Workers Free 的 3 MB 压缩限制，但符合 paid plan 的 10 MB 压缩限制和共享的 64 MB未压缩限制。pylopdf 支持 paid-plan deployment 路径，不发布功能削减的独立 distribution。PyEmscripten artifact 固定使用 fat LTO 与单个 codegen unit；native wheel 使用 thin
 LTO release profile。
 
-在 Node/Pyodide harness 中，首次打开并抽取 Form 1040 用时 117.634 ms；五次重复运行的
-median 为 28.506 ms。Wasm linear memory 在安装后达到 39.688 MiB，在完整兼容与
-resource suite 后达到 70.000 MiB。这些是可复现 CI trend，不是 Cloudflare request
-latency 或 isolate resident-memory 测量。参见
-[完整 size 与 startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)。
+在 Node/Pyodide harness 中，首次打开并抽取 Form 1040 用时 117.634 ms；五次重复运行的median 为 28.506 ms。Wasm linear memory 在安装后达到 39.688 MiB，在完整兼容与resource suite 后达到 70.000 MiB。这些是可复现 CI trend，不是 Cloudflare request
+latency 或 isolate resident-memory 测量。参见[完整 size 与 startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)。
 
 ## Runtime 限制
 
-- 本 Emscripten build 没有 rayon worker pool。`render_pages(workers=...)` 接受相同参数，
-  但会串行执行。
+- 本 Emscripten build 没有 rayon worker pool。`render_pages(workers=...)` 接受相同参数，但会串行执行。
 - `clip=` 只 rasterize 所选区域，但 hayro 仍会解释整页，整页尺寸上限也依然适用。
 - 当前 renderer 会缓冲完整 raster output；大页面或高 DPI 即使源 PDF 很小也可能主导内存。
 - native OCR 和独立 OCR model package 不在 WebAssembly 兼容契约内。
 - 不覆盖外部 CJK fallback font 自动发现。已验证 embedded CJK，应用也可显式传入 font bytes。
-- 当前 gate 证明 Cloudflare bundle 可构建，并能以 module-scope import 启动本地
-  `workerd`。它不代表已认证 production deploy 或特定 workload latency。
+- 当前 gate 证明 Cloudflare bundle 可构建，并能以 module-scope import 启动本地`workerd`。它不代表已认证 production deploy 或特定 workload latency。
 
-同一 matrix 会在 native 与 Wasm 中验证 `DocumentLimits`、`doc.complexity`、Web budget
-内的 vector/scan 输入以及 stable file/page/text rejection code。定期 native Atheris
-fuzzing 会加入更大的生成 hostile corpus。CPU deadline 由 host 负责。不要因 PDF 在
-native Python 通过就假设 Wasm 有更大 memory budget；两端都应使用明确 policy。
+同一 matrix 会在 native 与 Wasm 中验证 `DocumentLimits`、`doc.complexity`、Web budget内的 vector/scan 输入以及 stable file/page/text rejection code。定期 native Atheris
+fuzzing 会加入更大的生成 hostile corpus。CPU deadline 由 host 负责。不要因 PDF 在native Python 通过就假设 Wasm 有更大 memory budget；两端都应使用明确 policy。
 
 ## 支持与发布策略
 
@@ -192,12 +146,8 @@ native Python 通过就假设 Wasm 有更大 memory budget；两端都应使用�
 2. native/Pyodide 共享逻辑兼容 suite；
 3. untrusted input 拒绝与 resource trend 检查；
 4. wheel、Wasm section、startup/workload 和 linear memory 测量；
-5. 从本地 wheel 解析依赖、dry-run Cloudflare Wrangler、启动本地 `workerd`，
-   并执行 module-scope-import health request；
-6. 最终创建 GitHub Release 前，从 PyPI artifact 重复相同解析、bundle 与
-   runtime health gate。
+5. 从本地 wheel 解析依赖、dry-run Cloudflare Wrangler、启动本地 `workerd`，并执行 module-scope-import health request；
+6. 最终创建 GitHub Release 前，从 PyPI artifact 重复相同解析、bundle 与runtime health gate。
 
 runtime 更新会作为新的验证 matrix，而不会自动假设兼容。固定版本在对应 pylopdf minor
-release 中受到支持；新的 Pyodide、PyEmscripten、Emscripten、`workers-py` 或 Wrangler
-只有通过完整 gate 后才加入支持声明。测量值和 regression 会一起发布到
-[`bench/results/wasm-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)。
+release 中受到支持；新的 Pyodide、PyEmscripten、Emscripten、`workers-py` 或 Wrangler只有通过完整 gate 后才加入支持声明。测量值和 regression 会一起发布到[`bench/results/wasm-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)。

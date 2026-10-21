@@ -5,13 +5,10 @@ description: 可复现的pylopdf文本提取、合并、光栅化与PNG编码基
 
 # 性能基准
 
-pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语料库的快照，并非普遍排名。
-请用它判断自己的工作负载应该测量什么。
+pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语料库的快照，并非普遍排名。请用它判断自己的工作负载应该测量什么。
 
 !!! info "最近一次运行"
-    **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>
-    使用thin LTO release profile构建的pylopdf 0.14.0 · pymupdf 1.28.0 · pypdf 6.15.0 · pdfplumber 0.11.10<br>
-    预热1次，测量7次；表中为中位数，单位毫秒。
+    **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>使用thin LTO release profile构建的pylopdf 0.14.0 · pymupdf 1.28.0 · pypdf 6.15.0 · pdfplumber 0.11.10<br>预热1次，测量7次；表中为中位数，单位毫秒。
 
 ## 概览 { #overview }
 
@@ -19,7 +16,7 @@ pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语
 |---|---|
 | 合并14个真实PDF | pylopdf **15.4 ms**，pymupdf 111.2 ms，pypdf 141.5 ms |
 | 第一页输出为2× PNG（完整流程） | 14个文件均由pylopdf领先，合计**212.9 ms**对573.9 ms |
-| 仅光栅化 | 14个文件中，cold时有9个、warm时有12个由pymupdf领先（warm另有1个持平）；warm合计为145.9 ms对**78.8 ms** |
+| 仅光栅化 | 14个文件中，cold时有9个、warm时有12个由pymupdf领先（warm另有1个持平）；warm合计为pylopdf 145.9 ms、pymupdf **78.8 ms** |
 | PNG编码 | pylopdf快约9倍（**44.4 ms**对397.4 ms），但输出大40%（4,645 KiB对**3,318 KiB**） |
 | 以2×渲染12页 | `render_pages()`从1 worker的163.7 ms降至8 workers的34.6 ms，**加速4.74倍**；pymupdf串行处理需425.3 ms |
 | 提取全部文本 | 14个文件中12个由pylopdf领先，其余2个分别由pymupdf和pypdf领先 |
@@ -50,10 +47,7 @@ pylopdf会**同时公开优势与劣势**。以下数据只是一个环境和语
 
 ## 提取内容 { #extraction-content }
 
-这只是代理指标，不是正确率。文本经空白归一化后与pymupdf比较。表单和旋转表格的相似度
-较低，可能只是阅读顺序或空白策略不同；即使字符数相同也会发生这种情况。字符数为0的行是
-纯图像PDF；`pdfium-type3.pdf`除外，hayro没有为其中的glyph报告Unicode映射，因此
-pylopdf会跳过它们。
+这只是代理指标，不是正确率。文本经空白归一化后与pymupdf比较。表单和旋转表格的相似度较低，可能只是阅读顺序或空白策略不同；即使字符数相同也会发生这种情况。字符数为0的行是纯图像PDF；`pdfium-type3.pdf`除外，hayro没有为其中的glyph报告Unicode映射，因此pylopdf会跳过它们。
 
 | 文件 | pylopdf字符数 | pymupdf字符数 | 相似度 |
 |---|---:|---:|---:|
@@ -80,8 +74,7 @@ pylopdf会跳过它们。
 
 ## 渲染 { #rendering }
 
-第一页按2×处理，单位毫秒，越小越快。两个库都使用默认设置：pylopdf生成透明背景的
-straight-alpha RGBA8，pymupdf生成白色背景的RGB。
+第一页按2×处理，单位毫秒，越小越快。两个库都使用所测版本的默认设置：pylopdf 0.14.0生成透明背景的straight-alpha RGBA8，pymupdf生成白色背景的RGB。当前的pylopdf与pymupdf一样，默认生成白色背景的RGB。
 
 ### 完整流程 { #rendering-end-to-end }
 
@@ -109,11 +102,7 @@ straight-alpha RGBA8，pymupdf生成白色背景的RGB。
 
 ### 光栅化 { #rasterization }
 
-cold每次重复都会打开新文档；warm则对已打开文档的同一页再次光栅化。MuPDF进程级
-glyph cache等比文档存活更久的缓存，在cold运行中同样有效。MuPDF还会为已打开的文档
-保留已加载的字体和已渲染的glyph，这在文字密集的页面上影响最大。pylopdf会在打开文档的
-线程上复用已解析的字体和glyph outline，但每次仍会重新光栅化glyph并解码图像，因此warm
-带来的缩短远小于MuPDF。
+cold每次重复都会打开新文档；warm则对已打开文档的同一页再次光栅化。MuPDF进程级glyph cache等比文档存活更久的缓存，在cold运行中同样有效。MuPDF还会为已打开的文档保留已加载的字体和已渲染的glyph，这在文字密集的页面上影响最大。pylopdf会在打开文档的线程上复用已解析的字体和glyph outline，但每次仍会重新光栅化glyph并解码图像，因此warm带来的缩短远小于MuPDF。
 
 | 文件 | pylopdf cold | pymupdf cold | pylopdf warm | pymupdf warm |
 |---|---:|---:|---:|---:|
@@ -135,9 +124,7 @@ glyph cache等比文档存活更久的缓存，在cold运行中同样有效。Mu
 
 ### PNG编码 { #png-encoding }
 
-两个编码器都接收已经渲染好的光栅图像。pylopdf对RGBA8输出使用快速fdeflate压缩，以
-文件大小换取速度；pymupdf对RGB输出使用zlib默认级别。若文件大小比编码时间更重要，
-请在外部重新压缩pylopdf的输出。
+两个编码器都接收已经渲染好的光栅图像。pylopdf对RGBA8输出使用快速fdeflate压缩，以文件大小换取速度；pymupdf对RGB输出使用zlib默认级别。若文件大小比编码时间更重要，请在外部重新压缩pylopdf的输出。
 
 | 文件 | pylopdf ms | pymupdf ms | pylopdf KiB | pymupdf KiB |
 |---|---:|---:|---:|---:|
@@ -159,8 +146,7 @@ glyph cache等比文档存活更久的缓存，在cold运行中同样有效。Mu
 
 ## 并行渲染 { #parallel-rendering }
 
-将`usrguide.pdf`前12页输出为2× PNG，单位毫秒，越小越快。
-批处理保持输入顺序，并使用同一个不可变文档快照。
+将`usrguide.pdf`前12页输出为2× PNG，单位毫秒，越小越快。批处理保持输入顺序，并使用同一个不可变文档快照。
 
 | Workers | 时间 | 相对1 worker加速 |
 |---:|---:|---:|
@@ -169,15 +155,12 @@ glyph cache等比文档存活更久的缓存，在cold运行中同样有效。Mu
 | 4 | 47.4 | 3.45倍 |
 | 8 | 34.6 | 4.74倍 |
 
-实际并发度同时受指定worker数和约512 MB的估算实时渲染内存限制。作为参考，pymupdf在
-一个新文档上串行渲染并编码同样的12页耗时425.3 ms。
+实际并发度同时受指定worker数和约512 MB的估算实时渲染内存限制。作为参考，pymupdf在一个新文档上串行渲染并编码同样的12页耗时425.3 ms。
 
 ## 其他平台 { #other-platforms }
 
-上面的快照来自一台macOS arm64机器。2026-10-17，我们使用thin LTO的abi3 wheel，在每个
-GitHub-hosted release runner上各运行一次同样的`bench/run.py`（Python 3.14.8，仅macOS
-x86_64为3.14.7；预热1次，测量5次）。每个单元格为pylopdf / pymupdf的语料库合计（毫秒）。
-共享runner的噪声比快照更大，请将较小的差异视为噪声。
+上面的快照来自一台macOS arm64机器。2026-10-17，我们使用thin LTO的abi3 wheel，在每个GitHub-hosted release runner上各运行一次同样的`bench/run.py`（Python 3.14.8，仅macOS
+x86_64为3.14.7；预热1次，测量5次）。每个单元格为pylopdf / pymupdf的语料库合计（毫秒）。共享runner的噪声比快照更大，请将较小的差异视为噪声。
 
 | Runner | 文本提取 | 合并 | 完整流程 | 光栅化 cold | 光栅化 warm | PNG编码 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -187,15 +170,11 @@ x86_64为3.14.7；预热1次，测量5次）。每个单元格为pylopdf / pymup
 | macOS x86_64, Intel Core i7-8700B, 4 vCPU | **254.7** / 1188.0 | **87.0** / 430.4 | **651.3** / 922.2 | 535.8 / **392.0** | 444.7 / **178.6** | **62.2** / 490.5 |
 | Windows Server 2025 x86_64, Intel, 4 vCPU | **243.1** / 269.7 | **37.5** / 132.9 | **533.2** / 874.6 | 470.5 / **293.7** | 434.2 / **147.5** | **57.8** / 579.6 |
 
-pymupdf的文本提取在两个macOS runner上都比在Linux和Windows上慢得多，因此pylopdf在Linux和
-Windows上的提取优势小于macOS快照。warm时MuPDF在所有runner上光栅化更快，cold时除Apple M1
-外也都更快；但由于PNG编码占pymupdf合计的大部分，完整流程仍由pylopdf领先。
+pymupdf的文本提取在两个macOS runner上都比在Linux和Windows上慢得多，因此pylopdf在Linux和Windows上的提取优势小于macOS快照。warm时MuPDF在所有runner上光栅化更快，cold时除Apple M1外也都更快；但由于PNG编码占pymupdf合计的大部分，完整流程仍由pylopdf领先。
 
 ## free-threaded提取 { #free-threaded-extraction }
 
-在Windows 11的free-threaded CPython 3.14.6上，对两个互相独立的
-`bill-hr815.pdf`执行全页文本提取。预热一次后，交替先运行的模式，取七组配对运行的
-中位数：
+在Windows 11的free-threaded CPython 3.14.6上，对两个互相独立的`bill-hr815.pdf`执行全页文本提取。预热一次后，交替先运行的模式，取七组配对运行的中位数：
 
 | 模式 | Workers | 时间 | 加速比 |
 |---|---:|---:|---:|
@@ -219,14 +198,4 @@ py -3.14t bench/free_threaded.py
 python3.14t bench/free_threaded.py
 ```
 
-生成的原始报告提交在
-[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)。
-单独生成的free-threaded报告提交在
-[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)；
-重新运行`bench/run.py`不会覆盖CPython 3.14t证据。
-native／Pyodide资源策略基准另行提交在
-[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)。
-第二条command测量有界open/extract和受控拒绝。CI还会在Pyodide中运行相同case并
-记录Wasm linear memory增长；这些时间和memory值只表示趋势，不是native/Wasm
-性能结论。
-引用数据时，请同时提供运行环境与语料库。
+生成的原始报告提交在[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)。单独生成的free-threaded报告提交在[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)；重新运行`bench/run.py`不会覆盖CPython 3.14t证据。native／Pyodide资源策略基准另行提交在[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)。第二条command测量有界open/extract和受控拒绝。CI还会在Pyodide中运行相同case并记录Wasm linear memory增长；这些时间和memory值只表示趋势，不是native/Wasm性能结论。引用数据时，请同时提供运行环境与语料库。
