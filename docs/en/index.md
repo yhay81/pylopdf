@@ -34,7 +34,7 @@ hide:
 
       <ul class="living-proofs" aria-label="Project facts">
         <li>MIT licensed</li>
-        <li>6.7–7.8 MB wheels</li>
+        <li>7.8–9.1 MB wheels</li>
         <li>No mandatory Python dependencies</li>
         <li>Python 3.11–3.15</li>
       </ul>

@@ -36,112 +36,153 @@ Prebuilt wheels cover CPython 3.11–3.15 on Linux (x86_64, ARM64), macOS
 ```python
 import pylopdf
 
-doc = pylopdf.open("input.pdf")           # or pylopdf.open(stream=pdf_bytes)
-print(doc.page_count)                     # len(doc) works too
-print(doc.metadata["title"])
-doc.set_metadata({"title": "Report", "author": "Alice"})
+with pylopdf.open("input.pdf") as doc:     # or pylopdf.open(stream=pdf_bytes)
+    print(doc.page_count)                  # len(doc) works too
+    print(doc.metadata["title"])
+    doc.set_metadata({"title": "Report", "author": "Alice"})
 
-doc.save("out.pdf")
-data = doc.tobytes()
-doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
-doc.save(
-    "locked.pdf",
-    encryption=pylopdf.PDF_ENCRYPT_AES_256,
-    user_pw="secret",
-    permissions=pylopdf.PDF_PERM_PRINT,
-)
+    doc.save("out.pdf")
+    data = doc.tobytes()                   # the same PDF as bytes
+    doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
+    doc.save(
+        "locked.pdf",
+        encryption=pylopdf.PDF_ENCRYPT_AES_256,
+        user_pw="secret",
+        permissions=pylopdf.PDF_PERM_PRINT,
+    )
 ```
 
-Encrypted PDFs open with `password=` (or `doc.authenticate()` afterwards).
-`pylopdf.peek_metadata(path)` reads metadata and page count without fully
-parsing the document — useful when scanning large collections. Its
-optional `max_file_size=` rejects oversized path or byte input before parsing;
-the backward-compatible default is unbounded. Its
-`repaired` result and `doc.is_repaired` report recovered cross-reference
-damage, such as an incorrect `startxref` or a rebuilt xref table; pylopdf also
-emits `PylopdfWarning`, and saving rewrites normalized cross-reference data. Pass
-`limits=pylopdf.DocumentLimits.web()` when processing untrusted files. It
-bounds file, structure, decompression, the rendering/extraction PDF snapshot,
-and interpreted text; inspect
-`doc.complexity` before heavy work and catch `LimitError` for controlled
-rejection. See [Security](security.md#untrusted-pdfs) for every budget.
+- **Encrypted files** open with `password=`, or call `doc.authenticate()`
+  afterwards.
+- **Metadata only:** `pylopdf.peek_metadata(path)` reads metadata and the page
+  count without parsing the whole document, which suits scans of large
+  collections. `max_file_size=` rejects oversized input before parsing.
+- **Damaged files:** when pylopdf recovers broken cross-reference data, it
+  emits `PylopdfWarning` and sets `doc.is_repaired` (`repaired` in
+  `peek_metadata`). Saving writes clean cross-reference data.
+
+!!! tip "Untrusted input"
+
+    Pass `limits=pylopdf.DocumentLimits.web()` when opening files you do not
+    control. It bounds file size, structure, decompression, and interpreted
+    text, and raises `LimitError` instead of exhausting memory. Check
+    `doc.complexity` before heavy work. See
+    [Security](security.md#untrusted-pdfs) for every budget.
 
 ## Pages, text, search { #pages-text-search }
 
 ```python
-page = doc[0]                             # 0-based; negative indices from the end
-for page in doc:
-    print(page.number, page.rect)
+with pylopdf.open("input.pdf") as doc:
+    for page in doc:                       # or doc[0], doc[-1]; 0-based
+        print(page.number, page.rect)
 
-text = page.get_text()                    # plain text
-words = page.get_text("words")            # (x0, y0, x1, y1, word, block, line, word_no)
-layout = page.get_text("dict")            # blocks → lines → spans (bbox, size, font, flags)
-hits = page.search_for("total")           # case-insensitive, list[Rect]
+    page = doc[0]
+    text = page.get_text()                 # plain text
+    words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
+    layout = page.get_text("dict")         # blocks → lines → spans with bbox, size, font
+    hits = page.search_for("total")        # case-insensitive; list[Rect]
 ```
 
-All coordinates are top-left origin **display space** — search results, layout,
-drawing and rendering all share the same coordinate system, including rotated
-pages.
+All coordinates use a top-left origin in **display space**. Search results,
+layout, drawing, and rendering share one coordinate system, rotated pages
+included.
 
 ## Render { #rendering }
 
 ```python
-png = doc.get_page_pixmap(0, dpi=300).tobytes()                    # bytes (PNG)
-pix = page.get_pixmap(dpi=144)                       # RGB pixels for NumPy / PIL
-batch = doc.render_pages([0, 1, 2], dpi=144, workers=4)
-svg = doc[0].get_svg_image()
+with pylopdf.open("input.pdf") as doc:
+    doc[0].get_pixmap(dpi=144).save("page-1.png")
+    png = doc[0].get_pixmap(dpi=300).tobytes()    # PNG bytes
+    pix = doc[0].get_pixmap(dpi=144)               # RGB pixels for NumPy or Pillow
+    pngs = doc.render_pages(dpi=144, workers=4)    # every page, in parallel
+    svg = doc[0].get_svg_image()
 ```
 
 ## Edit { #editing }
 
 ```python
-doc.delete_pages([1, 2])
-doc.select([2, 0])                                   # keep/reorder (repeat = duplicate)
-doc.new_page(); doc.fullcopy_page(0, to=1)
+with pylopdf.open("input.pdf") as doc:
+    doc.select([2, 0, 1])                  # keep and reorder; repeat an index to duplicate
+    doc.delete_pages([1])                  # pages are renumbered after each edit
+    doc.new_page()                         # blank A4 at the end
+    doc.fullcopy_page(0, to=1)             # independent copy of page 0 at index 1
+    doc[0].set_rotation(90)
+    doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
+    doc.save("edited.pdf")
 
-merged = pylopdf.Document()
-merged.insert_pdf(pylopdf.open("a.pdf"))
-merged.insert_pdf(pylopdf.open("b.pdf"), from_page=0, to_page=2, start_at=0)
-
-doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
-page.set_rotation(90)
+with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
+    merged.insert_pdf(a)                   # all of a.pdf
+    merged.insert_pdf(b, from_page=0, to_page=2)  # pages 1–3 of b.pdf
+    merged.save("merged.pdf")
 ```
 
-## Draw & annotate { #drawing-annotations }
+## Draw and annotate { #drawing-annotations }
+
+Images, overlays, and annotations:
 
 ```python
-page.insert_image((72, 72, 200, 200), filename="logo.png")   # JPEG passthrough / PNG alpha
-page.insert_image(page.search_for("Approved")[0], stream=stamp_png)
-page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # direct RGBA, clockwise rotation
-page.show_pdf_page(page.rect, letterhead)                    # vector overlay; same-document src also works
-page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18)             # auto-subset with pylopdf[jp]
-page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
-bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # load a weight the extra does not bundle
-width = bold.text_length("見出し", fontsize=16)                # exactly the drawn width
-page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
-hebrew = pylopdf.Font(language="he", is_bold=True)          # variable pylopdf[he]: bold without an added file
-page.insert_text((40, 170), "שלום", font=hebrew, fontsize=16)
-semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # any weight on the axis of a variable font you supply
-page.insert_text((40, 200), "見出し", font=semibold, fontsize=16)
-with page.new_shape() as shape:                              # one Form; each font embedded once
-    shape.draw_rect((36, 220, 400, 320), radius=0.1)
-    shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
-    shape.insert_text((48, 250), "報告", font=bold, fontsize=16)
-    shape.insert_textbox((48, 260, 390, 310), "本文の段落。", fontsize=11)
-page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")  # pymupdf's draw_* helpers
-page.add_highlight_annot(page.search_for("important"))       # search & mark
-page.insert_link({"kind": pylopdf.LINK_URI, "from": page.search_for("Example")[0], "uri": "https://example.com/"})
+with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
+    page = doc[0]
+    page.insert_image((72, 72, 200, 200), filename="logo.png")  # JPEG passes through as is
+    page.show_pdf_page(page.rect, letterhead)                    # page 0 of another PDF as a vector overlay
+    page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
+
+    hits = page.search_for("important")
+    if hits:
+        page.add_highlight_annot(hits)
+    for rect in page.search_for("Example")[:1]:
+        page.insert_link({"kind": pylopdf.LINK_URI, "from": rect, "uri": "https://example.com/"})
+    doc.save("annotated.pdf")
+```
+
+Text and fonts. Without a font argument, pylopdf uses Helvetica for Latin text
+and the installed locale extra, such as `pylopdf[jp]`, for other scripts:
+
+```python
+with pylopdf.open("input.pdf") as doc:
+    page = doc[0]
+    page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
+    page.insert_text((40, 70), "社外秘", fontsize=18)                        # needs pylopdf[jp]
+    page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # needs pylopdf[zh-cn]
+
+    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")    # any OpenType file
+    width = bold.text_length("見出し", fontsize=16)          # the exact drawn width
+    page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
+
+    semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # variable fonts take any weight on their axis
+    page.insert_text((40, 170), "見出し", font=semibold, fontsize=16)
+    doc.save("text.pdf")
+```
+
+Several shapes and text runs as one drawing, with each font embedded once:
+
+```python
+with pylopdf.open("input.pdf") as doc:
+    with doc[0].new_shape() as shape:
+        shape.draw_rect((36, 220, 400, 320), radius=0.1)
+        shape.finish(color=(0.2, 0.4, 0.6), fill=(0.95, 0.97, 1), width=1)
+        shape.insert_text((48, 250), "Report", fontsize=16)
+        shape.insert_textbox((48, 260, 390, 310), "Body paragraph.", fontsize=11)
+    doc.save("shapes.pdf")
 ```
 
 ## Scanned PDFs, forms, Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)        # searchable PDFs from any OCR output
-doc.set_form_field("customer", "Alice")      # native AcroForm appearance
-doc.set_form_field("customer_ja", "山田 太郎")  # auto-subset with pylopdf[jp]
-md = doc.to_markdown()                       # RAG-ready Markdown
+with pylopdf.open("scan.pdf") as doc:
+    ocr_words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
+    doc[0].insert_ocr_text_layer(ocr_words)   # any OCR output: (x0, y0, x1, y1, text, ...)
+
+with pylopdf.open("form.pdf") as doc:
+    doc.set_form_field("customer", "Alice")   # writes the value and its appearance
+    doc.save("filled.pdf")
+
+with pylopdf.open("input.pdf") as doc:
+    md = doc.to_markdown()                    # headings, lists, and tables for RAG
 ```
+
+See [Offline OCR](ocr.md) to recognize text inside pylopdf instead of bringing
+your own OCR words.
 
 Continue with [Ecosystem recipes](ecosystem.md) for typesetting, PDF/A and
 digital signatures, or the [migration guide](migration.md) if you come from

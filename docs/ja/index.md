@@ -34,7 +34,7 @@ hide:
 
       <ul class="living-proofs" aria-label="プロジェクト情報">
         <li>MITライセンス</li>
-        <li>6.7–7.8 MBのwheel</li>
+        <li>7.8–9.1 MBのwheel</li>
         <li>必須Python依存なし</li>
         <li>Python 3.11–3.15</li>
       </ul>
