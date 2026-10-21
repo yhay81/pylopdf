@@ -66,8 +66,10 @@ replacement, and the migration hint):
 - Document.get_new_xref -> Objects.add: Call doc.objects.add(value), which creates the object and returns its object number.
 - Document.get_toc -> Document.get_outline: pylopdf's get_outline uses zero-based pages; get_toc used one-based pages.
 - Document.is_stream -> Stream: Check isinstance(doc.objects[xref], pylopdf.Stream).
+- Document.language -> Document.language_tag: pylopdf's language_tag keeps the complete BCP 47 tag, such as zh-TW, where pymupdf's language keeps at most three letters.
 - Document.pdf_catalog -> Document.catalog: Use doc.catalog, a live dictionary handle; doc.catalog.xref is its object number.
 - Document.pdf_trailer -> Document.trailer: Use doc.trailer, a live dictionary handle, instead of its PDF syntax.
+- Document.set_language -> Document.set_language_tag: pylopdf's set_language_tag writes the complete BCP 47 tag, such as zh-TW, where pymupdf's set_language keeps at most three letters.
 - Document.set_toc -> Document.set_outline: pylopdf's set_outline uses zero-based pages; set_toc used one-based pages.
 - Document.to_text -> Document.get_text: Call Document.get_text() for the plain text of every page.
 - Document.update_object -> Document.objects: Assign a typed value to doc.objects[xref] instead of PDF syntax.

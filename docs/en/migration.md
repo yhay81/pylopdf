@@ -50,6 +50,9 @@ is not supported yet.
 | `pymupdf.open(path)`, `open(stream=…)`, `open("pdf", data)` | Same | PDF only; `password=` is keyword-only |
 | `doc[i]`, `len(doc)`, iteration | Same | |
 | `doc.metadata`, `set_metadata()` | Same | |
+| `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | Same | Reads and writes stop at 1 MiB by default; `max_size=None` lifts the limit |
+| `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | The complete tag: pymupdf keeps at most three letters, so `zh-TW` and `zh-HK` both become `zh-Hant`; the codemod rewrites `set_language` |
+| `doc.pagemode`, `pagelayout`, `markinfo` and their `set_*` methods, `has_links()`, `has_annots()`, `is_closed`, `is_pdf`, `name` | Same | |
 | `doc.needs_pass`, `authenticate()` | Same | Same return codes |
 | `doc.save(garbage=4, deflate=True)` | Same | Pages, annotations, form fields, and layers are never merged by `garbage` |
 | `doc.save(encryption=…, user_pw=…)` | Same | Only `PDF_ENCRYPT_NONE` and `PDF_ENCRYPT_AES_256`; a password without encryption raises instead of being ignored |

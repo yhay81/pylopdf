@@ -1307,6 +1307,48 @@ impl _Document {
         metadata::pdfa_claim(self, py, max_size)
     }
 
+    /// Return the decoded catalog XMP metadata stream, or `None`.
+    fn xml_metadata(&self, py: Python<'_>, max_size: Option<usize>) -> PyResult<Option<Vec<u8>>> {
+        metadata::xml_metadata(self, py, max_size)
+    }
+
+    /// Store unfiltered XMP metadata in the catalog's `/Metadata` stream.
+    fn set_xml_metadata(&mut self, data: Vec<u8>, max_size: Option<usize>) -> PyResult<()> {
+        metadata::set_xml_metadata(self, data, max_size)
+    }
+
+    /// Remove the catalog's `/Metadata` entry.
+    fn remove_xml_metadata(&mut self) -> PyResult<()> {
+        metadata::remove_xml_metadata(self)
+    }
+
+    /// Set the catalog's `/PageMode` or `/PageLayout` to a valid name.
+    fn set_catalog_name(&mut self, key: &str, value: &str) -> PyResult<()> {
+        metadata::set_catalog_name(self, key, value)
+    }
+
+    /// Write or, for `None`, remove the catalog's `/Lang` language tag.
+    #[pyo3(signature = (tag))]
+    fn set_language_tag(&mut self, tag: Option<&str>) -> PyResult<()> {
+        metadata::set_language_tag(self, tag)
+    }
+
+    /// Replace the catalog's `/MarkInfo` dictionary.
+    fn set_mark_info(
+        &mut self,
+        marked: bool,
+        user_properties: bool,
+        suspects: bool,
+    ) -> PyResult<()> {
+        metadata::set_mark_info(self, marked, user_properties, suspects)
+    }
+
+    /// Return whether any page lists a link (`links`) or another
+    /// non-widget annotation.
+    fn has_annotation_kind(&self, py: Python<'_>, links: bool) -> PyResult<bool> {
+        metadata::has_annotation_kind(self, py, links)
+    }
+
     /// Read page-label definitions from the PageLabels number tree.
     ///
     /// Each item is `(start index, style, prefix, first number)`. Recurse through

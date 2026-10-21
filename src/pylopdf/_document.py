@@ -6,6 +6,7 @@ import functools
 import io
 import math
 import os
+import re
 import secrets
 import stat
 import sys
@@ -39,7 +40,7 @@ from pylopdf._limits import (
     _validate_optional_positive_int,
     _validate_utf8_text_input,
 )
-from pylopdf._objects import Dictionary, Objects
+from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._tables import (
@@ -81,6 +82,7 @@ if TYPE_CHECKING:
         ImageCompressionResult,
         ImageItem,
         ImageItemFull,
+        MarkInfo,
         MetadataProbe,
         MetadataUpdate,
         PageLabelInfo,
@@ -273,6 +275,12 @@ _METADATA_KEYS: dict[str, str] = {
 }
 # Metadata keys that set_metadata ignores, so that a metadata round trip works.
 _READ_ONLY_METADATA_KEYS = frozenset({"format", "encryption"})
+# The catalog names that set_pagemode and set_pagelayout accept (ISO 32000-2 Table 29).
+_PAGE_MODES = ("UseNone", "UseOutlines", "UseThumbs", "FullScreen", "UseOC", "UseAttachments")
+_PAGE_LAYOUTS = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "TwoPageLeft", "TwoPageRight")
+_MARK_INFO_KEYS = ("Marked", "UserProperties", "Suspects")
+_MAX_LANGUAGE_TAG_BYTES = 256
+_LANGUAGE_TAG = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", re.ASCII)
 # pymupdf's accepted spellings of the one file type that pylopdf opens.
 _PDF_FILETYPES = frozenset({"pdf", ".pdf", "application/pdf"})
 
@@ -398,6 +406,22 @@ def _authentication_code(password: str, *, user: bool, owner: bool) -> int:
     return code
 
 
+def _catalog_name(value: str, valid: tuple[str, ...], key: str) -> str:
+    """Match a catalog name as pymupdf does: case-insensitively, slash optional."""
+    if isinstance(value, str):
+        text = value.removeprefix("/").lower()
+        for name in valid:
+            if name.lower() == text:
+                return name
+    msg = f"bad {key} value: {value!r} (valid: {list(valid)})"
+    raise PdfError(msg)
+
+
+def _is_language_tag(tag: object) -> bool:
+    """Return whether ``tag`` has the shape of a BCP 47 language tag of at most 256 bytes."""
+    return isinstance(tag, str) and len(tag) <= _MAX_LANGUAGE_TAG_BYTES and _LANGUAGE_TAG.fullmatch(tag) is not None
+
+
 def _rewrite_dpi(name: str, value: object) -> float:
     """Validate one ``rewrite_images`` resolution: a finite number from 36 through 2400."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -449,6 +473,9 @@ class Document:
         ``max_decompressed_size`` remains as the compatible single-budget
         shorthand and cannot be combined with ``limits``.
         """
+        # pymupdf's name is the filename argument as given, even when it names
+        # the file type of a stream.
+        requested_name = filename
         filename, stream = _resolve_source(filename, stream, filetype)
         _validate_password_input(password)
         if limits is not None and not isinstance(limits, DocumentLimits):
@@ -480,6 +507,7 @@ class Document:
             needs_pass = False
         self._doc = doc
         self._closed = False
+        self._name = None if requested_name is None else os.fsdecode(requested_name)
         self._fallback_configured = False
         # Structural generation; changes invalidate existing Page views.
         self._generation = 0
@@ -510,6 +538,27 @@ class Document:
         """Return whether opening recovered damaged cross-reference data."""
         self._ensure_not_closed()
         return self._doc.is_repaired()
+
+    @property
+    def is_closed(self) -> bool:
+        """Return whether :meth:`close` was called."""
+        return self._closed
+
+    @property
+    def is_pdf(self) -> bool:
+        """Return ``True``: pylopdf opens only PDF documents."""
+        self._ensure_not_closed()
+        return True
+
+    @property
+    def name(self) -> str | None:
+        """Return the ``filename`` argument the document was opened with.
+
+        As in pymupdf, a path-like argument becomes a string, a document
+        opened from a stream or created empty has the name ``None``, and
+        :meth:`close` resets it to ``None``.
+        """
+        return self._name
 
     def authenticate(self, password: str) -> int:
         """Authenticate and decrypt with a password.
@@ -703,6 +752,172 @@ class Document:
             input_label="encoded Info metadata input",
         )
         self._doc.set_metadata_batch(updates)
+
+    def get_xml_metadata(self, *, max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE) -> str:
+        """Return the catalog's XMP metadata as text, or ``""`` when absent.
+
+        As in pymupdf, the decoded stream is read as UTF-8 with invalid bytes
+        replaced and ends at its first NUL character. ``max_size`` bounds
+        every decoding layer and defaults to 1 MiB; pass ``None`` only to
+        accept unbounded materialization. Refusals use
+        ``LimitError.code == "xmp_metadata_size"``.
+        """
+        self._ensure_open()
+        _validate_optional_positive_int("max_size", max_size)
+        data = self._doc.xml_metadata(max_size)
+        if data is None:
+            return ""
+        return data.decode("utf-8", errors="replace").split("\0", 1)[0]
+
+    def set_xml_metadata(self, metadata: str, *, max_size: int | None = _DEFAULT_MAX_XMP_METADATA_SIZE) -> None:
+        """Store ``metadata`` as the catalog's XMP metadata, encoded as UTF-8.
+
+        As in pymupdf, an existing ``/Metadata`` stream is rewritten in place
+        and otherwise a new one is added. The stream stays unfiltered, also
+        when saving with ``deflate=True``, so that tools scanning the file for
+        XMP packets find it. :meth:`set_metadata` does not change XMP.
+        ``max_size`` bounds the encoded input and defaults to 1 MiB, the
+        default that :meth:`get_xml_metadata` reads back. Refusals use
+        ``LimitError.code == "xmp_metadata_input_size"``.
+        """
+        self._ensure_open()
+        if not isinstance(metadata, str):
+            msg = f"metadata must be a str: {type(metadata).__name__}"
+            raise TypeError(msg)
+        _validate_utf8_text_input(
+            metadata,
+            max_size,
+            limit_code="xmp_metadata_input_size",
+            input_label="XMP metadata input",
+        )
+        self._doc.set_xml_metadata(metadata.encode("utf-8"), max_size)
+
+    def del_xml_metadata(self) -> None:
+        """Remove the catalog's ``/Metadata`` entry, as pymupdf does.
+
+        The stream itself stays until a ``garbage`` save removes it.
+        """
+        self._ensure_open()
+        self._doc.remove_xml_metadata()
+
+    @property
+    def pagemode(self) -> str:
+        """Return the catalog's ``/PageMode`` name, ``"UseNone"`` when unset."""
+        self._ensure_open()
+        value = self.catalog.get("PageMode")
+        return str(value) if isinstance(value, Name) else "UseNone"
+
+    def set_pagemode(self, pagemode: str) -> bool:
+        """Set ``/PageMode`` and return ``True``.
+
+        As in pymupdf, the name matches case-insensitively with or without a
+        leading slash: ``UseNone``, ``UseOutlines``, ``UseThumbs``,
+        ``FullScreen``, ``UseOC``, or ``UseAttachments``. Another value raises
+        :class:`PdfError`, a ``ValueError``.
+        """
+        self._ensure_open()
+        self._doc.set_catalog_name("PageMode", _catalog_name(pagemode, _PAGE_MODES, "PageMode"))
+        return True
+
+    @property
+    def pagelayout(self) -> str:
+        """Return the catalog's ``/PageLayout`` name, ``"SinglePage"`` when unset."""
+        self._ensure_open()
+        value = self.catalog.get("PageLayout")
+        return str(value) if isinstance(value, Name) else "SinglePage"
+
+    def set_pagelayout(self, pagelayout: str) -> bool:
+        """Set ``/PageLayout`` and return ``True``.
+
+        As in pymupdf, the name matches case-insensitively with or without a
+        leading slash: ``SinglePage``, ``OneColumn``, ``TwoColumnLeft``,
+        ``TwoColumnRight``, ``TwoPageLeft``, or ``TwoPageRight``. Another
+        value raises :class:`PdfError`, a ``ValueError``.
+        """
+        self._ensure_open()
+        self._doc.set_catalog_name("PageLayout", _catalog_name(pagelayout, _PAGE_LAYOUTS, "PageLayout"))
+        return True
+
+    @property
+    def language_tag(self) -> str | None:
+        """Return the catalog's ``/Lang`` language tag as stored, or ``None``.
+
+        The complete BCP 47 tag is returned, such as ``"zh-TW"`` or
+        ``"sr-Latn-RS"``. pymupdf's ``language`` keeps at most three letters
+        and maps Chinese tags to ``zh-Hans`` or ``zh-Hant``, so pylopdf
+        replaces it under this name.
+        """
+        self._ensure_open()
+        value = self.catalog.get("Lang")
+        return value.text if isinstance(value, String) else None
+
+    def set_language_tag(self, tag: str | None) -> None:
+        """Store ``tag`` as the catalog's ``/Lang``, or remove it for ``None``.
+
+        The tag is written unchanged and must be a well-formed BCP 47 tag
+        (ISO 32000-2 §14.9.2.2) of at most 256 bytes: hyphen-separated
+        subtags of one to eight ASCII letters or digits, the first of letters
+        only. Anything else raises :class:`PdfError`, a ``ValueError``.
+        """
+        self._ensure_open()
+        if tag is not None and not _is_language_tag(tag):
+            msg = f"not a well-formed BCP 47 language tag: {tag!r}"
+            raise PdfError(msg)
+        self._doc.set_language_tag(tag)
+
+    @property
+    def markinfo(self) -> MarkInfo:
+        """Return the catalog's ``/MarkInfo`` flags.
+
+        A document without a ``/MarkInfo`` dictionary returns ``{}``.
+        Otherwise ``Marked``, ``UserProperties``, and ``Suspects`` are all
+        present, each ``True`` only when the dictionary holds ``true``.
+        """
+        self._ensure_open()
+        mark_info = self.catalog.get("MarkInfo")
+        if not isinstance(mark_info, Dictionary):
+            return {}
+        return {
+            "Marked": mark_info.get("Marked") is True,
+            "UserProperties": mark_info.get("UserProperties") is True,
+            "Suspects": mark_info.get("Suspects") is True,
+        }
+
+    def set_markinfo(self, markinfo: MarkInfo) -> bool:
+        """Replace ``/MarkInfo`` with pymupdf's meaning and return ``True``.
+
+        Keys missing from ``markinfo`` are written as ``false``, whatever the
+        document held before. Values are booleans or the strings ``"true"``
+        and ``"false"`` in any case. An empty or non-dictionary argument
+        changes nothing and returns ``False``; an unknown key or another
+        value raises ``ValueError``.
+        """
+        self._ensure_open()
+        if not markinfo or not isinstance(markinfo, dict):
+            return False
+        unknown = sorted(str(key) for key in markinfo if key not in _MARK_INFO_KEYS)
+        if unknown:
+            msg = f"bad MarkInfo key(s): {unknown} (valid: {list(_MARK_INFO_KEYS)})"
+            raise ValueError(msg)
+        flags = dict.fromkeys(_MARK_INFO_KEYS, False)
+        for key, value in markinfo.items():
+            text = str(value).lower()
+            if text not in {"true", "false"}:
+                msg = f"bad MarkInfo value for {key!r}: {value!r}"
+                raise ValueError(msg)
+            flags[key] = text == "true"
+        self._doc.set_mark_info(flags["Marked"], flags["UserProperties"], flags["Suspects"])
+        return True
+
+    def has_links(self) -> bool:
+        """Return whether any page lists a link annotation."""
+        self._ensure_open()
+        return self._doc.has_annotation_kind(links=True)
+
+    def has_annots(self) -> bool:
+        """Return whether any page lists an annotation other than a link or widget."""
+        self._ensure_open()
+        return self._doc.has_annotation_kind(links=False)
 
     def to_markdown(
         self,
@@ -1868,6 +2083,7 @@ class Document:
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
         self._closed = True
+        self._name = None
         self._doc.release_render_cache()
 
     def _ensure_not_closed(self) -> None:

@@ -532,6 +532,266 @@ pub(super) fn set_metadata(this: &mut _Document, key: &str, value: &str) -> PyRe
     this.set_metadata_entries(entries)
 }
 
+/// The catalog's `/PageMode` names (ISO 32000-2 Table 29).
+const PAGE_MODES: [&str; 6] = [
+    "UseNone",
+    "UseOutlines",
+    "UseThumbs",
+    "FullScreen",
+    "UseOC",
+    "UseAttachments",
+];
+
+/// The catalog's `/PageLayout` names (ISO 32000-2 Table 29).
+const PAGE_LAYOUTS: [&str; 6] = [
+    "SinglePage",
+    "OneColumn",
+    "TwoColumnLeft",
+    "TwoColumnRight",
+    "TwoPageLeft",
+    "TwoPageRight",
+];
+
+/// The catalog's XMP metadata stream, or `None` when `/Metadata` names
+/// anything else.
+fn xmp_stream(doc: &Document) -> Option<&Stream> {
+    doc.catalog()
+        .ok()
+        .and_then(|catalog| catalog.get(b"Metadata").ok())
+        .map(|metadata| deref_object(doc, metadata))
+        .and_then(|metadata| metadata.as_stream().ok())
+}
+
+/// Implements [`_Document::xml_metadata`].
+pub(super) fn xml_metadata(
+    this: &_Document,
+    py: Python<'_>,
+    max_size: Option<usize>,
+) -> PyResult<Option<Vec<u8>>> {
+    py.detach(|| {
+        xmp_stream(&this.doc)
+            .map(|stream| {
+                decoded_stream_content(stream, max_size, "xmp_metadata_size", "XMP metadata")
+            })
+            .transpose()
+    })
+}
+
+/// Implements [`_Document::set_xml_metadata`].
+///
+/// As in MuPDF, a `/Metadata` reference to an existing stream is rewritten
+/// in place, and otherwise a new `/Type /Metadata /Subtype /XML` stream
+/// replaces the entry. The data stays unfiltered, also when saving with
+/// `deflate=True`, so that tools which scan files for XMP packets find it.
+pub(super) fn set_xml_metadata(
+    this: &mut _Document,
+    data: Vec<u8>,
+    max_size: Option<usize>,
+) -> PyResult<()> {
+    if max_size == Some(0) {
+        return Err(PyValueError::new_err(
+            "max_size must be a positive integer or None",
+        ));
+    }
+    if let Some(limit) = max_size
+        && data.len() > limit
+    {
+        return Err(limit_err(
+            "xmp_metadata_input_size",
+            format!(
+                "XMP metadata input is {} bytes, exceeding the {limit}-byte limit",
+                data.len()
+            ),
+        ));
+    }
+    let catalog = this.doc.catalog().map_err(to_py_err)?;
+    let existing = match catalog.get(b"Metadata") {
+        Ok(Object::Reference(id)) if matches!(this.doc.get_object(*id), Ok(Object::Stream(_))) => {
+            Some(*id)
+        }
+        _ => None,
+    };
+    if let Some(id) = existing {
+        // The stream may be any object, so forget remembered placements.
+        this.invalidate_hayro_pdf();
+        let stream = this
+            .doc
+            .get_object_mut(id)
+            .and_then(Object::as_stream_mut)
+            .map_err(to_py_err)?;
+        for key in [b"Filter".as_slice(), b"DecodeParms", b"DL"] {
+            stream.dict.remove(key);
+        }
+        stream.set_content(data);
+        stream.allows_compression = false;
+        return Ok(());
+    }
+    this.doc
+        .max_id
+        .checked_add(1)
+        .ok_or_else(|| PdfError::new_err("PDF object ID limit reached"))?;
+    let mut dictionary = Dictionary::new();
+    dictionary.set("Type", Object::Name(b"Metadata".to_vec()));
+    dictionary.set("Subtype", Object::Name(b"XML".to_vec()));
+    let mut stream = Stream::new(dictionary, data);
+    stream.allows_compression = false;
+    this.invalidate_hayro_pdf_keeping_placements();
+    let id = this.doc.add_object(stream);
+    this.doc
+        .catalog_mut()
+        .map_err(to_py_err)?
+        .set("Metadata", Object::Reference(id));
+    Ok(())
+}
+
+/// Implements [`_Document::remove_xml_metadata`]. The stream stays until
+/// pruning removes it, as in MuPDF.
+pub(super) fn remove_xml_metadata(this: &mut _Document) -> PyResult<()> {
+    if this.doc.catalog().map_err(to_py_err)?.has(b"Metadata") {
+        this.invalidate_hayro_pdf_keeping_placements();
+        this.doc
+            .catalog_mut()
+            .map_err(to_py_err)?
+            .remove(b"Metadata");
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::set_catalog_name`] for `/PageMode` and
+/// `/PageLayout`.
+pub(super) fn set_catalog_name(this: &mut _Document, key: &str, value: &str) -> PyResult<()> {
+    let allowed: &[&str] = match key {
+        "PageMode" => &PAGE_MODES,
+        "PageLayout" => &PAGE_LAYOUTS,
+        _ => {
+            return Err(PdfError::new_err(format!(
+                "unsupported catalog name entry: {key:?}"
+            )));
+        }
+    };
+    if !allowed.contains(&value) {
+        return Err(PdfError::new_err(format!("bad {key} value: {value:?}")));
+    }
+    this.doc.catalog().map_err(to_py_err)?;
+    this.invalidate_hayro_pdf_keeping_placements();
+    this.doc
+        .catalog_mut()
+        .map_err(to_py_err)?
+        .set(key, Object::Name(value.as_bytes().to_vec()));
+    Ok(())
+}
+
+/// The longest `/Lang` tag that `set_language_tag` writes.
+const MAX_LANGUAGE_TAG_BYTES: usize = 256;
+
+/// Whether `tag` has the shape of a BCP 47 language tag (ISO 32000-2
+/// §14.9.2.2): hyphen-separated subtags of one to eight ASCII letters and
+/// digits, the first of letters only, at most 256 bytes in all.
+pub(super) fn is_language_tag(tag: &str) -> bool {
+    tag.len() <= MAX_LANGUAGE_TAG_BYTES
+        && tag.split('-').enumerate().all(|(index, subtag)| {
+            (1..=8).contains(&subtag.len())
+                && subtag.bytes().all(|byte| {
+                    if index == 0 {
+                        byte.is_ascii_alphabetic()
+                    } else {
+                        byte.is_ascii_alphanumeric()
+                    }
+                })
+        })
+}
+
+/// Implements [`_Document::set_language_tag`]: write the complete tag as the
+/// catalog's `/Lang` text string, or remove `/Lang` for `None`.
+pub(super) fn set_language_tag(this: &mut _Document, tag: Option<&str>) -> PyResult<()> {
+    if let Some(tag) = tag
+        && !is_language_tag(tag)
+    {
+        return Err(PdfError::new_err(format!(
+            "not a well-formed BCP 47 language tag: {tag:?}"
+        )));
+    }
+    let catalog = this.doc.catalog().map_err(to_py_err)?;
+    if tag.is_none() && !catalog.has(b"Lang") {
+        return Ok(());
+    }
+    this.invalidate_hayro_pdf_keeping_placements();
+    let catalog = this.doc.catalog_mut().map_err(to_py_err)?;
+    match tag {
+        Some(tag) => catalog.set(
+            "Lang",
+            Object::String(tag.as_bytes().to_vec(), StringFormat::Literal),
+        ),
+        None => {
+            catalog.remove(b"Lang");
+        }
+    }
+    Ok(())
+}
+
+/// Implements [`_Document::set_mark_info`]: replace `/MarkInfo` with a
+/// direct dictionary of all three entries, as pymupdf writes it.
+pub(super) fn set_mark_info(
+    this: &mut _Document,
+    marked: bool,
+    user_properties: bool,
+    suspects: bool,
+) -> PyResult<()> {
+    this.doc.catalog().map_err(to_py_err)?;
+    let mut mark_info = Dictionary::new();
+    mark_info.set("Marked", marked);
+    mark_info.set("UserProperties", user_properties);
+    mark_info.set("Suspects", suspects);
+    this.invalidate_hayro_pdf_keeping_placements();
+    this.doc
+        .catalog_mut()
+        .map_err(to_py_err)?
+        .set("MarkInfo", mark_info);
+    Ok(())
+}
+
+/// Implements [`_Document::has_annotation_kind`]: whether any page's
+/// `/Annots` lists a dictionary whose `/Subtype` is `/Link` (`links`), or is
+/// neither `/Link` nor `/Widget`, a missing subtype included (otherwise).
+pub(super) fn has_annotation_kind(this: &_Document, py: Python<'_>, links: bool) -> PyResult<bool> {
+    py.detach(|| {
+        let doc = &this.doc;
+        fn present<'a>(doc: &'a Document, object: &'a Object) -> Option<&'a Object> {
+            non_null_value(doc, object).ok().flatten()
+        }
+        for &page_id in doc.page_ids()? {
+            let Some(Object::Array(entries)) = doc
+                .get_object(page_id)
+                .and_then(Object::as_dict)
+                .and_then(|page| page.get(b"Annots"))
+                .ok()
+                .and_then(|annots| present(doc, annots))
+            else {
+                continue;
+            };
+            for entry in entries {
+                let Some(Object::Dictionary(annotation)) = present(doc, entry) else {
+                    continue;
+                };
+                let subtype = annotation
+                    .get(b"Subtype")
+                    .ok()
+                    .and_then(|subtype| present(doc, subtype))
+                    .and_then(|subtype| subtype.as_name().ok());
+                let found = if links {
+                    subtype == Some(b"Link")
+                } else {
+                    !matches!(subtype, Some(b"Link" | b"Widget"))
+                };
+                if found {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    })
+}
+
 /// Implements [`_Document::pdfa_claim`].
 pub(super) fn pdfa_claim(
     this: &_Document,
@@ -539,14 +799,7 @@ pub(super) fn pdfa_claim(
     max_size: Option<usize>,
 ) -> PyResult<Option<(i64, String)>> {
     py.detach(|| {
-        let Some(stream) = this
-            .doc
-            .catalog()
-            .ok()
-            .and_then(|catalog| catalog.get(b"Metadata").ok())
-            .map(|metadata| deref_object(&this.doc, metadata))
-            .and_then(|metadata| metadata.as_stream().ok())
-        else {
+        let Some(stream) = xmp_stream(&this.doc) else {
             return Ok(None);
         };
         let data = decoded_stream_content(stream, max_size, "xmp_metadata_size", "XMP metadata")?;

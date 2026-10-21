@@ -21,6 +21,10 @@ other.new_page(width=200, height=200).insert_text((50, 100), "D", fontsize=24)
 doc.insert_pdf(other)
 assert doc[-1].get_text().strip() == "D"
 
+doc.set_language_tag("zh-TW")
+doc.set_pagemode("UseThumbs")
+assert doc.pagemode == "UseThumbs"
+
 doc[0].set_rotation(90)
 pixmap = doc[0].get_pixmap(dpi=36)
 assert (pixmap.width, pixmap.height) == (100, 100)

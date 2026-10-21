@@ -45,6 +45,7 @@ the document as a context manager, or call `close()`.
 | `metadata` / `set_metadata(m)` | Title, author, and the other Info fields, plus `format` and `encryption`. `set_metadata` removes keys whose value is empty, and `{}` removes all of them |
 | `needs_pass`, `is_encrypted`, `authenticate(password)` | Encryption state; `authenticate` unlocks the document and returns pymupdf's codes: 0 if the password is wrong, otherwise 1, 2, 4, or 6 |
 | `is_repaired` | Whether opening had to repair damaged cross-reference data |
+| `is_closed`, `is_pdf`, `name` | Whether the document is closed; always `True`; the `filename` it was opened with, or `None` for a stream, an empty document, or after `close()` |
 | `limits`, `complexity` | The policy the document was opened with, and cheap structural facts (pages, objects, streams) for deciding whether to process it |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | Write the PDF. The file is replaced only after the complete write succeeds |
 | `tobytes(..., max_size=512 MiB)` | The same output as `bytes` |
@@ -110,7 +111,17 @@ encoding would not be smaller, and returns statistics.
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | Fill a field and regenerate how it looks; see [Forms](#forms) |
 | `attachments` | Embedded files as a mapping; see [Attachments](#attachments) |
 | `get_pdfa_claim()` | The PDF/A part and conformance the file declares, such as `(2, "B")`. This reads the declaration only; it does not validate |
+| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | The XMP metadata packet as text (`""` when there is none). `set_metadata` does not change it |
+| `language_tag` / `set_language_tag(tag)` | The document's language as a complete BCP 47 tag, such as `zh-TW` or `sr-Latn-RS`, or `None`. `set_language_tag(None)` removes it, and a malformed tag raises |
+| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | How a viewer opens the document, such as `"UseOutlines"` or `"TwoColumnLeft"`; `"UseNone"` and `"SinglePage"` when unset |
+| `markinfo` / `set_markinfo(markinfo)` | The tagged-PDF flags as a `MarkInfo` dictionary (`{}` when absent). The setter writes all three flags, and a flag left out becomes `False` |
+| `has_links()`, `has_annots()` | Whether any page has a link, or an annotation other than a link or form widget |
 | `objects`, `trailer`, `catalog`, `page_xref(pno)` | Direct access to PDF objects; see [Low-level objects](#low-level-objects) |
+
+`language_tag` replaces pymupdf's `language`, which keeps at most three
+letters of the tag, so `zh-TW` and `zh-HK` both read as `zh-Hant`. Writing XMP
+leaves the packet uncompressed even with `deflate=True`, so tools that search
+files for it still find it.
 
 ## Page { #page }
 
