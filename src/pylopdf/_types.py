@@ -458,6 +458,18 @@ class MetadataUpdate(TypedDict, total=False):
     encryption: str | None
 
 
+class MarkInfo(TypedDict, total=False):
+    """The catalog's ``/MarkInfo`` flags, as :attr:`Document.markinfo` returns them.
+
+    The keys are the PDF names. A document without ``/MarkInfo`` returns an
+    empty dictionary; otherwise all three keys are present.
+    """
+
+    Marked: bool
+    UserProperties: bool
+    Suspects: bool
+
+
 class MetadataProbe(_InfoMetadata):
     """Metadata plus cheap structural facts returned by :func:`peek_metadata`."""
 
@@ -514,6 +526,7 @@ for _public in (
     PageLabelSpec,
     DocumentMetadata,
     MetadataUpdate,
+    MarkInfo,
     MetadataProbe,
     DocumentComplexity,
     OcrWord,

@@ -44,6 +44,8 @@ whose message names the replacement, or says that the feature is not supported y
 | `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | same | `open` is `Document`; `filetype=` takes `"pdf"` only; `password=` is keyword-only and capped at 127 UTF-8 bytes |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
+| `doc.get_xml_metadata()` / `set_xml_metadata(xml)` / `del_xml_metadata()` | same | 1 MiB default read and write limits (`max_size=None` opts out); XMP stays unfiltered under `deflate=True` |
+| `doc.pagemode` / `pagelayout` / `markinfo` and their `set_*` methods, `doc.has_links()` / `has_annots()`, `doc.is_closed` / `is_pdf` / `name` | same | `language` / `set_language` are not provided yet |
 | `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` / `rawdict` |
 | `page.search_for(t)` | same, plus `max_hits=4096` | returns a bounded `list[Rect]`; 4,096-byte term limit, `max_hits=None` opt-out, no `quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | same | opaque RGB by default and RGBA with `alpha=True`; `dpi=` takes precedence; only scaling matrices, and no `colorspace=` or `annots=` yet |

@@ -2212,6 +2212,24 @@ overview.
   exact `pdfaid:part` / `pdfaid:conformance` XML elements or attributes, not
   lookalike prefixes, quoted values, comments, or CDATA. This remains a
   self-declaration read rather than PDF/A validation.
+- `get_xml_metadata`, `set_xml_metadata`, and `del_xml_metadata`
+  (`document/metadata.rs`) follow pymupdf: reads decode the catalog's
+  `/Metadata` stream under the same 1 MiB `xmp_metadata_size` default and
+  return UTF-8 text with replacement up to the first NUL; writes rewrite a
+  referenced stream in place without its filters, or add a
+  `/Type /Metadata /Subtype /XML` stream, and mark it `allows_compression =
+  false` so `deflate=True` keeps the packet readable. Writes stop above 1 MiB
+  of encoded input with `xmp_metadata_input_size` in Python and Rust, so
+  written XMP stays readable under the read default. Rewriting an existing
+  stream forgets placements, because `/Metadata` may name any stream; adding
+  one keeps them. `set_metadata` never synchronizes XMP. The catalog's
+  `/PageMode`, `/PageLayout`, and `/MarkInfo` read through the object model
+  and write through `set_catalog_name` and `set_mark_info`, which keep
+  placements; `has_links` and `has_annots` scan every page's `/Annots` with
+  the page index and release the GIL. `language` and `set_language` are not
+  provided yet: MuPDF packs `/Lang` into at most three letters, so pymupdf
+  reads `en-US` as `en` and writes only that, which needs a decision under
+  the API rule before either lands.
 - The low-level object model (`rust/src/document/lowlevel.rs`,
   `src/pylopdf/_objects.py`, workstream E) exposes the lopdf graph through
   `Document.objects`, `trailer`, `catalog`, and `Page.obj`. A handle is a
@@ -2367,7 +2385,8 @@ overview.
   `render_pages(workers=1/4)`, virtual-filesystem save, merge/select, typed
   error recovery, lopdf cross-reference recovery reporting, unchanged
   extraction after an edit for a skipped bare-keyword form and a non-page
-  page-tree kid, and text drawn on content that leaves `q` and `Q` unbalanced.
+  page-tree kid, text drawn on content that leaves `q` and `Q` unbalanced,
+  and XMP, page-mode, page-layout, and MarkInfo round trips.
   Add only small redistributable PDFs listed in
   `tests/assets/real_world/README.md`; non-PDF inputs such as the existing CJK
   font may be supplied from already licensed repository assets. Do not claim

@@ -734,6 +734,16 @@ Workstream E. Depends on M0 and F5.
 Acceptance: layer visibility changes rendering and extraction; XMP round-trips
 through an XML parser; TOC round-trips agree with pymupdf.
 
+The first M5 slice landed on 2026-10-21: `get_xml_metadata`,
+`set_xml_metadata`, `del_xml_metadata`, `pagemode`, `set_pagemode`,
+`pagelayout`, `set_pagelayout`, `markinfo`, `set_markinfo`, `has_links`,
+`has_annots`, `is_closed`, `is_pdf`, and `name`, each with pymupdf's meaning.
+On the bundled corpus the XMP text, page mode, page layout, MarkInfo, and
+link and annotation presence equal pymupdf 1.28.2's for all 14 files. The 14
+manifest entries raise coverage from 45.3% to 47.2%. `language` and
+`set_language` wait for a decision: MuPDF stores at most three letters of
+`/Lang`, so pymupdf reads `en-US` as `en` and writes only `en`.
+
 ### M6 — Document intelligence
 
 Workstreams A and H. Depends on hayro 0.8 and M1.

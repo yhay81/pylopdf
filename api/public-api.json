@@ -56,6 +56,7 @@
     "LimitError",
     "LinkInfo",
     "LinkKind",
+    "MarkInfo",
     "Matrix",
     "MetadataProbe",
     "MetadataUpdate",
@@ -922,6 +923,18 @@
           "kind": "property",
           "returns": "DocumentComplexity"
         },
+        "del_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -1174,6 +1187,48 @@
             "returns": "str"
           }
         },
+        "get_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "has_annots": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "has_links": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "insert_pdf": {
           "kind": "method",
           "signature": {
@@ -1209,7 +1264,15 @@
             "returns": "None"
           }
         },
+        "is_closed": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_encrypted": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_pdf": {
           "kind": "property",
           "returns": "bool"
         },
@@ -1238,9 +1301,17 @@
             "returns": "Page"
           }
         },
+        "markinfo": {
+          "kind": "property",
+          "returns": "MarkInfo"
+        },
         "metadata": {
           "kind": "property",
           "returns": "DocumentMetadata"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "needs_pass": {
           "kind": "property",
@@ -1300,6 +1371,14 @@
             ],
             "returns": "int"
           }
+        },
+        "pagelayout": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "pagemode": {
+          "kind": "property",
+          "returns": "str"
         },
         "render_pages": {
           "kind": "method",
@@ -1602,6 +1681,23 @@
             "returns": "None"
           }
         },
+        "set_markinfo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "MarkInfo",
+                "kind": "positional_or_keyword",
+                "name": "markinfo"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "set_metadata": {
           "kind": "method",
           "signature": {
@@ -1648,6 +1744,63 @@
                 "annotation": "Sequence[PageLabelSpec]",
                 "kind": "positional_or_keyword",
                 "name": "labels"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_pagelayout": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "pagelayout"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "set_pagemode": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "pagemode"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "set_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "metadata"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "None"
@@ -3112,6 +3265,20 @@
         "NONE": 0,
         "URI": 2
       }
+    },
+    "MarkInfo": {
+      "fields": {
+        "Marked": "bool",
+        "Suspects": "bool",
+        "UserProperties": "bool"
+      },
+      "kind": "typed-dict",
+      "optional_keys": [
+        "Marked",
+        "Suspects",
+        "UserProperties"
+      ],
+      "required_keys": []
     },
     "Matrix": {
       "annotations": {
@@ -8148,6 +8315,18 @@
           "kind": "property",
           "returns": "DocumentComplexity"
         },
+        "del_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "None"
+          }
+        },
         "delete_page": {
           "kind": "method",
           "signature": {
@@ -8400,6 +8579,48 @@
             "returns": "str"
           }
         },
+        "get_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
+          }
+        },
+        "has_annots": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "has_links": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "insert_pdf": {
           "kind": "method",
           "signature": {
@@ -8435,7 +8656,15 @@
             "returns": "None"
           }
         },
+        "is_closed": {
+          "kind": "property",
+          "returns": "bool"
+        },
         "is_encrypted": {
+          "kind": "property",
+          "returns": "bool"
+        },
+        "is_pdf": {
           "kind": "property",
           "returns": "bool"
         },
@@ -8464,9 +8693,17 @@
             "returns": "Page"
           }
         },
+        "markinfo": {
+          "kind": "property",
+          "returns": "MarkInfo"
+        },
         "metadata": {
           "kind": "property",
           "returns": "DocumentMetadata"
+        },
+        "name": {
+          "kind": "property",
+          "returns": "str | None"
         },
         "needs_pass": {
           "kind": "property",
@@ -8526,6 +8763,14 @@
             ],
             "returns": "int"
           }
+        },
+        "pagelayout": {
+          "kind": "property",
+          "returns": "str"
+        },
+        "pagemode": {
+          "kind": "property",
+          "returns": "str"
         },
         "render_pages": {
           "kind": "method",
@@ -8828,6 +9073,23 @@
             "returns": "None"
           }
         },
+        "set_markinfo": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "MarkInfo",
+                "kind": "positional_or_keyword",
+                "name": "markinfo"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
         "set_metadata": {
           "kind": "method",
           "signature": {
@@ -8874,6 +9136,63 @@
                 "annotation": "Sequence[PageLabelSpec]",
                 "kind": "positional_or_keyword",
                 "name": "labels"
+              }
+            ],
+            "returns": "None"
+          }
+        },
+        "set_pagelayout": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "pagelayout"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "set_pagemode": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "pagemode"
+              }
+            ],
+            "returns": "bool"
+          }
+        },
+        "set_xml_metadata": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "str",
+                "kind": "positional_or_keyword",
+                "name": "metadata"
+              },
+              {
+                "annotation": "int | None",
+                "default": 1048576,
+                "kind": "keyword_only",
+                "name": "max_size"
               }
             ],
             "returns": "None"

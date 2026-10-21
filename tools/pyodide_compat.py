@@ -1242,6 +1242,43 @@ def _object_model_results() -> dict[str, Any]:
     }
 
 
+def _document_property_results(root: Path) -> dict[str, Any]:
+    """Read and write XMP metadata and the catalog's viewer and marking properties."""
+    import pylopdf  # noqa: PLC0415
+
+    form = pylopdf.Document(root / "tests/assets/real_world/f1040.pdf")
+    xmp = form.get_xml_metadata()
+    _require(xmp.startswith("<?xpacket"), "real-world XMP did not decode")
+    document = pylopdf.Document(
+        stream=_build_raw_pdf(
+            {
+                1: "<< /Type /Catalog /Pages 2 0 R >>",
+                2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
+                3: "<< /Type /Page /Parent 2 0 R >>",
+            }
+        )
+    )
+    packet = '<x:xmpmeta xmlns:x="adobe:ns:meta/">Grüße ∑</x:xmpmeta>'
+    document.set_xml_metadata(packet)
+    _require(document.set_pagemode("/useoutlines"), "set_pagemode did not return True")
+    _require(document.set_pagelayout("TwoColumnRight"), "set_pagelayout did not return True")
+    _require(document.set_markinfo({"Marked": True}), "set_markinfo did not return True")
+    data = document.tobytes(deflate=True)
+    _require(packet.encode() in data, "deflate compressed the XMP packet")
+    saved = pylopdf.Document(stream=data)
+    return {
+        "form_xmp": [len(xmp), _digest(xmp)],
+        "form_markinfo": form.markinfo,
+        "form_annotations": [form.has_links(), form.has_annots()],
+        "xmp": saved.get_xml_metadata(),
+        "pagemode": saved.pagemode,
+        "pagelayout": saved.pagelayout,
+        "markinfo": saved.markinfo,
+        "xmp_limit": _exception_name(lambda: saved.set_xml_metadata("x" * 10, max_size=9)),
+        "name": [form.name is not None, saved.name, saved.is_pdf, saved.is_closed],
+    }
+
+
 def collect_results(root: Path) -> dict[str, Any]:
     """Run compatibility assertions and return stable native/Wasm comparison data."""
     import pylopdf  # noqa: PLC0415
@@ -1262,6 +1299,7 @@ def collect_results(root: Path) -> dict[str, Any]:
         "garbage": _garbage_results(),
         "content_isolation": _content_isolation_results(),
         "object_model": _object_model_results(),
+        "document_properties": _document_property_results(root),
         "threads": {
             "render_pages_workers_4": "serial on Emscripten; bounded rayon pool on native",
         },

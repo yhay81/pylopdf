@@ -91,7 +91,8 @@ repeated source pages before mutation.
 `annotation_input_size`, `metadata_input_size`, `toc_input_size`,
 `toc_entry_count`, `toc_text_size`, `named_destination_count`,
 `named_destination_text_size`, `page_entry_count`,
-`page_label_input_size`, `xmp_metadata_size`, `render_output_size`,
+`page_label_input_size`, `xmp_metadata_size`, `xmp_metadata_input_size`,
+`render_output_size`,
 `markdown_output_size`, `svg_output_size`, `replacement_input_size`,
 `replacement_output_size`, `pdf_output_size`, `image_input_size`,
 `image_pixel_count`, `image_inventory_count`, `font_input_size`, `text_input_size`, `text_line_count`,
@@ -347,9 +348,13 @@ error.
   above 4,096 direct objects,
   32 levels, or 1 MiB of direct string/name/stream data, and preflight the
   Catalog write target instead of cloning the complete document for rollback.
-- `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied
-  to every filter layer. Raise `max_size=` for a known large packet;
-  `max_size=None` explicitly accepts unbounded materialization.
+- `Document.get_pdfa_claim()` and `get_xml_metadata()` default to a 1 MiB XMP
+  decoded-size limit applied to every filter layer (`xmp_metadata_size`).
+  `set_xml_metadata()` rejects more than 1 MiB of encoded UTF-8 before PyO3
+  copying and again in Rust with `xmp_metadata_input_size`, so written
+  metadata stays readable under the read default. Raise `max_size=` for a
+  known large packet; `max_size=None` explicitly accepts unbounded
+  materialization.
 - `Page.insert_ocr_text_layer()` stops iterable materialization above 4,096
   non-empty words or 1 MiB of aggregate UTF-8 text. Direct core calls enforce
   the same limits, CID assignment stops before 65,535 distinct characters, and
