@@ -1,156 +1,136 @@
 ---
 title: Offline OCR
-description: Recognize scanned pages locally with pylopdf's optional OCR models and add an invisible searchable text layer.
+description: Recognize text in scanned PDFs locally with pylopdf's built-in OCR engine, or add text from any other OCR engine.
 ---
 
 # Offline OCR
 
-pylopdf can recognize scanned pages locally and add an invisible searchable
-text layer. Install the optional model package:
+pylopdf can recognize text in scanned pages and add it as an invisible text
+layer, which makes the PDF searchable and lets `get_text()` and
+`to_markdown()` read it. Install the model package:
 
 ```bash
 pip install "pylopdf[ocr]"
 ```
 
-The core extension runs PP-OCRv6 small through the pure-Rust RTen runtime. It
-does not need a system executable, shared library, network request, or ONNX
-parser at runtime. The separately versioned model wheel is about 26.6 MB and
-supports 50 languages, including Japanese, Simplified and Traditional Chinese,
-and English.
+Recognition runs locally in pylopdf's own engine, using the PP-OCRv6 small
+models. It needs no network connection, no system program such as Tesseract,
+and no other Python package. The model package is about 27 MB and supports 50
+languages, including English, Japanese, and Simplified and Traditional
+Chinese.
 
-## Recognize without editing
+OCR is not available in the [WebAssembly](wasm.md) build.
 
-`Page.get_text_ocr()` returns positioned words without modifying the document:
+## Recognize without editing { #recognize }
+
+`Page.get_text_ocr()` returns the words it finds and leaves the document
+unchanged:
 
 ```python
 import pylopdf
 
 with pylopdf.open("scan.pdf") as doc:
-    words = doc[0].get_text_ocr()
-    for word in words:
+    for word in doc[0].get_text_ocr():
         print(word["bbox"], word["text"], word["confidence"])
 ```
 
-Each `OcrWord` has a `Rect` in the same rotation-resolved, top-left display
-coordinates used by rendering and extraction. `confidence` is a deterministic
-recognizer ranking signal, not a calibrated probability.
+Each `OcrWord` has a `bbox` in the same page coordinates as text extraction
+and rendering. `confidence` is useful for ranking and filtering, but it is not
+a calibrated probability.
 
-## Make a scan searchable
+## Make a scan searchable { #searchable }
 
-Load one engine and reuse it across pages:
+Create one engine and reuse it for every page:
 
 ```python
 import pylopdf
 
-engine = pylopdf.OcrEngine(threads=4, max_concurrent=1)
+engine = pylopdf.OcrEngine()
 with pylopdf.open("scan.pdf") as doc:
     for page in doc:
         page.apply_ocr(engine=engine)
     doc.save("searchable.pdf", garbage=3, deflate=True, use_objstms=True)
 ```
 
-`apply_ocr()` preserves rendered pixels and existing page content. It skips a
-page that already has extractable text by default, so rerunning the pipeline
-does not duplicate its invisible layer. On a mixed-content page, pass a
-display-coordinate `clip=(x0, y0, x1, y1)` around the scanned region; only
-existing text intersecting that region triggers the skip. Use
-`skip_existing=False` deliberately to append despite intersecting text.
+`apply_ocr()` does not change how the page looks. It skips a page that already
+has text, so running the same script twice does not add the text twice. For a
+page that mixes typed text and a scanned image, pass `clip=(x0, y0, x1, y1)`
+around the scanned area: only text inside that area then counts as existing
+text. Pass `skip_existing=False` to add OCR text regardless.
 
-## Correct rotated input
+## Use another OCR engine { #other-engines }
 
-Pass `rotation=90`, `180`, or `270` to turn the rendered OCR input clockwise
-before detection and recognition:
+`Page.insert_ocr_text_layer(words)` adds words from any OCR engine or cloud
+service. Each word is `(x0, y0, x1, y1, text)` in page coordinates; extra
+items after `text` are ignored:
+
+```python
+words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
+doc[0].insert_ocr_text_layer(words)
+```
+
+The layer uses no embedded font, so it adds very little to the file size.
+
+## Rotated scans { #rotation }
+
+If a page is scanned sideways or upside down, pass `rotation=90`, `180`, or
+`270` to turn the image clockwise before recognition:
 
 ```python
 words = page.get_text_ocr(rotation=270)
 page.apply_ocr(rotation=270)
 ```
 
-The PDF page rotation and rendered pixels do not change. Returned word boxes
-remain in the page's original display coordinates. `apply_ocr()` also orients
-the invisible baseline, so extraction and search follow the recognized logical
-text after save and reopen. A nonzero correction temporarily allocates one
-additional `width * height * 4` RGBA raster inside the engine's complete-call
-admission limit.
+The page itself is not rotated, and the returned boxes stay in the page's
+coordinates. The invisible text follows the recognized reading direction, so
+search and extraction work after saving. pylopdf does not detect the rotation
+for you and does not straighten slightly skewed scans.
 
-## Resource controls
+## Memory and speed { #resources }
 
-The defaults are 300 dpi, 1,408-pixel detector tiles with 192-pixel overlap,
-at most four RTen worker threads, and one complete recognition call at a time
-per engine. Overlapping tiles bound detector memory on full pages while merging
-duplicate edge detections. In one measured 300-dpi A4 workload, the default
-geometry peaked near 419 MiB; documents, platforms, and allocators change that
-value.
-
-Model loading has a separate cumulative 64 MiB input boundary across the
-detector, recognizer, and dictionary. All three files are admitted before RTen
-parses either model, and dictionaries stop at 65,536 entries. Refusals raise
-`LimitError` with code `ocr_model_size` or `ocr_dictionary_entries`. Pass
-`max_model_size=None` only for a trusted custom model set.
-
-Reduce `threads` and `tile_size` when memory is tighter. Raise
-`max_concurrent` only after measuring the combined live raster and inference
-buffers:
+By default pages are rendered at 300 dpi and recognized in overlapping tiles of
+1,408 pixels. One A4 page at these settings used about 420 MiB at its peak in
+our measurements. To use less memory, lower `threads` and `tile_size`:
 
 ```python
-engine = pylopdf.OcrEngine(threads=2, max_concurrent=1)
-words = page.get_text_ocr(
-    engine=engine,
-    tile_size=1280,
-    overlap=192,
-    min_confidence=0.6,
-)
+engine = pylopdf.OcrEngine(threads=2)
+words = page.get_text_ocr(engine=engine, tile_size=1280, min_confidence=0.6)
 ```
 
-`clip` reduces the rasterized area, OCR detector input, and recognition work.
-hayro still interprets the whole page, and the full-page render-size limit
-still applies. Returned boxes remain in full-page display coordinates.
+`clip=` also saves time and memory, because only the selected area is
+recognized.
 
-An `OcrEngine` is immutable and reusable across distinct documents. Its
-`max_concurrent=1` default serializes each complete render-and-recognize call,
-including calls made from free-threaded Python, so an accidentally shared
-engine does not multiply the measured per-call memory. Set a higher value,
-up to 16, only when the workload has been measured. Each admitted call still
-owns its raster and inference buffers. Simultaneous external calls or edits on
-the same `Document` remain outside pylopdf's concurrency contract.
+An `OcrEngine` can be shared across threads and documents. By default it runs
+one recognition at a time (`max_concurrent=1`), so sharing it does not
+multiply memory use. You can raise `max_concurrent` up to 16, but measure
+first: in our tests two at a time was not faster. A `Document` itself must
+still be used from one thread at a time; see [Concurrency](concurrency.md).
 
-## Measured accuracy { #measured-accuracy }
+## Accuracy { #accuracy }
 
-Two tracked, redistributable Japanese fixtures cover different inputs. The
-digital MHLW document supplies 1,188 extracted ground-truth characters. An
-image-only Agency for Cultural Affairs archival scan supplies 384 manually
-verified characters; small ruby is excluded because ruby association is outside
-the OCR contract.
+Character error rates (CER, lower is better) on two Japanese test documents
+with known text. "Strict" ignores only whitespace; "NFKC" also treats
+full-width and half-width forms as equal.
 
-| Case | DPI | Strict CER | NFKC CER | Elapsed |
+| Document | DPI | Strict CER | NFKC CER | Time |
 |---|---:|---:|---:|---:|
-| MHLW digital | 150 | 3.788% | 0.842% | 5.50s |
-| MHLW digital | 300 | 3.704% | 0.842% | 13.87s |
-| archival scan | 150 | 1.823% | 1.562% | 2.05s |
-| archival scan | 300 | 1.302% | 1.042% | 5.37s |
+| Government report (digital, 1,188 characters) | 150 | 3.788% | 0.842% | 5.50 s |
+| Government report (digital, 1,188 characters) | 300 | 3.704% | 0.842% | 13.87 s |
+| Archival scan (384 characters) | 150 | 1.823% | 1.562% | 2.05 s |
+| Archival scan (384 characters) | 300 | 1.302% | 1.042% | 5.37 s |
 
-For the MHLW case, the RapidOCR v6 reference measured 0.926% and 0.758% NFKC
-CER respectively, so the report retains both pylopdf's 150-dpi win and 300-dpi
-loss. Strict CER only removes whitespace; NFKC CER additionally folds
-compatibility forms such as full-width Latin characters. Timings are
-hardware-specific.
+For comparison, the RapidOCR v6 reference scored 0.926% and
+0.758% NFKC CER on the government report at 150 and 300 dpi: pylopdf was more
+accurate at 150 dpi and less accurate at 300 dpi. Times depend on hardware.
+Run `uv run python bench/ocr.py` in the repository to reproduce the report.
 
-A separate 150-dpi field check ran both documents through one shared engine.
-`max_concurrent=1` completed in 6.31s, while `max_concurrent=2` completed in
-6.75s; both exactly matched the sequential text. This workload showed no
-throughput gain from the higher limit while each admitted call still owns
-separate buffers, supporting the conservative default of 1. Reproduce the
-complete report with `uv run python bench/ocr.py`.
+## Limitations { #limitations }
 
-## Model and layout boundaries
+- Word boxes are axis-aligned rectangles.
+- Ruby (furigana), warichu, and text that mixes vertical and horizontal
+  orientation are not interpreted.
+- Custom models must be PP-OCR models converted to RTen format; pass their
+  paths to `OcrEngine(detector_path, recognizer_path, dictionary_path)`.
 
-With no paths, `OcrEngine` discovers the verified model set installed by
-`pylopdf[ocr]`. Advanced users can pass a compatible RTen-format PP-OCR
-detector, recognizer, and dictionary explicitly.
-
-The first native engine returns axis-aligned word boxes. Explicit clockwise
-correction handles known 90-degree orientations, but it does not yet deskew
-arbitrary text, detect the required correction automatically, or interpret
-ruby, warichu, and mixed-orientation typography. PP-OCRv6 model provenance,
-source and artifact hashes, conversion commands, and Apache-2.0 notices are
-included in the `pylopdf-ocr-models` distribution.
+The `pylopdf-ocr-models` package documents where the models come from, their
+hashes, and their Apache-2.0 license.

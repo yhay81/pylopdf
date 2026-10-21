@@ -1,9 +1,13 @@
 ---
 title: 快速开始
-description: 安装pylopdf，并学习编辑、渲染、提取和绘制PDF的核心工作流。
+description: 安装pylopdf，并了解编辑、渲染、提取和绘制PDF的核心用法。
 ---
 
 # 快速开始
+
+!!! note "项目状态"
+
+    pylopdf尚处于1.0之前的阶段，目前覆盖pymupdf API的一部分，仍可能出现不兼容的变更；哪些内容可能变化，请参阅[稳定性政策](stability.md)。本站跟随`main`分支更新，因此可能介绍尚未发布到PyPI的变更。各版本包含的内容请查看[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)。
 
 ## 安装 { #installation }
 
@@ -11,33 +15,36 @@ description: 安装pylopdf，并学习编辑、渲染、提取和绘制PDF的核
 pip install pylopdf
 ```
 
-只需安装工作负载所需的语言或文字font：
+pylopdf需要Python 3.11或更高版本，且没有必需的Python依赖。预构建wheel覆盖Linux（x86_64、ARM64）、macOS（Apple silicon、Intel）和Windows（x86_64），包括自由线程的Python 3.14t和3.15t。WebAssembly版本可在Pyodide和Cloudflare Python Workers中运行，详见[WebAssembly](wasm.md)。
+
+可选的extra提供字体和OCR模型，只需安装用得到的那些：
+
+| Extra | 提供的内容 |
+|---|---|
+| `jp`、`ko`、`zh-cn`、`zh-tw` | 日语、韩语、简体中文和繁体中文字体，用于显示未嵌入字体的PDF以及写入文本 |
+| `ar`、`he`、`hi`、`th` | 阿拉伯语、希伯来语、印地语（天城文）和泰语字体，用于写入文本 |
+| `ocr` | 内置[离线OCR](ocr.md)引擎所用的模型 |
+| `migrate` | [pymupdf迁移工具](migration.md#codemod) |
 
 ```bash
-pip install "pylopdf[jp]"     # 日语fallback与生成
-pip install "pylopdf[ko]"     # 韩语
-pip install "pylopdf[zh-cn]"  # 简体中文
-pip install "pylopdf[zh-tw]"  # 繁体中文
-pip install "pylopdf[ar]"     # 阿拉伯语生成（另有he、hi、th）
+pip install "pylopdf[jp,ocr]"
 ```
 
-四个CJK地区extra同时支持未嵌入Adobe CJK font的渲染与subset嵌入生成。阿拉伯语、希伯来语、天城文和泰语的包提供生成font。请根据所需地区字形明确选择`jp`、`ko`、`zh-cn`或`zh-tw`；不提供通用CJK extra。
+中文、日语和韩语的extra彼此独立，因为各地区对部分字符的写法不同，请选择与文档相符的那一个。
 
-预构建wheel覆盖Linux（x86_64、ARM64）、macOS（Apple silicon、Intel）和Windows（x86_64）上的CPython 3.11–3.15，以及free-threaded 3.14t和3.15t。free-threaded用法请参阅[并发](concurrency.md)，Pyodide与Cloudflare Python Workers请参阅[WebAssembly](wasm.md)。
-
-## 打开、检查、保存 { #open-inspect-save }
+## 打开、查看与保存 { #open-inspect-save }
 
 ```python
 import pylopdf
 
 with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(stream=pdf_bytes)
-    print(doc.page_count)                  # 也支持 len(doc)
+    print(doc.page_count)                  # 也可使用 len(doc)
     print(doc.metadata["title"])
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
     doc.save("out.pdf")
-    data = doc.tobytes()                   # 同一PDF的bytes形式
-    doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
+    data = doc.tobytes()                   # 以bytes形式得到同一份PDF
+    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
     doc.save(
         "locked.pdf",
         encryption=pylopdf.PDF_ENCRYPT_AES_256,
@@ -46,29 +53,30 @@ with pylopdf.open("input.pdf") as doc:     # 也可使用 pylopdf.open(stream=pd
     )
 ```
 
-- **加密文件**：使用`password=`打开，也可稍后调用`doc.authenticate()`。
-- **仅读取元数据**：`pylopdf.peek_metadata(path)`无需解析整个文档即可读取元数据和页数，适合扫描大型文件集。`max_file_size=`可在解析前拒绝过大的输入。
-- **损坏的文件**：pylopdf恢复损坏的cross-reference数据时，会发出`PylopdfWarning`并设置`doc.is_repaired`（`peek_metadata`中为`repaired`）。保存会写出干净的cross-reference数据。
+- **加密文件**：打开时传入`password=`，或在打开后调用`doc.authenticate(password)`。
+- **只读元数据**：`pylopdf.peek_metadata(path)`无需加载整个文档即可读取元数据和页数，适合扫描大量文件。
+- **损坏的文件**：如果pylopdf需要修复损坏的文件才能打开，它会发出`PylopdfWarning`并设置`doc.is_repaired`。保存时会写出一份完好的文件。
 
-!!! tip "不受信任的输入"
+!!! tip "来源不可信的文件"
 
-    打开不受自己控制的文件时，请传入`limits=pylopdf.DocumentLimits.web()`。它会限制文件大小、结构、解压和已解释文本，并以抛出`LimitError`代替耗尽内存。重型处理前可检查`doc.complexity`。各项预算请参阅[安全](security.md#untrusted-pdfs)。
+    打开不受你控制的文件时，请传入`limits=pylopdf.DocumentLimits.web()`。这样遇到过大或恶意的输入时，pylopdf会抛出`LimitError`，而不会耗尽内存。详见[安全](security.md#untrusted-pdfs)。
 
 ## 页面、文本与搜索 { #pages-text-search }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    for page in doc:                       # 也可用 doc[0]、doc[-1]；从0开始
+    for page in doc:                       # 也可使用 doc[0]、doc[-1]；页码从0开始
         print(page.number, page.rect)
 
     page = doc[0]
     text = page.get_text()                 # 纯文本
     words = page.get_text("words")         # (x0, y0, x1, y1, word, block, line, word_no)
-    layout = page.get_text("dict")         # blocks → lines → spans（含bbox、size、font）
-    hits = page.search_for("total")        # 不区分大小写；返回 list[Rect]
+    layout = page.get_text("dict")         # blocks → lines → spans，含bbox、size、font
+    hits = page.search_for("total")        # 不区分大小写；返回Rect列表
+    tables = page.find_tables()
 ```
 
-所有坐标均为左上角原点的**显示空间**。即使页面旋转，搜索结果、版面信息、绘制和渲染也共享同一坐标系。
+坐标以点（1/72英寸）为单位，原点位于页面显示时的左上角。搜索结果、提取的文本、绘制和渲染都使用同一套坐标，旋转页面也不例外。
 
 ## 渲染 { #rendering }
 
@@ -77,37 +85,39 @@ with pylopdf.open("input.pdf") as doc:
     doc[0].get_pixmap(dpi=144).save("page-1.png")
     png = doc[0].get_pixmap(dpi=300).tobytes()    # PNG bytes
     pix = doc[0].get_pixmap(dpi=144)               # 供NumPy或Pillow使用的RGB像素
-    pngs = doc.render_pages(dpi=144, workers=4)    # 所有页面，并行渲染
+    pngs = doc.render_pages(dpi=144, workers=4)    # 并行渲染所有页面
     svg = doc[0].get_svg_image()
 ```
 
-## 编辑 { #editing }
+## 编辑页面 { #editing }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.select([2, 0, 1])                  # 保留并重排；重复索引即复制
-    doc.delete_pages([1])                  # 每次编辑后页面会重新编号
-    doc.new_page()                         # 在末尾添加空白A4页
-    doc.fullcopy_page(0, to=1)             # 在索引1处插入第0页的独立副本
+    doc.select([2, 0, 1])                  # 保留并重排；重复某个页码即复制该页
+    doc.delete_pages([1])
+    doc.new_page()                         # 在末尾添加空白A4页面
+    doc.fullcopy_page(0, to=1)             # 在位置1插入第0页的独立副本
     doc[0].set_rotation(90)
     doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
     merged.insert_pdf(a)                   # a.pdf的全部页面
-    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdf的第1–3页
+    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdf的前三页
     merged.save("merged.pdf")
 ```
 
+添加、删除或重排页面后，页码会随之变化。在此之前获取的`Page`对象会抛出`StalePageError`，请用`doc[i]`重新获取。
+
 ## 绘制与批注 { #drawing-annotations }
 
-图像、叠加和批注：
+图像、叠加、线条和批注：
 
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
     page = doc[0]
-    page.insert_image((72, 72, 200, 200), filename="logo.png")  # JPEG按原样直通
-    page.show_pdf_page(page.rect, letterhead)                    # 将另一PDF的第0页作为矢量叠加
+    page.insert_image((72, 72, 200, 200), filename="logo.png")
+    page.show_pdf_page(page.rect, letterhead)       # 另一个PDF的第0页，保持矢量
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
 
     hits = page.search_for("important")
@@ -118,25 +128,22 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-文本与字体。未指定字体参数时，pylopdf对拉丁文字使用Helvetica，对其他文字使用已安装的地区extra（例如`pylopdf[jp]`）：
+文本与字体。不指定字体参数时，pylopdf用Helvetica写入拉丁文字，其他文字则使用已安装extra（如`pylopdf[jp]`）中的字体：
 
 ```python
 with pylopdf.open("input.pdf") as doc:
     page = doc[0]
     page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                        # 需要 pylopdf[jp]
+    page.insert_text((40, 70), "社外秘", fontsize=18)                          # 需要 pylopdf[jp]
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # 需要 pylopdf[zh-cn]
 
-    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")    # 任意OpenType文件
-    width = bold.text_length("見出し", fontsize=16)          # 与实际绘制宽度一致
+    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")       # 任意OpenType文件
+    width = bold.text_length("見出し", fontsize=16)             # 实际绘制的宽度
     page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
-
-    semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 可变字体可选择其字重轴上的任意字重
-    page.insert_text((40, 170), "見出し", font=semibold, fontsize=16)
     doc.save("text.pdf")
 ```
 
-将多个图形和文本作为一次绘制，每种字体只嵌入一次：
+要一起绘制多个图形和多段文本，请使用shape，这样每种字体只嵌入一次：
 
 ```python
 with pylopdf.open("input.pdf") as doc:
@@ -148,21 +155,32 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("shapes.pdf")
 ```
 
-## 扫描PDF、表单与Markdown { #scans-forms-markdown }
+## 扫描件、表单与Markdown { #scans-forms-markdown }
 
 ```python
 with pylopdf.open("scan.pdf") as doc:
-    ocr_words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-    doc[0].insert_ocr_text_layer(ocr_words)   # 任意OCR输出：(x0, y0, x1, y1, text, ...)
+    doc[0].apply_ocr()                        # 需要 pylopdf[ocr]；添加不可见、可搜索的文本
+    doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:
-    doc.set_form_field("customer", "Alice")   # 写入值及其外观
+    print(doc.get_form_fields())
+    doc.set_form_field("customer", "Alice")   # 写入值及其显示外观
     doc.save("filled.pdf")
 
 with pylopdf.open("input.pdf") as doc:
-    md = doc.to_markdown()                    # 适合RAG的标题、列表和表格
+    md = doc.to_markdown()                    # 标题、列表和表格
 ```
 
-如需在pylopdf内部识别文本，而不是自行提供OCR结果，请参阅[离线OCR](ocr.md)。
+OCR的详细说明（包括如何添加其他OCR引擎识别的文本）请参阅[离线OCR](ocr.md)。
 
-排版、PDF/A与数字签名请继续阅读[生态系统方案](ecosystem.md)；从pymupdf迁移的用户请查看[迁移指南](migration.md)。
+## 尚不支持的功能 { #not-supported }
+
+涂黑（redaction）、编辑或删除批注、创建表单字段以及增量保存都在计划中，具体时间见[路线图](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)。pylopdf只打开PDF文件。
+
+排版、PDF/A输出和数字签名不在项目范围内。[生态系统方案](ecosystem.md)介绍了如何将pylopdf与typst和pyHanko配合使用来完成这些工作。
+
+## 下一步 { #next-steps }
+
+- [API参考](api.md)：所有类和方法
+- [从pymupdf迁移](migration.md)：移植现有代码时阅读
+- [贡献与支持](contributing.md)：报告bug或提出功能需求

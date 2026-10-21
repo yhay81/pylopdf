@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: Python다운 API와 간결한 Rust 코어로 PDF를 편집하고 렌더링하며 추출합니다.
+description: pymupdf 스타일 API와 Rust 코어로 Python에서 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스입니다.
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">Python 네이티브 PDF 툴킷</p>
       <h1 id="living-hero-title">PDF를, <span class="living-annotated">Python답게</span>. 핵심은 Rust.</h1>
       <p class="living-lede">
-        편집·렌더링·추출·생성을 pymupdf에서 영감을 받은 API 하나로 처리합니다. 무거운 런타임 의존성이 없습니다.
+        pymupdf를 따르는 API로 PDF를 편집, 렌더링, 추출, 생성합니다. MIT 라이선스이며 따로 설치할 것이 없습니다.
       </p>
 
       <div class="living-actions">
@@ -35,7 +35,7 @@ hide:
       <ul class="living-proofs" aria-label="프로젝트 정보">
         <li>MIT 라이선스</li>
         <li>7.8–9.1 MB wheel</li>
-        <li>필수 Python 의존성 없음</li>
+        <li>필수 의존성 없음</li>
         <li>Python 3.11–3.15</li>
       </ul>
     </div>
@@ -76,19 +76,19 @@ hide:
     <article class="living-capability">
       <span class="living-capability__number">01 / EDIT</span>
       <h2>정밀하게 편집</h2>
-      <p>병합, 선택, 주석 추가, 폼 입력을 수행하면서 중요한 PDF 구조를 보존합니다.</p>
+      <p>페이지를 병합, 재정렬, 회전하고 텍스트와 이미지를 그리며 주석을 달고 폼을 채웁니다.</p>
       <a class="living-capability__link" href="getting-started/#editing" aria-label="PDF 편집 알아보기">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">02 / RENDER</span>
       <h2>충실하게 렌더링</h2>
-      <p>간결한 네이티브 엔진으로 안정적인 PNG 또는 SVG 출력을 만듭니다.</p>
+      <p>페이지를 PNG나 SVG로 변환합니다. 한 페이지씩도, 여러 페이지를 병렬로도 가능합니다.</p>
       <a class="living-capability__link" href="getting-started/#rendering" aria-label="PDF 렌더링 알아보기">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">03 / EXTRACT</span>
       <h2>의미를 추출</h2>
-      <p>텍스트, 단어, 블록, 좌표, OCR 비가시 레이어를 하나의 API로 읽습니다.</p>
+      <p>디지털 페이지와 스캔 페이지에서 위치가 있는 텍스트, 검색 결과, 표, Markdown을 읽습니다.</p>
       <a class="living-capability__link" href="getting-started/#pages-text-search" aria-label="텍스트 추출 알아보기">↗</a>
     </article>
   </section>
@@ -99,7 +99,7 @@ hide:
       <h2 id="living-evidence-title">배포에는 작게, 실제 업무에는 충분하게.</h2>
       <p>
         편집에는 lopdf, 렌더링과 추출에는 hayro, 텍스트와 폼 외관 생성에는
-        krilla와 HarfRust를 사용해 간결한 Python 패키지로 제공합니다.
+        krilla와 HarfRust를 결합했습니다.
       </p>
     </div>
     <div class="living-evidence">
@@ -117,7 +117,7 @@ hide:
       </a>
       <a class="living-evidence__item" href="security/">
         <span class="living-evidence__value">Limits</span>
-        <span class="living-evidence__label">DocumentLimits로 신뢰할 수 없는 입력의 페이지·객체·압축 해제 크기를 제한합니다.</span>
+        <span class="living-evidence__label">DocumentLimits로 신뢰할 수 없는 입력의 페이지, 객체, 압축 해제 크기를 제한합니다.</span>
       </a>
     </div>
   </section>
@@ -127,8 +127,8 @@ hide:
       <p class="living-eyebrow">의도된 범위</p>
       <h2 id="living-scope-title">집중된 PDF 코어, Python 생태계와의 협력.</h2>
       <p>
-        불리한 결과까지 포함한 재현 가능한 벤치마크를 공개하고, 인접 분야는 다시
-        구현하지 않고 검증된 도구와 연동합니다.
+        pylopdf는 PDF 작업에 집중하고, 조판, 서명, 검증은 검증된 도구와
+        함께 사용합니다.
       </p>
     </div>
     <div class="living-scope">
@@ -136,18 +136,18 @@ hide:
         <h3>pylopdf가 담당하는 것</h3>
         <ul>
           <li>페이지 관리, 메타데이터, 목차, 암호화</li>
-          <li>위치 정보가 있는 텍스트 추출, 검색, Markdown 변환</li>
-          <li>PNG/SVG 렌더링, 이미지, 주석, OCR 텍스트 레이어</li>
-          <li>AcroForm 입력, 첨부 파일, 페이지 레이블</li>
+          <li>위치 정보가 있는 텍스트 추출, 검색, 표, Markdown</li>
+          <li>PNG와 SVG 렌더링, 이미지, 그리기, 주석, OCR</li>
+          <li>폼 입력, 첨부 파일, 페이지 레이블</li>
         </ul>
       </div>
       <div class="living-scope__column">
         <h3>연동으로 해결하는 것</h3>
         <ul>
-          <li><a href="ecosystem/#typesetting">Typst</a>를 사용한 조판과 새 PDF/A 생성</li>
+          <li><a href="ecosystem/#typesetting">Typst</a>를 사용한 조판과 새 PDF/A 문서 생성</li>
           <li><a href="ecosystem/#signatures">pyHanko</a>를 사용한 PAdES 서명</li>
-          <li>veraPDF를 사용한 PDF/A 검증</li>
-          <li>단어와 사각형을 반환하는 모든 OCR 엔진</li>
+          <li><a href="ecosystem/#new-pdfa">veraPDF</a>를 사용한 PDF/A 검증</li>
+          <li>단어와 사각형을 반환하는 모든 <a href="ecosystem/#ocr">OCR 엔진</a></li>
         </ul>
       </div>
     </div>

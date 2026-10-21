@@ -1,79 +1,60 @@
 ---
 title: API安定性
-description: pylopdfの公開API境界、セマンティックバージョニング、非推奨化のライフサイクル、互換性レビュー手順。
+description: pylopdfの公開APIに含まれるもの、v1.0の前後で変わりうるもの、非推奨化の進め方。
 ---
 
 # API安定性
 
-pylopdfは[Semantic Versioning 2.0.0](https://semver.org/)に従います。このページでは、結果がPDF生成元、フォント、renderer、対応runtimeにも依存するPython libraryにおいて、その方針が何を意味するかを定義します。
+pylopdfは[セマンティックバージョニング](https://semver.org/)に従います。
 
-## 現在の状態 { #current-status }
+## v1.0より前 { #current-status }
 
-現在のAPIは**候補baseline**であり、v1.0の互換性保証そのものではありません。実利用で検証しながら、加算的な改善とレビュー済みの修正を続けます。一方で、公開面の変更は今からすべて検出・レビューし、v1.0の境界を偶然ではなく意図して決めます。
+pylopdfは1.0前です。APIをpymupdfに近づけていく間は、リリースに互換性のない変更が含まれることがあり、それにはまだ非推奨期間を設けていません。互換性のない変更はすべて、コードの更新方法とともに[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)に記載します。自分のペースでアップグレードしたい場合は、マイナーバージョンを固定してください（例: `pylopdf~=0.15.0`）。
 
-[v1.0以降](#after-v1)の保証はv1.0から始まります。それまでも互換性に影響する変更と移行方法をrelease noteに記載し、1.0未満であることを無言の破壊的変更の理由にはしません。
+以下の規則はv1.0から適用します。
 
-## 公開APIの境界 { #public-api-boundary }
+## 公開APIに含まれるもの { #public-api-boundary }
 
-対応する公開APIは次の範囲です。
+公開APIは次のとおりです。
 
-- `pylopdf.__all__`がexportする名前と`pylopdf.__version__`
-- それらのclassで文書化されたpublic member
-- callableのparameter名、種類、default、文書化されたreturn contract
-- 文書化された定数とenum値
-- TypedDictの必須・任意key、NamedTuple field、public type alias
-- 文書化された例外階層と`LimitError.code`などの機械可読属性
+- `pylopdf.__all__`にある名前と`pylopdf.__version__`
+- それらのクラスの、ドキュメントに記載されたメソッド、プロパティ、属性
+- 引数の名前、既定値、位置引数かキーワード専用か
+- ドキュメントに記載された戻り値、定数、列挙値
+- 返される辞書のキーと、返されるタプルのフィールド
+- 例外クラスとその階層、`LimitError.code`
 
-`_`で始まる名前、`pylopdf.pylopdf_core`、Rust実装詳細、objectの`repr`、例外messageの完全一致、warning順序、未文書化属性はprivateです。public objectを実装moduleからimportしても、そのmodule pathはpublicになりません。`pylopdf`からimportしてください。
+それ以外はすべて非公開です。`_`で始まる名前、`pylopdf.pylopdf_core`拡張モジュール、`repr()`の出力、エラーメッセージの文言、警告の順序、ドキュメントにない属性がこれにあたります。公開されている名前は、定義しているモジュールからではなく`pylopdf`自体からインポートしてください。
 
-`save()`が生成するPDF byte列とPNG/SVGの正確なserializationは、byte単位で固定されたformatではありません。文書化された見た目、構造、抽出の意味論がcontractです。
+保存したPDF、PNG、SVGの正確なバイト列はリリース間で変わることがあります。安定しているのは、その見た目、構造、そこから抽出されるテキストです。
 
 ## v1.0以降 { #after-v1 }
 
-stable releaseでは次の規則を適用します。
+- **メジャー**リリースでは、公開APIを削除・変更することがあります。
+- **マイナー**リリースでは、既存のコードを壊さずに機能を追加します。
+- **パッチ**リリースでは、バグを修正します。
 
-- **major** releaseはpublic APIを削除または非互換に変更できます。
-- **minor** releaseは後方互換なAPIと挙動を追加します。
-- **patch** releaseはpublic APIを意図的に変えず不具合を修正します。
+公開されているものの削除や改名、必須の引数の追加、返される辞書からのキーの削除、受け付ける入力の縮小、例外の階層の変更には、メジャーリリースが必要です。関数、メソッド、省略可能な引数、受け付ける値、返されるキーの追加には必要ありません。型ヒントもAPIの一部とみなします。`TypedDict`のキーを必須にすることや、その型を変えることも互換性のない変更です。
 
-public symbol/memberの削除・改名、parameterの必須化、positional/keyword受付の非互換変更、mapping keyの削除、入力範囲の縮小、文書化された定数の変更、publicな例外継承の破壊にはmajor releaseが必要です。
+## 非推奨化 { #deprecation-lifecycle }
 
-任意keyword parameter、新しいsymbol/method、入力として受け付けるenum・Literalの選択肢、任意の結果keyの追加は通常加算的です。型contractもruntime objectと同じ互換性レビュー対象です。TypedDict keyの必須・任意間の移動やvalue typeの非互換変更を「型だけの変更」とは扱いません。
+v1.0以降、削除予定のAPIは次のように扱います。
 
-## 非推奨化のライフサイクル { #deprecation-lifecycle }
+1. 代わりに使うものと、削除しうる最も早いリリースを示して、非推奨とドキュメントに記載します。
+2. 可能であれば`DeprecationWarning`を出すようにします。
+3. 少なくともマイナーリリース2回分、かつ6か月間は維持します。
+4. 削除はメジャーリリースでのみ行います。
 
-v1.0以降、削除予定のpublic APIは通常次の順序で扱います。
+`PylopdfWarning`はPDFファイルの問題を報告するもので、非推奨化には使いません。セキュリティ、法的な理由、上流の緊急事態によっては、より短い手順が必要になることがあります。その場合は変更履歴とリリースノートで明示します。
 
-1. 代替手段と最短削除releaseを示して非推奨と文書化する。
-2. 実用的な場合は`DeprecationWarning`を発行する。
-3. 少なくとも2回のminor releaseかつ6か月間維持する。
-4. major releaseでのみ削除する。
+## 結果の変化 { #behavior-and-data }
 
-`DeprecationWarning`は開発者の移行用です。`PylopdfWarning`はPDF解釈時の運用warningに使い続け、非推奨通知には使いません。
+以前の結果が誤っていた場合、バグ修正によって結果が変わることがあります。たとえば、読み順、表の検出、グリフの位置、色、壊れたファイルの修復方法などです。こうした変更はどのリリースにも含まれることがあり、目立つものは変更履歴に記載します。
 
-security、legal、またはupstream runtimeの緊急事態では期間を短縮することがあります。その場合は影響を最小にする移行方法とともに、changelogとrelease noteで明示します。
+新しい資源の上限によって、以前のリリースが処理しようとしていた悪意のあるファイルや予想外に重いファイルを拒否することがあります。プログラムはメッセージの文言ではなく、例外の型と`LimitError.code`に依存してください。
 
-## 挙動とdataの互換性 { #behavior-and-data }
+サポートするPythonのバージョンとプラットフォームは、リリースごとに記載します。あるPythonのバージョンが上流でサポート終了を迎えた後は、マイナーリリースでそのサポートを打ち切ることがあり、その場合はリリースノートに記載します。
 
-旧挙動が誤っていた場合、bug fixによって出力が変わることがあります。壊れたPDFの回復、読み順、glyph geometry、table解釈、色変換、renderer差分などが該当します。文書化されたcontractに近づける修正はmajor releaseを必要としませんが、影響が大きい場合は明記します。
+## 変更の追跡方法 { #compatibility-review }
 
-resource limitにより、以前は処理を試みた攻撃的または想定外に高コストな入力を拒否することがあります。callerが機械的に判断する箇所には安定した例外型とerror codeを用い、人間向けmessageの文面はAPIとしません。
-
-対応範囲はreleaseごとに文書化されたPython version、platform、ABI、WebAssembly
-runtime matrixで定義します。upstreamのEOL後、または対応継続がsecurity/correctness修正を妨げる場合、minor releaseでruntimeを外すことがあります。理由と移行期間を公開します。Pyodide互換性はruntime更新を推測せず、pylopdfのminor lineごとに固定して検証します。
-
-## 互換性レビュー { #compatibility-review }
-
-[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)はレビュー済みの候補surfaceを記録します。全native Python laneで、export、signature、mapping key、type alias、enum/定数値、public member、例外継承の変化をtestします。
-
-```console
-uv run python tools/check_api_surface.py
-```
-
-意図的な変更ではruntime、typing、documentation、SemVerへの影響をレビューしてからsnapshotを更新します。
-
-```console
-uv run python tools/check_api_surface.py --update
-```
-
-snapshotはreview gateであり、互換性を自動判定するものではありません。意図的な変更には引き続きtest、documentation、changelog entryが必要です。
+リポジトリは公開APIを[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)に記録しており、その記録を更新せずにAPIが変わるとテストが失敗します。そのため、公開APIへの変更はすべて意図的にレビューされます。

@@ -1,70 +1,57 @@
 ---
 title: 생태계 연동
-description: Typst, pyHanko, veraPDF 및 OCR 엔진을 pylopdf와 연결하는 검증된 사용법.
+description: pylopdf를 Typst, pyHanko, veraPDF, OCR 엔진과 연결하는 테스트된 레시피입니다.
 ---
 
 # 생태계 연동
 
-pylopdf는 조판, PDF/A 생성, 디지털 서명을 의도적으로 다시 구현하지 않습니다.
-각 기능은 검증된 라이브러리와 조합해 해결하며, 아래의 모든 사용법은
-[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)의
-통합 테스트로 보호됩니다.
+pylopdf는 조판, PDF/A 출력, 디지털 서명을 구현하지 않습니다. 이미 잘 만들어진 라이브러리가 이런 작업을 잘 처리하며, 아래 레시피는 그 라이브러리를 pylopdf와 함께 쓰는 방법을 보여 줍니다. 각 레시피는 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)의 통합 테스트로 검증합니다.
 
-## 조판과 새 문서 — typst { #typesetting }
+## typst로 새 문서 조판하기 { #typesetting }
 
-[typst](https://typst.app/)와
-[typst-py](https://pypi.org/project/typst/)로 보고서를 조판하고, 생성된 바이트를
-pylopdf에 바로 전달할 수 있습니다.
+[typst](https://typst.app/)로 문서를 작성하고 [typst-py](https://pypi.org/project/typst/)로 컴파일한 뒤 결과를 pylopdf로 엽니다.
 
 ```python
 import typst
 import pylopdf
 
-pdf_bytes = typst.compile("report.typ")   # 조판: typst
-doc = pylopdf.open(stream=pdf_bytes)      # 편집 / 추출 / 병합: pylopdf
+pdf_bytes = typst.compile("report.typ")   # typst가 문서를 조판
+doc = pylopdf.open(stream=pdf_bytes)      # pylopdf가 편집, 병합, 추출
 ```
 
-## 새 문서의 PDF/A — typst { #new-pdfa }
+## typst로 PDF/A 출력하기 { #new-pdfa }
 
-typst의 PDF 백엔드(krilla)는 검증된 PDF/A-1b…4 및 PDF/UA-1 출력을 지원합니다.
+typst는 PDF/A(파트 1–4)와 PDF/UA-1 파일을 쓸 수 있습니다.
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
-기존 PDF의 변환이나 검증은 다른 문제입니다.
-[veraPDF](https://verapdf.org/)(Java)가 사실상의 표준 검증 도구이며,
-`Document.get_pdfa_claim()`은 문서가 스스로 선언한 정보만 읽습니다.
+`Document.get_pdfa_claim()`은 파일이 어떤 PDF/A 수준을 선언하는지만 읽습니다. 기존 PDF가 실제로 적합한지 확인하려면 표준 검증기인 [veraPDF](https://verapdf.org/)(Java에서 실행)를 사용하세요.
 
-## 조판된 CJK 워터마크와 헤더 — typst × show_pdf_page { #cjk-watermarks }
+## typst로 디자인한 워터마크와 머리글 { #cjk-watermarks }
 
-pylopdf는 `pylopdf[ko]` 설치 후 `insert_text()`로 한국어를 직접 그릴 수
-있습니다. `[jp]`, `[zh-cn]`, `[zh-tw]`는 다른 CJK 지역 glyph를 제공합니다.
-스탬프에 더 복잡한 한 페이지 조판이 필요하면 typst로
-조판하고(글꼴은 부분 집합으로 포함됨), 각 페이지에 벡터로 합성합니다.
+단순한 텍스트라면 `insert_text()`로 충분합니다. `pylopdf[jp]`(또는 `[ko]`, `[zh-cn]`, `[zh-tw]`)를 설치하면 CJK 텍스트도 씁니다. 스탬프에 제대로 된 레이아웃이 필요하다면 typst에서 한 페이지로 디자인하고, `show_pdf_page()`로 문서의 모든 페이지에 그 페이지를 그리세요.
 
 ```python
-from pylopdf_fonts_ko import sans_path  # pip install pylopdf[ko]
+from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
 
 stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
-#set text(font: "Noto Sans KR", size: 48pt, fill: rgb(255, 0, 0, 40%))
-#align(center + horizon)[대외비]
+#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#align(center + horizon)[社外秘]
 """
 stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-합성 후에도 스탬프는 추출 가능한 텍스트로 남아 `page.get_text()`에서 `대외비`를
-찾을 수 있습니다.
+스탬프는 실제 텍스트로 남으므로, 그 뒤에도 `page.get_text()`가 `社外秘`를 찾습니다.
 
-## 디지털 서명(PAdES) — pyHanko { #signatures }
+## pyHanko로 디지털 서명하기 { #signatures }
 
-[pyHanko](https://pypi.org/project/pyHanko/)(MIT)는 증분 업데이트 방식으로
-서명합니다. 따라서 pylopdf가 생성한 바이트는 서명된 파일의 접두부로 그대로
-유지되며, 이 동작은 테스트에서 바이트 단위로 검증합니다.
+[pyHanko](https://pypi.org/project/pyHanko/)(MIT)는 PAdES 서명을 만듭니다. 서명을 파일 끝에 덧붙이므로 pylopdf가 쓴 바이트는 바뀌지 않습니다.
 
 ```python
 import io
@@ -80,20 +67,16 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-pylopdf 자체의 서명 필드 API는 서명 필드를 채우지 않으며, 대신 이 방법을
-안내하도록 설계되었습니다.
+서명은 마지막 단계에서 하세요. 그 뒤에 pylopdf로 저장하면 파일을 다시 쓰므로 서명이 무효가 됩니다. `set_form_field()`는 서명 필드 채우기를 거부합니다.
 
-## OCR — 원하는 엔진 사용 { #ocr }
+## 다른 엔진으로 OCR하기 { #ocr }
 
-`Page.insert_ocr_text_layer(words)`는 클라우드 API, Tesseract 등
-`(x0, y0, x1, y1, text)`를 생성하는 어떤 OCR 결과든 보이지 않는 텍스트 레이어로
-기록합니다. 글꼴을 포함하지 않아 크기 증가가 거의 없고, 스캔 PDF를 검색 가능하게
-만듭니다. 이후 스캔 문서에도 `to_markdown()`을 사용할 수 있습니다.
+pylopdf에는 [내장 OCR](ocr.md)이 있습니다. 대신 Tesseract나 클라우드 서비스 같은 다른 엔진을 쓰려면, 그 엔진이 인식한 단어를 `(x0, y0, x1, y1, text)` 형식으로 `Page.insert_ocr_text_layer(words)`에 전달하세요. pylopdf가 이를 보이지 않는 텍스트 레이어로 추가하므로, 파일 크기는 거의 늘지 않으면서 스캔 문서를 검색할 수 있고 `to_markdown()`이 그 텍스트를 읽을 수 있습니다.
 
 ```python
 import pylopdf
 
-words = [  # OCR 엔진의 결과, 표시 좌표
+words = [  # from your OCR engine, in page coordinates
     (72, 90, 140, 104, "Invoice"),
     (146, 90, 190, 104, "#1024"),
 ]

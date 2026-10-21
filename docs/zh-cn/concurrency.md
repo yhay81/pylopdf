@@ -1,28 +1,27 @@
 ---
-title: 并发与free-threaded Python
-description: Document、Page、Pixmap、并行渲染与CPython 3.14t和3.15t所支持的线程边界。
+title: 并发与自由线程Python
+description: 如何在多个线程中使用pylopdf、并行渲染页面，以及在自由线程CPython 3.14t和3.15t上运行。
 ---
 
-# 并发与free-threaded Python
+# 并发与自由线程Python
 
-pylopdf既为带GIL的CPython 3.11–3.15发布每个平台一个`abi3` wheel，也为free-threaded CPython按Python版本发布专用wheel（`cp314-cp314t`和`cp315-cp315t`）。导入free-threaded wheel不会重新启用GIL。
+pylopdf在打开、保存、渲染、提取、合并和压缩等重型操作期间会释放GIL，因此在常规CPython上，多个线程可以并行运行。自由线程的CPython 3.14t和3.15t有各自专用的wheel，导入后GIL保持禁用。
 
-## 支持约定 { #support-contract }
+## 支持范围 { #support-contract }
 
-| 用法 | 支持情况 |
+| 用法 | 是否支持 |
 |---|---|
-| 带GIL的CPython 3.11–3.15 | 由`abi3-py311` wheel支持 |
-| free-threaded CPython 3.14t和3.15t | 由`cp314-cp314t`和`cp315-cp315t` wheel支持，并在GIL禁用状态下测试 |
-| 对不同`Document`对象执行并发操作 | 支持；加载、保存、渲染、提取、合并和压缩等重型操作会释放GIL |
-| 对同一个`Document`并发调用或编辑 | 不支持；请用锁串行访问，或使用互相独立的Document |
-| 对一个Document调用`Document.render_pages(workers=...)` | 支持；这是同一Document内有界并行渲染的边界 |
-| 并发读取`Pixmap` | 支持；`Pixmap`不可变 |
+| 不同线程处理不同的`Document`对象 | 支持 |
+| 多个线程同时调用或编辑同一个`Document` | 不支持：请使用锁，或在每个线程中各自打开文件 |
+| 对一个文档使用`Document.render_pages(workers=...)` | 支持；这是并行渲染单个文档的受支持方式 |
+| 多个线程读取同一个`Pixmap` | 支持；`Pixmap`不可修改 |
+| 自由线程CPython 3.14t和3.15t | 支持，并在禁用GIL的状态下测试 |
 
-`Page`是其父`Document`的视图，因此遵守同一Document规则。外部同时访问可能被PyO3的运行时借用检查拒绝，但不能把这种检查当作同步机制。
+`Page`属于其`Document`，遵循同样的规则。pylopdf可能会拒绝对同一文档的同时调用，但不要把这当作锁来依赖。
 
-## 选择正确的边界 { #choose-the-right-boundary }
+## 处理大量文件 { #many-files }
 
-处理互相独立的文件时，让每个worker拥有独立的Document：
+让每个worker拥有各自的文档：
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -40,26 +39,30 @@ with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
 
-处理一个Document中的多个页面时，请使用`render_pages()`，不要从外部线程并发调用同一个Document：
+## 渲染一个文档的多个页面 { #render-pages }
+
+请使用`render_pages()`，而不要从多个线程调用同一个文档：
 
 ```python
 with pylopdf.open("report.pdf") as document:
     png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
-`render_pages()`使用同一个不可变渲染器快照，保留请求的页面顺序和重复项，并将估算的并发工作内存限制在约512 MB。
+它按请求页面的顺序返回PNG bytes；页面较大时会减少worker数量，使估算的工作内存保持在约512 MB以内。
 
 ## 重复渲染 { #repeated-rendering }
 
-在打开Document的线程上重复调用`Page.get_pixmap()`、`Document.get_page_pixmap()`和串行`render_pages()`时，会复用先前调用已解析的font、颜色空间和glyph轮廓，输出与新打开的Document完全相同。每个线程最多保留一个这样的cache，调用之间最多保留64个不同页面的内容。编辑Document、更改后备font或关闭Document都会使cache失效；若在打开它的线程上执行这些操作，或在该线程上释放Document，cache会立即释放。从其他线程失效的cache会在其所属线程下次渲染或退出时释放。来自其他线程的调用和并行`render_pages()`的worker使用调用级cache。
+在打开文档的线程上反复渲染该文档的页面时，会复用之前调用中解析过的字体和字形轮廓。输出与新打开的文档完全相同。该缓存最多覆盖64个页面，编辑或关闭文档时会被释放。
 
-## Pixmap缓冲区 { #pixmap-buffers }
+## Pixmap与NumPy { #pixmap-buffers }
 
-所有wheel都通过只读、一维、零复制的buffer公开不可变的RGB或RGBA像素数据：
+`Pixmap`以只读缓冲区的形式公开其像素，因此NumPy无需复制即可使用：
 
 ```python
-view = memoryview(page.get_pixmap())
-assert view.readonly and view.format == "B"
+import numpy as np
+
+pix = page.get_pixmap()
+pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 
-view会使Pixmap保持存活，因此NumPy可以通过`np.frombuffer(pixmap, dtype=np.uint8)`无复制地读取像素。需要独立的`bytes`副本时仍可使用`pixmap.samples`。abi3与free-threaded的所有wheel都公开同一buffer。
+而`pix.samples`会返回一份独立的`bytes`副本。
