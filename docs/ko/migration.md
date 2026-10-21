@@ -32,7 +32,7 @@ python -m pylopdf.migrate src/
 그 목록을 `path:line: message` 형식으로 출력합니다. `--diff`는 파일을 쓰지 않고
 변경 내용을 출력하고, `--check`는 바뀔 파일이 있으면 상태 1로 끝납니다.
 수신 객체의 타입은 알 수 없으므로 diff를 검토하세요. 실행 중에 pylopdf에 없는
-pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 알려 주는
+pymupdf 이름을 찾으면, 대체 API를 알려 주거나 아직 지원하지 않는 기능임을 알려 주는
 `AttributeError`가 발생합니다.
 
 ## 빠른 대응표 { #mapping }
@@ -49,12 +49,12 @@ pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 �
 | `page.get_svg_image()` | 동일 | `matrix`는 항등만. `text_as_path=False`는 예외 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 동일 | RGB, `alpha=True`면 straight-alpha RGBA. pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(filename)`는 PNG를 만들며 `save`는 `.png`가 필요 |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 동일 | `extract_image`는 DCT를 JPEG 그대로 반환하고 다른 filter는 PNG로 디코딩. `get_image_info(hashes=True)`는 digest 지원 전까지 예외 |
-| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 동일 | M3에서 setter가 추가될 때까지 읽기 전용. `rect`는 표시 좌표 |
+| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 동일 | 현재는 읽기 전용. `rect`는 표시 좌표 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 동일 | `Quad`는 외접 사각형으로 처리. `insert_link`는 `LINK_URI`만 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 동일 | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로만 변환하므로 축소에는`quality` 1–100이 필요. `set_to_gray`와`options`는 예외, bitonal 이미지는 건너뜀. `None` 대신 개수를 반환 |
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제 |
-| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음(G8) |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음 |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 동일 | pymupdf의 범위 규칙(음수 `from_page`는 첫 페이지, 음수 `to_page`는 마지막 페이지이며 둘 다 범위 안으로 맞춤). 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)`의 `page`는 0부터 시작（pymupdf는 1부터） |
 | `doc.save(garbage=4, deflate=True)` | 동일 | pymupdf와 같은 0~4단계. 페이지, 주석, 폼 필드, 구조 요소, 레이어는 병합하지 않음 |
@@ -96,8 +96,8 @@ pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 �
   PDF snapshot을64 MiB, 누적 위치text를65,536 glyph record로 제한합니다. 사용자
   정책은`max_interpretation_size`와`max_text_glyphs`를 설정할 수 있고`None`은 호환되는
   무제한 동작을 유지합니다.
-- **`get_text` 옵션**은 `text` / `words` / `blocks` / `dict`로 제한됩니다
-  (`html` / `rawdict` / `xml` 없음). 포함 글꼴의 span dict에는 `font`와
+- **`get_text` 옵션**은 `text` / `words` / `blocks` / `dict` / `rawdict`로
+  제한됩니다(`html` / `xml` 없음). 포함 글꼴의 span dict에는 `font`와
   pymupdf 방식의 `flags`(bold/italic/serif/mono)가 들어갑니다.
 - **다단 텍스트**는 결정적인 단 사이 여백 감지로 정렬합니다. 각 단 안에서는
   위에서 아래로, 단 사이는 왼쪽에서 오른쪽으로 읽습니다. 1 em보다 좁은 여백은
@@ -133,7 +133,7 @@ pymupdf 이름을 찾으면, 대체 API나 그것을 계획한 마일스톤을 �
 |---|---|
 | Story API / `insert_htmlbox`(조판) | typst-py를 통한 typst — [사용법](ecosystem.md) |
 | 디지털 서명 | pyHanko(MIT) — [사용법](ecosystem.md) |
-| 증분 저장 | 현재 미지원, 전체 파일을 다시 쓰며 관찰 목록에 유지, 서명은 pyHanko로 해결 |
+| 증분 저장 | 현재 미지원, 전체 파일을 다시 씀. 증분 저장은 지원 예정이며 서명은 pyHanko로 해결 |
 | XPS / EPUB / CBZ / 이미지 열기 | 범위 밖 — PDF만 지원 |
 
 ## 이전 예제 { #worked-example }

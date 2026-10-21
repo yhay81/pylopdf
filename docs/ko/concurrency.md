@@ -6,9 +6,8 @@ description: Document, Page, Pixmap, 병렬 렌더링 및 CPython 3.14t와 3.15t
 # 동시성과 free-threaded Python
 
 pylopdf는 GIL이 있는 CPython 3.11–3.15용 플랫폼별 `abi3` wheel과 free-threaded
-CPython용 Python 버전별 wheel을 배포합니다. `cp314-cp314t`는 v0.10부터,
-`cp315-cp315t`는 v0.15부터 제공합니다. free-threaded wheel을
-import해도 GIL이 다시 활성화되지 않습니다.
+CPython용 Python 버전별 wheel(`cp314-cp314t`, `cp315-cp315t`)을 배포합니다.
+free-threaded wheel을 import해도 GIL이 다시 활성화되지 않습니다.
 
 ## 지원 계약 { #support-contract }
 
@@ -78,6 +77,5 @@ assert view.readonly and view.format == "B"
 
 view가 Pixmap을 유지하므로 NumPy는 `np.frombuffer(pixmap, dtype=np.uint8)`로
 픽셀을 복사 없이 읽을 수 있습니다. 독립된 `bytes` 복사본이 필요하면 계속
-`pixmap.samples`를 사용할 수 있습니다. v0.15부터는 Python 3.11 이상이
-필요하고 그 stable ABI에는 `Py_buffer`가 포함되므로 abi3 wheel도 같은 buffer를
-노출합니다. v0.14.0 이하에서는 free-threaded wheel만 이 buffer를 노출했습니다.
+`pixmap.samples`를 사용할 수 있습니다. abi3 wheel과 free-threaded wheel 모두 같은
+buffer를 노출합니다.

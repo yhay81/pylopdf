@@ -20,7 +20,7 @@ pylopdf는 **빠른 결과와 느린 결과를 함께** 공개합니다. 이 측
 |---|---|
 | 실제 PDF 14개 병합 | pylopdf **15.4 ms**, pymupdf 111.2 ms, pypdf 141.5 ms |
 | 첫 페이지를 2× PNG로 처리(전체 과정) | 14개 파일 모두 pylopdf가 가장 빨랐으며 합계는 **212.9 ms** 대 573.9 ms |
-| 래스터화만 | 14개 파일 중 cold에서는 9개, warm에서는 12개에서 pymupdf가 빨랐고(warm 1개는 동률) warm 합계는 145.9 ms 대 **78.8 ms** |
+| 래스터화만 | 14개 파일 중 cold에서는 9개, warm에서는 12개에서 pymupdf가 빨랐고(warm 1개는 동률) warm 합계는 pylopdf 145.9 ms, pymupdf **78.8 ms** |
 | PNG 인코딩 | pylopdf가 약 9배 빨랐지만(**44.4 ms** 대 397.4 ms) 출력은 40% 컸음(4,645 KiB 대 **3,318 KiB**) |
 | 12페이지를 2×로 렌더링 | `render_pages()`가 1 worker의 163.7 ms에서 8 workers의 34.6 ms로 줄어 **4.74배 가속**. pymupdf의 순차 처리는 425.3 ms |
 | 전체 텍스트 추출 | 14개 중 12개는 pylopdf, 나머지 2개는 pymupdf와 pypdf가 하나씩 가장 빨랐음 |
@@ -82,9 +82,10 @@ pylopdf는 **빠른 결과와 느린 결과를 함께** 공개합니다. 이 측
 
 ## 렌더링 { #rendering }
 
-첫 페이지를 2×로 처리한 밀리초이며 낮을수록 빠릅니다. 두 라이브러리 모두 기본값을
-사용합니다. pylopdf는 투명 배경의 straight-alpha RGBA8을, pymupdf는 흰 배경의 RGB를
-생성합니다.
+첫 페이지를 2×로 처리한 밀리초이며 낮을수록 빠릅니다. 두 라이브러리 모두 측정 당시
+release의 기본값을 사용합니다. pylopdf 0.14.0은 투명 배경의 straight-alpha RGBA8을,
+pymupdf는 흰 배경의 RGB를 생성했습니다. 현재 pylopdf의 기본값은 pymupdf와 같은 흰
+배경의 RGB입니다.
 
 ### 전체 과정 { #rendering-end-to-end }
 

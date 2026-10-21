@@ -11,28 +11,19 @@ description: pylopdfをインストールし、編集・描画・抽出・書き
 pip install pylopdf
 ```
 
-フォント非埋め込みの日本語PDFを描画する場合、または日本語・漢字の`insert_text` /
-`insert_textbox`でJP fontを自動subsetする場合は、Noto Sans/Serif JP付きで:
-
-必要な言語・地域のfontだけを導入できます。
+フォントを埋め込んでいない日本語PDFを描画する場合や、日本語・漢字の`insert_text` / `insert_textbox`で日本語フォントを自動でサブセット埋め込みする場合は、Noto Sans/Serif JPを含む追加パッケージを導入します。ほかの言語・地域も、必要なフォントだけを選んで導入できます。
 
 ```bash
-pip install "pylopdf[jp]"     # 日本語のfallbackと生成
+pip install "pylopdf[jp]"     # 日本語のフォールバックと生成
 pip install "pylopdf[ko]"     # 韓国語
 pip install "pylopdf[zh-cn]"  # 簡体字中国語
 pip install "pylopdf[zh-tw]"  # 繁体字中国語
 pip install "pylopdf[ar]"     # アラビア語生成（he、hi、thも選択可）
 ```
 
-CJKの4 extraは、非埋め込みAdobe CJK fontの描画fallbackとsubset埋め込み生成の
-両方に使います。`ar`、`he`、`hi`、`th`は生成用providerです。必要な地域字形に
-合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択します。汎用CJK extraはありません。
+CJKの4つのextraは、埋め込まれていないAdobe CJKフォントを描画するときのフォールバックと、サブセット埋め込みによる生成の両方に使います。`ar`、`he`、`hi`、`th`は生成用の提供パッケージです。必要な地域の字形に合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択します。CJK共通のextraはありません。
 
-release CIは各native platform wheelをarchitectureが一致するrunnerへinstallし、PDFの
-生成・保存・再open・抽出・renderとimmutable Pixmap storageを検証します。CPython
-3.14と3.15で検証する5つの`abi3-py311` artifactと、CPython 3.14tと3.15tの10個の
-artifactをすべて対象にし、sdistとPyEmscripten wheelにはそれぞれのenvironment専用
-gateがあります。
+ビルド済みwheelは、Linux（x86_64、ARM64）、macOS（Apple silicon、Intel）、Windows（x86_64）のCPython 3.11–3.15と、free-threadedの3.14tと3.15tに対応します。free-threadedでの利用は[並行実行](concurrency.md)、PyodideとCloudflare Python Workersは[WebAssembly](wasm.md)を参照してください。
 
 ## 開く・調べる・保存する { #open-inspect-save }
 
@@ -55,18 +46,7 @@ doc.save(
 )
 ```
 
-暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。
-`pylopdf.peek_metadata(path)` は通常、全体をパースせずメタデータとページ数だけを
-高速に読みます（大量走査向け）。`max_file_size=`を指定するとpathまたはbyte inputを
-parse前にサイズで拒否でき、互換性のため既定値は無制限です。誤った
-`startxref`や再構築したxref tableなど、cross-referenceの破損を復旧した場合は
-`repaired`と`doc.is_repaired`が`True`になり、`PylopdfWarning`も発生します。
-保存するとxref dataは正規化されます。信頼できないファイルには
-`limits=pylopdf.DocumentLimits.web()`を指定してください。ファイル、構造、展開、
-rendering／extraction用PDF snapshot、解釈済みテキストを制限し、重い処理の前に
-`doc.complexity`を確認できます。
-制御された拒否は`LimitError`です。各上限は[セキュリティ](security.md#untrusted-pdfs)
-を参照してください。
+暗号化 PDF は `password=`（または開いた後の `doc.authenticate()`）で復号します。`pylopdf.peek_metadata(path)` は全体をパースせずメタデータとページ数だけを高速に読みます（大量走査向け）。`max_file_size=`を指定するとパスまたはバイト列の入力を解析前にサイズで拒否でき、互換性のため既定値は無制限です。誤った`startxref`や再構築した相互参照テーブルなど、相互参照の破損を復旧した場合は`repaired`と`doc.is_repaired`が`True`になり、`PylopdfWarning`も発生します。保存すると相互参照データは正規化されます。信頼できないファイルには`limits=pylopdf.DocumentLimits.web()`を指定してください。ファイル、構造、展開、レンダリング・抽出用のPDFスナップショット、解釈済みテキストを制限し、重い処理の前に`doc.complexity`を確認できます。制御された拒否は`LimitError`です。各上限は[セキュリティ](security.md#untrusted-pdfs)を参照してください。
 
 ## ページ・テキスト・検索 { #pages-text-search }
 
@@ -81,8 +61,7 @@ layout = page.get_text("dict")            # blocks → lines → spans（bbox・
 hits = page.search_for("合計")            # 大文字小文字を区別しない。list[Rect]
 ```
 
-座標はすべて左上原点の**表示空間**です — 検索結果・レイアウト・描き込み・
-レンダリングが同じ座標系を共有し、回転ページでも一致します。
+座標はすべて左上原点の**表示空間**です — 検索結果・レイアウト・描き込み・レンダリングが同じ座標系を共有し、回転ページでも一致します。
 
 ## レンダリング { #rendering }
 
@@ -116,7 +95,7 @@ page.insert_image(page.search_for("承認印")[0], stream=hanko_png)
 page.insert_image((300, 72, 500, 200), pixmap=thumbnail, rotate=90)  # RGBAを直接、時計回りに回転
 page.show_pdf_page(page.rect, letterhead)                    # ベクタのまま重ねる。同じ文書も可
 page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[jp]から自動subset
+page.insert_text((40, 70), "社外秘", fontsize=18)             # pylopdf[jp]から自動でサブセット埋め込み
 page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")
 bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")         # extraにない太さはファイルから読む
 width = bold.text_length("見出し", fontsize=16)                # 描いたときの幅と一致
@@ -138,10 +117,9 @@ page.insert_link({"kind": pylopdf.LINK_URI, "from": page.search_for("Example")[0
 ## スキャン PDF・フォーム・Markdown { #scans-forms-markdown }
 
 ```python
-page.insert_ocr_text_layer(ocr_words)        # 外部 OCR の結果で searchable PDF 化
-doc.set_form_field("customer", "山田 太郎")  # pylopdf[jp]から自動subset
+page.insert_ocr_text_layer(ocr_words)        # 外部 OCR の結果で検索可能なPDFにする
+doc.set_form_field("customer", "山田 太郎")  # pylopdf[jp]から自動でサブセット埋め込み
 md = doc.to_markdown()                       # RAG 向け Markdown
 ```
 
-続きは、組版・PDF/A・電子署名の[エコシステム連携](ecosystem.md)、
-pymupdf 利用者は[移行ガイド](migration.md)へ。
+続きは、組版・PDF/A・電子署名の[エコシステム連携](ecosystem.md)、pymupdf 利用者は[移行ガイド](migration.md)へ。

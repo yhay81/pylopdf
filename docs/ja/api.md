@@ -5,17 +5,12 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 
 # API 一覧
 
-詳細な docstring はパッケージ内にあります（`help(pylopdf.Document)`）。この
-ページは地図です。ページ番号はしおりも含めすべて 0 始まり。座標はすべて左上原点の表示空間です。
-[API安定性ポリシー](stability.md)で公開範囲と非推奨化の手順を定義しています。
+詳細な docstring はパッケージ内にあります（`help(pylopdf.Document)`）。このページは地図です。ページ番号はしおりも含めすべて 0 始まり。座標はすべて左上原点の表示空間です。[API安定性ポリシー](stability.md)で公開範囲と非推奨化の手順を定義しています。
 
 ## Document { #document }
 
 `pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
-`pylopdf.open`はpymupdfと同じく同一の呼び出し可能オブジェクト。with 文に対応。
-`stream`はbytes、`bytearray`、`memoryview`、`io.BytesIO`を受け付け、`filetype`は
-`"pdf"`を取ります。pymupdfの`open("pdf", data)`と同じく、`stream`と並ぶ文字列の
-`filename`はファイル形式を表します。password inputはUTF-8 127 byteが上限です。
+`pylopdf.open`はpymupdfと同じく同一の呼び出し可能オブジェクト。with 文に対応。`stream`はbytes、`bytearray`、`memoryview`、`io.BytesIO`を受け付け、`filetype`は`"pdf"`を取ります。pymupdfの`open("pdf", data)`と同じく、`stream`と並ぶ文字列の`filename`はファイル形式を表します。password inputはUTF-8 127 byteが上限です。
 
 | メンバ | 用途 |
 |---|---|
@@ -42,14 +37,8 @@ description: pylopdfのDocument、Page、Pixmap、Rect、権限、警告、例�
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 同一directoryへの完全なstream書き込み後の原子的file置換／上限付きPDF byte列。`garbage=0`〜`4`（pymupdfと同じ段階。3と4は同一のオブジェクトとストリームを統合）`deflate=` `use_objstms=`、`encryption=`（既定は`PDF_ENCRYPT_NONE`、暗号化は`PDF_ENCRYPT_AES_256`。`PDF_ENCRYPT_AES_256`なしのpasswordは例外）、127 byte上限付き`user_pw=`／`owner_pw=`。`max_size=None`で解除 |
 | `close()` | with 文でも |
 
-`rewrite_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される
-寸法を求めてから、lopdfのcloneへ原子的に編集します。`dpi=None`では縮小せず、
-quality再圧縮だけを行います。対象はmaskや独自decode arrayを持たない、直接かつ
-単一filterの8-bit DeviceGray/DeviceRGB DCT/Flate streamに限定します。DCTの
-decode parameterは対象外で、Flateはpredictorなし、または辞書と整合するPNG
-predictorに対応します。解釈された非対応の間接画像と結果が小さくならないencodingは
-skipし、inline画像は集計対象外です。1回の呼び出しで解釈する間接raster配置が
-65,536件を超える場合は拒否します。同じ設定の再実行は冪等です。
+`rewrite_images()`は全ページを解釈して、各間接raster objectが最も大きく配置される寸法を求めてから、lopdfのcloneへ原子的に編集します。`dpi=None`では縮小せず、quality再圧縮だけを行います。対象はmaskや独自decode arrayを持たない、直接かつ単一filterの8-bit DeviceGray/DeviceRGB DCT/Flate streamに限定します。DCTのdecode parameterは対象外で、Flateはpredictorなし、または辞書と整合するPNG
+predictorに対応します。解釈された非対応の間接画像と結果が小さくならないencodingはskipし、inline画像は集計対象外です。1回の呼び出しで解釈する間接raster配置が65,536件を超える場合は拒否します。同じ設定の再実行は冪等です。
 
 ## Page { #page }
 
@@ -77,116 +66,26 @@ skipし、inline画像は集計対象外です。1回の呼び出しで解釈す
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 入出力上限とcopy-on-writeを備えた原子的な単純エンコーディング置換 |
 | `annots(*, types=None)` / `get_links()` / `add_highlight_annot(quads, ...)` / `insert_link(link, /)` | 読み取り専用の`Annot`ハンドル（`type`、`rect`、`info`、`colors`、`flags`、`xref`。種類は`PDF_ANNOT_*`、フラグは`PDF_ANNOT_IS_*`）、link読み取り、`Annot`を返すhighlight作成、link辞書からのURI link作成。linkはpymupdfの`xref`と`id`（`/NM`）を持つ。named destinationは65,536 entry/node、131,072 edge、深さ32、key 16 MiBまでのname treeで解決し、treeは一度だけindex化して次の編集まで後続の読み取りで再利用。描画時は、有効な`QuadPoints`を持つ上限内のRGB Highlight、Underline、StrikeOut、Squigglyについて、元PDFを変更せず不足appearanceを保守的に補完 |
 
-`get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの
-`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes、ページのpath・text・
-imageの中での描画順`seqno`を持つ
-`DrawingInfo`辞書を返します。pattern paintでは形状を保持し、色とopacityは`None`です。
-clip path、clip適用後の可視判定、group/soft-mask構造、optional-content layer名、
-text、image、annotationは返しませんが、optional-contentの表示状態は適用されます。
-8,192 pathsまたは131,072 commandsを超える結果は切り詰めず拒否します。
+`get_drawings()`は`type="f"` / `"s"` / `"fs"`、自己完結したline/cubicの`items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes、ページのpath・text・imageの中での描画順`seqno`を持つ`DrawingInfo`辞書を返します。pattern paintでは形状を保持し、色とopacityは`None`です。clip path、clip適用後の可視判定、group/soft-mask構造、optional-content layer名、text、image、annotationは返しませんが、optional-contentの表示状態は適用されます。8,192 pathsまたは131,072 commandsを超える結果は切り詰めず拒否します。
 
-埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。
-`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`、
-`[zh-tw]`はNoto Sans／Serif生成fontを提供します。Kana、Hangul、Bopomofo、
-Arabic、Hebrew、Devanagari、Thaiは導入済みproviderを自動選択します。漢字だけの
-inputは互換性のためJP優先で、地域字形が重要なら`font_language="zh-CN"`、
-`"zh-TW"`、`"ko"`、`"ja"`を指定します。これはrun全体で1 fontを選ぶ動作で、
-glyphごとのfallbackではありません。各行の字形処理は行いますが、双方向paragraph
-layoutと折り返しは行いません。RTLの字形処理結果は正しく描画されます。純RTL行と、
-RTL textに両側を挟まれたLatinまたは数字tokenが1つだけある行は、論理Unicode順で
-抽出されます。行端のtoken、複数token、一般的な混在方向paragraphはproducerの
-視覚順を維持します。
+埋め込みフォントを使う`insert_text`では、すべての字形を含む単一フォントが必要です。`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`、`[zh-tw]`はNoto Sans／Serif生成fontを提供します。Kana、Hangul、Bopomofo、Arabic、Hebrew、Devanagari、Thaiは導入済みproviderを自動選択します。漢字だけのinputは互換性のためJP優先で、地域字形が重要なら`font_language="zh-CN"`、`"zh-TW"`、`"ko"`、`"ja"`を指定します。これはrun全体で1 fontを選ぶ動作で、glyphごとのfallbackではありません。各行の字形処理は行いますが、双方向paragraph
+layoutと折り返しは行いません。RTLの字形処理結果は正しく描画されます。純RTL行と、RTL textに両側を挟まれたLatinまたは数字tokenが1つだけある行は、論理Unicode順で抽出されます。行端のtoken、複数token、一般的な混在方向paragraphはproducerの視覚順を維持します。
 
-複雑な字形処理では、論理textとglyphが1対1に対応しない箇所をPDFの
-`/ActualText`で保持することがあります。生成PDFは外部viewer向けにこれを保持しますが、
-現行pylopdf extractorはまだ`/ActualText`を読みません。そのため、特に長い
-Devanagari runなど、並べ替えやcontext依存のclusterは再open後の抽出が近似になる
-場合があります。
+複雑な字形処理では、論理textとglyphが1対1に対応しない箇所をPDFの`/ActualText`で保持することがあります。生成PDFは外部viewer向けにこれを保持しますが、現行pylopdf extractorはまだ`/ActualText`を読みません。そのため、特に長いDevanagari runなど、並べ替えやcontext依存のclusterは再open後の抽出が近似になる場合があります。
 
-`insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode
-改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には
-`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`、
-`TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォント
-resourceは追加されません。
+`insert_textbox`はリッチテキストエンジンではなく、明示改行、tab展開、CJKのUnicode改行位置、長すぎる単語のgrapheme単位の緊急折り返しを扱います。整列には`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`、`TEXT_ALIGN_JUSTIFY`を使います。戻り値が負なら高さ不足で、ページ内容やフォントresourceは追加されません。
 
-どちらのメソッドもpymupdfと同じ位置に行を置きます。`insert_text`は各行を前の行の
-`fontsize`の`lineheight`倍だけ下に置きます。`lineheight`を省くと倍率は書体の
-`ascender`から`descender`を引いた値で、それが1以下なら1.2です。たとえば
-Helveticaの10ポイントでは行の間隔は13.74ポイントになります。pymupdfと同じく、
-この差はMuPDFが返す単精度のメトリクスで比べるため、ascenderが0.8、descenderが
--0.2の書体はわずかに1 emを超え、行の間隔は1 emのままです。`insert_textbox`も
-同じ既定値を使い、最初のベースラインを`rect`の上端からascender 1つ分下に置き、
-以降の行をascenderの`lineheight`倍ずつ下に置きます。収まるかどうかの判定と
-返す余りの高さには、1行あたり`fontsize`の`lineheight`倍とdescender 1つ分を
-数えます。
+どちらのメソッドもpymupdfと同じ位置に行を置きます。`insert_text`は各行を前の行の`fontsize`の`lineheight`倍だけ下に置きます。`lineheight`を省くと倍率は書体の`ascender`から`descender`を引いた値で、それが1以下なら1.2です。たとえばHelveticaの10ポイントでは行の間隔は13.74ポイントになります。pymupdfと同じく、この差はMuPDFが返す単精度のメトリクスで比べるため、ascenderが0.8、descenderが-0.2の書体はわずかに1 emを超え、行の間隔は1 emのままです。`insert_textbox`も同じ既定値を使い、最初のベースラインを`rect`の上端からascender 1つ分下に置き、以降の行をascenderの`lineheight`倍ずつ下に置きます。収まるかどうかの判定と返す余りの高さには、1行あたり`fontsize`の`lineheight`倍とdescender 1つ分を数えます。
 
-`insert_text`は、どの行を描くかもpymupdfと同じく決めます。文字列は
-`str.splitlines()`で行に分けるので、末尾の改行は行を増やさず、`\v`、`\f`、
-`\x1c`〜`\x1e`、`\x85`、`\u2028`、`\u2029`も`\n`、`\r`、`\r\n`と同じく行を
-区切ります。リストやタプルは1項目を1行としてそのまま使います。最初の行は必ず
-描き、以降の行はベースラインが`page.rect`の下端より下に出ない間だけ描きます。
-戻り値は描いた行数で、`""`や`"\n"`のように描くものがないテキストは何も足さずに
-0を返します。pymupdfは回転前の座標でユーザー空間のy = 0まで余白を測り、
-pylopdfは表示座標で`page.rect`の下端まで測ります。両者は、回転しておらず見える
-範囲がy = 0で終わる頁で一致します。
-頁の下にはみ出す行も、書体で描けるかどうかは検査します。
+`insert_text`は、どの行を描くかもpymupdfと同じく決めます。文字列は`str.splitlines()`で行に分けるので、末尾の改行は行を増やさず、`\v`、`\f`、`\x1c`〜`\x1e`、`\x85`、`\u2028`、`\u2029`も`\n`、`\r`、`\r\n`と同じく行を区切ります。リストやタプルは1項目を1行としてそのまま使います。最初の行は必ず描き、以降の行はベースラインが`page.rect`の下端より下に出ない間だけ描きます。戻り値は描いた行数で、`""`や`"\n"`のように描くものがないテキストは何も足さずに0を返します。pymupdfは回転前の座標でユーザー空間のy = 0まで余白を測り、pylopdfは表示座標で`page.rect`の下端まで測ります。両者は、回転しておらず見える範囲がy = 0で終わる頁で一致します。頁の下にはみ出す行も、書体で描けるかどうかは検査します。
 
-`Font`はpymupdfの`Font(fontname=None, fontfile=None, fontbuffer=None)`に
-従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。OpenTypeの書体は
-`set_form_field(font=)`にも渡せます。`Font("helv")`や
-`Font("Times-Bold")`はStandard 14の書体を指し、埋め込まずに描き、AdobeのAFMの幅で
-測ります。pymupdfのほかの内蔵書体は使えません。`Font(fontfile=)`と`Font(fontbuffer=)`
-はOpenTypeの書体をそのまま読み込み、可変フォントは既定のインスタンスで使います。既定の
-インスタンスがRegularとは限らず、可変フォントのNoto Sans CJK JPはThinです。`weight=`を
-渡すと可変フォントの太さの軸から別のインスタンスを選びます。
-`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`はBoldのインスタンスの送り幅で測り、
-`NotoSansCJKjp-Bold`として埋め込みます。`weight=650`も選べるので、こうした書体では
-`weight=400`と省略した場合とで結果が異なります。軸の範囲外の太さは`PdfError`になり、
-静的な書体が持たない太さも同じです。`insert_text`・`insert_textbox`・`set_form_field`に
-渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。選んだインスタンスで描くには、
-その`Font`を`font=`に渡します。
-`Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を
-選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じ
-shapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを
-計算できます。`ascender`と`descender`はpymupdfが返すemに対する比率で、
-`insert_text`と`insert_textbox`はこれで行を置きます。OpenTypeの書体では、
-書体が`USE_TYPO_METRICS`を立てていればOS/2のtypographicの値、そうでなければ
-`hhea`の値で、FreeTypeがMuPDFのために読む値と同じです。Standard 14の書体では
-MuPDFが描くのに使うURWの書体の外接矩形の値で、Helveticaなら1.075と-0.299です。
-`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。
-CJKのextraが入れる静的な書体はスタイルごとに1つだけなので、書体と合わない
-`is_bold`、`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Bold
-のようなほかの太さはファイルから読み込みます。一方`pylopdf[ar]`・`[he]`・`[hi]`・
-`[th]`は可変フォントを入れるため、`Font(language="he", is_bold=True)`は別のファイル
-なしに太さの軸からBoldのインスタンスを選び、そのインスタンスの送り幅で測り、
-`NotoSansHebrew-Bold`というPostScript名で埋め込みます。太さの範囲は100から900で、
-`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは400から700です。軸の外の
-太さや斜体の指定は`PdfError`になります。導入済みの可変フォントは、`insert_text`・
-`insert_textbox`・`set_form_field`が自動で選ぶ場合も含めてRegularの太さで描きます。
-Noto Sans Hebrewの既定のインスタンスはThinだからです。pylopdfは書体の登録表を持たず、OSの書体
-フォルダも探しません。輪郭線や重ね塗りで太さを真似ることはせず、
-`allow_regular_fallback=True`を明示したときだけextraの書体を使い
-`PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイル
-と一緒に`is_bold`・`is_italic`・`is_serif`を渡すと例外になります。描画の呼び出しごとに、その呼び出しで
-使う字のサブセットを埋め込む点は変わりません。[図形](#shapes)で描けば、書体は確定1回につき1度だけ
-埋め込まれます。
+`Font`はpymupdfの`Font(fontname=None, fontfile=None, fontbuffer=None)`に従い、`insert_text(font=)`と`insert_textbox(font=)`に渡します。OpenTypeの書体は`set_form_field(font=)`にも渡せます。`Font("helv")`や`Font("Times-Bold")`はStandard 14の書体を指し、埋め込まずに描き、AdobeのAFMの幅で測ります。pymupdfのほかの内蔵書体は使えません。`Font(fontfile=)`と`Font(fontbuffer=)`はOpenTypeの書体をそのまま読み込み、可変フォントは既定のインスタンスで使います。既定のインスタンスがRegularとは限らず、可変フォントのNoto Sans CJK JPはThinです。`weight=`を渡すと可変フォントの太さの軸から別のインスタンスを選びます。`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`はBoldのインスタンスの送り幅で測り、`NotoSansCJKjp-Bold`として埋め込みます。`weight=650`も選べるので、こうした書体では`weight=400`と省略した場合とで結果が異なります。軸の範囲外の太さは`PdfError`になり、静的な書体が持たない太さも同じです。`insert_text`・`insert_textbox`・`set_form_field`に渡す`fontfile`と`fontbuffer`は既定のインスタンスで描きます。選んだインスタンスで描くには、その`Font`を`font=`に渡します。`Font(language="ja")`や`Font(family="Noto Sans JP")`は導入済みの書体extraの書体を選びます（`is_serif=True`で明朝体）。`font.text_length(text, fontsize)`は描画と同じshapingで、カーニングと合字を含めて測るので、描く書体の幅で折り返し・揃え・頁割りを計算できます。`ascender`と`descender`はpymupdfが返すemに対する比率で、`insert_text`と`insert_textbox`はこれで行を置きます。OpenTypeの書体では、書体が`USE_TYPO_METRICS`を立てていればOS/2のtypographicの値、そうでなければ`hhea`の値で、FreeTypeがMuPDFのために読む値と同じです。Standard 14の書体ではMuPDFが描くのに使うURWの書体の外接矩形の値で、Helveticaなら1.075と-0.299です。`has_glyph(chr)`はコードポイントのグリフ番号（なければ0）を返します。CJKのextraが入れる静的な書体はスタイルごとに1つだけなので、書体と合わない`is_bold`、`is_italic`、OS/2の`weight`の指定は`PdfError`になり、Noto Sans JP Boldのようなほかの太さはファイルから読み込みます。一方`pylopdf[ar]`・`[he]`・`[hi]`・`[th]`は可変フォントを入れるため、`Font(language="he", is_bold=True)`は別のファイルなしに太さの軸からBoldのインスタンスを選び、そのインスタンスの送り幅で測り、`NotoSansHebrew-Bold`というPostScript名で埋め込みます。太さの範囲は100から900で、`pylopdf[ar]`のセリフ側の書体であるNoto Naskh Arabicは400から700です。軸の外の太さや斜体の指定は`PdfError`になります。導入済みの可変フォントは、`insert_text`・`insert_textbox`・`set_form_field`が自動で選ぶ場合も含めてRegularの太さで描きます。Noto Sans Hebrewの既定のインスタンスはThinだからです。pylopdfは書体の登録表を持たず、OSの書体フォルダも探しません。輪郭線や重ね塗りで太さを真似ることはせず、`allow_regular_fallback=True`を明示したときだけextraの書体を使い`PylopdfWarning`を出します。pymupdfなら無視するところでも、`fontname`や書体ファイルと一緒に`is_bold`・`is_italic`・`is_serif`を渡すと例外になります。描画の呼び出しごとに、その呼び出しで使う字のサブセットを埋め込む点は変わりません。[図形](#shapes)で描けば、書体は確定1回につき1度だけ埋め込まれます。
 
 ### 図形 { #shapes }
 
-`page.new_shape()`はpymupdfの`Shape`を返します。`draw_line`、`draw_polyline`、
-`draw_rect`（`radius=`で角を丸める）、`draw_quad`、`draw_circle`、`draw_oval`、
-`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`、`draw_zigzag`は
-表示座標で経路を足し、pymupdfと同じ終点を返します。前の線の終点から始まる線は
-同じ部分経路を続けます。`finish(*, width=1, color=(0,), fill=None, lineCap=0,
+`page.new_shape()`はpymupdfの`Shape`を返します。`draw_line`、`draw_polyline`、`draw_rect`（`radius=`で角を丸める）、`draw_quad`、`draw_circle`、`draw_oval`、`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`、`draw_zigzag`は表示座標で経路を足し、pymupdfと同じ終点を返します。前の線の終点から始まる線は同じ部分経路を続けます。`finish(*, width=1, color=(0,), fill=None, lineCap=0,
 lineJoin=0, dashes=None, even_odd=False, closePath=True, fill_opacity=1,
-stroke_opacity=1)`は、前の`finish`以降に描いた経路を線と塗りで仕上げます。色は
-0〜1のグレー、RGB、CMYKで、`dashes`は`"[3 4] 0"`のようなPDFの破線の指定です。
-`insert_text`と`insert_textbox`は、`Page.insert_text`と`Page.insert_textbox`と
-同じ書体の指定を（`font=`と`lineheight=`も含めて）受け取り、同じ位置に行を置きます。
-`insert_text`は`Page.insert_text`と同じく行に分けて頁の下にはみ出す行を除き、
-足した行数を返します。`insert_textbox`は余った高さを返し、収まらないときは負の
-値を返して何も足しません。`commit(overlay=True)`で頁に描きます。pymupdfと同じく、仕上げた
-経路を順に描き、その上にすべての文字を描きます。
+stroke_opacity=1)`は、前の`finish`以降に描いた経路を線と塗りで仕上げます。色は0〜1のグレー、RGB、CMYKで、`dashes`は`"[3 4] 0"`のようなPDFの破線の指定です。`insert_text`と`insert_textbox`は、`Page.insert_text`と`Page.insert_textbox`と同じ書体の指定を（`font=`と`lineheight=`も含めて）受け取り、同じ位置に行を置きます。`insert_text`は`Page.insert_text`と同じく行に分けて頁の下にはみ出す行を除き、足した行数を返します。`insert_textbox`は余った高さを返し、収まらないときは負の値を返して何も足しません。`commit(overlay=True)`で頁に描きます。pymupdfと同じく、仕上げた経路を順に描き、その上にすべての文字を描きます。
 
 ```python
 with page.new_shape() as shape:
@@ -198,45 +97,15 @@ with page.new_shape() as shape:
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 
-1回の確定で1つのForm XObjectを置きます。経路と埋め込み書体の文字はまとめて
-生成されるので、何行使っても書体は確定1回につき1度だけ埋め込まれます。頁の文字を
-1つの図形で描けば、書体は頁ごとに1度だけ埋め込まれます。`with`の区画は正常に
-抜けると確定し、例外のときは何も描きません。確定しないまま捨てた図形は
-`ResourceWarning`を出します。pymupdfが黙って捨てたり黒で描いたりするところでは、
-pylopdfは`PdfError`を出します。`commit()`は`finish()`で仕上げていない経路を
-受け付けず、`finish()`は何も描かない指定（塗りがなく、`color=None`または
-`width=0`）を受け付けません。`morph=`と`oc=`は使えません。確定までに持てる
-経路の点は1,048,576個までで、超えると`LimitError`（コード`path_point_count`）に
-なります。`Page.draw_*`は同じ指定をキーワード引数で受け取り、仕上げた図形を
-1つ描きます。
+1回の確定で1つのForm XObjectを置きます。経路と埋め込み書体の文字はまとめて生成されるので、何行使っても書体は確定1回につき1度だけ埋め込まれます。頁の文字を1つの図形で描けば、書体は頁ごとに1度だけ埋め込まれます。`with`の区画は正常に抜けると確定し、例外のときは何も描きません。確定しないまま捨てた図形は`ResourceWarning`を出します。pymupdfが黙って捨てたり黒で描いたりするところでは、pylopdfは`PdfError`を出します。`commit()`は`finish()`で仕上げていない経路を受け付けず、`finish()`は何も描かない指定（塗りがなく、`color=None`または`width=0`）を受け付けません。`morph=`と`oc=`は使えません。確定までに持てる経路の点は1,048,576個までで、超えると`LimitError`（コード`path_point_count`）になります。`Page.draw_*`は同じ指定をキーワード引数で受け取り、仕上げた図形を1つ描きます。
 
-`set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの
-外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの
-`fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。可変フォントの
-Boldのインスタンスなど、読み込み済みのOpenTypeの`Font`を`font`に渡すこともできます。
-`Font`では`text_length`が測る送り幅で縮小・整列し、comb欄の各位置の中央に置きます。
-`font`はほかのフォント指定と併用できず、Standard 14の`Font`は`PdfError`になります。
-導入済みscript／locale providerは`insert_text`と同じ規則で選ばれ、曖昧な漢字は
-`font_language`で指定します。既存の
-空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsi
-フィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ
-`NeedAppearances`を解除します。combテキスト欄は継承された`MaxLen`と整列を尊重し、
-Unicode graphemeを各位置の中央に配置して、長すぎる値を文書無変更で拒否します。
-リッチテキスト、pushbutton action、署名は生成しません。
+`set_form_field`はテキスト、コンボ／リスト選択、チェックボックス、ラジオボタンの外観を生成します。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeの`fontfile`または`fontbuffer`を指定するとサブセット埋め込みされます。可変フォントのBoldのインスタンスなど、読み込み済みのOpenTypeの`Font`を`font`に渡すこともできます。`Font`では`text_length`が測る送り幅で縮小・整列し、comb欄の各位置の中央に置きます。`font`はほかのフォント指定と併用できず、Standard 14の`Font`は`PdfError`になります。導入済みscript／locale providerは`insert_text`と同じ規則で選ばれ、曖昧な漢字は`font_language`で指定します。既存の空でないボタン外観は保持し、不足する状態だけをベクタで生成します。他のWinAnsiフィールドに不足する外観も同時に補完し、記入可能な全widgetが自己完結したときだけ`NeedAppearances`を解除します。combテキスト欄は継承された`MaxLen`と整列を尊重し、Unicode graphemeを各位置の中央に配置して、長すぎる値を文書無変更で拒否します。リッチテキスト、pushbutton action、署名は生成しません。
 
-`Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。
-`Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment
-誤差、最小gutter、行間ばらつきを保持します。完全なベクタグリッドは1.0、
-疎な罫線を補完したhybrid gridは0.95で、いずれもこれらtext専用metricは`None`です。
-`TableFinder.strategy`と`TableFinder.clip`には
-使用した設定が残ります。
+`Table.confidence`は0–1の決定的な順位付けheuristicで、校正された確率ではありません。`Table.diagnostics`は`TableDiagnostics` tupleです。罫線なし表ではem正規化したalignment誤差、最小gutter、行間ばらつきを保持します。完全なベクタグリッドは1.0、疎な罫線を補完したhybrid gridは0.95で、いずれもこれらtext専用metricは`None`です。`TableFinder.strategy`と`TableFinder.clip`には使用した設定が残ります。
 
 ## 低レベルオブジェクト { #low-level-objects }
 
-`doc.objects`はオブジェクト番号から文書の間接オブジェクトへの対応で、
-`doc.trailer`、`doc.catalog`、`page.obj`は辞書ハンドルです。この型付き
-モデルはpymupdfの文字列ベースの`xref_*`メソッドを置き換えます。オブジェクトは
-PDF構文ではなくPythonの値として扱います。
+`doc.objects`はオブジェクト番号から文書の間接オブジェクトへの対応で、`doc.trailer`、`doc.catalog`、`page.obj`は辞書ハンドルです。この型付きモデルはpymupdfの文字列ベースの`xref_*`メソッドを置き換えます。オブジェクトはPDF構文ではなくPythonの値として扱います。
 
 ```python
 from pylopdf import Name
@@ -257,14 +126,7 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | 文字列 | `String`（`bytes`のサブクラス。`.text`でPDFテキスト文字列をデコード） |
 | 配列 / 辞書 / ストリーム | ライブな`Array`（可変シーケンス） / `Dictionary`（可変マッピング） / `Stream`（`read(*, decode=True, max_size=64 MiB)`と`write(data, *, filter="FlateDecode")`を持つ辞書） |
 
-参照は読み取り時に解決され、存在しないオブジェクトへの参照は`None`として
-読みます。書き込みは即座に反映され、描画と抽出のキャッシュを破棄します。
-ページ順を変える書き込みは既存の`Page`ビューも無効にします。リストと
-マッピングは直接オブジェクトとして書き込まれ、コンテナに格納した間接ハンドルは
-参照になり、`doc.objects[xref]`への代入や`add()`に渡したハンドルはコピーされます。
-オブジェクトが削除されるか、`save(garbage=2)`以上で番号が振り直されると、
-ハンドルは`StaleObjectError`を送出します。生の編集を意味的に正しく保つのは
-呼び出し側の責任です。
+参照は読み取り時に解決され、存在しないオブジェクトへの参照は`None`として読みます。書き込みは即座に反映され、描画と抽出のキャッシュを破棄します。ページ順を変える書き込みは既存の`Page`ビューも無効にします。リストとマッピングは直接オブジェクトとして書き込まれ、コンテナに格納した間接ハンドルは参照になり、`doc.objects[xref]`への代入や`add()`に渡したハンドルはコピーされます。オブジェクトが削除されるか、`save(garbage=2)`以上で番号が振り直されると、ハンドルは`StaleObjectError`を送出します。生の編集を意味的に正しく保つのは呼び出し側の責任です。
 
 ## モジュールレベル { #module-level }
 
@@ -294,7 +156,4 @@ doc.objects[content].read()                    # デコード済み。既定で6
 | `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdfのデバイス色空間とその番号 |
 | `PylopdfWarning` | 復旧可能な解釈警告（xref修復・フォント未解決・画像デコード失敗） |
 
-`TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。
-`LinkInfo`では`kind`と`from`が必須で、遷移先ごとのキーは任意です。
-`PageLabelSpec`では`startpage`が必須で、`style`、`prefix`、`firstpagenum`の
-runtime既定値は変わりません。
+`TypedDict`は静的型付けだけに作用し、値は従来どおり通常のpymupdf形式の辞書です。`LinkInfo`では`kind`と`from`が必須で、遷移先ごとのキーは任意です。`PageLabelSpec`では`startpage`が必須で、`style`、`prefix`、`firstpagenum`のruntime既定値は変わりません。

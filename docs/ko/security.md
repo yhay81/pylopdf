@@ -144,10 +144,8 @@ lopdf의 재구성은 뒤에`endstream`이 없는`stream` keyword마다 입력�
 `recovery_scan_size`로 거부하여 악의적인 입력이 복구를 이차 시간으로 만들지 못하게
 합니다. 실제 손상 파일에는 그 위치에 잘린 stream이 많아야 하나 있습니다.
 
-hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재귀로 읽었기
-때문에, 수십만 개의 `[`를 여는 stream 하나가 예외를 던지는 대신 stack을 넘쳐 Python
-프로세스를 종료시켰습니다. hayro 0.8은 64단계에서 읽기를 멈추고 더 깊은 operand를
-조용히 생략합니다. pylopdf는 텍스트 추출, 레이아웃, 표, 검색, 드로잉, 이미지 읽기,
+hayro는 content stream의 array와 dictionary를 64단계까지만 읽고 더 깊은
+operand를 조용히 생략합니다. pylopdf는 텍스트 추출, 레이아웃, 표, 검색, 드로잉, 이미지 읽기,
 렌더링(PNG, pixmap, SVG), Markdown 변환, 이미지 압축이 페이지를 해석하기 전에 그
 페이지가 도달할 수 있는 content stream(`/Contents`, 리소스의 Form XObject, 주석과
 위젯의 appearance(check box와 radio button은 모든 상태이며, hayro는 `/AS`가 고른
@@ -161,12 +159,12 @@ hayro 0.7은 content stream의 array와 dictionary를 깊이 제한 없는 재�
 대상입니다.
 
 hayro는 colour space, shading, function도 이름으로 참조하는 object를 따라가는 깊이
-제한 없는 재귀로 구성합니다(hayro 0.7과 0.8 모두). Indexed나 Pattern colour space는
+제한 없는 재귀로 구성합니다. Indexed나 Pattern colour space는
 base로, Separation이나 DeviceN colour space는 alternate space와 tint transform으로,
 ICCBased colour space는 파싱할 수 없는 profile의 `/Alternate`로, stitching function
 (type 3)은 `/Functions`의 모든 항목으로 구성되고, Type 4 function은 `{ }` procedure를
 재귀로 파싱합니다. 서로를 참조하는 약 2만 개의 indirect object나 30만 겹의 중괄호는
-stack을 넘쳐 프로세스를 종료시켰습니다. pylopdf는 페이지를 해석하기 전에 그 페이지의
+stack을 넘쳐 프로세스를 종료시킬 수 있습니다. pylopdf는 페이지를 해석하기 전에 그 페이지의
 리소스 dictionary에 있는 `/ColorSpace`와 `/Shading` 항목, shading pattern, image
 XObject, soft-mask group, graphics state와 soft mask의 전달 함수(`/TR`, `/TR2`)가
 도달하는 것을 측정하고, colour space와 function의 체인이 16단계보다 깊거나 Type 4
@@ -180,20 +178,18 @@ object가 16개를 넘는 순환은 거부되고, 공유되는 하위 그래프�
 참조하거나 Separation을 중첩하는 것처럼 한도 안이지만 정교하게 만든 그래프에서는
 hayro가 지수 시간의 CPU를 쓸 수 있으므로 호스트에서 CPU deadline을 계속 강제하십시오.
 
-hayro 0.8은 그것을 담은 object를 포함해 64단계보다 깊게 중첩된 array나 dictionary를
-읽지 않고 그 object 전체를 없는 것으로 취급합니다. hayro 0.7은 이런 object를 재귀로
-읽었고, lopdf는 100단계까지 읽습니다. page tree에서 상속하는 속성을 포함한 페이지의
+hayro는 그것을 담은 object를 포함해 64단계보다 깊게 중첩된 array나 dictionary를
+읽지 않고 그 object 전체를 없는 것으로 취급하며, lopdf는 100단계까지 읽습니다. page tree에서 상속하는 속성을 포함한 페이지의
 dictionary가 이보다 깊으면 그 페이지는 작업이 해석할 때마다 `object_depth`로 거부되고,
 다른 페이지는 계속 사용할 수 있습니다. trailer, catalog, page tree의 root node가 이
-깊이로 중첩되어 있어도 더 이상 문서 렌더링을 막지 않습니다. 렌더링과 추출은 지나치게 깊은
+깊이로 중첩되어 있어도 문서 렌더링을 막지 않습니다. 렌더링과 추출은 지나치게 깊은
 항목을 뺀 사본을 읽고, 편집하고 저장하는 문서에는 그 항목이 남습니다. 그 밖에 이 깊이로
 중첩된 object는 hayro에서와 같이 없는 것으로 읽힙니다. `DocumentLimits.web()`은 이런
 문서를 열 때 이미 `object_depth`로 거부합니다.
 
-hayro 0.8은 성분 수가 맞지 않는 값을 돌려주는 Separation이나 DeviceN의 tint transform,
+hayro는 성분 수가 맞지 않는 값을 돌려주는 Separation이나 DeviceN의 tint transform,
 Pattern colour space의 shading처럼 일부 잘못된 색 데이터에서 panic합니다
-([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)). hayro 0.7은
-같은 페이지를 렌더링할 수 있었습니다. hayro가 페이지를 해석하게 하는 모든 작업은 이 panic을
+([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)). hayro가 페이지를 해석하게 하는 모든 작업은 이 panic을
 잡아 PyO3의 `PanicException`(`BaseException`에서 파생되어 `except Exception`을
 빠져나갑니다) 대신 `PdfError`를 발생시킵니다. renderer state는 편집할 때와 같이 버려지므로
 이후 호출은 처음부터 다시 시작하고 문서는 계속 사용할 수 있습니다. panic 메시지는 Rust가

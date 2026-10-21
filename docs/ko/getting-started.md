@@ -26,11 +26,10 @@ pip install "pylopdf[ar]"     # 아랍어 생성(he, hi, th도 제공)
 필요한 지역 글리프 규칙에 맞춰 `jp`, `ko`, `zh-cn`, `zh-tw`를 명시적으로
 선택합니다. 범용 CJK extra는 제공하지 않습니다.
 
-release CI는 architecture가 일치하는 runner에 모든 native platform wheel을 설치하고
-PDF 생성, 저장, 다시 열기, extraction, rendering 및 immutable Pixmap storage를
-검증합니다. CPython 3.14와 3.15에서 검증하는 5개의 `abi3-py311` artifact와 CPython
-3.14t 및 3.15t용 10개의 artifact를 모두 포함하며 sdist와 PyEmscripten wheel에는
-각각 environment 전용 gate가 있습니다.
+미리 빌드된 wheel은 Linux(x86_64, ARM64), macOS(Apple silicon, Intel), Windows(x86_64)의
+CPython 3.11–3.15와 free-threaded 3.14t, 3.15t를 지원합니다. free-threaded 사용법은
+[동시성](concurrency.md)을, Pyodide와 Cloudflare Python Workers는
+[WebAssembly](wasm.md)를 참고하세요.
 
 ## 열기, 확인, 저장 { #open-inspect-save }
 
