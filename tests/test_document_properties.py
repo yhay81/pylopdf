@@ -22,8 +22,7 @@ def _catalog_pdf(catalog_entries: str = "", *extra: bytes | str) -> bytes:
         2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
     }
-    for number, body in enumerate(extra, start=4):
-        objects[number] = body
+    objects.update(enumerate(extra, start=4))
     return build_raw_pdf(objects)
 
 
@@ -43,8 +42,7 @@ def _annotated_pdf(annots: str, *extra: bytes | str) -> bytes:
         2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         3: f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots {annots} >>",
     }
-    for number, body in enumerate(extra, start=4):
-        objects[number] = body
+    objects.update(enumerate(extra, start=4))
     return build_raw_pdf(objects)
 
 
@@ -145,7 +143,7 @@ def test_set_xml_metadata_input_is_bounded_before_any_change() -> None:
 def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
     doc = pylopdf.open(stream=build_pdf(["plain"]))
     with pytest.raises(LimitError) as caught:
-        doc._doc.set_xml_metadata(b"x" * 10, 9)
+        doc._doc.set_xml_metadata(b"x" * 10, 9)  # noqa: SLF001 - the core repeats the bound.
     assert caught.value.code == "xmp_metadata_input_size"
     assert "Metadata" not in doc.catalog
 
@@ -153,7 +151,7 @@ def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
 def test_set_xml_metadata_takes_text_only() -> None:
     doc = pylopdf.open(stream=build_pdf(["plain"]))
     with pytest.raises(TypeError, match="str"):
-        doc.set_xml_metadata(b"<x/>")  # type: ignore[arg-type]
+        doc.set_xml_metadata(b"<x/>")  # ty: ignore[invalid-argument-type]
 
 
 def test_del_xml_metadata_removes_the_catalog_entry() -> None:
@@ -221,7 +219,7 @@ def test_set_pagelayout_matches_names_case_insensitively(value: str, stored: str
 def test_set_pagemode_rejects_other_values(value: object) -> None:
     doc = pylopdf.open(stream=build_pdf(["plain"]))
     with pytest.raises(pylopdf.PdfError, match="bad PageMode value"):
-        doc.set_pagemode(value)  # type: ignore[arg-type]
+        doc.set_pagemode(value)  # ty: ignore[invalid-argument-type]
     assert "PageMode" not in doc.catalog
 
 
@@ -230,9 +228,9 @@ def test_set_pagelayout_rejects_page_modes() -> None:
     with pytest.raises(ValueError, match="bad PageLayout value"):
         doc.set_pagelayout("UseNone")
     with pytest.raises(pylopdf.PdfError, match="bad PageLayout"):
-        doc._doc.set_catalog_name("PageLayout", "twopageright")
+        doc._doc.set_catalog_name("PageLayout", "twopageright")  # noqa: SLF001
     with pytest.raises(pylopdf.PdfError, match="unsupported"):
-        doc._doc.set_catalog_name("Pages", "SinglePage")
+        doc._doc.set_catalog_name("Pages", "SinglePage")  # noqa: SLF001
     assert "PageLayout" not in doc.catalog
 
 
@@ -253,7 +251,7 @@ def test_markinfo_reads_pymupdf_shape() -> None:
 
 def test_set_markinfo_writes_all_three_flags() -> None:
     doc = pylopdf.open(stream=_catalog_pdf("/MarkInfo << /UserProperties true /Extra 1 >>"))
-    assert doc.set_markinfo({"Marked": True, "Suspects": "TRUE"}) is True
+    assert doc.set_markinfo({"Marked": True, "Suspects": "TRUE"}) is True  # ty: ignore[invalid-argument-type]
     # Missing keys become false, whatever the document held, as in pymupdf.
     expected = {"Marked": True, "UserProperties": False, "Suspects": True}
     assert doc.markinfo == expected
@@ -264,11 +262,11 @@ def test_set_markinfo_writes_all_three_flags() -> None:
 def test_set_markinfo_ignores_empty_input_and_rejects_bad_entries() -> None:
     doc = pylopdf.open(stream=build_pdf(["plain"]))
     assert doc.set_markinfo({}) is False
-    assert doc.set_markinfo(None) is False  # type: ignore[arg-type]
+    assert doc.set_markinfo(None) is False  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="bad MarkInfo key"):
-        doc.set_markinfo({"Marked": True, "Tagged": True})  # type: ignore[typeddict-unknown-key]
+        doc.set_markinfo({"Marked": True, "Tagged": True})  # ty: ignore[invalid-argument-type, invalid-key]
     with pytest.raises(ValueError, match="bad MarkInfo value"):
-        doc.set_markinfo({"Marked": 1})  # type: ignore[typeddict-item]
+        doc.set_markinfo({"Marked": 1})  # ty: ignore[invalid-argument-type]
     assert doc.markinfo == {}
 
 
@@ -282,7 +280,9 @@ def test_has_links_and_annots_on_documents_without_annotations() -> None:
 
 
 def test_has_links_and_annots_follow_pymupdf_subtypes() -> None:
-    links = pylopdf.open(stream=_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>"))
+    links = pylopdf.open(
+        stream=_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>")
+    )
     assert (links.has_links(), links.has_annots()) == (True, False)
 
     widgets = pylopdf.open(stream=_annotated_pdf("[<< /Subtype /Widget /Rect [0 0 1 1] >>]"))
