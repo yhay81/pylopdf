@@ -9,10 +9,10 @@ hide:
 <div class="living-home" id="__skip">
   <section class="living-hero" aria-labelledby="living-hero-title">
     <div>
-      <p class="living-eyebrow">Python-native PDF toolkit</p>
+      <p class="living-eyebrow">Python原生PDF工具包</p>
       <h1 id="living-hero-title">用<span class="living-annotated">Python的方式</span>处理PDF，核心由Rust驱动。</h1>
       <p class="living-lede">
-        用一套熟悉的API完成PDF编辑、渲染、提取与最终处理，无需沉重的运行时依赖。
+        用一套借鉴pymupdf的API完成PDF编辑、渲染、提取与生成，无需沉重的运行时依赖。
       </p>
 
       <div class="living-actions">
@@ -58,8 +58,8 @@ hide:
           <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc[0]<br>hits = page.search_for("合计")</div>
         </div>
         <span class="living-markup-circle"></span>
+        <span class="living-margin-note" aria-hidden="true">search_for()</span>
       </div>
-      <span class="living-margin-note" aria-hidden="true">search_for()</span>
       <aside class="living-output" aria-hidden="true">
         <div class="living-output__head">
           <span>Output</span>
@@ -95,40 +95,38 @@ hide:
 
   <section class="living-section" aria-labelledby="living-evidence-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Useful constraints, visible evidence</p>
+      <p class="living-eyebrow">Python能运行的地方都能运行</p>
       <h2 id="living-evidence-title">足够轻，便于部署；足够完整，胜任真实工作流。</h2>
       <p>
-        pylopdf使用lopdf进行编辑、hayro进行渲染与提取，并通过krilla和
-        HarfRust生成文本与表单外观，将这些能力组合成一个紧凑的Python包。
+        pylopdf使用lopdf进行编辑、hayro进行渲染与提取，并通过krilla和HarfRust生成文本与表单外观，将这些能力组合成一个紧凑的Python包。
       </p>
     </div>
     <div class="living-evidence">
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">6.7–7.8 MB</span>
-        <span class="living-evidence__label">使用thin LTO release profile构建的native wheel大小范围，适合AWS Lambda等容量受限的环境。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">无</span>
-        <span class="living-evidence__label">必需Python依赖。编译后的Rust组件已包含在wheel中。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">3.11–3.15</span>
-        <span class="living-evidence__label">单一abi3 wheel系列覆盖五代Python。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">MIT</span>
-        <span class="living-evidence__label">宽松许可，适合开源与商业产品。</span>
-      </div>
+      <a class="living-evidence__item" href="wasm/">
+        <span class="living-evidence__value">Wasm</span>
+        <span class="living-evidence__label">同一套API可在Pyodide与Cloudflare Python Workers中运行。</span>
+      </a>
+      <a class="living-evidence__item" href="concurrency/">
+        <span class="living-evidence__value">3.14t</span>
+        <span class="living-evidence__label">面向自由线程CPython的wheel，可在无GIL的情况下并行提取独立文档。</span>
+      </a>
+      <a class="living-evidence__item" href="ocr/">
+        <span class="living-evidence__value">OCR</span>
+        <span class="living-evidence__label">可选的离线OCR在原生核心中运行，无需云服务或系统二进制程序。</span>
+      </a>
+      <a class="living-evidence__item" href="security/">
+        <span class="living-evidence__value">Limits</span>
+        <span class="living-evidence__label">DocumentLimits可为不可信输入限制页数、对象数与解压大小。</span>
+      </a>
     </div>
   </section>
 
   <section class="living-section" aria-labelledby="living-scope-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Deliberate scope</p>
+      <p class="living-eyebrow">明确的边界</p>
       <h2 id="living-scope-title">专注的PDF核心，与Python生态系统协同工作。</h2>
       <p>
-        项目公开可复现的性能基准，包括不占优势的结果；相邻领域则采用成熟工具，
-        而不是重复实现。
+        项目公开可复现的性能基准，包括不占优势的结果；相邻领域则采用成熟工具，而不是重复实现。
       </p>
     </div>
     <div class="living-scope">

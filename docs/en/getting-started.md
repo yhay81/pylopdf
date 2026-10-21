@@ -26,11 +26,10 @@ and subset-embedded generation. Arabic, Hebrew, Devanagari, and Thai packages
 are generation providers. Choose `jp`, `ko`, `zh-cn`, or `zh-tw` explicitly
 for the required regional glyph conventions; there is no generic CJK extra.
 
-Release CI installs every native platform wheel on an architecture-matched
-runner and exercises PDF creation, saving, reopening, extraction, rendering,
-and immutable Pixmap storage. This covers all five `abi3-py311` artifacts on
-CPython 3.14 and 3.15 and all ten CPython 3.14t and 3.15t artifacts; the sdist
-and PyEmscripten wheel have separate environment-specific gates.
+Prebuilt wheels cover CPython 3.11–3.15 on Linux (x86_64, ARM64), macOS
+(Apple silicon, Intel), and Windows (x86_64), plus free-threaded 3.14t and
+3.15t. See [Concurrency](concurrency.md) for free-threaded use and
+[WebAssembly](wasm.md) for Pyodide and Cloudflare Python Workers.
 
 ## Open, inspect, save { #open-inspect-save }
 

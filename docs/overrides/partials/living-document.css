@@ -11,6 +11,7 @@
   --living-selection-bg: #153aa5;
   --living-selection-fg: #fffdf8;
   --living-footer-link-hover: #a7bdff;
+  --living-button-primary-fg: #ffffff;
   --living-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --living-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --living-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -63,6 +64,7 @@ html[lang="ko"] {
   --living-selection-bg: #a7bdff;
   --living-selection-fg: #171a1f;
   --living-footer-link-hover: #153aa5;
+  --living-button-primary-fg: #171a1f;
   --md-default-fg-color: var(--living-ink);
   --md-default-fg-color--light: #c2bbb0;
   --md-default-fg-color--lighter: #999287;
@@ -157,7 +159,7 @@ body {
 }
 
 .md-banner {
-  background: var(--living-cobalt);
+  background: #1d4ed8;
   color: white;
 }
 
@@ -331,7 +333,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 }
 
 .living-home {
-  --living-home-width: min(72rem, calc(100vw - 6rem));
+  --living-home-width: min(62.8rem, calc(100vw - 2.4rem));
   margin: 0;
   color: var(--living-ink);
 }
@@ -421,7 +423,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 .living-button--primary {
   border-color: var(--living-cobalt);
   background: var(--living-cobalt);
-  color: white !important;
+  color: var(--living-button-primary-fg) !important;
   box-shadow: 0.3rem 0.3rem 0 var(--living-ink);
 }
 
@@ -446,6 +448,8 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 
 .living-install code {
   flex: 1;
+  border: 0 !important;
+  padding: 0 !important;
   background: transparent !important;
   color: #f7f1e7 !important;
   font: 0.76rem/1 var(--living-mono);
@@ -464,7 +468,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   text-transform: uppercase;
 }
 
-.living-proofs {
+.md-typeset ul.living-proofs {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
@@ -473,13 +477,13 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   list-style: none;
 }
 
-.living-proofs li {
+.md-typeset ul.living-proofs li {
   border: 1px solid var(--living-rule);
   border-radius: 999px;
   background: color-mix(in srgb, var(--living-paper-light) 46%, transparent);
-  padding: 0.35rem 0.6rem;
+  padding: 0.4rem 0.7rem;
   color: var(--living-muted);
-  font: 700 0.57rem/1 var(--living-sans);
+  font: 700 0.62rem/1 var(--living-sans);
   letter-spacing: 0.025em;
   list-style: none;
   margin: 0;
@@ -615,8 +619,8 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 
 .living-margin-note {
   position: absolute;
-  top: 9.5rem;
-  right: 0.5rem;
+  top: 8.7rem;
+  right: -2.4rem;
   color: var(--living-vermillion);
   font: italic 0.85rem/1.1 var(--living-serif);
   transform: rotate(-4deg);
@@ -677,6 +681,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   width: var(--living-home-width);
   margin: 0 auto 4.5rem;
   border-top: 1px solid var(--living-rule);
+  border-bottom: 1px solid var(--living-rule);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
 }
@@ -710,17 +715,41 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   max-width: 22rem;
   margin: 0;
   color: var(--living-muted);
-  font-size: 0.7rem;
+  font-size: 0.76rem;
   line-height: 1.55;
 }
 
+.living-capability:has(.living-capability__link:hover) h2 {
+  color: var(--living-cobalt-dark);
+}
+
 .living-capability__link {
+  color: var(--living-cobalt-dark) !important;
+  font-size: 0;
+  text-decoration: none !important;
+}
+
+.living-capability__link::before {
   position: absolute;
   top: 1.7rem;
   right: 1.7rem;
-  color: var(--living-cobalt-dark) !important;
   font: 700 1rem/1 var(--living-mono);
-  text-decoration: none !important;
+  content: "↗";
+}
+
+.living-capability__link::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.living-capability:has(.living-capability__link:focus-visible) {
+  outline: 0.18rem solid var(--living-vermillion);
+  outline-offset: -0.18rem;
+}
+
+.living-capability__link:focus-visible {
+  outline: 0;
 }
 
 .living-section {
@@ -740,7 +769,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   line-height: 1.06;
 }
 
-.living-section__header p {
+.living-section__header p:not(.living-eyebrow) {
   color: var(--living-muted);
   font-size: 0.9rem;
 }
@@ -762,6 +791,20 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   border-right: 0;
 }
 
+.md-typeset a.living-evidence__item {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.md-typeset a.living-evidence__item:is(:hover, :focus-visible) {
+  background: var(--living-paper-light);
+}
+
+.md-typeset a.living-evidence__item:focus-visible {
+  outline-offset: -0.18rem;
+}
+
 .living-evidence__value {
   display: block;
   color: var(--living-cobalt-dark);
@@ -773,7 +816,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
   display: block;
   margin-top: 0.7rem;
   color: var(--living-muted);
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   line-height: 1.5;
 }
 
@@ -813,6 +856,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 @media (prefers-reduced-motion: no-preference) {
   .living-button,
   .living-capability__link,
+  .living-evidence__item,
   .md-tabs__link {
     transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
   }
@@ -823,15 +867,13 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 }
 
 @media (max-width: 76rem) {
-  .living-home {
-    --living-home-width: min(48rem, calc(100vw - 2.5rem));
-  }
-
   .living-hero {
     grid-template-columns: 1fr;
   }
 
   .living-stage {
+    width: 100%;
+    max-width: 36rem;
     min-height: 31rem;
   }
 
@@ -850,7 +892,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 
 @media (max-width: 48rem) {
   .living-home {
-    --living-home-width: calc(100vw - 1.4rem);
+    --living-home-width: calc(100vw - 1.6rem);
   }
 
   .living-hero {
@@ -897,6 +939,7 @@ html .md-footer-meta.md-typeset a.md-social__link:is(:focus, :hover) {
 
   .living-capabilities {
     grid-template-columns: 1fr;
+    border-bottom: 0;
   }
 
   .living-capability,

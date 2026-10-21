@@ -28,7 +28,7 @@ in pymupdf's `open("pdf", data)`. Password input stops at 127 UTF-8 bytes.
 | `is_repaired` | whether opening recovered damaged cross-reference data (a corrected offset or a rebuilt table); saving normalizes the xref data |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | typed low-level access to the object graph, replacing pymupdf's `xref_*` methods ([low-level objects](#low-level-objects)) |
 | `metadata` / `set_metadata(m)` | pymupdf's keys: `format`, the Info fields including `trapped`, and `encryption` (UTF-16BE aware); `set_metadata` ignores `format` and `encryption`, removes entries with false values, and removes the Info dictionary for `{}`; 1 MiB aggregate text boundary and atomic writes |
-| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` (since 0.14.0) |
+| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` |
 | `get_text(pages=None)` | batched plain text for every page (`None`) or up to the larger of the page count and 4,096 explicit entries; 4,096-entry chunks each share one interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | page-at-a-time two-pass Markdown with a bounded linear entry builder; every page by default, explicit entries up to the larger of the page count and 4,096, and cumulative UTF-8 output (`None` opts out), with headings, CJK, emphasis, lists, columns, vertical order, and table controls |
 | `extract_image(xref)` / `get_page_images(pno, *, full=False)` | one image's data with pymupdf's keys, DCT passing through as JPEG and other filters decoded to PNG, without its soft mask; and a page's image inventory |
@@ -60,7 +60,7 @@ indirect raster placements. Repeating the same settings is idempotent.
 |---|---|
 | `number` / `parent` / `get_label()` | identity & display label |
 | `xref` / `obj` | the page dictionary's object number / live low-level handle; inherited attributes stay on its ancestors |
-| `get_text(option)` / `search_for(text, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"` (since 0.14.0), and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
+| `get_text(option)` / `search_for(text, max_hits=4096)` | plain or positioned extraction, including glyph-level `"rawdict"`, and bounded case-insensitive search; terms stop at 4,096 UTF-8 bytes and `None` opts trusted result sets out |
 | `get_text_ocr(dpi=, engine=, tile_size=, overlap=, min_confidence=, rotation=, clip=)` | local PP-OCRv6 positioned words without editing; `rotation` corrects input clockwise and `clip` uses display coordinates |
 | `apply_ocr(..., rotation=, clip=, skip_existing=True)` | recognize and insert an orientation-aware invisible searchable layer; skip existing text in the selected region by default |
 | `find_tables(clip=None, strategy=None)` | complete or conservatively refined vector-bordered grids and merged cells; `"text"` opts into borderless detection; `clip` is a display-coordinate region |
@@ -82,9 +82,8 @@ indirect raster placements. Repeating the same settings is idempotent.
 
 ### Positioned text and glyphs { #positioned-text }
 
-`Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")` are
-available since **0.14.0**.
-The result keeps the `"dict"` hierarchy: page `width`/`height`, text blocks
+`Page.get_text("rawdict")` and `Document.get_page_text(pno, "rawdict")` return
+glyph-level text. The result keeps the `"dict"` hierarchy: page `width`/`height`, text blocks
 (`number`, `type=0`, `bbox`, `lines`), lines (`bbox`, `wmode`, `dir`, `spans`),
 and span metadata (`bbox`, `origin`, `size`, `font`, `flags`). Each span replaces
 `text` with a `chars` list:
@@ -360,7 +359,7 @@ raw edits semantically valid is the caller's responsibility.
 | `Matrix` / `IdentityMatrix` / `Identity` | immutable affine `(a, b, c, d, e, f)` NamedTuple with composition and inversion, and the identity |
 | `EMPTY_RECT()` / `INFINITE_RECT()` and their `IRECT` / `QUAD` forms, `FZ_MIN_INF_RECT` / `FZ_MAX_INF_RECT`, `planish_line(p1, p2)` | pymupdf's geometry constants and line-flattening matrix |
 | `TextPageDict` / `TextBlock` / `TextLine` / `TextSpan` | `get_text("dict")` TypedDict hierarchy |
-| `RawTextPageDict` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins (since 0.14.0) |
+| `RawTextPageDict` / `RawTextBlock` / `RawTextLine` / `RawTextSpan` / `TextChar` | `get_text("rawdict")` TypedDict hierarchy with glyph mappings, bounds, and baseline origins |
 | `ImageInfo` / `ImageCompressionResult` / `DrawingInfo` / `AnnotationInfo` / `LinkInfo` / `FormFieldInfo` | TypedDict contracts for mapping-shaped page, document-operation, and form results |
 | `PageLabelInfo` / `PageLabelSpec` | normalized page-label output / setter input contracts |
 | `DocumentMetadata` / `MetadataUpdate` / `MetadataProbe` | metadata output / partial update / fast-probe contracts |
@@ -430,7 +429,7 @@ Addition and scalar multiplication place the geometry on the left.
 
 These are value operations, so passing a transformed point to drawing changes
 its position, not the text's orientation or size. `get_pixmap(matrix=)`
-accepts scaling matrices; rotation and shear arrive with M1.
+accepts scaling matrices only; rotation and shear are not supported yet.
 
 ## Rectangles and quads { #rectangles }
 

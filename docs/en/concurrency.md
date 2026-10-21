@@ -6,8 +6,7 @@ description: The supported threading boundaries for Documents, Pages, Pixmaps, p
 # Concurrency and free-threaded Python
 
 pylopdf publishes one `abi3` wheel per platform for GIL-enabled CPython
-3.11–3.15 and version-specific wheels for free-threaded CPython:
-`cp314-cp314t` since v0.10 and `cp315-cp315t` since v0.15.
+3.11–3.15 and version-specific wheels for free-threaded CPython (`cp314-cp314t` and `cp315-cp315t`).
 Importing a free-threaded wheel does not re-enable the GIL.
 
 ## Support contract { #support-contract }
@@ -79,7 +78,5 @@ assert view.readonly and view.format == "B"
 
 The view keeps its Pixmap alive, so NumPy can read the pixels without a copy
 through `np.frombuffer(pixmap, dtype=np.uint8)`. `pixmap.samples` remains
-available when an independent `bytes` copy is wanted. v0.15 and later
-require Python 3.11, whose stable ABI includes `Py_buffer`, so the abi3 wheels
-expose the same buffer; v0.14.0 and earlier exposed it only on the
-free-threaded wheels.
+available when an independent `bytes` copy is wanted. Every wheel, abi3 and
+free-threaded, exposes the same buffer.

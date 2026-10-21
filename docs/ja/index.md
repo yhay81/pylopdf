@@ -9,11 +9,10 @@ hide:
 <div class="living-home" id="__skip">
   <section class="living-hero" aria-labelledby="living-hero-title">
     <div>
-      <p class="living-eyebrow">Python-native PDF toolkit</p>
+      <p class="living-eyebrow">PythonネイティブのPDFツールキット</p>
       <h1 id="living-hero-title">PDFを、<span class="living-annotated">Pythonらしく</span>。中核はRust。</h1>
       <p class="living-lede">
-        編集・描画・抽出・仕上げを、ひとつの馴染みやすいAPIで。
-        重い実行時依存はありません。
+        編集・描画・抽出・生成を、pymupdfに倣ったひとつのAPIで。重い実行時依存はありません。
       </p>
 
       <div class="living-actions">
@@ -59,8 +58,8 @@ hide:
           <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc[0]<br>hits = page.search_for("合計")</div>
         </div>
         <span class="living-markup-circle"></span>
+        <span class="living-margin-note" aria-hidden="true">search_for()</span>
       </div>
-      <span class="living-margin-note" aria-hidden="true">search_for()</span>
       <aside class="living-output" aria-hidden="true">
         <div class="living-output__head">
           <span>Output</span>
@@ -96,40 +95,38 @@ hide:
 
   <section class="living-section" aria-labelledby="living-evidence-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Useful constraints, visible evidence</p>
+      <p class="living-eyebrow">Pythonが動く場所で動く</p>
       <h2 id="living-evidence-title">配布には小さく、実務には十分に。</h2>
       <p>
-        編集はlopdf、描画・抽出はhayro、テキストやフォーム外観の生成は
-        krillaとHarfRust。ひとつのコンパクトなPythonパッケージへまとめています。
+        編集はlopdf、描画・抽出はhayro、テキストやフォーム外観の生成はkrillaとHarfRust。ひとつのコンパクトなPythonパッケージへまとめています。
       </p>
     </div>
     <div class="living-evidence">
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">6.7–7.8 MB</span>
-        <span class="living-evidence__label">thin LTOのrelease profileでビルドしたnative wheelの範囲。AWS Lambdaなど容量制約のある環境にも適します。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">なし</span>
-        <span class="living-evidence__label">必須Python依存。コンパイル済みRustコンポーネントはwheelに同梱されます。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">3.11–3.15</span>
-        <span class="living-evidence__label">ひとつのabi3 wheel系列で5世代のPythonをカバーします。</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">MIT</span>
-        <span class="living-evidence__label">OSSにも商用製品にも組み込みやすい、パーミッシブなライセンスです。</span>
-      </div>
+      <a class="living-evidence__item" href="wasm/">
+        <span class="living-evidence__value">Wasm</span>
+        <span class="living-evidence__label">同じAPIがPyodideとCloudflare Python Workersで動きます。</span>
+      </a>
+      <a class="living-evidence__item" href="concurrency/">
+        <span class="living-evidence__value">3.14t</span>
+        <span class="living-evidence__label">フリースレッド版CPython向けwheelで、独立した文書をGILなしで並列に抽出できます。</span>
+      </a>
+      <a class="living-evidence__item" href="ocr/">
+        <span class="living-evidence__value">OCR</span>
+        <span class="living-evidence__label">オプションのオフラインOCRはネイティブコア内で動作し、クラウドサービスや外部バイナリは不要です。</span>
+      </a>
+      <a class="living-evidence__item" href="security/">
+        <span class="living-evidence__value">Limits</span>
+        <span class="living-evidence__label">DocumentLimitsで、信頼できない入力のページ数・オブジェクト数・展開サイズを制限できます。</span>
+      </a>
     </div>
   </section>
 
   <section class="living-section" aria-labelledby="living-scope-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Deliberate scope</p>
+      <p class="living-eyebrow">守備範囲</p>
       <h2 id="living-scope-title">軽量コアに集中し、Pythonエコシステムとつながる。</h2>
       <p>
-        遅い結果も隠さない再現可能ベンチマークを公開し、隣接領域は実績あるツールを
-        再実装せず連携します。
+        遅い結果も隠さない再現可能ベンチマークを公開し、隣接領域は実績あるツールを再実装せず連携します。
       </p>
     </div>
     <div class="living-scope">
