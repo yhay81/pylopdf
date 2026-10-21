@@ -33,13 +33,17 @@ python -m pylopdf.migrate src/
 | `page.search_for(t)` | 相同，并有`max_hits=4096` | 返回有界`list[Rect]`；搜索词上限4,096 byte，`max_hits=None`取消，无`quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 相同 | 默认不透明RGB，`alpha=True`时为RGBA；`dpi=`优先；仅支持缩放matrix，尚无`colorspace=`与`annots=` |
 | `page.get_svg_image()` | 相同 | `matrix`仅限恒等；`text_as_path=False`会抛出异常 |
+| `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | 相同 | 不可变NamedTuple；坐标必须为有限值 |
+| `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | 没有就地修改的方法；除以奇异矩阵会抛出异常 |
+| `r.include_point(p)` / `r.include_rect(o)` / `r.intersect(o)` / `r.normalize()` / `r.transform(m)` | `r = r \| p` / `r = r \| o` / `r = r & o` / `r = r.normalized()` / `r = r * m` | 矩形与quad不可变；`q.transform(m)`改为`q = q * m` |
+| `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | 需赋值结果；组合时先应用左侧矩阵 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 相同 | RGB，`alpha=True`时为straight-alpha RGBA；pylopdf有上限的`tobytes(max_size=64 MiB)`与流式`save(filename)`生成PNG，`save`需要`.png` |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 相同 | `extract_image`以JPEG直通DCT，其他filter解码为PNG；`get_image_info(hashes=True)`在支持digest前会抛出异常 |
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 相同 | 目前为只读；`rect`使用显示坐标 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 相同 | `Quad`按外接矩形处理；`insert_link`仅支持`LINK_URI` |
 | `page.get_drawings()` | 相同 | 类型化path字典；line/cubic和常用paint/stroke属性；不支持`extended=`的clip/group层级 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 相同 | 仅将无mask的安全DeviceGray/DeviceRGB DCT/Flate raster转换为JPEG，因此缩小需要`quality` 1–100；`set_to_gray`和`options`会引发异常；跳过bitonal图像；返回计数而非`None` |
-| `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面 |
+| `doc.select`、`delete_page(s)`、`fullcopy_page`、`new_page` | 相同 | `delete_pages`接受pymupdf的形式（一个页码、两个页码、`from_page=`/`to_page=`、iterable）；`select`重复页码即复制页面；select／delete会移除被删除页面的表单widget、字段与标签结构内容 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf不共享页面对象 |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 相同 | 采用pymupdf的范围规则（负的`from_page`表示第一页，负的`to_page`表示最后一页，两者都会限制在范围内）；注册导入页面的表单字段，冲突的顶层名称追加`+N`；没有`widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)`的`page`从0开始（pymupdf从1开始） |
@@ -49,9 +53,9 @@ python -m pylopdf.migrate src/
 | `page.rect / rotation / set_rotation` | 相同 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 相同 | JPEG直通、PNG透明、RGBA `Pixmap`直接复用及顺时针直角旋转；其他编码格式可用Pillow转换；相同输入共享同一图像XObject，无需`xref=`复用 |
 | `page.show_pdf_page(rect, docsrc, pno)` | 相同 | 同一文档会使用原生编辑前快照，无需serialize/open复制；再次放置未编辑的源页面时共享同一Form XObject |
-| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 无source时为Standard-14 / WinAnsi或已安装script／locale provider；其他source会shape并subset嵌入；分行、行的位置以及省略超出页面底边的行均与pymupdf相同，并返回绘制的行数；页面底边为显示坐标中`page.rect`的底边，pymupdf则在未旋转的坐标中测量 |
+| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 相同，另有`fontbuffer=` / `fontindex=` / `font_language=` | 行的位置与计数与pymupdf相同；见[文本插入](#behavioral-differences) |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 相同，并支持任意`fontfile=` / `fontbuffer=` / `font_language=` | 同样的provider选择与UAX #14换行；行的位置与是否放得下的判断与pymupdf相同；返回负值时不绘制 |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同 | Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`与pymupdf的值相同，`insert_text`与`insert_textbox`用它们排列行 |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 相同，另有`language=`、`family=`、`weight=` | Standard 14名称、OpenType文件以及已安装的字体extra；见[字体](#behavioral-differences) |
 | `page.add_highlight_annot(...)` | 相同 | 始终生成appearance stream |
 | `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`、`list(doc.attachments)`、`doc.attachments[name].read()`、`del doc.attachments[name]`、`.write(data)`、handle属性、`len(doc.attachments)` | 不存在的名称引发`KeyError`；`desc=`改为`description=` |
 | `doc.get_page_labels / set_page_labels`、`page.get_label` | 相同 | |
@@ -63,8 +67,11 @@ python -m pylopdf.migrate src/
 
 ## 行为差异 { #behavioral-differences }
 
+- **文本插入**：未指定字体来源时，`insert_text`使用WinAnsi编码的Standard 14字体，或已安装的script／locale字体provider；其他来源会shape并subset嵌入。分行、行的位置以及省略超出页面底边的行均与pymupdf相同，并返回绘制的行数。页面底边为显示坐标中`page.rect`的底边，pymupdf则在未旋转的坐标中测量。
+- **字体**：`Font`接受Standard 14名称与别名、OpenType文件，以及通过`language=`或`family=`选择的已安装字体extra；pymupdf的其他内置字体（`"cjk"`、`"figo"`等）与`script=`、`ordering=`、`embed=`不可用。`is_bold=`、`is_italic=`与`is_serif=`精确选择已安装extra的字体，与pymupdf会忽略的`fontname`或字体文件一起使用时抛出异常；仅限关键字的`weight=`还可从可变字体文件的字重轴选择实例。将字体以`font=`传给`insert_text` / `insert_textbox`；`text_length`包含字距调整，`ascender`／`descender`返回与pymupdf相同的值，`insert_text`与`insert_textbox`用它们排列行。
+
 - **坐标**：两者均使用左上角原点的显示空间。pylopdf在提取、搜索、绘制和渲染中，对旋转页面也始终保持同一坐标系。
-- **类型**：`Rect`是不可变`NamedTuple`（`x0, y0, x1, y1`以及`width` / `height`），`Point`是含`x, y`的`NamedTuple`，由`draw_*`返回。没有`Matrix` / `Quad`类；API使用普通元组（quad为四个点）和`scale=` / `dpi=`关键字。
+- **类型**：`Point`、`Matrix`、`Rect`、`IRect`和`Quad`都是不可变的NamedTuple。`Point`和`Matrix`支持几何运算、矩阵乘法和除法，同时保留元组的索引、解包、相等比较和哈希。特别是，`Point(0, 0)`现在为假，`p + other`将坐标相加，`p * scalar`进行缩放而不是重复元组。没有就地修改的几何方法，请赋值运算符的结果。`Rect`、`IRect`和`Quad`同样遵循pymupdf：`r | p`包含一个点，`r & other`求交集，`r * m`进行变换，`p in r`测试包含关系，`width`和`height`从不为负。`r.normalize()`应写作`r = r.normalized()`。与元组不同，`r + (1, 2, 3, 4)`将坐标相加，`Rect(0, 0, 0, 0)`为假。`get_pixmap(matrix=)`接受缩放矩阵；旋转和剪切会抛出异常。
 - **过期Page**：删除、插入或重排等结构变更后，先前获取的`Page`会抛出`StalePageError`，而不是悄悄指向其他页面。请使用`doc[i]`重新获取。
 - **异常**：基类为`PdfError`（`ValueError`的子类）；`PasswordError`、`DocumentClosedError`、`EncryptedDocumentError`和`StalePageError`进一步细分。`except ValueError`仍然有效。pymupdf的`FileDataError`与`EmptyFileError`名称相同，并同时继承`RuntimeError`；文件不存在时抛出Python内置的`FileNotFoundError`，因此请将`except pymupdf.FileNotFoundError`改为`except FileNotFoundError`。
 - **资源策略**：`DocumentLimits.web()`将传给rendering／extraction的完整PDF

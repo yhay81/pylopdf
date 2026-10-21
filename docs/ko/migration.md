@@ -43,17 +43,21 @@ pymupdf 이름을 찾으면, 대체 API를 알려 주거나 아직 지원하지 
 | `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 동일 | `open`은 `Document` 그 자체. `filetype=`은 `"pdf"`만 지원. `password=`는 keyword-only이며 UTF-8 127 byte로 제한 |
 | `doc[i]`, `len(doc)`, 반복 | 동일 | 0부터 시작, 음수 인덱스 |
 | `doc.metadata` / `set_metadata` | 동일 | 같은 키 이름 |
-| `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` |
+| `page.get_text()` | 동일 | 옵션: `text` / `words` / `blocks` / `dict` / `rawdict` |
 | `page.search_for(t)` | 동일, 추가로`max_hits=4096` | 상한이 있는`list[Rect]` 반환. 검색어는4,096 byte, `max_hits=None`으로 해제, `quads=` 없음 |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 동일 | 기본은 불투명 RGB, `alpha=True`면 RGBA. `dpi=`가 우선. 배율 matrix만 지원하며 `colorspace=`와 `annots=`는 아직 없음 |
 | `page.get_svg_image()` | 동일 | `matrix`는 항등만. `text_as_path=False`는 예외 |
+| `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | 동일 | 불변 NamedTuple. 좌표는 유한한 값이어야 함 |
+| `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | 그 자리에서 값을 바꾸는 메서드는 없음. 특이 행렬로 나누면 예외 |
+| `r.include_point(p)` / `r.include_rect(o)` / `r.intersect(o)` / `r.normalize()` / `r.transform(m)` | `r = r \| p` / `r = r \| o` / `r = r & o` / `r = r.normalized()` / `r = r * m` | 사각형과 quad는 불변. `q.transform(m)`은 `q = q * m`이 됨 |
+| `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | 결과를 대입. 합성할 때 왼쪽 행렬이 먼저 적용됨 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 동일 | RGB, `alpha=True`면 straight-alpha RGBA. pylopdf의 상한이 있는 `tobytes(max_size=64 MiB)`와 streaming `save(filename)`는 PNG를 만들며 `save`는 `.png`가 필요 |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 동일 | `extract_image`는 DCT를 JPEG 그대로 반환하고 다른 filter는 PNG로 디코딩. `get_image_info(hashes=True)`는 digest 지원 전까지 예외 |
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 동일 | 현재는 읽기 전용. `rect`는 표시 좌표 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 동일 | `Quad`는 외접 사각형으로 처리. `insert_link`는 `LINK_URI`만 |
 | `page.get_drawings()` | 동일 | 타입 지정path 딕셔너리. line/cubic과 주요paint/stroke 속성. `extended=`의clip/group 계층은 미지원 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 동일 | mask 없는 안전한DeviceGray/DeviceRGB DCT/Flate raster를JPEG로만 변환하므로 축소에는`quality` 1–100이 필요. `set_to_gray`와`options`는 예외, bitonal 이미지는 건너뜀. `None` 대신 개수를 반환 |
-| `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제 |
+| `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | 동일 | `delete_pages`는 pymupdf 형식(번호 하나, 번호 둘, `from_page=`/`to_page=`, iterable)을 받음. 반복된 페이지 번호로 `select`하면 페이지 복제. select/delete는 삭제한 페이지의 폼 widget, 필드, 태그 구조 콘텐츠도 제거 |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf는 페이지 객체를 공유하지 않음 |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 동일 | pymupdf의 범위 규칙(음수 `from_page`는 첫 페이지, 음수 `to_page`는 마지막 페이지이며 둘 다 범위 안으로 맞춤). 가져온 페이지의 폼 필드를 등록하고 충돌하는 최상위 이름에는`+N`을 붙임. `widgets=` / `join_duplicates=`는 없음 |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)`의 `page`는 0부터 시작（pymupdf는 1부터） |
@@ -63,9 +67,9 @@ pymupdf 이름을 찾으면, 대체 API를 알려 주거나 아직 지원하지 
 | `page.rect / rotation / set_rotation` | 동일 | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 동일 | JPEG 패스스루, PNG 알파, RGBA `Pixmap` 직접 재사용과 시계 방향 직각 회전; 그 밖의 인코딩 형식은 Pillow로 변환; 같은 입력은 이미지 XObject를 공유하므로 `xref=` 재사용이 불필요 |
 | `page.show_pdf_page(rect, docsrc, pno)` | 동일 | 같은 문서는 네이티브 편집 전 snapshot을 사용하므로 serialize/open 복제가 불필요; 편집하지 않은 원본을 다시 배치하면 Form XObject를 공유 |
-| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | source가 없으면 Standard-14 / WinAnsi 또는 설치된script／locale provider. 다른 source는 shaping 후 subset 내장. 줄 나누기, 줄 위치, 페이지 아래로 벗어나는 줄의 제외는 pymupdf와 같고 그린 줄 수를 반환. 페이지 아래쪽 가장자리는 표시 좌표의 `page.rect` 기준이며 pymupdf는 회전 전 좌표로 잼 |
+| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 동일, 추가로 `fontbuffer=` / `fontindex=` / `font_language=` | 줄 배치와 개수는 pymupdf와 같음. [텍스트 삽입](#behavioral-differences) 참고 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 동일, 임의의 `fontfile=` / `fontbuffer=` / `font_language=` 지원 | 같은 provider 선택과 UAX #14 줄바꿈, 줄 위치와 들어가는지의 판단은 pymupdf와 같음, 음수 반환 시 그리지 않음 |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 동일 | Standard 14 이름과 약칭, OpenType 파일, `language=`나 `family=`로 선택하는 설치된 글꼴 extra. pymupdf의 다른 내장 글꼴(`"cjk"`, `"figo"` 등)과 `script=`, `ordering=`, `embed=`는 쓸 수 없음. `is_bold=`, `is_italic=`, `is_serif=`는 설치된 extra의 글꼴을 정확히 일치하는 것으로 선택하며, pymupdf가 무시하는 `fontname`이나 글꼴 파일과 함께 쓰면 예외. keyword-only `weight=`는 가변 글꼴 파일의 굵기 축에서 인스턴스도 선택. 글꼴은 `insert_text` / `insert_textbox`에 `font=`로 전달. `text_length`는 커닝을 포함하고 `ascender`／`descender`는 pymupdf와 같은 값이며 `insert_text`와 `insert_textbox`는 이 값으로 줄을 배치 |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 동일, 추가로 `language=`, `family=`, `weight=` | Standard 14 이름, OpenType 파일, 설치된 글꼴 extra. [글꼴](#behavioral-differences) 참고 |
 | `page.add_highlight_annot(...)` | 동일 | appearance stream 항상 생성 |
 | `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`, `list(doc.attachments)`, `doc.attachments[name].read()`, `del doc.attachments[name]`, `.write(data)`, handle 속성, `len(doc.attachments)` | 없는 이름은 `KeyError`, `desc=`는 `description=` |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | 동일 | |
@@ -77,12 +81,34 @@ pymupdf 이름을 찾으면, 대체 API를 알려 주거나 아직 지원하지 
 
 ## 동작 차이 { #behavioral-differences }
 
+- **텍스트 삽입**: 글꼴 소스가 없으면 `insert_text`는 WinAnsi 인코딩의 Standard 14
+  글꼴 또는 설치된 script/locale 글꼴 provider를 사용합니다. 다른 소스는 shaping 후
+  subset으로 내장합니다. 줄 나누기, 줄 위치, 페이지 아래로 벗어나는 줄의 제외는
+  pymupdf와 같고 그린 줄 수를 반환합니다. 페이지 아래쪽 가장자리는 표시 좌표의
+  `page.rect` 기준이며, pymupdf는 회전 전 좌표로 잽니다.
+- **글꼴**: `Font`는 Standard 14 이름과 약칭, OpenType 파일, `language=`나
+  `family=`로 선택하는 설치된 글꼴 extra를 받습니다. pymupdf의 다른 내장
+  글꼴(`"cjk"`, `"figo"` 등)과 `script=`, `ordering=`, `embed=`는 쓸 수 없습니다.
+  `is_bold=`, `is_italic=`, `is_serif=`는 설치된 extra의 글꼴을 정확히 일치하는
+  것으로 선택하며, pymupdf가 무시하는 `fontname`이나 글꼴 파일과 함께 쓰면 예외가
+  발생합니다. keyword-only `weight=`는 가변 글꼴 파일의 굵기 축에서 인스턴스도
+  선택합니다. 글꼴은 `insert_text` / `insert_textbox`에 `font=`로 전달합니다.
+  `text_length`는 커닝을 포함하고, `ascender` / `descender`는 pymupdf와 같은 값을
+  반환하며 `insert_text`와 `insert_textbox`는 이 값으로 줄을 배치합니다.
+
 - **좌표**는 두 라이브러리 모두 왼쪽 위 원점의 표시 공간을 사용합니다. pylopdf는
   회전된 페이지에서도 추출, 검색, 그리기, 렌더링에 일관되게 적용합니다.
-- **타입**: `Rect`는 불변 `NamedTuple`(`x0, y0, x1, y1`과 `width` / `height`)이고,
-  `Point`는 `x, y`의 `NamedTuple`로 `draw_*`가 반환합니다. `Matrix` / `Quad`
-  클래스는 없으며, API는 일반 튜플(quad는 네 점)과 `scale=` / `dpi=` 키워드를
-  받습니다.
+- **타입**: `Point`, `Matrix`, `Rect`, `IRect`, `Quad`는 불변 NamedTuple입니다.
+  `Point`와 `Matrix`는 기하 연산, 행렬 곱셈과 나눗셈을 지원하면서 튜플의 인덱싱,
+  언패킹, 동등 비교, 해싱을 유지합니다. 특히 `Point(0, 0)`은 이제 거짓이고,
+  `p + other`는 좌표를 더하며, `p * scalar`는 튜플을 반복하지 않고 크기를 바꿉니다.
+  그 자리에서 값을 바꾸는 기하 메서드는 없으므로 연산자의 결과를 대입합니다.
+  `Rect`, `IRect`, `Quad`도 같은 방식으로 pymupdf를 따릅니다. `r | p`는 점을
+  포함하고, `r & other`는 교집합을 구하며, `r * m`은 변환하고, `p in r`은 포함
+  여부를 검사하며, `width`와 `height`는 음수가 되지 않습니다. `r.normalize()`는
+  `r = r.normalized()`로 씁니다. 튜플과 달리 `r + (1, 2, 3, 4)`는 좌표를 더하고
+  `Rect(0, 0, 0, 0)`은 거짓입니다. `get_pixmap(matrix=)`는 배율 행렬을 받으며,
+  회전과 기울이기는 예외가 발생합니다.
 - **오래된 페이지 객체**: 삭제, 삽입, 재정렬 같은 구조 변경 후 이전에 얻은 `Page`
   객체는 다른 페이지를 조용히 가리키는 대신 `StalePageError`를 발생시킵니다.
   `doc[i]`로 다시 가져오세요.
