@@ -1,6 +1,6 @@
 ---
 title: pylopdf
-description: Pythonらしい操作感とコンパクトなRustコアで、PDFを編集・描画・抽出。
+description: pymupdf流のAPIとRustコアで、PythonからPDFを編集・描画・抽出・生成。MITライセンス。
 hide:
   - navigation
   - toc
@@ -12,7 +12,7 @@ hide:
       <p class="living-eyebrow">PythonネイティブのPDFツールキット</p>
       <h1 id="living-hero-title">PDFを、<span class="living-annotated">Pythonらしく</span>。中核はRust。</h1>
       <p class="living-lede">
-        編集・描画・抽出・生成を、pymupdfに倣ったひとつのAPIで。重い実行時依存はありません。
+        PDFの編集・描画・抽出・生成を、pymupdfに倣ったAPIで。MITライセンスで、ほかに何もインストールする必要はありません。
       </p>
 
       <div class="living-actions">
@@ -35,7 +35,7 @@ hide:
       <ul class="living-proofs" aria-label="プロジェクト情報">
         <li>MITライセンス</li>
         <li>7.8–9.1 MBのwheel</li>
-        <li>必須Python依存なし</li>
+        <li>必須依存なし</li>
         <li>Python 3.11–3.15</li>
       </ul>
     </div>
@@ -43,7 +43,7 @@ hide:
     <div
       class="living-stage"
       role="img"
-      aria-label="検索結果・校正記号・レンダリング結果が重なった抽象的なPDFページ"
+      aria-label="検索結果・校正記号・レンダリング結果のプレビューが重なった抽象的なPDFページ"
     >
       <span class="living-stage__coordinate">612 × 792 pt</span>
       <div class="living-page" aria-hidden="true">
@@ -76,19 +76,19 @@ hide:
     <article class="living-capability">
       <span class="living-capability__number">01 / EDIT</span>
       <h2>正確に編集</h2>
-      <p>結合・並べ替え・注釈・フォーム記入。必要なPDF構造を保って操作します。</p>
+      <p>ページの結合・並べ替え・回転、テキストや画像の描画、注釈、フォーム記入。</p>
       <a class="living-capability__link" href="getting-started/#editing" aria-label="PDF編集を見る">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">02 / RENDER</span>
       <h2>忠実に描画</h2>
-      <p>コンパクトなネイティブエンジンから、安定したPNG・SVGを生成します。</p>
+      <p>ページをPNGやSVGに。1ページずつでも、複数ページを並列でも。</p>
       <a class="living-capability__link" href="getting-started/#rendering" aria-label="PDFレンダリングを見る">↗</a>
     </article>
     <article class="living-capability">
       <span class="living-capability__number">03 / EXTRACT</span>
       <h2>意味を抽出</h2>
-      <p>テキスト・単語・ブロック・座標・OCR不可視層を、ひとつのAPIから扱います。</p>
+      <p>位置付きテキスト、検索、表、Markdownを、デジタルのページからもスキャンしたページからも。</p>
       <a class="living-capability__link" href="getting-started/#pages-text-search" aria-label="テキスト抽出を見る">↗</a>
     </article>
   </section>
@@ -98,7 +98,7 @@ hide:
       <p class="living-eyebrow">Pythonが動く場所で動く</p>
       <h2 id="living-evidence-title">配布には小さく、実務には十分に。</h2>
       <p>
-        編集はlopdf、描画・抽出はhayro、テキストやフォーム外観の生成はkrillaとHarfRust。ひとつのコンパクトなPythonパッケージへまとめています。
+        編集はlopdf、描画と抽出はhayro、テキストやフォーム外観の生成はkrillaとHarfRustが担います。
       </p>
     </div>
     <div class="living-evidence">
@@ -123,10 +123,10 @@ hide:
 
   <section class="living-section" aria-labelledby="living-scope-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">守備範囲</p>
-      <h2 id="living-scope-title">軽量コアに集中し、Pythonエコシステムとつながる。</h2>
+      <p class="living-eyebrow">意図的な守備範囲</p>
+      <h2 id="living-scope-title">PDFに集中したコアを、Pythonエコシステムとつなぐ。</h2>
       <p>
-        遅い結果も隠さない再現可能ベンチマークを公開し、隣接領域は実績あるツールを再実装せず連携します。
+        pylopdfはPDFを扱うことに集中し、組版・署名・検証は実績あるツールと組み合わせて使います。
       </p>
     </div>
     <div class="living-scope">
@@ -134,9 +134,9 @@ hide:
         <h3>pylopdfの担当</h3>
         <ul>
           <li>ページ操作・メタデータ・しおり・暗号化</li>
-          <li>位置付きテキスト抽出・検索・Markdown変換</li>
-          <li>PNG/SVG描画・画像・注釈・OCR不可視層</li>
-          <li>AcroForm記入・添付ファイル・ページラベル</li>
+          <li>位置付きテキスト抽出・検索・表・Markdown変換</li>
+          <li>PNG/SVG描画・画像・図形描画・注釈・OCR</li>
+          <li>フォーム記入・添付ファイル・ページラベル</li>
         </ul>
       </div>
       <div class="living-scope__column">
@@ -144,8 +144,8 @@ hide:
         <ul>
           <li>組版と新規PDF/Aは<a href="ecosystem/#typesetting">Typst</a></li>
           <li>PAdES署名は<a href="ecosystem/#signatures">pyHanko</a></li>
-          <li>PDF/A検証はveraPDF</li>
-          <li>単語と矩形を返す任意のOCRエンジン</li>
+          <li>PDF/A検証は<a href="ecosystem/#new-pdfa">veraPDF</a></li>
+          <li>単語と矩形を返す任意の<a href="ecosystem/#ocr">OCRエンジン</a></li>
         </ul>
       </div>
     </div>

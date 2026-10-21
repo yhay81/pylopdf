@@ -5,45 +5,43 @@ description: Tested recipes connecting pylopdf with Typst, pyHanko, veraPDF and 
 
 # Ecosystem recipes
 
-pylopdf deliberately does **not** reimplement typesetting, PDF/A generation or
-digital signatures. Each is solved by pairing with an established library, and
-every recipe below is guarded by integration tests in
+pylopdf does not implement typesetting, PDF/A output, or digital signatures.
+Established libraries already do these well, and the recipes below show how to
+combine them with pylopdf. Each recipe is covered by the integration tests in
 [`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py).
 
-## Typesetting & new documents — typst { #typesetting }
+## Typesetting new documents with typst { #typesetting }
 
-Typeset reports with [typst](https://typst.app/) (via
-[typst-py](https://pypi.org/project/typst/)) and feed the bytes straight into
-pylopdf:
+Write the document in [typst](https://typst.app/), compile it with
+[typst-py](https://pypi.org/project/typst/), and open the result in pylopdf:
 
 ```python
 import typst
 import pylopdf
 
-pdf_bytes = typst.compile("report.typ")   # typesetting: typst
-doc = pylopdf.open(stream=pdf_bytes)      # editing / extraction / merging: pylopdf
+pdf_bytes = typst.compile("report.typ")   # typst lays out the document
+doc = pylopdf.open(stream=pdf_bytes)      # pylopdf edits, merges, and extracts
 ```
 
-## PDF/A for new documents — typst { #new-pdfa }
+## PDF/A output with typst { #new-pdfa }
 
-typst's PDF backend (krilla) supports validated PDF/A-1b…4 and PDF/UA-1
-export:
+typst can write PDF/A (parts 1 to 4) and PDF/UA-1 files:
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
-Converting or validating *existing* PDFs is a different problem —
-[veraPDF](https://verapdf.org/) (Java) is the de-facto validator.
-`Document.get_pdfa_claim()` reads the self-declaration only.
+`Document.get_pdfa_claim()` only reads which PDF/A level a file claims. To
+check that an existing PDF really conforms, use
+[veraPDF](https://verapdf.org/), the standard validator (it runs on Java).
 
-## Typeset CJK watermarks & headers — typst × show_pdf_page { #cjk-watermarks }
+## Watermarks and headers designed in typst { #cjk-watermarks }
 
-pylopdf can draw Japanese directly with `insert_text()` after installing
-`pylopdf[jp]`; corresponding `[ko]`, `[zh-cn]`, and `[zh-tw]` extras preserve
-regional CJK glyph forms. When a stamp needs richer, full-page typesetting, use
-typst (fonts get subset-embedded) and burn it onto every page as vectors:
+For simple text, `insert_text()` is enough; with `pylopdf[jp]` (or `[ko]`,
+`[zh-cn]`, `[zh-tw]`) installed it writes CJK text too. When a stamp needs
+real layout, design it as a page in typst and draw that page onto every page
+of the document with `show_pdf_page()`:
 
 ```python
 from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
@@ -58,13 +56,13 @@ for page in doc:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-The stamp stays extractable text afterwards — `page.get_text()` finds `社外秘`.
+The stamp stays real text: `page.get_text()` finds `社外秘` afterwards.
 
-## Digital signatures (PAdES) — pyHanko { #signatures }
+## Digital signatures with pyHanko { #signatures }
 
-[pyHanko](https://pypi.org/project/pyHanko/) (MIT) signs with an incremental
-update, so the bytes produced by pylopdf remain untouched as a prefix of the
-signed file (asserted byte-for-byte in our tests):
+[pyHanko](https://pypi.org/project/pyHanko/) (MIT) creates PAdES signatures.
+It appends the signature to the end of the file, so the bytes pylopdf wrote stay
+unchanged:
 
 ```python
 import io
@@ -80,20 +78,21 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-pylopdf's own signature-field API intentionally refuses to fill signature
-fields and points here instead.
+Sign as the last step: saving with pylopdf afterwards rewrites the file and
+invalidates the signature. `set_form_field()` refuses to fill signature fields.
 
-## OCR — bring your own engine { #ocr }
+## OCR with another engine { #ocr }
 
-`Page.insert_ocr_text_layer(words)` writes any OCR output — cloud APIs,
-Tesseract, anything that yields `(x0, y0, x1, y1, text)` — as an invisible text
-layer, making scanned PDFs searchable with near-zero size cost (no font
-embedding). `to_markdown()` then works on scans too.
+pylopdf has [built-in OCR](ocr.md). To use another engine instead, such as
+Tesseract or a cloud service, pass its words as `(x0, y0, x1, y1, text)` to
+`Page.insert_ocr_text_layer(words)`. pylopdf adds them as an invisible text
+layer, which makes the scan searchable and lets `to_markdown()` read it, while
+adding very little to the file size.
 
 ```python
 import pylopdf
 
-words = [  # from your OCR engine, in display coordinates
+words = [  # from your OCR engine, in page coordinates
     (72, 90, 140, 104, "Invoice"),
     (146, 90, 190, 104, "#1024"),
 ]

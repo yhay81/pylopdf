@@ -1,9 +1,13 @@
 ---
 title: はじめる
-description: pylopdfをインストールし、編集・レンダリング・抽出・描き込みの基本的な流れを学びます。
+description: pylopdfをインストールし、編集・描画・抽出・書き込みの基本的な使い方を学びます。
 ---
 
 # はじめる
+
+!!! note "プロジェクトの状況"
+
+    pylopdfは1.0前で、現時点ではpymupdfのAPIの一部をカバーしています。互換性のない変更はまだ起こりえます。何が変わりうるかは[安定性ポリシー](stability.md)で説明しています。このサイトは`main`ブランチに追従しているため、まだPyPIに公開されていない変更を説明していることがあります。各リリースの内容は[変更履歴](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)を参照してください。
 
 ## インストール { #installation }
 
@@ -11,19 +15,22 @@ description: pylopdfをインストールし、編集・レンダリング・抽
 pip install pylopdf
 ```
 
-用途に必要な言語・文字体系のフォントだけを導入します。
+pylopdfはPython 3.11以降が必要で、必須のPython依存はありません。ビルド済みwheelはLinux（x86_64、ARM64）、macOS（Apple silicon、Intel）、Windows（x86_64）に対応し、フリースレッド版のPython 3.14tと3.15tも含みます。WebAssembly版はPyodideとCloudflare Python Workersで動きます。[WebAssembly](wasm.md)を参照してください。
+
+オプションのextraでフォントとOCRモデルを追加できます。必要なものだけをインストールしてください。
+
+| Extra | 追加されるもの |
+|---|---|
+| `jp`, `ko`, `zh-cn`, `zh-tw` | 日本語・韓国語・簡体字中国語・繁体字中国語のフォント。フォントを埋め込んでいないPDFの表示と、テキストの書き込みに使います |
+| `ar`, `he`, `hi`, `th` | アラビア語・ヘブライ語・ヒンディー語（デーヴァナーガリー）・タイ語のフォント。テキストの書き込みに使います |
+| `ocr` | 組み込みの[オフラインOCR](ocr.md)エンジン用のモデル |
+| `migrate` | [pymupdfからの移行ツール](migration.md#codemod) |
 
 ```bash
-pip install "pylopdf[jp]"     # 日本語のフォールバックと生成
-pip install "pylopdf[ko]"     # 韓国語
-pip install "pylopdf[zh-cn]"  # 簡体字中国語
-pip install "pylopdf[zh-tw]"  # 繁体字中国語
-pip install "pylopdf[ar]"     # アラビア語の生成（he、hi、thも選択可）
+pip install "pylopdf[jp,ocr]"
 ```
 
-CJKの4つのextraは、埋め込まれていないAdobe CJKフォントのレンダリングと、サブセット埋め込みによる生成の両方に対応します。アラビア語、ヘブライ語、デーヴァナーガリー、タイ語のパッケージは生成用の提供元です。必要な地域の字形に合わせて`jp`、`ko`、`zh-cn`、`zh-tw`を明示的に選択してください。CJK共通のextraはありません。
-
-ビルド済みwheelは、Linux（x86_64、ARM64）、macOS（Apple silicon、Intel）、Windows（x86_64）のCPython 3.11–3.15と、free-threadedの3.14tと3.15tに対応します。free-threadedでの利用は[並行実行](concurrency.md)、PyodideとCloudflare Python Workersは[WebAssembly](wasm.md)を参照してください。
+中国語・日本語・韓国語のextraが分かれているのは、地域ごとに一部の文字の字形が異なるためです。文書に合ったものを選んでください。
 
 ## 開く・調べる・保存する { #open-inspect-save }
 
@@ -36,8 +43,8 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(stream=pdf_bytes) で�
     doc.set_metadata({"title": "Report", "author": "Alice"})
 
     doc.save("out.pdf")
-    data = doc.tobytes()                   # 同じPDFをbytesで取得
-    doc.save("small.pdf", garbage=True, deflate=True, use_objstms=True)
+    data = doc.tobytes()                   # 同じPDFをbytesで
+    doc.save("small.pdf", garbage=3, deflate=True, use_objstms=True)
     doc.save(
         "locked.pdf",
         encryption=pylopdf.PDF_ENCRYPT_AES_256,
@@ -46,29 +53,30 @@ with pylopdf.open("input.pdf") as doc:     # pylopdf.open(stream=pdf_bytes) で�
     )
 ```
 
-- **暗号化されたファイル**は`password=`を指定して開くか、開いた後に`doc.authenticate()`を呼び出します。
-- **メタデータだけを読む場合:** `pylopdf.peek_metadata(path)`は文書全体を解析せずにメタデータとページ数を読むため、大量のファイルの走査に向いています。`max_file_size=`を指定すると、大きすぎる入力を解析前に拒否します。
-- **破損したファイル:** 壊れた相互参照データを復旧した場合、pylopdfは`PylopdfWarning`を発生させ、`doc.is_repaired`（`peek_metadata`では`repaired`）を設定します。保存すると正常な相互参照データが書き出されます。
+- **暗号化されたファイル:** 開くときに`password=`を渡すか、開いた後で`doc.authenticate(password)`を呼びます。
+- **メタデータだけ読む:** `pylopdf.peek_metadata(path)`は文書全体を読み込まずにメタデータとページ数を読みます。大量のファイルを走査するときに便利です。
+- **壊れたファイル:** 開くために壊れたファイルを修復した場合、pylopdfは`PylopdfWarning`を出し、`doc.is_repaired`を設定します。保存すると正常なファイルが書き出されます。
 
-!!! tip "信頼できない入力"
+!!! tip "信頼できない入手元のファイル"
 
-    自分で管理していないファイルを開くときは`limits=pylopdf.DocumentLimits.web()`を指定してください。ファイルサイズ、構造、展開、解釈済みテキストを制限し、メモリを使い果たす代わりに`LimitError`を送出します。重い処理の前には`doc.complexity`を確認してください。各上限は[セキュリティ](security.md#untrusted-pdfs)を参照してください。
+    自分で管理していないファイルは`limits=pylopdf.DocumentLimits.web()`を付けて開いてください。巨大な入力や悪意のある入力でメモリを使い果たす代わりに、pylopdfが`LimitError`を送出します。[セキュリティ](security.md#untrusted-pdfs)を参照してください。
 
 ## ページ・テキスト・検索 { #pages-text-search }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    for page in doc:                       # doc[0]、doc[-1] でも可。0始まり
+    for page in doc:                       # doc[0]、doc[-1] でも可。番号は0始まり
         print(page.number, page.rect)
 
     page = doc[0]
     text = page.get_text()                 # プレーンテキスト
     words = page.get_text("words")         # (x0, y0, x1, y1, 語, ブロック, 行, 語番号)
     layout = page.get_text("dict")         # blocks → lines → spans（bbox・size・font付き）
-    hits = page.search_for("total")        # 大文字小文字を区別しない。list[Rect]
+    hits = page.search_for("total")        # 大文字小文字を区別しない。Rectのリスト
+    tables = page.find_tables()
 ```
 
-座標はすべて左上原点の**表示空間**です。検索結果、レイアウト、描き込み、レンダリングは、回転したページも含めて同じ座標系を共有します。
+座標の単位はポイント（1/72インチ）で、表示されたページの左上が原点です。検索結果、抽出したテキスト、描き込み、レンダリングはすべて同じ座標を使い、回転したページでも一致します。
 
 ## レンダリング { #rendering }
 
@@ -81,33 +89,35 @@ with pylopdf.open("input.pdf") as doc:
     svg = doc[0].get_svg_image()
 ```
 
-## 編集 { #editing }
+## ページの編集 { #editing }
 
 ```python
 with pylopdf.open("input.pdf") as doc:
     doc.select([2, 0, 1])                  # 残して並べ替え。同じ番号を繰り返すと複製
-    doc.delete_pages([1])                  # 編集のたびにページ番号は振り直される
-    doc.new_page()                         # 末尾に空白のA4ページ
-    doc.fullcopy_page(0, to=1)             # ページ0の独立したコピーを位置1へ
+    doc.delete_pages([1])
+    doc.new_page()                         # 末尾に白紙のA4ページ
+    doc.fullcopy_page(0, to=1)             # ページ0の独立したコピーを位置1に
     doc[0].set_rotation(90)
     doc.set_outline([(1, "Chapter 1", 0), (2, "Section 1.1", 1)])
     doc.save("edited.pdf")
 
 with pylopdf.Document() as merged, pylopdf.open("a.pdf") as a, pylopdf.open("b.pdf") as b:
     merged.insert_pdf(a)                   # a.pdfの全ページ
-    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdfの1–3ページ目
+    merged.insert_pdf(b, from_page=0, to_page=2)  # b.pdfの最初の3ページ
     merged.save("merged.pdf")
 ```
 
+ページを追加・削除・並べ替えると、ページ番号がずれます。そうした変更の前に取得した`Page`オブジェクトは`StalePageError`を送出するので、`doc[i]`で取得し直してください。
+
 ## 描き込みと注釈 { #drawing-annotations }
 
-画像、重ね合わせ、注釈:
+画像、重ね合わせ、線、注釈:
 
 ```python
 with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterhead:
     page = doc[0]
-    page.insert_image((72, 72, 200, 200), filename="logo.png")  # JPEGはそのまま埋め込む
-    page.show_pdf_page(page.rect, letterhead)                    # 別のPDFのページ0をベクタのまま重ねる
+    page.insert_image((72, 72, 200, 200), filename="logo.png")
+    page.show_pdf_page(page.rect, letterhead)       # 別のPDFのページ0をベクタのまま
     page.draw_line((36, 340), (400, 340), width=0.5, dashes="[3 2] 0")
 
     hits = page.search_for("important")
@@ -118,25 +128,22 @@ with pylopdf.open("input.pdf") as doc, pylopdf.open("letterhead.pdf") as letterh
     doc.save("annotated.pdf")
 ```
 
-テキストとフォント。フォントを指定しない場合、pylopdfはラテン文字にHelveticaを使い、それ以外の文字体系には`pylopdf[jp]`などの導入済み言語extraを使います。
+テキストとフォント。フォントを指定しない場合、pylopdfはラテン文字をHelveticaで書き、それ以外の文字は`pylopdf[jp]`のようなインストール済みextraのフォントで書きます。
 
 ```python
 with pylopdf.open("input.pdf") as doc:
     page = doc[0]
     page.insert_text((40, 40), "CONFIDENTIAL", fontsize=18, color=(1, 0, 0))
-    page.insert_text((40, 70), "社外秘", fontsize=18)                        # pylopdf[jp]が必要
+    page.insert_text((40, 70), "社外秘", fontsize=18)                          # pylopdf[jp]が必要
     page.insert_text((40, 100), "简体中文", fontsize=18, font_language="zh-CN")  # pylopdf[zh-cn]が必要
 
-    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")    # 任意のOpenTypeファイル
-    width = bold.text_length("見出し", fontsize=16)          # 描画したときの正確な幅
+    bold = pylopdf.Font(fontfile="NotoSansJP-Bold.otf")       # 任意のOpenTypeファイル
+    width = bold.text_length("見出し", fontsize=16)             # 描いたときの幅
     page.insert_text((page.rect.width - 40 - width, 140), "見出し", font=bold, fontsize=16)
-
-    semibold = pylopdf.Font(fontfile="NotoSansCJKjp-VF.otf", weight=600)  # 可変フォントは軸上の任意の太さを選べる
-    page.insert_text((40, 170), "見出し", font=semibold, fontsize=16)
     doc.save("text.pdf")
 ```
 
-複数の図形とテキストを1つの描画にまとめ、各フォントを1度だけ埋め込みます。
+複数の図形やテキストをまとめて描くには、Shapeを使います。各フォントは1回だけ埋め込まれます。
 
 ```python
 with pylopdf.open("input.pdf") as doc:
@@ -148,21 +155,32 @@ with pylopdf.open("input.pdf") as doc:
     doc.save("shapes.pdf")
 ```
 
-## スキャンPDF・フォーム・Markdown { #scans-forms-markdown }
+## スキャン・フォーム・Markdown { #scans-forms-markdown }
 
 ```python
 with pylopdf.open("scan.pdf") as doc:
-    ocr_words = [(72, 90, 140, 104, "Invoice"), (146, 90, 190, 104, "#1024")]
-    doc[0].insert_ocr_text_layer(ocr_words)   # 任意のOCR出力: (x0, y0, x1, y1, text, ...)
+    doc[0].apply_ocr()                        # pylopdf[ocr]が必要。検索可能な不可視テキストを追加
+    doc.save("searchable.pdf")
 
 with pylopdf.open("form.pdf") as doc:
-    doc.set_form_field("customer", "Alice")   # 値とその外観を書き込む
+    print(doc.get_form_fields())
+    doc.set_form_field("customer", "Alice")   # 値とその見た目を書き込む
     doc.save("filled.pdf")
 
 with pylopdf.open("input.pdf") as doc:
-    md = doc.to_markdown()                    # RAG向けに見出し・リスト・表を出力
+    md = doc.to_markdown()                    # 見出し、リスト、表
 ```
 
-自前のOCR結果を渡す代わりにpylopdf内で文字を認識するには、[オフラインOCR](ocr.md)を参照してください。
+OCRの詳細は、別のOCRエンジンで認識したテキストを追加する方法も含めて[オフラインOCR](ocr.md)で説明しています。
 
-続きは、組版・PDF/A・電子署名の[エコシステム連携](ecosystem.md)へ。pymupdfから移行する場合は[移行ガイド](migration.md)を参照してください。
+## まだ対応していないもの { #not-supported }
+
+墨消し（redaction）、注釈の編集・削除、フォームフィールドの作成、増分保存は予定しています。時期は[ロードマップ](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md)にあります。pylopdfが開けるのはPDFファイルだけです。
+
+組版、PDF/A出力、電子署名は対象外です。これらについては、pylopdfをtypstやpyHankoと組み合わせる方法を[エコシステム連携](ecosystem.md)で紹介しています。
+
+## 次のステップ { #next-steps }
+
+- すべてのクラスとメソッドは[APIリファレンス](api.md)へ
+- 既存のコードを移植する場合は[pymupdfからの移行](migration.md)へ
+- バグ報告や機能の要望は[コントリビュートとサポート](contributing.md)へ

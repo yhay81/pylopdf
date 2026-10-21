@@ -5,9 +5,10 @@ description: Reproducible pylopdf benchmarks for extraction, merging, rasterizat
 
 # Benchmarks
 
-pylopdf publishes **wins and losses together**. These measurements are a
-snapshot of one machine and corpus—not a universal ranking. Use them to choose
-what to measure in your own workload.
+These benchmarks compare pylopdf with pymupdf, pypdf, and pdfplumber on 14
+real-world PDFs, and show the cases where pylopdf is slower as well as those
+where it is faster. They come from one machine and one corpus, so treat them
+as a guide to what to measure on your own documents, not as a ranking.
 
 !!! info "Latest run"
     **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro (arm64)<br>
@@ -220,28 +221,19 @@ reported that the GIL remained disabled after import.
 
 ## Reproduce it { #reproduce }
 
-The corpus lives in `tests/assets/real_world`; its sources and licenses are
-recorded alongside the files.
+The corpus is in
+[`tests/assets/real_world`](https://github.com/yhay81/pylopdf/tree/main/tests/assets/real_world),
+with each file's source and license. From a clone of the repository:
 
 ```bash
 uv sync --all-extras --group bench
-uv run python bench/run.py
-uv run python tools/pyodide_compat.py --root . --benchmark-only \
-  --benchmark-output .tmp/limits-benchmark.json
-# With a free-threaded CPython 3.14 interpreter on Windows:
-py -3.14t bench/free_threaded.py
-# On POSIX:
-python3.14t bench/free_threaded.py
+uv run python bench/run.py                 # writes bench/results/latest.md
+python3.14t bench/free_threaded.py         # needs free-threaded CPython 3.14
 ```
 
-The generated source report is committed at
-[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md).
-The separately generated free-threaded report is committed at
-[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md);
-rerunning `bench/run.py` cannot overwrite its CPython 3.14t evidence.
-The native/Pyodide resource-policy baseline is committed separately at
-[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md).
-The second command measures bounded open/extract and controlled rejection.
-CI runs the same cases inside Pyodide and records Wasm linear-memory growth;
-those timing and memory values are trends, not native/Wasm performance claims.
-When quoting a number, include the environment and corpus.
+The latest reports are committed as
+[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)
+and
+[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md).
+When you quote a number, include the environment and corpus it was measured
+on.

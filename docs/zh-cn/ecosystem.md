@@ -1,57 +1,57 @@
 ---
 title: 生态系统方案
-description: 经过集成测试的pylopdf与Typst、pyHanko、veraPDF及OCR引擎协作方案。
+description: 经过测试的pylopdf与Typst、pyHanko、veraPDF及OCR引擎的协作方案。
 ---
 
 # 生态系统方案
 
-pylopdf有意**不重复实现**排版、PDF/A生成或数字签名。每个领域都与成熟的库组合解决，以下方案均由[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)中的集成测试保护。
+pylopdf不实现排版、PDF/A输出或数字签名。这些工作已有成熟的库做得很好，下面的方案演示如何将它们与pylopdf结合使用。每个方案都由[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)中的集成测试覆盖。
 
-## 排版与新文档 — typst { #typesetting }
+## 用typst排版新文档 { #typesetting }
 
-使用[typst](https://typst.app/)（通过[typst-py](https://pypi.org/project/typst/)）排版报告，然后将字节直接交给pylopdf：
+用[typst](https://typst.app/)编写文档，用[typst-py](https://pypi.org/project/typst/)编译，然后在pylopdf中打开结果：
 
 ```python
 import typst
 import pylopdf
 
-pdf_bytes = typst.compile("report.typ")   # 排版：typst
-doc = pylopdf.open(stream=pdf_bytes)      # 编辑、提取、合并：pylopdf
+pdf_bytes = typst.compile("report.typ")   # typst负责排版
+doc = pylopdf.open(stream=pdf_bytes)      # pylopdf负责编辑、合并和提取
 ```
 
-## 新文档的PDF/A — typst { #new-pdfa }
+## 用typst输出PDF/A { #new-pdfa }
 
-typst的PDF后端krilla支持经过验证的PDF/A-1b…4与PDF/UA-1导出：
+typst可以输出PDF/A（第1至4部分）和PDF/UA-1文件：
 
 ```python
 pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
-转换或验证*已有*PDF是另一个问题。[veraPDF](https://verapdf.org/)（Java）是事实上的验证标准。`Document.get_pdfa_claim()`只读取文档的自我声明。
+`Document.get_pdfa_claim()`只读取文件声明的PDF/A级别。要检查现有PDF是否真正符合标准，请使用标准验证工具[veraPDF](https://verapdf.org/)（运行于Java）。
 
-## 排版复杂CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
+## 用typst设计水印和页眉 { #cjk-watermarks }
 
-pylopdf安装`pylopdf[zh-cn]`后，可用`insert_text()`直接绘制本地化简体中文；`[zh-tw]`、`[jp]`、`[ko]`分别提供其他CJK地区字形。如水印需要更复杂的整页排版，可用typst排版（字体会以子集嵌入），再以矢量形式写入每一页：
+对于简单的文字，`insert_text()`就足够了；安装`pylopdf[jp]`（或`[ko]`、`[zh-cn]`、`[zh-tw]`）后，它也能写入CJK文字。当印章需要真正的版面设计时，可以在typst中将其设计为一个页面，再用`show_pdf_page()`把该页面绘制到文档的每一页上：
 
 ```python
-from pylopdf_fonts_zh_cn import sans_path  # pip install pylopdf[zh-cn]
+from pylopdf_fonts_jp import sans_path  # pip install pylopdf[jp]
 
 stamp_typ = """
 #set page(width: 595pt, height: 842pt, fill: none)
-#set text(font: "Noto Sans SC", size: 48pt, fill: rgb(255, 0, 0, 40%))
-#align(center + horizon)[机密]
+#set text(font: "Noto Sans JP", size: 48pt, fill: rgb(255, 0, 0, 40%))
+#align(center + horizon)[社外秘]
 """
 stamp = pylopdf.open(stream=typst.compile(stamp_typ.encode(), font_paths=[str(sans_path().parent)]))
 for page in doc:
     page.show_pdf_page((0, 0, page.rect.width, page.rect.height), stamp)
 ```
 
-写入后水印仍是可提取文本，`page.get_text()`可以找到“机密”。
+印章仍然是真实的文本：之后`page.get_text()`能够找到`社外秘`。
 
-## 数字签名（PAdES）— pyHanko { #signatures }
+## 用pyHanko进行数字签名 { #signatures }
 
-[pyHanko](https://pypi.org/project/pyHanko/)（MIT）通过增量更新签名，因此pylopdf生成的字节会原样保留为签名文件的前缀。集成测试会逐字节验证这一点：
+[pyHanko](https://pypi.org/project/pyHanko/)（MIT）可创建PAdES签名。它把签名追加到文件末尾，因此pylopdf写出的字节保持不变：
 
 ```python
 import io
@@ -67,16 +67,16 @@ out = signers.sign_pdf(
 signed_pdf: bytes = out.getvalue()
 ```
 
-pylopdf自己的表单API会有意拒绝填写签名字段，并引导到本方案。
+请把签名作为最后一步：之后再用pylopdf保存会重写文件，使签名失效。`set_form_field()`拒绝填写签名字段。
 
-## OCR — 使用任意引擎 { #ocr }
+## 使用其他OCR引擎 { #ocr }
 
-`Page.insert_ocr_text_layer(words)`可接收任何OCR结果：云API、Tesseract，或其他能够返回`(x0, y0, x1, y1, text)`的引擎。它会将结果写成不可见文本层，使扫描PDF可搜索，且因不嵌入字体，文件大小几乎不增加。之后`to_markdown()`也可用于扫描PDF。
+pylopdf有[内置OCR](ocr.md)。如果想改用Tesseract或云服务等其他引擎，请将其识别出的单词以`(x0, y0, x1, y1, text)`的形式传给`Page.insert_ocr_text_layer(words)`。pylopdf会把它们添加为不可见的文本层，使扫描件可被搜索，并让`to_markdown()`能够读取，同时几乎不增加文件大小。
 
 ```python
 import pylopdf
 
-words = [  # 来自你的OCR引擎，使用显示坐标
+words = [  # from your OCR engine, in page coordinates
     (72, 90, 140, 104, "Invoice"),
     (146, 90, 190, 104, "#1024"),
 ]

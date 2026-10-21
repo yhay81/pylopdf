@@ -1,122 +1,87 @@
 ---
 title: API stability
-description: pylopdf's public API boundary, semantic-versioning guarantees, deprecation lifecycle, and compatibility review process.
+description: What counts as pylopdf's public API, what may change before and after v1.0, and how deprecations work.
 ---
 
 # API stability
 
-pylopdf follows [Semantic Versioning 2.0.0](https://semver.org/). This page
-defines what that means for a Python library whose results also depend on PDF
-producers, fonts, renderers, and supported runtimes.
+pylopdf follows [Semantic Versioning](https://semver.org/).
 
-## Current status { #current-status }
+## Before v1.0 { #current-status }
 
-The current API is a **candidate baseline**, not the v1.0 compatibility
-promise. It is being exercised in the field while additive work and reviewed
-corrections remain possible. Every public-surface change is nevertheless detected and
-reviewed now so the eventual v1.0 boundary is deliberate rather than accidental.
+pylopdf is pre-1.0. Releases can still contain breaking changes while the API
+moves toward pymupdf's, and there is no deprecation period for them yet. Every
+breaking change is listed, with how to update your code, in the
+[changelog](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md).
+Pin a minor version (for example `pylopdf~=0.15.0`) if you need to upgrade on
+your own schedule.
 
-The guarantees under [After v1.0](#after-v1) begin with v1.0. Before then,
-release notes identify incompatible changes and migration paths. The project
-does not use the pre-1.0 version number as permission for silent breakage.
+The rules below take effect from v1.0.
 
-## Public API boundary { #public-api-boundary }
+## What is public { #public-api-boundary }
 
-The supported public API consists of:
+The public API is:
 
-- names exported by `pylopdf.__all__`, plus `pylopdf.__version__`;
-- documented public members of those classes;
-- callable parameter names, kinds, defaults, and documented return contracts;
-- documented constants and enum values;
-- TypedDict required and optional keys, NamedTuple fields, and public type
-  aliases;
-- the documented exception hierarchy and machine-readable attributes such as
-  `LimitError.code`.
+- names in `pylopdf.__all__`, and `pylopdf.__version__`;
+- the documented methods, properties, and attributes of those classes;
+- parameter names, defaults, and whether they are positional or keyword-only;
+- documented return values, constants, and enum values;
+- the keys of returned dictionaries and the fields of returned tuples;
+- the exception classes and their hierarchy, and `LimitError.code`.
 
-Names beginning with `_`, `pylopdf.pylopdf_core`, Rust implementation details,
-object `repr` output, exact exception messages, warning order, and undocumented
-attributes are private. Importing a public object from its implementation
-module does not make that module path public; import it from `pylopdf`.
+Everything else is private: names starting with `_`, the
+`pylopdf.pylopdf_core` extension module, `repr()` output, the wording of
+error messages, the order of warnings, and undocumented attributes. Import
+public names from `pylopdf` itself, not from the module that defines them.
 
-The PDF bytes produced by `save()` and the exact PNG/SVG serialization are not
-stable byte-for-byte formats. The documented visual, structural, and extraction
-semantics are the contract.
+The exact bytes of saved PDFs, PNGs, and SVGs may change between releases. What
+is stable is how they look, their structure, and the text extracted from them.
 
 ## After v1.0 { #after-v1 }
 
-For stable releases:
+- A **major** release may remove or change public API.
+- A **minor** release adds features without breaking existing code.
+- A **patch** release fixes bugs.
 
-- a **major** release may remove or incompatibly change public API;
-- a **minor** release adds backward-compatible API and behavior;
-- a **patch** release fixes defects without intentionally changing the public
-  API.
+Removing or renaming anything public, adding a required parameter, removing a
+key from a returned dictionary, accepting less input than before, or changing
+the exception hierarchy needs a major release. Adding a function, a method, an
+optional parameter, an accepted value, or a returned key does not. Type hints
+count as part of the API: making a `TypedDict` key required or changing its
+type is a breaking change too.
 
-Removing or renaming a public symbol or member, making a parameter required,
-changing positional or keyword acceptance incompatibly, removing a mapping key,
-narrowing accepted input, changing a documented constant, or breaking the
-public exception inheritance requires a major release.
+## Deprecations { #deprecation-lifecycle }
 
-Adding an optional keyword parameter, a new symbol, a new method, a new enum or
-Literal choice accepted as input, or an optional result key is normally
-additive. Typed contracts receive the same compatibility review as runtime
-objects: moving a TypedDict key between required and optional, or incompatibly
-changing its value type, is not treated as a typing-only detail.
+After v1.0, an API that is going to be removed is:
 
-## Deprecation lifecycle { #deprecation-lifecycle }
-
-After v1.0, a public API scheduled for removal is normally:
-
-1. documented as deprecated with its replacement and earliest removal release;
-2. made to emit `DeprecationWarning` when practical;
-3. retained for at least two minor releases and six months;
+1. documented as deprecated, with its replacement and the earliest release
+   that may remove it;
+2. made to emit `DeprecationWarning` where practical;
+3. kept for at least two minor releases and six months;
 4. removed only in a major release.
 
-`DeprecationWarning` is for developer migration. `PylopdfWarning` remains for
-operational PDF interpretation warnings and is not a deprecation channel.
+`PylopdfWarning` reports problems in PDF files and is never used for
+deprecations. A security, legal, or upstream emergency may require a shorter
+path; the changelog and release notes will say so clearly.
 
-Security, legal, or upstream-runtime emergencies may require a shorter path.
-Such an exception is called out prominently in the changelog and release notes,
-with the least disruptive migration available.
+## Changes in results { #behavior-and-data }
 
-## Behavior and data compatibility { #behavior-and-data }
+A bug fix can change results when the old result was wrong, for example
+reading order, table detection, glyph positions, colors, or how a damaged file
+is repaired. Such changes can ship in any release, and notable ones are
+listed in the changelog.
 
-Bug fixes may change output when the old behavior was incorrect. Examples
-include malformed-PDF recovery, reading order, glyph geometry, table
-interpretation, color conversion, and renderer differences. These changes do
-not require a major release when they move behavior toward the documented
-contract, but material effects are reported.
+A new resource limit can refuse a malicious or unexpectedly expensive file that
+an earlier release tried to process. Programs should rely on exception types
+and `LimitError.code`, not on message text.
 
-Resource limits may reject an adversarial or unexpectedly expensive input that
-an earlier release attempted to process. Stable exception types and error codes
-are used where callers need machine decisions; human-readable messages are not
-an API.
+Supported Python versions and platforms are listed for each release. Support
+for a Python version may be dropped in a minor release after it reaches its
+end of life upstream, and the release notes will say so.
 
-Support is defined by the Python versions, platforms, ABIs, and WebAssembly
-runtime matrix documented for each release. A runtime may be dropped in a minor
-release after its upstream end of life or when maintaining it would prevent a
-security or correctness fix. The reason and migration window are published.
-Pyodide compatibility is pinned and tested per pylopdf minor line rather than
-assumed across runtime upgrades.
+## How changes are tracked { #compatibility-review }
 
-## Compatibility review { #compatibility-review }
-
-[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)
-records the reviewed candidate surface. Tests compare it on every native
-Python lane and detect changes to exports, signatures, mapping keys, type
-aliases, enum and constant values, public members, and exception inheritance.
-
-Run:
-
-```console
-uv run python tools/check_api_surface.py
-```
-
-An intentional change is reviewed for runtime, typing, documentation, and
-SemVer impact before refreshing the snapshot:
-
-```console
-uv run python tools/check_api_surface.py --update
-```
-
-The snapshot is a review gate, not an automatic compatibility verdict. Every
-intentional change still needs tests, documentation, and a changelog entry.
+The repository records the public API in
+[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json),
+and tests fail when the API changes without the record being updated, so
+every change to the public API is reviewed deliberately.

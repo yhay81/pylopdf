@@ -1,81 +1,60 @@
 ---
 title: API稳定性
-description: pylopdf的公共API边界、语义化版本保证、弃用生命周期与兼容性审查流程。
+description: 哪些内容属于pylopdf的公共API，v1.0之前和之后可能发生哪些变化，以及弃用流程如何运作。
 ---
 
 # API稳定性
 
-pylopdf遵循[Semantic Versioning 2.0.0](https://semver.org/)。本页说明这对一个结果还依赖PDF生成器、字体、renderer和受支持runtime的Python library意味着什么。
+pylopdf遵循[语义化版本](https://semver.org/)。
 
-## 当前状态 { #current-status }
+## v1.0之前 { #current-status }
 
-当前API是**候选baseline**，并不是v1.0兼容性承诺。项目会先通过实际使用验证它，同时继续加法式改进和经过审查的修正。不过，从现在起每个公共surface变化都会被检测和审查，使最终v1.0边界来自明确决策，而不是偶然形成。
+pylopdf尚处于1.0之前的阶段。在API向pymupdf靠拢的过程中，各版本仍可能包含不兼容的变更，目前也还没有为这些变更设置弃用期。每项不兼容的变更都会连同代码的更新方法一起列在[更新日志](https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md)中。如果你需要按自己的节奏升级，请固定次版本号（例如`pylopdf~=0.15.0`）。
 
-[v1.0之后](#after-v1)的保证从v1.0开始。在此之前，release note仍会标明不兼容变化和迁移路径；项目不会以版本低于1.0为理由进行无声破坏。
+以下规则从v1.0起生效。
 
-## 公共API边界 { #public-api-boundary }
+## 什么是公共API { #public-api-boundary }
 
-受支持的公共API包括：
+公共API包括：
 
-- `pylopdf.__all__`导出的名称，以及`pylopdf.__version__`；
-- 这些class中有文档的public member；
-- callable parameter的名称、类型、default和有文档的return contract；
-- 有文档的常量和enum值；
-- TypedDict的必需/可选key、NamedTuple field和public type alias；
-- 有文档的异常层次，以及`LimitError.code`等机器可读属性。
+- `pylopdf.__all__`中的名称，以及`pylopdf.__version__`；
+- 这些类中有文档记载的方法、属性和特性；
+- 参数名称、默认值，以及参数是位置参数还是仅限关键字参数；
+- 有文档记载的返回值、常量和枚举值；
+- 返回字典的键和返回元组的字段；
+- 异常类及其层次结构，以及`LimitError.code`。
 
-以下内容属于private：以`_`开头的名称、`pylopdf.pylopdf_core`、Rust实现细节、object的`repr`、异常message的精确文本、warning顺序和未记录属性。从实现module
-import一个public object并不会使该module path成为公共API；请从`pylopdf` import。
+其他一切都是私有的：以`_`开头的名称、`pylopdf.pylopdf_core`扩展模块、`repr()`的输出、错误消息的措辞、警告的顺序以及未记载的属性。请从`pylopdf`本身导入公共名称，而不是从定义它们的模块导入。
 
-`save()`生成的PDF byte以及PNG/SVG的精确serialization不是逐byte稳定格式。contract是有文档的视觉、结构和提取语义。
+保存的PDF、PNG和SVG的确切字节可能在版本之间变化。稳定的是它们的外观、结构以及从中提取的文本。
 
 ## v1.0之后 { #after-v1 }
 
-对于stable release：
+- **主版本**可以删除或修改公共API。
+- **次版本**增加功能，不会破坏现有代码。
+- **修订版本**修复bug。
 
-- **major** release可以删除或不兼容地修改public API；
-- **minor** release增加向后兼容的API和行为；
-- **patch** release修复缺陷，不会故意修改public API。
+删除或重命名任何公共内容、增加必需参数、从返回字典中删除键、缩小可接受的输入范围，或修改异常层次结构，都需要发布主版本。增加函数、方法、可选参数、可接受的值或返回的键则不需要。类型提示也属于API的一部分：把`TypedDict`的键改为必需，或修改其类型，同样是不兼容的变更。
 
-删除或重命名public symbol/member、把parameter改为必需、不兼容地修改positional/keyword接受方式、删除mapping key、缩小可接受输入、修改有文档的常量，或破坏public异常继承，都需要major release。
+## 弃用 { #deprecation-lifecycle }
 
-增加可选keyword parameter、新symbol、新method、可接受输入的新enum或Literal选项，以及可选结果key通常属于加法式变化。类型contract与runtime object接受相同的兼容性审查：改变TypedDict key的必需/可选状态，或不兼容地修改value type，并不只是“typing变化”。
+v1.0之后，即将被删除的API会：
 
-## 弃用生命周期 { #deprecation-lifecycle }
+1. 在文档中标记为已弃用，并注明替代方案以及最早可能删除它的版本；
+2. 在可行的情况下发出`DeprecationWarning`；
+3. 至少保留两个次版本和六个月；
+4. 只在主版本中删除。
 
-v1.0之后，计划删除的public API通常会：
+`PylopdfWarning`用于报告PDF文件中的问题，从不用于弃用。遇到安全、法律或上游的紧急情况时，可能需要缩短这一流程；更新日志和发布说明会明确说明。
 
-1. 在文档中标为弃用，同时给出替代方案和最早删除release；
-2. 在可行时发出`DeprecationWarning`；
-3. 保留至少两个minor release并且至少六个月；
-4. 只在major release中删除。
+## 结果的变化 { #behavior-and-data }
 
-`DeprecationWarning`用于开发者迁移。`PylopdfWarning`继续用于PDF解释过程中的运行warning，不作为弃用channel。
+当旧结果有误时，bug修复可能会改变结果，例如阅读顺序、表格检测、字形位置、颜色，或损坏文件的修复方式。这类变更可能出现在任何版本中，值得注意的变更会列在更新日志中。
 
-security、legal或upstream runtime紧急问题可能需要缩短流程。此类例外会在changelog和release note中醒目标明，并提供影响最小的迁移方案。
+新增的资源上限可能会拒绝早期版本曾尝试处理的恶意文件或开销出乎意料地大的文件。程序应依赖异常类型和`LimitError.code`，而不是消息文本。
 
-## 行为与data兼容性 { #behavior-and-data }
+每个版本都会列出受支持的Python版本和平台。某个Python版本在上游结束生命周期后，可能会在次版本中停止支持，发布说明会对此作出说明。
 
-当旧行为不正确时，bug fix可能改变输出。例如损坏PDF的恢复、阅读顺序、glyph geometry、table解释、颜色转换和renderer差异。如果变化使行为更接近已有文档contract，就不要求major release，但会报告重大影响。
+## 如何追踪变更 { #compatibility-review }
 
-resource limit可能拒绝早期版本曾尝试处理的攻击性或异常昂贵输入。需要机器决策时使用稳定异常类型和error code；面向人的message文本不是API。
-
-支持范围由每个release记录的Python version、platform、ABI和WebAssembly runtime
-matrix定义。runtime在upstream EOL后，或继续支持会阻碍security/correctness修复时，可以在minor release中移除；项目会公布原因和迁移窗口。Pyodide兼容性按pylopdf minor
-line固定并测试，不会跨runtime升级作推测。
-
-## 兼容性审查 { #compatibility-review }
-
-[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)记录经过审查的候选surface。所有native Python lane都会比较该文件，检测export、signature、mapping key、type alias、enum/常量值、public member和异常继承的变化。
-
-```console
-uv run python tools/check_api_surface.py
-```
-
-有意的变化需要先审查runtime、typing、documentation和SemVer影响，再刷新snapshot：
-
-```console
-uv run python tools/check_api_surface.py --update
-```
-
-snapshot是review gate，而不是自动兼容性判决。每个有意变化仍需test、documentation和changelog entry。
+仓库将公共API记录在[`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)中；如果API发生变化而记录没有更新，测试就会失败，因此对公共API的每一项变更都会经过有意识的审查。

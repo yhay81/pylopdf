@@ -1,6 +1,6 @@
 site_name: pylopdf
 site_url: https://pylopdf.haya.works/ja/
-site_description: Rustを核にしたPythonネイティブなPDF編集・抽出・レンダリング。MITライセンス、必須Python依存なし、軽量wheel。
+site_description: PythonでPDFを編集・描画・抽出・生成。Rustコアを持つpymupdf流のAPIで、MITライセンス、必須の依存なし。
 site_author: Yusuke Hayashi
 copyright: Copyright &copy; 2026 Yusuke Hayashi · MIT License
 repo_url: https://github.com/yhay81/pylopdf
@@ -57,18 +57,18 @@ nav:
   - ホーム: index.md
   - ガイド:
       - はじめる: getting-started.md
-      - WebAssembly: wasm.md
-      - オフラインOCR: ocr.md
-      - エコシステム連携: ecosystem.md
       - pymupdfからの移行: migration.md
-  - API: api.md
-  - プロジェクト:
-      - ベンチマーク: benchmarks.md
+      - オフラインOCR: ocr.md
       - 並行実行: concurrency.md
+      - WebAssembly: wasm.md
+      - エコシステム連携: ecosystem.md
+  - APIリファレンス: api.md
+  - プロジェクト:
       - セキュリティ: security.md
       - API安定性: stability.md
-      - 言語ポリシー: languages.md
-  - 変更履歴: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
+      - ベンチマーク: benchmarks.md
+      - コントリビュートとサポート: contributing.md
+      - 変更履歴: https://github.com/yhay81/pylopdf/blob/main/CHANGELOG.md
 
 markdown_extensions:
   - admonition

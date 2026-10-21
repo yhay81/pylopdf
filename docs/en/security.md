@@ -1,14 +1,13 @@
 ---
 title: Security
-description: Supported versions, private vulnerability reporting and guidance for handling untrusted PDFs with pylopdf.
+description: Supported versions, private vulnerability reporting, and how to process untrusted PDFs safely with pylopdf.
 ---
 
 # Security
 
-This page explains how to report a vulnerability and how to process untrusted
-PDFs with pylopdf: the resource policy to open them with, the error codes a
-refusal carries, the limits of individual APIs, and how the internal guards
-work. Only the latest release on PyPI receives security fixes.
+## Supported versions { #supported-versions }
+
+Only the latest release on PyPI receives security fixes.
 
 ## Report a vulnerability { #report-a-vulnerability }
 
@@ -19,598 +18,179 @@ week.
 
 ## Handle untrusted PDFs { #untrusted-pdfs }
 
-pylopdf is written in Rust and has no mandatory Python dependencies, but
-hostile PDF input remains inherently risky.
-
-### Quick start { #quick-start }
-
-!!! warning "Use a complete resource policy"
-    Pass `limits=pylopdf.DocumentLimits.web()` to `pylopdf.open()`. The
-    preset is a conservative starting point for user uploads in memory-bounded
-    web and queue workers.
-
-!!! warning "Enforce CPU deadlines and isolate the process"
-    Enforce CPU deadlines in the Worker, process, or container host. Resource
-    budgets prevent documented allocations and output growth; they do not
-    interrupt an in-progress parser or interpreter by wall-clock time. Run
-    batch processing of untrusted files in a sandbox or container when
-    possible.
+pylopdf is written in Rust and has no required Python dependencies, but a PDF
+from an unknown source can still be built to use excessive memory or time.
+When you process files you do not control, such as user uploads, open them
+with a resource policy:
 
 ```python
 import pylopdf
 
 try:
-    with pylopdf.open(
-        "upload.pdf",
-        limits=pylopdf.DocumentLimits.web(),
-    ) as doc:
-        facts = doc.complexity
+    with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
+        if doc.complexity["page_count"] > 50:
+            reject_upload("too many pages")
         preview = doc[0].get_pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
 
-When a budget or a fixed guard refuses work, pylopdf raises `LimitError`, a
-`PdfError` subclass. Its `code` is a stable identifier from the
-[table of codes](#limit-error-codes) below, and the same code is also
-`error.args[0]`, so applications can branch on it without parsing messages.
+!!! warning "Enforce time limits and isolate the process"
 
-`doc.complexity` reports page, object, and stream counts, encoded stream bytes,
-and maximum direct object depth. It neither decodes streams nor invokes the
-renderer, so it is suitable for routing work before extraction. Structural and
-decompression budgets validate the opened source; reopen generated output with
-the same policy when it must cross another trust boundary.
+    Limits bound memory and output size, but they do not stop a call that is
+    taking too long. Enforce a CPU or wall-clock deadline in the worker,
+    process, or container, and process untrusted files in a sandbox or
+    container when you can.
 
-Embedded JavaScript is never executed; it is unsupported by design.
+`DocumentLimits.web()` is a conservative starting point for web servers and
+queue workers with limited memory. It sets these limits:
 
-### Resource budgets { #document-limits }
+| Resource | Limit |
+|---|---:|
+| File size | 10 MiB |
+| Pages | 200 |
+| Objects | 100,000 |
+| Nesting of arrays and dictionaries | 64 levels |
+| Any single decoded stream, including decoded images | 64 MiB |
+| One page's content stream | 10 MiB |
+| All decoded streams together | 128 MiB |
+| Extracted text, in total | 1 MiB |
+| Extracted characters (glyphs), in total | 65,536 |
+| The PDF data handed to the renderer | 64 MiB |
 
-`DocumentLimits.web()` currently applies these independent budgets. Every field
-of `DocumentLimits` defaults to `None` (unbounded) for compatibility.
+To change a limit, build your own policy. Every argument is optional, and
+`None` means no limit:
 
-| Resource | `DocumentLimits` field | `web()` limit | Refusal code |
-|---|---|---:|---|
-| Input file | `max_file_size` | 10 MiB | `file_size` |
-| Pages | `max_pages` | 200 | `page_count` |
-| Indirect objects | `max_objects` | 100,000 | `object_count` |
-| Any decoded stream, including image RGBA estimates | `max_decompressed_size` | 64 MiB | `decompressed_size` |
-| One page-content stream | `max_page_content_size` | 10 MiB | `page_content_size` |
-| Cumulative decoded or estimated stream bytes | `max_total_decompressed_size` | 128 MiB | `total_decompressed_size` |
-| Direct array/dictionary nesting | `max_object_depth` | 64 | `object_depth` |
-| Cumulative UTF-8 glyph payload across interpreted pages | `max_text_size` | 1 MiB | `text_size` |
-| Complete PDF snapshot passed to rendering/extraction | `max_interpretation_size` | 64 MiB | `interpretation_size` |
-| Cumulative positioned glyph records across interpreted pages | `max_text_glyphs` | 65,536 | `text_glyph_count` |
+```python
+limits = pylopdf.DocumentLimits(
+    max_file_size=50 * 1024 * 1024,
+    max_pages=1_000,
+    max_decompressed_size=128 * 1024 * 1024,
+)
+```
 
-Create `DocumentLimits(...)` directly when the workload needs different
-budgets. Every non-`None` value must be a positive integer.
-`max_decompressed_size=` remains a compatible shorthand for its one
-per-stream budget and cannot be combined with `limits=`.
-
-`max_interpretation_size` applies when hayro first consumes retained input and
-whenever pylopdf must serialize current state after editing or decryption, or
-to prepare a rendering copy, for example with synthesized text-markup
-appearances. The bounded writer refuses the crossing write and does not
-install a partial renderer/extractor cache. Its default is `None` for
-compatibility; `DocumentLimits.web()` sets 64 MiB.
-
-When `max_text_size` is configured, plain-text extraction preflights exact
-assembled UTF-8 size and caps one extraction call at twice that glyph-payload
-budget. Each non-empty glyph contributes at least one payload byte, while
-inferred gaps plus line endings cannot outnumber glyphs. That output bound
-covers the complete call rather than one internal 4,096-entry chunk, and
-explicit sequences accept at most the larger of the page count and 4,096
-entries, so repeated page numbers cannot bypass the policy. Refusals retain
-`text_size`; the compatible default remains `None`.
-
-`max_text_glyphs` bounds the records retained before line assembly and therefore
-also bounds the number of blocks, lines, spans, words, and `rawdict` glyph
-entries that structured text can materialize. Text and table interpretations
-of one page share one cumulative admission, and a rejected page consumes no
-budget. Its compatible default is `None`; `DocumentLimits.web()` sets 65,536.
-
-The `get_text("rawdict")` option uses the same interpreted glyph cache and
-cumulative `max_text_size`/`max_text_glyphs` admissions as other extraction
-modes; requesting several representations does not charge the same cached page
-again. One entry may contain a multi-character Unicode mapping, so the glyph
-count and UTF-8 payload remain separate budgets. Rust raw-layout buffers and
-glyph-text copies grow fallibly; native allocation refusal raises `PdfError`
-without returning a partial layout. The policy bounds retained glyph data, not
-the exact byte size of Python dictionaries or a caller's later JSON/HTML
-serialization. Bound that output separately when exporting raw layout from a
-worker.
-
-### Error codes { #limit-error-codes }
-
-`LimitError.code` is one of the following identifiers. Codes without an
-opt-out come from fixed guards that apply with or without `DocumentLimits`.
-
-| Code | What it bounds |
+| Argument | Limits |
 |---|---|
-| `file_size` | Input file bytes (`max_file_size`) |
-| `page_count` | Page count (`max_pages`) |
-| `object_count` | Indirect objects (`max_objects`) |
-| `object_depth` | Direct array/dictionary nesting (`max_object_depth`); also a page nested more than 64 levels deep when it is interpreted ([details](#object-depth)) |
-| `decompressed_size` | Any one decoded stream (`max_decompressed_size`) |
-| `page_content_size` | One page-content stream (`max_page_content_size`) |
-| `total_decompressed_size` | Cumulative decoded stream bytes (`max_total_decompressed_size`) |
-| `text_size` | Cumulative UTF-8 glyph payload of extraction (`max_text_size`) |
-| `text_glyph_count` | Cumulative positioned glyph records (`max_text_glyphs`) |
-| `interpretation_size` | PDF snapshot handed to rendering/extraction (`max_interpretation_size`) |
-| `embedded_file_size` | Attachment data added, written, or read (64 MiB default) |
-| `embedded_file_input_size` | Attachment lookup/deletion names and add-time key/filename/description text (1 MiB) |
-| `form_field_input_size` | `set_form_field()` caller names and values (1 MiB) |
-| `form_content_size` | Decoded source-page content imported as a Form XObject |
-| `annotation_input_size` | Caller annotation text and highlight rectangles |
-| `metadata_input_size` | Metadata writes (1 MiB) |
-| `toc_input_size` | Outline writes (title text) |
-| `toc_entry_count` | Outline reads and writes (65,536 nodes/entries, 131,072 edges) |
-| `toc_text_size` | Outline source/returned text (16 MiB) |
-| `named_destination_count` | Named-destination traversal (65,536 entries/nodes, 131,072 edges) |
-| `named_destination_text_size` | Named-destination key bytes (16 MiB) |
-| `page_entry_count` | Explicit page sequences beyond the larger of the page count and 4,096 |
-| `page_label_input_size` | Page-label writes |
-| `xmp_metadata_size` | Decoded XMP read by `Document.get_pdfa_claim()` (1 MiB default) |
-| `render_output_size` | Cumulative encoded PNG of `render_pages()` (512 MiB default) |
-| `markdown_output_size` | Cumulative UTF-8 Markdown output (64 MiB default) |
-| `svg_output_size` | `Page.get_svg_image()` UTF-8 output (64 MiB default) |
-| `replacement_input_size` | `Page.replace_text()` search/replacement/fallback input (4,096 UTF-8 bytes) |
-| `replacement_output_size` | `Page.replace_text()` decoded content, encoding data, growth, and output (64 MiB default) |
-| `pdf_output_size` | `Document.tobytes()` serialized output (512 MiB default) |
-| `image_input_size` | Encoded `Page.insert_image()` input (64 MiB default) |
-| `image_pixel_count` | Decoded `Page.insert_image()` PNG pixels (64,000,000 default) |
-| `image_inventory_count` | Images and Form XObjects listed by `Page.get_images()` (4,096) |
-| `font_input_size` | OpenType font input (64 MiB default) |
-| `text_input_size` | Generated text input of `insert_text()`/`insert_textbox()` (1 MiB default) |
-| `text_line_count` | Physical or wrapped lines of generated text (4,096) |
-| `path_point_count` | Path points held by one `Shape` (1,048,576) |
-| `search_input_size` | `search_for()` search text (4,096 UTF-8 bytes) |
-| `search_hit_count` | `search_for()` returned hits (4,096 default) |
-| `password_input_size` | Passwords (127 UTF-8 bytes) |
-| `pixmap_output_size` | `Pixmap.tobytes()` encoded PNG (64 MiB default) |
-| `ocr_model_size` | Cumulative `OcrEngine` detector, recognizer, and dictionary file input (64 MiB default) |
-| `ocr_dictionary_entries` | `OcrEngine` recognition dictionary entries (65,536) |
-| `object_value_depth` | Nesting of a value written through the low-level object API (32 levels) |
-| `stream_data_size` | Decoded data read by the low-level `Stream.read()` (64 MiB default) |
-| `stream_filter_count` | More than 16 sequential `/Filter` layers ([details](#filter-chains)) |
-| `decompression_unverifiable` | A filter chain that cannot be bounded safely ([details](#filter-chains)) |
-| `recovery_scan_size` | Estimated cross-reference reconstruction work ([details](#recovery-scan)) |
-| `content_nesting_depth` | Content-stream nesting beyond 64 levels ([details](#content-nesting)) |
-| `resource_nesting_depth` | Colour space and function chains beyond 16 levels or Type 4 procedures beyond 64 ([details](#resource-nesting)) |
-| `structure_tree_count` | Structure-tree cleanup on page deletion and selection ([details](#structure-tree)) |
+| `max_file_size` | Size of the input file |
+| `max_pages` | Number of pages |
+| `max_objects` | Number of objects |
+| `max_object_depth` | Nesting of arrays and dictionaries |
+| `max_decompressed_size` | Size of any single decoded stream |
+| `max_page_content_size` | Size of one page's decoded content |
+| `max_total_decompressed_size` | Size of all decoded streams together |
+| `max_text_size` | Total UTF-8 size of extracted text |
+| `max_text_glyphs` | Total number of extracted characters |
+| `max_interpretation_size` | Size of the PDF data that rendering and extraction read |
 
-## Per-API limits { #api-limits }
+`doc.complexity` reports page, object, and stream counts, the encoded stream
+size, and the deepest nesting, without decoding anything. Use it to route or
+reject a document before doing heavy work.
 
-Individual APIs carry their own input and output boundaries, which apply with
-or without `DocumentLimits`. Where an opt-out exists, pass it only for trusted
-workloads.
+Documents opened without `limits` have no open-time limits, but the per-call
+limits below still apply.
 
-| API | Default limit | Opt-out | Code |
-|---|---|---|---|
-| Rendering | 64 megapixels per page | — | — |
-| `Pixmap.tobytes()` | 64 MiB encoded PNG | `max_size=None` | `pixmap_output_size` |
-| `render_pages()` | 512 MiB cumulative encoded PNG | `max_size=None` | `render_output_size` |
-| `Page.get_svg_image()` | 64 MiB UTF-8 | `max_size=None` | `svg_output_size` |
-| `Document.to_markdown()`, `Table.to_markdown()` | 64 MiB cumulative UTF-8 | `max_size=None` | `markdown_output_size` |
-| `Document.tobytes()` | 512 MiB | `max_size=None` | `pdf_output_size` |
-| `get_text()`, `to_markdown()`, `render_pages()`, `delete_pages()`, `select()` | Larger of the page count and 4,096 explicit entries | — | `page_entry_count` |
-| `search_for()` | 4,096 UTF-8 bytes of search text; 4,096 hits | `max_hits=None` | `search_input_size`, `search_hit_count` |
-| `Page.insert_image()` | 64 MiB encoded; 64,000,000 decoded PNG pixels | `max_size=None`, `max_pixels=None` | `image_input_size`, `image_pixel_count` |
-| OpenType input (`insert_text`, `insert_textbox`, `set_form_field`, `set_fallback_font`) | 64 MiB | `max_font_size=None` | `font_input_size` |
-| `insert_text()`, `insert_textbox()` | 1 MiB UTF-8; 4,096 lines | `max_text_size=None` | `text_input_size`, `text_line_count` |
-| `Shape` | 1,048,576 path points | — | `path_point_count` |
-| `Page.replace_text()` | 4,096 UTF-8 bytes of input; 64 MiB content and output | `max_size=None` | `replacement_input_size`, `replacement_output_size` |
-| Passwords | 127 UTF-8 bytes | — | `password_input_size` |
-| `Page.get_images()` | 4,096 images or Form XObjects | — | `image_inventory_count` |
-| `Page.get_image_info()` | 4,096 placements | — | — |
-| `Document.extract_image()` | 64,000,000 pixels; 64 MiB payload | — | — |
-| Attachments | 64 MiB data; 1 MiB names and text | `max_size=None` | `embedded_file_size`, `embedded_file_input_size` |
-| `Document.get_pdfa_claim()` | 1 MiB decoded XMP | `max_size=None` | `xmp_metadata_size` |
-| `Page.insert_ocr_text_layer()` | 4,096 non-empty words; 1 MiB UTF-8 | — | — |
-| Metadata | 1 MiB text | — | `metadata_input_size` |
-| Page labels | 4,096 entries/nodes; 32 levels; 1 MiB text | — | `page_label_input_size` |
-| AcroForm field tree | 4,096 entries/nodes; 8,192 edges; 64 levels; 1 MiB; 4,096 choice values | — | `form_field_input_size` |
-| AcroForm buttons | 4,096 widgets; 8,192 state entries; 4,096 names; 1 MiB | — | — |
-| Annotations and links | 4,096 `/Annots` entries; 1 MiB text | — | `annotation_input_size` |
-| Named destinations | 65,536 entries/nodes; 131,072 edges; 16 MiB keys; 32 levels | — | `named_destination_count`, `named_destination_text_size` |
-| Outlines (TOC) | 65,536 nodes/entries; 131,072 edges; 16 MiB text; 64 levels | — | `toc_entry_count`, `toc_text_size`, `toc_input_size` |
+### Limits on individual calls { #default-limits }
 
-The sections below give the details of each boundary.
+Methods that read or produce large amounts of data have their own limit, with
+a default that is safe for most uses. Raise it with the keyword shown, or pass
+`None` to remove it for input you trust.
 
-### Rendering and image output { #rendering-limits }
+| Method | Default limit | Keyword |
+|---|---|---|
+| `Document.tobytes()` | 512 MiB of output | `max_size` |
+| `Document.render_pages()` | 512 MiB of PNG output in total | `max_size` |
+| `to_markdown()`, `Table.to_markdown()` | 64 MiB of output | `max_size` |
+| `Pixmap.tobytes()`, `Page.get_svg_image()` | 64 MiB of output | `max_size` |
+| `Page.search_for()` | 4,096 results | `max_hits` |
+| `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |
+| Font input to drawing, forms, and `Font` | 64 MiB per font | `max_font_size` |
+| `Page.insert_image()` | 64 MiB of input and 64 million pixels | `max_size`, `max_pixels` |
+| `Page.replace_text()` | 64 MiB of page content | `max_size` |
+| Attachments: `add()`, `read()`, `write()` | 64 MiB per file | `max_size` |
+| `Stream.read()` | 64 MiB | `max_size` |
+| `Document.get_pdfa_claim()` | 1 MiB of XMP metadata | `max_size` |
+| `OcrEngine()` | 64 MiB of model files | `max_model_size` |
 
-- Rendering is capped at 64 megapixels per page.
-- `Pixmap.tobytes()` defaults to a 64 MiB encoded-PNG output boundary. Its
-  writer refuses the crossing write before returning Python `bytes`, with
-  `pixmap_output_size`; `max_size=None` explicitly opts out.
-- `render_pages()` renders every page by default, accepts at most the larger
-  of the page count and 4,096 explicit entries, and defaults to a 512 MiB
-  cumulative encoded-PNG limit. Completed parallel results share one atomic
-  budget and failures return no partial list; `max_size=None` explicitly opts
-  out. Worker admission separately caps estimated live raster/conversion
-  buffers, and each worker replaces its hayro cache after 4,096 pages, so do
-  not add unbounded application-level parallelism around it.
-- `Page.get_svg_image()` defaults to a 64 MiB UTF-8 output limit and rejects
-  over-limit output before PyO3 creates the Python string; `max_size=None`
-  explicitly opts out. hayro-svg 0.8 materializes one internal Rust string
-  before pylopdf can enforce this boundary.
-- `Page.get_images()` stops at 4,096 listed images or Form XObjects with
-  `image_inventory_count`, and `Page.get_image_info()` at 4,096 placements.
-  `Document.extract_image()` decodes one image under the 64,000,000-pixel and
-  64 MiB payload limits, with the content and colour-space guards, and
-  Flate-wrapped JPEG passthrough stops decompression at that budget.
+A few limits are fixed. Rendering is capped at 64 million pixels per page.
+Passwords stop at 127 UTF-8 bytes, the PDF 2.0 maximum. Lists of pages passed to
+`select()`, `delete_pages()`, `get_text()`, `to_markdown()`, and
+`render_pages()` may hold up to the page count or 4,096 entries, whichever is
+larger. Outlines, page labels, form fields, annotations, and attachment lists
+have generous fixed limits sized for large real-world documents.
 
-### Page batches { #page-batches }
+A refused call raises before it changes the document and never returns
+partial results.
 
-Page batches validate entries against one page-count snapshot. `pages=None`
-and complete `insert_pdf()` ranges cover every page whatever the page count.
-Explicit sequences may repeat pages, but materialization stops at the first
-entry beyond the larger of the page count and 4,096 with `page_entry_count`, so
-repetition never costs more than one complete document pass. Text extraction
-and rendering replace call-scoped hayro caches every 4,096 entries, while
-`max_size`, `max_text_size`, and the other output budgets bound the complete
-call. Direct core calls repeat the entry check, and core page imports reject
-repeated source pages before mutation.
+### Error codes { #error-codes }
 
-- `delete_pages()` and `select()` accept at most the larger of the page count
-  and 4,096 entries per call in both Python and Rust, so repeated pages cannot
-  grow a selection beyond the document. Iterable reads stop at the first entry
-  beyond that bound before graph mutation, raising `page_entry_count`.
-  `insert_pdf()` imports any complete source range. Empty deletion preserves
-  caches, generation, and existing `Page` views.
-- Page deletion and selection clean navigation to excluded pages, the
-  AcroForm widgets and fields of those pages, and the structure-tree content
-  of a tagged PDF that lay only there before pruning. These operations are not
-  secure redaction: arbitrary custom references, attachments, metadata, and
-  other copies of the content require their own inspection and removal. The
-  structure-tree walk has its own [limits](#structure-tree).
+`LimitError` is a subclass of `PdfError`. Its `code` attribute, also
+`error.args[0]`, names the limit that was reached and is stable across
+releases, so programs can act on it. The message is for people and may
+change.
 
-### Text output { #text-output-limits }
+| Codes | Reached when |
+|---|---|
+| `file_size`, `page_count`, `object_count`, `object_depth` | The document exceeds a structural limit of its `DocumentLimits` |
+| `decompressed_size`, `page_content_size`, `total_decompressed_size`, `decompression_unverifiable`, `stream_filter_count` | A stream decodes to more than allowed, or uses filters whose output cannot be bounded (including more than 16 chained filters) |
+| `text_size`, `text_glyph_count`, `interpretation_size` | Extraction or rendering would read more than the policy allows |
+| `recovery_scan_size` | Repairing a damaged file would take an unreasonable amount of work |
+| `content_nesting_depth`, `resource_nesting_depth` | A page is built so deeply nested that interpreting it is unsafe; see [below](#built-in-protections) |
+| `pdf_output_size`, `render_output_size`, `markdown_output_size`, `svg_output_size`, `pixmap_output_size`, `replacement_output_size` | Output would exceed `max_size` |
+| `search_input_size`, `search_hit_count` | The search text is over 4,096 bytes, or there are more results than `max_hits` |
+| `text_input_size`, `text_line_count`, `font_input_size`, `path_point_count` | Text, fonts, or shape paths passed for drawing are too large |
+| `image_input_size`, `image_pixel_count`, `image_inventory_count` | An image is too large, or a page uses more than 4,096 images |
+| `embedded_file_size`, `embedded_file_input_size` | An attachment, or its name or description, is too large |
+| `stream_data_size`, `object_value_depth` | A low-level stream is too large to read, or a value written is nested too deeply |
+| `password_input_size`, `metadata_input_size`, `annotation_input_size`, `form_field_input_size`, `toc_input_size`, `page_label_input_size`, `replacement_input_size` | Text passed to the method is too large |
+| `page_entry_count` | A list of pages is longer than allowed |
+| `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | An outline, link destination table, tagged-PDF structure, or imported page is too large |
+| `xmp_metadata_size` | The XMP metadata is larger than `max_size` |
+| `ocr_model_size`, `ocr_dictionary_entries` | OCR model files are too large |
 
-- `search_for()` accepts at most 4,096 UTF-8 bytes of search text and defaults
-  returned geometry to 4,096 hits. Python rejects oversized terms before PyO3
-  copying and the Rust boundary repeats both limits. `max_hits=None` explicitly
-  opts trusted result sets out; refusals use `search_input_size` or
-  `search_hit_count` and never return a partial list.
-- `Document.to_markdown()` converts every page by default, accepts at most the
-  larger of the page count and 4,096 explicit entries, and defaults to a
-  64 MiB cumulative UTF-8 output limit. It keeps only one page's interpreted
-  layout, tables, and words at a time across a heading-count pass and a render
-  pass. Each table receives the remaining aggregate budget before page output
-  is assembled. Headings, paragraphs, lists, and tables are charged as retained
-  entries, and the final page uses linear assembly after the complete size has
-  been admitted. Direct `Table.to_markdown()` calls default to the same limit
-  and preflight exact escaped UTF-8 size, including merged-cell expansion.
-  Over-limit conversions return no partial string; `max_size=None` explicitly
-  opts out.
+## Built-in protections { #built-in-protections }
 
-### Text, image, and drawing input { #insertion-limits }
+These apply to every document, with or without `DocumentLimits`:
 
-- `Page.insert_image()` defaults encoded JPEG/PNG input to 64 MiB and decoded
-  PNG input to 64,000,000 pixels. Filename input is read under the released GIL
-  through the same bounded Rust boundary used by direct core calls; PNG
-  dimensions are checked before decoded storage is allocated. `max_size=None`
-  and `max_pixels=None` explicitly opt trusted workloads out.
-- Explicit and automatically selected OpenType input for `insert_text`,
-  `insert_textbox`, `set_form_field`, and `set_fallback_font` defaults to
-  64 MiB. Buffer input is rejected before its PyO3 copy and filename input is
-  read through the bounded, GIL-released Rust path. `max_font_size=None`
-  explicitly opts trusted workloads out.
-- `insert_text()` and `insert_textbox()` default generated text input to
-  1 MiB of UTF-8 and 4,096 physical or final wrapped lines; `insert_text()`
-  counts lines as `str.splitlines()` splits them, or one per list item. Python
-  checks physical input before splitting and PyO3 copying, the Rust boundary
-  repeats it and stops wrapped layout before mutation, and textbox tab
-  expansion is preflighted before allocating the expanded string.
-  `max_text_size=None` explicitly opts trusted insertion input out; refusals
-  use `text_input_size` or `text_line_count`. AcroForm text and choice
-  appearances retain the fixed 4,096-line layout cap. UAX #14 and grapheme
-  indexes, line collections, and retained line text grow fallibly, so
-  allocation refusal exposes neither a partial layout nor a document edit.
-  Pylopdf-owned normalization, grapheme references, shaped-line/glyph
-  collections, WinAnsi output, and input-derived text-operator growth are
-  fallible; Standard 14 width checks do not allocate an encoded text copy.
-  Allocation refusal returns `PdfError`; insertion remains nonmutating and
-  form filling rolls back atomically.
-- `Shape.insert_text()` and `Shape.insert_textbox()` apply the same text and
-  font boundaries to every call. One shape holds at most 1,048,576 path points
-  until it is committed, checked as points are added and again at the Rust
-  boundary; refusal uses `path_point_count`. A commit generates its drawing,
-  plans the import, and prepares the page's drawing targets before the page
-  changes, so a refusal leaves the document unchanged.
-- `Page.replace_text()` caps aggregate search/replacement/fallback input at
-  4,096 UTF-8 bytes and defaults decoded page content, font encoding data,
-  replacement growth, and final stream output to 64 MiB. It prepares a
-  page-owned stream before committing, so copied pages cannot edit shared
-  content and no-match/error calls preserve the document and caches. Caller
-  text is counted incrementally before PyO3 copying rather than encoded in
-  full for preflight. `max_size=None` explicitly opts out for trusted input.
-- Drawing insertions preflight raw page `/Contents` arrays and reference chains
-  before cache invalidation, input decoding, or dependent object creation. Raw
-  arrays stop at 4,096 entries, chains at 32 levels, and the final array at
-  4,096 stream references including the one-time `q`/`Q` isolation pair.
-  Failures do not mutate the document. The first insertion on a page decodes
-  its existing content once and counts its `q` and `Q` operators as hayro's
-  content parser reads them, so that the isolation pair holds one `q` more
-  than the content's unmatched `Q` and one `Q` more than the `q` it leaves
-  open. Like interpretation, the count re-applies no decompression limit
-  beyond those that loading enforces, and a stream that fails to decode counts
-  as empty.
-- `Page.insert_ocr_text_layer()` stops iterable materialization above 4,096
-  non-empty words or 1 MiB of aggregate UTF-8 text. Direct core calls enforce
-  the same limits, CID assignment stops before 65,535 distinct characters, and
-  all input-derived buffers are prepared before PDF mutation.
-- Passwords used by open, authenticate, fast metadata probes, and AES-256
-  output stop at 127 UTF-8 bytes before PyO3 copying or password-KDF work.
-  Direct Rust calls repeat the boundary. Refusals use `password_input_size`;
-  save rejection occurs before document mutation or output creation.
+- **Deep nesting.** The rendering engine, hayro, reads nested structures
+  recursively. Before rendering or extracting a page, pylopdf checks how deeply
+  its content, color spaces, and functions nest, and refuses a page that would
+  overflow the stack or be silently cut short (`content_nesting_depth`,
+  `resource_nesting_depth`, `object_depth`). Other pages of the document stay
+  usable.
+- **Renderer crashes.** If the renderer panics on malformed data, pylopdf
+  raises `PdfError` instead of an exception that `except Exception` would not
+  catch, and the document stays usable.
+- **Damaged files.** pylopdf repairs broken cross-reference data when it
+  can, emits a `PylopdfWarning`, and sets `doc.is_repaired`. Reject such
+  documents if your application must not accept repaired input. Some damaged
+  files cannot be opened and raise `FileDataError`.
+- **Safe saving.** `save()` and `Pixmap.save()` write to a temporary file
+  next to the destination and replace it only after a complete write, so a
+  failure never leaves a half-written file. Existing file permissions are kept,
+  including Windows access control lists.
+- **No scripts.** Embedded JavaScript is never executed.
 
-### Forms, annotations, and navigation { #structure-limits }
+## Recommendations { #recommendations }
 
-- AcroForm field-tree reads reject partial output above 4,096 entries/nodes,
-  8,192 edges, 64 levels, 1 MiB of encoded, decoded, or returned names/values,
-  or 4,096 choice-value items. Reference cycles are visited once, inherited
-  values are charged per returned leaf, and fills enforce the same tree plus
-  1 MiB caller name/value input atomically. Caller input stops before font
-  discovery, button lookup, or file reads with `form_field_input_size`.
-- Before it changes the receiving document, `insert_pdf()` compares top-level
-  field names within the 1 MiB name budget and, for a partial range, walks the
-  source field tree under the same node, edge, widget, and level limits. A
-  complete import copies the field tree without walking it. Comparing two
-  default resources for sharing reads at most 4,096 objects and 1 MiB; a
-  larger pair is renamed instead.
-- AcroForm button fields reject more than 4,096 widgets, 8,192 normal-appearance
-  state entries, 4,096 unique returned state names, or 1 MiB of encoded/returned
-  state-name text. Fills budget missing `Off` and on-state keys before mutation.
-- Annotation and link reads reject partial output above 4,096 `/Annots` entries
-  or 1 MiB of aggregate encoded/returned metadata text per call. Adds enforce
-  the same page count, 1 MiB generated subtype plus Contents/URI input, and
-  4,096 highlight rectangles before creating dependent objects or invalidating
-  caches. Caller text is rejected before PyO3 copying or rectangle iteration
-  with `annotation_input_size`; highlight iteration stops at item 4,097.
-- Named-destination lookup visits reference cycles once and rejects traversal
-  above 65,536 entries/nodes or 131,072 edges with `named_destination_count`,
-  above 16 MiB of key bytes with `named_destination_text_size`, or above 32
-  levels, instead of silently reporting a truncated tree as unresolved.
-  `get_outline()`, `Page.get_links()`, link import in `insert_pdf()`, and the
-  rewrite of the name tree and legacy `/Dests` during page deletion and
-  selection share these limits, so every well-formed tree that resolves can
-  also be cleaned and imported. The rewrite copies retained destination values
-  within 1,048,576 direct objects (16 per entry) and 16 MiB of text. A
-  looked-up destination name costs the budget of the structure being walked:
-  TOC text for an outline, key text for a name tree, or one page's 1 MiB of
-  link metadata. `Page.get_links()` indexes the tree on its first named
-  lookup and reuses that index and the page index until the next edit, so
-  reading every page stays linear. The retained index holds each distinct key
-  once within the same entry and key-text limits, and a refused tree is never
-  cached.
-- TOC reads use an iterative outline walk, visit reference cycles once, release
-  the GIL, and reject partial output above 65,536 nodes/entries or 131,072
-  edges with `toc_entry_count`, above 16 MiB of source/returned text with
-  `toc_text_size`, or above 64 levels or 32 destination indirections. Writes
-  enforce the same entry, depth, and title-text limits before PyO3 copying and
-  mutation with `toc_entry_count` and `toc_input_size`. Page deletion and
-  selection share the outline limits, so every written outline stays editable.
-- Page-label number-tree reads reject partial output above 4,096 entries/nodes,
-  32 levels, or 1 MiB of encoded or decoded style/prefix text. Reference cycles
-  are visited once; writes enforce the same entry/text boundary before PyO3
-  copying with `page_label_input_size`.
+- **Enforce time limits in the host.** Limits bound memory and output size, but
+  some valid-looking documents take a long time to render. Run untrusted work
+  with a CPU or wall-clock deadline in the worker, process, or container.
+- **Isolate batch processing.** Process untrusted files in a sandbox or
+  container when you can.
+- **Do not rely on page deletion for redaction.** Deleting pages removes
+  their links, form fields, and structure entries, but copies of their content
+  can remain elsewhere in the file, such as in attachments or metadata.
+- **Use `render_pages()` for parallel rendering.** It already limits its own
+  memory use, so do not wrap it in additional unbounded parallelism.
 
-### Metadata, attachments, and XMP { #metadata-limits }
-
-- `Document.metadata` decodes only the eight standard Info fields and rejects
-  aggregate source or returned text above 1 MiB; custom entries do not become
-  Python output. `peek_metadata(max_file_size=)` can reject path or byte input
-  before parsing and also caps returned standard text; `None` preserves the
-  unbounded input default. Writes preflight 1 MiB aggregate source/encoded text
-  before PyO3 copying with `metadata_input_size` and apply atomically.
-- `doc.attachments.add()` and `Attachment.write()` reject input above 64 MiB
-  before its PyO3 copy, and `Attachment.read()` applies the same default to
-  every decoded filter layer. Raise `max_size=` for a known large attachment;
-  `max_size=None` explicitly accepts unbounded input or materialization.
-  Attachment name trees are rejected above 4,096 entries/nodes, 32 levels, or
-  1 MiB of encoded or decoded names. Caller lookup/deletion names and aggregate
-  add-time key/filename/description text stop at 1 MiB before traversal or data
-  copying with `embedded_file_input_size`. Edits validate inline FileSpecs
-  before cloning above 4,096 direct objects, 32 levels, or 1 MiB of direct
-  string/name/stream data, and preflight the Catalog write target instead of
-  cloning the complete document for rollback.
-- `Document.get_pdfa_claim()` defaults to a 1 MiB XMP decoded-size limit applied
-  to every filter layer. Raise `max_size=` for a known large packet;
-  `max_size=None` explicitly accepts unbounded materialization.
-
-### Saving files { #saving }
-
-- `Document.tobytes()` defaults to a 512 MiB serialized-output limit across
-  normal, object/xref-stream, and encrypted output. Its Rust writer refuses
-  the write crossing the boundary before Python `bytes` conversion;
-  `max_size=None` explicitly opts out. `save()` streams to a securely created
-  sibling in the target directory and atomically replaces the requested path
-  only after a complete write, so serialization or replacement failures
-  preserve an existing file. It is not governed by the in-memory output
-  budget. Save options such as `garbage`, `deflate`, and `use_objstms`
-  retain their documented mutation semantics even when later I/O fails.
-- `Pixmap.save()` streams PNG encoding directly to an unpredictable,
-  exclusively created sibling in the target directory and atomically replaces
-  the requested path only after the complete write succeeds. It does not
-  retain a second completed PNG in memory. Replacement failures preserve
-  existing output and remove the temporary file.
-- On Windows, both file savers preserve an existing regular file's DACL and
-  inheritance protection. They apply the restrictions to the temporary file
-  before writing data and refuse the save if the security descriptor cannot be
-  copied. Read-only or locked destinations remain unchanged on failure, and
-  failed temporary outputs are removed. `Document.save()` normalizes long
-  Windows paths internally, including relative paths and Unicode names, without
-  requiring the system-wide long-path policy to be enabled.
-
-## Damaged and repaired files { #repaired-files }
-
-Lenient opening uses lopdf's cross-reference recovery. A `startxref`,
-`/Prev`, or `/XRefStm` offset that misses by at most 64 bytes moves to the
-nearby `xref` keyword. When standard resolution still fails, lopdf rebuilds the
-table from line-start object headers and the newest classic `trailer` whose
-`/Root` exists; objects from later revisions win, but objects from damaged
-regions may be missing. A resolved table whose entries miss the catalog or the
-root page-tree node, as in a file that lost bytes before its table, is rebuilt
-the same way, and the rebuilt table is kept when it reaches the page tree.
-Damaged xref-stream files without a classic trailer are rejected.
-
-Either recovery emits `PylopdfWarning`, sets `doc.is_repaired` (and the
-metadata probe's `repaired` key), and rendering and extraction use the
-recovered object graph that saving writes with normalized xref data. Callers
-that must not accept recovered input can reject `is_repaired` documents.
-Lenient tolerances that keep the declared structure, such as 19-byte xref
-entries or a stream `/Length` corrected at an unambiguous object boundary, are
-not reported. `DocumentLimits` apply to recovered documents unchanged. A
-pre-scan bounds the cost of reconstruction; see
-[Cross-reference recovery scan](#recovery-scan).
-
-## How the guards work { #how-the-guards-work }
-
-This section describes the fixed guards behind the codes above for readers who
-need to reason about their exact behaviour. Native and Pyodide CI share the
-same hostile-input regression contract, and scheduled Atheris fuzzing seeds
-malformed xrefs, cycles, deep objects, broken streams, and compression bombs.
-
-### Page-tree walker { #page-tree-walker }
-
-??? note "Page-tree indexing details"
-    All public page indexing uses one iterative page-tree walker, including
-    page count and lookup, complexity, render snapshots, TOC and links,
-    annotations, Form imports, and page-structure edits. It rejects reused
-    Page/Pages objects and cycles, indirect `/Kids` chains over 32 references,
-    internal trees over 256 levels, and edge counts above the indirect-object
-    count. `max_pages` traversal stops at the first over-limit page. Opening
-    without a page policy remains compatible and defers these page-tree
-    checks until the first operation that indexes pages.
-
-    Page counts and lookups reuse one walk's page index, so touching every
-    page stays linear. Rotation, page-box, drawing, and annotation edits keep
-    the index because they cannot change the page tree: each adds objects only
-    at unused object numbers and keeps every entry the walk read, or drops the
-    index when it cannot show that. Every other edit drops it, and the next
-    access rebuilds it. A failed walk is never cached, so a malformed tree
-    raises on every access.
-
-### Allocation failures { #allocation-failures }
-
-Many internal buffers grow fallibly: when the allocator refuses memory,
-pylopdf raises `PdfError` instead of aborting, and returns no partial result.
-For example, direct-depth validation and complexity inspection grow their
-iterative traversal stack fallibly, so allocation refusal raises `PdfError`
-without partial facts. The per-API sections above note the other places where
-this applies.
-
-### Filter chains { #filter-chains }
-
-A filter chain that cannot be bounded safely is rejected instead of being
-decoded optimistically. Pylopdf-owned bounded lopdf decode paths also reject
-more than 16 sequential `/Filter` layers before materializing the filter list.
-
-### Content-stream nesting { #content-nesting }
-
-hayro stops reading arrays and dictionaries in content streams at 64 levels
-and silently leaves out the deeper operands. pylopdf turns that truncation
-into a refusal with `content_nesting_depth`.
-
-??? note "What the content-stream check reads"
-    Before text extraction, layout, tables, search, drawings, image reads,
-    rendering (PNG, pixmap, SVG), Markdown conversion, or image compression
-    interprets a page, pylopdf decodes the content streams that page can
-    reach: its `/Contents`, the Form XObjects in its resources, annotation and
-    widget appearances (every state of a check box or radio button, of which
-    hayro draws the one that `/AS` selects), soft-mask groups, tiling
-    patterns, and Type 3 glyph procedures. It refuses the page with
-    `content_nesting_depth` when they nest arrays or dictionaries deeper than
-    64 levels, embed a stream object, or hide an inline image boundary it
-    cannot check.
-
-    The bound is fixed, applies with or without `DocumentLimits`, and leaves
-    other pages usable. Each page is checked once per document snapshot, and
-    an edit clears the result. Entries that a page's resource dictionaries
-    list count even when no operator draws them, because the check does not
-    work out which names the content uses.
-
-### Colour spaces, shadings, and functions { #resource-nesting }
-
-hayro builds colour spaces, shadings, and functions by unbounded recursion,
-so a deep enough chain would overflow the stack and end the process. pylopdf
-refuses such a page with `resource_nesting_depth` before hayro builds them.
-These bounds limit stack use, not time: keep enforcing CPU deadlines in the
-host.
-
-??? note "What the resource check measures"
-    hayro builds colour spaces, shadings, and functions by the same kind of
-    unbounded recursion as content streams: an Indexed or Pattern space from
-    its base, a Separation or DeviceN space from its alternate space and tint
-    transform, an ICCBased space from the `/Alternate` of a profile it cannot
-    parse, a stitching function from every entry of `/Functions`, and a
-    Type 4 function by parsing its `{ }` procedures recursively. About 20,000
-    indirect objects that name each other, or 300,000 nested braces, would
-    overflow the stack and end the process.
-
-    Before interpreting a page, pylopdf measures what its resource
-    dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns,
-    image XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer
-    functions of its graphics states and soft masks reach, and refuses the
-    page with `resource_nesting_depth` when a chain of colour spaces and
-    functions is deeper than 16 levels or a Type 4 function nests procedures
-    deeper than 64. A chain counts its colour space arrays, functions, and
-    profile streams, hayro's own cut lets a self-reference or a short ring
-    still render, a group of more than 16 objects that all reach one another
-    is refused, and shared sub-graphs are measured once, so the check reads
-    each object once however many entries name it.
-
-    The bounds are fixed, apply with or without `DocumentLimits`, and leave
-    other pages usable. They limit stack use, not time: hayro can need
-    exponential CPU for graphs that stay under them, such as a function named
-    twice per level or nested Separation spaces, so keep enforcing CPU
-    deadlines in the host.
-
-### Object nesting depth { #object-depth }
-
-hayro reads no array or dictionary nested more than 64 levels deep, counting
-the object that holds it, and treats the whole object as absent, while lopdf
-reads them up to 100 levels deep. A page whose dictionary, with the attributes
-it inherits from the page tree, nests deeper is refused with `object_depth`
-whenever an operation interprets it, and the other pages stay usable. A
-trailer, catalog, or root page-tree node nested that deeply does not keep the
-document from rendering: rendering and extraction read a copy without the
-entries that nest too deeply, while the editable and saved document keep
-them. Any other object nested that deeply reads as absent, as it does in
-hayro. `DocumentLimits.web()` already refuses such documents with
-`object_depth` when they open.
-
-### Structure-tree cleanup { #structure-tree }
-
-When page deletion and selection remove the structure-tree content of dropped
-pages, the structure-tree walk stops at 1,048,576 elements and lookup-tree
-nodes, 4,194,304 kids and entries, 256 element levels, or 32 `/ParentTree` and
-`/IDTree` levels with `structure_tree_count` before the document changes.
-
-### Renderer panics { #renderer-panics }
-
-hayro panics on some malformed colour data, such as a Separation or DeviceN
-tint transform that returns the wrong number of components or a shading in a
-Pattern colour space
-([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)). Every
-operation that lets hayro interpret a page catches such a panic and raises
-`PdfError` instead of PyO3's `PanicException`, which derives from
-`BaseException` and would escape `except Exception`. The renderer state is
-dropped as an edit drops it, so later calls start over and the document stays
-usable. Rust still prints the panic message to standard error.
-
-### Cross-reference recovery scan { #recovery-scan }
-
-lopdf's reconstruction rescans the rest of the input after every `stream`
-keyword without a later `endstream`. Before each lenient open or metadata
-probe, pylopdf estimates that work in linear time and refuses input above 64
-bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
-cannot make recovery quadratic. Real damaged files carry at most one truncated
-stream in that position.
+pylopdf's continuous integration runs the same hostile-input tests on native
+Python and WebAssembly, and scheduled fuzzing feeds it malformed
+cross-reference tables, reference cycles, deeply nested objects, broken
+streams, and compression bombs.
 
 ## Dependency auditing { #dependency-auditing }
 
-CI runs `cargo audit` against the Rust dependency tree and the RustSec advisory
+CI runs `cargo audit` against the Rust dependencies and the RustSec advisory
 database on every push.
 
 The repository copy of this policy is
