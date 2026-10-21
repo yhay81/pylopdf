@@ -1,3 +1,8 @@
+---
+title: WebAssembly互換性
+description: PyEmscripten wheelでpylopdfをPyodideとCloudflare Python Workersで動かす方法と、検証済みの環境、制約。
+---
+
 # WebAssembly互換性
 
 pylopdfは、Pyodide 0.28.3とCloudflare Python Workersが使うPython 3.13 ABI向けに、static PyEmscripten wheelをbuildします。native wheelと同じRust製PDF engineを含み、JavaScript製PDF実装やwasm-bindgen shimには置き換えていません。

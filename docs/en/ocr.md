@@ -1,3 +1,8 @@
+---
+title: Offline OCR
+description: Recognize scanned pages locally with pylopdf's optional OCR models and add an invisible searchable text layer.
+---
+
 # Offline OCR
 
 pylopdf can recognize scanned pages locally and add an invisible searchable
@@ -109,7 +114,7 @@ up to 16, only when the workload has been measured. Each admitted call still
 owns its raster and inference buffers. Simultaneous external calls or edits on
 the same `Document` remain outside pylopdf's concurrency contract.
 
-## Measured accuracy gate
+## Measured accuracy { #measured-accuracy }
 
 Two tracked, redistributable Japanese fixtures cover different inputs. The
 digital MHLW document supplies 1,188 extracted ground-truth characters. An

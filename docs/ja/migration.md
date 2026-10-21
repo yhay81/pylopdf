@@ -33,13 +33,17 @@ python -m pylopdf.migrate src/
 | `page.search_for(t)` | 同じ。加えて`max_hits=4096` | 上限付き`list[Rect]`。検索語は4,096 byte、`max_hits=None`で解除、`quads=`は無い |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 同じ | 既定は不透明RGB、`alpha=True`でRGBA。`dpi=`が優先。拡大縮小のmatrixのみで、`colorspace=`と`annots=`はまだ無い |
 | `page.get_svg_image()` | 同じ | `matrix`は恒等のみ。`text_as_path=False`は例外 |
+| `Point(...)`, `Matrix(...)`, `p * m`, `m1 * m2`, `~m` | 同じ | 不変のNamedTuple。座標は有限値に限る |
+| `p.transform(m)` / `m.invert()` | `p = p * m` / `m = ~m` | その場で値を変えるメソッドは無い。特異な行列で割ると例外 |
+| `r.include_point(p)` / `r.include_rect(o)` / `r.intersect(o)` / `r.normalize()` / `r.transform(m)` | `r = r \| p` / `r = r \| o` / `r = r & o` / `r = r.normalized()` / `r = r * m` | 矩形とquadは不変。`q.transform(m)`は`q = q * m`になる |
+| `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | 結果を代入する。合成では左の行列が先に適用される |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 同じ | RGB、`alpha=True`ではstraight-alpha RGBA。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(filename)`はPNGを生成し、`save`は`.png`が必須 |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 同じ | `extract_image`はDCTをJPEGのまま返し、ほかのfilterはPNGに復号。`get_image_info(hashes=True)`はdigest対応まで例外 |
 | `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | 現在は読み取り専用。`rect`は表示座標 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 同じ | `Quad`は外接矩形として扱う。`insert_link`は`LINK_URI`のみ |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへのみ変換するため、縮小には`quality` 1–100が必要。`set_to_gray`と`options`は例外、bitonal画像はスキップ。`None`ではなく件数を返す |
-| `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
+| `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる。select／deleteは削除したページのフォームwidget、フィールド、タグ付き構造の内容も取り除く |
 | `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)` の `page` は 0 始まり（pymupdf は 1 始まり） |
@@ -49,9 +53,9 @@ python -m pylopdf.migrate src/
 | `page.rect / rotation / set_rotation` | 同じ | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | 同じ | JPEGパススルー、PNG透過、RGBA `Pixmap`の直接再利用、時計回りの右角回転。その他の符号化形式はPillowで変換。同一入力は画像XObjectを共有するため`xref=`による再利用は不要 |
 | `page.show_pdf_page(rect, docsrc, pno)` | 同じ | 同一文書はネイティブな編集前snapshotから取り込むため、serialize/openによる複製は不要。編集していない取り込み元の再配置はForm XObjectを共有 |
-| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | sourceなしは標準14 / WinAnsi、または導入済みscript／locale provider。その他は明示fontを字形処理してsubset埋め込み。行の分け方・位置・頁の下にはみ出す行の除外はpymupdfと同じで、描いた行数を返す。頁の下端は表示座標の`page.rect`の下端で、pymupdfは回転前の座標で測る |
+| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | 同じ。加えて `fontbuffer=` / `fontindex=` / `font_language=` | 行の位置と数え方はpymupdfと同じ。[テキスト挿入](#behavioral-differences)を参照 |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | 同じ。任意の `fontfile=` / `fontbuffer=` / `font_language=` に対応 | 同じprovider自動選択とUAX #14折り返し。行の位置と収まるかどうかの判定はpymupdfと同じ。負の戻り値なら描画しない |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ | Standard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extra。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えない。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になる。keyword-onlyの`weight=`は、可変フォントのファイルの太さの軸からインスタンスも選ぶ。書体は`insert_text` / `insert_textbox`に`font=`で渡す。`text_length`はカーニングを含み、`ascender`／`descender`はpymupdfと同じ値で、`insert_text`と`insert_textbox`はこれで行を置く |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | 同じ。加えて`language=`・`family=`・`weight=` | Standard 14の名前、OpenTypeのファイル、導入済みの書体extra。[書体](#behavioral-differences)を参照 |
 | `page.add_highlight_annot(...)` | 同じ | 外観ストリームを常に生成 |
 | `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`、`list(doc.attachments)`、`doc.attachments[name].read()`、`del doc.attachments[name]`、`.write(data)`、handle のプロパティ、`len(doc.attachments)` | 存在しない名前は `KeyError`。`desc=` は `description=` |
 | `doc.get_page_labels / set_page_labels`・`page.get_label` | 同じ | |
@@ -63,8 +67,11 @@ python -m pylopdf.migrate src/
 
 ## 挙動の違い { #behavioral-differences }
 
+- **テキスト挿入**: 書体の指定がないとき、`insert_text`はWinAnsiエンコーディングのStandard 14書体、または導入済みのscript／locale書体providerを使います。その他の指定は字形処理してsubset埋め込みします。行の分け方・位置・頁の下にはみ出す行の除外はpymupdfと同じで、描いた行数を返します。頁の下端は表示座標の`page.rect`の下端で、pymupdfは回転前の座標で測ります。
+- **書体**: `Font`はStandard 14の名前と略称、OpenTypeのファイル、`language=`や`family=`による導入済みの書体extraを受け付けます。pymupdfのほかの内蔵書体（`"cjk"`、`"figo"`など）と`script=`・`ordering=`・`embed=`は使えません。`is_bold=`・`is_italic=`・`is_serif=`は導入済みのextraの書体を完全一致で選び、pymupdfが無視する`fontname`や書体ファイルとの組み合わせでは例外になります。keyword-onlyの`weight=`は、可変フォントのファイルの太さの軸からインスタンスも選びます。書体は`insert_text` / `insert_textbox`に`font=`で渡します。`text_length`はカーニングを含み、`ascender`／`descender`はpymupdfと同じ値を返し、`insert_text`と`insert_textbox`はこの値で行を置きます。
+
 - **座標系**はどちらも左上原点の表示空間。pylopdf では回転ページでも抽出・検索・描き込み・レンダリングが一貫して同じ座標になります。
-- **型**: `Rect` は不変の `NamedTuple`（`x0, y0, x1, y1` + `width` / `height`）、`Point` は `x, y` の `NamedTuple` で、`draw_*` が返します。`Matrix` / `Quad`クラスは無く、API は素のタプル（quad は4点）と `scale=` / `dpi=` を受けます。
+- **型**: `Point`、`Matrix`、`Rect`、`IRect`、`Quad`は不変のNamedTupleです。`Point`と`Matrix`は幾何的な算術、行列の乗算と除算に対応し、タプルとしての添字、アンパック、等値比較、ハッシュも保ちます。特に`Point(0, 0)`は偽になり、`p + other`は座標を足し、`p * scalar`はタプルを繰り返す代わりに拡大縮小します。その場で値を変える幾何メソッドは無いため、演算子の結果を代入します。`Rect`、`IRect`、`Quad`も同じくpymupdfに従います。`r | p`は点を含め、`r & other`は交差を取り、`r * m`は変換し、`p in r`は包含を判定し、`width`と`height`は負になりません。`r.normalize()`は`r = r.normalized()`と書きます。タプルと違い、`r + (1, 2, 3, 4)`は座標を足し、`Rect(0, 0, 0, 0)`は偽です。`get_pixmap(matrix=)`は拡大縮小の行列を受け付け、回転とせん断は例外になります。
 - **古い Page**: 構造変更（削除・挿入・並べ替え）後に古い `Page` を使うと、黙って別ページを指す代わりに `StalePageError` になります。`doc[i]` で取得し直してください。
 - **例外**: 基底は `PdfError`（`ValueError` のサブクラス）。`PasswordError` /
   `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` がそれを細分化します。`except ValueError` は動き続けます。pymupdfの`FileDataError`と`EmptyFileError`は同じ名前で、`RuntimeError`も継承します。存在しないファイルはPython組み込みの`FileNotFoundError`になるため、`except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えます。
