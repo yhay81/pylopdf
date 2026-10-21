@@ -1,32 +1,27 @@
 ---
 title: 동시성과 free-threaded Python
-description: Document, Page, Pixmap, 병렬 렌더링 및 CPython 3.14t와 3.15t에서 지원하는 스레드 경계입니다.
+description: 여러 스레드에서 pylopdf를 사용하는 방법, 페이지를 병렬로 렌더링하는 방법, free-threaded CPython 3.14t와 3.15t에서 실행하는 방법을 설명합니다.
 ---
 
 # 동시성과 free-threaded Python
 
-pylopdf는 GIL이 있는 CPython 3.11–3.15용 플랫폼별 `abi3` wheel과 free-threaded
-CPython용 Python 버전별 wheel(`cp314-cp314t`, `cp315-cp315t`)을 배포합니다.
-free-threaded wheel을 import해도 GIL이 다시 활성화되지 않습니다.
+pylopdf는 열기, 저장, 렌더링, 추출, 병합, 압축 같은 무거운 작업 중에 GIL을 해제하므로, 일반 CPython에서도 스레드가 병렬로 실행될 수 있습니다. free-threaded CPython 3.14t와 3.15t에는 GIL을 비활성 상태로 유지하는 전용 wheel이 있습니다.
 
-## 지원 계약 { #support-contract }
+## 지원 범위 { #support-contract }
 
-| 사용 방식 | 지원 |
+| 사용 방식 | 지원 여부 |
 |---|---|
-| GIL이 있는 CPython 3.11–3.15 | `abi3-py311` wheel로 지원 |
-| free-threaded CPython 3.14t와 3.15t | `cp314-cp314t`와 `cp315-cp315t` wheel로 지원하며 GIL이 꺼진 상태에서 테스트 |
-| 서로 다른 `Document` 객체의 동시 작업 | 지원. load, save, render, 추출, merge, 압축의 무거운 작업은 GIL을 해제 |
-| 같은 `Document`의 동시 호출 또는 편집 | 지원하지 않음. lock으로 직렬화하거나 독립된 Document를 사용 |
-| 한 Document의 `Document.render_pages(workers=...)` | 지원. 같은 Document 안에서 경계가 정해진 병렬 렌더링 방식 |
-| `Pixmap` 동시 읽기 | 지원. `Pixmap`은 불변 |
+| 서로 다른 스레드가 서로 다른 `Document` 객체를 다룸 | 지원 |
+| 여러 스레드가 같은 `Document`를 동시에 호출하거나 편집 | 미지원. 잠금을 사용하거나 스레드마다 파일을 따로 여세요 |
+| 한 문서에서 `Document.render_pages(workers=...)` | 지원. 한 문서를 병렬로 렌더링하는 공식 방법입니다 |
+| 여러 스레드가 같은 `Pixmap`을 읽음 | 지원. `Pixmap`은 변경할 수 없습니다 |
+| free-threaded CPython 3.14t와 3.15t | 지원. GIL을 비활성화한 상태로 테스트합니다 |
 
-`Page`는 부모 `Document`를 보는 view이므로 같은 Document 규칙을 따릅니다. 외부의
-동시 접근은 PyO3의 런타임 borrow 검사에서 거부될 수 있지만, 이 검사를 동기화 수단으로
-사용해서는 안 됩니다.
+`Page`는 자신의 `Document`에 속하며 같은 규칙을 따릅니다. pylopdf가 한 문서에 대한 동시 호출을 거부할 수도 있지만, 이를 잠금 대신 믿어서는 안 됩니다.
 
-## 올바른 경계 선택 { #choose-the-right-boundary }
+## 여러 파일 처리하기 { #many-files }
 
-서로 독립된 파일은 worker마다 독립된 Document를 사용합니다.
+각 작업자에게 자기 문서를 하나씩 줍니다.
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -43,39 +38,29 @@ with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
 
-한 Document의 여러 페이지를 처리할 때는 외부 스레드에서 같은 Document를 호출하지
-말고 `render_pages()`를 사용합니다.
+## 한 문서의 여러 페이지 렌더링하기 { #render-pages }
+
+여러 스레드에서 한 문서를 호출하는 대신 `render_pages()`를 사용하세요.
 
 ```python
 png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
-`render_pages()`는 하나의 불변 렌더러 snapshot을 사용하고 요청한 페이지 순서와 중복을
-유지하며, 추정 동시 작업 메모리를 약 512 MB로 제한합니다.
+요청한 페이지 순서대로 PNG bytes를 반환하며, 페이지가 크면 작업자 수를 줄여 추정 작업 메모리를 약 512 MB 이하로 유지합니다.
 
 ## 반복 렌더링 { #repeated-rendering }
 
-Document를 연 스레드에서 `Page.get_pixmap()`, `Document.get_page_pixmap()`,
-직렬 `render_pages()`를 반복 호출하면 이전 호출에서 파싱한 font, 색 공간, glyph
-윤곽선을 재사용하며, 출력은 새로 연 Document와 동일합니다. 각 스레드는 이러한
-cache를 최대 하나 유지하고, 호출 사이에는 서로 다른 페이지 최대 64개 분량만
-유지합니다. Document를 편집하거나 fallback font를 변경하거나 닫으면 cache가
-무효화되며, 연 스레드에서 이 작업을 하거나 그 스레드에서 Document를 해제하면 즉시
-해제됩니다. 다른 스레드에서 무효화된 cache는 해당 스레드가 다음에 렌더링하거나
-종료할 때 해제됩니다. 다른 스레드의 호출과 병렬 `render_pages()` worker는 호출 단위
-cache를 사용합니다.
+문서를 연 스레드에서 같은 문서의 페이지를 반복해서 렌더링하면, 이전 호출에서 해석한 글꼴과 글리프 윤곽을 재사용합니다. 출력은 새로 연 문서에서 렌더링한 것과 같습니다. 이 캐시는 최대 64페이지를 다루며, 문서를 편집하거나 닫으면 해제됩니다.
 
-## Pixmap 버퍼 { #pixmap-buffers }
+## Pixmap과 NumPy { #pixmap-buffers }
 
-모든 wheel은 불변 RGB 또는 RGBA 픽셀 저장소를 읽기 전용, 1차원, zero-copy buffer로
-노출합니다.
+`Pixmap`은 픽셀을 읽기 전용 버퍼로 노출하므로 NumPy가 복사 없이 사용할 수 있습니다.
 
 ```python
-view = memoryview(page.get_pixmap())
-assert view.readonly and view.format == "B"
+import numpy as np
+
+pix = page.get_pixmap()
+pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 
-view가 Pixmap을 유지하므로 NumPy는 `np.frombuffer(pixmap, dtype=np.uint8)`로
-픽셀을 복사 없이 읽을 수 있습니다. 독립된 `bytes` 복사본이 필요하면 계속
-`pixmap.samples`를 사용할 수 있습니다. abi3 wheel과 free-threaded wheel 모두 같은
-buffer를 노출합니다.
+반면 `pix.samples`는 독립된 `bytes` 사본을 반환합니다.
