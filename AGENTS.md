@@ -61,7 +61,12 @@ overview.
   both color schemes. Text selection uses explicit foreground and background
   variables, including selected links. Inline code uses a subtle paper
   background while fenced code remains dark. Retain at least WCAG AA contrast,
-  including links inside inline code.
+  including links inside inline code. The home page sections share the
+  header's `.md-grid` width so their left edge lines up with the logo. In
+  `docs/ja` and `docs/zh-cn`, never hard-wrap a paragraph at a line break next
+  to a CJK character: browsers render that newline as a stray space. Keep
+  documentation about current behavior; release history belongs in
+  `CHANGELOG.md`.
 - `cargo clippy --manifest-path rust/Cargo.toml --all-targets` /
   `cargo fmt --manifest-path rust/Cargo.toml`
 - Do not add Rust unit tests. Verify all behavior through Python tests in

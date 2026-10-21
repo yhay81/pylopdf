@@ -5,14 +5,11 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 
 # ベンチマーク
 
-pylopdfは**速い結果も遅い結果も同時に公開**します。以下は、ひとつの環境と
-コーパスで得たスナップショットです。普遍的な順位ではなく、自分のワークロードで
-何を測るべきか判断する材料として使ってください。
+pylopdfは**速い結果も遅い結果も同時に公開**します。以下は、ひとつの環境とコーパスで得たスナップショットです。普遍的な順位ではなく、自分のワークロードで何を測るべきか判断する材料として使ってください。
 
 !!! info "最新の実行"
     **2026-10-17 17:29 UTC** · macOS 27.0.1 · Python 3.14.8 · Apple M2 Pro（arm64）<br>
-    thin LTOのrelease profileでビルドしたpylopdf 0.14.0 · pymupdf 1.28.0 · pypdf 6.15.0 · pdfplumber 0.11.10<br>
-    ウォームアップ1回 + 計測7回。表は中央値（ミリ秒）です。
+    thin LTOのrelease profileでビルドしたpylopdf 0.14.0 · pymupdf 1.28.0 · pypdf 6.15.0 · pdfplumber 0.11.10<br>ウォームアップ1回 + 計測7回。表は中央値（ミリ秒）です。
 
 ## 概要 { #overview }
 
@@ -20,7 +17,7 @@ pylopdfは**速い結果も遅い結果も同時に公開**します。以下は
 |---|---|
 | 実世界PDF 14件を結合 | pylopdf **15.4 ms**、pymupdf 111.2 ms、pypdf 141.5 ms |
 | 先頭ページを2倍PNGへ（一連の処理） | 14ファイルすべてでpylopdfが高速。合計は**212.9 ms**対573.9 ms |
-| ラスタライズのみ | 14ファイル中、coldでは9件、warmでは12件でpymupdfが高速（warmの1件は同値）。warmの合計は145.9 ms対**78.8 ms** |
+| ラスタライズのみ | 14ファイル中、coldでは9件、warmでは12件でpymupdfが高速（warmの1件は同値）。warmの合計はpylopdf 145.9 ms、pymupdf **78.8 ms** |
 | PNGエンコード | pylopdfは約9倍高速（**44.4 ms**対397.4 ms）ですが、出力は40%大きくなります（4,645 KiB対**3,318 KiB**） |
 | 12ページを2倍で描画 | `render_pages()`は1 workerの163.7 msから8 workersの34.6 msへ短縮し、**4.74倍高速化**。pymupdfの逐次処理は425.3 ms |
 | 全ページのテキスト抽出 | 14ファイル中12件でpylopdf、残る2件ではpymupdfとpypdfが1件ずつ高速 |
@@ -51,10 +48,7 @@ pylopdfは**速い結果も遅い結果も同時に公開**します。以下は
 
 ## 抽出内容 { #extraction-content }
 
-これは正解率ではなく代理指標です。空白を正規化してpymupdfと比較しています。
-フォームや回転した表で類似度が低くても、文字数がほぼ同じなら読み順・空白の方針だけが
-違う場合があります。文字数0の行は画像のみのPDFです。ただし`pdfium-type3.pdf`は例外で、
-hayroがUnicode対応を報告しないglyphをpylopdfがスキップしています。
+これは正解率ではなく代理指標です。空白を正規化してpymupdfと比較しています。フォームや回転した表で類似度が低くても、文字数がほぼ同じなら読み順・空白の方針だけが違う場合があります。文字数0の行は画像のみのPDFです。ただし`pdfium-type3.pdf`は例外で、hayroがUnicode対応を報告しないglyphをpylopdfがスキップしています。
 
 | ファイル | pylopdf文字数 | pymupdf文字数 | 類似度 |
 |---|---:|---:|---:|
@@ -81,8 +75,7 @@ hayroがUnicode対応を報告しないglyphをpylopdfがスキップしてい�
 
 ## レンダリング { #rendering }
 
-先頭ページを2倍で描画。単位ms、小さいほど高速です。どちらも既定の設定を使い、
-pylopdfは透明背景のstraight-alpha RGBA8、pymupdfは白背景のRGBを生成します。
+先頭ページを2倍で描画。単位ms、小さいほど高速です。どちらも計測したリリースの既定の設定を使い、pylopdf 0.14.0は透明背景のstraight-alpha RGBA8、pymupdfは白背景のRGBを生成しました。現在のpylopdfは、pymupdfと同じく白背景のRGBが既定です。
 
 ### 一連の処理 { #rendering-end-to-end }
 
@@ -106,18 +99,12 @@ pylopdfは透明背景のstraight-alpha RGBA8、pymupdfは白背景のRGBを生�
 | wdl6812-manuscript.pdf | **20.1** | 62.3 |
 | **合計** | **212.9** | 573.9 |
 
-この差の大部分はラスタライズではなくPNGエンコードによるものです。次の2つの表で
-同じ処理を分けて示します。
+この差の大部分はラスタライズではなくPNGエンコードによるものです。次の2つの表で同じ処理を分けて示します。
 
 ### ラスタライズ { #rasterization }
 
-coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで
-同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのように
-ドキュメントより長く残るcacheは、coldでも有効です。MuPDFは開いているドキュメントの
-読み込み済みフォントと描画済みglyphも保持するため、テキストの多いページで特に
-差が出ます。pylopdfはドキュメントを開いたスレッドで解析済みのフォントとglyph
-outlineを再利用しますが、glyphのラスタライズと画像のデコードは毎回やり直すため、
-warmでの短縮幅はMuPDFよりはるかに小さくなります。
+coldは繰り返しごとに新しくドキュメントを開き、warmは開いたままのドキュメントで同じページを再びラスタライズします。MuPDFのプロセス全体のglyph cacheのようにドキュメントより長く残るcacheは、coldでも有効です。MuPDFは開いているドキュメントの読み込み済みフォントと描画済みglyphも保持するため、テキストの多いページで特に差が出ます。pylopdfはドキュメントを開いたスレッドで解析済みのフォントとglyph
+outlineを再利用しますが、glyphのラスタライズと画像のデコードは毎回やり直すため、warmでの短縮幅はMuPDFよりはるかに小さくなります。
 
 | ファイル | pylopdf cold | pymupdf cold | pylopdf warm | pymupdf warm |
 |---|---:|---:|---:|---:|
@@ -139,10 +126,7 @@ warmでの短縮幅はMuPDFよりはるかに小さくなります。
 
 ### PNGエンコード { #png-encoding }
 
-どちらのエンコーダにも描画済みのラスタを渡します。pylopdfはRGBA8出力に高速な
-fdeflate圧縮を使い、ファイルサイズより速度を優先します。pymupdfはRGB出力に
-zlibの既定レベルを使います。エンコード時間よりファイルサイズが重要な場合は、
-pylopdfの出力を外部で再圧縮してください。
+どちらのエンコーダにも描画済みのラスタを渡します。pylopdfはRGBA8出力に高速なfdeflate圧縮を使い、ファイルサイズより速度を優先します。pymupdfはRGB出力にzlibの既定レベルを使います。エンコード時間よりファイルサイズが重要な場合は、pylopdfの出力を外部で再圧縮してください。
 
 | ファイル | pylopdf ms | pymupdf ms | pylopdf KiB | pymupdf KiB |
 |---|---:|---:|---:|---:|
@@ -164,8 +148,7 @@ pylopdfの出力を外部で再圧縮してください。
 
 ## 並列レンダリング { #parallel-rendering }
 
-`usrguide.pdf`の先頭12ページを2倍PNGへ描画。単位ms、小さいほど高速です。
-バッチは入力順を保持し、単一の不変ドキュメントスナップショットを使います。
+`usrguide.pdf`の先頭12ページを2倍PNGへ描画。単位ms、小さいほど高速です。バッチは入力順を保持し、単一の不変ドキュメントスナップショットを使います。
 
 | Workers | 時間 | 1 worker比 |
 |---:|---:|---:|
@@ -174,17 +157,11 @@ pylopdfの出力を外部で再圧縮してください。
 | 4 | 47.4 | 3.45倍 |
 | 8 | 34.6 | 4.74倍 |
 
-実際の並列度は、指定worker数と推定512 MBの描画作業メモリの両方で制限されます。
-参考として、pymupdfは同じ12ページを1つの新しいドキュメントで逐次描画・エンコードし、
-425.3 msかかりました。
+実際の並列度は、指定worker数と推定512 MBの描画作業メモリの両方で制限されます。参考として、pymupdfは同じ12ページを1つの新しいドキュメントで逐次描画・エンコードし、425.3 msかかりました。
 
 ## 他のプラットフォーム { #other-platforms }
 
-上のスナップショットは1台のmacOS arm64マシンの結果です。2026-10-17に同じ
-`bench/run.py`を、thin LTOのabi3 wheelでGitHub-hosted release runnerごとに1回実行しました
-（Python 3.14.8、macOS x86_64のみ3.14.7。ウォームアップ1回 + 計測5回）。各セルは
-pylopdf / pymupdfのコーパス合計（ミリ秒）です。共有runnerはスナップショットよりノイズが
-大きいため、小さな差はノイズとして扱ってください。
+上のスナップショットは1台のmacOS arm64マシンの結果です。2026-10-17に同じ`bench/run.py`を、thin LTOのabi3 wheelでGitHub-hosted release runnerごとに1回実行しました（Python 3.14.8、macOS x86_64のみ3.14.7。ウォームアップ1回 + 計測5回）。各セルはpylopdf / pymupdfのコーパス合計（ミリ秒）です。共有runnerはスナップショットよりノイズが大きいため、小さな差はノイズとして扱ってください。
 
 | Runner | テキスト抽出 | 結合 | 一連の処理 | ラスタライズ cold | ラスタライズ warm | PNGエンコード |
 |---|---:|---:|---:|---:|---:|---:|
@@ -194,25 +171,18 @@ pylopdf / pymupdfのコーパス合計（ミリ秒）です。共有runnerはス
 | macOS x86_64, Intel Core i7-8700B, 4 vCPU | **254.7** / 1188.0 | **87.0** / 430.4 | **651.3** / 922.2 | 535.8 / **392.0** | 444.7 / **178.6** | **62.2** / 490.5 |
 | Windows Server 2025 x86_64, Intel, 4 vCPU | **243.1** / 269.7 | **37.5** / 132.9 | **533.2** / 874.6 | 470.5 / **293.7** | 434.2 / **147.5** | **57.8** / 579.6 |
 
-pymupdfのテキスト抽出は、2つのmacOS runnerではLinuxやWindowsより大幅に遅くなりました。
-そのためLinuxとWindowsでのpylopdfの抽出のリードは、macOSのスナップショットより小さく
-なります。MuPDFのラスタライズは、warmではすべてのrunnerで、coldでもApple M1以外の
-すべてのrunnerで高速でした。それでも一連の処理ではpylopdfが上回りました。pymupdfの合計の
-大半をPNGエンコードが占めるためです。
+pymupdfのテキスト抽出は、2つのmacOS runnerではLinuxやWindowsより大幅に遅くなりました。そのためLinuxとWindowsでのpylopdfの抽出のリードは、macOSのスナップショットより小さくなります。MuPDFのラスタライズは、warmではすべてのrunnerで、coldでもApple M1以外のすべてのrunnerで高速でした。それでも一連の処理ではpylopdfが上回りました。pymupdfの合計の大半をPNGエンコードが占めるためです。
 
 ## free-threadedでの抽出 { #free-threaded-extraction }
 
-Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部の
-全ページテキストを抽出しました。1回warmup後、先行モードを交互にした7組の実行の
-中央値です。
+Windows 11のfree-threaded CPython 3.14.6で、独立した`bill-hr815.pdf` 2部の全ページテキストを抽出しました。1回warmup後、先行モードを交互にした7組の実行の中央値です。
 
 | モード | Workers | 時間 | 高速化 |
 |---|---:|---:|---:|
 | 逐次 | 1 | 400.8 ms | 1.00倍 |
 | 並行 | 2 | 235.5 ms | 1.70倍 |
 
-すべての実行で2部の出力は完全に一致し、import後もGILが無効であることを
-インタープリタから確認しています。
+すべての実行で2部の出力は完全に一致し、import後もGILが無効であることをインタープリタから確認しています。
 
 ## 再現する { #reproduce }
 
@@ -229,14 +199,4 @@ py -3.14t bench/free_threaded.py
 python3.14t bench/free_threaded.py
 ```
 
-生成元レポートは
-[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)
-へコミットされています。free-threaded専用の生成レポートは
-[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)
-へ分離され、`bench/run.py`を再実行してもCPython 3.14tの証跡を上書きしません。
-native／Pyodideのresource-policy基準値は
-[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)
-へ分けてコミットされています。2番目のcommandは上限付きopen／extractと制御された拒否を
-測定します。CIは同じcaseをPyodide内でも実行し、Wasm linear memoryの増加を
-記録します。この時間とmemory値は傾向であり、native／Wasmの性能比較ではありません。
-数値を引用するときは、環境とコーパスを併記してください。
+生成元レポートは[`bench/results/latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/latest.md)へコミットされています。free-threaded専用の生成レポートは[`bench/results/free-threaded-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/free-threaded-latest.md)へ分離され、`bench/run.py`を再実行してもCPython 3.14tの証跡を上書きしません。native／Pyodideのresource-policy基準値は[`bench/results/limits-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/limits-latest.md)へ分けてコミットされています。2番目のcommandは上限付きopen／extractと制御された拒否を測定します。CIは同じcaseをPyodide内でも実行し、Wasm linear memoryの増加を記録します。この時間とmemory値は傾向であり、native／Wasmの性能比較ではありません。数値を引用するときは、環境とコーパスを併記してください。

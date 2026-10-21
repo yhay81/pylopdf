@@ -20,7 +20,7 @@ what to measure in your own workload.
 |---|---|
 | Merge 14 real-world PDFs | pylopdf **15.4 ms**, pymupdf 111.2 ms, pypdf 141.5 ms |
 | First page to 2× PNG, end to end | pylopdf led on all 14 files, **212.9 ms** versus 573.9 ms in total |
-| Rasterize only | pymupdf led on 9 of 14 files cold and 12 of 14 warm, with one warm tie; warm totals were 145.9 ms versus **78.8 ms** |
+| Rasterize only | pymupdf led on 9 of 14 files cold and 12 of 14 warm, with one warm tie; warm totals were pylopdf 145.9 ms, pymupdf **78.8 ms** |
 | Encode PNG | pylopdf encoded about 9× faster (**44.4 ms** versus 397.4 ms) but wrote 40% more bytes (4,645 versus **3,318 KiB**) |
 | Render 12 pages at 2× | `render_pages()` went from 163.7 ms with 1 worker to 34.6 ms with 8, a **4.74× speedup**; pymupdf took 425.3 ms sequentially |
 | Extract all text | pylopdf led on 12 of 14 files; pymupdf and pypdf each led on one |
@@ -83,8 +83,9 @@ pylopdf skips its glyphs because hayro reports no Unicode mapping for them.
 ## Rendering { #rendering }
 
 First page at 2×, milliseconds; lower is faster. Both libraries use their
-defaults: pylopdf produces straight-alpha RGBA8 on a transparent background,
-and pymupdf produces RGB on white.
+defaults as of the measured releases: pylopdf 0.14.0 produced straight-alpha
+RGBA8 on a transparent background, and pymupdf produces RGB on white. Current
+pylopdf defaults to RGB on white, as pymupdf does.
 
 ### End to end { #rendering-end-to-end }
 

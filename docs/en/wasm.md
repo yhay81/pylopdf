@@ -5,11 +5,6 @@ Pyodide 0.28.3 and Cloudflare Python Workers. The binary contains the same Rust
 PDF engines as the native wheel; it does not use a JavaScript PDF
 implementation or a wasm-bindgen shim.
 
-!!! note "Release status"
-
-    The WebAssembly wheel has shipped since pylopdf 0.11. v0.10.0 contains only
-    native wheels.
-
 ## Tested environment
 
 | Component | Pinned version or contract |

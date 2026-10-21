@@ -5,35 +5,21 @@ description: pymupdfの処理をpylopdfへ移し、型・挙動・スコープ�
 
 # pymupdf からの移行
 
-pylopdf は pymupdf「風」であって、ドロップイン互換ではありません。ただし移行
-コストを決めるデータ形状 — `"words"` タプルの並び・`"dict"` の構造・
-`search_for → list[Rect]` — は pymupdf に合わせているため、抽出やページ操作のコードは小さな修正で移植できます。このページでは
-「そのまま動くもの」「変わったもの」「あえて実装せず連携で解決するもの」を
-まとめます。
+pylopdf は pymupdf「風」であって、ドロップイン互換ではありません。ただし移行コストを決めるデータ形状 — `"words"` タプルの並び・`"dict"` の構造・`search_for → list[Rect]` — は pymupdf に合わせているため、抽出やページ操作のコードは小さな修正で移植できます。このページでは「そのまま動くもの」「変わったもの」「あえて実装せず連携で解決するもの」をまとめます。
 
 !!! note
-    pylopdf が扱うのは **PDF のみ**です。pymupdf の XPS / EPUB / 画像を開く
-    機能は対象外です。
+    pylopdf が扱うのは **PDF のみ**です。pymupdf の XPS / EPUB / 画像を開く機能は対象外です。
 
 ## 自動移行 { #codemod }
 
-`python -m pylopdf.migrate` は pymupdf のプログラムをその場で書き換えます。
-`migrate` extra が入れる LibCST が必要です。
+`python -m pylopdf.migrate` は pymupdf のプログラムをその場で書き換えます。`migrate` extra が入れる LibCST が必要です。
 
 ```bash
 pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-`fitz` と `pymupdf` の import を改名し、機械的に置き換えられるもの — ページ番号を
-ずらす `get_toc`/`set_toc`、`embfile_*`、`xref_*` のストリーム読み出し、
-`copy_page`、その場で値を変える `Rect`/`Point`/`Matrix` のメソッド — を書き換え、
-人手が要る文の上には `# TODO(pylopdf): …` コメントを付けて、その一覧を
-`path:line: message` の形で出力します。`--diff` は書き込まずに差分を表示し、
-`--check` は変更が生じるファイルがあると終了コード 1 を返します。受け手の型は
-分からないので差分を確認してください。実行時に pylopdf にない pymupdf の名前を
-参照すると、置き換え先か予定しているマイルストーンを示す `AttributeError` が
-発生します。
+`fitz` と `pymupdf` の import を改名し、機械的に置き換えられるもの — ページ番号をずらす `get_toc`/`set_toc`、`embfile_*`、`xref_*` のストリーム読み出し、`copy_page`、その場で値を変える `Rect`/`Point`/`Matrix` のメソッド — を書き換え、人手が要る文の上には `# TODO(pylopdf): …` コメントを付けて、その一覧を`path:line: message` の形で出力します。`--diff` は書き込まずに差分を表示し、`--check` は変更が生じるファイルがあると終了コード 1 を返します。受け手の型は分からないので差分を確認してください。実行時に pylopdf にない pymupdf の名前を参照すると、置き換え先、またはまだ対応していないことを示す `AttributeError` が発生します。
 
 ## 対応表 { #mapping }
 
@@ -43,18 +29,18 @@ python -m pylopdf.migrate src/
 | `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | 同じ | `open`は`Document`そのもの。`filetype=`は`"pdf"`のみ。`password=`はkeyword-onlyでUTF-8 127 byte上限 |
 | `doc[i]`・`len(doc)`・イテレーション | 同じ | 0 始まり・負数可 |
 | `doc.metadata` / `set_metadata` | 同じ | キー名も同じ |
-| `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` |
+| `page.get_text()` | 同じ | オプションは `text` / `words` / `blocks` / `dict` / `rawdict` |
 | `page.search_for(t)` | 同じ。加えて`max_hits=4096` | 上限付き`list[Rect]`。検索語は4,096 byte、`max_hits=None`で解除、`quads=`は無い |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | 同じ | 既定は不透明RGB、`alpha=True`でRGBA。`dpi=`が優先。拡大縮小のmatrixのみで、`colorspace=`と`annots=`はまだ無い |
 | `page.get_svg_image()` | 同じ | `matrix`は恒等のみ。`text_as_path=False`は例外 |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | 同じ | RGB、`alpha=True`ではstraight-alpha RGBA。pylopdfの上限付き`tobytes(max_size=64 MiB)`とstreaming `save(filename)`はPNGを生成し、`save`は`.png`が必須 |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | 同じ | `extract_image`はDCTをJPEGのまま返し、ほかのfilterはPNGに復号。`get_image_info(hashes=True)`はdigest対応まで例外 |
-| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | M3でsetterが加わるまで読み取り専用。`rect`は表示座標 |
+| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | 同じ | 現在は読み取り専用。`rect`は表示座標 |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | 同じ | `Quad`は外接矩形として扱う。`insert_link`は`LINK_URI`のみ |
 | `page.get_drawings()` | 同じ | 型付きpath辞書。line/cubicと主要paint/stroke属性。`extended=`のclip/group階層は非対応 |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | 同じ | maskのない安全なDeviceGray/DeviceRGB DCT/Flate rasterをJPEGへのみ変換するため、縮小には`quality` 1–100が必要。`set_to_gray`と`options`は例外、bitonal画像はスキップ。`None`ではなく件数を返す |
 | `doc.select`・`delete_page(s)`・`fullcopy_page`・`new_page` | 同じ | `delete_pages`はpymupdfの形式（番号1つ、番号2つ、`from_page=`/`to_page=`、iterable）を受け付ける。`select` の重複指定は複製になる |
-| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない（G8） |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfはページオブジェクトを共有しない |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | pymupdfの範囲規則（負の`from_page`は最初のページ、負の`to_page`は最後のページで、どちらも範囲内に収める）。取り込んだページのフォームフィールドを登録し、衝突する最上位の名前には`+N`を付ける。`widgets=` / `join_duplicates=`はない |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)` の `page` は 0 始まり（pymupdf は 1 始まり） |
 | `doc.save(garbage=4, deflate=True)` | 同じ | pymupdfと同じ0〜4の段階。ページ、注釈、フォームフィールド、構造要素、レイヤーは統合しない |
@@ -77,53 +63,19 @@ python -m pylopdf.migrate src/
 
 ## 挙動の違い { #behavioral-differences }
 
-- **座標系**はどちらも左上原点の表示空間。pylopdf では回転ページでも
-  抽出・検索・描き込み・レンダリングが一貫して同じ座標になります。
-- **型**: `Rect` は不変の `NamedTuple`（`x0, y0, x1, y1` + `width` / `height`）、
-  `Point` は `x, y` の `NamedTuple` で、`draw_*` が返します。`Matrix` / `Quad`
-  クラスは無く、API は素のタプル（quad は4点）と `scale=` / `dpi=` を受けます。
-- **古い Page**: 構造変更（削除・挿入・並べ替え）後に古い `Page` を使うと、
-  黙って別ページを指す代わりに `StalePageError` になります。`doc[i]` で
-  取得し直してください。
+- **座標系**はどちらも左上原点の表示空間。pylopdf では回転ページでも抽出・検索・描き込み・レンダリングが一貫して同じ座標になります。
+- **型**: `Rect` は不変の `NamedTuple`（`x0, y0, x1, y1` + `width` / `height`）、`Point` は `x, y` の `NamedTuple` で、`draw_*` が返します。`Matrix` / `Quad`クラスは無く、API は素のタプル（quad は4点）と `scale=` / `dpi=` を受けます。
+- **古い Page**: 構造変更（削除・挿入・並べ替え）後に古い `Page` を使うと、黙って別ページを指す代わりに `StalePageError` になります。`doc[i]` で取得し直してください。
 - **例外**: 基底は `PdfError`（`ValueError` のサブクラス）。`PasswordError` /
-  `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` が
-  それを細分化します。`except ValueError` は動き続けます。pymupdfの
-  `FileDataError`と`EmptyFileError`は同じ名前で、`RuntimeError`も継承します。
-  存在しないファイルはPython組み込みの`FileNotFoundError`になるため、
-  `except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えます。
-- **資源ポリシー**: `DocumentLimits.web()`はrendering／extractionへ渡す完全な
-  PDF snapshotを64 MiB、累積位置付きtextを65,536 glyph recordに制限します。
-  独自ポリシーでは`max_interpretation_size`と`max_text_glyphs`を指定でき、`None`は
-  互換性のある無制限動作です。
-- **`get_text` のオプション**は `text` / `words` / `blocks` / `dict` のみ
-  （`html` / `rawdict` / `xml` は無し）。スパン辞書は埋め込みフォントについて
-  `font` と pymupdf 互換の `flags`（bold/italic/serif/mono）を持ちます。
-- **複数カラムのテキスト**は、決定的な空白ガター検出により、各カラム内を
-  上から下へ、カラム間を左から右へ読みます。1 em未満の狭いガターは、両側に
-  十分な本文を持つ行が密に反復するときだけ採用します。整列したラベル、
-  ドットリーダー、区切りが複数ある密な行は行優先の順序を保ちます。確定した
-  境界は、scan/OCR text layerの小さな水平方向のずれに追従します。
-- **`Page.find_tables()`** は線または細い塗り矩形から軸平行の罫線グリッドを
-  再構築し、矩形の結合セルにも対応します。`strategy="text"` を指定すると、
-  高信頼な罫線なし表を検出します（整列した複数カラム本文との幾何的な曖昧さは
-  残ります）。既知の表示座標領域に完全に収まる表だけを返すには`clip=`を使い、
-  罫線なし結果の順位付けには`Table.confidence` / `Table.diagnostics`を確認します。
-- **`to_markdown()`** は完全な罫線表を読み順に挿入し、周囲の本文からセル文字を
-  除外します。`table_strategy="text"` で保守的な罫線なし候補を追加でき、
-  `None` で表変換を無効にできます。
-- **フォーム記入**は値とネイティブ外観を書き込み、pylopdfと外部ビューアの両方で
-  描画されます。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeフォントを
-  指定するかscript／locale font extraを導入します。地域別の漢字字形は
-  `font_language=`で指定します。combテキスト欄は継承された`MaxLen`と
-  整列を尊重します。リッチテキスト、pushbutton、署名は対象外です。
-- **フォームの結合**では、`insert_pdf()`がpymupdfの既定`widgets=True`と同様に
-  取り込んだページのフィールドを常に登録します。取り込み先で既に使われている
-  最上位の名前はqpdfと同じく未使用で最小の`name+N`になり、同じフォームを結合した
-  各コピーは独立した値を持ちます。それらを1つのフィールドに結合する
-  `join_duplicates=`はありません。ページ範囲を指定すると、他のページのwidgetと、
-  widgetがなくなったフィールドは取り込みません。
-- **CJK 縦書き**は保守的に検出し、列内を上から下、列間を右から左へ読みます。
-  ルビ、割注、縦中横などの混在組版は解釈しません。
+  `DocumentClosedError` / `EncryptedDocumentError` / `StalePageError` がそれを細分化します。`except ValueError` は動き続けます。pymupdfの`FileDataError`と`EmptyFileError`は同じ名前で、`RuntimeError`も継承します。存在しないファイルはPython組み込みの`FileNotFoundError`になるため、`except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えます。
+- **資源ポリシー**: `DocumentLimits.web()`はrendering／extractionへ渡す完全なPDF snapshotを64 MiB、累積位置付きtextを65,536 glyph recordに制限します。独自ポリシーでは`max_interpretation_size`と`max_text_glyphs`を指定でき、`None`は互換性のある無制限動作です。
+- **`get_text` のオプション**は `text` / `words` / `blocks` / `dict` / `rawdict` のみ（`html` / `xml` は無し）。スパン辞書は埋め込みフォントについて`font` と pymupdf 互換の `flags`（bold/italic/serif/mono）を持ちます。
+- **複数カラムのテキスト**は、決定的な空白ガター検出により、各カラム内を上から下へ、カラム間を左から右へ読みます。1 em未満の狭いガターは、両側に十分な本文を持つ行が密に反復するときだけ採用します。整列したラベル、ドットリーダー、区切りが複数ある密な行は行優先の順序を保ちます。確定した境界は、scan/OCR text layerの小さな水平方向のずれに追従します。
+- **`Page.find_tables()`** は線または細い塗り矩形から軸平行の罫線グリッドを再構築し、矩形の結合セルにも対応します。`strategy="text"` を指定すると、高信頼な罫線なし表を検出します（整列した複数カラム本文との幾何的な曖昧さは残ります）。既知の表示座標領域に完全に収まる表だけを返すには`clip=`を使い、罫線なし結果の順位付けには`Table.confidence` / `Table.diagnostics`を確認します。
+- **`to_markdown()`** は完全な罫線表を読み順に挿入し、周囲の本文からセル文字を除外します。`table_strategy="text"` で保守的な罫線なし候補を追加でき、`None` で表変換を無効にできます。
+- **フォーム記入**は値とネイティブ外観を書き込み、pylopdfと外部ビューアの両方で描画されます。WinAnsiはHelveticaで自動縮小され、UnicodeはOpenTypeフォントを指定するかscript／locale font extraを導入します。地域別の漢字字形は`font_language=`で指定します。combテキスト欄は継承された`MaxLen`と整列を尊重します。リッチテキスト、pushbutton、署名は対象外です。
+- **フォームの結合**では、`insert_pdf()`がpymupdfの既定`widgets=True`と同様に取り込んだページのフィールドを常に登録します。取り込み先で既に使われている最上位の名前はqpdfと同じく未使用で最小の`name+N`になり、同じフォームを結合した各コピーは独立した値を持ちます。それらを1つのフィールドに結合する`join_duplicates=`はありません。ページ範囲を指定すると、他のページのwidgetと、widgetがなくなったフィールドは取り込みません。
+- **CJK 縦書き**は保守的に検出し、列内を上から下、列間を右から左へ読みます。ルビ、割注、縦中横などの混在組版は解釈しません。
 
 ## あえて実装しないもの — エコシステムで解決 { #deliberate-scope }
 
@@ -131,7 +83,7 @@ python -m pylopdf.migrate src/
 |---|---|
 | Story API / `insert_htmlbox`（組版） | typst（typst-py 経由）— [レシピ](ecosystem.md) |
 | 電子署名 | pyHanko（MIT）— [レシピ](ecosystem.md) |
-| インクリメンタル保存 | 現在は非対応。全体を書き直し、将来候補として監視中。署名用途はpyHankoが担う |
+| インクリメンタル保存 | 現在は非対応。pylopdfはファイル全体を書き直す。インクリメンタル保存は対応予定。署名用途はpyHankoが担う |
 | XPS / EPUB / CBZ / 画像を開く | 対象外 — PDF 専用 |
 
 ## 移植例 { #worked-example }

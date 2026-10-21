@@ -5,18 +5,11 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 
 # API概览
 
-完整docstring包含在包内，可运行`help(pylopdf.Document)`查看。本页提供API地图。
-包括书签在内，所有页码均从0开始。
-所有坐标均为左上角原点的显示空间。
-[API稳定性政策](stability.md)定义了公共边界和弃用流程。
+完整docstring包含在包内，可运行`help(pylopdf.Document)`查看。本页提供API地图。包括书签在内，所有页码均从0开始。所有坐标均为左上角原点的显示空间。[API稳定性政策](stability.md)定义了公共边界和弃用流程。
 
 ## Document { #document }
 
-`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —
-与pymupdf相同，`pylopdf.open`是同一个可调用对象，并支持上下文管理器。
-`stream`接受bytes、`bytearray`、`memoryview`或`io.BytesIO`，`filetype`接受
-`"pdf"`；与pymupdf的`open("pdf", data)`相同，与`stream`一同传入的字符串
-`filename`表示文件类型。password input上限为127个UTF-8 byte。
+`pylopdf.Document(filename=None, stream=None, filetype=None, *, password=None, limits=None, max_decompressed_size=None)` —与pymupdf相同，`pylopdf.open`是同一个可调用对象，并支持上下文管理器。`stream`接受bytes、`bytearray`、`memoryview`或`io.BytesIO`，`filetype`接受`"pdf"`；与pymupdf的`open("pdf", data)`相同，与`stream`一同传入的字符串`filename`表示文件类型。password input上限为127个UTF-8 byte。
 
 | 成员 | 用途 |
 |---|---|
@@ -27,7 +20,7 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `is_repaired` | 打开时是否恢复了损坏的cross-reference数据（修正offset或重建table）；保存会规范化xref数据 |
 | `objects` / `trailer` / `catalog` / `page_xref(pno)` | 对对象图的类型化低层访问，取代pymupdf的`xref_*`方法（[低层对象](#low-level-objects)） |
 | `metadata` / `set_metadata(m)` | 与pymupdf相同的键：`format`、包括`trapped`在内的Info字段与`encryption`（支持UTF-16BE）；`set_metadata`忽略`format`与`encryption`，值为假时删除该项，传入`{}`时删除Info字典；aggregate文本上限1 MiB，写入为原子操作 |
-| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` |
+| `get_page_text(pno, option)` | `"text"` / `"words"` / `"blocks"` / `"dict"` / `"rawdict"` |
 | `get_text(pages=None)` | 单次batch提取所有页（`None`）或最多为页数与4,096中较大者的显式entry的plain text；每4,096个entry的chunk共享一个interpreter font cache |
 | `to_markdown(pages=None, table_strategy="lines", max_size=64 MiB)` | 使用有界线性entry builder按页两pass转换Markdown；默认转换所有页，显式entry最多为页数与4,096中较大者，并有累计UTF-8输出上限（`None`取消），含标题、CJK、强调、列表、分栏、竖排顺序及表格控制 |
 | `extract_image(xref)` / `get_page_images(pno, *, full=False)` | 以与pymupdf相同的键返回单个图像的数据（DCT以JPEG直通，其他filter解码为PNG，不含soft mask）；页面的图像清单 |
@@ -43,12 +36,8 @@ description: pylopdf的Document、Page、Pixmap、Rect、权限、警告与异�
 | `save(...)` / `tobytes(..., max_size=512 MiB)` | 完整写入同directory临时stream后原子替换file／有上限的PDF byte；`garbage=0`–`4`（与pymupdf相同的级别；3和4合并相同的对象和流）`deflate=` `use_objstms=`、`encryption=`（默认`PDF_ENCRYPT_NONE`，加密用`PDF_ENCRYPT_AES_256`；未指定`PDF_ENCRYPT_AES_256`时传入password会抛出异常）及127-byte上限的`user_pw=`／`owner_pw=`；`max_size=None`取消上限 |
 | `close()` | 也可通过`with`调用 |
 
-`rewrite_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地
-编辑lopdf副本。`dpi=None`时不缩小，仅按quality重压缩。保守边界仅包含无mask或自定义
-decode array的直接单filter 8-bit DeviceGray/DeviceRGB DCT/Flate stream。DCT decode
-parameter不受支持；Flate可无predictor或使用与字典一致的PNG predictor。已解释但
-不支持的间接图像以及不会变小的编码会被跳过；inline图像不计入统计。单次调用解释
-超过65,536个间接raster placement时会被拒绝。用相同设置重复调用是幂等的。
+`rewrite_images()`会解释所有页面，找出每个间接raster object的最大放置尺寸，再原子地编辑lopdf副本。`dpi=None`时不缩小，仅按quality重压缩。保守边界仅包含无mask或自定义decode array的直接单filter 8-bit DeviceGray/DeviceRGB DCT/Flate stream。DCT decode
+parameter不受支持；Flate可无predictor或使用与字典一致的PNG predictor。已解释但不支持的间接图像以及不会变小的编码会被跳过；inline图像不计入统计。单次调用解释超过65,536个间接raster placement时会被拒绝。用相同设置重复调用是幂等的。
 
 ## Page { #page }
 
@@ -76,92 +65,22 @@ parameter不受支持；Flate可无predictor或使用与字典一致的PNG predi
 | `replace_text(search, replacement, default_char=, max_size=64 MiB)` | 带输入输出上限和copy-on-write的原子简单编码替换 |
 | `annots(*, types=None)` / `get_links()` / `add_highlight_annot(quads, ...)` / `insert_link(link, /)` | 只读`Annot`句柄（`type`、`rect`、`info`、`colors`、`flags`、`xref`，类型为`PDF_ANNOT_*`，标志为`PDF_ANNOT_IS_*`）、link读取、返回`Annot`的highlight创建，以及从link字典创建URI link；link包含pymupdf的`xref`与`id`（`/NM`）；named destination通过最多65,536个entry/node、131,072条edge、32层和16 MiB key的name tree解析，tree只建立一次index并在下次编辑前供后续读取复用；渲染时会为带有效`QuadPoints`且在上限内的RGB Highlight、Underline、StrikeOut和Squiggly保守补全缺失appearance，同时不修改原PDF |
 
-`get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、
-自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join、
-dashes，以及在页面path、text与image中的绘制顺序`seqno`。对于pattern paint，会保留几何形状，而颜色和opacity为`None`。它不返回
-clip path、clip应用后的可见性判断、group/soft-mask结构、optional-content layer名称、
-text、image或annotation，但仍会应用optional-content的可见性。结果超过8,192 paths
-或131,072 commands时会拒绝，而不是静默截断。
+`get_drawings()`返回`DrawingInfo`字典，其中包含`type="f"` / `"s"` / `"fs"`、自包含的line/cubic `items`、`rect`、RGB/opacity、fill rule、width、cap、join、dashes，以及在页面path、text与image中的绘制顺序`seqno`。对于pattern paint，会保留几何形状，而颜色和opacity为`None`。它不返回clip path、clip应用后的可见性判断、group/soft-mask结构、optional-content layer名称、text、image或annotation，但仍会应用optional-content的可见性。结果超过8,192 paths或131,072 commands时会拒绝，而不是静默截断。
 
-使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。未传入source且安装
-`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`和
-`[zh-tw]`提供Noto Sans／Serif生成font。Kana、Hangul、Bopomofo、Arabic、
-Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容旧行为仍优先JP；
-地区字形很重要时请指定`font_language="zh-CN"`、`"zh-TW"`、`"ko"`或`"ja"`。
-整段只选择一个font，并非逐glyph fallback。
-每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。纯RTL行，以及只有
-一个被RTL文字包围的拉丁或数字token的行，会按逻辑Unicode顺序提取。行首或行尾token、
-多个token以及一般混合方向paragraph仍保留producer的visual order。
+使用嵌入字体的`insert_text`需要一个包含所有所需字形的字体。未传入source且安装`pylopdf[ar]`、`[he]`、`[hi]`、`[jp]`、`[ko]`、`[th]`、`[zh-cn]`和`[zh-tw]`提供Noto Sans／Serif生成font。Kana、Hangul、Bopomofo、Arabic、Hebrew、Devanagari和Thai会自动选择已安装provider。纯汉字为兼容旧行为仍优先JP；地区字形很重要时请指定`font_language="zh-CN"`、`"zh-TW"`、`"ko"`或`"ja"`。整段只选择一个font，并非逐glyph fallback。每一行会被shape，但不提供双向段落layout或换行。RTL可正确渲染。纯RTL行，以及只有一个被RTL文字包围的拉丁或数字token的行，会按逻辑Unicode顺序提取。行首或行尾token、多个token以及一般混合方向paragraph仍保留producer的visual order。
 
-`insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，
-并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、
-`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示
-垂直空间不足，此时不会添加页面内容或字体resource。
+`insert_textbox`并非富文本引擎；它保留显式换行、展开制表符、按Unicode机会换行CJK，并对过长单词执行grapheme安全的紧急换行。对齐常量为`TEXT_ALIGN_LEFT`、`TEXT_ALIGN_CENTER`、`TEXT_ALIGN_RIGHT`和`TEXT_ALIGN_JUSTIFY`。返回负值表示垂直空间不足，此时不会添加页面内容或字体resource。
 
-两个方法都与pymupdf在相同位置排列行。`insert_text`把每一行放在上一行下方
-`fontsize`的`lineheight`倍处；省略`lineheight`时，倍数为字体的`ascender`减去
-`descender`，该差不大于1时为1.2，例如10磅的Helvetica行距为13.74磅。与pymupdf
-相同，该差按MuPDF报告的单精度度量比较，因此ascender为0.8、descender为-0.2的字体
-略大于1 em，行距保持1 em。
-`insert_textbox`使用相同的默认值，把第一条基线放在`rect`顶边下方一个ascender处，
-之后各行依次下移ascender的`lineheight`倍；判断文字能否放下以及返回剩余高度时，
-每行计为`fontsize`的`lineheight`倍，另加一个descender。
+两个方法都与pymupdf在相同位置排列行。`insert_text`把每一行放在上一行下方`fontsize`的`lineheight`倍处；省略`lineheight`时，倍数为字体的`ascender`减去`descender`，该差不大于1时为1.2，例如10磅的Helvetica行距为13.74磅。与pymupdf相同，该差按MuPDF报告的单精度度量比较，因此ascender为0.8、descender为-0.2的字体略大于1 em，行距保持1 em。`insert_textbox`使用相同的默认值，把第一条基线放在`rect`顶边下方一个ascender处，之后各行依次下移ascender的`lineheight`倍；判断文字能否放下以及返回剩余高度时，每行计为`fontsize`的`lineheight`倍，另加一个descender。
 
-`insert_text`也与pymupdf相同地决定绘制哪些行。字符串用`str.splitlines()`分行，
-因此末尾的换行不会增加行，`\v`、`\f`、`\x1c`至`\x1e`、`\x85`、`\u2028`与
-`\u2029`也与`\n`、`\r`、`\r\n`一样分隔行；列表或元组每项为一行，按原样使用。
-第一行总会绘制，之后的行仅在其基线不低于`page.rect`底边时绘制。返回值为绘制的
-行数；像`""`或`"\n"`这样没有可绘制内容的文本不添加任何内容并返回0。pymupdf在未旋转
-的坐标中测量到用户空间y = 0为止的空间，pylopdf则在显示坐标中测量到`page.rect`的
-底边；两者在未旋转且可见区域在y = 0处结束的页面上一致。超出页面底边的行也会检查
-字体能否绘制。
+`insert_text`也与pymupdf相同地决定绘制哪些行。字符串用`str.splitlines()`分行，因此末尾的换行不会增加行，`\v`、`\f`、`\x1c`至`\x1e`、`\x85`、`\u2028`与`\u2029`也与`\n`、`\r`、`\r\n`一样分隔行；列表或元组每项为一行，按原样使用。第一行总会绘制，之后的行仅在其基线不低于`page.rect`底边时绘制。返回值为绘制的行数；像`""`或`"\n"`这样没有可绘制内容的文本不添加任何内容并返回0。pymupdf在未旋转的坐标中测量到用户空间y = 0为止的空间，pylopdf则在显示坐标中测量到`page.rect`的底边；两者在未旋转且可见区域在y = 0处结束的页面上一致。超出页面底边的行也会检查字体能否绘制。
 
-`Font`遵循pymupdf的`Font(fontname=None, fontfile=None, fontbuffer=None)`，并以
-`insert_text(font=)`与`insert_textbox(font=)`传入；OpenType字体也可以传给
-`set_form_field(font=)`。`Font("helv")`或
-`Font("Times-Bold")`指定Standard 14字体，不嵌入即可绘制，并按Adobe AFM宽度测量；
-pymupdf的其他内置字体不可用。`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载
-OpenType字体，可变字体使用其默认实例。默认实例不一定是Regular：可变字体Noto Sans CJK JP
-的默认实例是Thin。传入`weight=`即可从可变字体的字重轴选择其他实例：
-`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`按Bold实例的前进宽度测量，并以
-`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用，因此对这类字体，`weight=400`与省略
-`weight`的结果不同。超出字重轴范围的字重会抛出`PdfError`，静态字体不具备的字重也一样。
-传给`insert_text`、`insert_textbox`与`set_form_field`的`fontfile`和`fontbuffer`以默认
-实例绘制；要以所选实例绘制，请将该`Font`传给`font=`。`Font(language="zh-CN")`或
-`Font(family="Noto Sans SC")`选择已安装字体extra的字体（`is_serif=True`为衬线体）。
-`font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此
-可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是pymupdf
-报告的相对em比例，`insert_text`与`insert_textbox`用它们排列行：OpenType字体在设置了
-`USE_TYPO_METRICS`时取OS/2的typographic值，否则取`hhea`的值，与FreeType为MuPDF
-读取的值相同；Standard 14字体取MuPDF绘制它时所用URW字体的外接矩形，例如
-Helvetica为1.075与-0.299。`has_glyph(chr)`返回码位的字形编号（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的
-`is_bold`、`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重
-请从文件加载。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：
-`Font(language="he", is_bold=True)`无需其他文件即可从字体的字重轴选择Bold实例，按该
-实例的前进宽度测量，并以PostScript名称`NotoSansHebrew-Bold`嵌入。字重范围为100到
-900，`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；轴外的字重或斜体会抛出
-`PdfError`。已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`
-自动选择时）以Regular字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿
-字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出
-`PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入`is_bold`、
-`is_italic`或`is_serif`也会抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集；通过[图形](#shapes)绘制，则每次提交
-只嵌入一次字体。
+`Font`遵循pymupdf的`Font(fontname=None, fontfile=None, fontbuffer=None)`，并以`insert_text(font=)`与`insert_textbox(font=)`传入；OpenType字体也可以传给`set_form_field(font=)`。`Font("helv")`或`Font("Times-Bold")`指定Standard 14字体，不嵌入即可绘制，并按Adobe AFM宽度测量；pymupdf的其他内置字体不可用。`Font(fontfile=)`与`Font(fontbuffer=)`按原样加载OpenType字体，可变字体使用其默认实例。默认实例不一定是Regular：可变字体Noto Sans CJK JP的默认实例是Thin。传入`weight=`即可从可变字体的字重轴选择其他实例：`Font(fontfile="NotoSansCJKjp-VF.otf", weight=700)`按Bold实例的前进宽度测量，并以`NotoSansCJKjp-Bold`嵌入；`weight=650`同样可用，因此对这类字体，`weight=400`与省略`weight`的结果不同。超出字重轴范围的字重会抛出`PdfError`，静态字体不具备的字重也一样。传给`insert_text`、`insert_textbox`与`set_form_field`的`fontfile`和`fontbuffer`以默认实例绘制；要以所选实例绘制，请将该`Font`传给`font=`。`Font(language="zh-CN")`或`Font(family="Noto Sans SC")`选择已安装字体extra的字体（`is_serif=True`为衬线体）。`font.text_length(text, fontsize)`使用与绘制相同的shaping，含字距调整与连字，因此可以按实际绘制的字体计算换行、对齐与分页。`ascender`与`descender`是pymupdf报告的相对em比例，`insert_text`与`insert_textbox`用它们排列行：OpenType字体在设置了`USE_TYPO_METRICS`时取OS/2的typographic值，否则取`hhea`的值，与FreeType为MuPDF读取的值相同；Standard 14字体取MuPDF绘制它时所用URW字体的外接矩形，例如Helvetica为1.075与-0.299。`has_glyph(chr)`返回码位的字形编号（不存在时为0）。CJK的extra每种样式只安装一个静态字体，因此与字体不符的`is_bold`、`is_italic`或OS/2 `weight`会抛出`PdfError`，Noto Sans SC Bold等其他字重请从文件加载。而`pylopdf[ar]`、`[he]`、`[hi]`、`[th]`安装的是可变字体：`Font(language="he", is_bold=True)`无需其他文件即可从字体的字重轴选择Bold实例，按该实例的前进宽度测量，并以PostScript名称`NotoSansHebrew-Bold`嵌入。字重范围为100到900，`pylopdf[ar]`的衬线字体Noto Naskh Arabic为400到700；轴外的字重或斜体会抛出`PdfError`。已安装的可变字体（包括`insert_text`、`insert_textbox`与`set_form_field`自动选择时）以Regular字重绘制，因为Noto Sans Hebrew的默认实例是Thin。pylopdf不保存字体注册表，也不搜索操作系统的字体目录；不会用描边或叠印模仿字重，只有显式传入`allow_regular_fallback=True`时才使用extra的字体并发出`PylopdfWarning`。即使pymupdf会忽略，与`fontname`或字体文件一起传入`is_bold`、`is_italic`或`is_serif`也会抛出异常。每次绘制调用仍会嵌入该调用所用字形的子集；通过[图形](#shapes)绘制，则每次提交只嵌入一次字体。
 
 ### 图形 { #shapes }
 
-`page.new_shape()`返回pymupdf的`Shape`。`draw_line`、`draw_polyline`、
-`draw_rect`（`radius=`使角变圆）、`draw_quad`、`draw_circle`、`draw_oval`、
-`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`和`draw_zigzag`在
-显示坐标中添加路径，并返回与pymupdf相同的终点；从上一段终点开始的线段会延续同一
-子路径。`finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0,
-dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`
-以描边和填充完成上一次`finish`之后绘制的路径；颜色为0到1的灰度、RGB或CMYK，
-`dashes`是`"[3 4] 0"`这样的PDF虚线模式。`insert_text`与`insert_textbox`接受与
-`Page.insert_text`、`Page.insert_textbox`相同的字体选项（包括`font=`与
-`lineheight=`），并在相同位置排列行。`insert_text`也与`Page.insert_text`相同地分行并
-省略超出页面底边的行，返回添加的行数；`insert_textbox`返回剩余高度，放不下时返回
-负值且不添加任何内容。`commit(overlay=True)`将图形绘制到页面：与pymupdf相同，先按顺序绘制
-已完成的路径，再在其上绘制全部文字。
+`page.new_shape()`返回pymupdf的`Shape`。`draw_line`、`draw_polyline`、`draw_rect`（`radius=`使角变圆）、`draw_quad`、`draw_circle`、`draw_oval`、`draw_sector`、`draw_curve`、`draw_bezier`、`draw_squiggle`和`draw_zigzag`在显示坐标中添加路径，并返回与pymupdf相同的终点；从上一段终点开始的线段会延续同一子路径。`finish(*, width=1, color=(0,), fill=None, lineCap=0, lineJoin=0,
+dashes=None, even_odd=False, closePath=True, fill_opacity=1, stroke_opacity=1)`以描边和填充完成上一次`finish`之后绘制的路径；颜色为0到1的灰度、RGB或CMYK，`dashes`是`"[3 4] 0"`这样的PDF虚线模式。`insert_text`与`insert_textbox`接受与`Page.insert_text`、`Page.insert_textbox`相同的字体选项（包括`font=`与`lineheight=`），并在相同位置排列行。`insert_text`也与`Page.insert_text`相同地分行并省略超出页面底边的行，返回添加的行数；`insert_textbox`返回剩余高度，放不下时返回负值且不添加任何内容。`commit(overlay=True)`将图形绘制到页面：与pymupdf相同，先按顺序绘制已完成的路径，再在其上绘制全部文字。
 
 ```python
 with page.new_shape() as shape:
@@ -173,38 +92,15 @@ with page.new_shape() as shape:
     shape.insert_textbox((56, 160, 540, 400), body, font=regular, fontsize=10.5)
 ```
 
-每次提交放置一个Form XObject。路径和嵌入字体的文字一起生成，因此无论使用多少行，
-每次提交每种字体只嵌入一次；用一个图形绘制一页的文字，则每页每种字体只嵌入一次。
-`with`块正常结束时提交，发生异常时不绘制任何内容；含有未提交绘制的图形被丢弃时
-会发出`ResourceWarning`。在pymupdf静默丢弃或以黑色绘制的情况下，pylopdf会抛出
-`PdfError`：`commit()`拒绝未经`finish()`完成的路径，`finish()`拒绝不绘制任何内容
-的样式（无填充，且`color=None`或`width=0`）。`morph=`与`oc=`不可用。提交前一个
-图形最多容纳1,048,576个路径点，超出时抛出`LimitError`（code为`path_point_count`）。
-`Page.draw_*`以关键字参数接受相同选项，各绘制一个已完成的图形。
+每次提交放置一个Form XObject。路径和嵌入字体的文字一起生成，因此无论使用多少行，每次提交每种字体只嵌入一次；用一个图形绘制一页的文字，则每页每种字体只嵌入一次。`with`块正常结束时提交，发生异常时不绘制任何内容；含有未提交绘制的图形被丢弃时会发出`ResourceWarning`。在pymupdf静默丢弃或以黑色绘制的情况下，pylopdf会抛出`PdfError`：`commit()`拒绝未经`finish()`完成的路径，`finish()`拒绝不绘制任何内容的样式（无填充，且`color=None`或`width=0`）。`morph=`与`oc=`不可用。提交前一个图形最多容纳1,048,576个路径点，超出时抛出`LimitError`（code为`path_point_count`）。`Page.draw_*`以关键字参数接受相同选项，各绘制一个已完成的图形。
 
-`set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本
-使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode，
-也可以将已加载的OpenType `Font`（例如可变字体的Bold实例）传给`font`。使用`Font`时，按
-`text_length`测量的前进宽度缩小与对齐文本，并将其置于comb字段各位置的中央；`font`不能与
-其他字体参数同时使用，Standard 14的`Font`会抛出`PdfError`。
-已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用
-`font_language`指定。已有且非空的按钮外观
-会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当
-所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的
-`MaxLen`与对齐方式，将每个Unicode grapheme置于相应位置中央，并在不修改文档的
-情况下拒绝超长值。富文本、pushbutton动作和签名不在生成范围内。
+`set_form_field`会为文本、组合框／列表选择、复选框和单选按钮生成外观。WinAnsi文本使用Helvetica自动缩小；传入OpenType `fontfile`或`fontbuffer`即可对子集嵌入Unicode，也可以将已加载的OpenType `Font`（例如可变字体的Bold实例）传给`font`。使用`Font`时，按`text_length`测量的前进宽度缩小与对齐文本，并将其置于comb字段各位置的中央；`font`不能与其他字体参数同时使用，Standard 14的`Font`会抛出`PdfError`。已安装script／locale provider按`insert_text`的同一规则选择，歧义汉字可用`font_language`指定。已有且非空的按钮外观会保留，仅为缺失状态生成矢量标记。其他WinAnsi字段缺失的外观也会同时补齐；仅当所有可填写widget都自包含时才清除`NeedAppearances`。comb文本字段遵循继承的`MaxLen`与对齐方式，将每个Unicode grapheme置于相应位置中央，并在不修改文档的情况下拒绝超长值。富文本、pushbutton动作和签名不在生成范围内。
 
-`Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。
-`Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的
-对齐误差、最小列间距和行间距变化。完整矢量网格得分为1.0，补全稀疏边框的
-hybrid grid为0.95；两者的文本专用指标均为`None`。
-`TableFinder.strategy`和`TableFinder.clip`保留本次使用的设置。
+`Table.confidence`是0–1的确定性排序heuristic，并非经过校准的概率。`Table.diagnostics`是`TableDiagnostics` tuple；对无边框文本表格，它包含以em归一化的对齐误差、最小列间距和行间距变化。完整矢量网格得分为1.0，补全稀疏边框的hybrid grid为0.95；两者的文本专用指标均为`None`。`TableFinder.strategy`和`TableFinder.clip`保留本次使用的设置。
 
 ## 低层对象 { #low-level-objects }
 
-`doc.objects`将对象编号映射到文档的间接对象；`doc.trailer`、
-`doc.catalog`和`page.obj`是字典句柄。这一类型化模型取代pymupdf基于字符串的
-`xref_*`方法：对象是Python值，而不是PDF语法。
+`doc.objects`将对象编号映射到文档的间接对象；`doc.trailer`、`doc.catalog`和`page.obj`是字典句柄。这一类型化模型取代pymupdf基于字符串的`xref_*`方法：对象是Python值，而不是PDF语法。
 
 ```python
 from pylopdf import Name
@@ -225,11 +121,7 @@ doc.objects[content].read()                    # 已解码，默认上限64 MiB
 | 字符串 | `String`，`bytes`子类，`.text`解码PDF文本字符串 |
 | 数组 / 字典 / 流 | 实时的`Array`（可变序列） / `Dictionary`（可变映射） / `Stream`（带有`read(*, decode=True, max_size=64 MiB)`和`write(data, *, filter="FlateDecode")`的字典） |
 
-引用在读取时解析，指向不存在对象的引用读作`None`。写入立即生效并丢弃渲染与
-提取缓存；改变页面顺序的写入还会使现有`Page`视图失效。列表和映射写成直接对象，
-存入容器的间接句柄成为引用，而赋值给`doc.objects[xref]`或传给`add()`的句柄会被
-复制。对象被删除，或`save(garbage=2)`及以上重新编号后，句柄会引发
-`StaleObjectError`。保持原始编辑在语义上有效是调用方的责任。
+引用在读取时解析，指向不存在对象的引用读作`None`。写入立即生效并丢弃渲染与提取缓存；改变页面顺序的写入还会使现有`Page`视图失效。列表和映射写成直接对象，存入容器的间接句柄成为引用，而赋值给`doc.objects[xref]`或传给`add()`的句柄会被复制。对象被删除，或`save(garbage=2)`及以上重新编号后，句柄会引发`StaleObjectError`。保持原始编辑在语义上有效是调用方的责任。
 
 ## 模块级 { #module-level }
 
@@ -259,6 +151,4 @@ doc.objects[content].read()                    # 已解码，默认上限64 MiB
 | `Colorspace` / `csRGB` / `csGRAY` / `csCMYK` / `CS_RGB` / `CS_GRAY` / `CS_CMYK` | pymupdf的设备颜色空间及其编号 |
 | `PylopdfWarning` | 可恢复的解释警告（xref修复、字体解析、图像解码） |
 
-`TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。
-`LinkInfo`要求`kind`和`from`，而各类目标专用键为可选。
-`PageLabelSpec`要求`startpage`；`style`、`prefix`和`firstpagenum`的运行时默认值不变。
+`TypedDict`契约仅影响静态类型；运行时值仍是普通的pymupdf风格字典。`LinkInfo`要求`kind`和`from`，而各类目标专用键为可选。`PageLabelSpec`要求`startpage`；`style`、`prefix`和`firstpagenum`的运行时默认值不变。

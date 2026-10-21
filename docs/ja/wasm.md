@@ -1,12 +1,6 @@
 # WebAssembly互換性
 
-pylopdfは、Pyodide 0.28.3とCloudflare Python Workersが使うPython 3.13 ABI向けに、
-static PyEmscripten wheelをbuildします。native wheelと同じRust製PDF engineを含み、
-JavaScript製PDF実装やwasm-bindgen shimには置き換えていません。
-
-!!! note "リリース状況"
-
-    WebAssembly wheelはpylopdf 0.11から配布済みです。v0.10.0はnative wheelのみです。
+pylopdfは、Pyodide 0.28.3とCloudflare Python Workersが使うPython 3.13 ABI向けに、static PyEmscripten wheelをbuildします。native wheelと同じRust製PDF engineを含み、JavaScript製PDF実装やwasm-bindgen shimには置き換えていません。
 
 ## 検証済み環境
 
@@ -21,10 +15,7 @@ JavaScript製PDF実装やwasm-bindgen shimには置き換えていません。
 | Cloudflare bundler | Wrangler 4.114.0 |
 | Worker compatibility date | 2026-07-26 |
 
-公開artifactは`cp311-abi3-pyemscripten_2025_0_wasm32`です。builderは同じbinaryを
-runtime固有の`pyodide_2025_0_wasm32` tagで先に実行し、PEP 783公開用に決定的に
-retagします。PyPI、provenance attestation、release SBOMへ入るのは
-PyEmscripten tagのartifactだけです。
+公開artifactは`cp311-abi3-pyemscripten_2025_0_wasm32`です。builderは同じbinaryをruntime固有の`pyodide_2025_0_wasm32` tagで先に実行し、PEP 783公開用に決定的にretagします。PyPI、provenance attestation、release SBOMへ入るのはPyEmscripten tagのartifactだけです。
 
 | 環境 | 状況 | 詳細 |
 |---|---|---|
@@ -35,9 +26,7 @@ PyEmscripten tagのartifactだけです。
 
 ## Cloudflare Worker
 
-repositoryには
-[検証済みの抽出Worker](https://github.com/yhay81/pylopdf/tree/main/examples/cloudflare-worker)
-があります。上限を設定したPDF bodyを受け、page数と先頭pageのtextを返します。
+repositoryには[検証済みの抽出Worker](https://github.com/yhay81/pylopdf/tree/main/examples/cloudflare-worker)があります。上限を設定したPDF bodyを受け、page数と先頭pageのtextを返します。
 
 ```bash
 git clone https://github.com/yhay81/pylopdf.git
@@ -57,25 +46,14 @@ curl --request POST \
   http://localhost:8787
 ```
 
-選択したCloudflare planの上限とcompatibility dateを確認してから
-`uv run pywrangler deploy`を使います。CIはこのexample自体をcopyし、公開版pylopdfの
-requirementだけを直前にbuildしたwheelへ差し替え、`workers-py`で解決して
-`wrangler deploy --dry-run`を実行した後、local `workerd`を起動して`/health`を
-requestします。そのためmodule-scopeの`import pylopdf`は、startup時に使えない
-entropyやrequest固有のruntime stateに依存せず完了しなければなりません。
+選択したCloudflare planの上限とcompatibility dateを確認してから`uv run pywrangler deploy`を使います。CIはこのexample自体をcopyし、公開版pylopdfのrequirementだけを直前にbuildしたwheelへ差し替え、`workers-py`で解決して`wrangler deploy --dry-run`を実行した後、local `workerd`を起動して`/health`をrequestします。そのためmodule-scopeの`import pylopdf`は、startup時に使えないentropyやrequest固有のruntime stateに依存せず完了しなければなりません。
 
-exampleは入力を4 MiB、rendering／extraction用の完全なPDF snapshotを16 MiB、
-累積位置付きtextを16,384 glyph recordに制限し、structureと展開後dataにも
-`DocumentLimits.web()`より厳しいbudgetを設定します。
-pylopdfの入力はpathまたは完全なbytesなので、request bodyは全体をbufferします。
-Cloudflareの128 MiB isolate budgetにはPython、JavaScript、WebAssembly linear
-memory、request bufferも含まれるため、周辺処理がmemoryを使う場合はfileと
-interpretation／textのbudgetをさらに下げてください。
+exampleは入力を4 MiB、rendering／extraction用の完全なPDF snapshotを16 MiB、累積位置付きtextを16,384 glyph recordに制限し、structureと展開後dataにも`DocumentLimits.web()`より厳しいbudgetを設定します。pylopdfの入力はpathまたは完全なbytesなので、request bodyは全体をbufferします。Cloudflareの128 MiB isolate budgetにはPython、JavaScript、WebAssembly linear
+memory、request bufferも含まれるため、周辺処理がmemoryを使う場合はfileとinterpretation／textのbudgetをさらに下げてください。
 
 ## Pyodideから直接使う
 
-Pyodide 0.28.3での開発時は`tools/build_pyodide.sh`でbuildし、runtimeから見えるURLに
-置いたruntime tagのwheelをinstallします。
+Pyodide 0.28.3での開発時は`tools/build_pyodide.sh`でbuildし、runtimeから見えるURLに置いたruntime tagのwheelをinstallします。
 
 ```javascript
 const pyodide = await loadPyodide();
@@ -90,17 +68,11 @@ await micropip.install(
 ```
 
 URLは例です。release artifactはPyPIとCloudflare向けのPEP 783
-`pyemscripten_2025_0_wasm32` tagを使い、Pyodide 0.28.3の古い`micropip`はその
-公開tagを受理しません。wheel名だけを変更して、内部の`WHEEL` metadataを残す運用は
-しないでください。
+`pyemscripten_2025_0_wasm32` tagを使い、Pyodide 0.28.3の古い`micropip`はその公開tagを受理しません。wheel名だけを変更して、内部の`WHEEL` metadataを残す運用はしないでください。
 
-browserやWorker内でsdistへfallbackする経路はsupportしません。extensionのbuildには
-固定したRust、Emscripten、Pyodide cross environment、retag verifierが必要です。
-将来のABIに一致するwheelがなければ、runtime package installerへsdistをbuildさせず、
-そのABIは未対応として扱ってください。
+browserやWorker内でsdistへfallbackする経路はsupportしません。extensionのbuildには固定したRust、Emscripten、Pyodide cross environment、retag verifierが必要です。将来のABIに一致するwheelがなければ、runtime package installerへsdistをbuildさせず、そのABIは未対応として扱ってください。
 
-runtimeは`sys.platform == "emscripten"`で判定できます。pathはbrowser fileへ直接
-つながるものではなく、virtual filesystem上のpathです。
+runtimeは`sys.platform == "emscripten"`で判定できます。pathはbrowser fileへ直接つながるものではなく、virtual filesystem上のpathです。
 
 ```python
 import sys
@@ -117,24 +89,15 @@ with pylopdf.Document(stream=pdf_bytes, limits=pylopdf.DocumentLimits.web()) as 
 native/Wasm共有suiteは、現在次を検証します。
 
 - host filesystemを使わない`bytes`入力、page数、PDF 2.0、AES-256暗号化入力
-- plain text、word、dict、検索、document Markdown、埋め込み日本語、推定vertical CJK、
-  持続的なmulti-column順序、画像だけのpage、回転page
+- plain text、word、dict、検索、document Markdown、埋め込み日本語、推定vertical CJK、持続的なmulti-column順序、画像だけのpage、回転page
 - borderedおよび保守的なborderless table、Markdown統合、vector drawing抽出
-- 空document生成、Standard 14とsubset埋め込みOpenType text、textbox layout、
-  rendering、`Pixmap`、serialization、virtual filesystemへの保存、merge、reorder、
-  duplicate、select
-- `PdfError`、stable resource codeを持つ`LimitError`、`PasswordError`、
-  `EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、
-  `FileDataError`、`EmptyFileError`と、
-  malformed input後のruntime再利用
+- 空document生成、Standard 14とsubset埋め込みOpenType text、textbox layout、rendering、`Pixmap`、serialization、virtual filesystemへの保存、merge、reorder、duplicate、select
+- `PdfError`、stable resource codeを持つ`LimitError`、`PasswordError`、`EncryptedDocumentError`、`DocumentClosedError`、`StalePageError`、`FileDataError`、`EmptyFileError`と、malformed input後のruntime再利用
 - `render_pages(workers=4)`の入力順序と`workers=1`とのbyte一致
 
-fixtureにはPDF 2.0、CJKを埋め込んだ日本政府文書、IRS Form 1040、回転した米国上院表、
-画像だけの日本語scan、生成した縦書き文書が含まれます。repository内のPDFはすべて
-1 MiB未満で、再配布可能なlicenseをcorpus READMEに記録しています。
+fixtureにはPDF 2.0、CJKを埋め込んだ日本政府文書、IRS Form 1040、回転した米国上院表、画像だけの日本語scan、生成した縦書き文書が含まれます。repository内のPDFはすべて1 MiB未満で、再配布可能なlicenseをcorpus READMEに記録しています。
 
-同じsuiteをnative wheelとPyodideで1回ずつ実行し、論理結果の完全一致を要求します。
-明示的なstructure・期待textと、抽出全文・Markdown hashの両方を検証します。
+同じsuiteをnative wheelとPyodideで1回ずつ実行し、論理結果の完全一致を要求します。明示的なstructure・期待textと、抽出全文・Markdown hashの両方を検証します。
 
 ## 機能と依存関係
 
@@ -152,45 +115,28 @@ Wasm wheelは、部分的に互換な複数variantへ分割せず、1 artifact�
 | PP-OCRv6 inference | RTenと外部model wheel | nativeのみ。Wasm binaryから除外 |
 | CJK fallback自動探索 | 外部CJK font wheelとhost path | Wasm互換契約外 |
 
-capability判定を決定的にするため`OcrEngine()`自体は存在しますが、Emscriptenでは
-`OcrError`を送出し、Wasm外でOCRして`Page.insert_ocr_text_layer()`を使うよう案内します。
-未使用のRTen inference runtimeを除いても、PDFの抽出・render・生成や、外部OCR textの
-挿入は削除されません。
+capability判定を決定的にするため`OcrEngine()`自体は存在しますが、Emscriptenでは`OcrError`を送出し、Wasm外でOCRして`Page.insert_ocr_text_layer()`を使うよう案内します。未使用のRTen inference runtimeを除いても、PDFの抽出・render・生成や、外部OCR textの挿入は削除されません。
 
 ## 実測したdeployment範囲
 
-固定CI artifactは3.772 MiBのwheelと9.910 MiBの展開後Wasm extensionです。検証した
-Worker bundleは圧縮後3.817 MiB、展開後10.383 MiBでした。そのためCloudflare Workers
-Freeの圧縮後3 MB上限は超えますが、paid planの圧縮後10 MBと共通の展開後64 MB上限には
-収まります。pylopdfはpaid planへのdeploy経路をsupportし、機能を減らした別distributionは
-配布しません。PyEmscripten artifactはfat LTOと1 codegen unitに固定し、native wheelは
-thin LTOのrelease profileを使います。
+固定CI artifactは3.772 MiBのwheelと9.910 MiBの展開後Wasm extensionです。検証したWorker bundleは圧縮後3.817 MiB、展開後10.383 MiBでした。そのためCloudflare Workers
+Freeの圧縮後3 MB上限は超えますが、paid planの圧縮後10 MBと共通の展開後64 MB上限には収まります。pylopdfはpaid planへのdeploy経路をsupportし、機能を減らした別distributionは配布しません。PyEmscripten artifactはfat LTOと1 codegen unitに固定し、native wheelはthin LTOのrelease profileを使います。
 
-Node/Pyodide harnessではForm 1040の初回open・extractが117.634 ms、5回反復のmedianが
-28.506 msでした。Wasm linear memoryはinstall後39.688 MiB、互換性・resource suite完了後
-70.000 MiBです。これらは再現可能なCI trendであり、Cloudflareのrequest latencyやisolate
-resident memoryの測定ではありません。詳細は
-[size・startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)
-を参照してください。
+Node/Pyodide harnessではForm 1040の初回open・extractが117.634 ms、5回反復のmedianが28.506 msでした。Wasm linear memoryはinstall後39.688 MiB、互換性・resource suite完了後70.000 MiBです。これらは再現可能なCI trendであり、Cloudflareのrequest latencyやisolate
+resident memoryの測定ではありません。詳細は[size・startup report](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)を参照してください。
 
 ## Runtime上の制約
 
-- このEmscripten buildにはrayon worker poolがありません。
-  `render_pages(workers=...)`は通常の引数を受けますがserial実行します。
+- このEmscripten buildにはrayon worker poolがありません。`render_pages(workers=...)`は通常の引数を受けますがserial実行します。
 - `clip=`は選んだ領域だけをrasterizeしますが、hayroはpage全体を解釈し、page全体のsize上限も適用されます。
 - 現在のrendererは完全なraster outputをbufferするため、大きなpageや高DPIではPDF file
   sizeが小さくてもmemoryを大きく使います。
 - native OCRと別配布のOCR model packageはWebAssembly互換契約外です。
-- 外部CJK fallback fontの自動探索は対象外です。埋め込みCJKは検証し、applicationから
-  font bytesを明示的に渡すことはできます。
-- 現在のgateはCloudflare bundle生成とmodule-scope importを含むlocal `workerd`
-  起動を検証します。認証済みproduction deployやworkload固有latencyは保証しません。
+- 外部CJK fallback fontの自動探索は対象外です。埋め込みCJKは検証し、applicationからfont bytesを明示的に渡すことはできます。
+- 現在のgateはCloudflare bundle生成とmodule-scope importを含むlocal `workerd`起動を検証します。認証済みproduction deployやworkload固有latencyは保証しません。
 
-同じmatrixがnativeとWasmの両方で`DocumentLimits`、`doc.complexity`、Web budget内の
-vector/scan入力、file/page/textのstable rejection codeを検証します。定期native
-Atheris fuzzingはさらに大きな生成hostile corpusを加えます。CPU deadlineはhost側の
-責任です。nativeで通るPDFにWasmでより大きいmemory budgetがあるとは推定せず、両方で
-明示的なpolicyを使ってください。
+同じmatrixがnativeとWasmの両方で`DocumentLimits`、`doc.complexity`、Web budget内のvector/scan入力、file/page/textのstable rejection codeを検証します。定期native
+Atheris fuzzingはさらに大きな生成hostile corpusを加えます。CPU deadlineはhost側の責任です。nativeで通るPDFにWasmでより大きいmemory budgetがあるとは推定せず、両方で明示的なpolicyを使ってください。
 
 ## Supportとrelease policy
 
@@ -204,8 +150,4 @@ Wasm wheelを配布する各pylopdf releaseは、次をすべて通します。
    `workerd`起動、module-scope-import health request
 6. GitHub Release確定前のPyPI artifactからの同じ解決、bundle、runtime health gate
 
-runtime更新は互換と仮定せず、新しい検証matrixとして扱います。固定versionは対応する
-pylopdf minor releaseでsupportし、新しいPyodide、PyEmscripten、Emscripten、
-`workers-py`、Wranglerは完全なgateを通ってから対応範囲へ入れます。測定値とregressionは
-[`bench/results/wasm-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)
-へ併記します。
+runtime更新は互換と仮定せず、新しい検証matrixとして扱います。固定versionは対応するpylopdf minor releaseでsupportし、新しいPyodide、PyEmscripten、Emscripten、`workers-py`、Wranglerは完全なgateを通ってから対応範囲へ入れます。測定値とregressionは[`bench/results/wasm-latest.md`](https://github.com/yhay81/pylopdf/blob/main/bench/results/wasm-latest.md)へ併記します。

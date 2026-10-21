@@ -21,14 +21,9 @@ pip install "pylopdf[zh-tw]"  # 繁体中文
 pip install "pylopdf[ar]"     # 阿拉伯语生成（另有he、hi、th）
 ```
 
-四个CJK地区extra同时支持未嵌入Adobe CJK font的渲染fallback与subset嵌入生成。
-`ar`、`he`、`hi`、`th`提供生成font。请根据所需地区字形明确选择`jp`、`ko`、
-`zh-cn`或`zh-tw`；不提供通用CJK extra。
+四个CJK地区extra同时支持未嵌入Adobe CJK font的渲染fallback与subset嵌入生成。`ar`、`he`、`hi`、`th`提供生成font。请根据所需地区字形明确选择`jp`、`ko`、`zh-cn`或`zh-tw`；不提供通用CJK extra。
 
-release CI 会在architecture匹配的runner上安装每个native platform wheel，并验证PDF
-创建、保存、重新打开、抽取、render和immutable Pixmap storage。该gate覆盖在CPython
-3.14和3.15上验证的全部五个`abi3-py311` artifact，以及CPython 3.14t和3.15t的十个
-artifact；sdist与PyEmscripten wheel各有独立的environment-specific gate。
+预构建wheel覆盖Linux（x86_64、ARM64）、macOS（Apple silicon、Intel）和Windows（x86_64）上的CPython 3.11–3.15，以及free-threaded 3.14t和3.15t。free-threaded用法请参阅[并发](concurrency.md)，Pyodide与Cloudflare Python Workers请参阅[WebAssembly](wasm.md)。
 
 ## 打开、检查、保存 { #open-inspect-save }
 
@@ -51,15 +46,7 @@ doc.save(
 )
 ```
 
-使用`password=`打开加密PDF，也可稍后调用`doc.authenticate()`。
-通常，`pylopdf.peek_metadata(path)`无需完整解析PDF文档即可读取元数据和页数，适合扫描
-大型文件集。`max_file_size=`可在解析前按大小拒绝path或byte input；为了向后兼容，
-默认不设上限。若恢复了错误的`startxref`或重建了xref table等cross-reference损坏，
-`repaired`与`doc.is_repaired`为`True`，并发出`PylopdfWarning`；保存会规范化xref数据。
-处理不受信任的文件时，请传入`limits=pylopdf.DocumentLimits.web()`，以限制文件、
-结构、解压、rendering／extraction用PDF snapshot和已解释文本。重型处理前可检查
-`doc.complexity`，受控拒绝会抛出
-`LimitError`。各项预算请参阅[安全](security.md#untrusted-pdfs)。
+使用`password=`打开加密PDF，也可稍后调用`doc.authenticate()`。通常，`pylopdf.peek_metadata(path)`无需完整解析PDF文档即可读取元数据和页数，适合扫描大型文件集。`max_file_size=`可在解析前按大小拒绝path或byte input；为了向后兼容，默认不设上限。若恢复了错误的`startxref`或重建了xref table等cross-reference损坏，`repaired`与`doc.is_repaired`为`True`，并发出`PylopdfWarning`；保存会规范化xref数据。处理不受信任的文件时，请传入`limits=pylopdf.DocumentLimits.web()`，以限制文件、结构、解压、rendering／extraction用PDF snapshot和已解释文本。重型处理前可检查`doc.complexity`，受控拒绝会抛出`LimitError`。各项预算请参阅[安全](security.md#untrusted-pdfs)。
 
 ## 页面、文本与搜索 { #pages-text-search }
 
@@ -74,8 +61,7 @@ layout = page.get_text("dict")            # blocks → lines → spans（bbox、
 hits = page.search_for("合计")             # 不区分大小写，返回 list[Rect]
 ```
 
-所有坐标均为左上角原点的**显示空间**。即使页面旋转，搜索结果、版面信息、绘制和渲染
-也使用同一坐标系。
+所有坐标均为左上角原点的**显示空间**。即使页面旋转，搜索结果、版面信息、绘制和渲染也使用同一坐标系。
 
 ## 渲染 { #rendering }
 
@@ -135,5 +121,4 @@ doc.set_form_field("customer", "张三", fontfile="NotoSansSC-Regular.otf")
 md = doc.to_markdown()                       # 适合RAG的Markdown
 ```
 
-排版、PDF/A与数字签名请继续阅读[生态系统方案](ecosystem.md)；
-从pymupdf迁移的用户请查看[迁移指南](migration.md)。
+排版、PDF/A与数字签名请继续阅读[生态系统方案](ecosystem.md)；从pymupdf迁移的用户请查看[迁移指南](migration.md)。

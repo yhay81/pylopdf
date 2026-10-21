@@ -4,11 +4,6 @@ pylopdf는 Pyodide 0.28.3과 Cloudflare Python Workers가 사용하는 Python 3.
 static PyEmscripten wheel을 빌드합니다. native wheel과 같은 Rust PDF engine을 포함하며
 JavaScript PDF 구현이나 wasm-bindgen shim을 사용하지 않습니다.
 
-!!! note "릴리스 상태"
-
-    WebAssembly wheel은 pylopdf 0.11부터 배포되었습니다. v0.10.0은 native wheel만
-    포함합니다.
-
 ## 검증한 환경
 
 | Component | 고정 version 또는 계약 |

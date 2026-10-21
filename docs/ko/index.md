@@ -9,11 +9,10 @@ hide:
 <div class="living-home" id="__skip">
   <section class="living-hero" aria-labelledby="living-hero-title">
     <div>
-      <p class="living-eyebrow">Python-native PDF toolkit</p>
-      <h1 id="living-hero-title">PDF를, <span class="living-annotated">Python답게</span>. 핵심은Rust.</h1>
+      <p class="living-eyebrow">Python 네이티브 PDF 툴킷</p>
+      <h1 id="living-hero-title">PDF를, <span class="living-annotated">Python답게</span>. 핵심은 Rust.</h1>
       <p class="living-lede">
-        편집·렌더링·추출·마무리를 익숙한 API 하나로 처리합니다.
-        무거운 런타임 의존성이 없습니다.
+        편집·렌더링·추출·생성을 pymupdf에서 영감을 받은 API 하나로 처리합니다. 무거운 런타임 의존성이 없습니다.
       </p>
 
       <div class="living-actions">
@@ -35,7 +34,7 @@ hide:
 
       <ul class="living-proofs" aria-label="프로젝트 정보">
         <li>MIT 라이선스</li>
-        <li>6.7–7.8 MB wheel</li>
+        <li>7.8–9.1 MB wheel</li>
         <li>필수 Python 의존성 없음</li>
         <li>Python 3.11–3.15</li>
       </ul>
@@ -59,8 +58,8 @@ hide:
           <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc[0]<br>hits = page.search_for("합계")</div>
         </div>
         <span class="living-markup-circle"></span>
+        <span class="living-margin-note" aria-hidden="true">search_for()</span>
       </div>
-      <span class="living-margin-note" aria-hidden="true">search_for()</span>
       <aside class="living-output" aria-hidden="true">
         <div class="living-output__head">
           <span>Output</span>
@@ -96,7 +95,7 @@ hide:
 
   <section class="living-section" aria-labelledby="living-evidence-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Useful constraints, visible evidence</p>
+      <p class="living-eyebrow">Python이 실행되는 곳 어디서나</p>
       <h2 id="living-evidence-title">배포에는 작게, 실제 업무에는 충분하게.</h2>
       <p>
         편집에는 lopdf, 렌더링과 추출에는 hayro, 텍스트와 폼 외관 생성에는
@@ -104,28 +103,28 @@ hide:
       </p>
     </div>
     <div class="living-evidence">
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">6.7–7.8 MB</span>
-        <span class="living-evidence__label">thin LTO release profile로 빌드한 native wheel 범위로, AWS Lambda처럼 용량 제약이 있는 환경에도 적합합니다.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">없음</span>
-        <span class="living-evidence__label">필수 Python 의존성. 컴파일된 Rust 구성 요소는 wheel에 포함됩니다.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">3.11–3.15</span>
-        <span class="living-evidence__label">하나의 abi3 wheel 계열이 다섯 세대의 Python을 지원합니다.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">MIT</span>
-        <span class="living-evidence__label">오픈 소스와 상용 제품 모두에 적합한 허용적 라이선스입니다.</span>
-      </div>
+      <a class="living-evidence__item" href="wasm/">
+        <span class="living-evidence__value">Wasm</span>
+        <span class="living-evidence__label">같은 API가 Pyodide와 Cloudflare Python Workers에서 동작합니다.</span>
+      </a>
+      <a class="living-evidence__item" href="concurrency/">
+        <span class="living-evidence__value">3.14t</span>
+        <span class="living-evidence__label">free-threaded CPython용 wheel로 독립된 문서를 GIL 없이 병렬 추출합니다.</span>
+      </a>
+      <a class="living-evidence__item" href="ocr/">
+        <span class="living-evidence__value">OCR</span>
+        <span class="living-evidence__label">선택형 오프라인 OCR이 네이티브 코어에서 동작하며 클라우드 서비스나 시스템 바이너리가 필요 없습니다.</span>
+      </a>
+      <a class="living-evidence__item" href="security/">
+        <span class="living-evidence__value">Limits</span>
+        <span class="living-evidence__label">DocumentLimits로 신뢰할 수 없는 입력의 페이지·객체·압축 해제 크기를 제한합니다.</span>
+      </a>
     </div>
   </section>
 
   <section class="living-section" aria-labelledby="living-scope-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Deliberate scope</p>
+      <p class="living-eyebrow">의도된 범위</p>
       <h2 id="living-scope-title">집중된 PDF 코어, Python 생태계와의 협력.</h2>
       <p>
         불리한 결과까지 포함한 재현 가능한 벤치마크를 공개하고, 인접 분야는 다시

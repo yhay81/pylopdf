@@ -5,15 +5,11 @@ description: 经过集成测试的pylopdf与Typst、pyHanko、veraPDF及OCR引�
 
 # 生态系统方案
 
-pylopdf有意**不重复实现**排版、PDF/A生成或数字签名。每个领域都与成熟的库组合解决，
-以下方案均由
-[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)
-中的集成测试保护。
+pylopdf有意**不重复实现**排版、PDF/A生成或数字签名。每个领域都与成熟的库组合解决，以下方案均由[`tests/test_interop.py`](https://github.com/yhay81/pylopdf/blob/main/tests/test_interop.py)中的集成测试保护。
 
 ## 排版与新文档 — typst { #typesetting }
 
-使用[typst](https://typst.app/)（通过
-[typst-py](https://pypi.org/project/typst/)）排版报告，然后将字节直接交给pylopdf：
+使用[typst](https://typst.app/)（通过[typst-py](https://pypi.org/project/typst/)）排版报告，然后将字节直接交给pylopdf：
 
 ```python
 import typst
@@ -32,14 +28,11 @@ pdf_a: bytes = typst.compile("report.typ", pdf_standards="a-2b")
 pylopdf.open(stream=pdf_a).get_pdfa_claim()   # (2, "B")
 ```
 
-转换或验证*已有*PDF是另一个问题。[veraPDF](https://verapdf.org/)（Java）是事实上的
-验证标准。`Document.get_pdfa_claim()`只读取文档的自我声明。
+转换或验证*已有*PDF是另一个问题。[veraPDF](https://verapdf.org/)（Java）是事实上的验证标准。`Document.get_pdfa_claim()`只读取文档的自我声明。
 
 ## 排版复杂CJK水印与页眉 — typst × show_pdf_page { #cjk-watermarks }
 
-pylopdf安装`pylopdf[zh-cn]`后，可用`insert_text()`直接绘制本地化简体中文；
-`[zh-tw]`、`[jp]`、`[ko]`分别提供其他CJK地区字形。如水印需要更复杂的整页排版，
-可用typst排版（字体会以子集嵌入），再以矢量形式写入每一页：
+pylopdf安装`pylopdf[zh-cn]`后，可用`insert_text()`直接绘制本地化简体中文；`[zh-tw]`、`[jp]`、`[ko]`分别提供其他CJK地区字形。如水印需要更复杂的整页排版，可用typst排版（字体会以子集嵌入），再以矢量形式写入每一页：
 
 ```python
 from pylopdf_fonts_zh_cn import sans_path  # pip install pylopdf[zh-cn]
@@ -58,8 +51,7 @@ for page in doc:
 
 ## 数字签名（PAdES）— pyHanko { #signatures }
 
-[pyHanko](https://pypi.org/project/pyHanko/)（MIT）通过增量更新签名，因此pylopdf生成的
-字节会原样保留为签名文件的前缀。集成测试会逐字节验证这一点：
+[pyHanko](https://pypi.org/project/pyHanko/)（MIT）通过增量更新签名，因此pylopdf生成的字节会原样保留为签名文件的前缀。集成测试会逐字节验证这一点：
 
 ```python
 import io
@@ -79,6 +71,4 @@ pylopdf自己的表单API会有意拒绝填写签名字段，并引导到本方�
 
 ## OCR — 使用任意引擎 { #ocr }
 
-`Page.insert_ocr_text_layer(words)`可接收任何OCR结果：云API、Tesseract，或其他能够返回
-`(x0, y0, x1, y1, text)`的引擎。它会将结果写成不可见文本层，使扫描PDF可搜索，
-且因不嵌入字体，文件大小几乎不增加。之后`to_markdown()`也可用于扫描PDF。
+`Page.insert_ocr_text_layer(words)`可接收任何OCR结果：云API、Tesseract，或其他能够返回`(x0, y0, x1, y1, text)`的引擎。它会将结果写成不可见文本层，使扫描PDF可搜索，且因不嵌入字体，文件大小几乎不增加。之后`to_markdown()`也可用于扫描PDF。

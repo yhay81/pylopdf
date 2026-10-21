@@ -34,7 +34,7 @@ still needs a person, then lists those steps as `path:line: message`. `--diff`
 prints the changes without writing them, and `--check` exits with status 1
 when a file would change. Receivers are not typed, so review the diff. At run
 time, looking up a pymupdf name that pylopdf lacks raises an `AttributeError`
-whose message names the replacement or the milestone that plans it.
+whose message names the replacement, or says that the feature is not supported yet.
 
 ## Quick mapping { #mapping }
 
@@ -44,7 +44,7 @@ whose message names the replacement or the milestone that plans it.
 | `pymupdf.open(path)` / `open(stream=…)` / `open("pdf", data)` | same | `open` is `Document`; `filetype=` takes `"pdf"` only; `password=` is keyword-only and capped at 127 UTF-8 bytes |
 | `doc[i]`, `len(doc)`, iteration | same | 0-based, negative indices |
 | `doc.metadata` / `set_metadata` | same | same key names |
-| `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` |
+| `page.get_text()` | same | options: `text` / `words` / `blocks` / `dict` / `rawdict` |
 | `page.search_for(t)` | same, plus `max_hits=4096` | returns a bounded `list[Rect]`; 4,096-byte term limit, `max_hits=None` opt-out, no `quads=` |
 | `page.get_pixmap(matrix=pymupdf.Matrix(2, 2))` / `doc.get_page_pixmap(pno, ...)` | same | opaque RGB by default and RGBA with `alpha=True`; `dpi=` takes precedence; only scaling matrices, and no `colorspace=` or `annots=` yet |
 | `page.get_svg_image()` | same | identity `matrix` only; `text_as_path=False` raises |
@@ -54,12 +54,12 @@ whose message names the replacement or the milestone that plans it.
 | `m.prerotate(deg)` / `m.prescale(sx, sy)` / `m.preshear(sx, sy)` / `m.pretranslate(tx, ty)` | `m = Matrix(deg) * m` / `m = Matrix(sx, sy) * m` / `m = Matrix(sx, sy, 1) * m` / `m = Matrix(1, 0, 0, 1, tx, ty) * m` | assign the result; composition applies the left matrix first |
 | `pix.samples / width / height / n / alpha / stride / colorspace / save()` | same | RGB, or straight-alpha RGBA with `alpha=True`; pylopdf's bounded `tobytes(max_size=64 MiB)` and streaming `save(filename)` produce PNG, and `save` requires `.png` |
 | `page.get_images(full=)` / `page.get_image_info(xrefs=)` / `doc.extract_image(xref)` | same | `extract_image` passes DCT through as JPEG and decodes other filters to PNG; `get_image_info(hashes=True)` raises until digests arrive |
-| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | same | read-only handles until M3 adds setters; `rect` is in display coordinates |
+| `page.annots()` / `annot.type` / `annot.rect` / `annot.info` / `annot.colors` / `annot.flags` | same | read-only handles for now; `rect` is in display coordinates |
 | `page.add_highlight_annot(quads)` / `page.insert_link(link)` | same | a `Quad` contributes its bounding rectangle; `insert_link` writes `LINK_URI` links only |
 | `page.get_drawings()` | same | typed path dictionaries; lines/cubics and common paint/stroke properties; no `extended=` clip/group hierarchy |
 | `doc.rewrite_images(dpi_threshold=, dpi_target=, quality=)` | same | pylopdf rewrites safe unmasked DeviceGray/DeviceRGB DCT or Flate rasters to JPEG only, so resampling needs `quality` 1–100; `set_to_gray` and `options` raise; bitonal images are skipped; returns counts instead of `None` |
 | `doc.select`, `delete_page(s)`, `fullcopy_page`, `new_page` | same | `delete_pages` takes pymupdf's forms (one number, two numbers, `from_page=`/`to_page=`, an iterable); `select` with repeats duplicates pages; select/delete remove the form widgets, fields, and tagged structure content of dropped pages |
-| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects (G8) |
+| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdf never shares page objects |
 | `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | same | pymupdf's range rules (negative `from_page` is the first page, negative `to_page` the last, both clamp); registers the form fields of imported pages; a colliding top-level name gains `+N`; no `widgets=` / `join_duplicates=` |
 | `doc.get_toc()` / `set_toc(toc)` | `doc.get_outline()` / `set_outline(entries)` | `OutlineEntry(level, title, page)` with a 0-based `page`, where pymupdf's are 1-based |
 | `doc.save(garbage=4, deflate=True)` | same | pymupdf's levels 0–4; pages, annotations, form fields, structure elements, and layers are never merged |
@@ -112,8 +112,8 @@ whose message names the replacement or the milestone that plans it.
   text at 65,536 glyph records. Custom policies can set
   `max_interpretation_size` and `max_text_glyphs`; `None` keeps the compatible
   unbounded behavior.
-- **`get_text` options** are limited to `text` / `words` / `blocks` / `dict`
-  (no `html` / `rawdict` / `xml`). Span dicts carry `font` and pymupdf-style
+- **`get_text` options** are limited to `text` / `words` / `blocks` / `dict` /
+  `rawdict` (no `html` / `xml`). Span dicts carry `font` and pymupdf-style
   `flags` (bold/italic/serif/mono) for embedded fonts.
 - **Multicolumn text** follows deterministic whitespace gutters, reading
   top-to-bottom within each column and columns from left to right. Sub-em
@@ -152,7 +152,7 @@ whose message names the replacement or the milestone that plans it.
 |---|---|
 | Story API / `insert_htmlbox` (typesetting) | typst via typst-py — [recipe](ecosystem.md) |
 | Digital signatures | pyHanko (MIT) — [recipe](ecosystem.md) |
-| Incremental save | not currently supported; pylopdf rewrites the file and keeps this on the watchlist; pyHanko covers signatures |
+| Incremental save | not currently supported; pylopdf rewrites the whole file; incremental save is planned; pyHanko covers signatures |
 | Opening XPS / EPUB / CBZ / images | out of scope — PDF only |
 
 ## Worked example { #worked-example }

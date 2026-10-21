@@ -12,8 +12,7 @@ hide:
       <p class="living-eyebrow">Python-native PDF toolkit</p>
       <h1 id="living-hero-title">PDFs, with <span class="living-annotated">Python ergonomics</span> and a Rust core.</h1>
       <p class="living-lede">
-        Edit, render, extract and finish PDFs through one familiar API—without
-        heavyweight runtime dependencies.
+        Edit, render, extract and generate PDFs through one pymupdf-inspired API—without heavyweight runtime dependencies.
       </p>
 
       <div class="living-actions">
@@ -35,7 +34,7 @@ hide:
 
       <ul class="living-proofs" aria-label="Project facts">
         <li>MIT licensed</li>
-        <li>6.7–7.8 MB wheels</li>
+        <li>7.8–9.1 MB wheels</li>
         <li>No mandatory Python dependencies</li>
         <li>Python 3.11–3.15</li>
       </ul>
@@ -59,8 +58,8 @@ hide:
           <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc[0]<br>hits = page.search_for("total")</div>
         </div>
         <span class="living-markup-circle"></span>
+        <span class="living-margin-note" aria-hidden="true">search_for()</span>
       </div>
-      <span class="living-margin-note" aria-hidden="true">search_for()</span>
       <aside class="living-output" aria-hidden="true">
         <div class="living-output__head">
           <span>Output</span>
@@ -96,7 +95,7 @@ hide:
 
   <section class="living-section" aria-labelledby="living-evidence-title">
     <div class="living-section__header">
-      <p class="living-eyebrow">Useful constraints, visible evidence</p>
+      <p class="living-eyebrow">Runs where Python runs</p>
       <h2 id="living-evidence-title">Small enough for deployment. Complete enough for real workflows.</h2>
       <p>
         pylopdf combines lopdf for editing, hayro for rendering and extraction,
@@ -104,22 +103,22 @@ hide:
       </p>
     </div>
     <div class="living-evidence">
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">6.7–7.8 MB</span>
-        <span class="living-evidence__label">Native wheel range with the thin-LTO release profile, suited to size-constrained environments such as AWS Lambda.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">None</span>
-        <span class="living-evidence__label">Mandatory Python dependencies. Compiled Rust components ship in the wheel.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">3.11–3.15</span>
-        <span class="living-evidence__label">A single abi3 wheel line covers five Python generations.</span>
-      </div>
-      <div class="living-evidence__item">
-        <span class="living-evidence__value">MIT</span>
-        <span class="living-evidence__label">A permissive license for open-source and commercial products.</span>
-      </div>
+      <a class="living-evidence__item" href="wasm/">
+        <span class="living-evidence__value">Wasm</span>
+        <span class="living-evidence__label">The same API runs in Pyodide and Cloudflare Python Workers.</span>
+      </a>
+      <a class="living-evidence__item" href="concurrency/">
+        <span class="living-evidence__value">3.14t</span>
+        <span class="living-evidence__label">Free-threaded CPython wheels extract independent documents in parallel without the GIL.</span>
+      </a>
+      <a class="living-evidence__item" href="ocr/">
+        <span class="living-evidence__value">OCR</span>
+        <span class="living-evidence__label">Optional offline OCR runs in the native core, with no cloud service or system binary.</span>
+      </a>
+      <a class="living-evidence__item" href="security/">
+        <span class="living-evidence__value">Limits</span>
+        <span class="living-evidence__label">DocumentLimits caps pages, objects and decompression for untrusted input.</span>
+      </a>
     </div>
   </section>
 

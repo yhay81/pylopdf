@@ -135,7 +135,7 @@ entries that structured text can materialize. Text and table interpretations
 of one page share one cumulative admission, and a rejected page consumes no
 budget. Its compatible default is `None`; `DocumentLimits.web()` sets 65,536.
 
-The `get_text("rawdict")` option (since 0.14.0) uses the same interpreted glyph
+The `get_text("rawdict")` option uses the same interpreted glyph
 cache and cumulative `max_text_size`/`max_text_glyphs` admissions as other
 extraction modes; requesting several representations does not charge the
 same cached page again. One entry may contain a multi-character Unicode
@@ -170,10 +170,8 @@ bytes per input byte plus 64 MiB with `recovery_scan_size`, so hostile input
 cannot make recovery quadratic. Real damaged files carry at most one truncated
 stream in that position.
 
-hayro 0.7 read arrays and dictionaries in content streams by unbounded
-recursion, so one stream that opens hundreds of thousands of `[` used to
-overflow the stack and end the Python process instead of raising. hayro 0.8
-stops at 64 levels and silently leaves out the deeper operands. Before text
+hayro stops reading arrays and dictionaries in content streams at 64 levels
+and silently leaves out the deeper operands. Before text
 extraction, layout, tables, search, drawings, image reads, rendering (PNG,
 pixmap, SVG), Markdown conversion, or image compression interprets a page,
 pylopdf decodes the content streams that page can reach: its `/Contents`, the
@@ -189,12 +187,12 @@ resource dictionaries list count even when no operator draws them, because the
 check does not work out which names the content uses.
 
 hayro builds colour spaces, shadings, and functions by the same kind of
-unbounded recursion (hayro 0.7 and 0.8 alike): an Indexed or Pattern space from
+unbounded recursion: an Indexed or Pattern space from
 its base, a Separation or DeviceN space from its alternate space and tint
 transform, an ICCBased space from the `/Alternate` of a profile it cannot parse,
 a stitching function from every entry of `/Functions`, and a Type 4 function by
 parsing its `{ }` procedures recursively. About 20,000 indirect objects that
-name each other, or 300,000 nested braces, used to overflow the stack and end
+name each other, or 300,000 nested braces, would overflow the stack and end
 the process. Before interpreting a page, pylopdf measures what its resource
 dictionaries' `/ColorSpace` and `/Shading` entries, shading patterns, image
 XObjects, soft-mask groups, and the `/TR` and `/TR2` transfer functions of its
@@ -210,23 +208,21 @@ pages usable. They limit stack use, not time: hayro can need exponential CPU for
 graphs that stay under them, such as a function named twice per level or nested
 Separation spaces, so keep enforcing CPU deadlines in the host.
 
-hayro 0.8 reads no array or dictionary nested more than 64 levels deep,
-counting the object that holds it, and treats the whole object as absent;
-hayro 0.7 read such objects by recursion, and lopdf reads them up to 100 levels
-deep. A page whose dictionary, with the attributes it inherits from the page
+hayro reads no array or dictionary nested more than 64 levels deep,
+counting the object that holds it, and treats the whole object as absent,
+while lopdf reads them up to 100 levels deep. A page whose dictionary, with the attributes it inherits from the page
 tree, nests deeper is refused with `object_depth` whenever an operation
 interprets it, and the other pages stay usable. A trailer, catalog, or root
-page-tree node nested that deeply no longer keeps the document from rendering:
+page-tree node nested that deeply does not keep the document from rendering:
 rendering and extraction read a copy without the entries that nest too deeply,
 while the editable and saved document keep them. Any other object nested that
 deeply reads as absent, as it does in hayro. `DocumentLimits.web()` already
 refuses such documents with `object_depth` when they open.
 
-hayro 0.8 panics on some malformed colour data, such as a Separation or DeviceN
+hayro panics on some malformed colour data, such as a Separation or DeviceN
 tint transform that returns the wrong number of components or a shading in a
 Pattern colour space
-([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)); hayro
-0.7 drew the same pages. Every operation that lets hayro interpret a page
+([LaurenzV/hayro#1546](https://github.com/LaurenzV/hayro/issues/1546)). Every operation that lets hayro interpret a page
 catches such a panic and raises `PdfError` instead of PyO3's `PanicException`,
 which derives from `BaseException` and would escape `except Exception`. The
 renderer state is dropped as an edit drops it, so later calls start over and

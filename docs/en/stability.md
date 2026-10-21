@@ -11,9 +11,9 @@ producers, fonts, renderers, and supported runtimes.
 
 ## Current status { #current-status }
 
-The 0.13 API is a **candidate baseline**, not the v1.0 compatibility promise.
-It is being exercised in the field while additive work and reviewed corrections
-remain possible. Every public-surface change is nevertheless detected and
+The current API is a **candidate baseline**, not the v1.0 compatibility
+promise. It is being exercised in the field while additive work and reviewed
+corrections remain possible. Every public-surface change is nevertheless detected and
 reviewed now so the eventual v1.0 boundary is deliberate rather than accidental.
 
 The guarantees under [After v1.0](#after-v1) begin with v1.0. Before then,
@@ -101,7 +101,7 @@ assumed across runtime upgrades.
 ## Compatibility review { #compatibility-review }
 
 [`api/public-api.json`](https://github.com/yhay81/pylopdf/blob/main/api/public-api.json)
-records the reviewed 0.13 candidate surface. Tests compare it on every native
+records the reviewed candidate surface. Tests compare it on every native
 Python lane and detect changes to exports, signatures, mapping keys, type
 aliases, enum and constant values, public members, and exception inheritance.
 
@@ -119,5 +119,4 @@ uv run python tools/check_api_surface.py --update
 ```
 
 The snapshot is a review gate, not an automatic compatibility verdict. Every
-intentional change still needs tests, documentation in all four supported
-languages, and a changelog entry.
+intentional change still needs tests, documentation, and a changelog entry.
