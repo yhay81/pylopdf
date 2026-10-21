@@ -12,7 +12,7 @@ pylopdf发布了可在Cloudflare Python Workers和Pyodide中运行的WebAssembly
 | 环境 | 状态 |
 |---|---|
 | Cloudflare Python Workers | 支持。每个版本都会用发布的wheel构建并启动一个Worker来测试 |
-| Pyodide 0.28.3 | 使用从源码构建的wheel时支持（见下文）。完整的兼容性测试套件会在其中运行 |
+| Pyodide 0.28.3 | 修改wheel的标签后即可支持（见下文）。完整的兼容性测试套件会在其中运行 |
 | 用Pyodide 0.28.3的`micropip`从PyPI安装 | 不支持：该版本的`micropip`无法识别wheel的`pyemscripten`平台标签 |
 | 其他Pyodide或WebAssembly Python版本 | 未测试 |
 
@@ -46,7 +46,16 @@ curl --request POST \
 
 ## Pyodide { #pyodide }
 
-使用`tools/build_pyodide.sh`构建wheel（参见[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build)），将其放在Pyodide能够访问的URL上，然后用`micropip`安装：
+Pyodide 0.28.3的`micropip`不接受已发布wheel的`pyemscripten`标签，但其中的二进制文件可以在Pyodide 0.28.3中运行：CI会以`pyodide_2025_0_wasm32`标签对同一二进制文件运行完整的测试套件。请下载wheel，并用`wheel`工具将标签改为该标签。该工具也会更新wheel内部的元数据（仅重命名文件是不够的）：
+
+```bash
+pip download pylopdf --no-deps --only-binary=:all: \
+  --platform pyemscripten_2025_0_wasm32 --python-version 3.13 -d wheels
+pip install wheel
+wheel tags --platform-tag pyodide_2025_0_wasm32 --remove wheels/pylopdf-*.whl
+```
+
+然后将改好标签的wheel放在Pyodide能够访问的URL上，用`micropip`安装：
 
 ```javascript
 const pyodide = await loadPyodide();
@@ -59,7 +68,7 @@ await micropip.install(
 `);
 ```
 
-构建器生成的wheel带有`pyodide_2025_0_wasm32`标签，Pyodide 0.28.3可以接受。不要通过重命名wheel来更改其标签。
+使用`tools/build_pyodide.sh`从源码构建的wheel（参见[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build)）同样带有`pyemscripten`标签，也需要执行相同的步骤。
 
 文件路径指向Pyodide的虚拟文件系统，因此请以bytes形式传入浏览器中的数据：
 

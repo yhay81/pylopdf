@@ -14,7 +14,7 @@ results are the same; it does not use a JavaScript PDF library.
 | Environment | Status |
 |---|---|
 | Cloudflare Python Workers | Supported. Every release is tested by building and starting a Worker from the published wheel |
-| Pyodide 0.28.3 | Supported with a wheel built from source (below). The full compatibility test suite runs in it |
+| Pyodide 0.28.3 | Supported after changing the wheel's tag (below). The full compatibility test suite runs in it |
 | Installing from PyPI with Pyodide 0.28.3's `micropip` | Not supported: that `micropip` does not recognize the wheel's `pyemscripten` platform tag |
 | Other Pyodide or WebAssembly Python versions | Not tested |
 
@@ -58,9 +58,21 @@ limits further if your own code needs more memory.
 
 ## Pyodide { #pyodide }
 
-Build the wheel with `tools/build_pyodide.sh` (see
-[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build)),
-serve it from a URL that Pyodide can reach, and install it with `micropip`:
+Pyodide 0.28.3's `micropip` does not accept the `pyemscripten` tag of the
+published wheel, but the binary inside works in Pyodide 0.28.3: CI runs the
+complete test suite on it under the `pyodide_2025_0_wasm32` tag. Download the
+wheel and give it that tag with the `wheel` tool, which also updates the
+metadata inside the wheel (renaming the file alone is not enough):
+
+```bash
+pip download pylopdf --no-deps --only-binary=:all: \
+  --platform pyemscripten_2025_0_wasm32 --python-version 3.13 -d wheels
+pip install wheel
+wheel tags --platform-tag pyodide_2025_0_wasm32 --remove wheels/pylopdf-*.whl
+```
+
+Then serve the retagged wheel from a URL that Pyodide can reach and install it
+with `micropip`:
 
 ```javascript
 const pyodide = await loadPyodide();
@@ -73,8 +85,9 @@ await micropip.install(
 `);
 ```
 
-The builder produces a wheel tagged `pyodide_2025_0_wasm32`, which Pyodide
-0.28.3 accepts. Do not rename a wheel to change its tag.
+A wheel built from source with `tools/build_pyodide.sh` (see
+[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build))
+has the same `pyemscripten` tag and needs the same step.
 
 File paths refer to Pyodide's virtual file system, so pass browser data as
 bytes:

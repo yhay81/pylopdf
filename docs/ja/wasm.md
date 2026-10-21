@@ -12,7 +12,7 @@ pylopdfは、Cloudflare Python WorkersとPyodideで動くWebAssembly版のwheel�
 | 環境 | 状況 |
 |---|---|
 | Cloudflare Python Workers | 対応。リリースのたびに、公開したwheelからWorkerをビルドして起動するテストを行います |
-| Pyodide 0.28.3 | ソースからビルドしたwheel（後述）で対応。互換性テストスイートをすべて実行しています |
+| Pyodide 0.28.3 | wheelのタグを付け替えれば対応（後述）。互換性テストスイートをすべて実行しています |
 | Pyodide 0.28.3の`micropip`によるPyPIからのインストール | 非対応。この`micropip`はwheelの`pyemscripten`プラットフォームタグを認識しません |
 | その他のPyodideやWebAssembly版Pythonのバージョン | 未テスト |
 
@@ -46,7 +46,16 @@ Workerの128 MiBのメモリはPython、JavaScript、リクエスト自体で共
 
 ## Pyodide { #pyodide }
 
-`tools/build_pyodide.sh`でwheelをビルドし（[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build)を参照）、Pyodideから到達できるURLで配信して、`micropip`でインストールします。
+Pyodide 0.28.3の`micropip`は公開wheelの`pyemscripten`タグを受け付けませんが、中のバイナリはPyodide 0.28.3で動作します。CIは`pyodide_2025_0_wasm32`タグを付けた同じバイナリで全テストを実行しています。wheelをダウンロードし、`wheel`ツールでこのタグに付け替えてください。このツールはwheel内のメタデータも更新します（ファイル名の変更だけでは不十分です）。
+
+```bash
+pip download pylopdf --no-deps --only-binary=:all: \
+  --platform pyemscripten_2025_0_wasm32 --python-version 3.13 -d wheels
+pip install wheel
+wheel tags --platform-tag pyodide_2025_0_wasm32 --remove wheels/pylopdf-*.whl
+```
+
+付け替えたwheelをPyodideから到達できるURLで配信し、`micropip`でインストールします。
 
 ```javascript
 const pyodide = await loadPyodide();
@@ -59,7 +68,7 @@ await micropip.install(
 `);
 ```
 
-ビルドスクリプトが作るのは、Pyodide 0.28.3が受け付ける`pyodide_2025_0_wasm32`タグのwheelです。タグを変えるためにwheelの名前を変更しないでください。
+`tools/build_pyodide.sh`でソースからビルドしたwheel（[CONTRIBUTING.md](https://github.com/yhay81/pylopdf/blob/main/CONTRIBUTING.md#pyodide-0283-build)を参照）も同じ`pyemscripten`タグを持つため、同じ手順が必要です。
 
 ファイルパスはPyodideの仮想ファイルシステムを指すので、ブラウザのデータはbytesで渡します。
 
