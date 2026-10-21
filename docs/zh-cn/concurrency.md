@@ -35,6 +35,7 @@ def extract(path: str) -> str:
         return document.to_markdown()
 
 
+paths = ["a.pdf", "b.pdf", "c.pdf"]
 with ThreadPoolExecutor() as pool:
     results = list(pool.map(extract, paths))
 ```
@@ -42,7 +43,8 @@ with ThreadPoolExecutor() as pool:
 处理一个Document中的多个页面时，请使用`render_pages()`，不要从外部线程并发调用同一个Document：
 
 ```python
-png_pages = document.render_pages(dpi=144, workers=4)
+with pylopdf.open("report.pdf") as document:
+    png_pages = document.render_pages(dpi=144, workers=4)
 ```
 
 `render_pages()`使用同一个不可变渲染器快照，保留请求的页面顺序和重复项，并将估算的并发工作内存限制在约512 MB。

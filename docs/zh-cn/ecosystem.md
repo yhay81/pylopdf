@@ -72,3 +72,15 @@ pylopdf自己的表单API会有意拒绝填写签名字段，并引导到本方�
 ## OCR — 使用任意引擎 { #ocr }
 
 `Page.insert_ocr_text_layer(words)`可接收任何OCR结果：云API、Tesseract，或其他能够返回`(x0, y0, x1, y1, text)`的引擎。它会将结果写成不可见文本层，使扫描PDF可搜索，且因不嵌入字体，文件大小几乎不增加。之后`to_markdown()`也可用于扫描PDF。
+
+```python
+import pylopdf
+
+words = [  # 来自你的OCR引擎，使用显示坐标
+    (72, 90, 140, 104, "Invoice"),
+    (146, 90, 190, 104, "#1024"),
+]
+with pylopdf.open("scan.pdf") as doc:
+    doc[0].insert_ocr_text_layer(words)
+    doc.save("searchable.pdf")
+```

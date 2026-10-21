@@ -71,9 +71,9 @@ whose message names the replacement, or says that the feature is not supported y
 | `page.rect / rotation / set_rotation` | same | |
 | `page.insert_image(rect, filename= / stream= / pixmap=, rotate=)` | same | JPEG passthrough, PNG alpha, direct rendered-RGBA `Pixmap` reuse, and clockwise right-angle rotation; convert other encoded formats with Pillow; identical input shares one image XObject, so no `xref=` reuse is needed |
 | `page.show_pdf_page(rect, docsrc, pno)` | same | same-document sources use a native pre-edit snapshot; no serialize/open workaround; repeated placements of an unedited source share one Form XObject |
-| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` / `font_language=` | no source: standard-14 / WinAnsi or an installed script/locale font provider; other sources are shaped and subset-embedded; lines are split, placed, and left out below the page as in pymupdf, and the number drawn is returned; the page ends at the bottom of `page.rect` in display coordinates, where pymupdf measures in unrotated space |
+| `page.insert_text(point, text, fontsize=, lineheight=, fontname=, fontfile=)` | same, plus `fontbuffer=` / `fontindex=` / `font_language=` | lines are placed and counted as in pymupdf; see [Text insertion](#behavioral-differences) |
 | `page.insert_textbox(rect, text, align=, lineheight=)` | same, plus arbitrary `fontfile=` / `fontbuffer=` / `font_language=` | UAX #14 wrapping with the same optional provider selection; lines are placed and fitted as in pymupdf; negative return means no drawing |
-| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | same | Standard 14 names and aliases, OpenType files, and installed font extras through `language=` or `family=`; pymupdf's other built-in fonts (`"cjk"`, `"figo"`, ...) and `script=`, `ordering=`, and `embed=` are not available. `is_bold=`, `is_italic=`, and `is_serif=` select an installed extra's face exactly and raise with `fontname` or a font file, where pymupdf ignores them, while the keyword-only `weight=` also selects an instance on a variable font file's weight axis. Pass the font as `font=` to `insert_text` / `insert_textbox`; `text_length` includes kerning, and `ascender` / `descender` report pymupdf's values, which `insert_text` and `insert_textbox` place lines with |
+| `pymupdf.Font(fontname=, fontfile=, fontbuffer=)` / `font.text_length(text, fontsize)` / `font.has_glyph(chr)` | same, plus `language=`, `family=`, `weight=` | Standard 14 names, OpenType files, and installed font extras; see [Fonts](#behavioral-differences) |
 | `page.add_highlight_annot(...)` | same | appearance stream always generated |
 | `doc.embfile_add / names / get / del / upd / info / count` | `doc.attachments.add(name, data, description=…)`, `list(doc.attachments)`, `doc.attachments[name].read()`, `del doc.attachments[name]`, `.write(data)`, the handle's properties, `len(doc.attachments)` | a missing name raises `KeyError`; `desc=` is `description=` |
 | `doc.get_page_labels / set_page_labels`, `page.get_label` | same | |
@@ -84,6 +84,23 @@ whose message names the replacement, or says that the feature is not supported y
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | built in, MIT |
 
 ## Behavioral differences { #behavioral-differences }
+
+- **Text insertion**: without a font source,
+  `insert_text` uses a Standard 14 font with WinAnsi encoding, or an installed
+  script/locale font provider; other sources are shaped and subset-embedded.
+  Lines are split, placed, and left out below the page as in pymupdf, and the
+  number drawn is returned. The page ends at the bottom of `page.rect` in
+  display coordinates, where pymupdf measures in unrotated space.
+- **Fonts**: `Font` accepts Standard 14 names and
+  aliases, OpenType files, and installed font extras through `language=` or
+  `family=`; pymupdf's other built-in fonts (`"cjk"`, `"figo"`, ...) and
+  `script=`, `ordering=`, and `embed=` are not available. `is_bold=`,
+  `is_italic=`, and `is_serif=` select an installed extra's face exactly and
+  raise with `fontname` or a font file, where pymupdf ignores them, while the
+  keyword-only `weight=` also selects an instance on a variable font file's
+  weight axis. Pass the font as `font=` to `insert_text` / `insert_textbox`;
+  `text_length` includes kerning, and `ascender` / `descender` report
+  pymupdf's values, which `insert_text` and `insert_textbox` place lines with.
 
 - **Coordinates** are top-left-origin display space in both libraries, and in
   pylopdf this includes rotated pages consistently across extraction, search,

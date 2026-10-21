@@ -89,3 +89,15 @@ pylopdf 자체의 서명 필드 API는 서명 필드를 채우지 않으며, 대
 `(x0, y0, x1, y1, text)`를 생성하는 어떤 OCR 결과든 보이지 않는 텍스트 레이어로
 기록합니다. 글꼴을 포함하지 않아 크기 증가가 거의 없고, 스캔 PDF를 검색 가능하게
 만듭니다. 이후 스캔 문서에도 `to_markdown()`을 사용할 수 있습니다.
+
+```python
+import pylopdf
+
+words = [  # OCR 엔진의 결과, 표시 좌표
+    (72, 90, 140, 104, "Invoice"),
+    (146, 90, 190, 104, "#1024"),
+]
+with pylopdf.open("scan.pdf") as doc:
+    doc[0].insert_ocr_text_layer(words)
+    doc.save("searchable.pdf")
+```
