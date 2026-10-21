@@ -119,7 +119,7 @@ the exact byte size of Python dictionaries or a caller's later JSON/HTML
 serialization. Bound that output separately when exporting raw layout from a
 worker.
 
-### `LimitError` codes { #limit-error-codes }
+### Error codes { #limit-error-codes }
 
 `LimitError.code` is one of the following identifiers. Codes without an
 opt-out come from fixed guards that apply with or without `DocumentLimits`.
