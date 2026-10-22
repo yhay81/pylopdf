@@ -59,7 +59,7 @@ def test_wrong_password_is_password_error(name: str) -> None:
 
 def test_unauthenticated_use_is_encrypted_document_error() -> None:
     doc = pylopdf.open(ASSETS / "user-aes-256.pdf")
-    with pytest.raises(pylopdf.EncryptedDocumentError):
+    with pytest.raises(pylopdf.EncryptedDocumentError, match=r"call unlock\(\)"):
         _ = len(doc.pages)
 
 

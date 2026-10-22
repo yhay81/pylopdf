@@ -11,4 +11,7 @@ permissions=...)` writes AES-256 encryption and replaces `user_pw=`,
 `PasswordError` for a wrong password. `Document.needs_password` is now true
 until the document is unlocked and replaces `is_encrypted`, and
 `Document.permissions` returns `Permissions` flags. The codemod migrates
-pymupdf's and pylopdf 0.15's save options and `authenticate` calls.
+pymupdf's and pylopdf 0.15's save options and `authenticate` calls,
+preserves literal `None` password defaults, and flags dynamic pymupdf
+encryption choices for manual review. Locked-document errors direct callers
+to `unlock()`.

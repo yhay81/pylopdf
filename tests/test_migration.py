@@ -276,6 +276,33 @@ def test_codemod_migrates_pylopdf_015_programs(migrate_source: Migrate, source: 
     assert result.todos == ()
 
 
+@pytest.mark.parametrize(
+    ("package", "arguments", "password", "encrypted"),
+    [
+        ("pylopdf", "user_pw=None", None, False),
+        ("pylopdf", "user_pw=None, owner_pw=None", None, False),
+        ("pylopdf", "user_pw=None, owner_pw='owner'", "owner", True),
+        ("pylopdf", "user_pw='user', owner_pw=None", "user", True),
+        ("fitz", "encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=None, owner_pw='owner'", "owner", True),
+    ],
+)
+def test_codemod_preserves_none_passwords(
+    migrate_source: Migrate, package: str, arguments: str, password: str | None, *, encrypted: bool
+) -> None:
+    source = f"import {package}\ndoc = {package}.open()\ndoc.new_page()\ndata = doc.tobytes({arguments})\n"
+
+    result = migrate_source(source)
+    namespace: dict[str, object] = {}
+    exec(result.code, namespace)  # noqa: S102 - execute the trusted migration fixture.
+    data = namespace["data"]
+
+    assert result.todos == ()
+    assert isinstance(data, bytes)
+    with pylopdf.open(data, password=password) as doc:
+        assert len(doc.pages) == 1
+        assert (doc.metadata["encryption"] is not None) is encrypted
+
+
 def test_codemod_marks_probe_results_for_review(migrate_source: Migrate) -> None:
     result = migrate_source("import pylopdf\ninfo = pylopdf.peek_metadata(stream=data)\n")
 
@@ -321,6 +348,8 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("from fitz import Rect\nm.prerotate(90)\n", "pylopdf.Matrix(deg) * m"),
         ("import fitz\ndoc.save(path, garbage=4, clean=True)\n", "pylopdf writes AES-256 encryption only"),
         ("import fitz\ndoc.save(path, encryption=fitz.PDF_ENCRYPT_RC4_128)\n", "encryption=Encryption("),
+        ("import fitz\ndoc.save(path, encryption=method)\n", "encryption=Encryption("),
+        ("import fitz\ndata = doc.tobytes(encryption=method)\n", "encryption=Encryption("),
         ("import fitz\nif not doc.authenticate(password):\n    pass\n", "raises PasswordError for a wrong password"),
     ],
 )

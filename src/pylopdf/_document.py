@@ -1764,7 +1764,7 @@ class Document:
         """
         self._ensure_not_closed()
         if self._doc.is_encrypted():
-            msg = "this PDF is encrypted; open it with the password argument or call authenticate()"
+            msg = "this PDF is encrypted; open it with the password argument or call unlock()"
             raise EncryptedDocumentError(msg)
 
     def _page_count(self) -> int:
@@ -1848,7 +1848,7 @@ def open(  # noqa: A001 - the package's entry point, pylopdf.open.
     """Open a PDF from a file path or from the bytes of a document.
 
     A document with an empty user password decrypts on its own; any other
-    encrypted document needs ``password``, or :meth:`Document.authenticate`
+    encrypted document needs ``password``, or :meth:`Document.unlock`
     after opening. Passwords are capped at 127 UTF-8 bytes. ``limits``
     applies structural, decompression, interpretation, and text budgets before
     expensive work; :meth:`DocumentLimits.web` is a conservative starting

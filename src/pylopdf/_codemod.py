@@ -471,15 +471,16 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
 
     pymupdf encrypts only with ``encryption=PDF_ENCRYPT_AES_256`` and ignores
     the passwords otherwise; pylopdf 0.15 encrypted whenever a password was
-    given. Any other value, such as ``Encryption(...)``, is already pylopdf's.
+    given. An unrecognized value can already use pylopdf's ``Encryption``
+    API; a pymupdf module needs a manual review of such a value.
     """
     passwords = {"user_pw", "owner_pw", "permissions"} & set(bound)
     value = bound.get("encryption")
     method = None if value is None else _encryption_method(value)
     if value is not None and method is None:
-        return None if passwords else f"encryption={value}"
+        return None if passwords or migrator.pymupdf() else f"encryption={value}"
     if method is None:
-        encrypts = not migrator.pymupdf() and bool(passwords - {"permissions"})
+        encrypts = not migrator.pymupdf() and any(bound.get(key, "None") != "None" for key in ("user_pw", "owner_pw"))
     elif method in {"AES_256", "NONE"}:
         encrypts = method == "AES_256"
     else:
@@ -490,7 +491,11 @@ def _encryption_option(migrator: _Migrator, bound: dict[str, str]) -> str | None
     if name is None:
         return None
     fields = (("user_pw", "user_password"), ("owner_pw", "owner_password"), ("permissions", "permissions"))
-    arguments = [f"{field}={bound[key]}" for key, field in fields if key in bound]
+    arguments = [
+        f"{field}={bound[key]}"
+        for key, field in fields
+        if key in bound and not (key in {"user_pw", "owner_pw"} and bound[key] == "None")
+    ]
     return f"encryption={name}({', '.join(arguments)})"
 
 
