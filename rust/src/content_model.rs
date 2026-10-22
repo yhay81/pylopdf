@@ -926,8 +926,8 @@ impl<S: ContentSink> ContentCollector<S> {
             && self.pending_matrices.len() == glyphs.len().saturating_mul(6)
             && glyphs
                 .iter()
-                .zip(self.pending_matrices.chunks_exact(6))
-                .all(|(glyph, kept)| (props.transform * glyph.transform()).as_coeffs() == kept);
+                .zip(self.pending_matrices.as_chunks::<6>().0)
+                .all(|(glyph, kept)| (props.transform * glyph.transform()).as_coeffs() == *kept);
         if is_fill {
             // The kept buffer is reused, so steady text allocates nothing here.
             self.pending_matrices.clear();
