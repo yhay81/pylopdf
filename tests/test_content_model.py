@@ -275,7 +275,7 @@ def test_shadings_and_tiling_patterns_are_paints() -> None:
 def test_images_report_their_object_mask_and_placement() -> None:
     source = pylopdf.Document()
     source.pages.new((2, 1))
-    pixmap = source.pages[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
+    pixmap = source.pages[0].pixmap(background=(10, 20, 30, 40), alpha=True)
     doc = pylopdf.Document()
     doc.pages.new((200, 100))
     xref = doc.pages[0].insert_image((10, 20, 50, 40), pixmap=pixmap)

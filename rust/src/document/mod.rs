@@ -933,6 +933,8 @@ impl _Document {
     }
 
     /// Render one-based pages to PNG in input order on a bounded worker pool.
+    ///
+    /// `annotations` false leaves every annotation's appearance out.
     #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
     fn render_pages_png(
         &mut self,
@@ -941,6 +943,7 @@ impl _Document {
         scale: (f32, f32),
         alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
+        annotations: bool,
         workers: usize,
         max_output_size: Option<usize>,
     ) -> PyResult<Vec<Vec<u8>>> {
@@ -951,12 +954,16 @@ impl _Document {
             scale,
             alpha,
             background,
+            annotations,
             workers,
             max_output_size,
         )
     }
 
     /// Render a one-based page and return an RGB, or straight-alpha RGBA, Pixmap.
+    ///
+    /// `annotations` false leaves every annotation's appearance out.
+    #[allow(clippy::too_many_arguments)] // Mirrors the Python-facing method.
     fn render_page_pixmap(
         &mut self,
         py: Python<'_>,
@@ -965,8 +972,18 @@ impl _Document {
         alpha: bool,
         background: Option<(u8, u8, u8, u8)>,
         clip: Option<(f64, f64, f64, f64)>,
+        annotations: bool,
     ) -> PyResult<crate::pixmap::Pixmap> {
-        rendering::render_page_pixmap(self, py, page_number, scale, alpha, background, clip)
+        rendering::render_page_pixmap(
+            self,
+            py,
+            page_number,
+            scale,
+            alpha,
+            background,
+            clip,
+            annotations,
+        )
     }
 
     /// Release the render cache retained for this document on the calling thread.
@@ -994,9 +1011,10 @@ impl _Document {
         &mut self,
         py: Python<'_>,
         page_number: u32,
+        annotations: bool,
         max_output_size: Option<usize>,
     ) -> PyResult<String> {
-        rendering::render_page_svg(self, py, page_number, max_output_size)
+        rendering::render_page_svg(self, py, page_number, annotations, max_output_size)
     }
 
     /// Return the TOC as flat `(level, title, one-based page number)` entries.

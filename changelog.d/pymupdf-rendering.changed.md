@@ -1,11 +1,14 @@
-Adopt pymupdf's rendering surface: `Page.get_pixmap` now
-returns opaque RGB (`n == 3`) on white by default and straight-alpha RGBA
-with `alpha=True`, and takes `matrix=` (scaling matrices, with separate x
-and y factors) and `dpi=` instead of `scale=`, `dpi` taking precedence as in
-pymupdf. `doc.pages[i].get_pixmap()` replaces `Document.render_page`, and
-`Page.get_svg_image` replaces `Document.render_page_svg` and
-`Page.render_svg`; `Page.render` is removed in favor of
-`get_pixmap().tobytes()`. `render_pages` takes the same `matrix=`, `dpi=`,
-`alpha=`, and `background=` options. `OcrEngine.recognize` takes any
-`Pixmap` and returns boxes in pixel coordinates; `Page.get_text_ocr`
-recognizes pages.
+Rendering is `page.pixmap()`, `page.svg()`, and `doc.render()`.
+`page.pixmap(*, dpi=None, matrix=None, clip=None, alpha=False,
+background=None, annotations=True)` replaces `Page.render()`,
+`Document.render_page()`, and pymupdf's `get_pixmap()`: it returns a
+`Pixmap`, opaque RGB on white by default and straight-alpha RGBA with
+`alpha=True`, takes `dpi` or a scaling `matrix` (not both) instead of
+`scale`, and leaves annotation and widget appearances out with
+`annotations=False`. `page.svg(*, annotations=True, max_size=...)` replaces
+`Page.render_svg()`, `Document.render_page_svg()`, and pymupdf's
+`get_svg_image()`, and `doc.render(pages=None, ...)` replaces
+`render_pages()` with the options of `pixmap()`. `OcrEngine.recognize` takes
+any `Pixmap` and returns boxes in pixel coordinates. The codemod rewrites
+`get_pixmap`, `get_page_pixmap`, `get_svg_image`, `render_pages`,
+`render_page`, `render_page_svg`, and `render_svg` calls.

@@ -778,6 +778,77 @@ def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str 
     return f"{receiver}.images[{bound['xref']}].extract()"
 
 
+#: pymupdf's device RGB color space, which ``pixmap()`` renders.
+_RGB_COLORSPACES = frozenset({"pymupdf.csRGB", "fitz.csRGB", "pylopdf.csRGB", "csRGB"})
+#: pymupdf's identity matrix, the only one that ``svg()`` draws with.
+_IDENTITY_MATRICES = frozenset({"pymupdf.Identity", "fitz.Identity", "pylopdf.Identity", "Identity"})
+
+
+def _render_keywords(args: _Arguments, names: Sequence[str]) -> list[str] | None:
+    """Return a rendering call's keywords with dpi winning over matrix, as pymupdf and 0.15 did."""
+    bound = args.bind(names)
+    if bound is None:
+        return None
+    if "colorspace" in bound and bound["colorspace"] not in _RGB_COLORSPACES:
+        return None
+    dropped = {"colorspace"}
+    if bound.get("dpi") == "None":
+        dropped.add("dpi")
+    elif "dpi" in bound:
+        dropped.add("matrix")
+    return [
+        f"{'annotations' if key == 'annots' else key}={value}" for key, value in bound.items() if key not in dropped
+    ]
+
+
+def _get_pixmap(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_pixmap(...)`` to ``pixmap(...)``, which takes dpi or matrix and calls annots annotations."""
+    if args.positional:
+        return None
+    keywords = _render_keywords(args, ("matrix", "dpi", "colorspace", "clip", "alpha", "annots", "background"))
+    return None if keywords is None else f"{receiver}.pixmap({', '.join(keywords)})"
+
+
+def _get_svg_image(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_svg_image()`` to ``svg()``, which draws text as paths at 72 dpi."""
+    bound = args.bind(("matrix", "text_as_path"))
+    if bound is None or bound.get("matrix", "Identity") not in _IDENTITY_MATRICES:
+        return None
+    if bound.get("text_as_path", "True") not in _TRUE:
+        return None
+    return f"{receiver}.svg()"
+
+
+def _render_pages(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``render_pages(...)`` to ``render(...)``."""
+    names = ("pages", "matrix", "dpi", "alpha", "background", "workers", "max_size")
+    if args.bind(names) is None:
+        return None
+    keywords = _render_keywords(_Arguments((), args.keywords), names)
+    return None if keywords is None else f"{receiver}.render({', '.join([*args.positional, *keywords])})"
+
+
+def _render_page(_: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite pylopdf 0.15's ``render_page(pno, scale, ...)``, which returned PNG bytes that kept transparency."""
+    bound = args.bind(("pno", "scale", "dpi", "background", "max_size"))
+    if bound is None or "pno" not in bound:
+        return None
+    keywords = []
+    if bound.get("dpi", "None") != "None":
+        keywords.append(f"dpi={bound['dpi']}")
+    elif "scale" in bound:
+        scale = bound["scale"]
+        try:
+            keywords.append(f"dpi={float(scale) * 72:g}")
+        except ValueError:
+            keywords.append(f"dpi=72 * ({scale})")
+    keywords.append("alpha=True")
+    if "background" in bound:
+        keywords.append(f"background={bound['background']}")
+    size = f"max_size={bound['max_size']}" if "max_size" in bound else ""
+    return f"{receiver}.pages[{bound['pno']}].pixmap({', '.join(keywords)}).tobytes({size})"
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -796,6 +867,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
         "get_pixmap", ("matrix", "dpi", "colorspace", "clip", "alpha", "annots", "background")
     ),
     "get_page_images": _page_method("get_images", ("full",)),
+    "render_page": _render_page,
+    "render_page_svg": _page_method("svg", ("max_size",)),
     "pages": _pages_call,
     "embfile_names": _no_arguments("list({receiver}.attachments)"),
     "embfile_count": _no_arguments("len({receiver}.attachments)"),
@@ -822,6 +895,10 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_image_info": _get_image_info,
     "get_images": _get_images,
     "extract_image": _extract_image,
+    "get_pixmap": _get_pixmap,
+    "get_svg_image": _get_svg_image,
+    "render_pages": _render_pages,
+    "render_svg": _renamed("svg"),
 }
 
 

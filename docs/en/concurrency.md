@@ -16,7 +16,7 @@ own wheels, which keep the GIL disabled.
 |---|---|
 | Different threads working on different `Document` objects | Yes |
 | Several threads calling or editing the same `Document` at once | No: use a lock, or open the file once per thread |
-| `Document.render_pages(workers=...)` on one document | Yes; this is the supported way to render one document in parallel |
+| `Document.render(workers=...)` on one document | Yes; this is the supported way to render one document in parallel |
 | Several threads reading the same `Pixmap` | Yes; a `Pixmap` cannot be changed |
 | Free-threaded CPython 3.14t and 3.15t | Yes, tested with the GIL disabled |
 
@@ -46,11 +46,11 @@ with ThreadPoolExecutor() as pool:
 
 ## Render many pages of one document { #render-pages }
 
-Use `render_pages()` instead of calling one document from several threads:
+Use `doc.render()` instead of calling one document from several threads:
 
 ```python
 with pylopdf.open("report.pdf") as document:
-    png_pages = document.render_pages(dpi=144, workers=4)
+    png_pages = document.render(dpi=144, workers=4)
 ```
 
 It returns PNG bytes in the order of the requested pages and keeps its
@@ -72,7 +72,7 @@ without copying:
 ```python
 import numpy as np
 
-pix = page.get_pixmap()
+pix = page.pixmap()
 pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 

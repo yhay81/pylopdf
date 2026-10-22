@@ -23,7 +23,7 @@ as a guide to what to measure on your own documents, not as a ranking.
 | First page to 2× PNG, end to end | pylopdf led on all 14 files, **212.9 ms** versus 573.9 ms in total |
 | Rasterize only | pymupdf led on 9 of 14 files cold and 12 of 14 warm, with one warm tie; warm totals were pylopdf 145.9 ms, pymupdf **78.8 ms** |
 | Encode PNG | pylopdf encoded about 9× faster (**44.4 ms** versus 397.4 ms) but wrote 40% more bytes (4,645 versus **3,318 KiB**) |
-| Render 12 pages at 2× | `render_pages()` went from 163.7 ms with 1 worker to 34.6 ms with 8, a **4.74× speedup**; pymupdf took 425.3 ms sequentially |
+| Render 12 pages at 2× | `doc.render()` went from 163.7 ms with 1 worker to 34.6 ms with 8, a **4.74× speedup**; pymupdf took 425.3 ms sequentially |
 | Extract all text | pylopdf led on 12 of 14 files; pymupdf and pypdf each led on one |
 | Extraction fidelity proxy | Similarity ranged from 0.443 to 1.000 where both libraries extract text; pylopdf extracts no text from the Type 3 fixture |
 | Linux and Windows CI runners | pylopdf's extraction lead was smaller, and MuPDF also rasterized faster cold; see [Other platforms](#other-platforms) |

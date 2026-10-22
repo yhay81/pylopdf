@@ -13,7 +13,7 @@ pylopdfは、開く・保存・レンダリング・抽出・結合・圧縮な�
 |---|---|
 | 異なるスレッドが異なる`Document`オブジェクトを扱う | 対応 |
 | 複数のスレッドが同じ`Document`を同時に呼び出す・編集する | 非対応。ロックを使うか、スレッドごとにファイルを開いてください |
-| 1つの文書で`Document.render_pages(workers=...)` | 対応。1つの文書を並列にレンダリングするための、サポートされた方法です |
+| 1つの文書で`Document.render(workers=...)` | 対応。1つの文書を並列にレンダリングするための、サポートされた方法です |
 | 複数のスレッドが同じ`Pixmap`を読む | 対応。`Pixmap`は変更できません |
 | フリースレッド版CPython 3.14tと3.15t | 対応。GILを無効にした状態でテストしています |
 
@@ -41,11 +41,11 @@ with ThreadPoolExecutor() as pool:
 
 ## 1つの文書の多数のページをレンダリングする { #render-pages }
 
-1つの文書を複数のスレッドから呼び出す代わりに、`render_pages()`を使います。
+1つの文書を複数のスレッドから呼び出す代わりに、`doc.render()`を使います。
 
 ```python
 with pylopdf.open("report.pdf") as document:
-    png_pages = document.render_pages(dpi=144, workers=4)
+    png_pages = document.render(dpi=144, workers=4)
 ```
 
 要求したページの順にPNGのbytesを返します。ページが大きいときはワーカー数を減らして、見積もった作業メモリを約512 MB以下に保ちます。
@@ -61,7 +61,7 @@ with pylopdf.open("report.pdf") as document:
 ```python
 import numpy as np
 
-pix = page.get_pixmap()
+pix = page.pixmap()
 pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 ```
 

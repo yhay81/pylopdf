@@ -39,7 +39,7 @@ def test_one_input(data: bytes) -> None:
                     page.layout().to_dict()
                     page.layout(chars=True).to_dict()
                     page.search("pdf")
-                    page.get_pixmap(dpi=18, alpha=True)
+                    page.pixmap(dpi=18, alpha=True)
 
                 doc.set_metadata({"producer": "pylopdf fuzz"})
                 saved = doc.to_bytes(dedupe=True, renumber=True, object_streams=True)

@@ -72,9 +72,9 @@ python -m pylopdf.migrate src/
 | `page.find_tables()` | `page.tables()` | 返回`Table`记录列表：`table.rows`取代`extract()`，`len(table.rows)`取代`row_count`，`table.cells`逐行保存各单元格的框。尚无调优用的关键字参数、`header`和`to_pandas()` |
 | `page.get_textpage_ocr()` | `page.ocr()`、`page.apply_ocr()` | 内置离线OCR；参见[离线OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | 内置 |
-| `page.get_pixmap(matrix=…, dpi=…)` | 相同 | 仅支持缩放矩阵；尚无`colorspace=`和`annots=`；`doc.get_page_pixmap(i)`改为`doc.pages[i].get_pixmap()` |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | `dpi`和`matrix`只能传入其一；仅支持缩放矩阵；尚无`colorspace=`；`doc.get_page_pixmap(i)`改为`doc.pages[i].pixmap()` |
 | `pix.samples`、`width`、`height`、`n`、`alpha`、`stride`、`colorspace`、`save()` | 相同 | `save()`和`tobytes()`只输出PNG |
-| `page.get_svg_image()` | 相同 | 文本始终以路径绘制 |
+| `page.get_svg_image()` | `page.svg()` | 文本始终以路径绘制，分辨率为72 dpi |
 | `page.get_images()` | `page.resources.images` | 以带有`xref`、`width`、`height`、`bits`、`colorspace`、`filters`和蒙版的`ImageObject`句柄代替元组 |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | 带有`format`、`data`和`resolution`的`EncodedImage`；尺寸、色彩空间和蒙版是`doc.images[xref]`的属性 |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True`会应用图像的蒙版 |
@@ -147,6 +147,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search("total"))       # 可直接传入整个列表
-page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
+page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

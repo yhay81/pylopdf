@@ -62,13 +62,10 @@ def test_render_pages_renders_every_page_across_chunks(large_pdf: bytes) -> None
     scale = 0.05
 
     for workers in (1, 2):
-        rendered = doc.render_pages(matrix=pylopdf.Matrix(scale, scale), alpha=True, workers=workers)
+        rendered = doc.render(matrix=pylopdf.Matrix(scale, scale), alpha=True, workers=workers)
         assert len(rendered) == LARGE_PAGE_COUNT
         for index in (0, 4095, 4096, LARGE_PAGE_COUNT - 1):
-            assert (
-                rendered[index]
-                == doc.pages[index].get_pixmap(matrix=pylopdf.Matrix(scale, scale), alpha=True).tobytes()
-            )
+            assert rendered[index] == doc.pages[index].pixmap(matrix=pylopdf.Matrix(scale, scale), alpha=True).tobytes()
 
 
 def test_select_reorders_every_page(large_pdf: bytes) -> None:
@@ -114,7 +111,7 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
     [
         lambda doc, pages: doc.text(pages),
         lambda doc, pages: doc.markdown(pages),
-        lambda doc, pages: doc.render_pages(pages, matrix=pylopdf.Matrix(0.05, 0.05), alpha=True),
+        lambda doc, pages: doc.render(pages, matrix=pylopdf.Matrix(0.05, 0.05), alpha=True),
         lambda doc, pages: doc.pages.select(pages),
         lambda doc, pages: doc.pages.extend(doc.pages[index] for index in pages),
     ],
@@ -145,7 +142,7 @@ def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> No
     assert doc.extract_text([1] * LARGE_PAGE_COUNT) == "Page 0\n" * LARGE_PAGE_COUNT
     calls: list[Callable[[], object]] = [
         lambda: doc.extract_text(too_many),
-        lambda: doc.render_pages_png(too_many, (0.05, 0.05), True, None, 1, None),
+        lambda: doc.render_pages_png(too_many, (0.05, 0.05), True, None, True, 1, None),
         lambda: doc.select(too_many),
         lambda: doc.delete_pages(too_many),
         lambda: _Document().merge_pages(doc, too_many, None),

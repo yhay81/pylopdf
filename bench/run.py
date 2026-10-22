@@ -141,20 +141,20 @@ def _pylopdf_merge(docs: list[bytes]) -> bytes:
 
 def _pylopdf_render(data: bytes) -> bytes:
     with pylopdf.open(data) as doc:
-        return doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(2, 2)).tobytes()
+        return doc.pages[0].pixmap(matrix=pylopdf.Matrix(2, 2)).tobytes()
 
 
 def _pylopdf_render_batch(data: bytes, workers: int) -> int:
     """Render up to twelve pages and return total PNG bytes."""
     with pylopdf.open(data) as doc:
         pages = list(range(min(BATCH_PAGES, len(doc.pages))))
-        return sum(len(png) for png in doc.render_pages(pages, matrix=pylopdf.Matrix(2, 2), workers=workers))
+        return sum(len(png) for png in doc.render(pages, matrix=pylopdf.Matrix(2, 2), workers=workers))
 
 
 _PYLOPDF_RENDERER = _Renderer(
     open=pylopdf.open,
     first_page=lambda doc: doc.pages[0],
-    pixmap=lambda page: page.get_pixmap(matrix=pylopdf.Matrix(2, 2)),
+    pixmap=lambda page: page.pixmap(matrix=pylopdf.Matrix(2, 2)),
     png=lambda pixmap: pixmap.tobytes(),
 )
 
@@ -348,7 +348,7 @@ def _append_parallel_render_results(lines: list[str], corpus: dict[str, bytes]) 
         lines.append(f"| {workers} | {_fmt(elapsed)} | {speedup} |")
     lines.append("")
     lines.append(
-        "`render_pages()` preserves input order, releases the GIL, and uses "
+        "`Document.render()` preserves input order, releases the GIL, and uses "
         "a dedicated worker pool bounded by both worker count and estimated "
         "live rendering memory."
     )

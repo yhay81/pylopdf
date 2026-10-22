@@ -19,7 +19,7 @@ description: 抽出・結合・ラスタライズ・PNGエンコードの再現�
 | 先頭ページを2倍PNGへ（一連の処理） | 14ファイルすべてでpylopdfが高速。合計は**212.9 ms**対573.9 ms |
 | ラスタライズのみ | 14ファイル中、coldでは9件、warmでは12件でpymupdfが高速（warmの1件は同値）。warmの合計はpylopdf 145.9 ms、pymupdf **78.8 ms** |
 | PNGエンコード | pylopdfは約9倍高速（**44.4 ms**対397.4 ms）ですが、出力は40%大きくなります（4,645 KiB対**3,318 KiB**） |
-| 12ページを2倍で描画 | `render_pages()`は1 workerの163.7 msから8 workersの34.6 msへ短縮し、**4.74倍高速化**。pymupdfの逐次処理は425.3 ms |
+| 12ページを2倍で描画 | `doc.render()`は1 workerの163.7 msから8 workersの34.6 msへ短縮し、**4.74倍高速化**。pymupdfの逐次処理は425.3 ms |
 | 全ページのテキスト抽出 | 14ファイル中12件でpylopdf、残る2件ではpymupdfとpypdfが1件ずつ高速 |
 | 抽出精度の代理指標 | 両ライブラリがテキストを抽出したファイルでは類似度0.443〜1.000。Type 3のfixtureからpylopdfはテキストを抽出しません |
 | LinuxとWindowsのCI runner | pylopdfの抽出のリードは小さく、MuPDFはcoldのラスタライズでも高速。[他のプラットフォーム](#other-platforms)を参照 |

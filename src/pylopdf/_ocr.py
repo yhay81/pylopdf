@@ -253,7 +253,7 @@ class OcrEngine:
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         with self._recognition_slots:
             # Opaque RGBA on white, which recognition reads without a copy.
-            pixmap = page.get_pixmap(dpi=resolved_dpi, clip=clip_rect, alpha=True, background=(255, 255, 255))
+            pixmap = page.pixmap(dpi=resolved_dpi, clip=clip_rect, alpha=True, background=(255, 255, 255))
             raster_results = self._engine.recognize_pixmap(
                 pixmap,
                 tile_size=tile_size,

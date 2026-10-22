@@ -84,11 +84,11 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNGのbytes
-    pix = doc.pages[0].get_pixmap(dpi=144)            # NumPyやPillow向けのRGB画素
-    pngs = doc.render_pages(dpi=144, workers=4)       # 全ページを並列に
-    svg = doc.pages[0].get_svg_image()
+    doc.pages[0].pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].pixmap(dpi=300).tobytes()  # PNGのbytes
+    pix = doc.pages[0].pixmap(dpi=144)            # NumPyやPillow向けのRGB画素
+    pngs = doc.render(dpi=144, workers=4)       # 全ページを並列に
+    svg = doc.pages[0].svg()
 ```
 
 ## ページの編集 { #editing }

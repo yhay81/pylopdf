@@ -26,7 +26,7 @@ doc.set_pagemode("UseThumbs")
 assert doc.pagemode == "UseThumbs"
 
 doc.pages[0].set_rotation(90)
-pixmap = doc.pages[0].get_pixmap(dpi=36)
+pixmap = doc.pages[0].pixmap(dpi=36)
 assert (pixmap.width, pixmap.height) == (100, 100)
 
 with tempfile.TemporaryDirectory() as folder:

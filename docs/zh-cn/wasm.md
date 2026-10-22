@@ -88,7 +88,7 @@ with pylopdf.open(pdf_bytes, limits=pylopdf.DocumentLimits.web()) as doc:
 
 | 功能 | 在WebAssembly中 |
 |---|---|
-| `render_pages(workers=...)` | 接受该参数，但页面会逐一渲染 |
+| `doc.render(workers=...)` | 接受该参数，但页面会逐一渲染 |
 | 内置OCR（`OcrEngine`、`ocr`、`apply_ocr`） | 不可用，会抛出`OcrError`。请在其他地方执行OCR，再用`Page.apply_ocr(words=...)`添加识别出的单词 |
 | 字体extra（`pylopdf[jp]`等） | 未测试。请用`fontbuffer=`或`set_fallback_font()`显式传入字体数据 |
 

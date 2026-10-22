@@ -312,7 +312,7 @@ def test_select_duplicates_pages(three_page_pdf: bytes) -> None:
     reloaded = pylopdf.open(doc.to_bytes())
     assert len(reloaded.pages) == 3
     assert "Page one" in reloaded.pages[1].text()
-    assert reloaded.pages[0].get_pixmap(alpha=True).tobytes() == reloaded.pages[1].get_pixmap(alpha=True).tobytes()
+    assert reloaded.pages[0].pixmap(alpha=True).tobytes() == reloaded.pages[1].pixmap(alpha=True).tobytes()
 
 
 def test_select_out_of_range(three_page_pdf: bytes) -> None:
@@ -525,7 +525,7 @@ def _png_size(data: bytes) -> tuple[int, int]:
 
 def test_render_page_png(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    data = doc.pages[0].get_pixmap(alpha=True).tobytes()
+    data = doc.pages[0].pixmap(alpha=True).tobytes()
     width, height = _png_size(data)
     # Fixture MediaBox is 612×792 Letter at 72 dpi.
     assert (width, height) == (612, 792)
@@ -533,11 +533,11 @@ def test_render_page_png(one_page_pdf: bytes) -> None:
 
 def test_render_page_png_bounds_encoded_output(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    expected = doc.pages[0].get_pixmap(alpha=True).tobytes(max_size=None)
+    expected = doc.pages[0].pixmap(alpha=True).tobytes(max_size=None)
 
-    assert doc.pages[0].get_pixmap(alpha=True).tobytes(max_size=len(expected)) == expected
+    assert doc.pages[0].pixmap(alpha=True).tobytes(max_size=len(expected)) == expected
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].get_pixmap(alpha=True).tobytes(max_size=len(expected) - 1)
+        doc.pages[0].pixmap(alpha=True).tobytes(max_size=len(expected) - 1)
     assert caught.value.code == "pixmap_output_size"
 
 
@@ -546,12 +546,12 @@ def test_render_page_png_validates_output_limit(one_page_pdf: bytes, max_size: o
     doc = pylopdf.open(one_page_pdf)
 
     with pytest.raises((TypeError, ValueError), match="max_size"):
-        doc.pages[0].get_pixmap(alpha=True).tobytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
+        doc.pages[0].pixmap(alpha=True).tobytes(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 def test_render_page_png_scale(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    width, height = _png_size(doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(2.0, 2.0), alpha=True).tobytes())
+    width, height = _png_size(doc.pages[0].pixmap(matrix=pylopdf.Matrix(2.0, 2.0), alpha=True).tobytes())
     assert (width, height) == (1224, 1584)
 
 
@@ -559,14 +559,14 @@ def test_render_pages_matches_sequential_and_preserves_order(three_page_pdf: byt
     doc = pylopdf.open(three_page_pdf)
     pages = [2, 0, 2, 1]
 
-    expected = [doc.pages[page].get_pixmap(alpha=True).tobytes() for page in pages]
-    assert doc.render_pages(pages, alpha=True, workers=2) == expected
+    expected = [doc.pages[page].pixmap(alpha=True).tobytes() for page in pages]
+    assert doc.render(pages, alpha=True, workers=2) == expected
 
 
 def test_render_pages_defaults_to_every_page(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    assert doc.render_pages(alpha=True, workers=1) == [
-        doc.pages[page].get_pixmap(alpha=True).tobytes() for page in range(len(doc.pages))
+    assert doc.render(alpha=True, workers=1) == [
+        doc.pages[page].pixmap(alpha=True).tobytes() for page in range(len(doc.pages))
     ]
 
 
@@ -574,23 +574,23 @@ def test_render_pages_supports_dpi_background_and_empty_input(
     three_page_pdf: bytes,
 ) -> None:
     doc = pylopdf.open(three_page_pdf)
-    expected = doc.pages[1].get_pixmap(dpi=144, background=(255, 255, 255), alpha=True).tobytes()
-    assert doc.render_pages([1], dpi=144, background=(255, 255, 255), alpha=True, workers=2) == [expected]
-    assert doc.render_pages([], alpha=True, workers=2) == []
+    expected = doc.pages[1].pixmap(dpi=144, background=(255, 255, 255), alpha=True).tobytes()
+    assert doc.render([1], dpi=144, background=(255, 255, 255), alpha=True, workers=2) == [expected]
+    assert doc.render([], alpha=True, workers=2) == []
 
 
 @pytest.mark.parametrize("workers", [0, -1, 65])
 def test_render_pages_rejects_invalid_worker_count(three_page_pdf: bytes, workers: int) -> None:
     doc = pylopdf.open(three_page_pdf)
     with pytest.raises(ValueError, match="workers"):
-        doc.render_pages(alpha=True, workers=workers)
+        doc.render(alpha=True, workers=workers)
 
 
 @pytest.mark.parametrize("workers", [True, 1.5])
 def test_render_pages_rejects_non_integer_workers(three_page_pdf: bytes, workers: object) -> None:
     doc = pylopdf.open(three_page_pdf)
     with pytest.raises(TypeError, match="workers"):
-        doc.render_pages(alpha=True, workers=workers)  # ty: ignore[invalid-argument-type]
+        doc.render(alpha=True, workers=workers)  # ty: ignore[invalid-argument-type]
 
 
 def test_render_pages_validates_all_page_numbers_before_rendering(
@@ -598,18 +598,18 @@ def test_render_pages_validates_all_page_numbers_before_rendering(
 ) -> None:
     doc = pylopdf.open(three_page_pdf)
     with pytest.raises(IndexError):
-        doc.render_pages([0, 3, 1], alpha=True, workers=2)
+        doc.render([0, 3, 1], alpha=True, workers=2)
 
 
 def test_render_pages_reflects_structural_edits(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    original_last_page = doc.pages[2].get_pixmap(alpha=True).tobytes()
+    original_last_page = doc.pages[2].pixmap(alpha=True).tobytes()
 
     doc.pages.select([2, 0])
 
-    assert doc.render_pages(alpha=True, workers=2) == [
+    assert doc.render(alpha=True, workers=2) == [
         original_last_page,
-        doc.pages[1].get_pixmap(alpha=True).tobytes(),
+        doc.pages[1].pixmap(alpha=True).tobytes(),
     ]
 
 
@@ -626,21 +626,21 @@ def test_render_pages_bounds_page_iterable_before_full_materialization(
             yield 0
 
     with pytest.raises(pylopdf.LimitError, match="4096 entries") as caught:
-        doc.render_pages(pages(), alpha=True, workers=2)
+        doc.render(pages(), alpha=True, workers=2)
     assert caught.value.code == "page_entry_count"
     assert consumed == 4097
 
 
 def test_render_pages_bounds_cumulative_png_output(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
-    expected = [doc.pages[0].get_pixmap(alpha=True).tobytes(), doc.pages[1].get_pixmap(alpha=True).tobytes()]
+    expected = [doc.pages[0].pixmap(alpha=True).tobytes(), doc.pages[1].pixmap(alpha=True).tobytes()]
     total_size = sum(map(len, expected))
 
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.render_pages([0, 1], alpha=True, workers=2, max_size=total_size - 1)
+        doc.render([0, 1], alpha=True, workers=2, max_size=total_size - 1)
     assert caught.value.code == "render_output_size"
-    assert doc.render_pages([0, 1], alpha=True, workers=2, max_size=total_size) == expected
-    assert doc.render_pages([0, 1], alpha=True, workers=2, max_size=None) == expected
+    assert doc.render([0, 1], alpha=True, workers=2, max_size=total_size) == expected
+    assert doc.render([0, 1], alpha=True, workers=2, max_size=None) == expected
 
 
 @pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
@@ -650,7 +650,7 @@ def test_render_pages_rejects_non_integer_size_limits(
 ) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(TypeError, match="max_size"):
-        doc.render_pages(alpha=True, max_size=max_size)  # ty: ignore[invalid-argument-type]
+        doc.render(alpha=True, max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -660,7 +660,7 @@ def test_render_pages_rejects_non_positive_size_limits(
 ) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="max_size"):
-        doc.render_pages(alpha=True, max_size=max_size)
+        doc.render(alpha=True, max_size=max_size)
 
 
 def test_render_page_reflects_edits(three_page_pdf: bytes) -> None:
@@ -668,26 +668,26 @@ def test_render_page_reflects_edits(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     del doc.pages[0:2]
     assert len(doc.pages) == 1
-    assert _png_size(doc.pages[0].get_pixmap(alpha=True).tobytes())[0] == 612
+    assert _png_size(doc.pages[0].pixmap(alpha=True).tobytes())[0] == 612
 
 
 def test_render_page_out_of_range(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(IndexError):
-        doc.pages[1].get_pixmap(alpha=True).tobytes()
+        doc.pages[1].pixmap(alpha=True).tobytes()
 
 
 @pytest.mark.parametrize("scale", [0.0, -1.0, float("nan"), float("inf")])
 def test_render_page_invalid_scale(one_page_pdf: bytes, scale: float) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match=r"finite|matrix must scale"):
-        doc.pages[0].get_pixmap(matrix=(scale, 0, 0, scale, 0, 0), alpha=True).tobytes()
+        doc.pages[0].pixmap(matrix=(scale, 0, 0, scale, 0, 0), alpha=True).tobytes()
 
 
 def test_render_page_too_small_scale(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="scale"):
-        doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(0.0001, 0.0001), alpha=True).tobytes()
+        doc.pages[0].pixmap(matrix=pylopdf.Matrix(0.0001, 0.0001), alpha=True).tobytes()
 
 
 @pytest.mark.parametrize(
@@ -697,19 +697,19 @@ def test_render_page_too_small_scale(one_page_pdf: bytes) -> None:
 def test_render_page_rejects_oversized_page(page_size: tuple[int, int], message: str) -> None:
     doc = pylopdf.open(build_pdf(["x"], page_size=page_size))
     with pytest.raises(ValueError, match=message):
-        doc.pages[0].get_pixmap(alpha=True).tobytes()
+        doc.pages[0].pixmap(alpha=True).tobytes()
 
 
 def test_render_page_svg(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    svg = doc.pages[0].get_svg_image(max_size=None)
+    svg = doc.pages[0].svg(max_size=None)
     assert svg.lstrip().startswith("<")
     assert "svg" in svg[:200]
     exact_size = len(svg.encode())
 
-    assert doc.pages[0].get_svg_image(max_size=exact_size) == svg
+    assert doc.pages[0].svg(max_size=exact_size) == svg
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.pages[0].get_svg_image(max_size=exact_size - 1)
+        doc.pages[0].svg(max_size=exact_size - 1)
     assert caught.value.code == "svg_output_size"
 
 
@@ -720,7 +720,7 @@ def test_render_page_svg_rejects_non_integer_size_limits(
 ) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(TypeError, match="max_size"):
-        doc.pages[0].get_svg_image(max_size=max_size)  # ty: ignore[invalid-argument-type]
+        doc.pages[0].svg(max_size=max_size)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("max_size", [0, -1])
@@ -730,56 +730,56 @@ def test_render_page_svg_rejects_non_positive_size_limits(
 ) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="max_size"):
-        doc.pages[0].get_svg_image(max_size=max_size)
+        doc.pages[0].svg(max_size=max_size)
 
 
 def test_render_page_cache_reflects_edits(three_page_pdf: bytes) -> None:
     """The render cache remains deterministic and reflects edits."""
     doc = pylopdf.open(three_page_pdf)
     assert (
-        doc.pages[0].get_pixmap(alpha=True).tobytes() == doc.pages[0].get_pixmap(alpha=True).tobytes()
+        doc.pages[0].pixmap(alpha=True).tobytes() == doc.pages[0].pixmap(alpha=True).tobytes()
     )  # Consecutive renders match.
-    page_two = doc.pages[1].get_pixmap(alpha=True).tobytes()
+    page_two = doc.pages[1].pixmap(alpha=True).tobytes()
     del doc.pages[0]
     # New page 0 renders like old page 1 after deletion.
-    assert doc.pages[0].get_pixmap(alpha=True).tobytes() == page_two
+    assert doc.pages[0].pixmap(alpha=True).tobytes() == page_two
 
 
 def test_render_page_dpi(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     assert (
-        doc.pages[0].get_pixmap(dpi=144, alpha=True).tobytes()
-        == doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(2.0, 2.0), alpha=True).tobytes()
+        doc.pages[0].pixmap(dpi=144, alpha=True).tobytes()
+        == doc.pages[0].pixmap(matrix=pylopdf.Matrix(2.0, 2.0), alpha=True).tobytes()
     )
 
 
-def test_render_page_dpi_takes_precedence_over_matrix(one_page_pdf: bytes) -> None:
+def test_render_page_refuses_dpi_with_matrix(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    pixmap = doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(3.0, 3.0), dpi=144)
-    assert (pixmap.width, pixmap.height) == (612 * 2, 792 * 2)
+    with pytest.raises(ValueError, match="dpi or matrix, not both"):
+        doc.pages[0].pixmap(matrix=pylopdf.Matrix(3.0, 3.0), dpi=144)
 
 
 def test_render_page_background(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
-    transparent = doc.pages[0].get_pixmap(alpha=True).tobytes()
-    white = doc.pages[0].get_pixmap(background=(255, 255, 255), alpha=True).tobytes()
+    transparent = doc.pages[0].pixmap(alpha=True).tobytes()
+    white = doc.pages[0].pixmap(background=(255, 255, 255), alpha=True).tobytes()
     assert white.startswith(b"\x89PNG\r\n\x1a\n")
     assert white != transparent
     # RGB and opaque RGBA backgrounds produce the same result.
-    assert white == doc.pages[0].get_pixmap(background=(255, 255, 255, 255), alpha=True).tobytes()
+    assert white == doc.pages[0].pixmap(background=(255, 255, 255, 255), alpha=True).tobytes()
 
 
 @pytest.mark.parametrize("background", [(0, 0, 256), (0, 0, -1)])
 def test_render_page_background_out_of_range(one_page_pdf: bytes, background: tuple[int, int, int]) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="background"):
-        doc.pages[0].get_pixmap(background=background, alpha=True).tobytes()
+        doc.pages[0].pixmap(background=background, alpha=True).tobytes()
 
 
 def test_render_page_background_wrong_length(one_page_pdf: bytes) -> None:
     doc = pylopdf.open(one_page_pdf)
     with pytest.raises(ValueError, match="background"):
-        doc.pages[0].get_pixmap(background=(255, 255), alpha=True).tobytes()  # ty: ignore[invalid-argument-type]
+        doc.pages[0].pixmap(background=(255, 255), alpha=True).tobytes()  # ty: ignore[invalid-argument-type]
 
 
 def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
@@ -796,10 +796,10 @@ def test_save_options_roundtrip(tmp_path: Path, three_page_pdf: bytes) -> None:
 def test_to_bytes_with_object_streams_renders_consistently(three_page_pdf: bytes) -> None:
     """Rendering survives document mutation during object-stream saving."""
     doc = pylopdf.open(three_page_pdf)
-    before = doc.pages[0].get_pixmap(alpha=True).tobytes()
+    before = doc.pages[0].pixmap(alpha=True).tobytes()
     data = doc.to_bytes(object_streams=True)
-    assert doc.pages[0].get_pixmap(alpha=True).tobytes() == before
-    assert pylopdf.open(data).pages[0].get_pixmap(alpha=True).tobytes() == before
+    assert doc.pages[0].pixmap(alpha=True).tobytes() == before
+    assert pylopdf.open(data).pages[0].pixmap(alpha=True).tobytes() == before
 
 
 def test_multi_document_merge() -> None:

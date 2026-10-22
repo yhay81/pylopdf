@@ -42,7 +42,7 @@ from pylopdf._limits import (
 )
 from pylopdf._objects import Dictionary
 from pylopdf._ocr import OcrEngine, OcrWord, _default_ocr_engine, _validate_ocr_rotation
-from pylopdf._pixmap import _render_background, _render_scale
+from pylopdf._pixmap import _render_background, _render_scale, _validate_bool
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, build_tables
 from pylopdf._types import (
@@ -1807,24 +1807,27 @@ class Page:
         x0, y0, x1, y1 = _validate_rect(link["from"], name="from")
         self._document._doc.add_link_annotation(self._page_number(), (x0, y0, x1, y1), uri)
 
-    def get_pixmap(
+    def pixmap(  # noqa: PLR0913 - rendering options are keyword-only.
         self,
         *,
-        matrix: Matrix | Sequence[float] | None = None,
         dpi: float | None = None,
+        matrix: Matrix | Sequence[float] | None = None,
         clip: Sequence[float] | None = None,
         alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        annotations: bool = True,
     ) -> Pixmap:
-        """Render the page to a :class:`Pixmap`, as pymupdf does.
+        """Render the page to a :class:`Pixmap`.
 
-        The default is opaque RGB (``n == 3``) on white. ``alpha=True`` keeps
-        transparency in straight-alpha RGBA (``n == 4``). ``matrix`` scales
-        the page, where the identity is 72 dpi; ``dpi`` takes precedence over
-        it. Only scaling matrices are supported: rotation, shear, and flips
-        raise :class:`PdfError`. ``background`` is an extension: an RGB or RGBA
-        tuple with components from 0 to 255 painted beneath the page, which
-        must be opaque without ``alpha``.
+        The default is opaque RGB on white at 72 dpi. ``dpi`` sets the
+        resolution, or ``matrix`` scales the page with the identity at 72 dpi;
+        pass one of them. Only scaling matrices are supported: rotation, shear,
+        and flips raise :class:`PdfError`, and a translation moves no pixels.
+        ``alpha=True`` keeps transparency in straight-alpha RGBA.
+        ``background`` is an RGB or RGBA tuple with components from 0 to 255
+        painted beneath the page, which must be opaque without ``alpha``.
+        ``annotations=False`` leaves out the appearances of annotations and
+        form widgets.
 
         ``clip`` is an optional display-coordinate rectangle. It is intersected
         with the page and rounded outward to pixel boundaries. A clip that does
@@ -1832,48 +1835,41 @@ class Page:
         region is rasterized, but full-page render-size limits still apply:
         65,535 pixels per side and 64,000,000 pixels in all.
 
-        The pixmap exposes ``width``, ``height``, ``n``, ``alpha``,
-        ``stride``, ``samples``, a zero-copy buffer, and ``tobytes()`` as PNG.
-        Convert it to NumPy with
-        ``np.frombuffer(pix, np.uint8).reshape(pix.height, pix.width, pix.n)``.
+        The pixmap exposes its pixels through the buffer protocol, so
+        ``numpy.asarray(memoryview(pix)).reshape(pix.height, pix.width, pix.n)``
+        reads them without a copy.
         """
         scale = _render_scale(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
+        _validate_bool("annotations", annotations)
         clip_rect = None if clip is None else _validate_rect(clip, name="clip")
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_pixmap(page_number, scale, alpha, rgba, clip_rect)
+        result = document._doc.render_page_pixmap(page_number, scale, alpha, rgba, clip_rect, annotations)
         document._emit_warnings()
         return result
 
-    def get_svg_image(
+    def svg(
         self,
         *,
-        matrix: Matrix | Sequence[float] | None = None,
-        text_as_path: bool = True,
+        annotations: bool = True,
         max_size: int | None = _DEFAULT_MAX_SVG_SIZE,
     ) -> str:
-        """Render the page to a bounded SVG string, as pymupdf does.
+        """Render the page to an SVG string at 72 dpi, with text drawn as paths.
 
-        ``matrix`` must be omitted or the identity, and ``text_as_path=False``
-        raises :class:`PdfError`, because text is always drawn as paths.
-        ``max_size`` caps UTF-8 output and defaults to 64 MiB; ``None``
-        explicitly opts out. hayro-svg materializes its internal Rust string
-        before this boundary is enforced, but over-limit output is rejected
-        before conversion to a Python string.
+        ``annotations=False`` leaves out the appearances of annotations and
+        form widgets. ``max_size`` caps the UTF-8 output and defaults to
+        64 MiB; ``None`` opts out. hayro-svg builds its whole string before
+        the limit is checked, so the limit keeps an oversized result from
+        becoming a Python string rather than bounding the converter's memory.
         """
-        if _render_scale(matrix, None) != (1.0, 1.0):
-            msg = f"get_svg_image supports only the identity matrix: {matrix!r}"
-            raise PdfError(msg)
-        if not text_as_path:
-            msg = "text_as_path=False is not supported; SVG text is drawn as paths"
-            raise PdfError(msg)
+        _validate_bool("annotations", annotations)
         _validate_optional_positive_int("max_size", max_size)
         page_number = self._page_number()
         document = self._document
         document._ensure_fallback_fonts()
-        result = document._doc.render_page_svg(page_number, max_size)
+        result = document._doc.render_page_svg(page_number, annotations, max_size)
         document._emit_warnings()
         return result
 

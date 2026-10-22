@@ -92,11 +92,11 @@ with pylopdf.open("input.pdf") as doc:
 
 ```python
 with pylopdf.open("input.pdf") as doc:
-    doc.pages[0].get_pixmap(dpi=144).save("page-1.png")
-    png = doc.pages[0].get_pixmap(dpi=300).tobytes()  # PNG bytes
-    pix = doc.pages[0].get_pixmap(dpi=144)            # NumPy나 Pillow용 RGB 픽셀
-    pngs = doc.render_pages(dpi=144, workers=4)       # 모든 페이지를 병렬로
-    svg = doc.pages[0].get_svg_image()
+    doc.pages[0].pixmap(dpi=144).save("page-1.png")
+    png = doc.pages[0].pixmap(dpi=300).tobytes()  # PNG bytes
+    pix = doc.pages[0].pixmap(dpi=144)            # NumPy나 Pillow용 RGB 픽셀
+    pngs = doc.render(dpi=144, workers=4)       # 모든 페이지를 병렬로
+    svg = doc.pages[0].svg()
 ```
 
 ## 페이지 편집 { #editing }

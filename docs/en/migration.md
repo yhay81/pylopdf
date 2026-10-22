@@ -95,9 +95,9 @@ replacement or says that the feature is not supported yet, and `doc[0]` or
 | `page.find_tables()` | `page.tables()` | A list of `Table` records: `table.rows` replaces `extract()`, `len(table.rows)` replaces `row_count`, and `table.cells` holds the boxes row by row. No tuning keywords, `header`, or `to_pandas()` yet |
 | `page.get_textpage_ocr()` | `page.ocr()`, `page.apply_ocr()` | Built-in offline OCR; see [Offline OCR](ocr.md) |
 | `pymupdf4llm.to_markdown(doc)` | `doc.markdown()` | Built in |
-| `page.get_pixmap(matrix=…, dpi=…)` | Same | Only scaling matrices; no `colorspace=` or `annots=` yet; `doc.get_page_pixmap(i)` is `doc.pages[i].get_pixmap()` |
+| `page.get_pixmap(matrix=…, dpi=…, annots=…)` | `page.pixmap(dpi=…, annotations=…)` | Pass `dpi` or `matrix`, not both; only scaling matrices; no `colorspace=` yet; `doc.get_page_pixmap(i)` is `doc.pages[i].pixmap()` |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | Same | `save()` and `tobytes()` write PNG only |
-| `page.get_svg_image()` | Same | Text is always drawn as paths |
+| `page.get_svg_image()` | `page.svg()` | Text is always drawn as paths, at 72 dpi |
 | `page.get_images()` | `page.resources.images` | `ImageObject` handles with `xref`, `width`, `height`, `bits`, `colorspace`, `filters`, and masks instead of tuples |
 | `doc.extract_image(xref)` | `doc.images[xref].extract()` | An `EncodedImage` with `format`, `data`, and `resolution`; the size, color space, and masks are properties of `doc.images[xref]` |
 | `pymupdf.Pixmap(doc, xref)` | `doc.images[xref].to_pixmap()` | `alpha=True` applies the image's masks |
@@ -191,6 +191,6 @@ import pylopdf
 doc = pylopdf.open("in.pdf")
 page = doc.pages[0]
 page.add_highlight_annot(page.search("total"))       # takes the whole list
-page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
+page.pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", dedupe=True, renumber=True)
 ```

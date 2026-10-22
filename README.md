@@ -61,8 +61,8 @@ tables = page.tables()                 # tables with their cell text
 markdown = doc.markdown()              # whole document as Markdown
 
 # Render
-page.get_pixmap(dpi=150).save("page.png")
-svg = page.get_svg_image()
+page.pixmap(dpi=150).save("page.png")
+svg = page.svg()
 
 # Add content
 page.insert_text((72, 72), "Approved", fontsize=20, color=(0.8, 0, 0))

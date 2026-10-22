@@ -312,7 +312,7 @@ def _limit_results(
         # hayro 0.8 reads no page dictionary nested more than 64 levels deep; only that page is refused.
         "page_object_depth": [limit_code(deep_page.pages[1].text), deep_page.pages[0].text()],
         # hayro 0.8 panics on a shading in a Pattern space (LaurenzV/hayro#1546); the unwind becomes PdfError.
-        "renderer_panic": renderer_error(pylopdf.open(pattern_shading).pages[0].get_pixmap),
+        "renderer_panic": renderer_error(pylopdf.open(pattern_shading).pages[0].pixmap),
         "reference_cycle_pages": len(cyclic.pages),
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,
@@ -859,10 +859,10 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     font_results = _font_results(first, font)
-    first_pixmap = first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
+    first_pixmap = first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True)
     _require((first_pixmap.width, first_pixmap.height) == (120, 90), "generated page raster size changed")
     _require(
-        first.get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples == first_pixmap.samples,
+        first.pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples == first_pixmap.samples,
         "a repeated render on the retained cache changed the raster",
     )
     pixmap_buffer = memoryview(first_pixmap)
@@ -885,10 +885,8 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require("Generated on Wasm" in texts[0] and _JAPANESE in texts[0], "generated text did not round-trip")
     _require("Second page wraps text" in texts[1], "textbox text did not round-trip")
 
-    serial_renders = reopened.render_pages([1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=1)
-    requested_parallel_renders = reopened.render_pages(
-        [1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=4
-    )
+    serial_renders = reopened.render([1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=1)
+    requested_parallel_renders = reopened.render([1, 0, 1], matrix=pylopdf.Matrix(0.5, 0.5), alpha=True, workers=4)
     _require(serial_renders == requested_parallel_renders, "workers=4 changed serial-fallback rendering")
     render_sizes = [_png_size(data) for data in requested_parallel_renders]
     _require(render_sizes == [[90, 120], [120, 90], [90, 120]], "batch rendering lost input order")
@@ -1115,7 +1113,7 @@ def _geometry_results() -> dict[str, Any]:
         _require(text == "Affine", "transformed text failed to survive save/reopen")
         line = reopened.pages[0].content().paths[0].segments
         _require(line == (MoveTo(Point(40, 90)), LineTo(Point(80, 90))), "transformed line changed")
-        _require(reopened.pages[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
+        _require(reopened.pages[0].pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
     rectangles = _rectangle_results()
     return {
         "matrix": list(transform),
@@ -1156,7 +1154,7 @@ def _rectangle_results() -> dict[str, Any]:
         boxed.set_mediabox((0, 0, 200, 300))
         reset_cropbox = list(boxed.cropbox)
         image_xref = boxed.insert_image(
-            (10, 10, 60, 60), pixmap=document.pages[0].get_pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
+            (10, 10, 60, 60), pixmap=document.pages[0].pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
         )
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
@@ -1354,7 +1352,7 @@ def _canvas_results(root: Path) -> dict[str, Any]:
     source = pylopdf.open(root / "tests/assets/real_world/pdf20-simple.pdf")
     document = pylopdf.Document()
     page = document.pages.new((300, 200))
-    swatch = pylopdf.Document().pages.new((4, 2)).get_pixmap()
+    swatch = pylopdf.Document().pages.new((4, 2)).pixmap()
     with page.draw() as canvas:
         canvas.rect((10, 10, 110, 60), radius=6, fill=Color(1, 0, 0), stroke=Stroke(paint=Color(0, 0, 1), width=2))
         canvas.text("Canvas", (20, 90), size=12)

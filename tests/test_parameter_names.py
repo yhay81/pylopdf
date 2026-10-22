@@ -49,7 +49,7 @@ def test_show_pdf_page_takes_pymupdf_docsrc_keyword() -> None:
 
 
 def test_pixmap_save_takes_pymupdf_filename_keyword(tmp_path: Path) -> None:
-    pixmap = pylopdf.open(build_pdf(["Pixels"])).pages[0].get_pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True)
+    pixmap = pylopdf.open(build_pdf(["Pixels"])).pages[0].pixmap(matrix=pylopdf.Matrix(0.25, 0.25), alpha=True)
     target = tmp_path / "page.png"
 
     pixmap.save(filename=target)

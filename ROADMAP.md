@@ -132,7 +132,7 @@ properties and collections.
 | Document structure | lopdf | `doc.pages`, outline, page labels, attachments, metadata, optional content | page-tree, name-tree, and outline semantics with bounds |
 | Content model | hayro reads, krilla writes | `Page.content()` items, the `Page.draw()` canvas, new documents | the shared types and the conversion between engines |
 | Understanding | — | text, words, layout, search, tables, Markdown, tagged structure, OCR | reading order, tables, Markdown, OCR on RTen |
-| Rendering | hayro, vello_cpu, hayro-svg | `Page.render()`, `Page.svg()`, `Pixmap` | encoders, parallel batches, cache reuse |
+| Rendering | hayro, vello_cpu, hayro-svg | `Page.pixmap()`, `Page.svg()`, `Document.render()`, `Pixmap` | encoders, parallel batches, cache reuse |
 | Interaction | lopdf; appearances through krilla | annotations, links, form fields, widgets, flattening | appearance planning, AcroForm semantics |
 | Rewriting | pylopdf's content engine over lopdf; hayro verifies | redaction, sanitization, content cleaning, recoloring, image rewriting | content rewriting and its verification |
 
@@ -336,7 +336,7 @@ the canvas.
   table is the work list. Constants become enum members only, collections
   replace families of methods (`doc.pages`, `page.annotations`, `page.links`,
   `doc.outline`, and `doc.form`), computed results take noun names
-  (`page.text()`, `page.render()`), and pymupdf's duplicates and conveniences
+  (`page.text()`, `page.pixmap()`), and pymupdf's duplicates and conveniences
   go.
 - The codemod and the hints migrate pymupdf code and pylopdf 0.15 code alike;
   `api/pylopdf-0.15.json` lists the 0.15 names each step removes.
@@ -366,8 +366,14 @@ the canvas.
   replaces `get_images()`; the fonts, Form XObjects, color spaces, and
   graphics states of `page.resources` follow with the content model's font
   identity.
-- Still to come, each with its codemod rules: rendering, document
-  properties, interaction, writing, and the constants and records.
+- Done: rendering entry points. `page.pixmap()`, `page.svg()`, and
+  `doc.render()` replace `get_pixmap()`, `get_svg_image()`, and
+  `render_pages()`, with `dpi` and `matrix` exclusive and an `annotations`
+  option. `pixmap()` is named after its result instead of DESIGN.md's first
+  `render()`, which 0.15 used for a method that returned PNG bytes.
+- Still to come, each with its codemod rules: the `Pixmap` value (channels,
+  gray, JPEG output, `from_array`), document properties, interaction,
+  writing, and the constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -391,7 +397,7 @@ engine's maintainer.
 | hayro | A linear search for the end of inline image data, and an operand stack that holds the 33 operands of a DeviceN `scn` | quadratic content parsing, and content that stops early |
 | hayro | No panic on mismatched color components (LaurenzV/hayro#1546) and on the remaining malformed-input panics | reliance on `contain_renderer_panics` |
 | hayro | Interpretation over an object source that is not file bytes, such as lopdf's graph | `object_recovery.rs`, the serialized snapshots, and the cost of reserializing after edits |
-| hayro | Thread-safe render caches, a thread count (LaurenzV/hayro#1317), and faster stencil masks (LaurenzV/hayro#1315) | the per-thread cache slots in `render_cache.rs`; shared caches across `render_pages` workers |
+| hayro | Thread-safe render caches, a thread count (LaurenzV/hayro#1317), and faster stencil masks (LaurenzV/hayro#1315) | the per-thread cache slots in `render_cache.rs`; shared caches across `Document.render` workers |
 | hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | rendering options |
 | hayro-svg | Text kept as text | `svg(text_as_path=False)` |
 | lopdf | A public object parser and serializer | pylopdf's own value conversion |

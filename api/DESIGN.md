@@ -38,7 +38,7 @@ them.
   `page.annotations` and `page.links` are sequences with `add`.
 - **Computed results** are methods named after what they return, with options
   as keyword-only parameters: `page.text()`, `page.words()`,
-  `page.layout()`, `page.tables()`, `page.content()`, `page.render()`, and
+  `page.layout()`, `page.tables()`, `page.content()`, `page.pixmap()`, and
   `page.svg()`.
 - **Actions** are verbs: `save`, `select`, `unlock`, `apply_ocr`, `redact`,
   and `sanitize`.
@@ -162,7 +162,7 @@ pylopdf.open(source) / pylopdf.Document()
    ├─ pages: Pages ── sequence of Page
    │  └─ Page ─────── content()                          hayro
    │                  text(), words(), layout(), search(), tables(), markdown()
-   │                  render(), svg()                    hayro
+   │                  pixmap(), svg()                    hayro
    │                  draw() → Canvas                    krilla
    │                  annotations, links, widgets, resources, boxes
    ├─ render(), text(), markdown()   batched over pages
@@ -268,9 +268,9 @@ interpret the page separately and agree with it on the bundled corpus.
 
 | API | Notes |
 | --- | --- |
-| `page.render(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` → `Pixmap` | `dpi` and `matrix` are exclusive. |
-| `doc.render(pages=None, *, ..., format="png", workers=None, max_size=...)` → `list[bytes]` | The parallel batch, with the options of `page.render()`. |
-| `page.svg(*, matrix=None, text_as_path=True)` → `str` | |
+| `page.pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` → `Pixmap` | `dpi` and `matrix` are exclusive. Named after its result; 0.15's `Page.render()` returned PNG bytes, and a `Pixmap` supports the buffer protocol, so reusing that name would have let `path.write_bytes(page.render())` write raw pixels without an error. |
+| `doc.render(pages=None, *, ..., format="png", workers=None, max_size=...)` → `list[bytes]` | The parallel batch of encoded pages, with the options of `page.pixmap()`. |
+| `page.svg(*, annotations=True, max_size=...)` → `str` | Text is drawn as paths at 72 dpi; hayro-svg takes no transform. |
 | `Pixmap` | `width`, `height`, `channels`, `alpha`, `stride`, `colorspace`, and the buffer protocol (`memoryview(pixmap)`, `numpy.asarray(pixmap)`); `Pixmap.from_array(...)`; `to_bytes(format="png", *, quality=95)`; `save(path, /, *, format=None, quality=95)`. Image processing belongs to NumPy, Pillow, and OpenCV through tested recipes. |
 
 ## 8. Writing
@@ -449,7 +449,7 @@ hint.
 | `get_images(full=)` | `page.resources.images` |
 | `annots()`, `add_highlight_annot(...)` | `page.annotations`, `page.annotations.add(Highlight(...))` |
 | `get_links()`, `insert_link(link)` | `page.links`, `page.links.add(rect, target)` |
-| `get_pixmap(...)`, `get_svg_image(...)` | `render(...)`, `svg(...)` |
+| `get_pixmap(...)`, `get_svg_image(...)` | `pixmap(...)`, `svg(...)` |
 | `insert_text`, `insert_textbox`, `insert_image`, `show_pdf_page`, `draw_*`, `new_shape()` and `Shape` | `page.draw()` and `Canvas` |
 | `get_text_ocr(...)`, `insert_ocr_text_layer(words)` | `ocr(...)`, `apply_ocr(words=...)` |
 | `Pixmap.n`, `samples`, `tobytes()`, `save(filename)` | `channels`, the buffer protocol, `to_bytes(format=...)`, `save(path, *, format=None)` |

@@ -42,10 +42,10 @@ OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "search_for": lambda doc: doc.pages[0].search("PAGE"),
     "find_tables": lambda doc: doc.pages[0].tables(),
     "content": lambda doc: doc.pages[0].content(),
-    "get_pixmap": lambda doc: doc.pages[0].get_pixmap(alpha=True),
-    "render_page": lambda doc: doc.pages[0].get_pixmap(alpha=True).tobytes(),
-    "render_pages": lambda doc: doc.render_pages(alpha=True, workers=2),
-    "render_page_svg": lambda doc: doc.pages[0].get_svg_image(),
+    "get_pixmap": lambda doc: doc.pages[0].pixmap(alpha=True),
+    "render_page": lambda doc: doc.pages[0].pixmap(alpha=True).tobytes(),
+    "render_pages": lambda doc: doc.render(alpha=True, workers=2),
+    "render_page_svg": lambda doc: doc.pages[0].svg(),
     "to_markdown": lambda doc: doc.markdown(),
     "rewrite_images": lambda doc: doc.rewrite_images(quality=75),
 }
@@ -630,7 +630,7 @@ def test_binary_inline_image_data_is_not_tokenized() -> None:
     doc = pylopdf.open(page_content(_inline_image(data)))
 
     assert "PAGE TEXT" in doc.pages[0].text()
-    assert doc.pages[0].get_pixmap(alpha=True).width == 300
+    assert doc.pages[0].pixmap(alpha=True).width == 300
     assert len(doc.pages[0].content().images) == 1
 
 
@@ -724,7 +724,7 @@ def test_the_image_keyword_in_ordinary_text_is_harmless() -> None:
     doc = pylopdf.open(page_content(content))
 
     assert "BIOGRAPHY" in doc.pages[0].text()
-    assert doc.pages[0].get_pixmap(alpha=True).width == 300
+    assert doc.pages[0].pixmap(alpha=True).width == 300
 
 
 def test_stream_objects_inside_content_are_refused() -> None:
@@ -743,8 +743,8 @@ def test_refusal_is_per_page() -> None:
     assert doc.pages[1].text().strip() == "PAGE TEXT"
     assert _refusal(doc.pages[0].text).code == CODE
     assert doc.pages[1].text().strip() == "PAGE TEXT"
-    assert doc.render_pages([1], alpha=True)
-    assert _refusal(doc.render_pages).code == CODE
+    assert doc.render([1], alpha=True)
+    assert _refusal(doc.render).code == CODE
     assert _refusal(doc.text).code == CODE
     assert "PAGE TEXT" in doc.text(pages=[1])
 
@@ -785,7 +785,7 @@ def test_image_data_is_not_content() -> None:
     doc = pylopdf.open(data)
 
     assert "PAGE TEXT" in doc.pages[0].text()
-    assert doc.pages[0].get_pixmap(alpha=True).width == 300
+    assert doc.pages[0].pixmap(alpha=True).width == 300
 
 
 def test_listing_a_deep_form_is_enough_to_refuse_the_page() -> None:
@@ -799,7 +799,7 @@ def test_listing_a_deep_form_is_enough_to_refuse_the_page() -> None:
 def test_every_appearance_state_is_checked() -> None:
     """Read every state of a check box, of which hayro draws one, without asking which."""
     drawn = pylopdf.open(appearance_state("0 0 1 rg 0 0 190 50 re f"))
-    assert tuple(drawn.pages[0].get_pixmap(clip=(20, 110, 40, 130), alpha=True).samples[:3]) == (0, 0, 255)
+    assert tuple(drawn.pages[0].pixmap(clip=(20, 110, 40, 130), alpha=True).samples[:3]) == (0, 0, 255)
 
     # `/AS` selects the shallow `/On`, the only state hayro draws, and `/Off` holds the deep content.
     doc = pylopdf.open(appearance_state(_show(_arrays(LIMIT + 1)), holder="/Off"))
@@ -842,5 +842,5 @@ def test_real_world_pages_pass_the_check() -> None:
     ):
         doc = pylopdf.open(root / name)
         assert doc.text() is not None
-        assert doc.render_pages([0], alpha=True)
+        assert doc.render([0], alpha=True)
         doc.rewrite_images(quality=75)

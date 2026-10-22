@@ -2139,7 +2139,7 @@
           "kind": "property",
           "returns": "Permissions"
         },
-        "render_pages": {
+        "render": {
           "kind": "method",
           "signature": {
             "parameters": [
@@ -2154,16 +2154,16 @@
                 "name": "pages"
               },
               {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
                 "annotation": "float | None",
                 "default": null,
                 "kind": "keyword_only",
                 "name": "dpi"
+              },
+              {
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
               },
               {
                 "annotation": "bool",
@@ -2176,6 +2176,12 @@
                 "default": null,
                 "kind": "keyword_only",
                 "name": "background"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "annotations"
               },
               {
                 "annotation": "int | None",
@@ -6408,78 +6414,6 @@
             "returns": "list[LinkInfo]"
           }
         },
-        "get_pixmap": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
-                "annotation": "float | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "dpi"
-              },
-              {
-                "annotation": "Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "clip"
-              },
-              {
-                "annotation": "bool",
-                "default": false,
-                "kind": "keyword_only",
-                "name": "alpha"
-              },
-              {
-                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "background"
-              }
-            ],
-            "returns": "Pixmap"
-          }
-        },
-        "get_svg_image": {
-          "kind": "method",
-          "signature": {
-            "parameters": [
-              {
-                "kind": "positional_or_keyword",
-                "name": "self"
-              },
-              {
-                "annotation": "Matrix | Sequence[float] | None",
-                "default": null,
-                "kind": "keyword_only",
-                "name": "matrix"
-              },
-              {
-                "annotation": "bool",
-                "default": true,
-                "kind": "keyword_only",
-                "name": "text_as_path"
-              },
-              {
-                "annotation": "int | None",
-                "default": 67108864,
-                "kind": "keyword_only",
-                "name": "max_size"
-              }
-            ],
-            "returns": "str"
-          }
-        },
         "index": {
           "kind": "property",
           "returns": "int"
@@ -6890,6 +6824,54 @@
             "returns": "list[OcrWord]"
           }
         },
+        "pixmap": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "float | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "dpi"
+              },
+              {
+                "annotation": "Matrix | Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "matrix"
+              },
+              {
+                "annotation": "Sequence[float] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "clip"
+              },
+              {
+                "annotation": "bool",
+                "default": false,
+                "kind": "keyword_only",
+                "name": "alpha"
+              },
+              {
+                "annotation": "tuple[int, int, int] | tuple[int, int, int, int] | None",
+                "default": null,
+                "kind": "keyword_only",
+                "name": "background"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "annotations"
+              }
+            ],
+            "returns": "Pixmap"
+          }
+        },
         "rect": {
           "kind": "property",
           "returns": "Rect"
@@ -7048,6 +7030,30 @@
               }
             ],
             "returns": "int"
+          }
+        },
+        "svg": {
+          "kind": "method",
+          "signature": {
+            "parameters": [
+              {
+                "kind": "positional_or_keyword",
+                "name": "self"
+              },
+              {
+                "annotation": "bool",
+                "default": true,
+                "kind": "keyword_only",
+                "name": "annotations"
+              },
+              {
+                "annotation": "int | None",
+                "default": 67108864,
+                "kind": "keyword_only",
+                "name": "max_size"
+              }
+            ],
+            "returns": "str"
           }
         },
         "tables": {

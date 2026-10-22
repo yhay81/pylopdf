@@ -88,7 +88,7 @@ def test_successful_lookups_never_reach_the_hints() -> None:
 def test_pylopdf_015_names_raise_hinted_attribute_errors() -> None:
     with pytest.raises(AttributeError, match=r"peek_metadata is probe in pylopdf"):
         _ = pylopdf.peek_metadata  # ty: ignore[unresolved-attribute]
-    with pytest.raises(AttributeError, match=r"Page\.render is Page\.get_pixmap in pylopdf"):
+    with pytest.raises(AttributeError, match=r"Page\.render is Page\.pixmap in pylopdf"):
         _ = pylopdf.Document().pages.new().render  # ty: ignore[unresolved-attribute]
     with pytest.raises(AttributeError, match=r"pylopdf 0\.15's TextPage is Layout"):
         _ = pylopdf.TextPage  # ty: ignore[unresolved-attribute]
@@ -283,6 +283,28 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "import fitz\nsize = (doc.extract_image(12)['width'], doc.extract_image(12)['bpc'])\n",
             "size = (doc.images[12].width, doc.images[12].bits)",
         ),
+        (
+            "import fitz\npix = page.get_pixmap(matrix=fitz.Matrix(2, 2), annots=False, colorspace=fitz.csRGB)\n",
+            "pix = page.pixmap(matrix=pylopdf.Matrix(2, 2), annotations=False)",
+        ),
+        ("import fitz\npix = page.get_pixmap(matrix=m, dpi=150)\n", "pix = page.pixmap(dpi=150)"),
+        ("import fitz\npix = page.get_pixmap(matrix=m, dpi=None)\n", "pix = page.pixmap(matrix=m)"),
+        ("import fitz\npix = doc.get_page_pixmap(3, dpi=72)\n", "pix = doc.pages[3].pixmap(dpi=72)"),
+        ("import fitz\nsvg = page.get_svg_image(matrix=fitz.Identity)\n", "svg = page.svg()"),
+        (
+            "import pylopdf\npngs = doc.render_pages([0, 1], matrix=m, dpi=144, workers=2)\n",
+            "pngs = doc.render([0, 1], dpi=144, workers=2)",
+        ),
+        (
+            "import pylopdf\npng = doc.render_page(0, 2.0, max_size=9)\n",
+            "png = doc.pages[0].pixmap(dpi=144, alpha=True).tobytes(max_size=9)",
+        ),
+        (
+            "import pylopdf\npng = doc.render_page(0, s, background=(1, 2, 3))\n",
+            "png = doc.pages[0].pixmap(dpi=72 * (s), alpha=True, background=(1, 2, 3)).tobytes()",
+        ),
+        ("import pylopdf\nsvg = doc.render_page_svg(1, max_size=9)\n", "svg = doc.pages[1].svg(max_size=9)"),
+        ("import pylopdf\nsvg = page.render_svg()\n", "svg = page.svg()"),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -478,6 +500,8 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import fitz\nimages = page.get_images()\n", "page.resources.images returns ImageObject handles"),
         ("import fitz\nimage = doc.extract_image(xref)\n", "doc.images[xref].extract() returns an EncodedImage"),
         ("import fitz\nmask = doc.extract_image(xref)['smask']\n", "returns an EncodedImage"),
+        ("import fitz\npix = page.get_pixmap(colorspace=fitz.csGRAY)\n", "Page.get_pixmap is Page.pixmap"),
+        ("import fitz\nsvg = page.get_svg_image(text_as_path=False)\n", "Page.get_svg_image is Page.svg"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

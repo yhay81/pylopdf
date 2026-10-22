@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG bytes |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG bytes |
 | `images` | 객체 번호별 이미지 객체. [이미지](#images) 참조 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 이미지를 다운샘플링하고 재압축해 파일 크기를 줄임 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 글꼴. CJK extra가 자동으로 설정 |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 
 | 멤버 | 용도 |
 |---|---|
-| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)으로 렌더링 |
-| `get_svg_image(*, matrix=None, text_as_path=True)` | SVG 문자열로 렌더링 |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | [`Pixmap`](#pixmap)으로 렌더링 |
+| `svg(*, annotations=True, max_size=64 MiB)` | 텍스트를 패스로 그린 SVG 문자열로 렌더링 |
 | `resources` | 페이지의 리소스가 닿는 것. `resources.images`가 이미지 객체를 나열합니다. [이미지](#images) 참조 |
 
-pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`가 `matrix`보다 우선하며, `matrix`는 `Matrix(2, 2)` 같은 배율 행렬이어야 합니다. `clip`은 페이지의 일부만 렌더링합니다.
+pixmap은 기본적으로 72 dpi, 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`와 `matrix` 중 하나만 전달합니다. 행렬은 `Matrix(2, 2)`처럼 배율만 바꾸는 것이어야 합니다. `clip`은 페이지의 일부만 렌더링하고, `annotations=False`는 주석과 폼 위젯을 그리지 않습니다.
 
 ### 페이지 기하 { #page-geometry }
 

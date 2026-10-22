@@ -119,7 +119,7 @@ def _build_button_state_pdf(states: str, *, indirect_kids: bool = False) -> byte
 
 
 def _opaque_pixels(doc: pylopdf.Document, clip: tuple[float, float, float, float]) -> int:
-    pix = doc.pages[0].get_pixmap(clip=clip, alpha=True)
+    pix = doc.pages[0].pixmap(clip=clip, alpha=True)
     return sum(alpha != 0 for alpha in pix.samples[3::4])
 
 
@@ -501,7 +501,7 @@ def test_field_quadding_overrides_acroform_default(parent: str, child: str, extr
 def test_fill_checkbox_with_bool() -> None:
     doc = pylopdf.open(_build_form_pdf())
     doc.set_form_field("agree", True)
-    on_pixels = doc.pages[0].get_pixmap(clip=(45, 107, 75, 137), alpha=True).samples
+    on_pixels = doc.pages[0].pixmap(clip=(45, 107, 75, 137), alpha=True).samples
     fields = {f["name"]: f["value"] for f in doc.get_form_fields()}
     assert fields["agree"] == "Yes"  # Resolve the AP on-state name automatically.
     data = doc.to_bytes()
@@ -512,14 +512,14 @@ def test_fill_checkbox_with_bool() -> None:
 
     doc.set_form_field("agree", False)
     assert {f["name"]: f["value"] for f in doc.get_form_fields()}["agree"] == "Off"
-    assert doc.pages[0].get_pixmap(clip=(45, 107, 75, 137), alpha=True).samples != on_pixels
+    assert doc.pages[0].pixmap(clip=(45, 107, 75, 137), alpha=True).samples != on_pixels
 
 
 def test_state_appearance_render_snapshot_obeys_interpretation_budget() -> None:
     doc = pylopdf.open(_build_form_pdf(), limits=pylopdf.DocumentLimits(max_interpretation_size=1))
     doc.set_form_field("agree", True)
     with pytest.raises(pylopdf.LimitError) as error:
-        doc.pages[0].get_pixmap(alpha=True)
+        doc.pages[0].pixmap(alpha=True)
     assert error.value.code == "interpretation_size"
     assert {field["name"]: field["value"] for field in doc.get_form_fields()}["agree"] == "Yes"
 
@@ -544,7 +544,7 @@ def test_nonempty_custom_button_appearance_is_preserved() -> None:
     green_square = "0 1 0 rg 0 0 20 20 re f"
     doc = pylopdf.open(_build_form_pdf(checkbox_on_content=green_square))
     doc.set_form_field("agree", True)
-    pix = doc.pages[0].get_pixmap(clip=(50, 112, 70, 132), alpha=True)
+    pix = doc.pages[0].pixmap(clip=(50, 112, 70, 132), alpha=True)
     center = (10 * pix.width + 10) * pix.n
     assert tuple(pix.samples[center : center + 3]) == (0, 255, 0)
     assert green_square.encode() in doc.to_bytes()
@@ -960,7 +960,7 @@ def _kid_ink(doc: pylopdf.Document, count: int = 3) -> list[int]:
 
 def _kid_colors(doc: pylopdf.Document, count: int = 3) -> list[tuple[int, ...]]:
     """Sample the RGB color at the center of each of the first `count` kid widgets."""
-    pix = doc.pages[0].get_pixmap(alpha=True)
+    pix = doc.pages[0].pixmap(alpha=True)
     centers = ((75 * pix.width + 50 + 100 * index) * pix.n for index in range(count))
     return [tuple(pix.samples[center : center + 3]) for center in centers]
 

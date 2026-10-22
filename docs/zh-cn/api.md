@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG bytes |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG bytes |
 | `images` | 按对象编号排列的图像对象；参见[图像](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 对图像降采样并重新压缩，以减小文件 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 
 | 成员 | 用途 |
 |---|---|
-| `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | 渲染为[`Pixmap`](#pixmap) |
-| `get_svg_image(*, matrix=None, text_as_path=True)` | 渲染为SVG字符串 |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | 渲染为[`Pixmap`](#pixmap) |
+| `svg(*, annotations=True, max_size=64 MiB)` | 渲染为SVG字符串，文本绘制为路径 |
 | `resources` | 页面资源所及的内容：`resources.images`列出其图像对象；参见[图像](#images) |
 
-与pymupdf相同，pixmap默认为白底RGB，`alpha=True`时为RGBA。`dpi`优先于`matrix`，而`matrix`必须是缩放矩阵，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分。
+pixmap默认为72 dpi的白底RGB，`alpha=True`时为RGBA。`dpi`和`matrix`只能传入其一；矩阵必须只做缩放，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分，`annotations=False`不绘制注释和表单控件。
 
 ### 页面几何 { #page-geometry }
 
