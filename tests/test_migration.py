@@ -267,6 +267,22 @@ def test_codemod_leaves_other_modules_alone(migrate_source: Migrate) -> None:
             "rows = page.tables(strategy='text', clip=r)[0].rows",
         ),
         ("import fitz\nn = len(page.find_tables().tables)\n", "n = len(page.tables())"),
+        (
+            "import fitz\nxrefs = [img[0] for img in page.get_images(full=True)]\n",
+            "xrefs = [img.xref for img in page.resources.images]",
+        ),
+        (
+            "import fitz\nfor xref, smask, w, h, *_ in doc.get_page_images(0):\n    print(xref, w * h)\n",
+            "for image in doc.pages[0].resources.images:\n    print(image.xref, image.width * image.height)",
+        ),
+        (
+            "import fitz\ndata = doc.extract_image(xref)['image']\n",
+            "data = doc.images[xref].extract().data",
+        ),
+        (
+            "import fitz\nsize = (doc.extract_image(12)['width'], doc.extract_image(12)['bpc'])\n",
+            "size = (doc.images[12].width, doc.images[12].bits)",
+        ),
     ],
 )
 def test_codemod_rules(migrate_source: Migrate, source: str, expected: str) -> None:
@@ -459,6 +475,9 @@ def test_codemod_leaves_current_pylopdf_code_alone(migrate_source: Migrate, sour
         ("import pylopdf\ntable = page.find_tables()[0]\nsource = table.page\n", "Keep the page whose tables()"),
         ("import fitz\ninfos = page.get_image_info(hashes=True)\n", "Page.get_image_info is Page.content"),
         ("import fitz\npaths = page.get_cdrawings(callback=print)\n", "Read page.content().paths"),
+        ("import fitz\nimages = page.get_images()\n", "page.resources.images returns ImageObject handles"),
+        ("import fitz\nimage = doc.extract_image(xref)\n", "doc.images[xref].extract() returns an EncodedImage"),
+        ("import fitz\nmask = doc.extract_image(xref)['smask']\n", "returns an EncodedImage"),
     ],
 )
 def test_codemod_marks_what_it_cannot_rewrite(migrate_source: Migrate, source: str, hint: str) -> None:

@@ -97,9 +97,10 @@ risky. When processing untrusted files:
   127 UTF-8 bytes before PyO3 copying or password-KDF work. Refusals use
   `password_input_size`; encryption refusal precedes document mutation and
   output creation.
-- `Page.get_images()` rejects partial results above 4,096 placements,
-  64,000,000 cumulative source pixels, or 64 MiB of returned payloads per page;
-  Flate-wrapped JPEG passthrough is decompressed only to the remaining budget.
+- `ImageObject.extract()` refuses an image above 64,000,000 source pixels or
+  64 MiB of returned data; Flate-wrapped JPEG passthrough is decompressed only
+  to the remaining budget. `ImageObject.to_pixmap()` keeps the render limits of
+  page rendering.
 - `Attachment.read()` bounds every attachment decoding layer to 64 MiB by
   default and raises `LimitError` with code `embedded_file_size`. Raise
   `max_size=` for a known large attachment; `None` is an explicit unbounded

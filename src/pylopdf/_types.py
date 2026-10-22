@@ -97,57 +97,6 @@ FontLanguage: TypeAlias = Literal["ar", "he", "hi", "ja", "ko", "th", "zh-CN", "
 CjkFontLanguage: TypeAlias = Literal["ja", "ko", "zh-CN", "zh-TW"]
 
 
-class ImageItem(NamedTuple):
-    """One image XObject of :meth:`Page.get_images`, in pymupdf's tuple order."""
-
-    xref: int
-    smask: int
-    width: int
-    height: int
-    bpc: int
-    colorspace: str
-    alt_colorspace: str
-    name: str
-    filter: str
-
-
-class ImageItemFull(NamedTuple):
-    """One item of ``get_images(full=True)``: :class:`ImageItem` plus ``referencer``.
-
-    ``referencer`` is the xref of the Form XObject whose resources list the
-    image, or 0 when the page's own resources do.
-    """
-
-    xref: int
-    smask: int
-    width: int
-    height: int
-    bpc: int
-    colorspace: str
-    alt_colorspace: str
-    name: str
-    filter: str
-    referencer: int
-
-
-ExtractedImage = TypedDict(
-    "ExtractedImage",
-    {
-        "ext": Literal["jpeg", "png"],
-        "smask": int,
-        "width": int,
-        "height": int,
-        "colorspace": int,
-        "cs-name": str,
-        "bpc": int,
-        "xres": int,
-        "yres": int,
-        "image": bytes,
-    },
-)
-ExtractedImage.__doc__ = """The image that :meth:`Document.extract_image` returns, with pymupdf's keys."""
-
-
 class ImageCompressionResult(TypedDict):
     """Summary returned by :meth:`Document.rewrite_images`."""
 
@@ -296,9 +245,6 @@ for _public in (
     TextAlign,
     Permissions,
     Access,
-    ImageItem,
-    ImageItemFull,
-    ExtractedImage,
     ImageCompressionResult,
     LinkInfo,
     FormFieldInfo,

@@ -109,7 +109,7 @@ the concept and API overview.
     `content_model.rs` and `src/pylopdf/_content.py`.
   - Understanding: `extract.rs`, `ocr.rs`, `ocr_engine.rs`,
     `ocr_engine_emscripten.rs`; `document/extraction.rs`;
-    `src/pylopdf/_tables.py`, `_markdown.py`, and `_ocr.py`.
+    `src/pylopdf/_tables.py`, `_markdown.py`, `_ocr.py`, and `_images.py`.
   - Rendering: `pixmap.rs`, `render_cache.rs`; `document/rendering.rs`;
     `src/pylopdf/_pixmap.py`.
   - Writing: `builder.rs`, `canvas.rs`, `draw.rs`, `generate.rs`,
@@ -355,16 +355,24 @@ the concept and API overview.
   `content().paths` and `content().images` replace pymupdf's `get_drawings`
   and `get_image_info`. `tests/test_content_model.py` requires the glyph
   origins of every corpus page to equal those of `layout(chars=True)`.
-- `Page.get_images(full=)` lists the image XObjects that the page's inherited
-  resources and, depth first, its Form XObjects' resources reach, once each in
-  resource order, from the lopdf graph (`page_image_inventory`, at most 4,096
-  images and Forms and 32 levels, `image_inventory_count`).
-  `page.content().images` describes drawn placements.
-  `Document.extract_image(xref)` copies the image without its masks, and the
-  objects it reaches, into a one-page document drawing it at pixel size,
-  runs a fresh `ContentGuard` on it, and decodes it with the placement
-  extractor below inside `contain_renderer_panics`. The core
-  `extract_images` placement decoder stays as the test hook behind
+- `src/pylopdf/_images.py` holds the image handles. `doc.images` (`Images`)
+  maps the object number of every image XObject stream (`image_xrefs`) to an
+  `ImageObject`, and `page.resources.images` lists the ones that the page's
+  inherited resources and, depth first, its Form XObjects' resources reach,
+  once each in resource order, from the lopdf graph (`page_image_inventory`,
+  at most 4,096 images and Forms and 32 levels, `image_inventory_count`);
+  `page.content().images` describes drawn placements. A handle stores the
+  document, the object epoch, and the object number, and reads the stream
+  dictionary's facts (`image_facts`) on every access, raising
+  `StaleObjectError` once the object is no longer an image or the epoch
+  changed. `extract()` (`extract_image`) and `to_pixmap()` (`image_pixmap`)
+  copy the image, without its masks unless `to_pixmap(alpha=True)`, and the
+  objects it reaches into a one-page document drawing it at pixel size
+  (`image_snapshot`, within `max_interpretation_size` and at most 65,535
+  pixels a side), run a fresh `ContentGuard` on it, and decode or render it
+  inside `contain_renderer_panics`: `extract` with the placement extractor
+  below, `to_pixmap` with the page renderer over white or transparency. The
+  core `extract_images` placement decoder stays as the test hook behind
   `tests/conftest.py`'s `drawn_images`. It materializes each drawn placement
   as JPEG passthrough or PNG. Reject the complete result above 4,096 placements,
   64,000,000 cumulative source pixels, or 64 MiB of encoded payloads per page.

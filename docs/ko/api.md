@@ -98,7 +98,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 | 멤버 | 용도 |
 |---|---|
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 모든 페이지 또는 나열한 페이지를 순서대로 병렬 렌더링한 PNG bytes |
-| `extract_image(xref)` | pymupdf와 같은 키를 가진 이미지 하나. JPEG 데이터는 그대로, 다른 이미지는 PNG로 반환 |
+| `images` | 객체 번호별 이미지 객체. [이미지](#images) 참조 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 이미지를 다운샘플링하고 재압축해 파일 크기를 줄임 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 글꼴이 포함되지 않은 중국어, 일본어, 한국어 텍스트를 표시할 때 쓰는 글꼴. CJK extra가 자동으로 설정 |
 
@@ -150,7 +150,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 순서를 뒤집음
 |---|---|
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)으로 렌더링 |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | SVG 문자열로 렌더링 |
-| `get_images(*, full=False)` | 페이지가 사용하는 이미지 객체를 `ImageItem` 튜플로 |
+| `resources` | 페이지의 리소스가 닿는 것. `resources.images`가 이미지 객체를 나열합니다. [이미지](#images) 참조 |
 
 pymupdf와 마찬가지로 pixmap은 기본적으로 흰 바탕의 RGB이고, `alpha=True`이면 RGBA입니다. `dpi`가 `matrix`보다 우선하며, `matrix`는 `Matrix(2, 2)` 같은 배율 행렬이어야 합니다. `clip`은 페이지의 일부만 렌더링합니다.
 
@@ -252,6 +252,31 @@ with pylopdf.open("report.pdf") as doc:
 `text_runs=False`, `paths=False`, `images=False`는 그 종류의 항목을 만들지 않고 뺍니다. 그래서 텍스트가 많은 페이지에서 경로나 이미지만 읽으면 몇 배나 빨라집니다. `clip=`은 외접 상자가 주어진 사각형에 닿는 항목만 남기고, `annotations=False`는 주석의 모양을 뺍니다. 한 번의 호출이 읽는 글리프, 경로와 클립의 세그먼트, 선의 대시 길이, 항목은 합쳐서 `max_elements`까지이며 기본값은 262,144입니다.
 
 hayro가 아직 알려 주지 않는 정보는 모델에 없습니다. 색의 색 공간과 성분, 레이어 이름 같은 마크된 콘텐츠의 속성, `FontRef`가 가리키는 폰트 딕셔너리, 이미지 마스크의 객체입니다. 이들은 [엔진 작업](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)에 나열되어 있습니다.
+
+## 이미지 { #images }
+
+`doc.images`는 객체 번호를 문서의 이미지 객체에 대응시키고, `page.resources.images`는 페이지가 쓰는 Form XObject의 것을 포함해 페이지의 리소스가 닿는 이미지를 한 번씩 나열합니다. 모두 접근할 때마다 문서를 읽는 `ImageObject`입니다.
+
+| 멤버 | 의미 |
+|---|---|
+| `xref`, `obj` | 객체 번호와 [객체 모델](#low-level-objects)에서의 이미지 스트림 |
+| `width`, `height`, `bits` | 픽셀 단위 크기와 성분당 비트 수 |
+| `colorspace`, `alternate_colorspace` | `"DeviceRGB"`나 `"ICCBased"` 같은 색 공간과, 인덱스, ICC 기반, 분판 색 공간의 기반 또는 대체 색 공간 |
+| `filters` | `("DCTDecode",)`처럼 디코딩 순서대로의 스트림 필터 |
+| `soft_mask`, `mask`, `is_stencil` | 이미지 객체로서의 소프트 마스크와 스텐실 마스크, 이미지 자체가 스텐실 마스크인지 여부 |
+| `extract()` | 이미지 데이터를 `format`, `data`, `resolution`이 있는 `EncodedImage`로. JPEG 데이터는 저장된 그대로, 다른 이미지는 PNG로, 마스크는 포함하지 않음 |
+| `to_pixmap(*, alpha=False)` | 이미지의 픽셀을 [`Pixmap`](#pixmap)으로. 마스크가 없는 RGB, 또는 마스크가 투명도를 정하는 RGBA |
+
+```python
+from pathlib import Path
+
+with pylopdf.open("scan.pdf") as doc:
+    for image in doc.pages[0].resources.images:
+        encoded = image.extract()
+        Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
+```
+
+이미지가 그려지는 위치는 페이지 내용에 속합니다. `page.content(text_runs=False, paths=False).images`가 모든 배치를 상자, 행렬과 함께 나열합니다.
 
 ## 캔버스 { #canvas }
 
@@ -562,7 +587,7 @@ quad = area.morph(area.tl, Matrix(30))       # 한 모서리를 중심으로 30�
 
 상수는 pymupdf의 이름을 유지하며 열거형으로도 묶여 있습니다. `Permissions`(`PDF_PERM_*`), `LinkKind`(`LINK_*`), `TextAlign`(`TEXT_ALIGN_*`), `AnnotType`(`PDF_ANNOT_*`), `AnnotFlags`(`PDF_ANNOT_IS_*`)입니다. `Access`의 멤버는 `USER`와 `OWNER`이고, `Encryption`은 저장하는 파일을 암호화하는 방법을 나타냅니다. 페이지 내용의 열거형은 `BlendMode`, `FillRule`, `LineCap`, `LineJoin`, `TextRenderMode`, `ShadingType`, `SoftMaskType`, `ImageMask`입니다.
 
-텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `ImageItem`과 `OutlineEntry`는 네임드 튜플입니다.
+텍스트, 표, OCR, 페이지 내용의 결과는 레코드, 즉 `Word`, `Block`, `Line`, `Span`, `Char`, `Layout`, `Table`, `TableDiagnostics`, `OcrWord`, `Path`, `Image` 같은 변경할 수 없는 데이터클래스(frozen dataclass)입니다. API가 반환하는 그 밖의 딕셔너리는 일반 `dict` 객체이며, 타입 검사기를 위해 `LinkInfo`, `FormFieldInfo`, `DocumentMetadata` 같은 `TypedDict` 클래스로 기술됩니다. `OutlineEntry`는 네임드 튜플입니다.
 
 ## 예외와 경고 { #exceptions }
 

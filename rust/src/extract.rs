@@ -4260,7 +4260,8 @@ fn image_bbox(transform: Affine, width: f64, height: f64) -> BBox {
 ///
 /// Rendering uses Fast/fdeflate: Balanced is tens of times slower for about 10%
 /// smaller output and makes PNG the dominant render cost in benchmarks.
-/// `get_images` keeps Balanced because extracted images are stored artifacts.
+/// `ImageObject.extract` keeps Balanced because extracted images are stored
+/// artifacts.
 pub(crate) fn write_png<W: Write>(
     output: W,
     width: u32,
@@ -4611,37 +4612,6 @@ pub(crate) fn jpeg_resolution(data: &[u8]) -> (u32, u32) {
         }
     }
     (DEFAULT_IMAGE_RESOLUTION, DEFAULT_IMAGE_RESOLUTION)
-}
-
-/// Return the color components that a JPEG's start-of-frame segment declares.
-pub(crate) fn jpeg_components(data: &[u8]) -> Option<u8> {
-    let mut position = 2usize;
-    while position + 4 <= data.len() {
-        if data[position] != 0xFF {
-            position += 1;
-            continue;
-        }
-        let marker = data[position + 1];
-        if marker == 0xFF || (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
-            position += 2;
-            continue;
-        }
-        let length = usize::from(u16::from_be_bytes([data[position + 2], data[position + 3]]));
-        if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
-            return data.get(position + 9).copied();
-        }
-        position = position.checked_add(2 + length)?;
-    }
-    None
-}
-
-/// Return the color components of a PNG, not counting its alpha channel.
-pub(crate) fn png_components(data: &[u8]) -> Option<u8> {
-    match data.get(25)? {
-        0 | 3 | 4 => Some(1),
-        2 | 6 => Some(3),
-        _ => None,
-    }
 }
 
 /// Return an image dictionary's color components and color space name.

@@ -98,7 +98,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 | メンバ | 用途 |
 |---|---|
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 全ページ、または指定したページのPNGのbytesを順番どおりに。並列にレンダリングします |
-| `extract_image(xref)` | 画像1つをpymupdfと同じキーで。JPEGデータはそのまま、ほかの画像はPNGで返します |
+| `images` | オブジェクト番号ごとの画像オブジェクト。[画像](#images)を参照 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 画像を縮小・再圧縮してファイルを小さくします |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォント。CJKのextraを入れると自動で設定されます |
 
@@ -150,7 +150,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 |---|---|
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | [`Pixmap`](#pixmap)へレンダリング |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | SVG文字列へレンダリング |
-| `get_images(*, full=False)` | ページが使う画像オブジェクトを`ImageItem`タプルで |
+| `resources` | ページのリソースが届くもの。`resources.images`が画像オブジェクトを並べます。[画像](#images)を参照 |
 
 pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=True`でRGBAです。`dpi`は`matrix`より優先され、`matrix`は`Matrix(2, 2)`のような拡大縮小の行列でなければなりません。`clip`はページの一部だけをレンダリングします。
 
@@ -252,6 +252,31 @@ with pylopdf.open("report.pdf") as doc:
 `text_runs=False`、`paths=False`、`images=False`はその種類の項目を作らずに除きます。テキストの多いページのパスや画像だけを読むなら、何倍も速くなります。`clip=`は外接矩形が指定の矩形に接する項目だけを残し、`annotations=False`は注釈の外観を除きます。1回の呼び出しで読むグリフ、パスとクリップのセグメント、線の破線の長さ、項目は合わせて`max_elements`まで、既定では262,144です。
 
 hayroがまだ報告しない情報はモデルにありません。色の色空間と成分、レイヤー名などマーク付きコンテンツのプロパティ、`FontRef`の元になるフォント辞書、画像マスクのオブジェクトです。これらは[エンジンの作業](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)に挙げています。
+
+## 画像 { #images }
+
+`doc.images`はオブジェクト番号から文書の画像オブジェクトへの対応で、`page.resources.images`はページのリソースが届く画像を、ページが使うForm XObjectのものも含めて1回ずつ並べます。どれもアクセスのたびに文書を読む`ImageObject`です。
+
+| メンバー | 意味 |
+|---|---|
+| `xref`, `obj` | オブジェクト番号と、[オブジェクトモデル](#low-level-objects)での画像のストリーム |
+| `width`, `height`, `bits` | ピクセル単位のサイズと成分あたりのビット数 |
+| `colorspace`, `alternate_colorspace` | `"DeviceRGB"`や`"ICCBased"`などの色空間と、インデックス、ICCベース、分版の色空間のベースまたは代替の色空間 |
+| `filters` | `("DCTDecode",)`のような、デコードする順のストリームのフィルター |
+| `soft_mask`, `mask`, `is_stencil` | 画像オブジェクトとしてのソフトマスクとステンシルマスク、画像自体がステンシルマスクかどうか |
+| `extract()` | 画像のデータを`format`、`data`、`resolution`を持つ`EncodedImage`で。JPEGデータは格納されたまま、ほかの画像はPNGで、マスクは含みません |
+| `to_pixmap(*, alpha=False)` | 画像のピクセルを[`Pixmap`](#pixmap)で。マスクを含まないRGB、またはマスクが透明度を決めるRGBA |
+
+```python
+from pathlib import Path
+
+with pylopdf.open("scan.pdf") as doc:
+    for image in doc.pages[0].resources.images:
+        encoded = image.extract()
+        Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
+```
+
+画像が描かれる位置はページの内容に属します。`page.content(text_runs=False, paths=False).images`がすべての配置をボックスと行列とともに並べます。
 
 ## キャンバス { #canvas }
 
@@ -562,7 +587,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 
-テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`ImageItem`と`OutlineEntry`は名前付きタプルです。
+テキスト、表、OCR、ページの内容の結果はレコードで、`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`、`Image`などの変更できないデータクラス（frozen dataclass）です。APIが返すそのほかの辞書はただの`dict`で、型チェッカー向けに`LinkInfo`、`FormFieldInfo`、`DocumentMetadata`などの`TypedDict`クラスで記述しています。`OutlineEntry`は名前付きタプルです。
 
 ## 例外と警告 { #exceptions }
 

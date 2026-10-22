@@ -1,4 +1,4 @@
-"""Tests for extracting page images with Page.get_images."""
+"""Tests for decoding the images drawn on a page."""
 
 from __future__ import annotations
 

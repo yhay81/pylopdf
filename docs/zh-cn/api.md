@@ -98,7 +98,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 | 成员 | 用途 |
 |---|---|
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 并行渲染所有页面或列出的页面，按顺序返回PNG bytes |
-| `extract_image(xref)` | 以pymupdf的键返回单个图像；JPEG数据原样返回，其他图像以PNG返回 |
+| `images` | 按对象编号排列的图像对象；参见[图像](#images) |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 对图像降采样并重新压缩，以减小文件 |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | 用于显示未嵌入字体的中文、日语或韩语文本的字体；CJK extra会自动完成设置 |
 
@@ -150,7 +150,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 颠倒页面顺序
 |---|---|
 | `get_pixmap(*, matrix=None, dpi=None, clip=None, alpha=False, background=None)` | 渲染为[`Pixmap`](#pixmap) |
 | `get_svg_image(*, matrix=None, text_as_path=True)` | 渲染为SVG字符串 |
-| `get_images(*, full=False)` | 页面使用的图像对象，以`ImageItem`元组返回 |
+| `resources` | 页面资源所及的内容：`resources.images`列出其图像对象；参见[图像](#images) |
 
 与pymupdf相同，pixmap默认为白底RGB，`alpha=True`时为RGBA。`dpi`优先于`matrix`，而`matrix`必须是缩放矩阵，例如`Matrix(2, 2)`。`clip`只渲染页面的一部分。
 
@@ -252,6 +252,31 @@ with pylopdf.open("report.pdf") as doc:
 `text_runs=False`、`paths=False`和`images=False`不构建对应种类的项，因此只读取文本密集页面的路径或图像时会快很多倍。`clip=`只保留外接框与给定矩形相接的项，`annotations=False`不包含注释外观。一次调用读取的字形、路径与裁剪的线段、描边的虚线长度以及项合计最多为`max_elements`，默认为262,144。
 
 hayro尚未报告的信息不在模型中：颜色的色彩空间和分量、图层名称等标记内容属性、`FontRef`背后的字体字典，以及图像蒙版的对象。它们列在[引擎工作](https://github.com/yhay81/pylopdf/blob/main/ROADMAP.md#engine-work)中。
+
+## 图像 { #images }
+
+`doc.images`把对象编号映射到文档的图像对象，`page.resources.images`则列出页面资源所及的图像，包括页面所用Form XObject中的图像，每个只列一次。它们都是每次访问时读取文档的`ImageObject`：
+
+| 成员 | 含义 |
+|---|---|
+| `xref`、`obj` | 对象编号，以及图像在[对象模型](#low-level-objects)中的流 |
+| `width`、`height`、`bits` | 以像素计的尺寸和每个分量的位数 |
+| `colorspace`、`alternate_colorspace` | 色彩空间，如`"DeviceRGB"`或`"ICCBased"`，以及索引、ICC或分色色彩空间的基础或替代空间 |
+| `filters` | 按解码顺序排列的流过滤器，如`("DCTDecode",)` |
+| `soft_mask`、`mask`、`is_stencil` | 作为图像对象的软蒙版和模板蒙版，以及图像本身是否为模板蒙版 |
+| `extract()` | 以带有`format`、`data`和`resolution`的`EncodedImage`返回图像数据：JPEG数据按存储原样返回，其他图像以PNG返回，不含蒙版 |
+| `to_pixmap(*, alpha=False)` | 以[`Pixmap`](#pixmap)返回图像的像素：不含蒙版的RGB，或由蒙版决定透明度的RGBA |
+
+```python
+from pathlib import Path
+
+with pylopdf.open("scan.pdf") as doc:
+    for image in doc.pages[0].resources.images:
+        encoded = image.extract()
+        Path(f"image-{image.xref}.{encoded.format}").write_bytes(encoded.data)
+```
+
+图像画在何处属于页面内容：`page.content(text_runs=False, paths=False).images`列出每个放置及其框和矩阵。
 
 ## 画布 { #canvas }
 
@@ -562,7 +587,7 @@ quad = area.morph(area.tl, Matrix(30))       # 绕一个角旋转30度
 
 常量沿用pymupdf的名称，同时按枚举分组：`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）和`AnnotFlags`（`PDF_ANNOT_IS_*`）。`Access`的成员是`USER`和`OWNER`，`Encryption`描述如何加密保存的文件。页面内容的枚举是`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`和`ImageMask`。
 
-文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`和`Image`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`ImageItem`和`OutlineEntry`是具名元组。
+文本、表格、OCR和页面内容的结果是记录，即`Word`、`Block`、`Line`、`Span`、`Char`、`Layout`、`Table`、`TableDiagnostics`、`OcrWord`、`Path`和`Image`等不可变的数据类（frozen dataclass）。API返回的其他字典都是普通的`dict`对象，并通过`LinkInfo`、`FormFieldInfo`和`DocumentMetadata`等`TypedDict`类向类型检查器描述；`OutlineEntry`是具名元组。
 
 ## 异常与警告 { #exceptions }
 

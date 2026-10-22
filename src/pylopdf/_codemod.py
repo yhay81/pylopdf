@@ -610,9 +610,13 @@ TEXT_OPTIONS = {
     "dict": "{receiver}.layout().to_dict()",
     "rawdict": "{receiver}.layout(chars=True).to_dict()",
 }
-TEXT_RECORD_MESSAGES = {
+RECORD_MESSAGES = {
     "words": "page.words() returns Word records with text, bbox, block, line, and index instead of tuples.",
     "blocks": "page.layout().blocks holds Block records with text, bbox, and lines instead of tuples.",
+    "images": (
+        "page.resources.images returns ImageObject handles instead of tuples: read image.xref, width, height, "
+        "bits, colorspace, alternate_colorspace, filters, soft_mask, mask, and is_stencil."
+    ),
 }
 
 
@@ -656,8 +660,8 @@ def _get_text(migrator: _Migrator, receiver: str, args: _Arguments) -> str | Non
     option = _string_literal(bound.get("option", '"text"'))
     if option not in TEXT_OPTIONS:
         return None
-    if option in TEXT_RECORD_MESSAGES:
-        migrator.todo(TEXT_RECORD_MESSAGES[option])
+    if option in RECORD_MESSAGES:
+        migrator.todo(RECORD_MESSAGES[option])
     return TEXT_OPTIONS[option].format(receiver=receiver)
 
 
@@ -739,6 +743,41 @@ def _get_image_info(migrator: _Migrator, receiver: str, args: _Arguments) -> str
     return f"{receiver}.content(text_runs=False, paths=False).images"
 
 
+EXTRACTED_IMAGE_MESSAGE = (
+    "doc.images[xref].extract() returns an EncodedImage instead of a dictionary: read .format, .data, and "
+    ".resolution; the size, color space, and masks are properties of doc.images[xref]."
+)
+#: ``extract_image`` dictionary keys and what reads them from ``doc.images[xref]``.
+EXTRACTED_IMAGE_KEYS = {
+    "ext": ".extract().format",
+    "image": ".extract().data",
+    "width": ".width",
+    "height": ".height",
+    "bpc": ".bits",
+    "cs-name": ".colorspace",
+    "xres": ".extract().resolution[0]",
+    "yres": ".extract().resolution[1]",
+}
+
+
+def _get_images(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``get_images(full=...)`` to ``resources.images``, whose items are handles."""
+    bound = args.bind(("full",))
+    if bound is None or bound.get("full", "False") not in _FALSE | _TRUE:
+        return None
+    migrator.todo(RECORD_MESSAGES["images"])
+    return f"{receiver}.resources.images"
+
+
+def _extract_image(migrator: _Migrator, receiver: str, args: _Arguments) -> str | None:
+    """Rewrite ``extract_image(xref)`` to ``images[xref].extract()``, which returns a record."""
+    bound = args.bind(("xref",))
+    if bound is None or "xref" not in bound:
+        return None
+    migrator.todo(EXTRACTED_IMAGE_MESSAGE)
+    return f"{receiver}.images[{bound['xref']}].extract()"
+
+
 #: Calls rewritten wherever they appear.
 CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_toc": _get_toc,
@@ -781,6 +820,8 @@ CALL_RULES: dict[str, Callable[[_Migrator, str, _Arguments], str | None]] = {
     "get_drawings": _get_drawings,
     "get_cdrawings": _get_drawings,
     "get_image_info": _get_image_info,
+    "get_images": _get_images,
+    "extract_image": _extract_image,
 }
 
 
@@ -1016,9 +1057,10 @@ MODULE_CALL_RULES: dict[str, Callable[[_Migrator, str | None, str, _Arguments], 
 RECORD_FIELDS = {
     "words": {0: "bbox.x0", 1: "bbox.y0", 2: "bbox.x1", 3: "bbox.y1", 4: "text", 5: "block", 6: "line", 7: "index"},
     "blocks": {0: "bbox.x0", 1: "bbox.y0", 2: "bbox.x1", 3: "bbox.y1", 4: "text"},
+    "images": {0: "xref", 2: "width", 3: "height", 4: "bits", 5: "colorspace", 6: "alternate_colorspace"},
 }
 #: The variable name that a converted loop over unpacked tuples takes.
-RECORD_NAMES = {"words": "word", "blocks": "block"}
+RECORD_NAMES = {"words": "word", "blocks": "block", "images": "image"}
 _Comprehension = cst.ListComp | cst.SetComp | cst.DictComp | cst.GeneratorExp
 
 
@@ -1503,7 +1545,7 @@ class _Migrator(cst.CSTTransformer):
         converted = _record_loop(updated_node, updated_node.target, kind)
         if converted is None:
             return updated_node
-        self._withdraw(TEXT_RECORD_MESSAGES[kind])
+        self._withdraw(RECORD_MESSAGES[kind])
         assert isinstance(converted, cst.For)  # noqa: S101 - the loop stays a loop.
         return converted
 
@@ -1520,22 +1562,22 @@ class _Migrator(cst.CSTTransformer):
         return self._record_comprehension(updated_node)
 
     def _record_kind(self, iterable: cst.BaseExpression) -> str | None:
-        """Return ``words`` or ``blocks`` for an iterable that a ``get_text`` rewrite just produced."""
+        """Return ``words``, ``blocks``, or ``images`` for an iterable that a rewrite just produced."""
         code = _code(iterable)
-        for kind, suffix in (("words", ".words()"), ("blocks", ".layout().blocks")):
-            if code.endswith(suffix) and TEXT_RECORD_MESSAGES[kind] in self._todos[-1]:
+        for kind, suffix in (("words", ".words()"), ("blocks", ".layout().blocks"), ("images", ".resources.images")):
+            if code.endswith(suffix) and RECORD_MESSAGES[kind] in self._todos[-1]:
                 return kind
         return None
 
     def _record_comprehension(self, node: _Comprehension) -> _Comprehension:
-        """Read the fields of word and block records where a comprehension indexed pymupdf's tuples."""
+        """Read the fields of records where a comprehension indexed pymupdf's tuples."""
         for_: cst.CompFor | None = node.for_in
         while for_ is not None:
             kind = self._record_kind(for_.iter)
             if kind is not None:
                 converted = _record_loop(node, for_.target, kind)
                 if converted is not None:
-                    self._withdraw(TEXT_RECORD_MESSAGES[kind])
+                    self._withdraw(RECORD_MESSAGES[kind])
                     return cast("_Comprehension", converted)
             for_ = for_.inner_for_in
         return node
@@ -1614,8 +1656,25 @@ class _Migrator(cst.CSTTransformer):
             return updated_node.with_changes(value=self.renamed[updated_node.value])
         return updated_node
 
-    def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.Subscript:
-        return updated_node.with_changes(value=self._pages_of(updated_node.value))
+    def leave_Subscript(self, original_node: cst.Subscript, updated_node: cst.Subscript) -> cst.BaseExpression:
+        updated_node = updated_node.with_changes(value=self._pages_of(updated_node.value))
+        return self._extracted_image_key(updated_node)
+
+    def _extracted_image_key(self, node: cst.Subscript) -> cst.BaseExpression:
+        """Read a key of ``extract_image``'s dictionary from the image handle or its record."""
+        code = _code(node.value)
+        if (
+            not code.endswith(".extract()")
+            or EXTRACTED_IMAGE_MESSAGE not in self._todos[-1]
+            or len(node.slice) != 1
+            or not isinstance(node.slice[0].slice, cst.Index)
+        ):
+            return node
+        key = _string_literal(_code(node.slice[0].slice.value))
+        if key not in EXTRACTED_IMAGE_KEYS:
+            return node
+        self._withdraw(EXTRACTED_IMAGE_MESSAGE)
+        return cst.parse_expression(code.removesuffix(".extract()") + EXTRACTED_IMAGE_KEYS[key])
 
     def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression:
         name = updated_node.attr.value

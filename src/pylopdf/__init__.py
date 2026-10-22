@@ -120,6 +120,7 @@ from pylopdf._geometry import (
     planish_line,
 )
 from pylopdf._hints import missing_attribute
+from pylopdf._images import EncodedImage, ImageObject, Images, Resources
 from pylopdf._limits import DocumentLimits
 from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
@@ -151,11 +152,8 @@ from pylopdf._types import (
     Access,
     DocumentComplexity,
     DocumentMetadata,
-    ExtractedImage,
     FormFieldInfo,
     ImageCompressionResult,
-    ImageItem,
-    ImageItemFull,
     LinkInfo,
     LinkKind,
     MarkInfo,
@@ -268,9 +266,9 @@ __all__ = [
     "DocumentComplexity",
     "DocumentLimits",
     "DocumentMetadata",
+    "EncodedImage",
     "EncryptedDocumentError",
     "Encryption",
-    "ExtractedImage",
     "FillRule",
     "Font",
     "FontLanguage",
@@ -284,9 +282,9 @@ __all__ = [
     "IdentityMatrix",
     "Image",
     "ImageCompressionResult",
-    "ImageItem",
-    "ImageItemFull",
     "ImageMask",
+    "ImageObject",
+    "Images",
     "Layout",
     "LimitError",
     "Line",
@@ -322,6 +320,7 @@ __all__ = [
     "Probe",
     "Quad",
     "Rect",
+    "Resources",
     "Segment",
     "ShadingPattern",
     "ShadingType",

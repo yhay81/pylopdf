@@ -246,7 +246,7 @@ interpret the page separately and agree with it on the bundled corpus.
 | `doc.page_labels` | A list of `PageLabelRange(start, style, prefix, first)` values; assigning a list replaces the ranges. |
 | `doc.attachments` | A mapping of `Attachment` handles with `add(name, data, /, *, filename=None, description=None)`; each handle has `filename`, `description`, `size`, `created`, `modified`, `read()`, and `write(data)`. |
 | `doc.layers` | Optional-content groups and configurations ([Structure](../ROADMAP.md#structure)). |
-| `doc.images` | A mapping of image objects by `xref`; each `ImageObject` has `width`, `height`, `bits`, `colorspace`, `filter`, `extract()` for the encoded image, and `to_pixmap()`. |
+| `doc.images` | A mapping of image objects by `xref`; each `ImageObject` has `xref`, `obj`, `width`, `height`, `bits`, `colorspace`, `alternate_colorspace`, `filters`, `soft_mask`, `mask`, `is_stencil`, `extract()` for the encoded image as an `EncodedImage(format, data, resolution)`, and `to_pixmap(alpha=False)`. |
 
 ## 6. Reading
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast
 
 from pylopdf import _text
 from pylopdf._annots import _SUBTYPE_TYPES, Annot, AnnotType
@@ -22,6 +22,7 @@ from pylopdf._fonts import (
 )
 from pylopdf._geometry import Matrix, Quad
 from pylopdf._hints import hinted_getattr
+from pylopdf._images import Resources
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_GENERATED_TEXT_SIZE,
@@ -52,8 +53,6 @@ from pylopdf._types import (
     LINK_NONE,
     LINK_URI,
     TEXT_ALIGN_LEFT,
-    ImageItem,
-    ImageItemFull,
     Point,
     Rect,
 )
@@ -628,29 +627,11 @@ class Page:
         self._document._emit_warnings()
         return build_tables(raw, strategy)
 
-    @overload
-    def get_images(self, *, full: Literal[False] = False) -> list[ImageItem]: ...
-    @overload
-    def get_images(self, *, full: Literal[True]) -> list[ImageItemFull]: ...
-    def get_images(self, *, full: bool = False) -> list[ImageItem] | list[ImageItemFull]:
-        """List the image XObjects that the page's resources reach, as pymupdf does.
-
-        Each item is an :class:`ImageItem` ``(xref, smask, width, height, bpc,
-        colorspace, alt_colorspace, name, filter)``; ``full=True`` returns
-        :class:`ImageItemFull` items that add ``referencer``, the xref of the
-        Form XObject whose resources list the image, or 0 for the page. The
-        page's resources and, depth first, those of the Form XObjects they
-        list are read in resource order, and each image appears once. Inline
-        images and images that only annotations draw are not listed, and an
-        image need not be drawn to be listed. ``content().images`` lists
-        drawn placements and :meth:`Document.extract_image` returns image data. A
-        page that lists more than 4,096 images or 4,096 Form XObjects raises
-        :class:`LimitError` with code ``image_inventory_count``.
-        """
-        raw = self._document._doc.page_image_inventory(self._page_number())
-        if full:
-            return [ImageItemFull(*item) for item in raw]
-        return [ImageItem(*item[:9]) for item in raw]
+    @property
+    def resources(self) -> Resources:
+        """Return what the page's resources reach; ``resources.images`` lists its image XObjects."""
+        self._page_number()
+        return Resources(self)
 
     def content(  # noqa: PLR0913 - the item kinds and the reading options are all keyword-only
         self,

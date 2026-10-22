@@ -342,7 +342,7 @@ def test_images_are_stored_once() -> None:
     _assert_rect(second.bbox, (60, 10, 100, 30))
     # Rotated a quarter turn, the 2:1 image fills the 1:2 rectangle.
     _assert_rect(rotated.bbox, (10, 50, 50, 130))
-    assert len(page.get_images()) == 1
+    assert len(page.resources.images) == 1
     # A later canvas places the stored image again.
     with page.draw() as canvas:
         canvas.image((200, 10, 240, 30), png)
