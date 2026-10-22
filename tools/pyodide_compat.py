@@ -48,6 +48,10 @@ _JAPANESE = "\u65e5\u672c\u8a9e"
 _HEBREW = "\u05e9\u05dc\u05d5\u05dd"
 
 
+def _delete_page(document: Any, index: int) -> None:  # noqa: ANN401 - pylopdf imports lazily.
+    del document.pages[index]
+
+
 def _require(condition: bool, message: str) -> None:  # noqa: FBT001
     if not condition:
         raise RuntimeError(message)
@@ -239,8 +243,8 @@ def _limit_results(
             },
         }
     )
-    deep_page = pylopdf.Document(
-        stream=_build_raw_pdf(
+    deep_page = pylopdf.open(
+        _build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -270,51 +274,31 @@ def _limit_results(
         raise RuntimeError(msg)
 
     unverifiable = _build_limited_content_pdf(b"opaque", "Crypt")
-    cyclic = pylopdf.Document(
-        stream=_build_reference_cycle_pdf(),
-        limits=pylopdf.DocumentLimits(max_object_depth=16),
-    )
+    cyclic = pylopdf.open(_build_reference_cycle_pdf(), limits=pylopdf.DocumentLimits(max_object_depth=16))
     return {
         "file_size": limit_code(
-            lambda: pylopdf.Document(
-                stream=pdf20_bytes,
-                limits=pylopdf.DocumentLimits(max_file_size=len(pdf20_bytes) - 1),
-            )
+            lambda: pylopdf.open(pdf20_bytes, limits=pylopdf.DocumentLimits(max_file_size=len(pdf20_bytes) - 1))
         ),
-        "page_count": limit_code(
-            lambda: pylopdf.Document(
-                stream=form_bytes,
-                limits=pylopdf.DocumentLimits(max_pages=1),
-            )
-        ),
+        "page_count": limit_code(lambda: pylopdf.open(form_bytes, limits=pylopdf.DocumentLimits(max_pages=1))),
         "decompressed_size": limit_code(
-            lambda: pylopdf.Document(
-                stream=compressed_bomb,
-                limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
-            )
+            lambda: pylopdf.open(compressed_bomb, limits=pylopdf.DocumentLimits(max_decompressed_size=1024))
         ),
         "object_depth": limit_code(
-            lambda: pylopdf.Document(
-                stream=deep_object,
-                limits=pylopdf.DocumentLimits(max_object_depth=4),
-            )
+            lambda: pylopdf.open(deep_object, limits=pylopdf.DocumentLimits(max_object_depth=4))
         ),
         "unverifiable": limit_code(
-            lambda: pylopdf.Document(
-                stream=unverifiable,
-                limits=pylopdf.DocumentLimits(max_decompressed_size=1024),
-            )
+            lambda: pylopdf.open(unverifiable, limits=pylopdf.DocumentLimits(max_decompressed_size=1024))
         ),
         # hayro 0.7 overflowed its stack on this stream and hayro 0.8 truncates it; the guard refuses it first.
-        "content_nesting": limit_code(lambda: pylopdf.Document(stream=nested_content).get_page_text(0)),
+        "content_nesting": limit_code(pylopdf.open(nested_content).pages[0].get_text),
         # Neither recursion is a content stream, and hayro 0.7 and 0.8 overflow their stacks on both.
-        "resource_nesting_program": limit_code(lambda: pylopdf.Document(stream=deep_functions).get_page_text(0)),
-        "resource_nesting_chain": limit_code(lambda: pylopdf.Document(stream=deep_chain).get_page_text(0)),
+        "resource_nesting_program": limit_code(pylopdf.open(deep_functions).pages[0].get_text),
+        "resource_nesting_chain": limit_code(pylopdf.open(deep_chain).pages[0].get_text),
         # hayro 0.8 reads no page dictionary nested more than 64 levels deep; only that page is refused.
-        "page_object_depth": [limit_code(lambda: deep_page.get_page_text(1)), deep_page.get_page_text(0)],
+        "page_object_depth": [limit_code(deep_page.pages[1].get_text), deep_page.pages[0].get_text()],
         # hayro 0.8 panics on a shading in a Pattern space (LaurenzV/hayro#1546); the unwind becomes PdfError.
-        "renderer_panic": renderer_error(pylopdf.Document(stream=pattern_shading)[0].get_pixmap),
-        "reference_cycle_pages": cyclic.page_count,
+        "renderer_panic": renderer_error(pylopdf.open(pattern_shading).pages[0].get_pixmap),
+        "reference_cycle_pages": len(cyclic.pages),
         "pdf20_complexity": pdf20_complexity,
         "bounded_scan_complexity": bounded_scan_complexity,
     }
@@ -338,15 +322,15 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
     def recovered(data: bytes) -> dict[str, Any]:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            document = pylopdf.Document(stream=data)
-            probe = pylopdf.peek_metadata(stream=data)
-        _require(document.is_repaired == probe["repaired"], "metadata probe disagreed about recovery")
-        resaved = pylopdf.Document(stream=document.tobytes())
+            document = pylopdf.open(data)
+            probe = pylopdf.probe(data)
+        _require(document.is_repaired == probe.is_repaired, "metadata probe disagreed about recovery")
+        resaved = pylopdf.open(document.tobytes())
         _require(not resaved.is_repaired, "saving did not normalize recovered cross-reference data")
         return {
             "repaired": document.is_repaired,
-            "pages": document.page_count,
-            "text_sha256": _digest(document.get_page_text(0)),
+            "pages": len(document.pages),
+            "text_sha256": _digest(document.pages[0].get_text()),
             "warnings": sorted(
                 {str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)}
             ),
@@ -365,11 +349,11 @@ def _recovery_results(pdf20_bytes: bytes, form_bytes: bytes) -> dict[str, Any]:
         "offset_corrected": recovered(shift_startxref(pdf20_bytes, 12)),
         "rebuilt": recovered(corrupt_startxref_keyword(pdf20_bytes)),
         "xref_stream_damage": _exception_name(
-            lambda: pylopdf.Document(stream=corrupt_startxref_keyword(form_bytes)),
+            lambda: pylopdf.open(corrupt_startxref_keyword(form_bytes)),
         ),
         "recovery_scan": [
-            limit_code(lambda: pylopdf.Document(stream=hostile)),
-            limit_code(lambda: pylopdf.peek_metadata(stream=hostile)),
+            limit_code(lambda: pylopdf.open(hostile)),
+            limit_code(lambda: pylopdf.probe(hostile)),
         ],
     }
 
@@ -379,10 +363,10 @@ def _consistency_results() -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
     def texts(data: bytes) -> list[list[str]]:
-        document = pylopdf.Document(stream=data)
-        unedited = [document.get_page_text(index).splitlines() for index in range(document.page_count)]
+        document = pylopdf.open(data)
+        unedited = [document.pages[index].get_text().splitlines() for index in range(len(document.pages))]
         document.set_metadata({"title": "Edited"})
-        edited = [document.get_page_text(index).splitlines() for index in range(document.page_count)]
+        edited = [document.pages[index].get_text().splitlines() for index in range(len(document.pages))]
         _require(unedited == edited, "an unrelated edit changed extracted text")
         return unedited
 
@@ -429,30 +413,30 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     real_world = root / "tests/assets/real_world"
 
     pdf20_bytes = (real_world / "pdf20-simple.pdf").read_bytes()
-    pdf20 = pylopdf.Document(stream=pdf20_bytes)
-    pdf20_text = pdf20.get_page_text(0)
+    pdf20 = pylopdf.open(pdf20_bytes)
+    pdf20_text = pdf20.pages[0].get_text()
     pdf20_markdown = pdf20.to_markdown()
-    _require(pdf20.page_count == 1, "PDF 2.0 fixture has the wrong page count")
+    _require(len(pdf20.pages) == 1, "PDF 2.0 fixture has the wrong page count")
     _require("Hello World" in pdf20_text, "PDF 2.0 fixture lost Hello World")
     _require("Hello World" in pdf20_markdown, "PDF 2.0 Markdown lost Hello World")
 
-    mhlw = pylopdf.Document(stream=(real_world / "mhlw-doc.pdf").read_bytes())
-    mhlw_text = [mhlw.get_page_text(index) for index in range(mhlw.page_count)]
+    mhlw = pylopdf.open((real_world / "mhlw-doc.pdf").read_bytes())
+    mhlw_text = [mhlw.pages[index].get_text() for index in range(len(mhlw.pages))]
     mhlw_markdown = mhlw.to_markdown()
-    _require(mhlw.page_count == _EXPECTED_TWO_PAGES, "MHLW fixture has the wrong page count")
+    _require(len(mhlw.pages) == _EXPECTED_TWO_PAGES, "MHLW fixture has the wrong page count")
     _require(_CASE_LAW in mhlw_text[0], "MHLW fixture lost embedded Japanese text")
     _require(_CASE_LAW in mhlw_markdown, "MHLW Markdown lost embedded Japanese text")
     _require(mhlw.get_text() == "".join(mhlw_text), "batched get_text diverged from per-page extraction")
 
     form_bytes = (real_world / "f1040.pdf").read_bytes()
-    form = pylopdf.Document(stream=form_bytes)
-    form_text = form.get_page_text(0)
-    form_markdown = form[0].to_markdown()
-    form_tables = form[0].find_tables()
-    form_drawings = form[0].get_drawings()
+    form = pylopdf.open(form_bytes)
+    form_text = form.pages[0].get_text()
+    form_markdown = form.pages[0].to_markdown()
+    form_tables = form.pages[0].find_tables()
+    form_drawings = form.pages[0].get_drawings()
     seqnos = [drawing["seqno"] for drawing in form_drawings]
     _require(seqnos == sorted(set(seqnos)), "drawing paint order is not strictly increasing")
-    _require(form.page_count == _EXPECTED_TWO_PAGES, "Form 1040 fixture has the wrong page count")
+    _require(len(form.pages) == _EXPECTED_TWO_PAGES, "Form 1040 fixture has the wrong page count")
     _require("U.S. Individual Income Tax Return" in form_text, "Form 1040 text is incomplete")
     _require(len(form_tables) == 1, "Form 1040 bordered table was not detected")
     form_table = form_tables[0]
@@ -460,10 +444,10 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     _require("Full-time<br>student" in form_markdown, "Form 1040 table was not integrated into Markdown")
     _require(len(form_drawings) >= _MIN_FORM_DRAWINGS, "Form 1040 vector extraction is incomplete")
 
-    senate = pylopdf.Document(stream=(real_world / "senate-expenditures.pdf").read_bytes())
-    senate_lines = senate[0].find_tables()
-    senate_text = senate[0].find_tables(strategy="text")
-    _require(senate[0].rotation == _SENATE_ROTATION, "Senate fixture lost its page rotation")
+    senate = pylopdf.open((real_world / "senate-expenditures.pdf").read_bytes())
+    senate_lines = senate.pages[0].find_tables()
+    senate_text = senate.pages[0].find_tables(strategy="text")
+    _require(senate.pages[0].rotation == _SENATE_ROTATION, "Senate fixture lost its page rotation")
     _require(
         len(senate_lines) == 1 and (senate_lines[0].row_count, senate_lines[0].col_count) == (2, 7),
         "Senate bordered header changed",
@@ -479,14 +463,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     )
 
     scan_bytes = (real_world / "bunka-kokugo-series-019-p4.pdf").read_bytes()
-    scan = pylopdf.Document(stream=scan_bytes)
-    _require(scan.page_count == 1, "Japanese scan has the wrong page count")
-    _require(scan.get_page_text(0) == "", "image-only Japanese scan unexpectedly exposed text")
-    bounded_scan = pylopdf.Document(stream=scan_bytes, limits=pylopdf.DocumentLimits.web())
-    _require(bounded_scan.page_count == 1, "web limits rejected a representative scan")
-    scan_inventory = scan[0].get_images(full=True)
+    scan = pylopdf.open(scan_bytes)
+    _require(len(scan.pages) == 1, "Japanese scan has the wrong page count")
+    _require(scan.pages[0].get_text() == "", "image-only Japanese scan unexpectedly exposed text")
+    bounded_scan = pylopdf.open(scan_bytes, limits=pylopdf.DocumentLimits.web())
+    _require(len(bounded_scan.pages) == 1, "web limits rejected a representative scan")
+    scan_inventory = scan.pages[0].get_images(full=True)
     _require(len(scan_inventory) >= 1, "the scan lists no image XObject")
-    scan_placements = scan[0].get_image_info(xrefs=True)
+    scan_placements = scan.pages[0].get_image_info(xrefs=True)
     _require(
         {info["xref"] for info in scan_placements} <= {item.xref for item in scan_inventory},
         "a drawn image is missing from the inventory",
@@ -494,18 +478,18 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
     scan_image = scan.extract_image(scan_inventory[0].xref)
 
     encrypted_bytes = (root / "tests/assets/encrypted/user-aes-256.pdf").read_bytes()
-    encrypted = pylopdf.Document(stream=encrypted_bytes)
-    encrypted_error = _exception_name(lambda: encrypted.page_count)
-    _require(encrypted.is_encrypted and encrypted.needs_pass, "encrypted fixture did not require authentication")
+    encrypted = pylopdf.open(encrypted_bytes)
+    encrypted_error = _exception_name(lambda: len(encrypted.pages))
+    _require(encrypted.is_encrypted and encrypted.needs_password, "encrypted fixture did not require authentication")
     _require(encrypted_error == "EncryptedDocumentError", "encrypted access returned the wrong exception")
-    decrypted = pylopdf.Document(stream=encrypted_bytes, password="userpw")  # noqa: S106
-    _require(decrypted.page_count == _EXPECTED_TWO_PAGES, "AES-256 fixture did not decrypt")
-    _require("Encrypted page one" in decrypted.get_page_text(0), "decrypted text is incomplete")
+    decrypted = pylopdf.open(encrypted_bytes, password="userpw")  # noqa: S106
+    _require(len(decrypted.pages) == _EXPECTED_TWO_PAGES, "AES-256 fixture did not decrypt")
+    _require("Encrypted page one" in decrypted.pages[0].get_text(), "decrypted text is incomplete")
     authentication_error = _exception_name(
-        lambda: pylopdf.Document(stream=encrypted_bytes, password="wrong")  # noqa: S106
+        lambda: pylopdf.open(encrypted_bytes, password="wrong")  # noqa: S106
     )
     _require(authentication_error == "PasswordError", "wrong password returned the wrong exception")
-    _require(pylopdf.open is pylopdf.Document, "open is not the Document class")
+    _require(pylopdf.Document().path is None, "an empty document reported a path")
     reauthentication = [decrypted.authenticate(password) for password in ("wrong", "userpw", "ownerpw")]
     _require(reauthentication == [0, 2, 4], "a decrypted document returned the wrong authentication codes")
     encryption_description = decrypted.metadata["encryption"]
@@ -515,23 +499,23 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         user_pw="user",
         permissions=pylopdf.PDF_PERM_PRINT | pylopdf.PDF_PERM_COPY,
     )
-    _require(pylopdf.Document(stream=reencrypted).needs_pass, "PDF_ENCRYPT_AES_256 did not encrypt")
+    _require(pylopdf.open(reencrypted).needs_password, "PDF_ENCRYPT_AES_256 did not encrypt")
     implicit_error = _exception_name(lambda: decrypted.tobytes(user_pw="user"))
     _require(implicit_error == "PdfError", "a password without an encrypting method was not refused")
 
     return {
         "pdf20": {
-            "pages": pdf20.page_count,
+            "pages": len(pdf20.pages),
             "text_sha256": _digest(pdf20_text),
             "markdown_sha256": _digest(pdf20_markdown),
         },
         "mhlw_cjk": {
-            "pages": mhlw.page_count,
+            "pages": len(mhlw.pages),
             "page_text_sha256": [_digest(text) for text in mhlw_text],
             "markdown_sha256": _digest(mhlw_markdown),
         },
         "form_table": {
-            "pages": form.page_count,
+            "pages": len(form.pages),
             "text_sha256": _digest(form_text),
             "markdown_sha256": _digest(form_markdown),
             "shape": [form_table.row_count, form_table.col_count],
@@ -540,14 +524,14 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
             "drawing_types": sorted({drawing["type"] for drawing in form_drawings}),
         },
         "rotated_tables": {
-            "rotation": senate[0].rotation,
+            "rotation": senate.pages[0].rotation,
             "bordered_shape": [senate_lines[0].row_count, senate_lines[0].col_count],
             "borderless_shape": [senate_text[0].row_count, senate_text[0].col_count],
             "first_row": first_senate_row,
         },
         "image_only": {
-            "pages": scan.page_count,
-            "text": scan.get_page_text(0),
+            "pages": len(scan.pages),
+            "text": scan.pages[0].get_text(),
             "inventory": [list(item) for item in scan_inventory],
             "placements": len(scan_placements),
             "extracted": [
@@ -560,7 +544,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
         "encryption": {
             "locked_exception": encrypted_error,
             "wrong_password_exception": authentication_error,
-            "decrypted_pages": decrypted.page_count,
+            "decrypted_pages": len(decrypted.pages),
             "reauthentication": reauthentication,
             "metadata_encryption": encryption_description,
             "implicit_password_exception": implicit_error,
@@ -580,7 +564,7 @@ def _fixture_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explicit 
 def _layout_results() -> dict[str, Any]:
     import pylopdf  # noqa: PLC0415
 
-    vertical = pylopdf.Document(stream=_build_vertical_cjk_pdf())[0]
+    vertical = pylopdf.open(_build_vertical_cjk_pdf()).pages[0]
     vertical_lines = [line for block in vertical.get_text("dict")["blocks"] for line in block["lines"]]
     vertical_text = vertical.get_text().splitlines()
     _require(
@@ -591,7 +575,7 @@ def _layout_results() -> dict[str, Any]:
     _require(writing_modes == [0, 1, 1, 0], "vertical CJK writing modes changed")
     _require(len(vertical.search_for(_RIGHT_COLUMN)) == 1, "vertical CJK search failed")
 
-    columns = pylopdf.Document(stream=_build_multicolumn_pdf())[0]
+    columns = pylopdf.open(_build_multicolumn_pdf()).pages[0]
     column_lines = columns.get_text().splitlines()
     expected_columns = [
         "A heading spanning both columns",
@@ -629,12 +613,9 @@ def _layout_results() -> dict[str, Any]:
         all(math.isfinite(value) for char in raw_chars for value in (*char["bbox"], *char["origin"])),
         "rawdict glyph geometry is not finite",
     )
-    limited_columns = pylopdf.Document(
-        stream=_build_multicolumn_pdf(),
-        limits=pylopdf.DocumentLimits(max_text_size=8),
-    )
+    limited_columns = pylopdf.open(_build_multicolumn_pdf(), limits=pylopdf.DocumentLimits(max_text_size=8))
     try:
-        limited_columns[0].get_text()
+        limited_columns.pages[0].get_text()
     except pylopdf.LimitError as error:
         text_limit_code = error.code
     else:
@@ -707,7 +688,7 @@ def _shape_results(font: bytes) -> dict[str, Any]:
 
     face = pylopdf.Font(fontbuffer=font)
     document = pylopdf.Document()
-    page = document.new_page(width=300, height=200)
+    page = document.pages.new((300, 200))
     page.set_rotation(90)
     with page.new_shape() as shape:
         ends = [
@@ -750,7 +731,7 @@ def _insert_text_line_results(font: bytes) -> list[int]:
     """
     import pylopdf  # noqa: PLC0415
 
-    page = pylopdf.Document().new_page(width=200, height=130)
+    page = pylopdf.Document().pages.new((200, 130))
     counts = [
         page.insert_text((72, 100), "A\nB\nC\nD", fontsize=10),
         page.insert_text((72, 102.52), "A\nB\nC\nD", fontsize=10),
@@ -778,7 +759,7 @@ def _variable_font_results(font: bytes) -> dict[str, Any]:
     bold = pylopdf.Font(fontbuffer=font, weight=700)
     measured = bold.text_length(_HEBREW, 18)
     document = pylopdf.Document()
-    page = document.new_page(width=240, height=80)
+    page = document.pages.new((240, 80))
     page.insert_text((20, 50), _HEBREW, fontsize=18, font=bold)
     spans = [span for block in page.get_text("rawdict")["blocks"] for line in block["lines"] for span in line["spans"]]
     _require(len(spans) == 1, "a variable-font instance did not extract as one span")
@@ -805,8 +786,8 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
     """
     import pylopdf  # noqa: PLC0415
 
-    document = pylopdf.Document(
-        stream=_build_raw_pdf(
+    document = pylopdf.open(
+        _build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 300 200] >>",
@@ -817,11 +798,11 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
                     " /Rect [20 80 280 110] /P 3 0 R /F 4 >>"
                 ),
             },
-        ),
+        )
     )
     document.set_form_field("name", _HEBREW, font=bold)
     document.set_form_field("code", "A12", font=bold)
-    lines = [line for block in document[0].get_text("rawdict")["blocks"] for line in block["lines"]]
+    lines = [line for block in document.pages[0].get_text("rawdict")["blocks"] for line in block["lines"]]
     _require(len(lines) == 2, "the filled fields did not extract as two lines")  # noqa: PLR2004 - two fields.
     name, code = sorted(lines, key=lambda line: line["bbox"][1])
     fonts = sorted({span["font"] for line in lines for span in line["spans"]})
@@ -837,7 +818,7 @@ def _variable_font_form_results(bold: Any) -> dict[str, Any]:  # noqa: ANN401 - 
         len(origins) == len(expected) and all(abs(a - b) < 0.01 for a, b in zip(origins, expected, strict=True)),  # noqa: PLR2004 - PDF real precision.
         "comb positions differ from the measured advances",
     )
-    reopened = pylopdf.Document(stream=document.tobytes())
+    reopened = pylopdf.open(document.tobytes())
     return {
         "values": sorted([field["name"], field["value"]] for field in reopened.get_form_fields()),
         "fonts": fonts,
@@ -850,8 +831,8 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
 
     font = (root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
     document = pylopdf.Document()
-    _require(document.page_count == 0, "new document is not empty")
-    first = document.new_page(width=240, height=180)
+    _require(len(document.pages) == 0, "new document is not empty")
+    first = document.pages.new((240, 180))
     first.insert_text((20, 35), "Generated on Wasm", fontsize=14)
     first.insert_text((20, 75), _JAPANESE, fontsize=18, fontbuffer=font)
     font_results = _font_results(first, font)
@@ -864,7 +845,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     pixmap_buffer = memoryview(first_pixmap)
     _require(bytes(pixmap_buffer) == first_pixmap.samples, "the Pixmap buffer differs from its samples")
 
-    second = document.new_page(width=180, height=240)
+    second = document.pages.new((180, 240))
     stale_error = _exception_name(lambda: first.rect)
     _require(stale_error == "StalePageError", "structural edit returned the wrong stale-page exception")
     spare_height = second.insert_textbox(
@@ -875,9 +856,9 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require(spare_height >= 0, "generated textbox unexpectedly overflowed")
 
     serialized = document.tobytes()
-    reopened = pylopdf.Document(stream=serialized)
-    texts = [reopened.get_page_text(index).strip() for index in range(reopened.page_count)]
-    _require(reopened.page_count == _EXPECTED_TWO_PAGES, "generated document has the wrong page count")
+    reopened = pylopdf.open(serialized)
+    texts = [reopened.pages[index].get_text().strip() for index in range(len(reopened.pages))]
+    _require(len(reopened.pages) == _EXPECTED_TWO_PAGES, "generated document has the wrong page count")
     _require("Generated on Wasm" in texts[0] and _JAPANESE in texts[0], "generated text did not round-trip")
     _require("Second page wraps text" in texts[1], "textbox text did not round-trip")
 
@@ -890,39 +871,39 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
     _require(render_sizes == [[90, 120], [120, 90], [90, 120]], "batch rendering lost input order")
 
     merged = pylopdf.Document()
-    merged.insert_pdf(reopened)
-    merged.select([1, 0, 1])
-    merged_texts = [merged.get_page_text(index).strip() for index in range(merged.page_count)]
-    _require(merged.page_count == _EXPECTED_MERGED_PAGES, "merge/select produced the wrong page count")
+    merged.pages.extend(reopened.pages)
+    merged.pages.select([1, 0, 1])
+    merged_texts = [merged.pages[index].get_text().strip() for index in range(len(merged.pages))]
+    _require(len(merged.pages) == _EXPECTED_MERGED_PAGES, "merge/select produced the wrong page count")
     _require("Second page wraps text" in merged_texts[0], "merge/select changed page order")
     _require("Generated on Wasm" in merged_texts[1], "merge/select lost generated content")
 
-    selected = pylopdf.Document(stream=serialized)
-    selected.select([1])
-    _require(selected.page_count == 1, "page selection did not produce a one-page document")
-    _require("Second page wraps text" in selected.get_page_text(0), "page selection retained the wrong page")
+    selected = pylopdf.open(serialized)
+    selected.pages.select([1])
+    _require(len(selected.pages) == 1, "page selection did not produce a one-page document")
+    _require("Second page wraps text" in selected.pages[0].get_text(), "page selection retained the wrong page")
 
     with tempfile.TemporaryDirectory(prefix="pylopdf-pyodide-") as directory:
         saved_path = Path(directory) / "roundtrip.pdf"
         reopened.save(saved_path)
-        saved = pylopdf.Document(saved_path)
-        _require(saved.page_count == _EXPECTED_TWO_PAGES, "virtual-filesystem save did not round-trip")
+        saved = pylopdf.open(saved_path)
+        _require(len(saved.pages) == _EXPECTED_TWO_PAGES, "virtual-filesystem save did not round-trip")
 
-    closed_page = reopened[0]
+    closed_page = reopened.pages[0]
     reopened.close()
     closed_error = _exception_name(lambda: closed_page.rect)
     _require(closed_error == "DocumentClosedError", "closed page returned the wrong exception")
 
-    malformed_error = _exception_name(lambda: pylopdf.Document(stream=b"not a PDF"))
-    _require(malformed_error == "FileDataError", "malformed bytes returned the wrong exception")
-    empty_error = _exception_name(lambda: pylopdf.Document(stream=b""))
-    _require(empty_error == "EmptyFileError", "empty bytes returned the wrong exception")
-    recovery = pylopdf.Document(stream=serialized)
-    _require(recovery.page_count == _EXPECTED_TWO_PAGES, "runtime did not recover after malformed input")
+    malformed_error = _exception_name(lambda: pylopdf.open(b"not a PDF"))
+    _require(malformed_error == "MalformedPdfError", "malformed bytes returned the wrong exception")
+    empty_error = _exception_name(lambda: pylopdf.open(b""))
+    _require(empty_error == "MalformedPdfError", "empty bytes returned the wrong exception")
+    recovery = pylopdf.open(serialized)
+    _require(len(recovery.pages) == _EXPECTED_TWO_PAGES, "runtime did not recover after malformed input")
 
     return {
         "empty_pages": 0,
-        "roundtrip_pages": document.page_count,
+        "roundtrip_pages": len(document.pages),
         "font": font_results,
         "shape": _shape_results(font),
         "insert_text_lines": _insert_text_line_results(font),
@@ -934,7 +915,7 @@ def _generation_results(root: Path) -> dict[str, Any]:  # noqa: PLR0915 - explic
         "first_pixmap_buffer": [pixmap_buffer.readonly, pixmap_buffer.format, pixmap_buffer.ndim, pixmap_buffer.nbytes],
         "batch_render_sizes": render_sizes,
         "merged_text_sha256": [_digest(text) for text in merged_texts],
-        "selected_text_sha256": _digest(selected.get_page_text(0)),
+        "selected_text_sha256": _digest(selected.pages[0].get_text()),
         "exceptions": {
             "stale": stale_error,
             "closed": closed_error,
@@ -967,12 +948,12 @@ def _form_page_deletion_results() -> dict[str, Any]:
         return [field["name"] for field in document.get_form_fields()]
 
     results: dict[str, Any] = {}
-    edits = (("delete_first", lambda doc: doc.delete_pages([0])), ("select_first", lambda doc: doc.select([0])))
+    edits = (("delete_first", lambda doc: _delete_page(doc, 0)), ("select_first", lambda doc: doc.pages.select([0])))
     for label, edit in edits:
-        document = pylopdf.Document(stream=data)
+        document = pylopdf.open(data)
         edit(document)
         saved = document.tobytes(garbage=True)
-        reopened = pylopdf.Document(stream=saved)
+        reopened = pylopdf.open(saved)
         _require(names(reopened) == names(document), f"{label} fields changed after a save")
         results[label] = {"fields": names(document), "widgets": saved.count(b"/Subtype/Widget")}
     _require(results["delete_first"]["fields"] == ["hidden", "person.last"], "delete kept fields of a deleted page")
@@ -1000,9 +981,9 @@ def _structure_page_deletion_results() -> dict[str, Any]:
     )
 
     results: dict[str, Any] = {}
-    edits = (("delete_second", lambda doc: doc.delete_pages([1])), ("select_first", lambda doc: doc.select([0])))
+    edits = (("delete_second", lambda doc: _delete_page(doc, 1)), ("select_first", lambda doc: doc.pages.select([0])))
     for label, edit in edits:
-        document = pylopdf.Document(stream=data)
+        document = pylopdf.open(data)
         edit(document)
         saved = document.tobytes(garbage=True)
         results[label] = {
@@ -1025,11 +1006,11 @@ def _structure_page_deletion_results() -> dict[str, Any]:
     }
     for level in range(depth):
         deep[6 + level] = f"<< /S /Div /K [{7 + level} 0 R] >>" if level < depth - 1 else "<< /S /P /Pg 4 0 R /K 0 >>"
-    document = pylopdf.Document(stream=_build_raw_pdf(deep))
+    document = pylopdf.open(_build_raw_pdf(deep))
     try:
-        document.delete_pages([1])
+        del document.pages[1:2]
     except pylopdf.LimitError as error:
-        results["deep_refusal"] = {"code": error.code, "pages": document.page_count}
+        results["deep_refusal"] = {"code": error.code, "pages": len(document.pages)}
     _require(
         results.get("deep_refusal") == {"code": "structure_tree_count", "pages": 2},
         "a structure tree beyond 256 levels was not refused",
@@ -1057,11 +1038,11 @@ def _garbage_results() -> dict[str, Any]:
     )
     results: dict[str, Any] = {}
     for level in range(5):
-        document = pylopdf.Document(stream=data)
+        document = pylopdf.open(data)
         saved = document.tobytes(garbage=level)
-        reopened = pylopdf.Document(stream=saved)
+        reopened = pylopdf.open(saved)
         _require(
-            [reopened.get_page_text(pno).strip() for pno in range(2)] == ["A", "A"],
+            [reopened.pages[pno].get_text().strip() for pno in range(2)] == ["A", "A"],
             f"garbage={level} changed the text",
         )
         results[str(level)] = {
@@ -1075,7 +1056,7 @@ def _garbage_results() -> dict[str, Any]:
 
 def _geometry_results() -> dict[str, Any]:
     """Check immutable affine values and their use by the PDF drawing API."""
-    from pylopdf import Document, Matrix, Point  # noqa: PLC0415
+    from pylopdf import Document, Matrix, Point, open  # noqa: A004, PLC0415
 
     transform = Matrix(2, 3) * Matrix(1, 0, 0, 1, 20, 30)
     point = Point(10, 20)
@@ -1095,16 +1076,16 @@ def _geometry_results() -> dict[str, Any]:
         raise RuntimeError(msg)
     with Document() as document:
         page_size = 200
-        page = document.new_page(width=page_size, height=page_size)
+        page = document.pages.new((page_size, page_size))
         page.draw_line(mapped, mapped + Point(40, 0), width=2)
         page.insert_text(mapped + Point(0, 30), "Affine")
         saved = document.tobytes()
-    with Document(stream=saved) as reopened:
-        text = reopened[0].get_text().strip()
+    with open(saved) as reopened:
+        text = reopened.pages[0].get_text().strip()
         _require(text == "Affine", "transformed text failed to survive save/reopen")
-        line = reopened[0].get_drawings()[0]["items"][0]
+        line = reopened.pages[0].get_drawings()[0]["items"][0]
         _require(line == ("l", Point(40, 90), Point(80, 90)), "transformed line changed")
-        _require(reopened[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
+        _require(reopened.pages[0].get_pixmap(alpha=True).width == page_size, "transformed drawing failed to render")
     rectangles = _rectangle_results()
     return {
         "matrix": list(transform),
@@ -1133,19 +1114,19 @@ def _rectangle_results() -> dict[str, Any]:
     _require(Point(-3, 2) in quad, "quad containment changed")
     _require(Quad(quad) == quad and abs(rect.quad) == abs(rect), "quad round trip changed")
     with Document() as document:
-        page = document.new_page(width=300, height=200)
+        page = document.pages.new((300, 200))
         page.set_rotation(90)
         box = page.rect * Matrix(0.5, 0.5) + 20
         page.insert_text(box.tl + Point(10, 30), "Boxed")
         (hit,) = page.search_for("Boxed")
-        boxed = document.new_page(width=600, height=800)
+        boxed = document.pages.new((600, 800))
         boxed.set_cropbox((100, 50, 500, 350))
         cropbox = list(boxed.cropbox)
         crop_rect = list(boxed.rect)
         boxed.set_mediabox((0, 0, 200, 300))
         reset_cropbox = list(boxed.cropbox)
         image_xref = boxed.insert_image(
-            (10, 10, 60, 60), pixmap=document[0].get_pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
+            (10, 10, 60, 60), pixmap=document.pages[0].get_pixmap(matrix=Matrix(0.1, 0.1), alpha=True)
         )
         form_xref = boxed.show_pdf_page((60, 60, 160, 160), document, 0)
         placed = [document.objects[image_xref]["Subtype"], document.objects[form_xref]["Subtype"]]
@@ -1192,9 +1173,9 @@ def _content_isolation_results() -> dict[str, Any]:
                 4: f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream",
             }
         )
-        document = pylopdf.Document(stream=data)
-        document[0].insert_text(point, "Probe", fontsize=10)
-        words = [word for word in document[0].get_text("words") if word[4] == "Probe"]
+        document = pylopdf.open(data)
+        document.pages[0].insert_text(point, "Probe", fontsize=10)
+        words = [word for word in document.pages[0].get_text("words") if word[4] == "Probe"]
         _require(len(words) == 1, f"{label} content lost the appended text")
         x0, y0, x1, y1 = words[0][:4]
         _require(round(x0, 1) == point[0] and y0 < point[1] < y1, f"{label} content moved the appended text")
@@ -1213,7 +1194,7 @@ def _object_model_results() -> dict[str, Any]:
             3: "<< /Type /Page /Parent 2 0 R >>",
         }
     )
-    document = pylopdf.Document(stream=data)
+    document = pylopdf.open(data)
     font = document.objects.add(
         {
             "Type": pylopdf.Name("Font"),
@@ -1222,22 +1203,22 @@ def _object_model_results() -> dict[str, Any]:
         }
     )
     content = document.objects.add_stream(b"BT /F9 12 Tf 20 100 Td (Raw) Tj ET")
-    page = document[0].obj
+    page = document.pages[0].obj
     page["Resources"] = {"Font": {"F9": document.objects[font]}}
     page["Contents"] = document.objects[content]
     document.trailer["Info"] = {"Title": "Grüße ∑"}
-    _require(document[0].get_text().strip() == "Raw", "object model content was not drawn")
+    _require(document.pages[0].get_text().strip() == "Raw", "object model content was not drawn")
     _require(document.metadata["title"] == "Grüße ∑", "object model Info text changed")
     stream = document.objects[content]
     _require(stream.read() == b"BT /F9 12 Tf 20 100 Td (Raw) Tj ET", "stream data did not round-trip")
-    saved = pylopdf.Document(stream=document.tobytes(garbage=2))
+    saved = pylopdf.open(document.tobytes(garbage=2))
     catalog = saved.catalog
     return {
         "objects": list(saved.objects),
         "catalog_keys": sorted(catalog),
-        "page_keys": sorted(saved[0].obj),
-        "text": saved[0].get_text().strip(),
-        "filter": str(saved[0].obj["Contents"]["Filter"]),
+        "page_keys": sorted(saved.pages[0].obj),
+        "text": saved.pages[0].get_text().strip(),
+        "filter": str(saved.pages[0].obj["Contents"]["Filter"]),
         "title": saved.trailer["Info"]["Title"].text,
         "stale": _exception_name(lambda: stream["Length"] if document.tobytes(garbage=2) else None),
     }
@@ -1247,11 +1228,11 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     """Read and write XMP metadata and the catalog's viewer and marking properties."""
     import pylopdf  # noqa: PLC0415
 
-    form = pylopdf.Document(root / "tests/assets/real_world/f1040.pdf")
+    form = pylopdf.open(root / "tests/assets/real_world/f1040.pdf")
     xmp = form.get_xml_metadata()
     _require(xmp.startswith("<?xpacket"), "real-world XMP did not decode")
-    document = pylopdf.Document(
-        stream=_build_raw_pdf(
+    document = pylopdf.open(
+        _build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 200] >>",
@@ -1267,7 +1248,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
     document.set_language_tag("zh-TW")
     data = document.tobytes(deflate=True)
     _require(packet.encode() in data, "deflate compressed the XMP packet")
-    saved = pylopdf.Document(stream=data)
+    saved = pylopdf.open(data)
     return {
         "form_xmp": [len(xmp), _digest(xmp)],
         "form_markinfo": form.markinfo,
@@ -1278,7 +1259,7 @@ def _document_property_results(root: Path) -> dict[str, Any]:
         "markinfo": saved.markinfo,
         "language_tag": saved.language_tag,
         "xmp_limit": _exception_name(lambda: saved.set_xml_metadata("x" * 10, max_size=9)),
-        "name": [form.name is not None, saved.name, saved.is_pdf, saved.is_closed],
+        "path": [form.path is not None, saved.path is None, saved.is_closed],
     }
 
 
@@ -1289,13 +1270,13 @@ def _content_model_results(root: Path) -> dict[str, Any]:
     def rounded(items: Sequence[Any]) -> list[list[float]]:
         return [[round(value, 2) for value in item.bbox] for item in items]
 
-    form = pylopdf.Document(root / "tests/assets/real_world/f1040.pdf")[0].content()
+    form = pylopdf.open(root / "tests/assets/real_world/f1040.pdf").pages[0].content()
     runs = form.text_runs
     glyphs = [glyph for run in runs for glyph in run.glyphs]
     _require(len(runs) > _MIN_FORM_DRAWINGS, "Form 1040 content has too few text runs")
     _require(all(glyph.bbox is None or glyph.bbox.is_valid for glyph in glyphs), "a glyph box is invalid")
     marked = sorted({mark.tag for run in runs for mark in run.context.marked_content})
-    type3 = pylopdf.Document(root / "tests/assets/real_world/pdfium-type3.pdf")[0].content()
+    type3 = pylopdf.open(root / "tests/assets/real_world/pdfium-type3.pdf").pages[0].content()
     return {
         "form_counts": [len(runs), len(form.paths), len(form.images)],
         "form_text": _digest("".join(run.text for run in runs)),
@@ -1316,10 +1297,10 @@ def _canvas_results(root: Path) -> dict[str, Any]:
     font = pylopdf.Font(
         fontbuffer=(root / "fonts/pylopdf-fonts-jp/src/pylopdf_fonts_jp/NotoSansJP-Regular.otf").read_bytes()
     )
-    source = pylopdf.Document(root / "tests/assets/real_world/pdf20-simple.pdf")
+    source = pylopdf.open(root / "tests/assets/real_world/pdf20-simple.pdf")
     document = pylopdf.Document()
-    page = document.new_page(width=300, height=200)
-    swatch = pylopdf.Document().new_page(width=4, height=2).get_pixmap()
+    page = document.pages.new((300, 200))
+    swatch = pylopdf.Document().pages.new((4, 2)).get_pixmap()
     with page.draw() as canvas:
         canvas.rect((10, 10, 110, 60), radius=6, fill=Color(1, 0, 0), stroke=Stroke(paint=Color(0, 0, 1), width=2))
         canvas.text("Canvas", (20, 90), size=12)
@@ -1328,7 +1309,7 @@ def _canvas_results(root: Path) -> dict[str, Any]:
             canvas.circle((200, 50), 40, fill=Color(0, 0.5, 0))
         with canvas.transform(Matrix(1, 0, 0, 1, 150, 100)):
             canvas.image((0, 0, 40, 20), swatch)
-            canvas.page((50, 0, 150, 100), source[0])
+            canvas.page((50, 0, 150, 100), source.pages[0])
         fit = canvas.textbox((10, 140, 140, 190), "Wrapped text " * 20, size=8)
     _require(not fit.fits, "the overflowing textbox drew")
     content = page.content()
@@ -1363,13 +1344,13 @@ def _create_results(root: Path) -> dict[str, Any]:
     first = builder.to_bytes()
     _require(first == builder.to_bytes(), "a fixed creation date did not make the output reproducible")
     document = builder.finish()
-    content = document[0].content()
+    content = document.pages[0].content()
     return {
-        "pages": document.page_count,
+        "pages": len(document.pages),
         "kinds": [type(item).__name__ for item in content],
         "marks": [[mark.tag for mark in item.context.marked_content] for item in content],
         "outline": [list(entry) for entry in document.get_outline()],
-        "text": _digest(document[0].get_text()),
+        "text": _digest(document.pages[0].get_text()),
         "struct_tree": str(document.catalog["StructTreeRoot"]["Type"]),
         "ua_claim": "pdfuaid" in document.get_xml_metadata(),
     }
@@ -1439,18 +1420,15 @@ def benchmark_limits(root: Path, repeats: int = 5) -> dict[str, Any]:
     limits = pylopdf.DocumentLimits.web()
 
     def bounded_open(data: bytes) -> None:
-        pylopdf.Document(stream=data, limits=limits).close()
+        pylopdf.open(data, limits=limits).close()
 
     def bounded_extract() -> None:
-        with pylopdf.Document(stream=form, limits=limits) as document:
-            document.get_page_text(0)
+        with pylopdf.open(form, limits=limits) as document:
+            document.pages[0].get_text()
 
     def reject_file_size() -> None:
         try:
-            pylopdf.Document(
-                stream=pdf20,
-                limits=pylopdf.DocumentLimits(max_file_size=len(pdf20) - 1),
-            )
+            pylopdf.open(pdf20, limits=pylopdf.DocumentLimits(max_file_size=len(pdf20) - 1))
         except pylopdf.LimitError as error:
             _require(error.code == "file_size", "file rejection returned the wrong code")
             return
@@ -1459,10 +1437,7 @@ def benchmark_limits(root: Path, repeats: int = 5) -> dict[str, Any]:
 
     def reject_page_count() -> None:
         try:
-            pylopdf.Document(
-                stream=form,
-                limits=pylopdf.DocumentLimits(max_pages=1),
-            )
+            pylopdf.open(form, limits=pylopdf.DocumentLimits(max_pages=1))
         except pylopdf.LimitError as error:
             _require(error.code == "page_count", "page rejection returned the wrong code")
             return

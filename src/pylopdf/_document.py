@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import io
 import math
 import os
 import re
@@ -13,8 +12,10 @@ import sys
 import warnings as _warnings
 from collections import Counter
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeGuard, cast, overload
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from pylopdf import _fonts, _markdown
 from pylopdf._attachments import Attachments
@@ -28,11 +29,10 @@ from pylopdf._fonts import (
     _resolve_font_source,
     _validate_form_font,
 )
-from pylopdf._hints import hinted_getattr
+from pylopdf._hints import hinted_getattr, hinted_protocol
 from pylopdf._limits import (
     _DEFAULT_MAX_FONT_INPUT_SIZE,
     _DEFAULT_MAX_MARKDOWN_SIZE,
-    _FLOAT32_MAX,
     _UINT32_MAX,
     DocumentLimits,
     _document_limit_args,
@@ -41,7 +41,8 @@ from pylopdf._limits import (
     _validate_utf8_text_input,
 )
 from pylopdf._objects import Dictionary, Name, Objects, String
-from pylopdf._page import _PAGE_LABEL_STYLES, Page, _page_label
+from pylopdf._page import _PAGE_LABEL_STYLES, Page
+from pylopdf._pages import Pages
 from pylopdf._pixmap import _render_background, _render_scale
 from pylopdf._tables import (
     _bounded_markdown_page_output,
@@ -59,13 +60,13 @@ from pylopdf._types import (
     Permissions,
     Word,
 )
-from pylopdf.pylopdf_core import LimitError, PdfError, Pixmap, _Document
+from pylopdf.pylopdf_core import LimitError, PdfError, _Document
 
 if sys.platform == "win32":
     from pylopdf.pylopdf_core import _copy_windows_dacl
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from types import TracebackType
     from typing import Self
 
@@ -80,10 +81,7 @@ if TYPE_CHECKING:
         FormFieldInfo,
         FormFieldType,
         ImageCompressionResult,
-        ImageItem,
-        ImageItemFull,
         MarkInfo,
-        MetadataProbe,
         MetadataUpdate,
         PageLabelInfo,
         PageLabelSpec,
@@ -281,120 +279,6 @@ _PAGE_LAYOUTS = ("SinglePage", "OneColumn", "TwoColumnLeft", "TwoColumnRight", "
 _MARK_INFO_KEYS = ("Marked", "UserProperties", "Suspects")
 _MAX_LANGUAGE_TAG_BYTES = 256
 _LANGUAGE_TAG = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", re.ASCII)
-# pymupdf's accepted spellings of the one file type that pylopdf opens.
-_PDF_FILETYPES = frozenset({"pdf", ".pdf", "application/pdf"})
-
-
-def _validate_filetype(filetype: str | None) -> None:
-    """Accept pymupdf's PDF file type names and refuse every other format."""
-    if filetype is None:
-        return
-    if not isinstance(filetype, str):
-        msg = f"filetype must be a string or None: {filetype!r}"
-        raise TypeError(msg)
-    if filetype.lower() not in _PDF_FILETYPES:
-        msg = f"filetype {filetype!r} is not supported; pylopdf opens PDF documents"
-        raise PdfError(msg)
-
-
-def _resolve_source(
-    filename: str | os.PathLike[str] | None,
-    stream: bytes | bytearray | memoryview | io.BytesIO | None,
-    filetype: str | None,
-) -> tuple[str | os.PathLike[str] | None, bytes | None]:
-    """Normalize pymupdf's source arguments to a path or bytes.
-
-    As in pymupdf, a string ``filename`` beside a ``stream`` names the file type.
-    """
-    if filename is not None and stream is not None:
-        if filetype is not None or not isinstance(filename, str):
-            msg = "filename and stream cannot both be specified"
-            raise ValueError(msg)
-        filename, filetype = None, filename
-    _validate_filetype(filetype)
-    if isinstance(stream, io.BytesIO):
-        return filename, stream.getvalue()
-    if isinstance(stream, (bytearray, memoryview)):
-        return filename, bytes(stream)
-    if stream is not None and not isinstance(stream, bytes):
-        msg = f"stream must be bytes, bytearray, memoryview, or io.BytesIO: {type(stream).__name__}"
-        raise TypeError(msg)
-    return filename, stream
-
-
-def _deletion_numbers(
-    args: tuple[int | Iterable[int], ...],
-    from_page: int | None,
-    to_page: int | None,
-    count: int,
-) -> list[int]:
-    """Resolve pymupdf's ``delete_pages`` argument forms to one-based numbers."""
-    if from_page is not None or to_page is not None:
-        if args:
-            msg = "cannot mix keyword and positional arguments"
-            raise TypeError(msg)
-        first = -1 if from_page is None else from_page
-        last = -1 if to_page is None else to_page
-        return _deletion_range(first + count if first < 0 else first, last + count if last < 0 else last, count)
-    if len(args) == 2:  # noqa: PLR2004 - pymupdf's (from_page, to_page) form.
-        first, last = args
-        if not (_is_int(first) and _is_int(last)):
-            msg = "delete_pages(from_page, to_page) takes two integers"
-            raise TypeError(msg)
-        return _deletion_range(min(first, last), max(first, last), count)
-    if len(args) != 1:
-        msg = f"delete_pages takes 1 or 2 positional arguments, or from_page= and to_page= ({len(args)} given)"
-        raise TypeError(msg)
-    (selection,) = args
-    if _is_int(selection):
-        pno = selection + count if selection < 0 else selection
-        return _deletion_range(pno, pno, count)
-    if isinstance(selection, (float, str, bytes)):
-        msg = f"delete_pages takes a page number, a range, or an iterable: {selection!r}"
-        raise TypeError(msg)
-    return _listed_deletions(selection, count)
-
-
-def _deletion_range(first: int, last: int, count: int) -> list[int]:
-    """Return the one-based numbers of an inclusive zero-based page range."""
-    if not 0 <= first <= last < count:
-        msg = f"bad page number(s): {first}..{last} (page count {count})"
-        raise ValueError(msg)
-    return list(range(first + 1, last + 2))
-
-
-def _listed_deletions(selection: object, count: int) -> list[int]:
-    """Return the sorted, distinct one-based numbers of listed pages."""
-    try:
-        entries = iter(cast("Iterable[object]", selection))
-    except TypeError:
-        msg = f"delete_pages takes a page number, a range, or an iterable: {selection!r}"
-        raise TypeError(msg) from None
-    limit = max(count, _MIN_PAGE_ENTRY_LIMIT)
-    numbers: set[int] = set()
-    for index, pno in enumerate(entries):
-        if index >= limit:
-            limit_code = "page_entry_count"
-            msg = (
-                f"page_numbers cannot contain more than {limit} entries "
-                f"(the larger of the page count and {_MIN_PAGE_ENTRY_LIMIT})"
-            )
-            raise LimitError(limit_code, msg)
-        if not _is_int(pno):
-            msg = f"page numbers must be integers: {pno!r}"
-            raise TypeError(msg)
-        if not 0 <= pno < count:
-            msg = f"bad page number: {pno!r} (page count {count})"
-            raise ValueError(msg)
-        numbers.add(pno + 1)
-    return sorted(numbers)
-
-
-def _is_int(value: object) -> TypeGuard[int]:
-    """Return whether ``value`` is an integer other than a bool."""
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 #: pymupdf's authentication-code bit for a matching owner password.
 _OWNER_PASSWORD_CODE = 4
 #: MuPDF's permissions with every flag granted: 0xFFFFFFFC as a signed 32-bit integer.
@@ -443,66 +327,48 @@ def _rewrite_dpi(name: str, value: object) -> float:
 class Document:
     """A PDF document.
 
-    Open from a path or byte string, or create an empty document without
-    arguments. Documents are context managers and expose :class:`Page` objects
-    through ``doc[i]`` and iteration.
+    :func:`open` opens an existing document, and ``Document()`` creates an
+    empty one. :attr:`pages` holds the pages. Documents are context managers
+    that close on exit.
     """
 
     if not TYPE_CHECKING:
         __getattr__ = hinted_getattr
+        __getitem__ = hinted_protocol("'Document' object is not subscriptable; use doc.pages[index]")
+        __iter__ = hinted_protocol("'Document' object is not iterable; iterate over doc.pages")
 
-    def __init__(  # noqa: PLR0913 - pymupdf's constructor plus keyword-only limits.
-        self,
-        filename: str | os.PathLike[str] | None = None,
-        stream: bytes | bytearray | memoryview | io.BytesIO | None = None,
-        filetype: str | None = None,
-        *,
-        password: str | None = None,
-        limits: DocumentLimits | None = None,
-        max_decompressed_size: int | None = None,
-    ) -> None:
-        """Open from exactly one of a file path and byte stream, or create empty.
+    def __init__(self, *, limits: DocumentLimits | None = None) -> None:
+        """Create an empty document; :func:`open` opens an existing one.
 
-        ``open`` is the same callable. ``stream`` accepts ``bytes``,
-        ``bytearray``, ``memoryview``, or :class:`io.BytesIO`. ``filetype``
-        takes ``"pdf"``, as pymupdf's does; other formats raise
-        :class:`PdfError`. As in pymupdf, a ``filename`` passed together with a
-        ``stream`` names the file type, so ``open("pdf", data)`` works.
-
-        PDFs with an empty user password decrypt automatically. Otherwise pass
-        ``password`` or call :meth:`authenticate` after opening.
-        Password input is capped at 127 UTF-8 bytes.
-        ``limits`` applies structural, decompression, interpretation-snapshot,
-        and interpreted-text budgets before expensive work.
-        :meth:`DocumentLimits.web` is a conservative starting profile for
-        untrusted uploads.
-        ``max_decompressed_size`` remains as the compatible single-budget
-        shorthand and cannot be combined with ``limits``.
+        ``limits`` sets the interpretation and text budgets for the pages that
+        the document receives later.
         """
-        # pymupdf's name is the filename argument as given, even when it names
-        # the file type of a stream.
-        requested_name = filename
-        filename, stream = _resolve_source(filename, stream, filetype)
+        self._setup(None, None, None, limits)
+
+    def _setup(
+        self,
+        path: str | None,
+        data: bytes | None,
+        password: str | None,
+        limits: DocumentLimits | None,
+    ) -> None:
+        """Load ``path`` or ``data``, or start an empty document, and set up the state."""
         _validate_password_input(password)
         if limits is not None and not isinstance(limits, DocumentLimits):
             msg = f"limits must be a DocumentLimits instance or None: {limits!r}"
             raise TypeError(msg)
-        if limits is not None and max_decompressed_size is not None:
-            msg = "limits and max_decompressed_size cannot both be specified"
-            raise ValueError(msg)
-        resolved_limits = limits or DocumentLimits(max_decompressed_size=max_decompressed_size)
+        resolved_limits = limits or DocumentLimits()
         limit_args = _document_limit_args(resolved_limits)
-        path = None if filename is None else os.fspath(filename)
         self._limits = resolved_limits
-        if stream is not None:
-            doc = _Document.load_bytes(stream, None, *limit_args)
-            needs_pass = doc.is_encrypted()
-            if needs_pass and password is not None:
-                doc = _Document.load_bytes(stream, password, *limit_args)
+        if data is not None:
+            doc = _Document.load_bytes(data, None, *limit_args)
+            needs_password = doc.is_encrypted()
+            if needs_password and password is not None:
+                doc = _Document.load_bytes(data, password, *limit_args)
         elif path is not None:
             doc = _Document.load(path, None, *limit_args)
-            needs_pass = doc.is_encrypted()
-            if needs_pass and password is not None:
+            needs_password = doc.is_encrypted()
+            if needs_password and password is not None:
                 doc = _Document.load(path, password, *limit_args)
         else:
             doc = _Document(
@@ -510,10 +376,10 @@ class Document:
                 resolved_limits.max_interpretation_size,
                 resolved_limits.max_text_glyphs,
             )
-            needs_pass = False
+            needs_password = False
         self._doc = doc
         self._closed = False
-        self._name = None if requested_name is None else os.fsdecode(requested_name)
+        self._path = None if path is None else Path(path)
         self._fallback_configured = False
         # Structural generation; changes invalidate existing Page views.
         self._generation = 0
@@ -521,23 +387,38 @@ class Document:
         # invalidates existing low-level object handles.
         self._object_epoch = 0
         # Whether opening initially required a password; remains true after auth.
-        self._needs_pass = needs_pass
+        self._needs_password = needs_password
         # The edit revision without unsaved changes; a new document starts
         # with changes, as in pymupdf.
-        self._clean_revision = None if stream is None and path is None else doc.edit_revision()
+        self._clean_revision = None if data is None and path is None else doc.edit_revision()
         # The authentication code of the password that opened the document,
         # which decides its permissions.
-        self._access_code = self._original_password_code(password if needs_pass and password is not None else "")
+        self._access_code = self._original_password_code(password if needs_password and password is not None else "")
         # Retain input only while an undecrypted document may need reopening.
         self._source_path = path if self._doc.is_encrypted() else None
-        self._source_bytes = stream if self._doc.is_encrypted() else None
+        self._source_bytes = data if self._doc.is_encrypted() else None
         self._emit_warnings()
 
     @property
-    def needs_pass(self) -> bool:
-        """Return whether opening required a password; remains true after auth."""
+    def needs_password(self) -> bool:
+        """Return whether opening required a password; it stays true after authentication."""
         self._ensure_not_closed()
-        return self._needs_pass
+        return self._needs_password
+
+    @property
+    def path(self) -> Path | None:
+        """Return the file that the document was opened from, or ``None``."""
+        return self._path
+
+    @property
+    def pages(self) -> Pages:
+        """Return the pages, a live sequence of :class:`Page` views.
+
+        ``doc.pages[i]`` takes negative indexes and slices, and
+        :class:`Pages` adds, copies, deletes, selects, and moves pages.
+        """
+        self._ensure_not_closed()
+        return Pages(self)
 
     @property
     def is_encrypted(self) -> bool:
@@ -555,22 +436,6 @@ class Document:
     def is_closed(self) -> bool:
         """Return whether :meth:`close` was called."""
         return self._closed
-
-    @property
-    def is_pdf(self) -> bool:
-        """Return ``True``: pylopdf opens only PDF documents."""
-        self._ensure_not_closed()
-        return True
-
-    @property
-    def name(self) -> str | None:
-        """Return the ``filename`` argument the document was opened with.
-
-        As in pymupdf, a path-like argument becomes a string, a document
-        opened from a stream or created empty has the name ``None``, and
-        :meth:`close` resets it to ``None``.
-        """
-        return self._name
 
     def _original_password_code(self, password: str) -> int:
         """Return pymupdf's code for a password of a decrypted document, else 0."""
@@ -652,12 +517,6 @@ class Document:
         return code
 
     @property
-    def page_count(self) -> int:
-        """Return the number of pages."""
-        self._ensure_open()
-        return self._doc.page_count()
-
-    @property
     def limits(self) -> DocumentLimits:
         """Return the immutable resource policy configured at open time."""
         self._ensure_not_closed()
@@ -675,23 +534,6 @@ class Document:
             "encoded_stream_bytes": encoded_bytes,
             "max_object_depth": depth,
         }
-
-    def __len__(self) -> int:
-        """Return the number of pages."""
-        return self.page_count
-
-    def __getitem__(self, pno: int) -> Page:
-        """Return a page by zero-based index; negative values count from the end."""
-        return Page(self, self._normalize_pno(pno))
-
-    def load_page(self, pno: int) -> Page:
-        """Return ``doc[pno]`` through the pymupdf-compatible name."""
-        return self[pno]
-
-    def __iter__(self) -> Iterator[Page]:
-        """Iterate over every page in order."""
-        for pno in range(self.page_count):
-            yield self[pno]
 
     @property
     def objects(self) -> Objects:
@@ -722,10 +564,6 @@ class Document:
             msg = "the trailer has no /Root catalog dictionary"
             raise PdfError(msg)
         return root
-
-    def page_xref(self, pno: int) -> int:
-        """Return the object number of a page; negative values count from the end."""
-        return self._doc.page_object_id(self._lopdf_page_number(pno))[0]
 
     def _bump_generation(self) -> None:
         """Record a structural change and invalidate existing page views."""
@@ -1005,7 +843,7 @@ class Document:
             msg = f"table_strategy must be 'lines', 'text', or None: {table_strategy!r}"
             raise ValueError(msg)
         _validate_optional_positive_int("max_size", max_size)
-        count = self.page_count
+        count = self._page_count()
         page_numbers: Sequence[int] = (
             range(1, count + 1) if pages is None else self._page_entries(pages, "pages", count)
         )
@@ -1208,26 +1046,6 @@ class Document:
             for start, style, prefix, first in self._doc.get_page_labels()
         ]
 
-    def get_page_numbers(self, label: str, only_one: bool = False) -> list[int]:  # noqa: FBT001, FBT002 - pymupdf's positional parameter.
-        """Return the zero-based numbers of the pages whose label is ``label``.
-
-        As in pymupdf, an empty ``label`` or a document without page labels
-        gives an empty list, and ``only_one=True`` stops at the first match.
-        """
-        self._ensure_open()
-        numbers: list[int] = []
-        if not label:
-            return numbers
-        labels = self.get_page_labels()
-        if not labels:
-            return numbers
-        for pno in range(self.page_count):
-            if _page_label(labels, pno) == label:
-                numbers.append(pno)
-                if only_one:
-                    break
-        return numbers
-
     def set_page_labels(self, labels: Sequence[PageLabelSpec]) -> None:
         """Set page labels in :meth:`get_page_labels` format; empty removes all.
 
@@ -1330,51 +1148,28 @@ class Document:
         in chunks of 4,096 entries, each sharing one interpreter font cache, so
         a font reused across pages is parsed once per chunk rather than once
         per page; the returned text equals joining single-page
-        :meth:`get_page_text` output in the same order.
+        :meth:`Page.get_text` output in the same order.
         """
-        count = self.page_count
+        count = self._page_count()
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
         text = self._doc.extract_text(page_numbers)
         self._emit_warnings()
         return text
 
     @overload
-    def get_page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...
+    def _page_text(self, pno: int, option: Literal["text"] = "text") -> str: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["words"]) -> list[Word]: ...
+    def _page_text(self, pno: int, option: Literal["words"]) -> list[Word]: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["blocks"]) -> list[Block]: ...
+    def _page_text(self, pno: int, option: Literal["blocks"]) -> list[Block]: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["dict"]) -> TextPageDict: ...
+    def _page_text(self, pno: int, option: Literal["dict"]) -> TextPageDict: ...
     @overload
-    def get_page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPageDict: ...
-    def get_page_text(
+    def _page_text(self, pno: int, option: Literal["rawdict"]) -> RawTextPageDict: ...
+    def _page_text(
         self, pno: int, option: str = "text"
     ) -> str | list[Word] | list[Block] | TextPageDict | RawTextPageDict:
-        """Extract text or positioned layout from zero-based page ``pno``.
-
-        ``option`` uses pymupdf-style names without promising full compatibility:
-
-        - ``"text"``: plain text, the default.
-        - ``"words"``: ``(x0, y0, x1, y1, word, block, line, word index)``.
-        - ``"blocks"``: ``(x0, y0, x1, y1, text, block, 0)``.
-        - ``"dict"``: nested width, height, and blocks with lines and spans.
-        - ``"rawdict"``: the same text hierarchy with ``chars`` replacing span
-          ``text``; each item has ``c``, ``bbox``, and baseline ``origin``.
-
-        Coordinates are display points (1/72 inch at the default PDF UserUnit),
-        with a top-left origin,
-        downward y, and page rotation/CropBox offsets resolved. Bboxes use
-        glyph advances and approximate baseline extents from font-size ratios,
-        not exact outlines. Reading order follows the existing geometry and
-        script heuristics rather than semantic document order.
-
-        Raw entries preserve one glyph's complete Unicode mapping, including
-        ligatures with several characters; no positions are invented by
-        dividing span text. Inferred spaces have no raw entry. Unmapped glyphs
-        retain the existing skip/warning behavior. Output is text-only and
-        shares the existing text/glyph budgets and interpretation cache.
-        """
+        """Extract text from zero-based page ``pno`` for :meth:`Page.get_text`."""
         if option == "text":
             text = self._doc.extract_text([self._lopdf_page_number(pno)])
             self._emit_warnings()
@@ -1490,187 +1285,6 @@ class Document:
             ],
         }
 
-    def delete_page(self, pno: int = -1) -> None:
-        """Delete zero-based page ``pno``, the last page by default.
-
-        Negative values count from the end. Cleanup follows
-        :meth:`delete_pages`.
-        """
-        self.delete_pages(pno)
-
-    @overload
-    def delete_pages(self, pno: int, /) -> None: ...
-
-    @overload
-    def delete_pages(self, from_page: int, to_page: int, /) -> None: ...
-
-    @overload
-    def delete_pages(self, page_numbers: Iterable[int], /) -> None: ...
-
-    @overload
-    def delete_pages(self, *, from_page: int = -1, to_page: int = -1) -> None: ...
-
-    def delete_pages(
-        self,
-        *args: int | Iterable[int],
-        from_page: int | None = None,
-        to_page: int | None = None,
-    ) -> None:
-        """Delete zero-based pages in pymupdf's argument forms.
-
-        ``delete_pages(pno)`` deletes one page, and a negative ``pno`` counts
-        from the end. ``delete_pages(from_page, to_page)`` deletes an inclusive
-        range given in either order. The keywords ``from_page`` and ``to_page``
-        delete an inclusive range in which -1, the default, means the last page
-        and other negative values count from the end. An iterable deletes the
-        listed pages, which must lie in ``0..page_count - 1``; repeated numbers
-        delete a page once. Page numbers out of range raise ``ValueError``
-        before the document changes.
-
-        The iterable may contain up to the larger of the page count and 4,096
-        entries; further entries raise :class:`LimitError` with code
-        ``page_entry_count`` before the document changes. Links, outline
-        destinations, the open action, and named destinations that target
-        deleted pages are removed under the same limits as :meth:`get_outline` and
-        :meth:`Page.get_links`. The AcroForm loses the widgets of deleted pages
-        and the fields whose widgets all lay there, under the
-        :meth:`get_form_fields` limits; fields that never had a widget stay.
-        A tagged PDF's structure tree loses the marked content and annotation
-        references of deleted pages, the elements left without kids, and
-        their ``/ParentTree`` and ``/IDTree`` entries; a structure tree beyond
-        1,048,576 nodes, 4,194,304 edges, or 256 levels raises
-        :class:`LimitError` with code ``structure_tree_count``. A refusal
-        leaves the document unchanged.
-        """
-        self._ensure_open()
-        count = self.page_count
-        numbers = _deletion_numbers(args, from_page, to_page, count)
-        if not numbers:
-            return
-        self._doc.delete_pages(numbers)
-        self._bump_generation()
-
-    def select(self, page_numbers: Iterable[int], /) -> None:
-        """Keep only the given zero-based pages in the given order.
-
-        This also reorders pages. Repeating an index duplicates that page; the
-        duplicate shares Contents and Resources objects with the original. The
-        iterable may contain up to the larger of the page count and 4,096
-        entries, so a selection never grows a large document; further entries
-        raise :class:`LimitError` with code ``page_entry_count``. Navigation to
-        excluded pages, their AcroForm widgets and fields, and their
-        structure-tree content are cleaned as in :meth:`delete_pages`.
-        """
-        numbers = self._page_entries(page_numbers, "page_numbers", self.page_count)
-        self._doc.select(numbers)
-        self._bump_generation()
-
-    def insert_pdf(
-        self,
-        docsrc: Document,
-        *,
-        from_page: int = -1,
-        to_page: int = -1,
-        start_at: int = -1,
-    ) -> None:
-        """Insert a page range from another document, with pymupdf's range rules.
-
-        Insert the inclusive, zero-based ``from_page..to_page`` range of
-        ``docsrc`` before page ``start_at`` of this document. A negative
-        ``from_page`` means the first page and a negative ``to_page`` the last;
-        both clamp to the last source page, and ``from_page`` above
-        ``to_page`` imports the range in reverse order. A negative
-        ``start_at`` appends, and a value beyond the page count appends too.
-        The range is bounded by the source document itself, so a complete
-        document of any page count can be inserted. Source-local links,
-        including named destinations, become explicit destinations or are
-        omitted when their target page is not imported; source name trees share
-        the :meth:`Page.get_links` limits.
-
-        AcroForm fields with a widget on an imported page join this document's
-        form with their values and appearances, so :meth:`get_form_fields` and
-        :meth:`set_form_field` reach them. A top-level field name that this
-        document already uses gains the smallest unused ``+N`` suffix, so
-        importing one form twice yields ``name`` and ``name+1``; names are
-        compared within the 1 MiB name budget of :meth:`get_form_fields`, and
-        JavaScript that names a renamed field is not rewritten. Source default
-        resources join ``/DR``: an identical resource is shared, and a different
-        one under a name already in use gains the smallest unused ``_N`` suffix
-        that imported default appearance strings follow. A partial range omits
-        widgets of the other pages and the fields left without a widget, and
-        raises :class:`PdfError` without changing this document when the source
-        field tree exceeds the :meth:`get_form_fields` limits. A complete import
-        keeps every field without walking the tree. The source ``/XFA`` and
-        ``/SigFlags`` are not copied.
-        """
-        self._ensure_open()
-        if docsrc is self:
-            msg = "cannot insert a document into itself"
-            raise ValueError(msg)
-        docsrc._ensure_open()
-        source_count = docsrc.page_count
-        if source_count == 0:
-            return
-        last = source_count - 1
-        start = min(max(from_page, 0), last)
-        stop = last if to_page < 0 else min(to_page, last)
-        step = 1 if start <= stop else -1
-        count = self.page_count
-        position = None if start_at < 0 or start_at >= count else start_at
-        self._doc.merge_pages(docsrc._doc, list(range(start + 1, stop + 1 + step, step)), position)
-        self._bump_generation()
-
-    def new_page(self, pno: int = -1, *, width: float = 595.0, height: float = 842.0) -> Page:
-        """Insert a blank page and return its :class:`Page`.
-
-        ``pno`` is the zero-based insertion position; -1 appends. ``width`` and
-        ``height`` are PDF units and default to 595×842 portrait A4.
-        """
-        self._ensure_open()
-        if (
-            not (math.isfinite(width) and math.isfinite(height))
-            or not (0 < width <= _FLOAT32_MAX)
-            or not (0 < height <= _FLOAT32_MAX)
-        ):
-            msg = f"width / height must be positive finite values within PDF real-number range: ({width!r}, {height!r})"
-            raise ValueError(msg)
-        if pno == -1:
-            position = None
-            index = self.page_count
-        else:
-            position = self._insert_position(pno, "pno")
-            index = position
-        self._doc.new_page(position, width, height)
-        self._bump_generation()
-        return self[index]
-
-    def fullcopy_page(self, pno: int, to: int = -1) -> None:
-        """Copy page ``pno`` before page ``to``; -1 appends.
-
-        As in pymupdf, ``pno`` lies in ``0..page_count - 1`` and ``to`` in
-        ``-1..page_count - 1``; other values raise ``ValueError``. The copy is
-        an independent page object that shares the original's content streams
-        and resources until either page is edited.
-        """
-        self._ensure_open()
-        if not (_is_int(pno) and _is_int(to)):
-            msg = f"pno and to must be integers: pno={pno!r}, to={to!r}"
-            raise TypeError(msg)
-        count = self.page_count
-        if not (0 <= pno < count and -1 <= to < count):
-            msg = f"bad page number(s): pno={pno!r}, to={to!r} (page count {count})"
-            raise ValueError(msg)
-        self._doc.copy_page(pno + 1, None if to == -1 else to)
-        self._bump_generation()
-
-    def _insert_position(self, value: int, name: str) -> int:
-        """Validate an insertion position from 0 through ``page_count``."""
-        count = self.page_count
-        if not 0 <= value <= count:
-            msg = f"{name} {value} is out of range (0..{count} or -1)"
-            raise IndexError(msg)
-        return value
-
     def get_outline(self) -> list[OutlineEntry]:
         """Return the outline (bookmarks) as :class:`OutlineEntry` items.
 
@@ -1706,7 +1320,7 @@ class Document:
             limit_code = "toc_entry_count"
             msg = f"the outline cannot contain more than {_MAX_TOC_ENTRIES} entries"
             raise LimitError(limit_code, msg)
-        count = self.page_count
+        count = self._page_count()
         prepared: list[tuple[int, str, int]] = []
         previous_level = 0
         for i, item in enumerate(entries):
@@ -1846,34 +1460,6 @@ class Document:
             "image": data,
         }
 
-    @overload
-    def get_page_images(self, pno: int, *, full: Literal[False] = False) -> list[ImageItem]: ...
-    @overload
-    def get_page_images(self, pno: int, *, full: Literal[True]) -> list[ImageItemFull]: ...
-    def get_page_images(self, pno: int, *, full: bool = False) -> list[ImageItem] | list[ImageItemFull]:
-        """List the image XObjects of zero-based page ``pno``.
-
-        pymupdf's convenience for ``doc[pno].get_images(full=full)``.
-        """
-        return self[pno].get_images(full=full)
-
-    def get_page_pixmap(  # noqa: PLR0913 - get_pixmap's keyword-only options.
-        self,
-        pno: int,
-        *,
-        matrix: Matrix | Sequence[float] | None = None,
-        dpi: float | None = None,
-        clip: Sequence[float] | None = None,
-        alpha: bool = False,
-        background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
-    ) -> Pixmap:
-        """Render zero-based page ``pno`` to a :class:`Pixmap`.
-
-        pymupdf's convenience for ``doc[pno].get_pixmap(...)``, with the same
-        options; :meth:`Pixmap.tobytes` gives the encoded PNG.
-        """
-        return self[pno].get_pixmap(matrix=matrix, dpi=dpi, clip=clip, alpha=alpha, background=background)
-
     def render_pages(  # noqa: PLR0913 - batch resource controls are keyword-only.
         self,
         pages: Iterable[int] | None = None,
@@ -1918,7 +1504,7 @@ class Document:
             msg = f"workers must be between 1 and {_MAX_RENDER_WORKERS}"
             raise ValueError(msg)
         _validate_optional_positive_int("max_size", max_size)
-        count = self.page_count
+        count = self._page_count()
         page_numbers = list(range(1, count + 1)) if pages is None else self._page_entries(pages, "pages", count)
         if not page_numbers:
             return []
@@ -2193,7 +1779,6 @@ class Document:
     def close(self) -> None:
         """Close the document; subsequent operations raise an error."""
         self._closed = True
-        self._name = None
         self._doc.release_render_cache()
 
     def _ensure_not_closed(self) -> None:
@@ -2212,6 +1797,11 @@ class Document:
         if self._doc.is_encrypted():
             msg = "this PDF is encrypted; open it with the password argument or call authenticate()"
             raise EncryptedDocumentError(msg)
+
+    def _page_count(self) -> int:
+        """Return the page count of an open, decrypted document."""
+        self._ensure_open()
+        return self._doc.page_count()
 
     def _normalize_pno(self, pno: int) -> int:
         """Resolve negative indexing and return a valid zero-based page number."""
@@ -2262,64 +1852,112 @@ class Document:
         return f"<{state}pylopdf.Document>"
 
 
-#: pymupdf's alias: ``open`` is the same callable as :class:`Document`.
-open = Document  # noqa: A001
+def _open_source(source: object) -> tuple[str | None, bytes | None]:
+    """Split ``open``'s source into a file path or the bytes of a document."""
+    if isinstance(source, bytes):
+        return None, source
+    if isinstance(source, (bytearray, memoryview)):
+        return None, bytes(source)
+    if isinstance(source, (str, os.PathLike)):
+        path = os.fspath(source)
+        if isinstance(path, str):
+            return path, None
+    if hasattr(source, "read"):
+        msg = f"source must be a path or bytes; read the file object first: {type(source).__name__}"
+        raise TypeError(msg)
+    msg = f"source must be a path (str or os.PathLike[str]) or bytes, bytearray, or memoryview: {type(source).__name__}"
+    raise TypeError(msg)
 
 
-def peek_metadata(
-    filename: str | os.PathLike[str] | None = None,
-    stream: bytes | None = None,
-    password: str | None = None,
+def open(  # noqa: A001 - the package's entry point, pylopdf.open.
+    source: str | os.PathLike[str] | bytes | bytearray | memoryview,
+    /,
     *,
-    max_file_size: int | None = None,
-) -> MetadataProbe:
-    """Read metadata and page count without parsing the entire document.
+    password: str | None = None,
+    limits: DocumentLimits | None = None,
+) -> Document:
+    """Open a PDF from a file path or from the bytes of a document.
 
-    Return the keys from :attr:`Document.metadata` other than ``trapped``
-    and ``encryption``, plus integer ``page_count`` and boolean ``encrypted``
-    / ``repaired`` facts. This is suitable for
-    scanning many PDFs. ``max_file_size`` rejects oversized path or byte input
-    before metadata parsing; ``None`` leaves it unbounded. Returned standard
-    Info text is capped at 1 MiB. Password input is capped at 127 UTF-8 bytes.
+    A document with an empty user password decrypts on its own; any other
+    encrypted document needs ``password``, or :meth:`Document.authenticate`
+    after opening. Passwords are capped at 127 UTF-8 bytes. ``limits``
+    applies structural, decompression, interpretation, and text budgets before
+    expensive work; :meth:`DocumentLimits.web` is a conservative starting
+    profile for untrusted uploads. Input that is not a readable PDF, including
+    empty input, raises :class:`MalformedPdfError`, and a missing file raises
+    :class:`FileNotFoundError`.
     """
-    if (filename is None) == (stream is None):
-        msg = "specify exactly one of filename or stream"
-        raise ValueError(msg)
+    path, data = _open_source(source)
+    document = Document.__new__(Document)
+    document._setup(path, data, password, limits)
+    return document
+
+
+#: The Info dictionary keys that :class:`Probe` reports, by their names in pylopdf.
+_PROBE_METADATA_KEYS = (
+    ("title", "Title"),
+    ("author", "Author"),
+    ("subject", "Subject"),
+    ("keywords", "Keywords"),
+    ("creator", "Creator"),
+    ("producer", "Producer"),
+    ("created", "CreationDate"),
+    ("modified", "ModDate"),
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Probe:
+    """What :func:`probe` reads without loading the whole document."""
+
+    #: The number of pages.
+    page_count: int
+    #: The PDF version of the header, such as ``"1.7"``.
+    version: str
+    #: Whether the document is encrypted and the password given, if any, did not open it.
+    is_encrypted: bool
+    #: Whether reading it needed cross-reference recovery.
+    is_repaired: bool
+    #: The Info dictionary's text entries that are present: ``title``,
+    #: ``author``, ``subject``, ``keywords``, ``creator``, ``producer``,
+    #: ``created``, and ``modified``, the last two as PDF date strings.
+    metadata: Mapping[str, str]
+
+
+def probe(
+    source: str | os.PathLike[str] | bytes | bytearray | memoryview,
+    /,
+    *,
+    password: str | None = None,
+    max_file_size: int | None = None,
+) -> Probe:
+    """Read the page count, version, encryption, and metadata without loading the whole document.
+
+    This suits scanning many files. ``max_file_size`` refuses larger input
+    before parsing with :class:`LimitError` code ``file_size``; ``None``, the
+    default, leaves it unbounded. The metadata text is capped at 1 MiB, and
+    passwords at 127 UTF-8 bytes.
+    """
+    path, data = _open_source(source)
     _validate_optional_positive_int("max_file_size", max_file_size)
     _validate_password_input(password)
-    if stream is not None:
-        raw, page_count, version, encrypted, recovery = _Document.load_metadata_bytes(
-            stream,
-            password,
-            max_file_size,
-        )
+    if data is not None:
+        raw, page_count, version, encrypted, recovery = _Document.load_metadata_bytes(data, password, max_file_size)
     else:
         raw, page_count, version, encrypted, recovery = _Document.load_metadata(
-            os.fspath(cast("os.PathLike[str] | str", filename)),
-            password,
-            max_file_size,
+            cast("str", path), password, max_file_size
         )
     if recovery is not None:
         _warnings.warn(recovery, PylopdfWarning, stacklevel=2)
-    return {
-        "format": f"PDF {version}",
-        "title": raw.get("Title", ""),
-        "author": raw.get("Author", ""),
-        "subject": raw.get("Subject", ""),
-        "keywords": raw.get("Keywords", ""),
-        "creator": raw.get("Creator", ""),
-        "producer": raw.get("Producer", ""),
-        "creationDate": raw.get("CreationDate", ""),
-        "modDate": raw.get("ModDate", ""),
-        "page_count": page_count,
-        "encrypted": encrypted,
-        "repaired": recovery is not None,
-    }
+    return Probe(
+        page_count=page_count,
+        version=version,
+        is_encrypted=encrypted,
+        is_repaired=recovery is not None,
+        metadata=MappingProxyType({name: raw[key] for name, key in _PROBE_METADATA_KEYS if key in raw}),
+    )
 
 
 # The package re-exports these names; reprs, pickles, and documentation name it.
-for _public in (
-    Document,
-    peek_metadata,
-):
+for _public in (Document, Probe, open, probe):
     _public.__module__ = "pylopdf"

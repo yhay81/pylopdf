@@ -144,9 +144,9 @@ def windows_files() -> _WindowsFiles:
 @pytest.fixture(params=["pdf", "object-streams", "encrypted", "png"])
 def output(request: pytest.FixtureRequest, one_page_pdf: bytes) -> Iterator[tuple[str, Callable[[Path], None]]]:
     """Exercise every public writer that replaces a filesystem path."""
-    with pylopdf.open(stream=one_page_pdf) as doc:
+    with pylopdf.open(one_page_pdf) as doc:
         if request.param == "png":
-            yield "png", doc[0].get_pixmap(alpha=True).save
+            yield "png", doc.pages[0].get_pixmap(alpha=True).save
         elif request.param == "object-streams":
             yield "pdf", lambda path: doc.save(path, use_objstms=True)
         elif request.param == "encrypted":
@@ -160,7 +160,7 @@ def _assert_output(path: Path, kind: str) -> None:
         assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     else:
         with pylopdf.open(path) as doc:
-            if doc.needs_pass:
+            if doc.needs_password:
                 assert doc.authenticate("test-password")
             assert "Hello PDF" in doc.get_text()
 

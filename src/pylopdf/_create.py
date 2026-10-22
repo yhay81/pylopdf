@@ -8,9 +8,10 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
 
 from pylopdf._canvas import Canvas
-from pylopdf._document import Document, _is_language_tag
+from pylopdf._document import Document, _is_language_tag, open  # noqa: A004 - the package's open().
 from pylopdf._hints import hinted_getattr
 from pylopdf._limits import _FLOAT32_MAX
+from pylopdf._pages import _DEFAULT_PAGE_SIZE
 from pylopdf.pylopdf_core import _Builder
 
 if TYPE_CHECKING:
@@ -34,8 +35,6 @@ Standard: TypeAlias = Literal[
 _STANDARDS: tuple[str, ...] = get_args(Standard)
 #: Standards whose documents must be tagged.
 _TAGGED_STANDARDS = frozenset({"pdf/a-1a", "pdf/a-2a", "pdf/a-3a", "pdf/ua-1"})
-#: The size of an A4 page in points.
-_A4 = (595.28, 841.89)
 
 
 def _text(value: object, name: str) -> str | None:
@@ -72,8 +71,8 @@ class Builder:
         """Return the number of pages added so far."""
         return self._core.page_count()
 
-    def page(self, size: Sequence[float] = _A4) -> Canvas:
-        """Return a canvas for a new page of ``size`` points, A4 by default.
+    def page(self, size: Sequence[float] = _DEFAULT_PAGE_SIZE) -> Canvas:
+        """Return a canvas for a new page of ``size`` points, A4 (595 × 842) by default.
 
         The page joins the document when the canvas's ``with`` block ends
         normally, after the pages whose blocks ended before; after an
@@ -108,7 +107,7 @@ class Builder:
         Saving the returned document writes it again with lopdf; use
         :meth:`to_bytes` for the file exactly as krilla validated it.
         """
-        return Document(stream=self.to_bytes())
+        return open(self.to_bytes())
 
     def __repr__(self) -> str:
         """Return the page count."""

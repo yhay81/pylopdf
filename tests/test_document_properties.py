@@ -51,15 +51,15 @@ def _annotated_pdf(annots: str, *extra: bytes | str) -> bytes:
 
 
 def test_xml_metadata_is_empty_without_a_metadata_stream() -> None:
-    assert pylopdf.open(stream=build_pdf(["plain"])).get_xml_metadata() == ""
+    assert pylopdf.open(build_pdf(["plain"])).get_xml_metadata() == ""
     # A /Metadata entry that is no stream reads as absent, as in pymupdf.
-    assert pylopdf.open(stream=_catalog_pdf("/Metadata 4 0 R", "<< /Type /Metadata >>")).get_xml_metadata() == ""
+    assert pylopdf.open(_catalog_pdf("/Metadata 4 0 R", "<< /Type /Metadata >>")).get_xml_metadata() == ""
 
 
 def test_xml_metadata_decodes_filters_invalid_utf8_and_nul_as_pymupdf() -> None:
     xmp = '<x:xmpmeta xmlns:x="adobe:ns:meta/">日本語</x:xmpmeta>'
-    assert pylopdf.open(stream=_xmp_pdf(xmp.encode(), compressed=True)).get_xml_metadata() == xmp
-    damaged = pylopdf.open(stream=_xmp_pdf(b"<a>\xff</a>\x00ignored"))
+    assert pylopdf.open(_xmp_pdf(xmp.encode(), compressed=True)).get_xml_metadata() == xmp
+    damaged = pylopdf.open(_xmp_pdf(b"<a>\xff</a>\x00ignored"))
     assert damaged.get_xml_metadata() == "<a>�</a>"
 
 
@@ -82,7 +82,7 @@ def test_real_world_xml_metadata_matches_pymupdf_lengths(name: str, length: int)
 
 
 def test_xml_metadata_read_is_bounded_on_every_decoding_layer() -> None:
-    doc = pylopdf.open(stream=_xmp_pdf(b"<x/>" + b" " * 2_000_000, compressed=True))
+    doc = pylopdf.open(_xmp_pdf(b"<x/>" + b" " * 2_000_000, compressed=True))
     with pytest.raises(LimitError) as caught:
         doc.get_xml_metadata()
     assert caught.value.code == "xmp_metadata_size"
@@ -92,7 +92,7 @@ def test_xml_metadata_read_is_bounded_on_every_decoding_layer() -> None:
 
 
 def test_set_xml_metadata_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     xmp = "<x:xmpmeta>héllo</x:xmpmeta>"
 
     assert doc.set_xml_metadata(xmp) is None
@@ -113,7 +113,7 @@ def test_set_xml_metadata_adds_an_unfiltered_metadata_stream(tmp_path: Path) -> 
 
 
 def test_set_xml_metadata_rewrites_an_existing_stream_in_place() -> None:
-    doc = pylopdf.open(stream=_xmp_pdf(b"<old/>", compressed=True))
+    doc = pylopdf.open(_xmp_pdf(b"<old/>", compressed=True))
     xref = doc.catalog["Metadata"].xref
 
     doc.set_xml_metadata("<new/>")
@@ -122,11 +122,11 @@ def test_set_xml_metadata_rewrites_an_existing_stream_in_place() -> None:
     assert "Filter" not in stream
     assert stream["Type"] == "Metadata"
     assert stream.read(decode=False) == b"<new/>"
-    assert pylopdf.open(stream=doc.tobytes(deflate=True)).get_xml_metadata() == "<new/>"
+    assert pylopdf.open(doc.tobytes(deflate=True)).get_xml_metadata() == "<new/>"
 
 
 def test_set_xml_metadata_input_is_bounded_before_any_change() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     objects = len(doc.objects)
     with pytest.raises(LimitError) as caught:
         doc.set_xml_metadata("é" * 600_000)  # 1.2 MB of UTF-8 in 600,000 characters
@@ -142,7 +142,7 @@ def test_set_xml_metadata_input_is_bounded_before_any_change() -> None:
 
 
 def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(LimitError) as caught:
         doc._doc.set_xml_metadata(b"x" * 10, 9)  # noqa: SLF001 - the core repeats the bound.
     assert caught.value.code == "xmp_metadata_input_size"
@@ -150,18 +150,18 @@ def test_set_xml_metadata_repeats_the_input_bound_in_rust() -> None:
 
 
 def test_set_xml_metadata_takes_text_only() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(TypeError, match="str"):
         doc.set_xml_metadata(b"<x/>")  # ty: ignore[invalid-argument-type]
 
 
 def test_del_xml_metadata_removes_the_catalog_entry() -> None:
-    doc = pylopdf.open(stream=_xmp_pdf(b"<old/>"))
+    doc = pylopdf.open(_xmp_pdf(b"<old/>"))
     doc.del_xml_metadata()
     assert "Metadata" not in doc.catalog
     assert doc.get_xml_metadata() == ""
     doc.del_xml_metadata()  # Removing absent metadata changes nothing.
-    saved = pylopdf.open(stream=doc.tobytes(garbage=1))
+    saved = pylopdf.open(doc.tobytes(garbage=1))
     assert saved.get_xml_metadata() == ""
     assert all(
         not (isinstance(value, pylopdf.Stream) and value.get("Type") == "Metadata") for value in saved.objects.values()
@@ -169,7 +169,7 @@ def test_del_xml_metadata_removes_the_catalog_entry() -> None:
 
 
 def test_set_metadata_leaves_xmp_unchanged() -> None:
-    doc = pylopdf.open(stream=_xmp_pdf(b"<old/>"))
+    doc = pylopdf.open(_xmp_pdf(b"<old/>"))
     doc.set_metadata({"title": "New"})
     assert doc.get_xml_metadata() == "<old/>"
 
@@ -178,18 +178,18 @@ def test_set_metadata_leaves_xmp_unchanged() -> None:
 
 
 def test_page_mode_and_layout_default_to_pymupdf_values() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.pagemode == "UseNone"
     assert doc.pagelayout == "SinglePage"
     # A value that is no name reads as unset, as in pymupdf.
-    odd = pylopdf.open(stream=_catalog_pdf("/PageMode (UseOutlines) /PageLayout 7"))
+    odd = pylopdf.open(_catalog_pdf("/PageMode (UseOutlines) /PageLayout 7"))
     assert odd.pagemode == "UseNone"
     assert odd.pagelayout == "SinglePage"
     assert pylopdf.open(REAL_WORLD / "usrguide.pdf").pagemode == "UseOutlines"
 
 
 def test_page_mode_reads_names_outside_the_standard_list() -> None:
-    doc = pylopdf.open(stream=_catalog_pdf("/PageMode /Custom /PageLayout 4 0 R", "/TwoColumnLeft"))
+    doc = pylopdf.open(_catalog_pdf("/PageMode /Custom /PageLayout 4 0 R", "/TwoColumnLeft"))
     assert doc.pagemode == "Custom"
     assert doc.pagelayout == "TwoColumnLeft"
 
@@ -199,11 +199,11 @@ def test_page_mode_reads_names_outside_the_standard_list() -> None:
     [("FullScreen", "FullScreen"), ("/useoc", "UseOC"), ("USEATTACHMENTS", "UseAttachments")],
 )
 def test_set_pagemode_matches_names_case_insensitively(value: str, stored: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.set_pagemode(value) is True
     assert doc.catalog["PageMode"] == stored
     assert isinstance(doc.catalog["PageMode"], pylopdf.Name)
-    assert pylopdf.open(stream=doc.tobytes()).pagemode == stored
+    assert pylopdf.open(doc.tobytes()).pagemode == stored
 
 
 @pytest.mark.parametrize(
@@ -211,21 +211,21 @@ def test_set_pagemode_matches_names_case_insensitively(value: str, stored: str) 
     [("OneColumn", "OneColumn"), ("/twopageright", "TwoPageRight"), ("twocolumnleft", "TwoColumnLeft")],
 )
 def test_set_pagelayout_matches_names_case_insensitively(value: str, stored: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.set_pagelayout(value) is True
-    assert pylopdf.open(stream=doc.tobytes()).pagelayout == stored
+    assert pylopdf.open(doc.tobytes()).pagelayout == stored
 
 
 @pytest.mark.parametrize("value", ["", "/", "Custom", "SinglePage", None, 1])
 def test_set_pagemode_rejects_other_values(value: object) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(pylopdf.PdfError, match="bad PageMode value"):
         doc.set_pagemode(value)  # ty: ignore[invalid-argument-type]
     assert "PageMode" not in doc.catalog
 
 
 def test_set_pagelayout_rejects_page_modes() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(ValueError, match="bad PageLayout value"):
         doc.set_pagelayout("UseNone")
     with pytest.raises(pylopdf.PdfError, match="bad PageLayout"):
@@ -239,29 +239,29 @@ def test_set_pagelayout_rejects_page_modes() -> None:
 
 
 def test_markinfo_reads_pymupdf_shape() -> None:
-    assert pylopdf.open(stream=build_pdf(["plain"])).markinfo == {}
-    assert pylopdf.open(stream=_catalog_pdf("/MarkInfo true")).markinfo == {}
+    assert pylopdf.open(build_pdf(["plain"])).markinfo == {}
+    assert pylopdf.open(_catalog_pdf("/MarkInfo true")).markinfo == {}
     assert pylopdf.open(REAL_WORLD / "f1040.pdf").markinfo == {
         "Marked": True,
         "UserProperties": False,
         "Suspects": False,
     }
-    indirect = pylopdf.open(stream=_catalog_pdf("/MarkInfo 4 0 R", "<< /Suspects true /Marked 5 >>"))
+    indirect = pylopdf.open(_catalog_pdf("/MarkInfo 4 0 R", "<< /Suspects true /Marked 5 >>"))
     assert indirect.markinfo == {"Marked": False, "UserProperties": False, "Suspects": True}
 
 
 def test_set_markinfo_writes_all_three_flags() -> None:
-    doc = pylopdf.open(stream=_catalog_pdf("/MarkInfo << /UserProperties true /Extra 1 >>"))
+    doc = pylopdf.open(_catalog_pdf("/MarkInfo << /UserProperties true /Extra 1 >>"))
     assert doc.set_markinfo({"Marked": True, "Suspects": "TRUE"}) is True  # ty: ignore[invalid-argument-type]
     # Missing keys become false, whatever the document held, as in pymupdf.
     expected = {"Marked": True, "UserProperties": False, "Suspects": True}
     assert doc.markinfo == expected
     assert sorted(doc.catalog["MarkInfo"]) == ["Marked", "Suspects", "UserProperties"]
-    assert pylopdf.open(stream=doc.tobytes()).markinfo == expected
+    assert pylopdf.open(doc.tobytes()).markinfo == expected
 
 
 def test_set_markinfo_ignores_empty_input_and_rejects_bad_entries() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.set_markinfo({}) is False
     assert doc.set_markinfo(None) is False  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="bad MarkInfo key"):
@@ -275,22 +275,20 @@ def test_set_markinfo_ignores_empty_input_and_rejects_bad_entries() -> None:
 
 
 def test_has_links_and_annots_on_documents_without_annotations() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain", "two"]))
+    doc = pylopdf.open(build_pdf(["plain", "two"]))
     assert doc.has_links() is False
     assert doc.has_annots() is False
 
 
 def test_has_links_and_annots_follow_pymupdf_subtypes() -> None:
-    links = pylopdf.open(
-        stream=_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>")
-    )
+    links = pylopdf.open(_annotated_pdf("[4 0 R null 9 0 R]", "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>"))
     assert (links.has_links(), links.has_annots()) == (True, False)
 
-    widgets = pylopdf.open(stream=_annotated_pdf("[<< /Subtype /Widget /Rect [0 0 1 1] >>]"))
+    widgets = pylopdf.open(_annotated_pdf("[<< /Subtype /Widget /Rect [0 0 1 1] >>]"))
     assert (widgets.has_links(), widgets.has_annots()) == (False, False)
 
     # An annotation without a subtype counts, as MuPDF reads it as unknown.
-    untyped = pylopdf.open(stream=_annotated_pdf("4 0 R", "[<< /Rect [0 0 1 1] >>]"))
+    untyped = pylopdf.open(_annotated_pdf("4 0 R", "[<< /Rect [0 0 1 1] >>]"))
     assert (untyped.has_links(), untyped.has_annots()) == (False, True)
 
 
@@ -305,41 +303,40 @@ def test_has_links_and_annots_on_real_world_files() -> None:
 
 
 def test_has_annots_sees_created_annotations() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
-    doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": pylopdf.Rect(10, 10, 50, 50), "uri": "https://example.com"})
+    doc = pylopdf.open(build_pdf(["plain"]))
+    doc.pages[0].insert_link(
+        {"kind": pylopdf.LINK_URI, "from": pylopdf.Rect(10, 10, 50, 50), "uri": "https://example.com"}
+    )
     assert (doc.has_links(), doc.has_annots()) == (True, False)
-    doc[0].add_highlight_annot(pylopdf.Rect(10, 10, 50, 50))
+    doc.pages[0].add_highlight_annot(pylopdf.Rect(10, 10, 50, 50))
     assert (doc.has_links(), doc.has_annots()) == (True, True)
 
 
 # --- document state ------------------------------------------------------
 
 
-def test_is_closed_and_is_pdf() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
-    assert doc.is_pdf is True
+def test_is_closed() -> None:
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.is_closed is False
     doc.close()
     assert doc.is_closed is True
     with pytest.raises(pylopdf.DocumentClosedError):
-        _ = doc.is_pdf
+        _ = doc.pages
     for operation in (doc.get_xml_metadata, doc.has_links, lambda: doc.pagemode, lambda: doc.markinfo):
         with pytest.raises(pylopdf.DocumentClosedError):
             operation()
 
 
-def test_name_is_the_filename_argument(tmp_path: Path) -> None:
+def test_path_is_the_file_the_document_came_from(tmp_path: Path) -> None:
     path = tmp_path / "named.pdf"
     path.write_bytes(build_pdf(["plain"]))
-    assert pylopdf.open(str(path)).name == str(path)
+    assert pylopdf.open(str(path)).path == path
     by_path = pylopdf.open(path)
-    assert by_path.name == str(path)
-    assert pylopdf.open(stream=path.read_bytes()).name is None
-    assert pylopdf.open().name is None
-    # pymupdf keeps a file type passed in place of a filename.
-    assert pylopdf.open("pdf", path.read_bytes()).name == "pdf"
+    assert by_path.path == path
+    assert pylopdf.open(path.read_bytes()).path is None
+    assert pylopdf.Document().path is None
     by_path.close()
-    assert by_path.name is None
+    assert by_path.path == path
 
 
 def test_encrypted_documents_refuse_property_access_until_authenticated() -> None:
@@ -347,12 +344,12 @@ def test_encrypted_documents_refuse_property_access_until_authenticated() -> Non
     for operation in (doc.get_xml_metadata, doc.has_annots, lambda: doc.pagelayout):
         with pytest.raises(pylopdf.EncryptedDocumentError):
             operation()
-    assert doc.name == str(ENCRYPTED / "user-aes-256.pdf")
+    assert doc.path == ENCRYPTED / "user-aes-256.pdf"
 
 
 def test_property_edits_keep_page_views_valid() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["plain"]))
+    page = doc.pages[0]
     doc.set_xml_metadata("<x/>")
     doc.set_pagemode("UseThumbs")
     doc.set_pagelayout("OneColumn")
@@ -365,37 +362,37 @@ def test_property_edits_keep_page_views_valid() -> None:
 
 
 def test_language_tag_reads_the_stored_tag_unchanged() -> None:
-    assert pylopdf.open(stream=build_pdf(["plain"])).language_tag is None
+    assert pylopdf.open(build_pdf(["plain"])).language_tag is None
     # pymupdf reads these as "en" and "zh-Hant"; pylopdf keeps the whole tag.
-    assert pylopdf.open(stream=_catalog_pdf("/Lang (en-GB)")).language_tag == "en-GB"
-    assert pylopdf.open(stream=_catalog_pdf("/Lang 4 0 R", "(zh-HK)")).language_tag == "zh-HK"
+    assert pylopdf.open(_catalog_pdf("/Lang (en-GB)")).language_tag == "en-GB"
+    assert pylopdf.open(_catalog_pdf("/Lang 4 0 R", "(zh-HK)")).language_tag == "zh-HK"
     utf16 = "<FEFF007A0068002D00540057>"  # "zh-TW" as a UTF-16BE text string
-    assert pylopdf.open(stream=_catalog_pdf(f"/Lang {utf16}")).language_tag == "zh-TW"
+    assert pylopdf.open(_catalog_pdf(f"/Lang {utf16}")).language_tag == "zh-TW"
     # A malformed stored value reads as stored; a value that is no string reads as absent.
-    assert pylopdf.open(stream=_catalog_pdf("/Lang (not a tag)")).language_tag == "not a tag"
-    assert pylopdf.open(stream=_catalog_pdf("/Lang /en")).language_tag is None
+    assert pylopdf.open(_catalog_pdf("/Lang (not a tag)")).language_tag == "not a tag"
+    assert pylopdf.open(_catalog_pdf("/Lang /en")).language_tag is None
 
 
 @pytest.mark.parametrize(
     "tag", ["zh-CN", "zh-TW", "zh-HK", "en-US", "pt-BR", "sr-Latn-RS", "ja", "x-private", "de-CH-1996"]
 )
 def test_set_language_tag_keeps_the_complete_tag(tag: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     assert doc.set_language_tag(tag) is None
     assert doc.language_tag == tag
     lang = doc.catalog["Lang"]
     assert isinstance(lang, pylopdf.String)
     assert bytes(lang) == tag.encode()
-    assert pylopdf.open(stream=doc.tobytes()).language_tag == tag
+    assert pylopdf.open(doc.tobytes()).language_tag == tag
 
 
 def test_set_language_tag_none_removes_lang() -> None:
-    doc = pylopdf.open(stream=_catalog_pdf("/Lang (en-US)"))
+    doc = pylopdf.open(_catalog_pdf("/Lang (en-US)"))
     doc.set_language_tag(None)
     assert "Lang" not in doc.catalog
     assert doc.language_tag is None
     doc.set_language_tag(None)  # Removing an absent tag changes nothing.
-    assert pylopdf.open(stream=doc.tobytes()).language_tag is None
+    assert pylopdf.open(doc.tobytes()).language_tag is None
 
 
 @pytest.mark.parametrize(
@@ -417,14 +414,14 @@ def test_set_language_tag_none_removes_lang() -> None:
     ],
 )
 def test_set_language_tag_rejects_malformed_tags(tag: object) -> None:
-    doc = pylopdf.open(stream=_catalog_pdf("/Lang (ja)"))
+    doc = pylopdf.open(_catalog_pdf("/Lang (ja)"))
     with pytest.raises(pylopdf.PdfError, match="BCP 47"):
         doc.set_language_tag(tag)  # ty: ignore[invalid-argument-type]
     assert doc.language_tag == "ja"
 
 
 def test_set_language_tag_repeats_the_check_in_rust() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     for tag in ("en_US", "a" + "-a" * 128):
         with pytest.raises(pylopdf.PdfError, match="BCP 47"):
             doc._doc.set_language_tag(tag)  # noqa: SLF001 - the core repeats the check.
@@ -433,7 +430,7 @@ def test_set_language_tag_repeats_the_check_in_rust() -> None:
 
 
 def test_pymupdf_language_names_raise_migration_hints() -> None:
-    doc = pylopdf.open(stream=build_pdf(["plain"]))
+    doc = pylopdf.open(build_pdf(["plain"]))
     with pytest.raises(AttributeError, match="language_tag"):
         _ = doc.language  # ty: ignore[unresolved-attribute]
     with pytest.raises(AttributeError, match="set_language_tag"):
@@ -444,7 +441,7 @@ def test_pymupdf_language_names_raise_migration_hints() -> None:
 
 
 def _labeled_doc() -> pylopdf.Document:
-    doc = pylopdf.open(stream=build_pdf([f"Page {i}" for i in range(8)]))
+    doc = pylopdf.open(build_pdf([f"Page {i}" for i in range(8)]))
     doc.set_page_labels(
         [
             {"startpage": 0, "style": "r"},
@@ -463,32 +460,32 @@ def _labeled_doc() -> pylopdf.Document:
 )
 def test_get_page_numbers_matches_page_labels(label: str, numbers: list[int]) -> None:
     doc = _labeled_doc()
-    assert doc.get_page_numbers(label) == numbers
-    assert all(doc[pno].get_label() == label for pno in numbers)
+    assert doc.pages.labeled(label) == numbers
+    assert all(doc.pages[pno].get_label() == label for pno in numbers)
 
 
 def test_get_page_numbers_finds_every_page_or_only_the_first() -> None:
-    doc = pylopdf.open(stream=build_pdf(["a", "b", "c"]))
+    doc = pylopdf.open(build_pdf(["a", "b", "c"]))
     doc.set_page_labels([{"startpage": 0, "prefix": "cover"}])
-    assert doc.get_page_numbers("cover") == [0, 1, 2]
-    assert doc.get_page_numbers("cover", True) == [0]
-    assert doc.get_page_numbers("cover", only_one=True) == [0]
+    assert doc.pages.labeled("cover") == [0, 1, 2]
+    assert doc.pages.labeled("cover")[:1] == [0]
+    assert doc.pages.labeled("cover")[:1] == [0]
 
 
 def test_get_page_numbers_without_labels_or_label_is_empty() -> None:
-    assert pylopdf.open(stream=build_pdf(["a"])).get_page_numbers("1") == []
-    assert _labeled_doc().get_page_numbers("") == []
+    assert pylopdf.open(build_pdf(["a"])).pages.labeled("1") == []
+    assert _labeled_doc().pages.labeled("") == []
 
 
 def test_is_dirty_starts_false_for_opened_documents_and_true_for_new_ones() -> None:
-    assert not pylopdf.open(stream=build_pdf(["a"])).is_dirty
+    assert not pylopdf.open(build_pdf(["a"])).is_dirty
     assert not pylopdf.open(REAL_WORLD / "usrguide.pdf").is_dirty
-    assert pylopdf.open().is_dirty
+    assert pylopdf.Document().is_dirty
 
 
 def test_reads_leave_is_dirty_false() -> None:
     doc = pylopdf.open(REAL_WORLD / "pdfium-links-highlights-annots.pdf")
-    page = doc[0]
+    page = doc.pages[0]
     page.get_text()
     page.get_text("dict")
     page.get_pixmap()
@@ -508,16 +505,16 @@ def test_reads_leave_is_dirty_false() -> None:
     [
         lambda doc: doc.set_metadata({"title": "t"}),
         lambda doc: doc.set_metadata(doc.metadata),
-        lambda doc: doc[0].set_rotation(90),
-        lambda doc: doc[0].insert_text((72, 72), "x"),
-        lambda doc: doc.select([0]),
+        lambda doc: doc.pages[0].set_rotation(90),
+        lambda doc: doc.pages[0].insert_text((72, 72), "x"),
+        lambda doc: doc.pages.select([0]),
         lambda doc: doc.set_pagemode("UseOutlines"),
         lambda doc: doc.set_xml_metadata("<x/>"),
-        lambda doc: doc.new_page(),
+        lambda doc: doc.pages.new(),
     ],
 )
 def test_every_edit_sets_is_dirty_until_the_document_closes(edit: Callable[[pylopdf.Document], object]) -> None:
-    doc = pylopdf.open(stream=build_pdf(["a"]))
+    doc = pylopdf.open(build_pdf(["a"]))
     edit(doc)
     assert doc.is_dirty
     # pymupdf never resets it, not even after an incremental save.
@@ -539,12 +536,12 @@ def test_is_dirty_is_false_after_authentication() -> None:
 
 
 def test_unencrypted_documents_have_every_permission() -> None:
-    assert pylopdf.open(stream=build_pdf(["a"])).permissions == -4
-    assert pylopdf.open().permissions == -4
+    assert pylopdf.open(build_pdf(["a"])).permissions == -4
+    assert pylopdf.Document().permissions == -4
 
 
 def _restricted(user_pw: str, permissions: int) -> bytes:
-    doc = pylopdf.open(stream=build_pdf(["a"]))
+    doc = pylopdf.open(build_pdf(["a"]))
     return doc.tobytes(
         encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw=user_pw, owner_pw="boss", permissions=permissions
     )
@@ -553,7 +550,7 @@ def _restricted(user_pw: str, permissions: int) -> bytes:
 def test_permissions_follow_the_password_that_granted_access() -> None:
     # pymupdf 1.28.2 reads these values for the same documents.
     data = _restricted("user", pylopdf.Permissions.PRINT | pylopdf.Permissions.COPY)
-    doc = pylopdf.open(stream=data)
+    doc = pylopdf.open(data)
     assert doc.permissions == 0
     assert doc.authenticate("user") == 2
     assert doc.permissions == -3884
@@ -561,12 +558,12 @@ def test_permissions_follow_the_password_that_granted_access() -> None:
     assert not doc.permissions & pylopdf.Permissions.MODIFY
     assert doc.authenticate("boss") == 4
     assert doc.permissions == -4
-    assert pylopdf.open(stream=data, password="user").permissions == -3884
-    assert pylopdf.open(stream=data, password="boss").permissions == -4
+    assert pylopdf.open(data, password="user").permissions == -3884
+    assert pylopdf.open(data, password="boss").permissions == -4
 
 
 def test_permissions_of_a_document_with_an_empty_user_password() -> None:
-    doc = pylopdf.open(stream=_restricted("", pylopdf.Permissions.PRINT))
+    doc = pylopdf.open(_restricted("", pylopdf.Permissions.PRINT))
     assert doc.permissions == -3900
     assert doc.authenticate("wrong") == 0
     assert doc.permissions == -3900
@@ -585,7 +582,7 @@ def test_permissions_of_the_encrypted_assets_match_pymupdf(name: str) -> None:
 
 
 def test_document_state_properties_raise_after_close() -> None:
-    doc = pylopdf.open(stream=build_pdf(["a"]))
+    doc = pylopdf.open(build_pdf(["a"]))
     doc.close()
     for read in (lambda: doc.is_dirty, lambda: doc.permissions):
         with pytest.raises(pylopdf.DocumentClosedError):

@@ -29,7 +29,7 @@ def _zeros(limit: int, consumed: list[int]) -> Iterator[int]:
 
 
 def test_get_text_extracts_every_page_across_chunks(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
+    doc = pylopdf.open(large_pdf)
     expected = "".join(f"Page {index}\n" for index in range(LARGE_PAGE_COUNT))
 
     assert doc.get_text() == expected
@@ -43,7 +43,7 @@ def test_get_text_output_budget_spans_every_chunk(large_pdf: bytes) -> None:
     # so only a call-wide budget rejects the complete repeated batch.
     budget_entries = 4_150
     limits = pylopdf.DocumentLimits(max_text_size=budget_entries * len(page_text) // 2)
-    doc = pylopdf.Document(stream=large_pdf, limits=limits)
+    doc = pylopdf.open(large_pdf, limits=limits)
 
     assert doc.get_text([0] * budget_entries) == page_text * budget_entries
     with pytest.raises(pylopdf.LimitError) as caught:
@@ -52,13 +52,13 @@ def test_get_text_output_budget_spans_every_chunk(large_pdf: bytes) -> None:
 
 
 def test_to_markdown_converts_every_page(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
+    doc = pylopdf.open(large_pdf)
     assert doc.to_markdown() == "\n\n".join(f"Page {index}" for index in range(LARGE_PAGE_COUNT))
     assert doc.to_markdown([4199, 0]) == "Page 4199\n\nPage 0"
 
 
 def test_render_pages_renders_every_page_across_chunks(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
+    doc = pylopdf.open(large_pdf)
     scale = 0.05
 
     for workers in (1, 2):
@@ -66,46 +66,47 @@ def test_render_pages_renders_every_page_across_chunks(large_pdf: bytes) -> None
         assert len(rendered) == LARGE_PAGE_COUNT
         for index in (0, 4095, 4096, LARGE_PAGE_COUNT - 1):
             assert (
-                rendered[index] == doc.get_page_pixmap(index, matrix=pylopdf.Matrix(scale, scale), alpha=True).tobytes()
+                rendered[index]
+                == doc.pages[index].get_pixmap(matrix=pylopdf.Matrix(scale, scale), alpha=True).tobytes()
             )
 
 
 def test_select_reorders_every_page(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
-    doc.select(range(LARGE_PAGE_COUNT - 1, -1, -1))
+    doc = pylopdf.open(large_pdf)
+    doc.pages.select(range(LARGE_PAGE_COUNT - 1, -1, -1))
 
-    assert doc.page_count == LARGE_PAGE_COUNT
-    assert doc.get_page_text(0) == f"Page {LARGE_PAGE_COUNT - 1}\n"
-    assert doc.get_page_text(LARGE_PAGE_COUNT - 1) == "Page 0\n"
+    assert len(doc.pages) == LARGE_PAGE_COUNT
+    assert doc.pages[0].get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
+    assert doc.pages[LARGE_PAGE_COUNT - 1].get_text() == "Page 0\n"
 
 
 def test_select_accepts_page_count_duplicates_without_growing(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
-    doc.select([0] * LARGE_PAGE_COUNT)
+    doc = pylopdf.open(large_pdf)
+    doc.pages.select([0] * LARGE_PAGE_COUNT)
 
-    assert doc.page_count == LARGE_PAGE_COUNT
+    assert len(doc.pages) == LARGE_PAGE_COUNT
     assert doc.get_text([LARGE_PAGE_COUNT - 1]) == "Page 0\n"
 
 
 def test_delete_pages_accepts_more_than_the_floor(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
-    doc.delete_pages(range(4_150))
+    doc = pylopdf.open(large_pdf)
+    del doc.pages[0:4150]
 
-    assert doc.page_count == LARGE_PAGE_COUNT - 4_150
-    assert doc.get_page_text(0) == "Page 4150\n"
+    assert len(doc.pages) == LARGE_PAGE_COUNT - 4_150
+    assert doc.pages[0].get_text() == "Page 4150\n"
 
 
 def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
-    source = pylopdf.Document(stream=large_pdf)
+    source = pylopdf.open(large_pdf)
     appended = pylopdf.Document()
-    appended.insert_pdf(source)
-    assert appended.page_count == LARGE_PAGE_COUNT
+    appended.pages.extend(source.pages)
+    assert len(appended.pages) == LARGE_PAGE_COUNT
     assert appended.get_text([0, LARGE_PAGE_COUNT - 1]) == f"Page 0\nPage {LARGE_PAGE_COUNT - 1}\n"
 
     reversed_doc = pylopdf.Document()
-    reversed_doc.insert_pdf(source, from_page=LARGE_PAGE_COUNT - 1, to_page=0)
-    assert reversed_doc.page_count == LARGE_PAGE_COUNT
-    assert reversed_doc.get_page_text(0) == f"Page {LARGE_PAGE_COUNT - 1}\n"
+    reversed_doc.pages.extend(source.pages[::-1])
+    assert len(reversed_doc.pages) == LARGE_PAGE_COUNT
+    assert reversed_doc.pages[0].get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
 
 
 @pytest.mark.parametrize(
@@ -114,17 +115,17 @@ def test_insert_pdf_imports_a_complete_large_document(large_pdf: bytes) -> None:
         lambda doc, pages: doc.get_text(pages),
         lambda doc, pages: doc.to_markdown(pages),
         lambda doc, pages: doc.render_pages(pages, matrix=pylopdf.Matrix(0.05, 0.05), alpha=True),
-        lambda doc, pages: doc.select(pages),
-        lambda doc, pages: doc.delete_pages(pages),
+        lambda doc, pages: doc.pages.select(pages),
+        lambda doc, pages: doc.pages.extend(doc.pages[index] for index in pages),
     ],
-    ids=["get_text", "to_markdown", "render_pages", "select", "delete_pages"],
+    ids=["get_text", "to_markdown", "render_pages", "select", "extend"],
 )
 def test_explicit_entries_stop_after_the_page_count(
     large_pdf: bytes,
     operation: Callable[[pylopdf.Document, Iterator[int]], object],
 ) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
-    page = doc[LARGE_PAGE_COUNT - 1]
+    doc = pylopdf.open(large_pdf)
+    page = doc.pages[LARGE_PAGE_COUNT - 1]
     consumed = [0]
 
     with pytest.raises(pylopdf.LimitError, match=f"more than {LARGE_PAGE_COUNT} entries") as caught:
@@ -132,7 +133,7 @@ def test_explicit_entries_stop_after_the_page_count(
 
     assert caught.value.code == "page_entry_count"
     assert consumed[0] == LARGE_PAGE_COUNT + 1
-    assert doc.page_count == LARGE_PAGE_COUNT
+    assert len(doc.pages) == LARGE_PAGE_COUNT
     assert page.get_text() == f"Page {LARGE_PAGE_COUNT - 1}\n"
 
 
@@ -163,7 +164,7 @@ def test_core_page_batches_are_bounded_by_the_page_count(large_pdf: bytes) -> No
 
 
 def test_large_manual_toc_round_trips_through_page_edits(large_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=large_pdf)
+    doc = pylopdf.open(large_pdf)
     outline: list[tuple[int, str, int]] = []
     for index in range(LARGE_PAGE_COUNT):
         outline.append((1, f"Chapter {index}", index))
@@ -172,8 +173,8 @@ def test_large_manual_toc_round_trips_through_page_edits(large_pdf: bytes) -> No
 
     assert len(outline) > 4_096
     assert doc.get_outline() == outline
-    assert pylopdf.Document(stream=doc.tobytes()).get_outline() == outline
+    assert pylopdf.open(doc.tobytes()).get_outline() == outline
 
-    doc.delete_pages(range(LARGE_PAGE_COUNT // 2))
+    del doc.pages[: LARGE_PAGE_COUNT // 2]
     retained = [(level, title, page - LARGE_PAGE_COUNT // 2) for level, title, page in outline[LARGE_PAGE_COUNT:]]
     assert doc.get_outline() == retained

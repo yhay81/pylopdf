@@ -167,11 +167,11 @@ _pylopdf_measurement_data = Path(
 ).read_bytes()
 
 def _pylopdf_process_measurement():
-    with pylopdf.Document(
-        stream=_pylopdf_measurement_data,
+    with pylopdf.open(
+        _pylopdf_measurement_data,
         limits=pylopdf.DocumentLimits.web(),
     ) as document:
-        return len(document.get_page_text(0))
+        return len(document.pages[0].get_text())
 `);
 const processFixture = pyodide.globals.get("_pylopdf_process_measurement");
 const firstDocumentStart = performance.now();

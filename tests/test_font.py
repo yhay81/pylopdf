@@ -48,7 +48,7 @@ def bold_data() -> bytes:
 
 def _new_page(width: float = 400, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:
     doc = pylopdf.Document()
-    return doc, doc.new_page(width=width, height=height)
+    return doc, doc.pages.new((width, height))
 
 
 def _chars(page: pylopdf.Page) -> list[pylopdf.TextChar]:
@@ -114,8 +114,8 @@ def test_text_length_equals_the_drawn_advance(regular: pylopdf.Font) -> None:
         offsets.append(offsets[-1] + len(char["c"]))
     following = chars[offsets.index(len(prefix))]
     assert following["origin"][0] == pytest.approx(x + regular.text_length(prefix, size), abs=1e-2)
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened[0].get_text().strip() == MIXED_LINE
+    reopened = pylopdf.open(doc.tobytes())
+    assert reopened.pages[0].get_text().strip() == MIXED_LINE
 
 
 def test_text_length_matches_textbox_layout(regular: pylopdf.Font) -> None:

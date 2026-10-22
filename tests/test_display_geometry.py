@@ -86,7 +86,7 @@ def _pdf(name: str, rotation: int) -> bytes:
 
 
 def _page(name: str, rotation: int) -> pylopdf.Page:
-    return pylopdf.open(stream=_pdf(name, rotation))[0]
+    return pylopdf.open(_pdf(name, rotation)).pages[0]
 
 
 def _origins(page: pylopdf.Page, text: str) -> list[tuple[float, float]]:
@@ -216,10 +216,10 @@ def test_images_and_shapes_land_on_their_display_rectangles(name: str, rotation:
 @pages
 @geometry
 def test_a_placed_page_shows_what_rendering_shows_of_it(name: str, rotation: int) -> None:
-    source = pylopdf.open(stream=_pdf(name, rotation))
+    source = pylopdf.open(_pdf(name, rotation))
     width, height = _display_size(name, rotation)
     target = pylopdf.Document()
-    page = target.new_page(width=width, height=height)
+    page = target.pages.new((width, height))
 
     page.show_pdf_page((0, 0, width, height), source, 0)
 
@@ -241,7 +241,7 @@ def test_page_boxes_follow_pymupdf_box_convention() -> None:
 
 def test_setting_a_cropbox_past_the_mediabox_clips_the_page() -> None:
     doc = pylopdf.Document()
-    page = doc.new_page(width=600, height=800)
+    page = doc.pages.new((600, 800))
 
     # set_cropbox refuses such a box, as pymupdf does; a file can still hold one.
     with pytest.raises(ValueError, match="CropBox not in MediaBox"):

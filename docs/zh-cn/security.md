@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].get_pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -93,10 +93,10 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | 页面内容64 MiB | `max_size` |
 | 附件：`add()`、`read()`、`write()` | 每个文件64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()` | XMP元数据1 MiB | `max_size` |
+| `Document.get_pdfa_claim()`、`get_xml_metadata()`、`set_xml_metadata()` | XMP元数据1 MiB | `max_size` |
 | `OcrEngine()` | 模型文件64 MiB | `max_model_size` |
 
-有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`select()`、`delete_pages()`、`get_text()`、`to_markdown()`和`render_pages()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
+有几项上限是固定的。渲染时每页最多6,400万像素。密码最长127个UTF-8字节，这是PDF 2.0规定的最大值。传给`doc.pages.select()`、`insert()`和`extend()`，以及`get_text()`、`to_markdown()`和`render_pages()`的页面列表，条目数最多为页数与4,096中的较大者。书签、页码标签、表单字段、批注和附件列表都设有宽松的固定上限，足以应对大型的真实文档。
 
 被拒绝的调用会在修改文档之前抛出异常，绝不会返回部分结果。
 
@@ -124,6 +124,7 @@ limits = pylopdf.DocumentLimits(
 | `page_entry_count` | 页面列表超出允许的长度 |
 | `toc_entry_count`、`toc_text_size`、`named_destination_count`、`named_destination_text_size`、`structure_tree_count`、`form_content_size` | 书签、链接目标表、标签PDF结构或导入的页面过大 |
 | `xmp_metadata_size` | XMP元数据大于`max_size` |
+| `xmp_metadata_input_size` | 传给`set_xml_metadata()`的XMP元数据大于`max_size` |
 | `ocr_model_size`、`ocr_dictionary_entries` | OCR模型文件过大 |
 
 ## 内置防护 { #built-in-protections }
@@ -132,7 +133,7 @@ limits = pylopdf.DocumentLimits(
 
 - **深层嵌套。**渲染引擎hayro以递归方式读取嵌套结构。在渲染或提取页面之前，pylopdf会检查其内容、颜色空间和函数的嵌套深度，并拒绝会导致栈溢出或被悄悄截断的页面（`content_nesting_depth`、`resource_nesting_depth`、`object_depth`）。文档中的其他页面仍可正常使用。
 - **渲染器崩溃。**如果渲染器在遇到格式错误的数据时发生panic，pylopdf会抛出`PdfError`，而不是`except Exception`捕获不到的异常，文档也仍可继续使用。
-- **损坏的文件。**pylopdf会尽可能修复损坏的交叉引用数据，发出`PylopdfWarning`，并设置`doc.is_repaired`。如果你的应用不能接受经过修复的输入，请拒绝这类文档。有些损坏的文件无法打开，会抛出`FileDataError`。
+- **损坏的文件。**pylopdf会尽可能修复损坏的交叉引用数据，发出`PylopdfWarning`，并设置`doc.is_repaired`。如果你的应用不能接受经过修复的输入，请拒绝这类文档。有些损坏的文件无法打开，会抛出`MalformedPdfError`。
 - **安全保存。**`save()`和`Pixmap.save()`先写入目标位置旁边的临时文件，只有在完整写入后才替换目标文件，因此失败时绝不会留下写了一半的文件。现有的文件权限（包括Windows访问控制列表）会被保留。
 - **不执行脚本。**嵌入的JavaScript永远不会被执行。
 

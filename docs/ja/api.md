@@ -18,20 +18,23 @@ description: pylopdfのDocument、Page、Font、Shape、Pixmap、幾何型、低
 ## Document { #document }
 
 ```python
-pylopdf.Document(filename=None, stream=None, filetype=None, *,
-                 password=None, limits=None, max_decompressed_size=None)
+pylopdf.open(source, /, *, password=None, limits=None)
+pylopdf.Document(*, limits=None)
 ```
 
-`pylopdf.open`は同じ呼び出し可能オブジェクトです。パスは`filename`に、ファイルの中身は`stream`（`bytes`、`bytearray`、`memoryview`、`io.BytesIO`）に渡します。引数なしの`Document()`は空のPDFを作ります。`limits`には信頼できない入力向けの[`DocumentLimits`](security.md#untrusted-pdfs)ポリシーを渡します。文書はコンテキストマネージャとして使うか、`close()`を呼んでください。
+`open`はパス（`str`または`os.PathLike`）か、ファイルの中身（`bytes`、`bytearray`、`memoryview`）からPDFを読み込みます。ファイルオブジェクトは、`pylopdf.open(file.read())`のように先に読み出してから渡してください。`Document()`は空のPDFを作ります。`limits`には信頼できない入力向けの[`DocumentLimits`](security.md#untrusted-pdfs)ポリシーを渡します。文書はコンテキストマネージャとして使うか、`close()`を呼んでください。
 
 ### 開く・調べる・保存する { #document-io }
 
 | メンバ | 用途 |
 |---|---|
-| `page_count`, `len(doc)` | ページ数 |
+| `pages` | ページ。[ページ](#document-pages)を参照 |
 | `metadata` / `set_metadata(m)` | タイトル・作成者などのInfo項目と、`format`・`encryption`。`set_metadata`は値が空のキーを削除し、`{}`ですべて削除します |
-| `needs_pass`, `is_encrypted`, `authenticate(password)` | 暗号化の状態。`authenticate`は文書を復号し、pymupdfと同じ値を返します。パスワードが違えば0、それ以外は1、2、4、6のいずれか |
+| `needs_password`, `is_encrypted`, `authenticate(password)` | 暗号化の状態。`authenticate`は文書を復号し、pymupdfと同じ値を返します。パスワードが違えば0、それ以外は1、2、4、6のいずれか |
 | `is_repaired` | 開く際に壊れた相互参照データを修復したかどうか |
+| `permissions` | pymupdfと同じ形式の権限フラグ。パスワードが必要な間は`0`、暗号化されていない文書やオーナーパスワードで開いた後は`-4`（すべて）、それ以外は暗号化の`/P`の値です。フラグは`doc.permissions & Permissions.PRINT`で調べます |
+| `is_dirty` | 開いてから文書を編集したかどうか。pymupdfと同じく、新しい空の文書は最初から編集済みで、保存してもリセットされません |
+| `is_closed`, `path` | 文書が閉じられているかどうかと、開いたファイルを表す`pathlib.Path`。bytesから開いた文書と空の文書では`None` |
 | `limits`, `complexity` | 文書を開いたときのポリシーと、処理するかどうかを判断するための軽量な構造情報（ページ、オブジェクト、ストリーム） |
 | `save(filename, *, garbage=0, deflate=False, use_objstms=False, encryption=, user_pw=, owner_pw=, permissions=)` | PDFを書き出します。ファイルは書き込みがすべて成功してから置き換えます |
 | `tobytes(..., max_size=512 MiB)` | 同じ出力を`bytes`で |
@@ -41,25 +44,37 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 ### ページ { #document-pages }
 
+`doc.pages`は[`Page`](#page)ビューのシーケンスです。`len(doc.pages)`、`doc.pages[i]`（負のインデックスは末尾から数えます）、`doc.pages[2:5]`のようなスライス（リストを返します）、イテレーションに対応します。
+
 | メンバ | 用途 |
 |---|---|
-| `doc[i]`, `load_page(pno)`, イテレーション | [`Page`](#page)オブジェクト |
-| `new_page(pno=-1, *, width=595, height=842)` | 白紙ページを挿入（既定はA4） |
-| `insert_pdf(docsrc, *, from_page=-1, to_page=-1, start_at=-1)` | 別の文書からページを、リンクやフォームフィールドとともにコピー |
-| `select(page_numbers)` | 指定したページを指定した順に残します。同じ番号を繰り返すとページを複製します |
-| `delete_page(pno)`, `delete_pages(...)` | ページを削除。`delete_pages`は番号1つ、番号2つ、`from_page=`/`to_page=`、イテラブルのいずれかを受け取ります |
-| `fullcopy_page(pno, to=-1)` | ページの独立したコピーを挿入 |
+| `doc.pages.new(size=(595, 842), *, index=None)` | 白紙ページを追加します。既定はA4で、`index`を指定しなければ末尾に追加します |
+| `doc.pages.insert(index, pages)`, `doc.pages.extend(pages)` | 1ページまたはページのシーケンスのコピーを、リンクやフォームフィールドとともに挿入または末尾に追加します。ページはこの文書のものでも別の文書のものでもかまいません |
+| `del doc.pages[i]`, `del doc.pages[a:b]` | ページを削除 |
+| `doc.pages.select(indexes)` | 指定したページを指定した順に残します。同じインデックスを繰り返すとページを複製します |
+| `doc.pages.move(index, to)` | ページを移動し、インデックス`to`の位置に置きます |
+| `doc.pages.labeled(label)` | ラベルが`label`のページのインデックス |
 | `get_outline()` / `set_outline(entries)` | 目次（しおり）を`OutlineEntry(level, title, page)`の項目として読み取り・置換 |
 | `get_page_labels()` / `set_page_labels(labels)` | 前付けのローマ数字のようなページラベルの範囲 |
 
-ページを削除・選択すると、削除したページだけを指していたリンク、しおりの項目、フォームフィールド、タグ付きPDFの構造も削除します。ただし、そのページの内容のコピーをすべて消すわけではないので、安全な墨消しにはなりません。
+```python
+merged = pylopdf.Document()
+for path in ["a.pdf", "b.pdf"]:
+    merged.pages.extend(pylopdf.open(path).pages)
+del merged.pages[0]                         # 最初のページを削除
+merged.pages.insert(0, merged.pages[-1])    # 最後のページを先頭にコピー
+merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にする
+```
+
+`insert`と`extend`は`list.insert`と同じようにインデックスの位置を受け取るので、末尾を超えるインデックスを指定すると末尾に追加します。1回の呼び出しで渡すページはすべて1つの文書のもので、別の文書のページは1回の呼び出しにつき各ページ1度までです。別の文書のページは、リンク、注釈、フォームフィールドとともに取り込みます。すでに使われているフィールド名には、使われていない最小の`+N`の接尾辞を付けます。同じ文書のページのコピーは新しいページオブジェクトで、どちらかが編集されるまでは元のページとコンテンツストリームとリソースを共有します。
+
+ページを追加・削除・並べ替えると、それ以前の`Page`ビューは古くなります。古いビューを使うと`StalePageError`を送出し、ページを変更しながら`doc.pages`をイテレーションすると`RuntimeError`を送出します。ページを削除・選択すると、削除したページだけを指していたリンク、しおりの項目、フォームフィールド、タグ付きPDFの構造も削除します。ただし、そのページの内容のコピーをすべて消すわけではないので、安全な墨消しにはなりません。
 
 ### テキストとMarkdown { #document-text }
 
 | メンバ | 用途 |
 |---|---|
 | `get_text(pages=None)` | 全ページ、または指定したページのプレーンテキストを1つの文字列で |
-| `get_page_text(pno, option="text")` | `doc[pno].get_text(option)`と同じ |
 | `to_markdown(pages=None, *, table_strategy="lines", max_size=64 MiB)` | 見出し、リスト、強調、段組みの読み順、CJKの縦書き、表を含むMarkdown |
 
 `table_strategy="lines"`は罫線で描かれた表を変換し、`"text"`は罫線のない表も、明確に揃っていれば変換します。`None`で表の変換を無効にします。
@@ -68,9 +83,7 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 
 | メンバ | 用途 |
 |---|---|
-| `get_page_pixmap(pno, ...)` | `doc[pno].get_pixmap(...)`と同じ |
 | `render_pages(pages=None, *, matrix=, dpi=, alpha=False, background=, workers=, max_size=512 MiB)` | 全ページ、または指定したページのPNGのbytesを順番どおりに。並列にレンダリングします |
-| `get_page_images(pno, *, full=False)` | `doc[pno].get_images(full=...)`と同じ |
 | `extract_image(xref)` | 画像1つをpymupdfと同じキーで。JPEGデータはそのまま、ほかの画像はPNGで返します |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 画像を縮小・再圧縮してファイルを小さくします |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォント。CJKのextraを入れると自動で設定されます |
@@ -85,11 +98,18 @@ pylopdf.Document(filename=None, stream=None, filetype=None, *,
 | `set_form_field(name, value, *, font=, fontfile=, fontbuffer=, fontindex=, font_language=)` | フィールドに記入し、見た目を生成し直します。[フォーム](#forms)を参照 |
 | `attachments` | 埋め込みファイルのマッピング。[添付ファイル](#attachments)を参照 |
 | `get_pdfa_claim()` | ファイルが宣言しているPDF/Aのパートと適合レベル（`(2, "B")`など）。宣言を読むだけで、検証はしません |
-| `objects`, `trailer`, `catalog`, `page_xref(pno)` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
+| `get_xml_metadata(*, max_size=1 MiB)` / `set_xml_metadata(metadata, *, max_size=1 MiB)` / `del_xml_metadata()` | XMPメタデータのパケットをテキストで（ない場合は`""`）。`set_metadata`はこれを変更しません |
+| `language_tag` / `set_language_tag(tag)` | 文書の言語を表す`zh-TW`や`sr-Latn-RS`のような完全なBCP 47タグ、または`None`。`set_language_tag(None)`で削除し、形式の正しくないタグは例外になります |
+| `pagemode` / `set_pagemode(mode)`, `pagelayout` / `set_pagelayout(layout)` | ビューアーが文書をどう開くか（`"UseOutlines"`、`"TwoColumnLeft"`など）。未設定のときは`"UseNone"`と`"SinglePage"` |
+| `markinfo` / `set_markinfo(markinfo)` | タグ付きPDFのフラグを表す`MarkInfo`辞書（ない場合は`{}`）。設定するときは3つのフラグをすべて書き込み、省略したフラグは`False`になります |
+| `has_links()`, `has_annots()` | いずれかのページにリンクがあるか、リンクとフォームウィジェット以外の注釈があるか |
+| `objects`, `trailer`, `catalog` | PDFオブジェクトへの直接アクセス。[低レベルオブジェクト](#low-level-objects)を参照 |
+
+`language_tag`はpymupdfの`language`に代わるものです。`language`はタグを3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`として読まれます。XMPを書き込むと、`deflate=True`でもパケットは圧縮されないので、ファイルの中からXMPを探すツールでも見つけられます。
 
 ## Page { #page }
 
-`Page`は文書の1ページを表すビューです。`doc[i]`で取得します。
+`Page`は文書の1ページを表すビューです。`doc.pages[i]`で取得します。2つのビューは、同じ文書の同じページを表していて、その間にページの追加・削除・並べ替えがなければ等しくなります。
 
 ### テキストと検索 { #page-text }
 
@@ -124,7 +144,7 @@ pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=Tru
 
 | メンバ | 用途 |
 |---|---|
-| `number`, `parent` | ページ番号と文書 |
+| `index`, `document` | 文書内でのページのインデックスと、その文書 |
 | `rect` | 回転を適用した、ページの見える領域 |
 | `rotation` / `set_rotation(deg)` | 90の倍数で表す表示の回転 |
 | `mediabox`, `cropbox` / `set_mediabox(r)`, `set_cropbox(r)` | pymupdfの規約に従ったページボックス |
@@ -167,7 +187,7 @@ pymupdfと同じく、ピクセルマップは既定で白地のRGB、`alpha=Tru
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    layout = doc[0].get_text("rawdict")
+    layout = doc.pages[0].get_text("rawdict")
     for block in layout["blocks"]:
         for line in block["lines"]:
             for span in line["spans"]:
@@ -185,7 +205,7 @@ with pylopdf.open("report.pdf") as doc:
 
 ```python
 with pylopdf.open("report.pdf") as doc:
-    content = doc[0].content()
+    content = doc.pages[0].content()
     for run in content.text_runs:
         print(run.text, run.font.name, run.size, run.fill)
         for glyph in run.glyphs:
@@ -509,8 +529,8 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 | 名前 | 用途 |
 |---|---|
-| `open(...)` | `Document(...)`と同じ |
-| `peek_metadata(filename=None, stream=None, password=None, *, max_file_size=None)` | 文書を読み込まずにメタデータとページ数を取得 |
+| `open(source, /, *, password=None, limits=None)` | 文書を開きます。[Document](#document)を参照 |
+| `probe(source, /, *, password=None, max_file_size=None)` | 文書を読み込まずに読み取った、`page_count`、`version`、`is_encrypted`、`is_repaired`、`metadata`（`title`、`author`、`subject`、`keywords`、`creator`、`producer`、`created`、`modified`のうち存在するもの）を持つ`Probe`レコード |
 | `DocumentLimits`, `DocumentLimits.web()` | 信頼できない入力向けの資源の上限。[セキュリティ](security.md#untrusted-pdfs)を参照 |
 | `OcrEngine` | 再利用できるOCRエンジン。[オフラインOCR](ocr.md)を参照 |
 | `Canvas`, `PathBuilder`, `TextFit` | [キャンバス](#canvas)を参照 |
@@ -530,8 +550,7 @@ APIが返す辞書はただの`dict`で、型チェッカー向けに`TextPageDi
 | 名前 | 送出される場面 |
 |---|---|
 | `PdfError` | pylopdfのエラーの基底クラス。`ValueError`のサブクラス |
-| `FileDataError` | 入力が読めるPDFではない。pymupdfと同じく`RuntimeError`でもあります |
-| `EmptyFileError` | 入力が空 |
+| `MalformedPdfError` | 入力が読めるPDFではない（空の入力を含む） |
 | `PasswordError` | 指定したパスワードで復号できなかった |
 | `EncryptedDocumentError` | 先に`authenticate()`で文書を復号する必要がある |
 | `LimitError` | [サイズや資源の上限](security.md#error-codes)に達した。どの上限かは`.code`でわかります |

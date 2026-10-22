@@ -23,7 +23,6 @@ def test_public_type_contracts_are_runtime_importable() -> None:
         "ImageInfo",
         "LinkInfo",
         "LimitError",
-        "MetadataProbe",
         "MetadataUpdate",
         "OcrRotation",
         "OcrWord",
@@ -58,7 +57,6 @@ def test_typed_dict_required_and_optional_keys() -> None:
         pylopdf.ImageCompressionResult,
         pylopdf.ImageInfo,
         pylopdf.LinkInfo,
-        pylopdf.MetadataProbe,
         pylopdf.MetadataUpdate,
         pylopdf.OcrWord,
         pylopdf.PageLabelInfo,
@@ -79,13 +77,13 @@ def test_typed_dict_required_and_optional_keys() -> None:
 
 
 def test_public_return_annotations_describe_real_values() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Typed layout"]))
-    layout: pylopdf.TextPageDict = doc[0].get_text("dict")
+    doc = pylopdf.open(build_pdf(["Typed layout"]))
+    layout: pylopdf.TextPageDict = doc.pages[0].get_text("dict")
     metadata: pylopdf.DocumentMetadata = doc.metadata
     complexity: pylopdf.DocumentComplexity = doc.complexity
     labels: list[pylopdf.PageLabelInfo] = doc.get_page_labels()
     fields: list[pylopdf.FormFieldInfo] = doc.get_form_fields()
-    drawings: list[pylopdf.DrawingInfo] = doc[0].get_drawings()
+    drawings: list[pylopdf.DrawingInfo] = doc.pages[0].get_drawings()
     compression: pylopdf.ImageCompressionResult = doc.rewrite_images(quality=75)
 
     assert layout["blocks"][0]["lines"][0]["spans"][0]["text"] == "Typed layout"

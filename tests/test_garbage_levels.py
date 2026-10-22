@@ -25,15 +25,17 @@ def _object_body(data: bytes, number: int) -> bytes:
 
 
 def _signature(doc: pylopdf.Document) -> list[tuple[str, bytes]]:
-    return [(doc[i].get_text(), doc[i].get_pixmap(dpi=24, alpha=True).samples) for i in range(doc.page_count)]
+    return [
+        (doc.pages[i].get_text(), doc.pages[i].get_pixmap(dpi=24, alpha=True).samples) for i in range(len(doc.pages))
+    ]
 
 
 def _twice_imported() -> pylopdf.Document:
     """Import one source twice, so every font and resource exists twice."""
     source = pylopdf.open(REAL_WORLD / "f1040.pdf")
-    doc = pylopdf.open()
-    doc.insert_pdf(source)
-    doc.insert_pdf(source)
+    doc = pylopdf.Document()
+    doc.pages.extend(source.pages)
+    doc.pages.extend(source.pages)
     return doc
 
 
@@ -46,18 +48,18 @@ def test_every_level_keeps_text_and_rendering(garbage: int) -> None:
     saved = doc.tobytes(garbage=garbage)
 
     assert _signature(doc) == expected
-    assert _signature(pylopdf.open(stream=saved)) == expected
+    assert _signature(pylopdf.open(saved)) == expected
 
 
 @pytest.mark.parametrize("garbage", [-1, 5, 100])
 def test_levels_outside_zero_to_four_raise_pdf_error(garbage: int) -> None:
-    doc = pylopdf.open(stream=build_pdf(["A"]))
+    doc = pylopdf.open(build_pdf(["A"]))
     with pytest.raises(pylopdf.PdfError, match="garbage must be an integer from 0 to 4"):
         doc.tobytes(garbage=garbage)
 
 
 def test_a_non_integer_level_raises_type_error(tmp_path: Path) -> None:
-    doc = pylopdf.open(stream=build_pdf(["A"]))
+    doc = pylopdf.open(build_pdf(["A"]))
     with pytest.raises(TypeError, match="garbage must be an integer"):
         doc.tobytes(garbage="4")  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="garbage must be an integer"):
@@ -75,7 +77,7 @@ def test_levels_merge_progressively_more_duplicates() -> None:
         saved = doc.tobytes(garbage=level)
         sizes[level] = len(saved)
         counts[level] = len(_object_ids(saved))
-        reopened = pylopdf.open(stream=saved)
+        reopened = pylopdf.open(saved)
         assert _signature(reopened) == expected
         assert len(reopened.get_form_fields()) == 2 * len(single.get_form_fields())
     assert counts[2] == counts[1]
@@ -106,13 +108,13 @@ def test_level_two_numbers_objects_consecutively_with_generation_zero() -> None:
         7: "(KEPT)",
     }
 
-    one = pylopdf.open(stream=build_raw_pdf(objects)).tobytes(garbage=1)
-    two = pylopdf.open(stream=build_raw_pdf(objects)).tobytes(garbage=2)
+    one = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=1)
+    two = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=2)
 
     assert [number for number, _ in _object_ids(one)] == [1, 2, 4, 6, 7]
     assert _object_ids(two) == [(number, 0) for number in range(1, 6)]
     assert b"(KEPT)" in two
-    assert pylopdf.open(stream=two).page_count == 1
+    assert len(pylopdf.open(two).pages) == 1
 
 
 def test_compaction_nulls_references_to_missing_objects() -> None:
@@ -130,7 +132,7 @@ def test_compaction_nulls_references_to_missing_objects() -> None:
     entries = raw.index(b"0000000000 65535 f \n") + 20
     third = entries + 2 * 20
     raw = raw[:third] + b"0000000000 00001 f \n" + raw[third + 20 :]
-    doc = pylopdf.open(stream=raw)
+    doc = pylopdf.open(raw)
     assert b"/Dangling 3 0 R" in doc.tobytes()
 
     saved = doc.tobytes(garbage=2)
@@ -138,7 +140,7 @@ def test_compaction_nulls_references_to_missing_objects() -> None:
     assert _object_ids(saved) == [(number, 0) for number in range(1, 5)]
     catalog = _object_body(saved, 1)
     assert re.search(rb"/Dangling\s*null", catalog), catalog
-    assert pylopdf.open(stream=saved).page_count == 1
+    assert len(pylopdf.open(saved).pages) == 1
 
 
 def test_identical_pages_annotations_and_layers_are_never_merged() -> None:
@@ -161,11 +163,11 @@ def test_identical_pages_annotations_and_layers_are_never_merged() -> None:
     )
     raw = _fix_offsets(raw)
 
-    saved = pylopdf.open(stream=raw).tobytes(garbage=4)
+    saved = pylopdf.open(raw).tobytes(garbage=4)
 
-    reopened = pylopdf.open(stream=saved)
-    assert reopened.page_count == 2
-    assert len(reopened[0].annots()) == len(reopened[1].annots()) == 1
+    reopened = pylopdf.open(saved)
+    assert len(reopened.pages) == 2
+    assert len(reopened.pages[0].annots()) == len(reopened.pages[1].annots()) == 1
     assert len(re.findall(rb"/Type\s*/Page\b(?!s)", saved)) == 2
     assert len(re.findall(rb"/Subtype\s*/Square", saved)) == 2
     assert len(re.findall(rb"/Type\s*/OCG", saved)) == 2
@@ -184,10 +186,10 @@ def test_reference_cycles_are_kept_and_saved() -> None:
         7: "<< /Other 6 0 R /Tag (RING) >>",
     }
 
-    saved = pylopdf.open(stream=build_raw_pdf(objects)).tobytes(garbage=4)
+    saved = pylopdf.open(build_raw_pdf(objects)).tobytes(garbage=4)
 
     assert saved.count(b"(RING)") == 4
-    assert pylopdf.open(stream=saved).page_count == 1
+    assert len(pylopdf.open(saved).pages) == 1
 
 
 def test_drawing_after_compaction_isolates_page_content_once() -> None:
@@ -197,35 +199,39 @@ def test_drawing_after_compaction_isolates_page_content_once() -> None:
         assert match is not None
         return len(re.findall(rb"\d+ \d+ R", match.group(1)))
 
-    plain = pylopdf.open(stream=build_pdf(["Base"]))
-    plain[0].insert_text((50, 50), "One")
-    plain[0].insert_text((50, 80), "Two")
+    plain = pylopdf.open(build_pdf(["Base"]))
+    plain.pages[0].insert_text((50, 50), "One")
+    plain.pages[0].insert_text((50, 80), "Two")
 
-    compacted = pylopdf.open(stream=build_pdf(["Base"]))
-    compacted[0].insert_text((50, 50), "One")
+    compacted = pylopdf.open(build_pdf(["Base"]))
+    compacted.pages[0].insert_text((50, 50), "One")
     compacted.tobytes(garbage=4)
-    compacted[0].insert_text((50, 80), "Two")
+    compacted.pages[0].insert_text((50, 80), "Two")
 
     assert contents_entries(compacted) == contents_entries(plain)
-    assert compacted[0].get_text() == plain[0].get_text()
+    assert compacted.pages[0].get_text() == plain.pages[0].get_text()
 
 
 def test_images_placed_after_merging_save_and_merge_again() -> None:
-    pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf")[0].get_pixmap(dpi=24, alpha=True)
-    doc = pylopdf.open(stream=build_pdf(["A", "B"]))
-    doc[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    pixmap = pylopdf.open(REAL_WORLD / "pdf20-simple.pdf").pages[0].get_pixmap(dpi=24, alpha=True)
+    doc = pylopdf.open(build_pdf(["A", "B"]))
+    doc.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
     doc.tobytes(garbage=4)
-    doc[1].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    doc.pages[1].insert_image((10, 10, 60, 60), pixmap=pixmap)
 
     saved = doc.tobytes(garbage=4)
 
-    once = pylopdf.open(stream=build_pdf(["A", "B"]))
-    once[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
+    once = pylopdf.open(build_pdf(["A", "B"]))
+    once.pages[0].insert_image((10, 10, 60, 60), pixmap=pixmap)
     expected = len(re.findall(rb"/Subtype\s*/Image", once.tobytes(garbage=4)))
     assert len(re.findall(rb"/Subtype\s*/Image", saved)) == expected
-    reopened = pylopdf.open(stream=saved)
-    assert reopened[0].get_pixmap(dpi=24, alpha=True).samples == doc[0].get_pixmap(dpi=24, alpha=True).samples
-    assert reopened[1].get_pixmap(dpi=24, alpha=True).samples == doc[1].get_pixmap(dpi=24, alpha=True).samples
+    reopened = pylopdf.open(saved)
+    assert (
+        reopened.pages[0].get_pixmap(dpi=24, alpha=True).samples == doc.pages[0].get_pixmap(dpi=24, alpha=True).samples
+    )
+    assert (
+        reopened.pages[1].get_pixmap(dpi=24, alpha=True).samples == doc.pages[1].get_pixmap(dpi=24, alpha=True).samples
+    )
 
 
 def test_saving_to_a_file_accepts_levels(tmp_path: Path) -> None:
@@ -234,7 +240,7 @@ def test_saving_to_a_file_accepts_levels(tmp_path: Path) -> None:
 
     doc.save(target, garbage=4, deflate=True, use_objstms=True)
 
-    assert pylopdf.open(target).page_count == 2 * pylopdf.open(REAL_WORLD / "f1040.pdf").page_count
+    assert len(pylopdf.open(target).pages) == 2 * len(pylopdf.open(REAL_WORLD / "f1040.pdf").pages)
 
 
 def _fix_offsets(raw: bytes) -> bytes:

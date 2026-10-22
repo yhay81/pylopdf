@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].get_pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -93,10 +93,10 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | ページのコンテンツ64 MiB | `max_size` |
 | 添付ファイル: `add()`, `read()`, `write()` | ファイル1つあたり64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()` | XMPメタデータ1 MiB | `max_size` |
+| `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMPメタデータ1 MiB | `max_size` |
 | `OcrEngine()` | モデルファイル64 MiB | `max_model_size` |
 
-いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`select()`、`delete_pages()`、`get_text()`、`to_markdown()`、`render_pages()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
+いくつかの上限は固定です。レンダリングは1ページあたり6,400万画素までです。パスワードはPDF 2.0の上限であるUTF-8で127バイトまでです。`doc.pages.select()`、`insert()`、`extend()`、`get_text()`、`to_markdown()`、`render_pages()`に渡すページのリストは、ページ数と4,096のうち大きい方の項目数まで持てます。しおり、ページラベル、フォームフィールド、注釈、添付ファイルの一覧には、実際の大きな文書に合わせた余裕のある固定の上限があります。
 
 拒否された呼び出しは文書を変更する前に例外を送出し、部分的な結果を返すことはありません。
 
@@ -124,6 +124,7 @@ limits = pylopdf.DocumentLimits(
 | `page_entry_count` | ページのリストが許容より長い |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | しおり、リンク先の表、タグ付きPDFの構造、取り込むページが大きすぎる |
 | `xmp_metadata_size` | XMPメタデータが`max_size`より大きい |
+| `xmp_metadata_input_size` | `set_xml_metadata()`に渡したXMPメタデータが`max_size`より大きい |
 | `ocr_model_size`, `ocr_dictionary_entries` | OCRのモデルファイルが大きすぎる |
 
 ## 組み込みの保護 { #built-in-protections }
@@ -132,7 +133,7 @@ limits = pylopdf.DocumentLimits(
 
 - **深い入れ子。** レンダリングエンジンのhayroは、入れ子の構造を再帰的に読みます。pylopdfはページをレンダリング・抽出する前に、そのコンテンツ、色空間、関数の入れ子の深さを検査し、スタックをあふれさせたり、黙って途中で打ち切られたりするページを拒否します（`content_nesting_depth`、`resource_nesting_depth`、`object_depth`）。文書のほかのページは引き続き使えます。
 - **レンダラーのクラッシュ。** 不正なデータでレンダラーがパニックした場合、pylopdfは`except Exception`で捕まえられない例外ではなく`PdfError`を送出し、文書は引き続き使えます。
-- **壊れたファイル。** pylopdfは可能であれば壊れた相互参照データを修復し、`PylopdfWarning`を出して`doc.is_repaired`を設定します。修復した入力を受け付けてはならないアプリケーションでは、そうした文書を拒否してください。開けない壊れたファイルもあり、その場合は`FileDataError`を送出します。
+- **壊れたファイル。** pylopdfは可能であれば壊れた相互参照データを修復し、`PylopdfWarning`を出して`doc.is_repaired`を設定します。修復した入力を受け付けてはならないアプリケーションでは、そうした文書を拒否してください。開けない壊れたファイルもあり、その場合は`MalformedPdfError`を送出します。
 - **安全な保存。** `save()`と`Pixmap.save()`は保存先の隣にある一時ファイルに書き込み、書き込みがすべて終わってから置き換えるので、失敗しても書きかけのファイルは残りません。Windowsのアクセス制御リストを含め、既存のファイルの権限は保持します。
 - **スクリプトなし。** 埋め込まれたJavaScriptは決して実行しません。
 

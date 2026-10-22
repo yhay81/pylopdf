@@ -98,13 +98,13 @@ def _assert_references_resolve(objects: dict[int, bytes]) -> None:
 
 
 def _delete_page_b(edit: str) -> pylopdf.Document:
-    doc = pylopdf.open(stream=_tagged_pdf())
+    doc = pylopdf.open(_tagged_pdf())
     if edit == "delete":
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     elif edit == "select":
-        doc.select([0, 2])
+        doc.pages.select([0, 2])
     else:
-        doc.select([0, 0, 2])
+        doc.pages.select([0, 0, 2])
     return doc
 
 
@@ -123,15 +123,15 @@ def test_deleting_a_page_removes_its_structure_content(edit: str) -> None:
     assert objects[30] == b"<</Nums[0[12 0 R 14 0 R 24 0 R] 2[18 0 R] 3 16 0 R 6 27 0 R]>>"
     assert objects[32] == b"<</Limits[(pa)(span)]/Names[(pa) 12 0 R(pc) 18 0 R]>>"
 
-    reopened = pylopdf.open(stream=saved)
-    texts = [page.get_text() for page in reopened]
+    reopened = pylopdf.open(saved)
+    texts = [page.get_text() for page in reopened.pages]
     assert "Beta" not in "".join(texts)
     assert "Gamma 0" in texts[-1]
 
 
 def test_deleting_every_page_but_one_keeps_the_root() -> None:
-    doc = pylopdf.open(stream=_tagged_pdf())
-    doc.select([2])
+    doc = pylopdf.open(_tagged_pdf())
+    doc.pages.select([2])
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)
@@ -144,10 +144,10 @@ def test_deleting_every_page_but_one_keeps_the_root() -> None:
 
 def test_a_document_without_dropped_structure_saves_unchanged() -> None:
     data = _tagged_pdf()
-    reordered = pylopdf.open(stream=data)
-    reordered.select([2, 1, 0])
-    untouched = pylopdf.open(stream=data)
-    untouched.select([0, 1, 2])
+    reordered = pylopdf.open(data)
+    reordered.pages.select([2, 1, 0])
+    untouched = pylopdf.open(data)
+    untouched.pages.select([0, 1, 2])
     reordered_objects = _objects(reordered.tobytes(garbage=True))
     untouched_objects = _objects(untouched.tobytes(garbage=True))
 
@@ -164,16 +164,16 @@ def _tagged_with(replacements: Mapping[int, bytes | str], extra: Mapping[int, by
 
 
 def _assert_refused(data: bytes, code: str = "structure_tree_count") -> None:
-    doc = pylopdf.open(stream=data)
+    doc = pylopdf.open(data)
     before = doc.tobytes()
     with pytest.raises(pylopdf.LimitError) as caught:
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     assert caught.value.code == code
-    assert doc.page_count == 3
+    assert len(doc.pages) == 3
     assert doc.tobytes() == before
     with pytest.raises(pylopdf.LimitError):
-        doc.select([0])
-    assert doc.page_count == 3
+        doc.pages.select([0])
+    assert len(doc.pages) == 3
 
 
 def _element_chain(first: int, depth: int) -> dict[int, bytes | str]:
@@ -192,8 +192,8 @@ def test_a_structure_tree_deeper_than_256_elements_is_refused() -> None:
     replacements = {11: f"<< /S /Document /P 10 0 R /K [12 0 R {first} 0 R] >>"}
     _assert_refused(_tagged_with(replacements, extra))
 
-    doc = pylopdf.open(stream=_tagged_with(replacements, _element_chain(first, 254)))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, _element_chain(first, 254)))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
     assert first not in objects
     assert _references(_kids(objects[11])) == [12]
@@ -209,8 +209,8 @@ def test_a_parent_tree_deeper_than_32_levels_is_refused() -> None:
 
     extra = {first + level: f"<< /Kids [{first + level + 1} 0 R] >>" for level in range(depth - 1)}
     extra[first + depth - 1] = "<< /Nums [0 12 0 R 1 13 0 R] >>"
-    doc = pylopdf.open(stream=_tagged_with(replacements, extra))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, extra))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
     assert _references(objects[first + depth - 1]) == [12]
 
@@ -220,20 +220,20 @@ def test_a_cyclic_structure_tree_is_walked_once() -> None:
         13: "<< /S /P /P 11 0 R /Pg 4 0 R /K [0 11 0 R 13 0 R] /ID (pb) >>",
         23: "<< /S /P /P 22 0 R /Pg 4 0 R /K [4 22 0 R] >>",
     }
-    doc = pylopdf.open(stream=_tagged_with(replacements, {}))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, {}))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)
-    assert doc.page_count == 2
+    assert len(doc.pages) == 2
     assert 4 not in objects
 
 
 def test_a_reference_cycle_in_kids_reads_as_absent() -> None:
     extra = {33: "34 0 R", 34: "33 0 R"}
     replacements = {14: "<< /S /Sect /P 11 0 R /Pg 3 0 R /K [1 33 0 R << /Type /MCR /Pg 4 0 R /MCID 2 >> 17 0 R] >>"}
-    doc = pylopdf.open(stream=_tagged_with(replacements, extra))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, extra))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
     assert 4 not in objects
     assert _references(_kids(objects[14])) == [33]
@@ -248,8 +248,8 @@ def test_direct_elements_are_edited_in_place() -> None:
             "<< /S /Div /K [<< /S /P /Pg 4 0 R /K 1 >>] >> 18 0 R] >>"
         ),
     }
-    doc = pylopdf.open(stream=_tagged_with(replacements, {}))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, {}))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)
@@ -259,8 +259,8 @@ def test_direct_elements_are_edited_in_place() -> None:
 
 def test_elements_that_only_the_lookup_trees_name_are_walked() -> None:
     replacements = {11: "<< /S /Document /P 10 0 R /K [12 0 R 18 0 R] >>"}
-    doc = pylopdf.open(stream=_tagged_with(replacements, {}))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, {}))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)
@@ -275,8 +275,8 @@ def test_remaining_elements_lose_references_to_removed_elements() -> None:
         18: "<< /S /P /P 11 0 R /Pg 5 0 R /K 0 /ID (pc) /Ref 13 0 R >>",
         16: "<< /S /Link /P 11 0 R /Pg 3 0 R /K << /Type /OBJR /Obj 20 0 R >> /Ref [13 0 R 23 0 R] >>",
     }
-    doc = pylopdf.open(stream=_tagged_with(replacements, {}))
-    doc.delete_pages([1])
+    doc = pylopdf.open(_tagged_with(replacements, {}))
+    del doc.pages[1:2]
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)
@@ -291,9 +291,9 @@ def test_links_that_navigation_cleanup_removes_leave_the_structure_tree() -> Non
         20: "<< /Type /Annot /Subtype /Link /Rect [72 100 144 120] /P 3 0 R /StructParent 3 /Dest [4 0 R /Fit] >>",
         16: "<< /S /Link /P 11 0 R /Pg 3 0 R /K [5 << /Type /OBJR /Obj 20 0 R >>] >>",
     }
-    doc = pylopdf.open(stream=_tagged_with(replacements, {}))
-    doc.delete_pages([1])
-    assert doc[0].get_links() == []
+    doc = pylopdf.open(_tagged_with(replacements, {}))
+    del doc.pages[1:2]
+    assert doc.pages[0].get_links() == []
     objects = _objects(doc.tobytes(garbage=True))
 
     _assert_references_resolve(objects)

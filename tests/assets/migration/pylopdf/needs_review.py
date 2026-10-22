@@ -4,8 +4,8 @@ import pylopdf
 
 # TODO(pylopdf): pylopdf does not provide pymupdf's TOOLS. Filter pylopdf's diagnostics as PylopdfWarning with the warnings module.
 pylopdf.TOOLS.set_small_glyph_heights(True)
-doc = pylopdf.open()
-page = doc.new_page()
+doc = pylopdf.Document()
+page = doc.pages.new()
 # TODO(pylopdf): pylopdf plans the capability of pymupdf's Page.get_textpage in the Reading milestone of ROADMAP.md.
 textpage = page.get_textpage()
 # TODO(pylopdf): pylopdf plans the capability of pymupdf's TextPage.extractBLOCKS in the Reading milestone of ROADMAP.md.

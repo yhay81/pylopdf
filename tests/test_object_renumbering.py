@@ -68,14 +68,14 @@ def _missing_content_source(missing: int, *, free_entry: bool = False) -> pylopd
     if free_entry:
         # Leave the missing number as a free entry below the highest object.
         objects[missing + 1] = "<< /Unused true >>"
-    return pylopdf.Document(stream=_sparse_pdf(objects))
+    return pylopdf.open(_sparse_pdf(objects))
 
 
 def _target_with_form() -> pylopdf.Document:
     """Build a one-page target whose object 6 is a Form XObject that it draws."""
     form = "BT /F1 20 Tf 20 700 Td (TARGET FORM) Tj ET"
-    return pylopdf.Document(
-        stream=build_raw_pdf(
+    return pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
@@ -91,22 +91,22 @@ def _target_with_form() -> pylopdf.Document:
 
 
 def test_imported_pages_take_ascending_object_numbers_in_page_order() -> None:
-    source = pylopdf.Document(stream=_descending_pages_pdf(["First", "Second", "Third"]))
-    doc = pylopdf.Document(stream=build_pdf(["Target"]))
+    source = pylopdf.open(_descending_pages_pdf(["First", "Second", "Third"]))
+    doc = pylopdf.open(build_pdf(["Target"]))
 
-    doc.insert_pdf(source)
-    doc.new_page()
-    doc[1].insert_text((20, 150), "Added after import")
+    doc.pages.extend(source.pages)
+    doc.pages.new()
+    doc.pages[1].insert_text((20, 150), "Added after import")
 
-    texts = [doc.get_page_text(index) for index in range(doc.page_count)]
+    texts = [doc.pages[index].get_text() for index in range(len(doc.pages))]
     for index, expected in enumerate(["Target", "First", "Second", "Third"]):
         assert expected in texts[index]
     assert "Added after import" in texts[1]
     saved = doc.tobytes()
     imported = _kids_numbers(saved)[1:4]
     assert imported == sorted(imported)
-    reloaded = pylopdf.Document(stream=saved)
-    assert [reloaded.get_page_text(index) for index in range(reloaded.page_count)] == texts
+    reloaded = pylopdf.open(saved)
+    assert [reloaded.pages[index].get_text() for index in range(len(reloaded.pages))] == texts
 
 
 @pytest.mark.parametrize(
@@ -123,8 +123,8 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
     source object took that number, so the import rejected a reused page or
     took a page outside the source page tree.
     """
-    source = pylopdf.Document(
-        stream=build_raw_pdf(
+    source = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: f"<< /Type /Pages /Kids [{kids}] /Count 1 /MediaBox [0 0 200 200] "
@@ -137,17 +137,17 @@ def test_imports_the_page_the_source_reports_when_a_missing_kid_shares_a_new_num
             }
         )
     )
-    assert source.page_count == 1
-    inserted = pylopdf.Document(stream=build_pdf(["Target one", "Target two"]))
-    stamped = pylopdf.Document(stream=build_pdf(["Target one", "Target two"]))
+    assert len(source.pages) == 1
+    inserted = pylopdf.open(build_pdf(["Target one", "Target two"]))
+    stamped = pylopdf.open(build_pdf(["Target one", "Target two"]))
     assert inserted.complexity["object_count"] == stamped.complexity["object_count"] == 7
 
-    inserted.insert_pdf(source)
-    stamped[0].show_pdf_page((0, 0, 100, 100), source, 0)
+    inserted.pages.extend(source.pages)
+    stamped.pages[0].show_pdf_page((0, 0, 100, 100), source, 0)
 
-    assert inserted.page_count == 3
-    assert "Reported page" in pylopdf.Document(stream=inserted.tobytes()).get_page_text(2)
-    stamp_text = pylopdf.Document(stream=stamped.tobytes()).get_page_text(0)
+    assert len(inserted.pages) == 3
+    assert "Reported page" in pylopdf.open(inserted.tobytes()).pages[2].get_text()
+    stamp_text = pylopdf.open(stamped.tobytes()).pages[0].get_text()
     assert "Reported page" in stamp_text
     assert "Orphan page" not in stamp_text
 
@@ -160,22 +160,22 @@ def test_missing_source_reference_cannot_draw_a_target_page(*, free_entry: bool)
     imported page also draw object 7 of the target, its second page's content.
     """
     source = _missing_content_source(7, free_entry=free_entry)
-    assert source.get_page_text(0).split() == ["Source", "text"]
-    target = pylopdf.Document(stream=build_pdf(["Target one", "TARGET PAGE TWO"]))
+    assert source.pages[0].get_text().split() == ["Source", "text"]
+    target = pylopdf.open(build_pdf(["Target one", "TARGET PAGE TWO"]))
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    for doc in (target, pylopdf.Document(stream=target.tobytes())):
-        assert doc.get_page_text(2).split() == ["Source", "text"]
-        assert "TARGET PAGE TWO" in doc.get_page_text(1)
+    for doc in (target, pylopdf.open(target.tobytes())):
+        assert doc.pages[2].get_text().split() == ["Source", "text"]
+        assert "TARGET PAGE TWO" in doc.pages[1].get_text()
 
 
 @pytest.mark.parametrize("operation", ["insert_pdf", "show_pdf_page"])
 def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) -> None:
     """A missing XObject resource stays missing instead of naming target object 6."""
     content = "BT /F1 20 Tf 20 100 Td (Source text) Tj ET /X Do"
-    source = pylopdf.Document(
-        stream=build_raw_pdf(
+    source = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] "
@@ -186,18 +186,18 @@ def test_missing_source_resource_cannot_name_a_target_xobject(operation: str) ->
             }
         )
     )
-    assert source.get_page_text(0).split() == ["Source", "text"]
+    assert source.pages[0].get_text().split() == ["Source", "text"]
     target = _target_with_form()
 
     if operation == "insert_pdf":
-        target.insert_pdf(source)
+        target.pages.extend(source.pages)
         texts = {0: ["TARGET", "FORM"], 1: ["Source", "text"]}
     else:
-        target[0].show_pdf_page(target[0].rect, source, 0)
+        target.pages[0].show_pdf_page(target.pages[0].rect, source, 0)
         texts = {0: ["TARGET", "FORM", "Source", "text"]}
 
-    for doc in (target, pylopdf.Document(stream=target.tobytes())):
-        assert {index: doc.get_page_text(index).split() for index in texts} == texts
+    for doc in (target, pylopdf.open(target.tobytes())):
+        assert {index: doc.pages[index].get_text().split() for index in texts} == texts
 
 
 def test_missing_source_reference_cannot_name_an_object_added_later() -> None:
@@ -207,15 +207,15 @@ def test_missing_source_reference_cannot_name_an_object_added_later() -> None:
     stamp source's objects 11-15, so the stamped Form XObject becomes object
     16, the number of the first source's missing content entry.
     """
-    target = pylopdf.Document(stream=build_pdf(["Target"]))
-    target.insert_pdf(_missing_content_source(16))
+    target = pylopdf.open(build_pdf(["Target"]))
+    target.pages.extend(_missing_content_source(16).pages)
 
-    stamp = pylopdf.Document(stream=build_pdf(["Stamp"]))
-    target[0].show_pdf_page(pylopdf.Rect(0, 396, 612, 792), stamp, 0)
+    stamp = pylopdf.open(build_pdf(["Stamp"]))
+    target.pages[0].show_pdf_page(pylopdf.Rect(0, 396, 612, 792), stamp, 0)
 
-    for doc in (target, pylopdf.Document(stream=target.tobytes())):
-        assert doc.get_page_text(0).split() == ["Target", "Stamp"]
-        assert doc.get_page_text(1).split() == ["Source", "text"]
+    for doc in (target, pylopdf.open(target.tobytes())):
+        assert doc.pages[0].get_text().split() == ["Target", "Stamp"]
+        assert doc.pages[1].get_text().split() == ["Source", "text"]
 
 
 def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> None:
@@ -228,16 +228,16 @@ def test_imports_from_a_source_with_tens_of_thousands_of_objects_stay_fast() -> 
     7.7 s locally with it; the generous bound only catches that regression.
     """
     page_count = 30_000
-    source = pylopdf.Document(stream=_descending_pages_pdf([f"P{index}" for index in range(page_count)]))
+    source = pylopdf.open(_descending_pages_pdf([f"P{index}" for index in range(page_count)]))
     source.set_outline([(1, f"Entry {index}", index) for index in range(2048)])
-    doc = pylopdf.Document(stream=build_pdf(["Target"]))
+    doc = pylopdf.open(build_pdf(["Target"]))
 
     start = time.perf_counter()
-    doc.insert_pdf(source, from_page=page_count - 1, to_page=page_count - 1)
-    doc[0].show_pdf_page((0, 0, 100, 100), source, 0)
+    doc.pages.extend(source.pages[page_count - 1])
+    doc.pages[0].show_pdf_page((0, 0, 100, 100), source, 0)
     elapsed = time.perf_counter() - start
 
-    assert elapsed < 2.0, f"insert_pdf and show_pdf_page took {elapsed:.2f}s"
-    assert doc.page_count == 2
-    assert "P0" in doc.get_page_text(0)
-    assert f"P{page_count - 1}" in doc.get_page_text(1)
+    assert elapsed < 2.0, f"pages.extend and show_pdf_page took {elapsed:.2f}s"
+    assert len(doc.pages) == 2
+    assert "P0" in doc.pages[0].get_text()
+    assert f"P{page_count - 1}" in doc.pages[1].get_text()

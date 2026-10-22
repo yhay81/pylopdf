@@ -879,12 +879,13 @@ impl _Document {
         page_tree::new_page(self, position, width, height)
     }
 
-    /// Copy a one-based page to zero-based `position`; None appends.
+    /// Copy one-based pages, in order, to zero-based `position`; None appends.
     ///
-    /// The page dictionary is an independent copy with inheritance materialized;
-    /// Contents and Resources remain shared with the source page.
-    fn copy_page(&mut self, page_number: u32, position: Option<usize>) -> PyResult<()> {
-        page_tree::copy_page(self, page_number, position)
+    /// Each copy is an independent page dictionary with inheritance
+    /// materialized; Contents and Resources remain shared with the source
+    /// page. A page may be listed more than once.
+    fn copy_pages(&mut self, page_numbers: Vec<u32>, position: Option<usize>) -> PyResult<()> {
+        page_tree::copy_pages(self, page_numbers, position)
     }
 
     /// Keep specified one-based pages in order, also supporting reordering.

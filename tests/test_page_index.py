@@ -60,7 +60,7 @@ def _widths(pages: list[int | str]) -> list[float]:
 
 
 def _other() -> pylopdf.Document:
-    return pylopdf.Document(stream=build_pdf(["Other"]))
+    return pylopdf.open(build_pdf(["Other"]))
 
 
 def _png() -> bytes:
@@ -76,7 +76,7 @@ def _png() -> bytes:
 
 PNG = _png()
 # Edits only read the stamp, so one source serves every placement.
-STAMP = pylopdf.Document(stream=build_pdf(["Stamp"]))
+STAMP = pylopdf.open(build_pdf(["Stamp"]))
 
 
 def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], list[pylopdf.OutlineEntry]]:
@@ -85,8 +85,8 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
     Text extraction serializes the document for its renderer, which drops the
     index, so the other reads cover every page first.
     """
-    count = len(doc)
-    views = list(doc)
+    count = len(doc.pages)
+    views = list(doc.pages)
     facts = [
         (
             page.mediabox.x1,
@@ -106,33 +106,37 @@ def _snapshot(doc: pylopdf.Document) -> tuple[int, list[tuple[object, ...]], lis
     return count, pages, toc
 
 
+def _delete_pages(doc: pylopdf.Document, index: int | slice) -> None:
+    del doc.pages[index]
+
+
 UNCHANGED: list[int | str] = list(range(PAGES))
 # Each edit maps to its expected page order: original page numbers or special pages.
 EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] = {
-    "delete_pages": (lambda doc: doc.delete_pages([1, 3]), [0, 2, 4]),
-    "delete_page": (lambda doc: doc.delete_page(-1), [0, 1, 2, 3]),
-    "select": (lambda doc: doc.select([4, 0, 2, 0]), [4, 0, 2, 0]),
-    "insert_pdf": (lambda doc: doc.insert_pdf(_other(), start_at=2), [0, 1, "other", 2, 3, 4]),
-    "insert_pdf_append": (lambda doc: doc.insert_pdf(_other()), [*UNCHANGED, "other"]),
-    "new_page": (lambda doc: doc.new_page(1, width=50, height=60), [0, "new", 1, 2, 3, 4]),
-    "copy_page": (lambda doc: doc.fullcopy_page(3, 0), [3, *UNCHANGED]),
+    "delete_pages": (lambda doc: _delete_pages(doc, slice(1, 4, 2)), [0, 2, 4]),
+    "delete_page": (lambda doc: _delete_pages(doc, -1), [0, 1, 2, 3]),
+    "select": (lambda doc: doc.pages.select([4, 0, 2, 0]), [4, 0, 2, 0]),
+    "insert_pdf": (lambda doc: doc.pages.insert(2, _other().pages), [0, 1, "other", 2, 3, 4]),
+    "insert_pdf_append": (lambda doc: doc.pages.extend(_other().pages), [*UNCHANGED, "other"]),
+    "new_page": (lambda doc: doc.pages.new((50, 60), index=1), [0, "new", 1, 2, 3, 4]),
+    "copy_page": (lambda doc: doc.pages.insert(0, doc.pages[3]), [3, *UNCHANGED]),
     "set_outline": (lambda doc: doc.set_outline([(1, "Last", 4), (1, "First", 0)]), UNCHANGED),
-    "set_rotation": (lambda doc: doc[2].set_rotation(270), UNCHANGED),
-    "set_mediabox": (lambda doc: doc[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
-    "insert_text": (lambda doc: doc[0].insert_text((10, 20), "Stamp"), UNCHANGED),
-    "insert_embedded_text": (lambda doc: doc[4].insert_text((10, 20), "日本", fontfile=NOTO_SANS_JP), UNCHANGED),
-    "insert_textbox": (lambda doc: doc[1].insert_textbox((5, 5, 95, 60), "Box text"), UNCHANGED),
-    "insert_image": (lambda doc: doc[2].insert_image((10, 10, 40, 40), stream=PNG), UNCHANGED),
-    "show_pdf_page": (lambda doc: doc[2].show_pdf_page((0, 0, 50, 50), STAMP), UNCHANGED),
-    "show_pdf_page_self": (lambda doc: doc[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
-    "replace_text": (lambda doc: doc[4].replace_text("Page", "Leaf"), UNCHANGED),
+    "set_rotation": (lambda doc: doc.pages[2].set_rotation(270), UNCHANGED),
+    "set_mediabox": (lambda doc: doc.pages[1].set_mediabox((0, 0, 300, 400)), [0, "resized", 2, 3, 4]),
+    "insert_text": (lambda doc: doc.pages[0].insert_text((10, 20), "Stamp"), UNCHANGED),
+    "insert_embedded_text": (lambda doc: doc.pages[4].insert_text((10, 20), "日本", fontfile=NOTO_SANS_JP), UNCHANGED),
+    "insert_textbox": (lambda doc: doc.pages[1].insert_textbox((5, 5, 95, 60), "Box text"), UNCHANGED),
+    "insert_image": (lambda doc: doc.pages[2].insert_image((10, 10, 40, 40), stream=PNG), UNCHANGED),
+    "show_pdf_page": (lambda doc: doc.pages[2].show_pdf_page((0, 0, 50, 50), STAMP), UNCHANGED),
+    "show_pdf_page_self": (lambda doc: doc.pages[0].show_pdf_page((0, 0, 50, 50), doc, 3), UNCHANGED),
+    "replace_text": (lambda doc: doc.pages[4].replace_text("Page", "Leaf"), UNCHANGED),
     "add_link_annot": (
-        lambda doc: doc[3].insert_link(
+        lambda doc: doc.pages[3].insert_link(
             {"kind": pylopdf.LINK_URI, "from": (1, 1, 20, 20), "uri": "https://example.com/"}
         ),
         UNCHANGED,
     ),
-    "add_highlight_annot": (lambda doc: doc[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
+    "add_highlight_annot": (lambda doc: doc.pages[1].add_highlight_annot((10, 10, 50, 20)), UNCHANGED),
     "garbage_tobytes": (lambda doc: doc.tobytes(garbage=True), UNCHANGED),
     "attachments.add": (lambda doc: doc.attachments.add("notes.txt", b"notes"), UNCHANGED),
 }
@@ -140,7 +144,7 @@ EDITS: dict[str, tuple[Callable[[pylopdf.Document], object], list[int | str]]] =
 
 @pytest.mark.parametrize("edit", EDITS)
 def test_page_reads_after_an_edit_match_a_fresh_document(edit: str) -> None:
-    doc = pylopdf.Document(stream=_nested_pdf())
+    doc = pylopdf.open(_nested_pdf())
     # Warm the index through every per-page read before editing.
     assert [width for width, *_ in _snapshot(doc)[1]] == _widths(UNCHANGED)
     apply, order = EDITS[edit]
@@ -149,24 +153,24 @@ def test_page_reads_after_an_edit_match_a_fresh_document(edit: str) -> None:
 
     # Read the edited document first: saving drops the index itself.
     cached = _snapshot(doc)
-    assert cached == _snapshot(pylopdf.Document(stream=doc.tobytes()))
+    assert cached == _snapshot(pylopdf.open(doc.tobytes()))
     assert [width for width, *_ in cached[1]] == _widths(order)
 
 
 def test_structural_edits_still_invalidate_page_views() -> None:
-    doc = pylopdf.Document(stream=_nested_pdf())
-    views = list(doc)
+    doc = pylopdf.open(_nested_pdf())
+    views = list(doc.pages)
 
     # A non-structural edit keeps views valid, and they see its result.
-    doc[3].set_rotation(180)
+    doc.pages[3].set_rotation(180)
     assert [view.rotation for view in views] == [0, 90, 90, 180, 0]
 
-    doc.select([4, 3, 2, 1, 0])
+    doc.pages.select([4, 3, 2, 1, 0])
     for view in views:
         with pytest.raises(pylopdf.StalePageError):
             _ = view.rotation
-    assert [page.mediabox.x1 for page in doc] == _widths([4, 3, 2, 1, 0])
-    assert [page.rotation for page in doc] == [0, 180, 90, 90, 0]
+    assert [page.mediabox.x1 for page in doc.pages] == _widths([4, 3, 2, 1, 0])
+    assert [page.rotation for page in doc.pages] == [0, 180, 90, 90, 0]
 
 
 @pytest.mark.parametrize(
@@ -201,13 +205,13 @@ def test_structural_edits_still_invalidate_page_views() -> None:
     ],
 )
 def test_failed_page_tree_walks_are_never_cached(objects: dict[int, str | bytes], message: str) -> None:
-    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
 
     for _ in range(2):
         with pytest.raises(pylopdf.PdfError, match=message):
-            _ = len(doc)
+            _ = len(doc.pages)
         with pytest.raises(pylopdf.PdfError, match=message):
-            _ = doc[0]
+            _ = doc.pages[0]
         with pytest.raises(pylopdf.PdfError, match=message):
             _ = doc.complexity
 
@@ -215,7 +219,7 @@ def test_failed_page_tree_walks_are_never_cached(objects: dict[int, str | bytes]
 def test_index_follows_a_prune_that_changes_the_walk_outcome() -> None:
     """The page-tree edge bound depends on the object count, which pruning lowers."""
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R null null null] /Count 1 >>",
@@ -225,14 +229,14 @@ def test_index_follows_a_prune_that_changes_the_walk_outcome() -> None:
         )
     )
     # Four Kids edges fit the bound of four objects.
-    assert len(doc) == 1
-    assert doc[0].mediabox.x1 == 100
+    assert len(doc.pages) == 1
+    assert doc.pages[0].mediabox.x1 == 100
 
     saved = doc.tobytes(garbage=True)
 
-    for current in (doc, pylopdf.open(stream=saved)):
+    for current in (doc, pylopdf.open(saved)):
         with pytest.raises(pylopdf.PdfError, match="3-edge object-count safety limit"):
-            _ = len(current)
+            _ = len(current.pages)
 
 
 def _flat_pdf(pages: int) -> bytes:
@@ -254,10 +258,10 @@ def test_touching_every_page_walks_the_page_tree_once() -> None:
     now; the generous bound only catches that regression.
     """
     pages = 5_000
-    doc = pylopdf.Document(stream=_flat_pdf(pages))
+    doc = pylopdf.open(_flat_pdf(pages))
 
     start = time.perf_counter()
-    views = list(doc)
+    views = list(doc.pages)
     rotations = [page.rotation for page in views]
     rects = [page.rect for page in views]
     elapsed = time.perf_counter() - start
@@ -275,20 +279,20 @@ def test_rotating_and_cropping_every_page_keeps_the_page_index() -> None:
     edit took about 14 s of CPU time locally, against about 0.01 s now.
     """
     pages = 5_000
-    doc = pylopdf.Document(stream=_flat_pdf(pages))
+    doc = pylopdf.open(_flat_pdf(pages))
 
     start = time.perf_counter()
-    for page in doc:
+    for page in doc.pages:
         page.set_rotation(page.rotation + 90)
-        page.set_cropbox((0, 0, 100, 150 + page.number % 2))
+        page.set_cropbox((0, 0, 100, 150 + page.index % 2))
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"editing {pages} pages took {elapsed:.2f}s"
     rotations = [90 * (page % 4 + 1) % 360 for page in range(pages)]
-    assert [page.rotation for page in doc] == rotations
-    assert [page.cropbox.y1 for page in doc] == [150 + page % 2 for page in range(pages)]
-    fresh = pylopdf.Document(stream=doc.tobytes())
-    assert [page.rotation for page in fresh] == rotations
+    assert [page.rotation for page in doc.pages] == rotations
+    assert [page.cropbox.y1 for page in doc.pages] == [150 + page % 2 for page in range(pages)]
+    fresh = pylopdf.open(doc.tobytes())
+    assert [page.rotation for page in fresh.pages] == rotations
 
 
 def test_other_page_entries_drop_the_page_index() -> None:
@@ -390,7 +394,7 @@ def _aliased_snapshot(doc: pylopdf.Document) -> tuple[object, ...]:
     hayro, which extracts text, resolves some of these trees to fewer pages
     than the page-tree walk; that disagreement predates the page index.
     """
-    views = list(doc)
+    views = list(doc.pages)
     facts = [
         (
             page.mediabox.x1,
@@ -422,30 +426,30 @@ PAGE_EDITS: dict[str, Callable[[pylopdf.Page], object]] = {
 @pytest.mark.parametrize("edit", PAGE_EDITS)
 @pytest.mark.parametrize("name", [*ALIASED, "small-xref-size"])
 def test_edits_on_every_page_of_an_aliased_tree_match_a_fresh_document(name: str, edit: str) -> None:
-    doc = pylopdf.Document(stream=_aliased_pdf(name))
-    pages = len(doc)
+    doc = pylopdf.open(_aliased_pdf(name))
+    pages = len(doc.pages)
     objects = doc.complexity["object_count"]
 
     for number in range(pages):
         _aliased_snapshot(doc)
-        PAGE_EDITS[edit](doc[number])
-        assert _aliased_snapshot(doc) == _aliased_snapshot(pylopdf.Document(stream=doc.tobytes()))
+        PAGE_EDITS[edit](doc.pages[number])
+        assert _aliased_snapshot(doc) == _aliased_snapshot(pylopdf.open(doc.tobytes()))
 
     # No edit replaced an existing object or changed the page tree.
-    assert len(doc) == pages
+    assert len(doc.pages) == pages
     assert doc.complexity["object_count"] > objects
 
 
 @pytest.mark.parametrize("edit", PAGE_EDITS)
 def test_edits_on_every_page_of_a_nested_tree_match_a_fresh_document(edit: str) -> None:
-    doc = pylopdf.Document(stream=_nested_pdf())
+    doc = pylopdf.open(_nested_pdf())
     _snapshot(doc)
 
-    for page in doc:
+    for page in doc.pages:
         PAGE_EDITS[edit](page)
 
     cached = _snapshot(doc)
-    assert cached == _snapshot(pylopdf.Document(stream=doc.tobytes()))
+    assert cached == _snapshot(pylopdf.open(doc.tobytes()))
     assert [width for width, *_ in cached[1]] == _widths(UNCHANGED)
 
 
@@ -457,8 +461,8 @@ def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
     of assuming that the new object is not a page; the font is skipped, as a
     fresh walk finds.
     """
-    target = pylopdf.Document(
-        stream=build_raw_pdf(
+    target = pylopdf.open(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [7 0 R 10 0 R] /Count 1 /MediaBox [0 0 100 100] >>",
@@ -480,15 +484,15 @@ def test_an_import_into_a_missing_kid_number_matches_a_fresh_walk() -> None:
         "/Contents 5 0 R >>",
         5: _text_stream("Source"),
     }
-    source = pylopdf.Document(stream=build_raw_pdf(source_objects).replace(b"/Root 1 0 R", b"/Root 2 0 R"))
-    assert len(target) == 1
+    source = pylopdf.open(build_raw_pdf(source_objects).replace(b"/Root 1 0 R", b"/Root 2 0 R"))
+    assert len(target.pages) == 1
 
-    target[0].show_pdf_page((0, 0, 50, 50), source)
+    target.pages[0].show_pdf_page((0, 0, 50, 50), source)
 
-    fresh = pylopdf.Document(stream=target.tobytes())
+    fresh = pylopdf.open(target.tobytes())
     assert _snapshot(target) == _snapshot(fresh)
-    assert len(fresh) == 1
-    assert sorted(fresh[0].get_text().split()) == ["Source", "Target"]
+    assert len(fresh.pages) == 1
+    assert sorted(fresh.pages[0].get_text().split()) == ["Source", "Target"]
 
 
 def _indirect_annots_pdf(pages: int) -> bytes:
@@ -507,18 +511,18 @@ def _indirect_annots_pdf(pages: int) -> bytes:
 
 def test_annotating_pages_that_share_an_indirect_array_keeps_them_separate() -> None:
     """Appends clone a shared array on write until the last page owns it alone."""
-    doc = pylopdf.Document(stream=_indirect_annots_pdf(1))
+    doc = pylopdf.open(_indirect_annots_pdf(1))
     for _ in range(3):
-        doc.fullcopy_page(0)
-    assert [len(page.annots()) for page in doc] == [1, 1, 1, 1]
+        doc.pages.extend(doc.pages[0])
+    assert [len(page.annots()) for page in doc.pages] == [1, 1, 1, 1]
 
-    for number, page in enumerate(doc):
+    for number, page in enumerate(doc.pages):
         page.insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": f"https://example.com/{number}"})
 
-    uris = [[link["uri"] for link in page.get_links()] for page in doc]
+    uris = [[link["uri"] for link in page.get_links()] for page in doc.pages]
     expected = [["https://example.com/first", f"https://example.com/{number}"] for number in range(4)]
     assert uris == expected
-    assert _snapshot(doc) == _snapshot(pylopdf.Document(stream=doc.tobytes()))
+    assert _snapshot(doc) == _snapshot(pylopdf.open(doc.tobytes()))
 
 
 TIMED_PAGES = 5_000
@@ -547,20 +551,22 @@ def test_editing_every_page_keeps_the_page_index(edit: str) -> None:
     ``show_pdf_page``, which also swept every object of the target. Each loop
     now takes 0.1 to 0.25 s; the generous bound only catches that regression.
     """
-    doc = pylopdf.Document(stream=_flat_text_pdf(TIMED_PAGES))
+    doc = pylopdf.open(_flat_text_pdf(TIMED_PAGES))
 
     start = time.perf_counter()
-    for page in doc:
+    for page in doc.pages:
         PAGE_EDITS[edit](page)
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"{edit} on {TIMED_PAGES} pages took {elapsed:.2f}s"
-    assert len(doc) == TIMED_PAGES
-    fresh = pylopdf.Document(stream=doc.tobytes())
-    assert len(fresh) == TIMED_PAGES
+    assert len(doc.pages) == TIMED_PAGES
+    fresh = pylopdf.open(doc.tobytes())
+    assert len(fresh.pages) == TIMED_PAGES
     for number in (0, TIMED_PAGES // 2, TIMED_PAGES - 1):
-        assert fresh[number].get_text() == doc[number].get_text()
-        assert [(a.type, a.rect) for a in fresh[number].annots()] == [(a.type, a.rect) for a in doc[number].annots()]
+        assert fresh.pages[number].get_text() == doc.pages[number].get_text()
+        assert [(a.type, a.rect) for a in fresh.pages[number].annots()] == [
+            (a.type, a.rect) for a in doc.pages[number].annots()
+        ]
 
 
 def test_annotating_every_page_with_its_own_indirect_array_is_linear() -> None:
@@ -569,12 +575,12 @@ def test_annotating_every_page_with_its_own_indirect_array_is_linear() -> None:
     Together with the page-tree walk, that scan took about 6 s locally for this
     loop, against about 0.05 s now.
     """
-    doc = pylopdf.Document(stream=_indirect_annots_pdf(TIMED_PAGES))
+    doc = pylopdf.open(_indirect_annots_pdf(TIMED_PAGES))
 
     start = time.perf_counter()
-    for page in doc:
+    for page in doc.pages:
         page.insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://example.com/second"})
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"annotating {TIMED_PAGES} pages took {elapsed:.2f}s"
-    assert {len(page.annots()) for page in doc} == {2}
+    assert {len(page.annots()) for page in doc.pages} == {2}

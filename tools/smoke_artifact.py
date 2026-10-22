@@ -53,21 +53,21 @@ def _run_smoke() -> None:
     import pylopdf  # noqa: PLC0415  # Import only after the artifact is installed.
 
     doc = pylopdf.Document()
-    page = doc.new_page(width=200, height=200)
+    page = doc.pages.new((200, 200))
     page.insert_text((20, 40), _SMOKE_TEXT)
     data = doc.tobytes()
     doc.close()
 
-    with pylopdf.open(stream=data) as reopened:
+    with pylopdf.open(data) as reopened:
         _require(
-            condition=reopened.page_count == 1,
+            condition=len(reopened.pages) == 1,
             message="reopened document has the wrong page count",
         )
         _require(
-            condition=_SMOKE_TEXT in reopened[0].get_text(),
+            condition=_SMOKE_TEXT in reopened.pages[0].get_text(),
             message="text extraction lost inserted text",
         )
-        raw = reopened[0].get_text("rawdict")
+        raw = reopened.pages[0].get_text("rawdict")
         chars = [
             char
             for block in raw["blocks"]
@@ -85,7 +85,7 @@ def _run_smoke() -> None:
             and math.isclose(chars[0]["origin"][1], 40, abs_tol=1e-3),
             message="raw glyph extraction changed the baseline origin",
         )
-        pixmap = reopened[0].get_pixmap(alpha=True)
+        pixmap = reopened.pages[0].get_pixmap(alpha=True)
         samples = pixmap.samples
         _require(condition=pixmap.tobytes().startswith(_PNG_SIGNATURE), message="rendering did not return PNG data")
         _check_free_threaded_import()
@@ -96,7 +96,7 @@ def _run_smoke() -> None:
             reopened.save(output)
             with pylopdf.open(output) as saved:
                 _require(
-                    condition=_SMOKE_TEXT in saved[0].get_text(),
+                    condition=_SMOKE_TEXT in saved.pages[0].get_text(),
                     message="saved file lost inserted text",
                 )
 

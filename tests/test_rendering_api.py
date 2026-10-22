@@ -13,7 +13,7 @@ PNG_RGBA = 6
 
 
 def _page() -> pylopdf.Page:
-    return pylopdf.open(stream=build_pdf(["Rendered"], page_size=(200, 100)))[0]
+    return pylopdf.open(build_pdf(["Rendered"], page_size=(200, 100))).pages[0]
 
 
 def test_get_pixmap_defaults_to_opaque_rgb_on_white() -> None:
@@ -68,10 +68,10 @@ def test_matrices_that_do_not_only_scale_raise(matrix: object) -> None:
 
 
 def test_get_page_pixmap_is_the_page_pixmap() -> None:
-    doc = pylopdf.open(stream=build_pdf(["One", "Two"]))
+    doc = pylopdf.open(build_pdf(["One", "Two"]))
 
-    assert doc.get_page_pixmap(1).samples == doc[1].get_pixmap().samples
-    assert doc.get_page_pixmap(-1, dpi=36, alpha=True).samples == doc[1].get_pixmap(dpi=36, alpha=True).samples
+    assert doc.pages[1].get_pixmap().samples == doc.pages[1].get_pixmap().samples
+    assert doc.pages[-1].get_pixmap(dpi=36, alpha=True).samples == doc.pages[1].get_pixmap(dpi=36, alpha=True).samples
 
 
 def test_get_svg_image_renders_text_as_paths() -> None:
@@ -88,14 +88,14 @@ def test_get_svg_image_renders_text_as_paths() -> None:
 
 
 def test_render_pages_follows_get_pixmap_options() -> None:
-    doc = pylopdf.open(stream=build_pdf(["One", "Two"]))
+    doc = pylopdf.open(build_pdf(["One", "Two"]))
 
     rgb, rgba = doc.render_pages([0], dpi=36) + doc.render_pages([0], dpi=36, alpha=True)
 
     assert rgb[PNG_COLOR_TYPE_OFFSET] == PNG_RGB
     assert rgba[PNG_COLOR_TYPE_OFFSET] == PNG_RGBA
-    assert rgb == doc[0].get_pixmap(dpi=36).tobytes()
-    assert rgba == doc[0].get_pixmap(dpi=36, alpha=True).tobytes()
+    assert rgb == doc.pages[0].get_pixmap(dpi=36).tobytes()
+    assert rgba == doc.pages[0].get_pixmap(dpi=36, alpha=True).tobytes()
 
 
 def test_synonyms_are_removed() -> None:
@@ -109,14 +109,14 @@ def test_synonyms_are_removed() -> None:
 
 def test_rgb_pixmaps_insert_without_a_soft_mask() -> None:
     source = _page().get_pixmap(dpi=36)
-    doc = pylopdf.open(stream=build_pdf(["Target"]))
+    doc = pylopdf.open(build_pdf(["Target"]))
 
-    xref = doc[0].insert_image((10, 10, 110, 60), pixmap=source)
+    xref = doc.pages[0].insert_image((10, 10, 110, 60), pixmap=source)
 
     image = doc.objects[xref]
     assert image["ColorSpace"] == "DeviceRGB"
     assert "SMask" not in image
-    with_alpha = doc[0].insert_image((10, 70, 110, 120), pixmap=_page().get_pixmap(dpi=36, alpha=True))
+    with_alpha = doc.pages[0].insert_image((10, 70, 110, 120), pixmap=_page().get_pixmap(dpi=36, alpha=True))
     assert with_alpha != xref
     assert "SMask" in doc.objects[with_alpha]
 

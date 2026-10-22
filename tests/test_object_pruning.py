@@ -41,7 +41,7 @@ def _reachability_pdf() -> bytes:
 
 
 def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> None:
-    doc = pylopdf.Document(stream=_reachability_pdf())
+    doc = pylopdf.open(_reachability_pdf())
     assert doc.complexity["object_count"] == 14
 
     saved = doc.tobytes(garbage=True)
@@ -50,11 +50,11 @@ def test_garbage_save_keeps_exactly_the_objects_reachable_from_the_trailer() -> 
         assert kept in saved
     for dropped in (b"DROPPED-CONTENT-ONLY", b"DROPPED-CYCLE", b"DROPPED-ORPHAN"):
         assert dropped not in saved
-    reloaded = pylopdf.Document(stream=saved)
+    reloaded = pylopdf.open(saved)
     for current in (doc, reloaded):
         assert current.complexity["object_count"] == 10
         assert current.metadata["title"] == "KEPT-INFO"
-        assert "Body text" in current.get_page_text(0)
+        assert "Body text" in current.pages[0].get_text()
 
 
 def _structural_edit_pdf() -> bytes:
@@ -75,16 +75,20 @@ def _structural_edit_pdf() -> bytes:
     return build_raw_pdf(objects)
 
 
+def _delete_page(doc: pylopdf.Document, index: int) -> None:
+    del doc.pages[index]
+
+
 @pytest.mark.parametrize(
     ("edit", "dropped"),
     [
-        (lambda doc: doc.delete_pages([1]), [b"SECOND-PAGE-CONTENT"]),
-        (lambda doc: doc.select([0]), [b"SECOND-PAGE-CONTENT"]),
-        (lambda doc: doc.new_page(), []),
-        (lambda doc: doc.fullcopy_page(0), []),
+        (lambda doc: _delete_page(doc, 1), [b"SECOND-PAGE-CONTENT"]),
+        (lambda doc: doc.pages.select([0]), [b"SECOND-PAGE-CONTENT"]),
+        (lambda doc: doc.pages.new(), []),
+        (lambda doc: doc.pages.extend(doc.pages[0]), []),
         (lambda doc: doc.set_outline([(1, "New outline", 0)]), [b"OLD-OUTLINE-TITLE"]),
         (lambda doc: doc.set_outline([]), [b"OLD-OUTLINE-TITLE"]),
-        (lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Inserted"]))), []),
+        (lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Inserted"])).pages), []),
     ],
     ids=["delete_pages", "select", "new_page", "copy_page", "set_outline", "clear_outline", "insert_pdf"],
 )
@@ -92,7 +96,7 @@ def test_structural_edits_drop_unreachable_objects(
     edit: Callable[[pylopdf.Document], object],
     dropped: list[bytes],
 ) -> None:
-    doc = pylopdf.Document(stream=_structural_edit_pdf())
+    doc = pylopdf.open(_structural_edit_pdf())
 
     edit(doc)
 
@@ -100,7 +104,7 @@ def test_structural_edits_drop_unreachable_objects(
     assert b"KEPT-PAGE-CONTENT" in saved
     for marker in [b"ORPHAN-OBJECT", *dropped]:
         assert marker not in saved
-    assert "KEPT-PAGE-CONTENT" in pylopdf.Document(stream=saved).get_page_text(0)
+    assert "KEPT-PAGE-CONTENT" in pylopdf.open(saved).pages[0].get_text()
 
 
 def _source_with_unreachable_objects() -> pylopdf.Document:
@@ -118,7 +122,7 @@ def _source_with_unreachable_objects() -> pylopdf.Document:
         10: "<< /Title (DROPPED-SOURCE-OUTLINE) /Parent 6 0 R /Dest [3 0 R /Fit] >>",
         11: "(DROPPED-SOURCE-ORPHAN)",
     }
-    return pylopdf.Document(stream=build_raw_pdf(objects))
+    return pylopdf.open(build_raw_pdf(objects))
 
 
 def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
@@ -129,10 +133,10 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     objects it already could not reach stay until a ``garbage=True`` save, as
     after every other drawing edit.
     """
-    doc = pylopdf.Document(stream=_structural_edit_pdf())
+    doc = pylopdf.open(_structural_edit_pdf())
     objects = doc.complexity["object_count"]
 
-    doc[0].show_pdf_page((0, 0, 50, 50), _source_with_unreachable_objects())
+    doc.pages[0].show_pdf_page((0, 0, 50, 50), _source_with_unreachable_objects())
 
     saved = doc.tobytes()
     # The Form copies the source content, and its resources keep the font.
@@ -146,7 +150,7 @@ def test_show_pdf_page_moves_only_the_objects_its_form_reaches() -> None:
     assert list(doc.attachments) == []
     assert [entry.title for entry in doc.get_outline()] == ["OLD-OUTLINE-TITLE"]
     assert b"ORPHAN-OBJECT" not in doc.tobytes(garbage=True)
-    assert "SOURCE-PAGE-TEXT" in pylopdf.Document(stream=saved).get_page_text(0)
+    assert "SOURCE-PAGE-TEXT" in pylopdf.open(saved).pages[0].get_text()
 
 
 def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:
@@ -157,16 +161,16 @@ def test_structural_edits_on_tens_of_thousands_of_objects_stay_fast() -> None:
     7 s locally with it; the generous bound only catches that regression.
     """
     page_count = 30_000
-    doc = pylopdf.Document(stream=build_pdf([f"P{index}" for index in range(page_count)]))
+    doc = pylopdf.open(build_pdf([f"P{index}" for index in range(page_count)]))
     outline = [(1, f"Entry {index}", index) for index in range(4096)]
 
     start = time.perf_counter()
     doc.set_outline(outline)
-    doc.delete_pages([0])
+    del doc.pages[0:1]
     saved = doc.tobytes(garbage=True)
     elapsed = time.perf_counter() - start
 
     assert elapsed < 2.0, f"set_outline, delete_pages, and a garbage save took {elapsed:.2f}s"
-    assert doc.page_count == page_count - 1
+    assert len(doc.pages) == page_count - 1
     assert doc.get_outline()[0] == (1, "Entry 1", 0)
-    assert pylopdf.Document(stream=saved).page_count == page_count - 1
+    assert len(pylopdf.open(saved).pages) == page_count - 1

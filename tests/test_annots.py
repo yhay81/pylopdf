@@ -43,8 +43,8 @@ def _has_dominant_color(pixels: list[tuple[int, int, int]], channel: int) -> boo
 
 
 def test_search_and_highlight() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Hello PDF"]))
+    page = doc.pages[0]
     hits = page.search_for("Hello")
     assert hits
     page.add_highlight_annot(hits)
@@ -64,20 +64,20 @@ def test_search_and_highlight() -> None:
 
 
 def test_highlight_survives_save_roundtrip() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
-    hits = doc[0].search_for("PDF")
-    doc[0].add_highlight_annot(hits, content="review note")
-    reopened = pylopdf.open(stream=doc.tobytes())
-    annots = reopened[0].annots()
+    doc = pylopdf.open(build_pdf(["Hello PDF"]))
+    hits = doc.pages[0].search_for("PDF")
+    doc.pages[0].add_highlight_annot(hits, content="review note")
+    reopened = pylopdf.open(doc.tobytes())
+    annots = reopened.pages[0].annots()
     assert len(annots) == 1
     assert annots[0].type[1] == "Highlight"
     assert annots[0].info["content"] == "review note"
-    assert _has_yellowish(_region_pixels(reopened[0], hits[0]))
+    assert _has_yellowish(_region_pixels(reopened.pages[0], hits[0]))
 
 
 def test_highlight_multiple_rects_in_one_annot() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello PDF"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Hello PDF"]))
+    page = doc.pages[0]
     rects = [pylopdf.Rect(10, 10, 40, 20), pylopdf.Rect(60, 40, 90, 50)]
     page.add_highlight_annot(rects)
     annots = page.annots()
@@ -92,8 +92,8 @@ def test_highlight_multiple_rects_in_one_annot() -> None:
 
 def test_highlight_single_rect_argument() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=100, height=100)
-    page = doc[0]
+    doc.pages.new((100, 100))
+    page = doc.pages[0]
     page.add_highlight_annot((20, 20, 80, 40))
     assert page.annots()[0].type[1] == "Highlight"
     assert _has_yellowish(_region_pixels(page, pylopdf.Rect(20, 20, 80, 40)))
@@ -101,8 +101,8 @@ def test_highlight_single_rect_argument() -> None:
 
 def test_highlight_on_rotated_page_uses_display_coordinates() -> None:
     doc = pylopdf.Document()
-    doc.new_page(width=100, height=200)
-    page = doc[0]
+    doc.pages.new((100, 200))
+    page = doc.pages[0]
     page.set_rotation(90)  # Display coordinates are 200 x 100.
     target = pylopdf.Rect(120, 30, 180, 70)
     page.add_highlight_annot(target)
@@ -128,7 +128,7 @@ def test_missing_highlight_appearance_rejects_malformed_opacity() -> None:
             ),
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
 
     assert not _has_yellowish(_region_pixels(page, page.rect))
 
@@ -159,12 +159,12 @@ def test_missing_text_markup_appearances_render_without_mutating_source(
         }
     )
     document = pylopdf.open(
-        stream=pdf,
+        pdf,
         limits=pylopdf.DocumentLimits(
             max_interpretation_size=max_interpretation_size,
         ),
     )
-    page = document[0]
+    page = document.pages[0]
 
     assert [annotation.type[1] for annotation in page.annots()] == [
         "Underline",
@@ -191,7 +191,7 @@ def test_missing_underline_appearance_follows_slanted_quad() -> None:
             ),
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
 
     assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(8, 26, 16, 34)), 0)
     assert _has_dominant_color(_region_pixels(page, pylopdf.Rect(34, 35, 43, 43)), 0)
@@ -215,7 +215,7 @@ def test_missing_text_markup_quad_budget_is_atomic() -> None:
             ),
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
 
     assert not _has_yellowish(_region_pixels(page, page.rect))
 
@@ -238,21 +238,21 @@ def test_missing_text_markup_segment_budget_is_atomic() -> None:
             ),
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
 
     assert not _has_yellowish(_region_pixels(page, page.rect))
 
 
 def test_insert_link_reads_back() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Visit example"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Visit example"]))
+    page = doc.pages[0]
     hits = page.search_for("example")
     page.insert_link({"kind": pylopdf.LINK_URI, "from": hits[0], "uri": "https://example.com/"})
-    reopened = pylopdf.open(stream=doc.tobytes())
-    annots = reopened[0].annots()
+    reopened = pylopdf.open(doc.tobytes())
+    annots = reopened.pages[0].annots()
     assert len(annots) == 1
     assert annots[0].type[1] == "Link"
-    assert reopened[0].get_links()[0]["uri"] == "https://example.com/"
+    assert reopened.pages[0].get_links()[0]["uri"] == "https://example.com/"
 
 
 def test_copy_page_detaches_shared_indirect_annots_array() -> None:
@@ -269,13 +269,13 @@ def test_copy_page_detaches_shared_indirect_annots_array() -> None:
             ),
         }
     )
-    doc = pylopdf.open(stream=pdf)
-    doc.fullcopy_page(0)
+    doc = pylopdf.open(pdf)
+    doc.pages.extend(doc.pages[0])
 
-    doc[1].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
+    doc.pages[1].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
 
-    assert [len(page.annots()) for page in doc] == [1, 2]
-    assert [link["uri"] for link in doc[0].get_links()] == ["https://a.example"]
+    assert [len(page.annots()) for page in doc.pages] == [1, 2]
+    assert [link["uri"] for link in doc.pages[0].get_links()] == ["https://a.example"]
 
 
 def test_unique_indirect_annots_append_reaches_exact_limit_in_place() -> None:
@@ -292,11 +292,11 @@ def test_unique_indirect_annots_append_reaches_exact_limit_in_place() -> None:
             ),
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
 
-    doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
+    doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://b.example"})
 
-    assert len(doc[0].annots()) == 4096
+    assert len(doc.pages[0].annots()) == 4096
     assert b"/Annots 4 0 R" in doc.tobytes()
 
 
@@ -309,27 +309,27 @@ def test_annotation_add_rejects_malformed_indirect_array_atomically() -> None:
             4: "<< /NotAnArray true >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.PdfError):
-        doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://example.com"})
+        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (20, 20, 30, 30), "uri": "https://example.com"})
     with pytest.raises(pylopdf.PdfError):
-        doc[0].add_highlight_annot((20, 20, 30, 30))
+        doc.pages[0].add_highlight_annot((20, 20, 30, 30))
 
     assert doc.tobytes() == before
 
 
 def test_annots_empty_on_fresh_page() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
-    assert doc[0].annots() == []
+    doc.pages.new()
+    assert doc.pages[0].annots() == []
 
 
 def test_annots_rejects_bad_input() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
-    page = doc[0]
+    doc.pages.new()
+    page = doc.pages[0]
     with pytest.raises(ValueError, match="quads"):
         page.add_highlight_annot([])
     with pytest.raises(ValueError, match="opacity"):
@@ -349,7 +349,7 @@ def test_annotation_reads_reject_excessive_array_without_partial_output() -> Non
             5: ("<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /A << /S /URI /URI (https://example.com) >> >>"),
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         page.annots()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
@@ -367,7 +367,7 @@ def test_annotation_reads_reject_excessive_metadata_text() -> None:
             5: f"<< /Type /Annot /Subtype /Text /Rect [1 1 10 10] /Contents ({content}) >>",
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
     with pytest.raises(pylopdf.PdfError, match=r"Contents text.*1048576-byte safety limit"):
         page.annots()
 
@@ -383,7 +383,7 @@ def test_link_reads_reject_excessive_uri_text() -> None:
             5: f"<< /Type /Annot /Subtype /Link /Rect [1 1 10 10] /A << /S /URI /URI ({uri}) >> >>",
         }
     )
-    page = pylopdf.open(stream=pdf)[0]
+    page = pylopdf.open(pdf).pages[0]
     # Annotation handles do not read the action; link reads do.
     assert [annot.type[1] for annot in page.annots()] == ["Link"]
     with pytest.raises(pylopdf.PdfError, match=r"URI text.*1048576-byte safety limit"):
@@ -401,32 +401,32 @@ def test_annotation_add_refuses_over_limit_page_atomically() -> None:
             5: "<< /Type /Annot /Subtype /Text /Rect [1 1 10 10] >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     before = doc.tobytes()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "https://example.com"})
+        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "https://example.com"})
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
-        doc[0].add_highlight_annot((10, 10, 20, 20))
+        doc.pages[0].add_highlight_annot((10, 10, 20, 20))
     assert doc.tobytes() == before
 
 
 def test_annotation_add_bounds_inputs_atomically() -> None:
-    doc = pylopdf.open(stream=build_pdf([""]))
+    doc = pylopdf.open(build_pdf([""]))
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.LimitError, match=r"content.*1048576-byte") as content_limit:
-        doc[0].add_highlight_annot((10, 10, 20, 20), content="x" * (1024 * 1024 + 1))
+        doc.pages[0].add_highlight_annot((10, 10, 20, 20), content="x" * (1024 * 1024 + 1))
     assert content_limit.value.code == "annotation_input_size"
     with pytest.raises(pylopdf.LimitError, match=r"URI.*1048576-byte") as uri_limit:
-        doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "x" * (1024 * 1024 + 1)})
+        doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": "x" * (1024 * 1024 + 1)})
     assert uri_limit.value.code == "annotation_input_size"
     with pytest.raises(ValueError, match="4096 rectangles"):
-        doc[0].add_highlight_annot([(10, 10, 20, 20)] * 4097)
+        doc.pages[0].add_highlight_annot([(10, 10, 20, 20)] * 4097)
     assert doc.tobytes() == before
 
 
 def test_highlight_input_stops_before_unbounded_materialization() -> None:
-    doc = pylopdf.open(stream=build_pdf([""]))
+    doc = pylopdf.open(build_pdf([""]))
 
     def excessive_rects() -> Iterator[tuple[int, int, int, int]]:
         yield from [(10, 10, 20, 20)] * 4097
@@ -434,7 +434,7 @@ def test_highlight_input_stops_before_unbounded_materialization() -> None:
         raise AssertionError(msg)
 
     with pytest.raises(ValueError, match="4096 rectangles"):
-        doc[0].add_highlight_annot(cast("Sequence[Sequence[float]]", excessive_rects()))
+        doc.pages[0].add_highlight_annot(cast("Sequence[Sequence[float]]", excessive_rects()))
 
     def unreadable_rects() -> Iterator[tuple[int, int, int, int]]:
         msg = "oversized text must fail before rectangle iteration"
@@ -442,7 +442,7 @@ def test_highlight_input_stops_before_unbounded_materialization() -> None:
         yield (10, 10, 20, 20)
 
     with pytest.raises(pylopdf.LimitError) as content_limit:
-        doc[0].add_highlight_annot(
+        doc.pages[0].add_highlight_annot(
             cast("Sequence[Sequence[float]]", unreadable_rects()),
             content="x" * (1024 * 1024 + 1),
         )
@@ -451,12 +451,12 @@ def test_highlight_input_stops_before_unbounded_materialization() -> None:
 
 def test_annotation_add_at_metadata_boundary_remains_readable() -> None:
     content = "x" * (1024 * 1024 - len("Highlight"))
-    highlight_doc = pylopdf.open(stream=build_pdf([""]))
-    highlight_doc[0].add_highlight_annot((10, 10, 20, 20), content=content)
-    assert highlight_doc[0].annots()[0].info["content"] == content
+    highlight_doc = pylopdf.open(build_pdf([""]))
+    highlight_doc.pages[0].add_highlight_annot((10, 10, 20, 20), content=content)
+    assert highlight_doc.pages[0].annots()[0].info["content"] == content
 
     uri = "x" * (1024 * 1024 - len("Link"))
-    link_doc = pylopdf.open(stream=build_pdf([""]))
-    link_doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": uri})
-    assert link_doc[0].get_links()[0]["uri"] == uri
-    assert link_doc[0].get_links()[0]["uri"] == uri
+    link_doc = pylopdf.open(build_pdf([""]))
+    link_doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 20, 20), "uri": uri})
+    assert link_doc.pages[0].get_links()[0]["uri"] == uri
+    assert link_doc.pages[0].get_links()[0]["uri"] == uri

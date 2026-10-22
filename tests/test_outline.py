@@ -27,7 +27,7 @@ def _build_outline_fixture(outline_objects: dict[int, str | bytes]) -> bytes:
 
 
 def test_toc_roundtrip(three_page_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     assert doc.get_outline() == []
     outline = [(1, "第 1 章", 0), (2, "1.1 節", 1), (1, "第 2 章", 2)]
     doc.set_outline(outline)
@@ -36,32 +36,32 @@ def test_toc_roundtrip(three_page_pdf: bytes) -> None:
     assert all(isinstance(entry, pylopdf.OutlineEntry) for entry in entries)
     assert entries[1].page == 1
     # Preserve entries after save/reload; CJK titles use UTF-16BE.
-    reloaded = pylopdf.Document(stream=doc.tobytes())
+    reloaded = pylopdf.open(doc.tobytes())
     assert reloaded.get_outline() == outline
 
 
 def test_toc_deep_nesting(three_page_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     outline = [(1, "A", 0), (2, "B", 0), (3, "C", 1), (1, "D", 2)]
     doc.set_outline(outline)
-    reloaded = pylopdf.Document(stream=doc.tobytes())
+    reloaded = pylopdf.open(doc.tobytes())
     assert reloaded.get_outline() == outline
 
 
 def test_set_outline_replaces_existing(three_page_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     doc.set_outline([(1, "old", 0), (1, "old2", 1)])
     doc.set_outline([pylopdf.OutlineEntry(1, "new", 2)])
     assert doc.get_outline() == [(1, "new", 2)]
-    assert pylopdf.Document(stream=doc.tobytes()).get_outline() == [(1, "new", 2)]
+    assert pylopdf.open(doc.tobytes()).get_outline() == [(1, "new", 2)]
 
 
 def test_set_outline_empty_removes(three_page_pdf: bytes) -> None:
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     doc.set_outline([(1, "A", 0)])
     doc.set_outline([])
     assert doc.get_outline() == []
-    assert pylopdf.Document(stream=doc.tobytes()).get_outline() == []
+    assert pylopdf.open(doc.tobytes()).get_outline() == []
 
 
 def test_outline_replaces_the_one_based_toc_methods() -> None:
@@ -81,16 +81,16 @@ def test_outline_replaces_the_one_based_toc_methods() -> None:
     ],
 )
 def test_set_outline_invalid(three_page_pdf: bytes, entries: list[tuple[int | str, ...]], match: str) -> None:
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     with pytest.raises(ValueError, match=match):
         doc.set_outline(entries)
 
 
 def test_outline_survives_page_ops(three_page_pdf: bytes) -> None:
     """Keep outline entries readable after select while target pages remain."""
-    doc = pylopdf.Document(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     doc.set_outline([(1, "first", 0), (1, "third", 2)])
-    doc.select([0, 2])
+    doc.pages.select([0, 2])
     outline = doc.get_outline()
     assert [entry.title for entry in outline] == ["first", "third"]
     assert [entry.page for entry in outline] == [0, 1]  # Page numbers are compacted.
@@ -105,12 +105,12 @@ def test_real_world_outline_readable() -> None:
             assert isinstance(title, str)
             assert isinstance(page, int)
             assert level >= 1
-            assert 0 <= page < doc.page_count
+            assert 0 <= page < len(doc.pages)
 
 
 def test_toc_next_cycle_is_visited_once() -> None:
     doc = pylopdf.open(
-        stream=_build_outline_fixture(
+        _build_outline_fixture(
             {
                 4: "<< /First 5 0 R >>",
                 5: "<< /Title (A) /Dest [3 0 R /Fit] /Next 5 0 R >>",
@@ -122,7 +122,7 @@ def test_toc_next_cycle_is_visited_once() -> None:
 
 def test_toc_destination_reference_cycle_is_visited_once() -> None:
     doc = pylopdf.open(
-        stream=_build_outline_fixture(
+        _build_outline_fixture(
             {
                 4: "<< /First 5 0 R >>",
                 5: "<< /Title (A) /Dest 6 0 R >>",
@@ -141,7 +141,7 @@ def test_toc_rejects_excessive_destination_depth() -> None:
     for object_id in range(6, 38):
         objects[object_id] = f"<< /D {object_id + 1} 0 R >>"
     objects[38] = "[3 0 R /Fit]"
-    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    doc = pylopdf.open(_build_outline_fixture(objects))
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
         doc.get_outline()
 
@@ -151,7 +151,7 @@ def test_toc_rejects_excessive_depth() -> None:
     for object_id in range(5, 69):
         objects[object_id] = f"<< /First {object_id + 1} 0 R >>"
     objects[69] = "<< >>"
-    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    doc = pylopdf.open(_build_outline_fixture(objects))
     with pytest.raises(pylopdf.PdfError, match="64-level safety limit"):
         doc.get_outline()
 
@@ -167,12 +167,12 @@ def _outline_chain(count: int, entry: str = "") -> dict[int, str | bytes]:
 
 
 def test_toc_reads_entries_beyond_the_former_4096_limit() -> None:
-    doc = pylopdf.open(stream=_build_outline_fixture(_outline_chain(4_097, " /Title (A) /Dest [3 0 R /Fit]")))
+    doc = pylopdf.open(_build_outline_fixture(_outline_chain(4_097, " /Title (A) /Dest [3 0 R /Fit]")))
     assert doc.get_outline() == [(1, "A", 0)] * 4_097
 
 
 def test_toc_rejects_excessive_nodes() -> None:
-    doc = pylopdf.open(stream=_build_outline_fixture(_outline_chain(MAX_TOC_ENTRIES + 1)))
+    doc = pylopdf.open(_build_outline_fixture(_outline_chain(MAX_TOC_ENTRIES + 1)))
     with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
         doc.get_outline()
     assert caught.value.code == "toc_entry_count"
@@ -184,7 +184,7 @@ def test_toc_rejects_excessive_edges() -> None:
     for object_id in range(5, last + 1):
         next_id = object_id + 1 if object_id < last else 5
         objects[object_id] = f"<< /First 5 0 R /Next {next_id} 0 R >>"
-    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    doc = pylopdf.open(_build_outline_fixture(objects))
     with pytest.raises(pylopdf.LimitError, match="131072-edge safety limit") as caught:
         doc.get_outline()
     assert caught.value.code == "toc_entry_count"
@@ -196,7 +196,7 @@ def test_toc_rejects_excessive_title_bytes() -> None:
     for object_id in range(5, 22):
         next_entry = f" /Next {object_id + 1} 0 R" if object_id < 21 else ""
         objects[object_id] = f"<< /Title ({title}) /Dest [3 0 R /Fit]{next_entry} >>"
-    doc = pylopdf.open(stream=_build_outline_fixture(objects))
+    doc = pylopdf.open(_build_outline_fixture(objects))
     with pytest.raises(pylopdf.LimitError, match="TOC source text exceeds the 16777216-byte safety limit") as caught:
         doc.get_outline()
     assert caught.value.code == "toc_text_size"
@@ -214,20 +214,23 @@ def test_page_cleanup_shares_the_toc_node_limit() -> None:
     for object_id in range(6, last + 1):
         next_entry = f" /Next {object_id + 1} 0 R" if object_id < last else ""
         objects[object_id] = f"<< /Title (A) /Dest [5 0 R /Fit]{next_entry} >>"
-    doc = pylopdf.open(stream=build_raw_pdf(objects))
-    page = doc[0]
+    doc = pylopdf.open(build_raw_pdf(objects))
+    page = doc.pages[0]
 
-    for operation in (lambda: doc.delete_pages([1]), lambda: doc.select([0])):
+    def delete() -> None:
+        del doc.pages[1]
+
+    for operation in (delete, lambda: doc.pages.select([0])):
         with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
             operation()
         assert caught.value.code == "toc_entry_count"
-        assert doc.page_count == 2
-        assert page.number == 0
+        assert len(doc.pages) == 2
+        assert page.index == 0
         assert page.rect.width == 100
 
 
 def test_set_outline_rejects_excessive_entries(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     with pytest.raises(pylopdf.LimitError, match="65536 entries") as caught:
         doc.set_outline([(1, "A", 0)] * (MAX_TOC_ENTRIES + 1))
     assert caught.value.code == "toc_entry_count"
@@ -241,7 +244,7 @@ def test_set_outline_rejects_excessive_entries(three_page_pdf: bytes) -> None:
 
 
 def test_set_outline_limits_are_atomic(three_page_pdf: bytes) -> None:
-    doc = pylopdf.open(stream=three_page_pdf)
+    doc = pylopdf.open(three_page_pdf)
     original = [(1, "original", 0)]
     doc.set_outline(original)
 

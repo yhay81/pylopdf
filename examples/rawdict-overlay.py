@@ -18,7 +18,7 @@ _MAX_OVERLAY_GLYPHS = 2_000
 
 def _demo_document() -> pylopdf.Document:
     document = pylopdf.Document()
-    page = document.new_page(width=420, height=220)
+    page = document.pages.new((420, 220))
     page.insert_text((24, 42), "Glyph positions", fontsize=22)
     page.insert_text((24, 78), "PDF glyphs carry Unicode and geometry.", fontsize=13)
     page.insert_text((24, 112), "Blue boxes approximate glyph bounds.", fontsize=13)

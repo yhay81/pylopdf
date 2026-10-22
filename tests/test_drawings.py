@@ -29,7 +29,7 @@ def build_drawing_pdf(*, rotation: int = 0) -> bytes:
 
 
 def test_get_drawings_returns_styled_paths() -> None:
-    drawings = pylopdf.open(stream=build_drawing_pdf())[0].get_drawings()
+    drawings = pylopdf.open(build_drawing_pdf()).pages[0].get_drawings()
     assert len(drawings) == 2
 
     rectangle = drawings[0]
@@ -64,12 +64,12 @@ def test_get_drawings_returns_styled_paths() -> None:
 
 
 def test_get_drawings_uses_rotated_display_coordinates() -> None:
-    drawing = pylopdf.open(stream=build_drawing_pdf(rotation=90))[0].get_drawings()[0]
+    drawing = pylopdf.open(build_drawing_pdf(rotation=90)).pages[0].get_drawings()[0]
     assert drawing["rect"] == pytest.approx(pylopdf.Rect(10, 10, 30, 50))
 
 
 def test_get_drawings_ignores_text() -> None:
-    assert pylopdf.open(stream=build_pdf(["Text only"]))[0].get_drawings() == []
+    assert pylopdf.open(build_pdf(["Text only"])).pages[0].get_drawings() == []
 
 
 def test_get_drawings_rejects_excessive_path_count() -> None:
@@ -84,7 +84,7 @@ def test_get_drawings_rejects_excessive_path_count() -> None:
     )
 
     with pytest.raises(pylopdf.PdfError, match="8192-path safety limit"):
-        pylopdf.open(stream=pdf)[0].get_drawings()
+        pylopdf.open(pdf).pages[0].get_drawings()
 
 
 def test_get_drawings_rejects_excessive_command_count() -> None:
@@ -99,7 +99,7 @@ def test_get_drawings_rejects_excessive_command_count() -> None:
     )
 
     with pytest.raises(pylopdf.PdfError, match="131072-command safety limit"):
-        pylopdf.open(stream=pdf)[0].get_drawings()
+        pylopdf.open(pdf).pages[0].get_drawings()
 
 
 def test_get_drawings_bounds_aggregate_dash_values() -> None:
@@ -113,7 +113,7 @@ def test_get_drawings_bounds_aggregate_dash_values() -> None:
             4: f"<< /Length {len(exact_stream)} >>\nstream\n{exact_stream}\nendstream",
         }
     )
-    exact_result = pylopdf.open(stream=exact_pdf)[0].get_drawings()[0]["dashes"]
+    exact_result = pylopdf.open(exact_pdf).pages[0].get_drawings()[0]["dashes"]
     assert exact_result is not None
     assert exact_result.count("1") == 131_072
 
@@ -127,4 +127,4 @@ def test_get_drawings_bounds_aggregate_dash_values() -> None:
         }
     )
     with pytest.raises(pylopdf.PdfError, match="131072-dash-value safety limit"):
-        pylopdf.open(stream=excessive_pdf)[0].get_drawings()
+        pylopdf.open(excessive_pdf).pages[0].get_drawings()

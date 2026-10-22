@@ -28,6 +28,7 @@ PUBLIC_DUNDERS = frozenset(
         "__and__",
         "__bool__",
         "__contains__",
+        "__delitem__",
         "__enter__",
         "__exit__",
         "__getitem__",
@@ -184,6 +185,9 @@ def _class_members(value: type[object]) -> JsonObject:
     members: JsonObject = {}
     for name, raw_value in sorted(vars(value).items()):
         if name.startswith("_") and name not in PUBLIC_DUNDERS:
+            continue
+        # A protocol method that only raises a migration hint is no part of the API.
+        if getattr(raw_value, "__pylopdf_hint__", False):
             continue
         members[name] = _member_contract(value, name, raw_value)
     # Rect and IRect share their members through a private base class, which

@@ -1214,7 +1214,7 @@ the concept and API overview.
   shares maps through `Rc`, so it never lives in the `Send + Sync` `_Document`
   and never crosses a thread: each thread keeps at most one slot that owns an
   `Arc` of the snapshot together with the cache through `self_cell`.
-  `Page.get_pixmap`, `Document.get_page_pixmap`, and serial `render_pages` use the
+  `Page.get_pixmap` and serial `render_pages` use the
   slot only on the thread that created the document, and only while the
   document's generation token and the snapshot identity both match.
   `invalidate_interpreted_pages` (therefore `invalidate_hayro_pdf` and every
@@ -1284,24 +1284,39 @@ the concept and API overview.
   Python methods that change page structure must call `_bump_generation()`.
   Otherwise an old `Page` could silently refer to a different page. Old pages
   must raise `StalePageError` after structural changes.
+- `Document.pages` (`src/pylopdf/_pages.py`) is the page sequence: `Pages`
+  indexes, slices, and iterates `Page` views; `new`, `insert`, `extend`,
+  `select`, `move`, and `del` call the core's `new_page`, `copy_pages` or
+  `merge_pages`, `select`, and `delete_pages` once each, so every edit is one
+  atomic core call. `insert` clamps its index as `list.insert` does and takes
+  the pages of one document per call: pages of the same document go to
+  `copy_pages`, which copies any list of pages, repeats included, in one
+  page-tree rebuild, and pages of another document to `merge_pages`, which
+  refuses a repeated page. `move` is a `select` of the permuted order, which
+  keeps every page object. Iteration raises `RuntimeError` when the page
+  generation changes meanwhile. `Page` views compare equal when they share
+  document, generation, and index. `Document` keeps `__getitem__` and
+  `__iter__` only as `hinted_protocol` methods that raise `TypeError` pointing
+  at `doc.pages`; `tools/check_api_surface.py` skips methods marked
+  `__pylopdf_hint__`, so they never enter the public API snapshot.
 - Page batches validate entries against one page-count snapshot instead of
-  re-walking the page tree per entry. `pages=None` and complete `insert_pdf`
-  ranges cover every page whatever the page count. Explicit `get_text`,
-  `to_markdown`, `render_pages`, `select`, and `delete_pages` entries may repeat
-  pages up to the larger of the page count and 4,096; materialization stops at
-  the first entry beyond that bound with `LimitError.code ==
-  "page_entry_count"`, so repetition never costs more than one complete pass
-  and `select` cannot grow a large document. Rust repeats the relative check,
-  walking the page tree only above the floor, and core `merge_pages` rejects
-  repeated source pages before mutation because one page object cannot appear
-  twice in the tree. `delete_pages([])` is a true no-op: do not invalidate
-  caches or bump the Python generation. Imported and selected page orders, duplicate tracking,
+  re-walking the page tree per entry. `pages=None` and complete page-sequence
+  imports cover every page whatever the page count. Explicit `get_text`,
+  `to_markdown`, `render_pages`, `Pages.select`, and `Pages.insert`/`extend`
+  entries may repeat pages up to the larger of the page count (of the source
+  document, for an import) and 4,096; materialization stops at the first
+  entry beyond that bound with `LimitError.code == "page_entry_count"`, so
+  repetition never costs more than one complete pass and `select` cannot grow
+  a large document. Rust repeats the relative check, walking the page tree
+  only above the floor, and core `merge_pages` rejects repeated source pages
+  before mutation because one page object cannot appear twice in the tree.
+  Deleting an empty slice is a true no-op: do not invalidate caches or bump
+  the Python generation. Imported and selected page orders, duplicate tracking,
   inherited page dictionaries, spliced orders, and root/rebuilt Kids arrays
   grow fallibly. `select` validates and plans all page IDs and duplicate copies
   before cache invalidation or PDF mutation; page-tree rebuilds resolve every
   page and allocate the final Kids array before committing dictionaries.
-- Structural edits (`delete_pages`, `select`, `insert_pdf`, `new_page`,
-  `fullcopy_page`, and `set_outline`) and `garbage=True` saves remove unreachable
+- Structural edits (every `Pages` edit and `set_outline`) and `garbage=True` saves remove unreachable
   objects with `prune_unreachable_objects` in `rust/src/prune.rs`.
   Never call lopdf's `Document::prune_objects`: it records visited IDs in a
   `Vec` and scans it for every reference and every object, which is quadratic
@@ -1342,7 +1357,7 @@ the concept and API overview.
   Levels 2–4 change object IDs and therefore forget placements and remap
   `isolated_content_pages`; level 1 keeps placements. Add any new per-owner
   structure to the identity lists before it can be merged.
-- `insert_pdf`, `show_pdf_page`, and generated text and form appearances
+- Page imports (`merge_pages`), `show_pdf_page`, and generated text and form appearances
   renumber their disposable source copy with `renumber_objects` in
   `rust/src/renumber.rs` before any target mutation. Never call lopdf's
   `Document::renumber_objects_with`: it walks the graph with a `Vec` of visited
@@ -1451,11 +1466,10 @@ the concept and API overview.
   `ObjectNotFound` to `PdfError` wherever a reader already skips null.
 - Rust defines `PdfError` (a `ValueError`-compatible base) and `PasswordError`;
   Python defines `DocumentClosedError`, `EncryptedDocumentError`,
-  `StalePageError`, and pymupdf's `FileDataError(PdfError, RuntimeError)` and
-  `EmptyFileError(FileDataError)`, which Rust raises through
-  `import_exception!` (`document/errors.rs`). Opening input that lopdf cannot
-  parse raises `FileDataError` and empty input `EmptyFileError`, while password
-  and limit failures keep their types; a missing caller path raises the
+  `StalePageError`, and `MalformedPdfError(PdfError)`, which Rust raises
+  through `import_exception!` (`document/errors.rs`). Opening input that lopdf
+  cannot parse, empty input included, raises `MalformedPdfError`, while
+  password and limit failures keep their types; a missing caller path raises the
   built-in `FileNotFoundError` through `path_io_err`. Add new errors under the
   `PdfError` hierarchy instead of introducing plain `ValueError` exceptions. Since lopdf 0.45, wrapped causes
   appear only through `Error::source`; format lopdf errors through
@@ -1513,7 +1527,7 @@ the concept and API overview.
   regressions in `tests/test_real_world.py` and the Pyodide contract must
   catch any lopdf message change. The two kinds emit distinct
   `PylopdfWarning` text, set `Document.is_repaired` and
-  `MetadataProbe.repaired`, and saving normalizes the xref data. A rebuilt
+  `Probe.is_repaired`, and saving normalizes the xref data. A rebuilt
   trailer drops `/Prev` and `/XRefStm`, which still point into the damaged
   input. lopdf's other lenient tolerances (19-byte xref entries, stream
   `/Length` recovered at an unambiguous object boundary, and skipped
@@ -2163,7 +2177,7 @@ the concept and API overview.
   Appearance synchronization must budget missing `Off`/on keys before mutation
   so a successful fill remains readable under the same limits. Resolve indirect
   field `/Kids` arrays consistently.
-- `insert_pdf` registers the AcroForm fields of imported pages through
+- Page imports (`Pages.insert` and `extend`, core `merge_pages`) register the AcroForm fields of imported pages through
   `rust/src/acroform_import.rs`, following qpdf's page-copy conventions.
   `transplant_pages` takes the source `/AcroForm` out of the disposable
   renumbered copy, edits that copy, and reserves receiving capacity before the
@@ -2196,7 +2210,7 @@ the concept and API overview.
   at the imported page that lists it. A complete import does not walk the
   tree, so only the 1 MiB top-level name budget, which every import shares
   when the receiving document has a form, can refuse one.
-- `delete_pages` and `select` remove the form widgets and fields of dropped
+- Page deletion and `select` remove the form widgets and fields of dropped
   pages with `FormPagePrune` in the same module, which reuses the partial
   import's walk on the document itself, with the remaining pages as the
   imported ones. It is prepared next to `PageCleanupPlan`, before any
@@ -2208,7 +2222,7 @@ the concept and API overview.
   dropped pages. `/Fields` and `/CO` lose the entries of removed fields; an
   array that also serves as a walked `/Kids` is filtered once, by the `/Kids`
   plan. A field tree beyond the read limits refuses the deletion.
-- `delete_pages` and `select` also remove a tagged PDF's structure content
+- Page deletion and `select` also remove a tagged PDF's structure content
   of dropped pages with `StructurePagePrune` (`rust/src/structure_prune.rs`),
   prepared beside `FormPagePrune` and applied after it; otherwise `/Pg`,
   OBJR `/Obj`, `/ParentTree`, and `/IDTree` keep dropped pages and their
@@ -2257,7 +2271,7 @@ the concept and API overview.
   `named_destination_count`, above 16 MiB of scanned key bytes with
   `named_destination_text_size`, or above 32 levels. Do not turn a truncated
   lookup into an ordinary unresolved destination. TOC reads, `Page.get_links`,
-  `insert_pdf` link import, and page cleanup share these large-manual limits:
+  page-import link handling, and page cleanup share these large-manual limits:
   the cleanup rewrite in `rust/src/page_cleanup.rs` matches the read-side
   walker's dictionary-node, edge, entry, and key-byte accounting, and legacy
   catalog `/Dests` uses the same entry and key-text limits, so every
@@ -2593,8 +2607,8 @@ the concept and API overview.
   malformed tree raises on every access. Serialization, including the
   renderer snapshot, still takes `&mut Document` and drops the index, which
   the next access rebuilds.
-  `max_decompressed_size=` remains a shorthand until the API reset removes
-  it. Keep the web profile usable for representative scans, and require the
+  `DocumentLimits(max_decompressed_size=...)` is the only way to set that
+  budget; `open` takes no shorthand. Keep the web profile usable for representative scans, and require the
   host to enforce CPU deadlines. Native/Pyodide logical regressions and generated Atheris seeds
   guard this boundary.
 - Hayro warnings are collected by the interpreter settings sink in
@@ -2623,7 +2637,7 @@ the concept and API overview.
   follows MuPDF's codes by rebuilding the Encrypt dictionary from
   `encryption_state.encode()` (`original_password_matches`), and
   `metadata["encryption"]` describes it the same way. lopdf's fast metadata
-  reader also drops `/Trapped`, so `peek_metadata` omits `trapped`.
+  reader also drops `/Trapped`, so `probe` omits `trapped`.
 - lopdf 0.45 keeps a rebuilt table's newest trailer verbatim, including its
   `/Prev`, and its full writer emits trailer keys as-is. pylopdf removes
   `/Prev` and `/XRefStm` after reconstruction until a lopdf release includes
@@ -2799,19 +2813,33 @@ target surface.
 - Capability map tooling: `tools/check_parity.py` validates the map and
   reports coverage, with the milestone slugs in its `MILESTONES`.
   `tools/generate_migration_hints.py` writes `src/pylopdf/_migration_hints.py`
-  and the name map at the end of `docs/en/llms.txt` from the map; run it after
-  every map edit, because `tests/test_migration.py` fails on stale output.
-  `src/pylopdf/_hints.py` builds the hinted `AttributeError`s. Classes assign
-  `__getattr__ = hinted_getattr` inside `if not TYPE_CHECKING:` so that type
-  checkers still reject unknown attributes; Python calls it only after normal
-  lookup fails, and dunder names never consult the hints. The LibCST codemod
-  lives in `src/pylopdf/_codemod.py`, behind `python -m pylopdf.migrate` and
-  the `migrate` extra: `CALL_RULES` rewrite calls wherever they appear,
-  `STATEMENT_RULES` rewrite in-place methods only as statements of their
-  own, and every other missing name becomes a `# TODO(pylopdf): <hint>`
-  comment. A new mechanical replacement adds a rule and a case to
-  `tests/assets/migration/`, whose `pymupdf/` programs must migrate exactly
-  to `pylopdf/` and then pass.
+  and the name maps at the end of `docs/en/llms.txt` from the map and from
+  `api/pylopdf-0.15.json`, which lists pylopdf 0.15.0's public symbols and a
+  replacement and hint for each removed one that the map does not cover; it
+  fails when a removed 0.15 name has no hint or a replacement is not in
+  `api/public-api.json`. Every API reset pull request therefore adds the
+  0.15 names it removes there. Run the generator after every map,
+  table, or snapshot edit, because `tests/test_migration.py` fails on stale
+  output. `src/pylopdf/_hints.py` builds the hinted `AttributeError`s.
+  Classes assign `__getattr__ = hinted_getattr` inside `if not TYPE_CHECKING:`
+  so that type checkers still reject unknown attributes; Python calls it only
+  after normal lookup fails, and dunder names never consult the hints. The
+  LibCST codemod lives in `src/pylopdf/_codemod.py`, behind
+  `python -m pylopdf.migrate` and the `migrate` extra, and migrates modules
+  that import fitz, pymupdf, or pylopdf: `MODULE_CALL_RULES` rewrite calls of
+  module functions whose arguments changed (`open`, `Document`,
+  `peek_metadata`), `CALL_RULES` rewrite calls wherever they appear,
+  `STATEMENT_RULES` rewrite in-place methods and page deletions only as
+  statements of their own, and every other missing name becomes a
+  `# TODO(pylopdf): <hint>` comment. A pre-pass binds names to documents and
+  pages only when every assignment to the name produces one, and only those
+  names are indexed, measured, and iterated through `.pages`. In a module
+  that imports only pylopdf, pymupdf's in-place geometry rules stay off and
+  member hints cover only `PYLOPDF_015_REMOVED`, so the codemod leaves code
+  that already uses the new API, and unrelated names such as `re.search`,
+  alone. A new mechanical replacement adds a rule and a case to
+  `tests/test_migration.py` or `tests/assets/migration/`, whose `pymupdf/`
+  programs must migrate exactly to `pylopdf/` and then pass.
 - Every feature pull request meets the definition of done in ROADMAP.md,
   names its milestone, and implements against api/DESIGN.md. Concurrent pull
   requests stay inside one workstream's modules.

@@ -184,10 +184,10 @@ def _form_pdf() -> bytes:
 def test_generated_imports_parse_on_the_calling_thread() -> None:
     sequential, fallback, mismatched = _Document.generated_pdf_loads()
     with pylopdf.Document() as doc:
-        doc.new_page(width=595, height=842)
-        doc.new_page(width=842, height=595)
-        doc[1].set_rotation(90)
-        page = doc[0]
+        doc.pages.new((595, 842))
+        doc.pages.new((842, 595))
+        doc.pages[1].set_rotation(90)
+        page = doc.pages[0]
         page.insert_text((50, 100), "日本語テキスト (かっこ) \\ 100%", fontsize=14, fontfile=NOTO_SANS_JP)
         page.insert_textbox(
             (50, 150, 300, 400),
@@ -196,19 +196,19 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
             fontbuffer=NOTO_SANS_JP.read_bytes(),
             align=pylopdf.TEXT_ALIGN_JUSTIFY,
         )
-        doc[1].insert_text((40, 60), "回転したページ", fontsize=20, fontfile=NOTO_SANS_JP, color=(0.2, 0.4, 0.6))
+        doc.pages[1].insert_text((40, 60), "回転したページ", fontsize=20, fontfile=NOTO_SANS_JP, color=(0.2, 0.4, 0.6))
         output = doc.tobytes()
-    with pylopdf.open(stream=_form_pdf()) as doc:
+    with pylopdf.open(_form_pdf()) as doc:
         doc.set_form_field("name", "山田 太郎", fontfile=NOTO_SANS_JP)
         doc.set_form_field("notes", "一行目\n二行目の長い説明文", fontfile=NOTO_SANS_JP)
         doc.set_form_field("code", "日本", fontfile=NOTO_SANS_JP)
         doc.set_form_field("level", "上級", fontfile=NOTO_SANS_JP)
         form_output = doc.tobytes()
     assert _Document.generated_pdf_loads() == (sequential + 7, fallback, mismatched)
-    with pylopdf.open(stream=output) as reopened:
-        assert "日本語テキスト" in reopened[0].get_text()
-        assert "回転したページ" in reopened[1].get_text()
-    with pylopdf.open(stream=form_output) as reopened:
+    with pylopdf.open(output) as reopened:
+        assert "日本語テキスト" in reopened.pages[0].get_text()
+        assert "回転したページ" in reopened.pages[1].get_text()
+    with pylopdf.open(form_output) as reopened:
         values = {field["name"]: field["value"] for field in reopened.get_form_fields()}
     assert values["code"] == "日本"
     assert values["level"] == "上級"
@@ -217,5 +217,5 @@ def test_generated_imports_parse_on_the_calling_thread() -> None:
 def test_standard_fonts_import_no_generated_pdf() -> None:
     loads = _Document.generated_pdf_loads()
     with pylopdf.Document() as doc:
-        doc.new_page().insert_text((50, 100), "Latin text")
+        doc.pages.new().insert_text((50, 100), "Latin text")
     assert _Document.generated_pdf_loads() == loads

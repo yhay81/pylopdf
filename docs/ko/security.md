@@ -24,7 +24,7 @@ try:
     with pylopdf.open("upload.pdf", limits=pylopdf.DocumentLimits.web()) as doc:
         if doc.complexity["page_count"] > 50:
             reject_upload("too many pages")
-        preview = doc[0].get_pixmap(dpi=144)
+        preview = doc.pages[0].get_pixmap(dpi=144)
 except pylopdf.LimitError as error:
     reject_upload(error.code)
 ```
@@ -93,10 +93,10 @@ limits = pylopdf.DocumentLimits(
 | `Page.replace_text()` | 페이지 콘텐츠 64 MiB | `max_size` |
 | 첨부 파일: `add()`, `read()`, `write()` | 파일당 64 MiB | `max_size` |
 | `Stream.read()` | 64 MiB | `max_size` |
-| `Document.get_pdfa_claim()` | XMP 메타데이터 1 MiB | `max_size` |
+| `Document.get_pdfa_claim()`, `get_xml_metadata()`, `set_xml_metadata()` | XMP 메타데이터 1 MiB | `max_size` |
 | `OcrEngine()` | 모델 파일 64 MiB | `max_model_size` |
 
-일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `select()`, `delete_pages()`, `get_text()`, `to_markdown()`, `render_pages()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
+일부 제한은 고정되어 있습니다. 렌더링은 페이지당 6,400만 픽셀로 제한됩니다. 비밀번호는 PDF 2.0의 최대치인 UTF-8 127바이트까지입니다. `doc.pages.select()`, `insert()`, `extend()`, `get_text()`, `to_markdown()`, `render_pages()`에 전달하는 페이지 목록은 페이지 수와 4,096 중 큰 값까지의 항목을 담을 수 있습니다. 목차, 페이지 레이블, 폼 필드, 주석, 첨부 파일 목록에는 큰 실제 문서에 맞춘 넉넉한 고정 제한이 있습니다.
 
 거부된 호출은 문서를 변경하기 전에 예외를 발생시키며, 부분 결과를 반환하지 않습니다.
 
@@ -124,6 +124,7 @@ limits = pylopdf.DocumentLimits(
 | `page_entry_count` | 페이지 목록이 허용보다 김 |
 | `toc_entry_count`, `toc_text_size`, `named_destination_count`, `named_destination_text_size`, `structure_tree_count`, `form_content_size` | 목차, 링크 대상 테이블, 태그 PDF 구조, 가져온 페이지가 너무 큼 |
 | `xmp_metadata_size` | XMP 메타데이터가 `max_size`보다 큼 |
+| `xmp_metadata_input_size` | `set_xml_metadata()`에 전달한 XMP 메타데이터가 `max_size`보다 큼 |
 | `ocr_model_size`, `ocr_dictionary_entries` | OCR 모델 파일이 너무 큼 |
 
 ## 기본 보호 장치 { #built-in-protections }
@@ -132,7 +133,7 @@ limits = pylopdf.DocumentLimits(
 
 - **깊은 중첩.** 렌더링 엔진인 hayro는 중첩된 구조를 재귀적으로 읽습니다. pylopdf는 페이지를 렌더링하거나 추출하기 전에 그 콘텐츠, 색 공간, 함수가 얼마나 깊이 중첩되는지 확인하고, 스택이 넘치거나 조용히 잘릴 페이지를 거부합니다(`content_nesting_depth`, `resource_nesting_depth`, `object_depth`). 문서의 다른 페이지는 계속 사용할 수 있습니다.
 - **렌더러 충돌.** 잘못된 데이터로 렌더러가 패닉을 일으키면, pylopdf는 `except Exception`으로 잡을 수 없는 예외 대신 `PdfError`를 발생시키며 문서는 계속 사용할 수 있습니다.
-- **손상된 파일.** pylopdf는 가능하면 손상된 cross-reference 데이터를 복구하고, `PylopdfWarning`을 내며, `doc.is_repaired`를 설정합니다. 애플리케이션이 복구된 입력을 받아들이면 안 된다면 이런 문서를 거부하세요. 일부 손상된 파일은 열 수 없으며 `FileDataError`를 발생시킵니다.
+- **손상된 파일.** pylopdf는 가능하면 손상된 cross-reference 데이터를 복구하고, `PylopdfWarning`을 내며, `doc.is_repaired`를 설정합니다. 애플리케이션이 복구된 입력을 받아들이면 안 된다면 이런 문서를 거부하세요. 일부 손상된 파일은 열 수 없으며 `MalformedPdfError`를 발생시킵니다.
 - **안전한 저장.** `save()`와 `Pixmap.save()`는 대상 옆의 임시 파일에 쓰고, 쓰기가 완료된 뒤에만 대상을 교체하므로 실패해도 반쯤 쓰인 파일이 남지 않습니다. Windows 접근 제어 목록을 포함해 기존 파일 권한을 유지합니다.
 - **스크립트 없음.** 포함된 JavaScript는 절대 실행하지 않습니다.
 

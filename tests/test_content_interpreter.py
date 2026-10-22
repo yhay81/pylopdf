@@ -31,7 +31,7 @@ def _origins(doc: pylopdf.Document, pno: int = 0) -> list[tuple[float, float]]:
 
 
 def _hayro_origins(doc: pylopdf.Document, pno: int = 0) -> list[tuple[str, float, float]]:
-    raw = doc[pno].get_text("rawdict")
+    raw = doc.pages[pno].get_text("rawdict")
     return [
         (char["c"], char["origin"][0], char["origin"][1])
         for block in raw["blocks"]
@@ -79,7 +79,7 @@ def _stream(content: str, dictionary: str = "") -> str:
 @pytest.mark.parametrize("path", sorted(REAL_WORLD.glob("*.pdf")), ids=lambda path: path.name)
 def test_every_glyph_hayro_extracts_has_an_interpreted_twin(path: Path) -> None:
     doc = pylopdf.open(path)
-    for pno in range(doc.page_count):
+    for pno in range(len(doc.pages)):
         assert _unmatched(doc, pno) == [], f"page {pno}"
         glyphs = _glyphs(doc, pno)
         assert not any(glyph[5][0] for glyph in glyphs), "no approximate widths in the corpus"
@@ -96,7 +96,7 @@ def test_text_state_operators_move_the_pen_as_hayro_does() -> None:
         " 1 0 0.5 1 30 100 Tm (XY) Tj"
         " ET"
     )
-    doc = pylopdf.open(stream=_page(content))
+    doc = pylopdf.open(_page(content))
 
     assert _unmatched(doc) == []
     assert len(_hayro_origins(doc)) == len(_glyphs(doc)) == 27
@@ -108,7 +108,7 @@ def test_graphics_state_saves_the_text_state_and_cm_applies() -> None:
         " BT /F1 10 Tf 5 100 Td q 3 Tc (sa) Tj Q (ved) Tj ET"
         " 0 1 -1 0 290 10 cm BT /F1 10 Tf 0 0 Td (rot) Tj ET"
     )
-    doc = pylopdf.open(stream=_page(content))
+    doc = pylopdf.open(_page(content))
 
     assert _unmatched(doc) == []
     assert len(_glyphs(doc)) == 10
@@ -116,7 +116,7 @@ def test_graphics_state_saves_the_text_state_and_cm_applies() -> None:
 
 def test_glyph_sources_point_at_the_code_bytes() -> None:
     content = 'BT /F1 12 Tf 20 250 Td (ab) Tj [(c) -100 (de)] TJ 1 2 (f) " ET'
-    doc = pylopdf.open(stream=_page(content))
+    doc = pylopdf.open(_page(content))
 
     sources = [glyph[4] for glyph in _glyphs(doc)]
 
@@ -136,7 +136,7 @@ def test_standard_fonts_without_widths_use_afm_widths() -> None:
     content = "BT /F1 10 Tf 10 100 Td (Wi) Tj /F2 10 Tf (Wi) Tj ET"
     resources = "<< /Font << /F1 4 0 R /F2 6 0 R >> >>"
     courier = "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
-    doc = pylopdf.open(stream=_page(content, resources, courier))
+    doc = pylopdf.open(_page(content, resources, courier))
 
     advances = [glyph[2][0] for glyph in _glyphs(doc)]
 
@@ -160,7 +160,7 @@ def test_standard_fonts_name_codes_as_hayro_does(encoding: str, text: str) -> No
     content = f"BT /F2 20 Tf 10 100 Td ({text}) Tj ET"
     resources = "<< /Font << /F2 6 0 R >> >>"
     font = f"<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding {encoding} >>"
-    doc = pylopdf.open(stream=_page(content, resources, font))
+    doc = pylopdf.open(_page(content, resources, font))
 
     assert [char for char, _x, _y in _hayro_origins(doc) if char in "ABCD"] == list("ABCD")
     assert _unmatched(doc) == []
@@ -170,7 +170,7 @@ def test_symbol_fonts_ignore_their_base_encoding() -> None:
     content = "BT /F2 20 Tf 10 100 Td (ab\\000c) Tj /F1 20 Tf (X) Tj ET"
     resources = "<< /Font << /F1 4 0 R /F2 6 0 R >> >>"
     symbol = "<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /Encoding /WinAnsiEncoding >>"
-    doc = pylopdf.open(stream=_page(content, resources, symbol))
+    doc = pylopdf.open(_page(content, resources, symbol))
 
     assert _unmatched(doc) == []
     assert "X" in [char for char, _x, _y in _hayro_origins(doc)]
@@ -184,7 +184,7 @@ def test_widths_arrays_and_missing_width_apply_to_simple_fonts() -> None:
         " /Widths [500 700] /FontDescriptor 7 0 R >>"
     )
     descriptor = "<< /Type /FontDescriptor /FontName /Custom /Flags 32 /MissingWidth 333 >>"
-    doc = pylopdf.open(stream=_page(content, resources, font, descriptor))
+    doc = pylopdf.open(_page(content, resources, font, descriptor))
 
     assert [glyph[2][0] for glyph in _glyphs(doc)] == [333.0, 500.0, 700.0, 333.0]
 
@@ -198,7 +198,7 @@ def test_form_xobjects_nest_with_their_matrix_and_resources() -> None:
     )
     content = "q 1 0 0 1 50 50 cm /Outer Do Q q 2 0 0 2 100 150 cm /Outer Do Q"
     resources = "<< /Font << /F1 4 0 R >> /XObject << /Outer 6 0 R >> >>"
-    doc = pylopdf.open(stream=_page(content, resources, outer, inner))
+    doc = pylopdf.open(_page(content, resources, outer, inner))
 
     glyphs = _glyphs(doc)
 
@@ -218,7 +218,7 @@ def test_composite_fonts_read_codes_and_cid_widths() -> None:
         " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"
         " /DW 600 /W [1 [500 700] 3 255 900] >>"
     )
-    doc = pylopdf.open(stream=_page(content, resources, font, descendant))
+    doc = pylopdf.open(_page(content, resources, font, descendant))
 
     glyphs = _glyphs(doc)
 
@@ -238,7 +238,7 @@ def test_vertical_composite_fonts_advance_down_with_origin_displacement() -> Non
         " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"
         " /DW 1000 /W2 [2 [-800 400 900]] >>"
     )
-    doc = pylopdf.open(stream=_page(content, resources, font, descendant))
+    doc = pylopdf.open(_page(content, resources, font, descendant))
 
     glyphs = _glyphs(doc)
 
@@ -259,7 +259,7 @@ def test_type3_fonts_scale_widths_by_the_font_matrix() -> None:
         " /FirstChar 97 /LastChar 98 /Widths [50 80] /Resources << >> >>"
     )
     procedure = _stream("50 0 d0 0 0 50 50 re f")
-    doc = pylopdf.open(stream=_page(content, resources, font, procedure))
+    doc = pylopdf.open(_page(content, resources, font, procedure))
 
     glyphs = _glyphs(doc)
 
@@ -271,7 +271,7 @@ def test_type3_fonts_scale_widths_by_the_font_matrix() -> None:
 
 def test_missing_fonts_fall_back_to_helvetica_like_hayro() -> None:
     content = "BT /Nope 10 Tf 10 100 Td (Hi) Tj ET BT 10 50 Td (No) Tj ET"
-    doc = pylopdf.open(stream=_page(content))
+    doc = pylopdf.open(_page(content))
 
     glyphs = _glyphs(doc)
 
@@ -282,7 +282,7 @@ def test_missing_fonts_fall_back_to_helvetica_like_hayro() -> None:
 
 def test_invisible_and_clipping_text_is_recorded_with_its_mode() -> None:
     content = "BT /F1 10 Tf 3 Tr 10 100 Td (ocr) Tj 7 Tr (clip) Tj 9 Tr (x) Tj ET"
-    doc = pylopdf.open(stream=_page(content))
+    doc = pylopdf.open(_page(content))
 
     assert [glyph[3] for glyph in _glyphs(doc)] == [3, 3, 3, 7, 7, 7, 7, 0]
 
@@ -301,7 +301,7 @@ def test_forms_nest_to_hayros_depth_and_no_deeper() -> None:
             )
         )
     resources = "<< /Font << /F1 4 0 R >> /XObject << /F6 6 0 R >> >>"
-    doc = pylopdf.open(stream=_page("/F6 Do", resources, *forms))
+    doc = pylopdf.open(_page("/F6 Do", resources, *forms))
 
     assert len(_glyphs(doc)) == 50
 
@@ -311,7 +311,7 @@ def test_forms_that_draw_themselves_twice_hit_the_operation_bound() -> None:
         "/Self Do /Self Do",
         "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << /XObject << /Self 6 0 R >> >>",
     )
-    doc = pylopdf.open(stream=_page("/Self Do", "<< /XObject << /Self 6 0 R >> >>", form))
+    doc = pylopdf.open(_page("/Self Do", "<< /XObject << /Self 6 0 R >> >>", form))
 
     with pytest.raises(pylopdf.LimitError) as error:
         _glyphs(doc)
@@ -319,7 +319,7 @@ def test_forms_that_draw_themselves_twice_hit_the_operation_bound() -> None:
 
 
 def test_content_that_lopdf_cannot_parse_strictly_is_refused() -> None:
-    doc = pylopdf.open(stream=_page("BT /F1 10 Tf (unterminated Tj ET"))
+    doc = pylopdf.open(_page("BT /F1 10 Tf (unterminated Tj ET"))
 
     with pytest.raises(pylopdf.PdfError, match="content stream does not parse"):
         _glyphs(doc)

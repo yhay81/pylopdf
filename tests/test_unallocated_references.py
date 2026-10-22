@@ -41,7 +41,7 @@ def _target_objects(contents: str = "5 0 R", *, catalog: str = "") -> dict[int, 
 
 
 def _target(contents: str = "5 0 R", *, catalog: str = "") -> pylopdf.Document:
-    return pylopdf.Document(stream=build_raw_pdf(_target_objects(contents, catalog=catalog)))
+    return pylopdf.open(build_raw_pdf(_target_objects(contents, catalog=catalog)))
 
 
 def _sparse_pdf(objects: dict[int, str | bytes], size: int) -> bytes:
@@ -63,18 +63,18 @@ def _sparse_pdf(objects: dict[int, str | bytes], size: int) -> bytes:
 
 
 def _with_reloaded(doc: pylopdf.Document) -> tuple[pylopdf.Document, pylopdf.Document]:
-    return doc, pylopdf.Document(stream=doc.tobytes())
+    return doc, pylopdf.open(doc.tobytes())
 
 
 def test_reference_above_max_id_cannot_draw_an_imported_page() -> None:
     """The import numbers the source's objects 6-10, so object 10 is its content stream."""
     doc = _target("[5 0 R 10 0 R]")
 
-    doc.insert_pdf(pylopdf.Document(stream=build_pdf(["SOURCE CONTENT"])))
+    doc.pages.extend(pylopdf.open(build_pdf(["SOURCE CONTENT"])).pages)
 
     for current in _with_reloaded(doc):
-        assert current.get_page_text(0).split() == ["TARGET", "PAGE"]
-        assert current.get_page_text(1).split() == ["SOURCE", "CONTENT"]
+        assert current.pages[0].get_text().split() == ["TARGET", "PAGE"]
+        assert current.pages[1].get_text().split() == ["SOURCE", "CONTENT"]
 
 
 def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
@@ -83,30 +83,28 @@ def test_reference_above_max_id_cannot_repeat_a_stamp() -> None:
     stamps = ["STAMP ONE", "STAMP TWO", "STAMP THREE"]
 
     for index, stamp in enumerate(stamps):
-        doc[0].insert_text((20, 300 + 100 * index), stamp)
+        doc.pages[0].insert_text((20, 300 + 100 * index), stamp)
 
     for current in _with_reloaded(doc):
-        lines = Counter(current.get_page_text(0).splitlines())
+        lines = Counter(current.pages[0].get_text().splitlines())
         assert lines == Counter([*stamps, "TARGET PAGE"])
 
 
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
-    "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Source"]))),
-    "show_pdf_page": lambda doc: doc[0].show_pdf_page(
-        (0, 0, 100, 100), pylopdf.Document(stream=build_pdf(["Source"])), 0
+    "insert_pdf": lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Source"])).pages),
+    "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
+    "insert_text": lambda doc: doc.pages[0].insert_text((20, 40), "Stamp"),
+    "insert_text_embedded_font": lambda doc: doc.pages[0].insert_text((20, 40), "Stamp", fontfile=NOTO_SANS_JP),
+    "insert_image": lambda doc: doc.pages[0].insert_image(
+        (10, 10, 50, 50), pixmap=doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
-    "insert_text": lambda doc: doc[0].insert_text((20, 40), "Stamp"),
-    "insert_text_embedded_font": lambda doc: doc[0].insert_text((20, 40), "Stamp", fontfile=NOTO_SANS_JP),
-    "insert_image": lambda doc: doc[0].insert_image(
-        (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
-    ),
-    "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
-    "add_link_annot": lambda doc: doc[0].insert_link(
+    "add_highlight_annot": lambda doc: doc.pages[0].add_highlight_annot([(10, 10, 100, 30)]),
+    "add_link_annot": lambda doc: doc.pages[0].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"}
     ),
-    "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
-    "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.fullcopy_page(0),
+    "insert_ocr_text_layer": lambda doc: doc.pages[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
+    "new_page": lambda doc: doc.pages.new(),
+    "copy_page": lambda doc: doc.pages.extend(doc.pages[0]),
     "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "attachments.add": lambda doc: doc.attachments.add("note.txt", b"note"),
@@ -122,7 +120,7 @@ def test_every_allocation_leaves_a_reference_above_max_id_null(operation: str) -
 
     saved = doc.tobytes()
     assert re.search(rb"/PylopdfProbe\s*null", saved)
-    assert "TARGET PAGE" in pylopdf.Document(stream=saved).get_page_text(0)
+    assert "TARGET PAGE" in pylopdf.open(saved).pages[0].get_text()
 
 
 def test_only_numbers_above_every_object_become_null() -> None:
@@ -134,7 +132,7 @@ def test_only_numbers_above_every_object_become_null() -> None:
     """
     objects = _target_objects("[5 0 R 6 0 R 7 0 R 7 1 R 9 0 R 10 0 R 10 3 R 4294967295 65535 R]")
     objects[7] = _stream("SEVEN", 200)
-    doc = pylopdf.Document(stream=_sparse_pdf(objects, 10))
+    doc = pylopdf.open(_sparse_pdf(objects, 10))
 
     saved = doc.tobytes()
 
@@ -164,14 +162,14 @@ def test_object_above_every_cross_reference_entry_survives_new_objects() -> None
     for number in range(1, 7):
         out += f"{offsets[number]:010d} 00000 n \n".encode()
     out += f"trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode()
-    doc = pylopdf.Document(stream=bytes(out))
+    doc = pylopdf.open(bytes(out))
     stamps = [f"STAMP {index}" for index in range(4)]
 
     for index, stamp in enumerate(stamps):
-        doc[0].insert_text((20, 300 + 60 * index), stamp)
+        doc.pages[0].insert_text((20, 300 + 60 * index), stamp)
 
     for current in _with_reloaded(doc):
-        lines = Counter(current.get_page_text(0).splitlines())
+        lines = Counter(current.pages[0].get_text().splitlines())
         assert lines == Counter([*stamps, "ABOVE MAX ID", "TARGET PAGE"])
 
 
@@ -184,7 +182,7 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     """
     objects = _target_objects("[5 0 R 6 0 R]", catalog="/PylopdfProbe 6 0 R")
     objects[6] = _stream("PLACEHOLDER", 200)
-    encrypted = pylopdf.Document(stream=build_raw_pdf(objects)).tobytes(
+    encrypted = pylopdf.open(build_raw_pdf(objects)).tobytes(
         encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
     )
     patched = encrypted.replace(b"/Contents[5 0 R 6 0 R]", b"/Contents[5 0 R 9 0 R]").replace(
@@ -192,18 +190,18 @@ def test_encrypted_document_nulls_references_above_max_id_once_decrypted(unlock:
     )
     assert patched.count(b" 9 0 R") == 2
     if unlock == "password":
-        doc = pylopdf.Document(stream=patched, password="user")
+        doc = pylopdf.open(patched, password="user")
     else:
-        doc = pylopdf.Document(stream=patched)
-        assert doc.needs_pass
+        doc = pylopdf.open(patched)
+        assert doc.needs_password
         assert doc.authenticate("user") == 2
 
     assert re.search(rb"/PylopdfProbe\s*null", doc.tobytes())
-    doc.insert_pdf(pylopdf.Document(stream=build_pdf(["SOURCE CONTENT"])))
-    doc[0].insert_text((20, 300), "STAMP")
+    doc.pages.extend(pylopdf.open(build_pdf(["SOURCE CONTENT"])).pages)
+    doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert Counter(current.get_page_text(0).splitlines()) == Counter(["STAMP", "TARGET PAGE"])
+        assert Counter(current.pages[0].get_text().splitlines()) == Counter(["STAMP", "TARGET PAGE"])
 
 
 @pytest.mark.parametrize("contents", ["[5 0 R 90 0 R]", "90 0 R"], ids=["array-entry", "single-stream"])
@@ -215,42 +213,42 @@ def test_drawing_on_content_that_names_an_unallocated_object_stays_visible(conte
     """
     doc = _target(contents)
 
-    doc[0].insert_text((20, 300), "STAMP")
+    doc.pages[0].insert_text((20, 300), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert "STAMP" in current.get_page_text(0).splitlines()
+        assert "STAMP" in current.pages[0].get_text().splitlines()
 
 
 def test_page_with_an_unallocated_parent_reads_and_edits_as_a_tree_root() -> None:
     """Geometry readers and drawing raised `PdfError` for the unresolvable parent."""
     objects = _target_objects()
     objects[3] = "<< /Type /Page /Parent 90 0 R /Contents 5 0 R /MediaBox [0 0 300 400] >>"
-    doc = pylopdf.Document(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
 
-    assert doc[0].mediabox == pylopdf.Rect(0, 0, 300, 400)
-    doc[0].insert_text((20, 40), "STAMP")
+    assert doc.pages[0].mediabox == pylopdf.Rect(0, 0, 300, 400)
+    doc.pages[0].insert_text((20, 40), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert current[0].rect == pylopdf.Rect(0, 0, 300, 400)
-        assert "STAMP" in current.get_page_text(0).splitlines()
+        assert current.pages[0].rect == pylopdf.Rect(0, 0, 300, 400)
+        assert "STAMP" in current.pages[0].get_text().splitlines()
 
 
 def test_link_annotation_replaces_an_unallocated_annots_array() -> None:
     """Adding an annotation raised `PdfError` for the unresolvable array."""
     objects = _target_objects()
     objects[3] = "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Annots 90 0 R >>"
-    doc = pylopdf.Document(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
 
-    doc[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
+    doc.pages[0].insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"})
 
     for current in _with_reloaded(doc):
-        assert [link["uri"] for link in current[0].get_links()] == ["https://example.com/"]
+        assert [link["uri"] for link in current.pages[0].get_links()] == ["https://example.com/"]
 
 
 def test_metadata_replaces_an_unallocated_info_dictionary() -> None:
     """Setting metadata raised `PdfError` for the unresolvable trailer `/Info`."""
     data = build_raw_pdf(_target_objects()).replace(b"/Root 1 0 R >>", b"/Root 1 0 R /Info 90 0 R >>")
-    doc = pylopdf.Document(stream=data)
+    doc = pylopdf.open(data)
     assert doc.metadata["title"] == ""
 
     doc.set_metadata({"title": "Edited"})

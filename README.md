@@ -51,7 +51,7 @@ pip install "pylopdf[jp,ocr]"
 import pylopdf
 
 doc = pylopdf.open("input.pdf")
-page = doc[0]
+page = doc.pages[0]
 
 # Extract
 text = page.get_text()                 # plain text
@@ -69,9 +69,9 @@ page.insert_text((72, 72), "Approved", fontsize=20, color=(0.8, 0, 0))
 page.insert_image((72, 100, 200, 200), filename="logo.png")
 page.add_highlight_annot(hits)
 
-# Reorganize pages (fetch pages again with doc[i] afterwards)
-doc.delete_pages([1, 2])
-doc.insert_pdf(pylopdf.open("appendix.pdf"))   # append another document
+# Reorganize pages (fetch pages again with doc.pages[i] afterwards)
+del doc.pages[1:3]
+doc.pages.extend(pylopdf.open("appendix.pdf").pages)   # append another document
 
 # Save
 doc.save("output.pdf", garbage=True, deflate=True)

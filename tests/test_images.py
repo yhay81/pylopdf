@@ -137,14 +137,14 @@ def _two_image_pdf(first: bytes, second: bytes) -> bytes:
 
 
 def test_text_only_page_has_no_images() -> None:
-    doc = pylopdf.open(stream=build_pdf(["No images here"]))
-    assert drawn_images(doc[0]) == []
+    doc = pylopdf.open(build_pdf(["No images here"]))
+    assert drawn_images(doc.pages[0]) == []
 
 
 def test_scanned_page_yields_png() -> None:
     """Decode a CCITT-scanned patent page as PNG."""
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
-    images = drawn_images(doc[0])
+    images = drawn_images(doc.pages[0])
     assert len(images) >= 1
     image = images[0]
     assert image["ext"] == "png"
@@ -156,13 +156,13 @@ def test_scanned_page_yields_png() -> None:
 def test_image_extraction_streams_rgb_alpha_without_changing_pixels() -> None:
     """Keep straight RGBA samples exact while avoiding a complete interleaved copy."""
     source = pylopdf.Document()
-    source.new_page(width=2, height=1)
-    pixmap = source[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
+    source.pages.new((2, 1))
+    pixmap = source.pages[0].get_pixmap(background=(10, 20, 30, 40), alpha=True)
 
     target = pylopdf.Document()
-    target.new_page(width=2, height=1)
-    target[0].insert_image((0, 0, 2, 1), pixmap=pixmap)
-    extracted = drawn_images(target[0])
+    target.pages.new((2, 1))
+    target.pages[0].insert_image((0, 0, 2, 1), pixmap=pixmap)
+    extracted = drawn_images(target.pages[0])
 
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "png"
@@ -200,7 +200,7 @@ def test_image_extraction_streams_gray_alpha_without_changing_pixels() -> None:
         }
     )
 
-    extracted = drawn_images(pylopdf.open(stream=pdf)[0])
+    extracted = drawn_images(pylopdf.open(pdf).pages[0])
 
     assert len(extracted) == 1
     assert _decode_png(extracted[0]["image"]) == (2, 1, 4, bytes([10, 30, 20, 40]))
@@ -209,7 +209,7 @@ def test_image_extraction_streams_gray_alpha_without_changing_pixels() -> None:
 def test_jpeg_passthrough() -> None:
     """Return original JPEG bytes for an image using only DCTDecode."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    images = drawn_images(doc[0])
+    images = drawn_images(doc.pages[0])
     jpegs = [i for i in images if i["ext"] == "jpeg"]
     assert jpegs, "DCT image was not returned as JPEG"
     for image in jpegs:
@@ -218,7 +218,7 @@ def test_jpeg_passthrough() -> None:
 
 def test_image_bbox_is_on_page() -> None:
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
-    page = doc[0]
+    page = doc.pages[0]
     page_rect = page.rect
     for image in drawn_images(page):
         bbox = image["bbox"]
@@ -231,46 +231,46 @@ def test_image_bbox_is_on_page() -> None:
 
 def test_image_extraction_rejects_excessive_placements_atomically() -> None:
     """Repeated use of one tiny source cannot multiply into an unbounded list."""
-    doc = pylopdf.open(stream=_image_pdf(b"\xff\xd8\xff", placements=4_097))
+    doc = pylopdf.open(_image_pdf(b"\xff\xd8\xff", placements=4_097))
 
     with pytest.raises(pylopdf.PdfError, match="4096-placement safety limit"):
-        drawn_images(doc[0])
-    assert doc.page_count == 1
+        drawn_images(doc.pages[0])
+    assert len(doc.pages) == 1
 
 
 def test_image_extraction_rejects_pixel_budget_before_decode() -> None:
     """Declared dimensions are bounded before decoding the raster payload."""
-    doc = pylopdf.open(stream=_image_pdf(b"\xff\xd8\xff", width=8_001, height=8_000))
+    doc = pylopdf.open(_image_pdf(b"\xff\xd8\xff", width=8_001, height=8_000))
 
     with pytest.raises(pylopdf.PdfError, match="64000000-pixel safety limit"):
-        drawn_images(doc[0])
+        drawn_images(doc.pages[0])
 
 
 def test_image_extraction_rejects_cumulative_output_bytes() -> None:
     """Small repeated placements cannot duplicate more than 64 MiB of payload."""
     one_mibibyte_jpeg = b"\xff\xd8\xff" + bytes(1024 * 1024 - 3)
-    doc = pylopdf.open(stream=_image_pdf(one_mibibyte_jpeg, placements=65))
+    doc = pylopdf.open(_image_pdf(one_mibibyte_jpeg, placements=65))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        drawn_images(doc[0])
+        drawn_images(doc.pages[0])
 
 
 def test_image_extraction_bounds_flate_wrapped_jpeg_passthrough() -> None:
     """The Flate-to-DCT fast path stops before expanding an oversized payload."""
     oversized_jpeg = b"\xff\xd8\xff" + bytes(64 * 1024 * 1024 - 2)
     compressed = zlib.compress(oversized_jpeg)
-    doc = pylopdf.open(stream=_image_pdf(compressed, filters="[/FlateDecode /DCTDecode]"))
+    doc = pylopdf.open(_image_pdf(compressed, filters="[/FlateDecode /DCTDecode]"))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        drawn_images(doc[0])
+        drawn_images(doc.pages[0])
 
 
 def test_image_extraction_preserves_flate_wrapped_jpeg_passthrough() -> None:
     """Chunked Flate decoding returns the exact nested JPEG payload."""
     jpeg = b"\xff\xd8\xfffallible-passthrough"
-    doc = pylopdf.open(stream=_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]"))
+    doc = pylopdf.open(_image_pdf(zlib.compress(jpeg), filters="[/FlateDecode /DCTDecode]"))
 
-    image = drawn_images(doc[0])[0]
+    image = drawn_images(doc.pages[0])[0]
 
     assert image["ext"] == "jpeg"
     assert image["image"] == jpeg
@@ -280,7 +280,7 @@ def test_image_extraction_bounds_png_encoding_to_remaining_output() -> None:
     """PNG fallback writes directly into the remaining page payload budget."""
     almost_full_jpeg = b"\xff\xd8\xff" + bytes(64 * 1024 * 1024 - 19)
     flate_rgb = zlib.compress(b"\x00\x80\xff")
-    doc = pylopdf.open(stream=_two_image_pdf(almost_full_jpeg, flate_rgb))
+    doc = pylopdf.open(_two_image_pdf(almost_full_jpeg, flate_rgb))
 
     with pytest.raises(pylopdf.PdfError, match="67108864-byte output safety limit"):
-        drawn_images(doc[0])
+        drawn_images(doc.pages[0])

@@ -54,7 +54,7 @@ def _page(*contents: bytes, rotation: int = 0) -> pylopdf.Document:
     }
     for index, data in enumerate(contents):
         objects[first + index] = f"<< /Length {len(data)} >>\nstream\n".encode() + data + b"\nendstream"
-    return pylopdf.open(stream=build_raw_pdf(objects))
+    return pylopdf.open(build_raw_pdf(objects))
 
 
 def _png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
@@ -100,7 +100,7 @@ def _square(page: pylopdf.Page) -> tuple[float, ...]:
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
 def test_insert_text_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
-    page = _page(*contents, rotation=rotation)[0]
+    page = _page(*contents, rotation=rotation).pages[0]
     square = _square(page)
 
     page.insert_text((20, 40), "Probe", fontsize=10)
@@ -112,7 +112,7 @@ def test_insert_text_starts_from_the_initial_graphics_state(contents: tuple[byte
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
 def test_insert_textbox_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
-    page = _page(*contents, rotation=rotation)[0]
+    page = _page(*contents, rotation=rotation).pages[0]
 
     assert page.insert_textbox((20, 30, 90, 60), "Boxed", fontsize=10) >= 0
 
@@ -130,7 +130,7 @@ def test_insert_image_starts_from_the_initial_graphics_state(
     *,
     overlay: bool,
 ) -> None:
-    page = _page(*contents, rotation=rotation)[0]
+    page = _page(*contents, rotation=rotation).pages[0]
 
     page.insert_image((20, 30, 60, 70), stream=_png(2, 2, (255, 0, 0)), keep_proportion=False, overlay=overlay)
 
@@ -140,7 +140,7 @@ def test_insert_image_starts_from_the_initial_graphics_state(
 @pytest.mark.parametrize("rotation", ROTATIONS)
 @pytest.mark.parametrize("contents", CONTENTS)
 def test_shape_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
-    page = _page(*contents, rotation=rotation)[0]
+    page = _page(*contents, rotation=rotation).pages[0]
 
     shape = page.new_shape()
     shape.draw_rect((20, 30, 60, 70))
@@ -156,9 +156,9 @@ def test_shape_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...
 @pytest.mark.parametrize("contents", CONTENTS)
 def test_show_pdf_page_starts_from_the_initial_graphics_state(contents: tuple[bytes, ...], rotation: int) -> None:
     source = pylopdf.Document()
-    source.new_page(width=100, height=100)
-    source[0].draw_rect((0, 0, 100, 100), color=None, fill=RED)
-    page = _page(*contents, rotation=rotation)[0]
+    source.pages.new((100, 100))
+    source.pages[0].draw_rect((0, 0, 100, 100), color=None, fill=RED)
+    page = _page(*contents, rotation=rotation).pages[0]
 
     page.show_pdf_page((20, 30, 60, 70), source, 0)
 
@@ -187,15 +187,15 @@ def test_drawing_counts_graphics_states_as_hayro_parses_them(contents: tuple[byt
     open or restores more states than it saves.
     """
     doc = _page(*contents)
-    page = doc[0]
+    page = doc.pages[0]
 
     page.insert_text((20, 40), "Probe", fontsize=10)
     page.insert_image((120, 30, 160, 70), stream=_png(2, 2, (255, 0, 0)), keep_proportion=False)
 
     _assert_text_at(page, "Probe", (20, 40))
     assert _inserted_image_bbox(page) == pytest.approx((120, 30, 160, 70), abs=0.5)
-    reopened = pylopdf.open(stream=doc.tobytes())
-    _assert_text_at(reopened[0], "Probe", (20, 40))
+    reopened = pylopdf.open(doc.tobytes())
+    _assert_text_at(reopened.pages[0], "Probe", (20, 40))
 
 
 def test_a_self_contained_outer_wrapper_needs_no_second_wrapper() -> None:
@@ -204,8 +204,8 @@ def test_a_self_contained_outer_wrapper_needs_no_second_wrapper() -> None:
     added = []
     for doc in (wrapped, plain):
         before = doc.complexity["object_count"]
-        doc[0].insert_text((20, 40), "Probe", fontsize=10)
-        _assert_text_at(doc[0], "Probe", (20, 40))
+        doc.pages[0].insert_text((20, 40), "Probe", fontsize=10)
+        _assert_text_at(doc.pages[0], "Probe", (20, 40))
         added.append(doc.complexity["object_count"] - before)
 
     # A font and the new stream, plus an opening and a closing stream.
@@ -214,20 +214,20 @@ def test_a_self_contained_outer_wrapper_needs_no_second_wrapper() -> None:
 
 def test_drawing_again_after_saving_keeps_the_initial_graphics_state() -> None:
     doc = _page(OPEN_SCALE)
-    doc[0].insert_text((20, 40), "First", fontsize=10)
+    doc.pages[0].insert_text((20, 40), "First", fontsize=10)
 
-    reopened = pylopdf.open(stream=doc.tobytes())
-    reopened[0].insert_text((20, 70), "Second", fontsize=10)
+    reopened = pylopdf.open(doc.tobytes())
+    reopened.pages[0].insert_text((20, 70), "Second", fontsize=10)
 
-    _assert_text_at(reopened[0], "First", (20, 40))
-    _assert_text_at(reopened[0], "Second", (20, 70))
+    _assert_text_at(reopened.pages[0], "First", (20, 40))
+    _assert_text_at(reopened.pages[0], "Second", (20, 70))
 
 
 def test_drawing_on_content_that_does_not_decode_still_succeeds() -> None:
     """A stream that neither lopdf nor hayro can decode counts as empty."""
     undecodable = b"<< /Length 4 /Filter /JBIG2Decode >>\nstream\n\x00\x01\x02\x03\nendstream"
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -238,6 +238,6 @@ def test_drawing_on_content_that_does_not_decode_still_succeeds() -> None:
         )
     )
 
-    doc[0].insert_text((20, 40), "Probe", fontsize=10)
+    doc.pages[0].insert_text((20, 40), "Probe", fontsize=10)
 
-    _assert_text_at(doc[0], "Probe", (20, 40))
+    _assert_text_at(doc.pages[0], "Probe", (20, 40))

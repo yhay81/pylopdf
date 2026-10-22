@@ -269,8 +269,8 @@ def drawn_images(page: pylopdf.Page) -> list[dict[str, Any]]:
     image XObjects as pymupdf does. The core still decodes placements, which
     tests use to check image decoding and its limits.
     """
-    document = page.parent
+    document = page.document
     return [
         {"width": width, "height": height, "bbox": pylopdf.Rect(*bbox), "ext": ext, "image": data}
-        for width, height, bbox, ext, data in document._doc.extract_images(page.number + 1)  # noqa: SLF001
+        for width, height, bbox, ext, data in document._doc.extract_images(page.index + 1)  # noqa: SLF001
     ]

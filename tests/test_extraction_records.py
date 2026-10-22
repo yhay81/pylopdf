@@ -9,7 +9,7 @@ import pylopdf
 
 
 def test_words_are_word_named_tuples_in_pymupdf_order() -> None:
-    page = pylopdf.open(stream=build_pdf(["Hello world"]))[0]
+    page = pylopdf.open(build_pdf(["Hello world"])).pages[0]
 
     words = page.get_text("words")
 
@@ -26,9 +26,9 @@ def test_words_are_word_named_tuples_in_pymupdf_order() -> None:
 
 
 def test_blocks_are_block_named_tuples_in_pymupdf_order() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello world"]))
+    doc = pylopdf.open(build_pdf(["Hello world"]))
 
-    (block,) = doc.get_page_text(0, "blocks")
+    (block,) = doc.pages[0].get_text("blocks")
 
     assert isinstance(block, pylopdf.Block)
     assert len(block) == 7
@@ -38,7 +38,7 @@ def test_blocks_are_block_named_tuples_in_pymupdf_order() -> None:
 
 
 def test_dict_layouts_keep_their_typed_dict_names() -> None:
-    page = pylopdf.open(stream=build_pdf(["Hello"]))[0]
+    page = pylopdf.open(build_pdf(["Hello"])).pages[0]
 
     assert isinstance(page.get_text("dict"), dict)
     assert pylopdf.TextPageDict.__name__ == "TextPageDict"
@@ -66,7 +66,7 @@ def _drawing_page() -> pylopdf.Page:
             5: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         }
     )
-    return pylopdf.open(stream=data)[0]
+    return pylopdf.open(data).pages[0]
 
 
 def test_drawings_report_their_paint_order_as_seqno() -> None:
@@ -87,7 +87,7 @@ def _link_page(annotation: str, *, indirect: bool) -> pylopdf.Page:
     }
     if indirect:
         objects[4] = annotation
-    return pylopdf.open(stream=build_raw_pdf(objects))[0]
+    return pylopdf.open(build_raw_pdf(objects)).pages[0]
 
 
 @pytest.mark.parametrize(("name", "expected"), [("/NM (link-1)", "link-1"), ("", "")])
@@ -112,8 +112,8 @@ def test_a_direct_link_annotation_has_xref_zero() -> None:
 
 
 def test_created_links_report_their_xref() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Links"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Links"]))
+    page = doc.pages[0]
     page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 10, 60, 30), "uri": "https://a.test/"})
     page.insert_link({"kind": pylopdf.LINK_URI, "from": (10, 40, 60, 60), "uri": "https://b.test/"})
 

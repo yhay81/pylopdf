@@ -37,7 +37,7 @@ BLACK = Color(0.0, 0.0, 0.0)
 
 def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document, pylopdf.Page]:
     doc = pylopdf.Document()
-    return doc, doc.new_page(width=width, height=height)
+    return doc, doc.pages.new((width, height))
 
 
 def _pixel(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
@@ -348,7 +348,7 @@ def test_images_are_stored_once() -> None:
         canvas.image((200, 10, 240, 30), png)
     assert len({image.xref for image in page.content().images}) == 1
     assert _pixel(page, 15, 20) == (255, 0, 0)
-    assert doc.page_count == 1
+    assert len(doc.pages) == 1
 
 
 def test_image_sources(tmp_path: Path) -> None:
@@ -356,7 +356,7 @@ def test_image_sources(tmp_path: Path) -> None:
     png = _png()
     path = tmp_path / "image.png"
     path.write_bytes(png)
-    pixmap = pylopdf.open(stream=_one_page_pdf())[0].get_pixmap()
+    pixmap = pylopdf.open(_one_page_pdf()).pages[0].get_pixmap()
     with page.draw() as canvas:
         canvas.image((10, 10, 50, 30), path)
         canvas.image((60, 10, 100, 30), str(path))
@@ -384,26 +384,26 @@ def _one_page_pdf(text: str = "Source page") -> bytes:
 
 
 def test_pages_of_other_documents_are_stored_once() -> None:
-    source = pylopdf.open(stream=_one_page_pdf())
+    source = pylopdf.open(_one_page_pdf())
     doc, page = _new_page(400, 300)
     with page.draw() as canvas:
-        canvas.page((0, 0, 200, 100), source[0])
-        canvas.page((200, 100, 400, 200), source[0])
+        canvas.page((0, 0, 200, 100), source.pages[0])
+        canvas.page((200, 100, 400, 200), source.pages[0])
     assert page.get_text() == "Source page\nSource page\n"
     runs = page.content().text_runs
     assert runs[0].bbox.x0 < 200 < runs[1].bbox.x0
     # Drawing the unchanged page again reuses the Form of the first canvas.
     count = len(doc.objects)
     with page.draw() as canvas:
-        canvas.page((0, 200, 200, 300), source[0])
+        canvas.page((0, 200, 200, 300), source.pages[0])
     assert len(doc.objects) - count < 10
     assert page.get_text().count("Source page") == 3
 
 
 def test_a_page_is_drawn_as_it_was_recorded() -> None:
-    doc = pylopdf.open(stream=_one_page_pdf("Before"))
-    target = doc.new_page(width=300, height=200)
-    source = doc[0]
+    doc = pylopdf.open(_one_page_pdf("Before"))
+    target = doc.pages.new((300, 200))
+    source = doc.pages[0]
     with target.draw() as canvas:
         canvas.page((0, 0, 150, 75), source)
         canvas.rect((200, 10, 250, 60), fill=RED)
@@ -428,7 +428,7 @@ def test_underlay_draws_below_existing_content() -> None:
 
 def test_rotated_pages_use_display_space() -> None:
     doc = pylopdf.Document()
-    page = doc.new_page(width=200, height=300)
+    page = doc.pages.new((200, 300))
     page.set_rotation(90)
     assert tuple(page.rect) == (0, 0, 300, 200)
     with page.draw() as canvas:

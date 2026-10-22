@@ -55,7 +55,7 @@ hide:
           <div class="living-line living-line--medium"></div>
           <div class="living-line living-line--cobalt"></div>
           <div class="living-line living-line--short"></div>
-          <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc[0]<br>hits = page.search_for("total")</div>
+          <div class="living-code-sample">doc = pylopdf.open("input.pdf")<br>page = doc.pages[0]<br>hits = page.search_for("total")</div>
         </div>
         <span class="living-markup-circle"></span>
         <span class="living-margin-note" aria-hidden="true">search_for()</span>

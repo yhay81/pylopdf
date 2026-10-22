@@ -58,8 +58,8 @@ def _build_named_dest_tree_fixture(tree_objects: dict[int, str | bytes]) -> byte
 
 def test_direct_dest_array() -> None:
     """Resolve a direct /Dest array to a page number and target point."""
-    doc = pylopdf.open(stream=_build_direct_dest_fixture())
-    links = doc[0].get_links()
+    doc = pylopdf.open(_build_direct_dest_fixture())
+    links = doc.pages[0].get_links()
     assert len(links) == 1
     link = links[0]
     assert link["kind"] == pylopdf.LINK_GOTO
@@ -69,7 +69,7 @@ def test_direct_dest_array() -> None:
     assert link["to"] == pylopdf.Point(5.0, 5.0)
     assert "zoom" not in link  # A null value means no zoom.
     assert "nameddest" not in link
-    assert doc[1].get_links() == []
+    assert doc.pages[1].get_links() == []
     doc.close()
 
 
@@ -103,8 +103,8 @@ def _build_integer_dest_fixture(link: str, catalog_extra: str = "") -> bytes:
 )
 @pytest.mark.parametrize("entry", ["/Dest [{index} /XYZ 5 195 null]", "/A << /S /GoTo /D [{index} /XYZ 5 195 null] >>"])
 def test_integer_destination_page_is_checked_against_the_page_count(index: int, expected: int, entry: str) -> None:
-    doc = pylopdf.open(stream=_build_integer_dest_fixture(entry.format(index=index)))
-    (link,) = doc[0].get_links()
+    doc = pylopdf.open(_build_integer_dest_fixture(entry.format(index=index)))
+    (link,) = doc.pages[0].get_links()
 
     assert link["kind"] == pylopdf.LINK_GOTO
     assert link["page"] == expected
@@ -117,12 +117,12 @@ def test_integer_destination_page_is_checked_against_the_page_count(index: int, 
 
 def test_named_destination_with_out_of_range_integer_page_is_unresolved() -> None:
     doc = pylopdf.open(
-        stream=_build_integer_dest_fixture(
+        _build_integer_dest_fixture(
             "/Dest (far)",
             " /Names << /Dests << /Names [(far) [4294967297 /Fit] (near) [1 /Fit]] >> >>",
         )
     )
-    (link,) = doc[0].get_links()
+    (link,) = doc.pages[0].get_links()
 
     assert link["page"] == -1
     assert link["nameddest"] == "far"
@@ -131,8 +131,8 @@ def test_named_destination_with_out_of_range_integer_page_is_unresolved() -> Non
 
 def test_uri_link_roundtrip() -> None:
     """Read back a URI link created with insert_link."""
-    doc = pylopdf.open(stream=build_pdf(["Hello link"]))
-    page = doc[0]
+    doc = pylopdf.open(build_pdf(["Hello link"]))
+    page = doc.pages[0]
     rect = (10.0, 20.0, 110.0, 40.0)
     page.insert_link({"kind": pylopdf.LINK_URI, "from": rect, "uri": "https://example.com/"})
     links = page.get_links()
@@ -150,8 +150,8 @@ def test_usrguide_named_destinations() -> None:
     doc = pylopdf.open(ASSETS / "usrguide.pdf")
     goto = []
     uri = []
-    for page_number in range(doc.page_count):
-        for link in doc[page_number].get_links():
+    for page_number in range(len(doc.pages)):
+        for link in doc.pages[page_number].get_links():
             if link["kind"] == pylopdf.LINK_GOTO:
                 goto.append(link)
             elif link["kind"] == pylopdf.LINK_URI:
@@ -170,8 +170,8 @@ def test_usrguide_named_destinations() -> None:
 
 
 def test_named_destination_reference_cycle_is_visited_once() -> None:
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: "<< /Kids [6 0 R] >>"}))
-    links = doc[0].get_links()
+    doc = pylopdf.open(_build_named_dest_tree_fixture({6: "<< /Kids [6 0 R] >>"}))
+    links = doc.pages[0].get_links()
     assert len(links) == 1
     assert links[0]["page"] == -1
     assert links[0]["nameddest"] == "missing"
@@ -179,7 +179,7 @@ def test_named_destination_reference_cycle_is_visited_once() -> None:
 
 def test_multiple_named_links_share_one_destination_tree() -> None:
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 7 0 R >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -191,7 +191,7 @@ def test_multiple_named_links_share_one_destination_tree() -> None:
             }
         )
     )
-    links = doc[0].get_links()
+    links = doc.pages[0].get_links()
     assert [link["nameddest"] for link in links] == ["alpha", "beta"]
     assert [link["page"] for link in links] == [0, 0]
 
@@ -202,31 +202,31 @@ def test_named_destination_tree_rejects_excessive_depth() -> None:
         objects[object_id] = f"<< /Kids [{object_id + 1} 0 R] >>"
     objects[38] = "<< /Names [(target) [3 0 R /Fit]] >>"
 
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
+    doc = pylopdf.open(_build_named_dest_tree_fixture(objects))
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
-        doc[0].get_links()
+        doc.pages[0].get_links()
 
 
 def test_named_destination_tree_rejects_excessive_entries() -> None:
     pairs = " ".join(f"(key{index}) [3 0 R /Fit]" for index in range(MAX_NAMED_DEST_ENTRIES + 1))
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
+    doc = pylopdf.open(_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
     with pytest.raises(pylopdf.LimitError, match="65536-entry safety limit") as caught:
-        doc[0].get_links()
+        doc.pages[0].get_links()
     assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_nodes() -> None:
     kids = "<< >> " * MAX_NAMED_DEST_NODES
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Kids [{kids}] >>"}))
+    doc = pylopdf.open(_build_named_dest_tree_fixture({6: f"<< /Kids [{kids}] >>"}))
     with pytest.raises(pylopdf.LimitError, match="65536-node safety limit") as caught:
-        doc[0].get_links()
+        doc.pages[0].get_links()
     assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_edges() -> None:
     kids = "7 0 R " * (MAX_NAMED_DEST_EDGES + 1)
     doc = pylopdf.open(
-        stream=_build_named_dest_tree_fixture(
+        _build_named_dest_tree_fixture(
             {
                 6: f"<< /Kids [{kids}] >>",
                 7: "<< >>",
@@ -234,16 +234,16 @@ def test_named_destination_tree_rejects_excessive_edges() -> None:
         )
     )
     with pytest.raises(pylopdf.LimitError, match="131072-edge safety limit") as caught:
-        doc[0].get_links()
+        doc.pages[0].get_links()
     assert caught.value.code == "named_destination_count"
 
 
 def test_named_destination_tree_rejects_excessive_key_bytes() -> None:
     key = "x" * 1024
     pairs = f"({key}) [3 0 R /Fit] " * (MAX_NAMED_DEST_TEXT_BYTES // len(key) + 1)
-    doc = pylopdf.open(stream=_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
+    doc = pylopdf.open(_build_named_dest_tree_fixture({6: f"<< /Names [{pairs}] >>"}))
     with pytest.raises(pylopdf.LimitError, match="16777216-byte safety limit") as caught:
-        doc[0].get_links()
+        doc.pages[0].get_links()
     assert caught.value.code == "named_destination_text_size"
 
 
@@ -275,15 +275,15 @@ def _build_import_link_fixture(*, legacy: bool = False, action: bool = True) -> 
 @pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("action", [False, True])
 def test_insert_pdf_resolves_source_named_destinations(*, legacy: bool, action: bool) -> None:
-    source = pylopdf.open(stream=_build_import_link_fixture(legacy=legacy, action=action))
+    source = pylopdf.open(_build_import_link_fixture(legacy=legacy, action=action))
     source_bytes = source.tobytes()
     target = pylopdf.Document()
-    target.new_page(width=200, height=200)
+    target.pages.new((200, 200))
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    for merged in [target, pylopdf.open(stream=target.tobytes())]:
-        links = merged[1].get_links()
+    for merged in [target, pylopdf.open(target.tobytes())]:
+        links = merged.pages[1].get_links()
         assert [link["kind"] for link in links] == [pylopdf.LINK_GOTO, pylopdf.LINK_URI, pylopdf.LINK_GOTOR]
         assert links[0]["page"] == 2
         assert links[0]["to"] == pylopdf.Point(5, 5)
@@ -293,35 +293,35 @@ def test_insert_pdf_resolves_source_named_destinations(*, legacy: bool, action: 
         assert links[2]["file"] == "remote.pdf"
         assert links[2]["nameddest"] == "section"
     assert source.tobytes() == source_bytes
-    assert source[0].get_links()[0]["nameddest"] == "section"
+    assert source.pages[0].get_links()[0]["nameddest"] == "section"
 
 
 def test_insert_pdf_named_destination_collision_stays_source_local() -> None:
-    source = pylopdf.open(stream=_build_import_link_fixture())
-    target = pylopdf.open(stream=_build_import_link_fixture())
+    source = pylopdf.open(_build_import_link_fixture())
+    target = pylopdf.open(_build_import_link_fixture())
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    assert target[0].get_links()[0]["page"] == 1
-    assert target[2].get_links()[0]["page"] == 3
-    assert pylopdf.open(stream=target.tobytes())[2].get_links()[0]["page"] == 3
+    assert target.pages[0].get_links()[0]["page"] == 1
+    assert target.pages[2].get_links()[0]["page"] == 3
+    assert pylopdf.open(target.tobytes()).pages[2].get_links()[0]["page"] == 3
 
 
 def test_insert_pdf_reversed_range_remaps_internal_link() -> None:
-    source = pylopdf.open(stream=_build_import_link_fixture())
-    target = pylopdf.open(stream=build_pdf(["Before", "After"]))
+    source = pylopdf.open(_build_import_link_fixture())
+    target = pylopdf.open(build_pdf(["Before", "After"]))
 
-    target.insert_pdf(source, from_page=1, to_page=0, start_at=1)
+    target.pages.insert(1, source.pages[0:2][::-1])
 
-    assert target[2].get_links()[0]["page"] == 1
-    assert target[2].get_links()[0]["to"] == pylopdf.Point(5, 5)
-    assert "Before" in target[0].get_text()
-    assert "After" in target[3].get_text()
+    assert target.pages[2].get_links()[0]["page"] == 1
+    assert target.pages[2].get_links()[0]["to"] == pylopdf.Point(5, 5)
+    assert "Before" in target.pages[0].get_text()
+    assert "After" in target.pages[3].get_text()
 
 
 def test_insert_pdf_reversed_range_remaps_integer_destination() -> None:
     source = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 200 200] >>",
@@ -333,42 +333,42 @@ def test_insert_pdf_reversed_range_remaps_integer_destination() -> None:
     )
     target = pylopdf.Document()
 
-    target.insert_pdf(source, from_page=1, to_page=0)
+    target.pages.extend(source.pages[0:2][::-1])
 
-    assert target[1].get_links()[0]["page"] == 0
-    assert target[1].get_links()[0]["to"] == pylopdf.Point(5, 5)
+    assert target.pages[1].get_links()[0]["page"] == 0
+    assert target.pages[1].get_links()[0]["to"] == pylopdf.Point(5, 5)
 
 
 @pytest.mark.parametrize("named", [False, True])
 def test_insert_pdf_omits_links_outside_imported_range(*, named: bool) -> None:
-    source = pylopdf.open(stream=_build_import_link_fixture() if named else _build_direct_dest_fixture())
+    source = pylopdf.open(_build_import_link_fixture() if named else _build_direct_dest_fixture())
     source_bytes = source.tobytes()
     target = pylopdf.Document()
 
-    target.insert_pdf(source, from_page=0, to_page=0)
+    target.pages.extend(source.pages[0:1])
 
     expected = [pylopdf.LINK_URI, pylopdf.LINK_GOTOR] if named else []
-    assert [link["kind"] for link in target[0].get_links()] == expected
-    assert [link["kind"] for link in pylopdf.open(stream=target.tobytes())[0].get_links()] == expected
+    assert [link["kind"] for link in target.pages[0].get_links()] == expected
+    assert [link["kind"] for link in pylopdf.open(target.tobytes()).pages[0].get_links()] == expected
     assert source.tobytes() == source_bytes
 
 
 def test_insert_pdf_unresolved_name_does_not_bind_to_destination_catalog() -> None:
-    source = pylopdf.open(stream=_build_named_dest_tree_fixture({6: "<< /Names [(other) [3 0 R /Fit]] >>"}))
-    target = pylopdf.open(stream=_build_named_dest_tree_fixture({6: "<< /Names [(missing) [3 0 R /Fit]] >>"}))
+    source = pylopdf.open(_build_named_dest_tree_fixture({6: "<< /Names [(other) [3 0 R /Fit]] >>"}))
+    target = pylopdf.open(_build_named_dest_tree_fixture({6: "<< /Names [(missing) [3 0 R /Fit]] >>"}))
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    assert target[0].get_links()[0]["page"] == 0
-    assert target[1].get_links() == []
+    assert target.pages[0].get_links()[0]["page"] == 0
+    assert target.pages[1].get_links() == []
 
 
 def _build_import_target(shape: str, populated_pdf: bytes) -> pylopdf.Document:
     if shape == "populated":
-        return pylopdf.open(stream=populated_pdf)
+        return pylopdf.open(populated_pdf)
     if shape == "empty":
         return pylopdf.Document()
-    return pylopdf.open(stream=build_raw_pdf({1: "<< /Type /Catalog >>"}))
+    return pylopdf.open(build_raw_pdf({1: "<< /Type /Catalog >>"}))
 
 
 @pytest.mark.parametrize("target_shape", ["populated", "empty", "missing_pages"])
@@ -377,15 +377,15 @@ def test_insert_pdf_named_destination_limit_is_atomic(target_shape: str) -> None
     for object_id in range(6, 38):
         objects[object_id] = f"<< /Kids [{object_id + 1} 0 R] >>"
     objects[38] = "<< /Names [(missing) [3 0 R /Fit]] >>"
-    source = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
+    source = pylopdf.open(_build_named_dest_tree_fixture(objects))
     target = _build_import_target(target_shape, build_pdf(["Unchanged"]))
-    page = target[0] if target_shape == "populated" else None
+    page = target.pages[0] if target_shape == "populated" else None
     before = target.tobytes()
     source_before = source.tobytes()
     expected_error = "Catalog Pages must be" if target_shape == "missing_pages" else "32-level safety limit"
 
     with pytest.raises(pylopdf.PdfError, match=expected_error):
-        target.insert_pdf(source)
+        target.pages.extend(source.pages)
 
     assert target.tobytes() == before
     assert source.tobytes() == source_before
@@ -396,7 +396,7 @@ def test_insert_pdf_named_destination_limit_is_atomic(target_shape: str) -> None
 @pytest.mark.parametrize("target_shape", ["populated", "empty", "missing_pages"])
 def test_insert_pdf_refuses_annotation_aliasing_a_page_before_mutation(target_shape: str) -> None:
     source = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Names << /Dests 5 0 R >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -410,13 +410,13 @@ def test_insert_pdf_refuses_annotation_aliasing_a_page_before_mutation(target_sh
         )
     )
     target = _build_import_target(target_shape, _build_import_link_fixture())
-    existing = target[0] if target_shape == "populated" else None
+    existing = target.pages[0] if target_shape == "populated" else None
     before = target.tobytes()
     source_before = source.tobytes()
     expected_error = "Catalog Pages must be" if target_shape == "missing_pages" else "annotation cannot alias a page"
 
     with pytest.raises(pylopdf.PdfError, match=expected_error):
-        target.insert_pdf(source)
+        target.pages.extend(source.pages)
 
     assert target.tobytes() == before
     if existing is not None:
@@ -426,15 +426,15 @@ def test_insert_pdf_refuses_annotation_aliasing_a_page_before_mutation(target_sh
 
 def test_usrguide_named_destinations_survive_merge() -> None:
     source = pylopdf.open(ASSETS / "usrguide.pdf")
-    original_links = [page.get_links() for page in source]
+    original_links = [page.get_links() for page in source.pages]
     target = pylopdf.Document()
-    target.new_page()
+    target.pages.new()
 
-    target.insert_pdf(source)
+    target.pages.extend(source.pages)
 
-    merged = pylopdf.open(stream=target.tobytes())
+    merged = pylopdf.open(target.tobytes())
     for page_number, expected in enumerate(original_links, start=1):
-        actual = merged[page_number].get_links()
+        actual = merged.pages[page_number].get_links()
         assert len(actual) == len(expected)
         for before, after in zip(expected, actual, strict=True):
             assert after["kind"] == before["kind"]
@@ -448,11 +448,11 @@ def test_usrguide_named_destinations_survive_merge() -> None:
 
 def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> None:
     """Keep a bounded original snapshot usable after source-navigation refusal."""
-    compressed = pylopdf.Document(stream=build_pdf(["Unchanged"] * 8)).tobytes(use_objstms=True, deflate=True)
+    compressed = pylopdf.open(build_pdf(["Unchanged"] * 8)).tobytes(use_objstms=True, deflate=True)
     limit = len(compressed) + 10
-    assert len(pylopdf.Document(stream=compressed).tobytes()) > limit
-    target = pylopdf.Document(stream=compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
-    page = target[0]
+    assert len(pylopdf.open(compressed).tobytes()) > limit
+    target = pylopdf.open(compressed, limits=pylopdf.DocumentLimits(max_interpretation_size=limit))
+    page = target.pages[0]
     original_text = page.get_text()
     original_png = page.get_pixmap(alpha=True).tobytes()
     original_bytes = target.tobytes()
@@ -461,10 +461,10 @@ def test_insert_pdf_refusal_preserves_original_interpretation_fast_path() -> Non
     for object_id in range(6, 38):
         objects[object_id] = f"<< /Kids [{object_id + 1} 0 R] >>"
     objects[38] = "<< /Names [(missing) [3 0 R /Fit]] >>"
-    source = pylopdf.open(stream=_build_named_dest_tree_fixture(objects))
+    source = pylopdf.open(_build_named_dest_tree_fixture(objects))
 
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
-        target.insert_pdf(source)
+        target.pages.extend(source.pages)
 
     assert target.tobytes() == original_bytes
     assert page.get_text() == original_text

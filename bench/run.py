@@ -44,9 +44,10 @@ BATCH_PAGES = 12
 
 
 class _Renderer(NamedTuple):
-    """Open a document, rasterize one page at 2x, and encode that raster as PNG."""
+    """Open a document, take its first page, rasterize it at 2x, and encode that raster as PNG."""
 
     open: Callable[[bytes], Any]
+    first_page: Callable[[Any], Any]
     pixmap: Callable[[Any], Any]
     png: Callable[[Any], bytes]
 
@@ -90,6 +91,7 @@ try:
 
     _PYMUPDF_RENDERER: _Renderer | None = _Renderer(
         open=lambda data: fitz.open(stream=data, filetype="pdf"),
+        first_page=lambda doc: doc[0],
         pixmap=lambda page: page.get_pixmap(matrix=fitz.Matrix(2, 2)),
         png=lambda pixmap: pixmap.tobytes("png"),
     )
@@ -125,32 +127,33 @@ except Exception:  # pragma: no cover
 
 
 def _pylopdf_extract(data: bytes) -> str:
-    with pylopdf.open(stream=data) as doc:
+    with pylopdf.open(data) as doc:
         return doc.get_text()
 
 
 def _pylopdf_merge(docs: list[bytes]) -> bytes:
     merged = pylopdf.Document()
     for data in docs:
-        with pylopdf.open(stream=data) as src:
-            merged.insert_pdf(src)
+        with pylopdf.open(data) as src:
+            merged.pages.extend(src.pages)
     return merged.tobytes()
 
 
 def _pylopdf_render(data: bytes) -> bytes:
-    with pylopdf.open(stream=data) as doc:
-        return doc.get_page_pixmap(0, matrix=pylopdf.Matrix(2, 2)).tobytes()
+    with pylopdf.open(data) as doc:
+        return doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(2, 2)).tobytes()
 
 
 def _pylopdf_render_batch(data: bytes, workers: int) -> int:
     """Render up to twelve pages and return total PNG bytes."""
-    with pylopdf.open(stream=data) as doc:
-        pages = list(range(min(BATCH_PAGES, doc.page_count)))
+    with pylopdf.open(data) as doc:
+        pages = list(range(min(BATCH_PAGES, len(doc.pages))))
         return sum(len(png) for png in doc.render_pages(pages, matrix=pylopdf.Matrix(2, 2), workers=workers))
 
 
 _PYLOPDF_RENDERER = _Renderer(
-    open=lambda data: pylopdf.open(stream=data),
+    open=pylopdf.open,
+    first_page=lambda doc: doc.pages[0],
     pixmap=lambda page: page.get_pixmap(matrix=pylopdf.Matrix(2, 2)),
     png=lambda pixmap: pixmap.tobytes(),
 )
@@ -219,7 +222,7 @@ def _cpu_name() -> str:
 def _cold_pixmap(renderer: _Renderer, data: bytes) -> object:
     """Open a fresh document and rasterize its first page."""
     with renderer.open(data) as doc:
-        return renderer.pixmap(doc[0])
+        return renderer.pixmap(renderer.first_page(doc))
 
 
 def _warm_render(renderer: _Renderer, data: bytes) -> tuple[float | None, float | None, int | None]:
@@ -229,7 +232,7 @@ def _warm_render(renderer: _Renderer, data: bytes) -> tuple[float | None, float 
     except Exception:
         return None, None, None
     with doc:
-        page = doc[0]
+        page = renderer.first_page(doc)
         raster = _median_ms(lambda: renderer.pixmap(page))
         try:
             pixmap = renderer.pixmap(page)

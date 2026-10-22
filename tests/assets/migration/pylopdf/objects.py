@@ -2,8 +2,8 @@
 
 import pylopdf
 
-doc = pylopdf.open()
-page = doc.new_page(width=100, height=100)
+doc = pylopdf.Document()
+page = doc.pages.new((100, 100))
 pixmap = page.get_pixmap(dpi=18)
 xref = page.insert_image(pylopdf.Rect(0, 0, 50, 50), pixmap=pixmap)
 

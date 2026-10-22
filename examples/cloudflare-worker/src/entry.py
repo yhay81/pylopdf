@@ -45,11 +45,11 @@ class Default(WorkerEntrypoint):
 
         data = await request.bytes()
         try:
-            with pylopdf.Document(stream=data, limits=_LIMITS) as document:
-                first_page = document.get_page_text(0) if document.page_count else ""
+            with pylopdf.open(data, limits=_LIMITS) as document:
+                first_page = document.pages[0].get_text() if document.pages else ""
                 return Response.from_json(
                     {
-                        "pages": document.page_count,
+                        "pages": len(document.pages),
                         "first_page_text": first_page,
                     }
                 )

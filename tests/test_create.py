@@ -48,7 +48,7 @@ def _assert_rect(actual: pylopdf.Rect, expected: tuple[float, float, float, floa
 
 def _png() -> bytes:
     doc = pylopdf.Document()
-    page = doc.new_page(width=4, height=2)
+    page = doc.pages.new((4, 2))
     with page.draw() as canvas:
         canvas.rect((0, 0, 2, 2), fill=RED)
     return page.get_pixmap().tobytes()
@@ -63,8 +63,8 @@ def test_pages_join_in_order(font: pylopdf.Font) -> None:
         canvas.text("Second page", (20, 50), font=font)
     assert builder.page_count == 2
     doc = builder.finish()
-    assert doc.page_count == 2
-    first, second = doc
+    assert len(doc.pages) == 2
+    first, second = doc.pages
     assert tuple(first.rect) == (0, 0, 300, 200)
     assert tuple(second.rect) == (0, 0, 200, 400)
     rect, text = _items(first)
@@ -98,14 +98,14 @@ def test_text_without_a_font_uses_an_installed_extra() -> None:
     builder = pylopdf.create()
     with builder.page((200, 100)) as canvas:
         canvas.text("こんにちは", (10, 50))
-    assert builder.finish()[0].get_text() == "こんにちは\n"
+    assert builder.finish().pages[0].get_text() == "こんにちは\n"
 
 
 def test_images(tmp_path: Path) -> None:
     png = _png()
     path = tmp_path / "photo.jpg"
     path.write_bytes(PHOTO_JPEG)
-    pixmap = pylopdf.Document().new_page(width=3, height=3).get_pixmap()
+    pixmap = pylopdf.Document().pages.new((3, 3)).get_pixmap()
     builder = pylopdf.create()
     with builder.page((300, 200)) as canvas:
         canvas.image((10, 10, 50, 30), png)
@@ -114,7 +114,7 @@ def test_images(tmp_path: Path) -> None:
         canvas.image((160, 10, 200, 90), png, rotate=90)
         canvas.image((10, 100, 50, 120), png)
     doc = builder.finish()
-    images = doc[0].content().images
+    images = doc.pages[0].content().images
     assert len(images) == 5
     _assert_rect(images[0].bbox, (10, 10, 50, 30))
     _assert_rect(images[1].bbox, (60, 10, 100, 50))
@@ -123,7 +123,7 @@ def test_images(tmp_path: Path) -> None:
     assert images[0].xref == images[4].xref
     assert doc.extract_image(images[1].xref)["ext"] == "jpeg"
     assert doc.extract_image(images[1].xref)["image"] == PHOTO_JPEG
-    pixels = doc[0].get_pixmap()
+    pixels = doc.pages[0].get_pixmap()
     offset = 20 * pixels.stride + 15 * 3
     assert pixels.samples[offset : offset + 3] == b"\xff\x00\x00"
 
@@ -137,7 +137,7 @@ def test_scopes(font: pylopdf.Font) -> None:
             canvas.circle((100, 100), 50, fill=BLACK)
         with canvas.blend(BlendMode.MULTIPLY):
             canvas.text("blend", (10, 180), font=font)
-    scaled, clipped, text = _items(builder.finish()[0])
+    scaled, clipped, text = _items(builder.finish().pages[0])
     _assert_rect(scaled.bbox, (120, 70, 140, 90))
     # krilla clips the transparency group to its content as well.
     assert any(tuple(clip.bbox) == (0, 0, 100, 100) for clip in clipped.context.clips)
@@ -147,10 +147,10 @@ def test_scopes(font: pylopdf.Font) -> None:
 
 def test_placing_pages_is_refused() -> None:
     source = pylopdf.Document()
-    source.new_page()
+    source.pages.new()
     builder = pylopdf.create()
     with builder.page() as canvas, pytest.raises(ValueError, match="cannot place other pages"):
-        canvas.page((0, 0, 100, 100), source[0])
+        canvas.page((0, 0, 100, 100), source.pages[0])
 
 
 def test_a_failed_page_is_left_out(font: pylopdf.Font) -> None:
@@ -174,12 +174,12 @@ def test_finishing_again_writes_later_pages(font: pylopdf.Font) -> None:
     builder = pylopdf.create()
     with builder.page((100, 100)) as canvas:
         canvas.text("one", (10, 50), font=font)
-    assert builder.finish().page_count == 1
+    assert len(builder.finish().pages) == 1
     with builder.page((100, 100)) as canvas:
         canvas.text("two", (10, 50), font=font)
     data = builder.to_bytes()
     assert data.startswith(b"%PDF-")
-    assert pylopdf.open(stream=data).page_count == 2
+    assert len(pylopdf.open(data).pages) == 2
 
 
 def test_metadata(font: pylopdf.Font) -> None:
@@ -219,7 +219,7 @@ def test_tagged_documents(font: pylopdf.Font) -> None:
     assert catalog["MarkInfo"]["Marked"] is True
     root = catalog["StructTreeRoot"]
     assert root["Type"] == "StructTreeRoot"
-    items = _items(doc[0])
+    items = _items(doc.pages[0])
     tags = [[mark.tag for mark in item.context.marked_content] for item in items]
     assert tags[0] == ["Artifact"]
     assert tags[1] == ["Span"]
@@ -251,7 +251,7 @@ def test_tag_scopes_need_a_tagged_new_document(font: pylopdf.Font) -> None:
     with builder.page() as canvas, pytest.raises(ValueError, match="tagged document"):
         canvas.tag(TagRole.PARAGRAPH)
     doc = pylopdf.Document()
-    page = doc.new_page()
+    page = doc.pages.new()
     with page.draw() as canvas, pytest.raises(ValueError, match="new document"):
         canvas.tag(TagRole.PARAGRAPH)
     tagged = pylopdf.create(tagged=True)
@@ -340,7 +340,7 @@ def test_bookmarks_nest_by_level(font: pylopdf.Font) -> None:
     with pytest.raises(pylopdf.PdfError, match="levels grow one at a time"):
         skipping.finish()
     doc = pylopdf.Document()
-    with doc.new_page().draw() as canvas, pytest.raises(ValueError, match="outline"):
+    with doc.pages.new().draw() as canvas, pytest.raises(ValueError, match="outline"):
         canvas.bookmark("x")
 
 
@@ -355,4 +355,4 @@ def test_a_fixed_creation_date_makes_output_reproducible(font: pylopdf.Font) -> 
 
     first = build()
     assert first == build()
-    assert pylopdf.open(stream=first).metadata["creationDate"].startswith("D:20260102030405")
+    assert pylopdf.open(first).metadata["creationDate"].startswith("D:20260102030405")

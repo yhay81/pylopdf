@@ -123,7 +123,7 @@ def test_insert_pdf_registers_f1040_fields_with_values() -> None:
     source_bytes = src.tobytes()
 
     dst = pylopdf.Document()
-    dst.insert_pdf(src)
+    dst.pages.extend(src.pages)
 
     assert src.tobytes() == source_bytes
     assert dst.get_form_fields() == src.get_form_fields()
@@ -131,8 +131,8 @@ def test_insert_pdf_registers_f1040_fields_with_values() -> None:
     assert _fields(dst)[F1040_TEXT] == ("text", "Jane Doe")
     for page in range(2):
         assert (
-            dst[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
-            == src[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
+            dst.pages[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
+            == src.pages[page].get_pixmap(matrix=pylopdf.Matrix(0.5, 0.5), alpha=True).samples
         )
 
     dst.set_form_field(F1040_TEXT, "John Roe")
@@ -140,7 +140,7 @@ def test_insert_pdf_registers_f1040_fields_with_values() -> None:
     saved = dst.tobytes(garbage=True)
     assert b"/XFA" not in saved
     assert b"/SigFlags" not in saved
-    reopened = pylopdf.open(stream=saved)
+    reopened = pylopdf.open(saved)
     assert len(reopened.get_form_fields()) == 199
     assert _fields(reopened)[F1040_TEXT] == ("text", "John Roe")
     assert _fields(reopened)[F1040_CHECKBOX] == ("checkbox", "Off")
@@ -149,12 +149,12 @@ def test_insert_pdf_registers_f1040_fields_with_values() -> None:
 
 
 def test_insert_pdf_after_existing_pages_registers_f1040_fields(one_page_pdf: bytes) -> None:
-    dst = pylopdf.open(stream=one_page_pdf)
-    dst.insert_pdf(pylopdf.open(F1040), start_at=0)
-    assert dst.page_count == 3
+    dst = pylopdf.open(one_page_pdf)
+    dst.pages.insert(0, pylopdf.open(F1040).pages)
+    assert len(dst.pages) == 3
     assert len(dst.get_form_fields()) == 199
-    assert len(dst[0].annots(types=[pylopdf.PDF_ANNOT_WIDGET])) == 128
-    assert "Hello PDF" in dst[2].get_text()
+    assert len(dst.pages[0].annots(types=[pylopdf.PDF_ANNOT_WIDGET])) == 128
+    assert "Hello PDF" in dst.pages[2].get_text()
 
 
 def test_inserting_f1040_twice_renames_the_second_form() -> None:
@@ -162,7 +162,7 @@ def test_inserting_f1040_twice_renames_the_second_form() -> None:
     src.set_form_field(F1040_TEXT, "Jane Doe")
     dst = pylopdf.Document()
     for _ in range(3):
-        dst.insert_pdf(src)
+        dst.pages.extend(src.pages)
 
     fields = _fields(dst)
     assert len(fields) == 3 * 199
@@ -173,7 +173,7 @@ def test_inserting_f1040_twice_renames_the_second_form() -> None:
 
     for index, name in enumerate(copies):
         dst.set_form_field(name, f"copy {index}")
-    reopened = pylopdf.open(stream=dst.tobytes(garbage=True))
+    reopened = pylopdf.open(dst.tobytes(garbage=True))
     assert [_fields(reopened)[name][1] for name in copies] == ["copy 0", "copy 1", "copy 2"]
 
     saved = reopened.tobytes()
@@ -194,21 +194,21 @@ def test_insert_pdf_range_registers_only_imported_page_fields(page: int, prefix:
     src = pylopdf.open(F1040)
     expected = [field for field in src.get_form_fields() if field["name"].startswith(prefix)]
     dst = pylopdf.Document()
-    dst.insert_pdf(src, from_page=page, to_page=page)
+    dst.pages.extend(src.pages[page])
 
     assert dst.get_form_fields() == expected
     assert len(expected) == count
     saved = dst.tobytes(garbage=True)
     assert len(re.findall(rb"/Subtype/Widget", saved)) == count
-    reopened = pylopdf.open(stream=saved)
+    reopened = pylopdf.open(saved)
     assert reopened.get_form_fields() == expected
     reopened.set_form_field(expected[0]["name"], "x" if expected[0]["type"] == "text" else "Off")
 
 
 def test_complete_import_keeps_every_field_and_form_default() -> None:
-    src = pylopdf.open(stream=_two_page_form())
+    src = pylopdf.open(_two_page_form())
     dst = pylopdf.Document()
-    dst.insert_pdf(src, from_page=1, to_page=0)
+    dst.pages.extend(src.pages[0:2][::-1])
 
     assert _fields(dst) == TWO_PAGE_FIELDS
     saved = dst.tobytes(garbage=True)
@@ -223,9 +223,9 @@ def test_complete_import_keeps_every_field_and_form_default() -> None:
 
 
 def test_partial_import_drops_widgets_and_fields_of_other_pages() -> None:
-    src = pylopdf.open(stream=_two_page_form())
+    src = pylopdf.open(_two_page_form())
     dst = pylopdf.Document()
-    dst.insert_pdf(src, from_page=1, to_page=1)
+    dst.pages.extend(src.pages[1:2])
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.last", "person.note")}
     assert _fields(dst) == expected
@@ -245,7 +245,7 @@ def test_partial_import_drops_widgets_and_fields_of_other_pages() -> None:
     stale = next(body for body in objects.values() if b"/TU(stale page)" in body)
     assert f"/P {page_number} 0 R".encode() in stale
 
-    reopened = pylopdf.open(stream=saved)
+    reopened = pylopdf.open(saved)
     assert _fields(reopened) == expected
     reopened.set_form_field("person.last", "Byron")
     reopened.set_form_field("choice", "Off")
@@ -254,7 +254,7 @@ def test_partial_import_drops_widgets_and_fields_of_other_pages() -> None:
 
 def test_partial_import_of_first_page_keeps_its_radio_widget() -> None:
     dst = pylopdf.Document()
-    dst.insert_pdf(pylopdf.open(stream=_two_page_form()), from_page=0, to_page=0)
+    dst.pages.extend(pylopdf.open(_two_page_form()).pages[0:1])
 
     expected = {name: TWO_PAGE_FIELDS[name] for name in ("choice", "person.first", "person.note", "total")}
     assert _fields(dst) == expected
@@ -267,7 +267,7 @@ def test_partial_import_of_first_page_keeps_its_radio_widget() -> None:
 def test_a_widget_that_no_page_lists_follows_its_page_entry(page: int, names: list[str]) -> None:
     """An invisible signature widget is often missing from `/Annots`."""
     src = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R] >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -280,13 +280,13 @@ def test_a_widget_that_no_page_lists_follows_its_page_entry(page: int, names: li
         )
     )
     dst = pylopdf.Document()
-    dst.insert_pdf(src, from_page=page, to_page=page)
+    dst.pages.extend(src.pages[page])
     assert [field["name"] for field in dst.get_form_fields()] == names
 
 
 def test_partial_import_without_imported_widgets_adds_no_form(one_page_pdf: bytes) -> None:
     src = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -296,8 +296,8 @@ def test_partial_import_without_imported_widgets_adds_no_form(one_page_pdf: byte
             }
         )
     )
-    dst = pylopdf.open(stream=one_page_pdf)
-    dst.insert_pdf(src, from_page=0, to_page=0)
+    dst = pylopdf.open(one_page_pdf)
+    dst.pages.extend(src.pages[0:1])
     assert dst.get_form_fields() == []
     assert b"/AcroForm" not in dst.tobytes()
 
@@ -334,11 +334,11 @@ def _named_fields(names: list[str], acroform: str = "") -> bytes:
 
 
 def test_colliding_top_level_names_take_the_smallest_unused_suffix() -> None:
-    dst = pylopdf.open(stream=_named_fields(["a", "a+1"]))
-    src = pylopdf.open(stream=_named_fields(["a", "a+2", "b"]))
-    dst.insert_pdf(src)
+    dst = pylopdf.open(_named_fields(["a", "a+1"]))
+    src = pylopdf.open(_named_fields(["a", "a+2", "b"]))
+    dst.pages.extend(src.pages)
     assert [field["name"] for field in dst.get_form_fields()] == ["a", "a+1", "a+2", "a+3", "b"]
-    dst.insert_pdf(src)
+    dst.pages.extend(src.pages)
     assert [field["name"] for field in dst.get_form_fields()] == [
         "a",
         "a+1",
@@ -349,7 +349,7 @@ def test_colliding_top_level_names_take_the_smallest_unused_suffix() -> None:
         "b",
         "b+1",
     ]
-    assert len(pylopdf.open(stream=dst.tobytes()).get_form_fields()) == 8
+    assert len(pylopdf.open(dst.tobytes()).get_form_fields()) == 8
 
 
 def _default_appearance_form(fonts: tuple[str, str], field: str, extra: dict[int, bytes | str] | None = None) -> bytes:
@@ -382,11 +382,11 @@ def _default_appearance_form(fonts: tuple[str, str], field: str, extra: dict[int
     ids=["leading", "trailing", "escaped", "escaped-rename", "graphics-state", "utf-16", "indirect"],
 )
 def test_imported_default_appearances_follow_renamed_fonts(appearance: str, expected: bytes) -> None:
-    dst = pylopdf.open(stream=_default_appearance_form(("Helvetica", "Courier"), "/T (own) /DA (/Helv 9 Tf 0 g)"))
+    dst = pylopdf.open(_default_appearance_form(("Helvetica", "Courier"), "/T (own) /DA (/Helv 9 Tf 0 g)"))
     src = _default_appearance_form(
         ("Times-Roman", "Symbol"), f"/T (imported) /DA {appearance}", {8: "(/Helv 9 Tf 0 g)"}
     )
-    dst.insert_pdf(pylopdf.open(stream=src))
+    dst.pages.extend(pylopdf.open(src).pages)
 
     objects = _objects(dst.tobytes())
     fonts = _group(rb"/Font<<(.*?)>>", _acroform(objects))
@@ -402,7 +402,7 @@ def test_imported_default_appearances_follow_renamed_fonts(appearance: str, expe
 
 def test_imported_fields_follow_renamed_default_resources_and_form_defaults() -> None:
     dst = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 250 100] >>",
@@ -416,7 +416,7 @@ def test_imported_fields_follow_renamed_default_resources_and_form_defaults() ->
         )
     )
     src = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 250 100] >>",
@@ -435,7 +435,7 @@ def test_imported_fields_follow_renamed_default_resources_and_form_defaults() ->
             }
         )
     )
-    dst.insert_pdf(src)
+    dst.pages.extend(src.pages)
 
     assert _fields(dst) == {"name": ("text", None), "name+1": ("text", "imported"), "email": ("text", None)}
     objects = _objects(dst.tobytes())
@@ -461,7 +461,7 @@ def test_imported_fields_follow_renamed_default_resources_and_form_defaults() ->
         dst.set_form_field(name, "xyz")
 
     def ink(page: int, clip: tuple[float, float, float, float]) -> bool:
-        return any(dst[page].get_pixmap(clip=clip, alpha=True).samples[3::4])
+        return any(dst.pages[page].get_pixmap(clip=clip, alpha=True).samples[3::4])
 
     # In display coordinates the receiving `name` on the first page spans
     # y 10..40, and the imported `email` on the second page spans y 60..90.
@@ -490,8 +490,8 @@ def _font_file_form(size: int, name: str) -> bytes:
 
 @pytest.mark.parametrize(("size", "fonts"), [(1024, [b"F1"]), (1024 * 1024 + 1, [b"F1", b"F1_1"])])
 def test_identical_default_resources_are_shared_within_the_comparison_budget(size: int, fonts: list[bytes]) -> None:
-    dst = pylopdf.open(stream=_font_file_form(size, "own"))
-    dst.insert_pdf(pylopdf.open(stream=_font_file_form(size, "imported")))
+    dst = pylopdf.open(_font_file_form(size, "own"))
+    dst.pages.extend(pylopdf.open(_font_file_form(size, "imported")).pages)
     objects = _objects(dst.tobytes())
     assert re.findall(rb"/(\w+) \d+ 0 R", _group(rb"/Font<<(.*?)>>", _acroform(objects))) == fonts
     # A renamed font moves the source's default appearance onto the field.
@@ -513,8 +513,8 @@ def test_import_adds_missing_receiving_defaults_and_need_appearances() -> None:
             6: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         }
     )
-    dst = pylopdf.open(stream=_receiving_form("[]", "/NeedAppearances false"))
-    dst.insert_pdf(pylopdf.open(stream=src))
+    dst = pylopdf.open(_receiving_form("[]", "/NeedAppearances false"))
+    dst.pages.extend(pylopdf.open(src).pages)
     objects = _objects(dst.tobytes())
     acroform = _acroform(objects)
     assert b"/NeedAppearances true" in acroform
@@ -529,7 +529,7 @@ def test_import_adds_missing_receiving_defaults_and_need_appearances() -> None:
 @pytest.mark.parametrize("value", ["7", "null", "8 0 R"])
 def test_unusable_receiving_acroform_is_replaced(value: str) -> None:
     dst = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: f"<< /Type /Catalog /Pages 2 0 R /AcroForm {value} >>",
                 2: "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 100 100] >>",
@@ -542,19 +542,19 @@ def test_unusable_receiving_acroform_is_replaced(value: str) -> None:
             }
         )
     )
-    dst.insert_pdf(pylopdf.open(stream=_named_fields(["a", "b"])))
+    dst.pages.extend(pylopdf.open(_named_fields(["a", "b"])).pages)
     assert [field["name"] for field in dst.get_form_fields()] == ["a", "b"]
-    assert [field["name"] for field in pylopdf.open(stream=dst.tobytes()).get_form_fields()] == ["a", "b"]
+    assert [field["name"] for field in pylopdf.open(dst.tobytes()).get_form_fields()] == ["a", "b"]
 
 
 def test_import_appends_to_an_indirect_fields_array() -> None:
     dst = pylopdf.open(
-        stream=_receiving_form(
+        _receiving_form(
             "5 0 R",
             objects={5: "[6 0 R]", 6: "<< /FT /Tx /T (own) >>"},
         )
     )
-    dst.insert_pdf(pylopdf.open(stream=_named_fields(["a"])))
+    dst.pages.extend(pylopdf.open(_named_fields(["a"])).pages)
     assert [field["name"] for field in dst.get_form_fields()] == ["a", "own"]
     objects = _objects(dst.tobytes())
     assert b"/Fields 5 0 R" in _acroform(objects)
@@ -564,7 +564,7 @@ def test_import_appends_to_an_indirect_fields_array() -> None:
 def test_partial_import_walks_a_cyclic_field_tree() -> None:
     """A nameless intermediate field that lists itself is folded once."""
     src = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
                 2: "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 100 100] >>",
@@ -579,7 +579,7 @@ def test_partial_import_walks_a_cyclic_field_tree() -> None:
     )
     assert [field["name"] for field in src.get_form_fields()] == ["outer"]
     dst = pylopdf.Document()
-    dst.insert_pdf(src, from_page=0, to_page=0)
+    dst.pages.extend(src.pages[0:1])
     assert [field["name"] for field in dst.get_form_fields()] == ["outer"]
     objects = _objects(dst.tobytes(garbage=True))
     assert len(re.findall(rb"/Subtype/Widget", b"".join(objects.values()))) == 1
@@ -630,12 +630,12 @@ def _deep_form(levels: int) -> bytes:
 def test_partial_import_refuses_field_trees_beyond_the_read_limits(
     source: bytes, message: str, one_page_pdf: bytes
 ) -> None:
-    src = pylopdf.open(stream=source)
-    dst = pylopdf.open(stream=one_page_pdf)
-    page = dst[0]
+    src = pylopdf.open(source)
+    dst = pylopdf.open(one_page_pdf)
+    page = dst.pages[0]
     before = dst.tobytes()
     with pytest.raises(pylopdf.PdfError, match=message):
-        dst.insert_pdf(src, from_page=0, to_page=0)
+        dst.pages.extend(src.pages[0:1])
     assert dst.tobytes() == before
     assert "Hello PDF" in page.get_text()
 
@@ -645,15 +645,15 @@ def test_partial_import_refuses_field_trees_beyond_the_read_limits(
 )
 def test_field_trees_within_the_read_limits_import_partially(source: bytes, name: str | None) -> None:
     dst = pylopdf.Document()
-    dst.insert_pdf(pylopdf.open(stream=source), from_page=0, to_page=0)
+    dst.pages.extend(pylopdf.open(source).pages[0:1])
     names = [field["name"] for field in dst.get_form_fields()]
     assert names == [name or ".".join(f"l{level}" for level in range(64))]
 
 
 def test_complete_import_keeps_a_field_tree_beyond_the_read_limits() -> None:
-    src = pylopdf.open(stream=_wide_form(4096))
+    src = pylopdf.open(_wide_form(4096))
     dst = pylopdf.Document()
-    dst.insert_pdf(src)
+    dst.pages.extend(src.pages)
     for doc in (src, dst):
         with pytest.raises(pylopdf.PdfError, match="4096-node"):
             doc.get_form_fields()
@@ -675,19 +675,19 @@ def _flat_form(count: int) -> bytes:
 
 
 def test_partial_import_refuses_more_than_8192_top_level_fields(one_page_pdf: bytes) -> None:
-    dst = pylopdf.open(stream=one_page_pdf)
+    dst = pylopdf.open(one_page_pdf)
     before = dst.tobytes()
     with pytest.raises(pylopdf.PdfError, match="8192-edge"):
-        dst.insert_pdf(pylopdf.open(stream=_flat_form(8193)), from_page=0, to_page=0)
+        dst.pages.extend(pylopdf.open(_flat_form(8193)).pages[0:1])
     assert dst.tobytes() == before
 
 
 def test_complete_import_never_refuses_a_large_form() -> None:
     """Copy `/Fields` without walking it, so its size only limits later reads."""
-    dst = pylopdf.open(stream=_receiving_form("[" + "5 0 R " * 8192 + "]", objects={5: "<< /FT /Tx /T (own) >>"}))
-    dst.insert_pdf(pylopdf.open(stream=_named_fields(["a"])))
-    dst.insert_pdf(pylopdf.open(stream=_flat_form(8193)))
-    assert dst.page_count == 4
+    dst = pylopdf.open(_receiving_form("[" + "5 0 R " * 8192 + "]", objects={5: "<< /FT /Tx /T (own) >>"}))
+    dst.pages.extend(pylopdf.open(_named_fields(["a"])).pages)
+    dst.pages.extend(pylopdf.open(_flat_form(8193)).pages)
+    assert len(dst.pages) == 4
     assert _reference_count(b"Fields", _acroform(_objects(dst.tobytes()))) == 8192 + 1 + 8193
     with pytest.raises(pylopdf.PdfError, match="8192-edge"):
         dst.get_form_fields()
@@ -697,7 +697,7 @@ def test_annotations_listed_as_fields_are_not_imported() -> None:
     """pdf.js `issue19281.pdf` lists 35,200 link annotations in `/Fields`."""
     links = range(6, 6 + 9000)
     src = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields ["
                 + " ".join(f"{number} 0 R" for number in (5, *links))
@@ -712,14 +712,14 @@ def test_annotations_listed_as_fields_are_not_imported() -> None:
     )
     for pages in ((0, 1), (0, 0)):
         dst = pylopdf.Document()
-        dst.insert_pdf(src, from_page=pages[0], to_page=pages[1])
+        dst.pages.extend(src.pages[pages[0] : pages[1] + 1])
         assert [field["name"] for field in dst.get_form_fields()] == ["only"]
         assert _reference_count(b"Fields", _acroform(_objects(dst.tobytes()))) == 1
 
 
 def test_import_refuses_top_level_names_beyond_the_name_limit() -> None:
-    dst = pylopdf.open(stream=_named_fields(["a"]))
+    dst = pylopdf.open(_named_fields(["a"]))
     before = dst.tobytes()
     with pytest.raises(pylopdf.PdfError, match="field-name text exceeds"):
-        dst.insert_pdf(pylopdf.open(stream=_named_fields(["x" * (1024 * 1024 + 1)])))
+        dst.pages.extend(pylopdf.open(_named_fields(["x" * (1024 * 1024 + 1)])).pages)
     assert dst.tobytes() == before

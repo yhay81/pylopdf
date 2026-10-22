@@ -9,7 +9,7 @@ import pylopdf
 
 
 def _six_page_doc() -> pylopdf.Document:
-    return pylopdf.open(stream=build_pdf([f"Page {i}" for i in range(6)]))
+    return pylopdf.open(build_pdf([f"Page {i}" for i in range(6)]))
 
 
 def test_set_and_compute_labels() -> None:
@@ -20,7 +20,7 @@ def test_set_and_compute_labels() -> None:
             {"startpage": 3, "style": "D", "prefix": "A-"},
         ]
     )
-    assert [doc[i].get_label() for i in range(6)] == ["i", "ii", "iii", "A-1", "A-2", "A-3"]
+    assert [doc.pages[i].get_label() for i in range(6)] == ["i", "ii", "iii", "A-1", "A-2", "A-3"]
 
 
 def test_labels_roundtrip_through_save() -> None:
@@ -30,39 +30,39 @@ def test_labels_roundtrip_through_save() -> None:
         {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
     ]
     doc.set_page_labels(labels)
-    reopened = pylopdf.open(stream=doc.tobytes())
+    reopened = pylopdf.open(doc.tobytes())
     assert reopened.get_page_labels() == [
         {"startpage": 0, "style": "R", "prefix": "", "firstpagenum": 5},
         {"startpage": 2, "style": "a", "prefix": "付-", "firstpagenum": 1},
     ]
-    assert reopened[0].get_label() == "V"
-    assert reopened[1].get_label() == "VI"
-    assert reopened[2].get_label() == "付-a"
+    assert reopened.pages[0].get_label() == "V"
+    assert reopened.pages[1].get_label() == "VI"
+    assert reopened.pages[2].get_label() == "付-a"
 
 
 def test_prefix_only_style() -> None:
     doc = _six_page_doc()
     doc.set_page_labels([{"startpage": 0, "prefix": "表紙"}])
-    assert doc[0].get_label() == "表紙"
-    assert doc[5].get_label() == "表紙"
+    assert doc.pages[0].get_label() == "表紙"
+    assert doc.pages[5].get_label() == "表紙"
 
 
 def test_letters_style_wraps_past_z() -> None:
     doc = _six_page_doc()
     doc.set_page_labels([{"startpage": 0, "style": "A", "firstpagenum": 26}])
-    assert doc[0].get_label() == "Z"
-    assert doc[1].get_label() == "AA"
-    assert doc[2].get_label() == "BB"
+    assert doc.pages[0].get_label() == "Z"
+    assert doc.pages[1].get_label() == "AA"
+    assert doc.pages[2].get_label() == "BB"
 
 
 def test_empty_labels() -> None:
     doc = _six_page_doc()
     assert doc.get_page_labels() == []
-    assert doc[0].get_label() == ""
+    assert doc.pages[0].get_label() == ""
     doc.set_page_labels([{"startpage": 0, "style": "D"}])
     doc.set_page_labels([])  # An empty list removes labels.
     assert doc.get_page_labels() == []
-    assert doc[0].get_label() == ""
+    assert doc.pages[0].get_label() == ""
 
 
 def test_set_labels_validation() -> None:
@@ -86,9 +86,9 @@ def test_page_label_tree_reference_cycle_is_visited_once() -> None:
             4: "<< /Nums [0 << /S /D /P (A-) >>] /Kids [4 0 R] >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     assert doc.get_page_labels() == [{"startpage": 0, "style": "D", "prefix": "A-", "firstpagenum": 1}]
-    assert doc[0].get_label() == "A-1"
+    assert doc.pages[0].get_label() == "A-1"
 
 
 def test_page_label_tree_rejects_excessive_depth() -> None:
@@ -101,7 +101,7 @@ def test_page_label_tree_rejects_excessive_depth() -> None:
         objects[object_id] = f"<< /Kids [{object_id + 1} 0 R] >>"
     objects[36] = "<< /Nums [0 << /S /D >>] >>"
 
-    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
         doc.get_page_labels()
 
@@ -117,7 +117,7 @@ def test_page_label_tree_rejects_excessive_edges_without_partial_output() -> Non
             5: "<< /Nums [1 << /S /D >>] >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="4096-edge safety limit"):
         doc.get_page_labels()
 
@@ -132,7 +132,7 @@ def test_page_label_tree_rejects_excessive_entries_without_partial_output() -> N
             4: f"<< /Nums [{pairs}] >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         doc.get_page_labels()
 
@@ -147,7 +147,7 @@ def test_page_label_tree_rejects_excessive_text_without_partial_output() -> None
             4: f"<< /Nums [0 << /P ({prefix}) >>] >>",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="1048576-byte safety limit"):
         doc.get_page_labels()
 

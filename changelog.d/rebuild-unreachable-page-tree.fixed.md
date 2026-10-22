@@ -8,7 +8,7 @@ entries can miss their objects in a file that lost bytes: pdf.js
 not load, loading now rebuilds the table by scanning object headers, as
 hayro, MuPDF, and pdf.js do, keeps the rebuilt document when its page tree
 is reachable, and reports the `rebuilt` cross-reference warning;
-`peek_metadata` repeats a probe that counts no pages in the same way. Nine
+`probe` repeats a metadata read that counts no pages in the same way. Nine
 pdf.js corpus files that raised on every page operation now open with hayro's
 page count, and every page renders pixel for pixel as hayro renders the
 original bytes.

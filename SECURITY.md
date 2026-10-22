@@ -155,7 +155,7 @@ risky. When processing untrusted files:
   deletion/selection shares the outline limits.
 - `Document.metadata` decodes only the eight standard Info fields and rejects
   aggregate source or returned text above 1 MiB; custom dictionary entries are
-  not materialized into Python output. `peek_metadata()` caps returned standard
+  not materialized into Python output. `probe()` caps returned standard
   text too. Writes preflight 1 MiB aggregate source/encoded text before PyO3
   copying with `metadata_input_size` and apply the complete update atomically.
 - Prefer running batch processing of untrusted documents in a sandboxed or

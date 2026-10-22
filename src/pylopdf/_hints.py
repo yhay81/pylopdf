@@ -7,7 +7,10 @@ successful lookup costs nothing. The hints load on the first miss.
 
 from __future__ import annotations
 
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def migration_hint(name: str) -> str | None:
@@ -49,3 +52,18 @@ def hinted_getattr(self: object, name: str) -> NoReturn:
     checkers still reject unknown attributes.
     """
     raise missing_attribute(type(self).__name__, self, name)
+
+
+def hinted_protocol(message: str) -> Callable[..., NoReturn]:
+    """Return a protocol method, such as ``__getitem__``, that raises ``TypeError`` with a migration hint.
+
+    Classes assign it outside ``TYPE_CHECKING`` for a protocol that the API
+    reset moved to another object, so type checkers and the public API
+    snapshot, which skips methods marked ``__pylopdf_hint__``, never see it.
+    """
+
+    def method(_self: object, *_args: object) -> NoReturn:
+        raise TypeError(message)
+
+    method.__pylopdf_hint__ = True  # ty: ignore[unresolved-attribute]
+    return method

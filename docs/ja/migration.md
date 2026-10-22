@@ -5,7 +5,7 @@ description: 移行ツール、名前ごとの対応表、注意すべき挙動�
 
 # pymupdfからの移行
 
-pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。現在は多くの名前がpymupdfと同じで、`"words"`タプル、`"dict"`の構造、矩形を返す`search_for()`など、多くのコードが依存するデータの形も同じです。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールもそれに追従します。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
+pylopdfは、pymupdfがPDFファイルでできることをすべて、独自のAPIで実現することを目指しています。現在は多くの名前がpymupdfと同じで、`"words"`タプル、`"dict"`の構造、矩形を返す`search_for()`など、多くのコードが依存するデータの形も同じです。ただし、そのまま置き換えられるものではありません。開けるのは**PDFファイルだけ**で（XPS、EPUB、画像は不可）、いくつかの挙動は意図的に変えており、次のリリースではAPIを作り直します。移行ツールも、作り直した部分が入るたびにそれに追従します。文書とそのページはすでに新しいAPI（`pylopdf.open(source)`と`doc.pages`）を使っています。このページでは、そのまま使えるもの、異なるもの、pylopdfがまだ実装していない部分の代わりに使うものをまとめます。
 
 ## 自動移行 { #codemod }
 
@@ -16,12 +16,12 @@ pip install "pylopdf[migrate]"
 python -m pylopdf.migrate src/
 ```
 
-`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、`copy_page`、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。
+`import fitz`と`import pymupdf`を置き換え、機械的に置き換えられるもの（文書を開く処理、`doc.pages`に置き換わるページ操作、ページ番号を含む`get_toc`/`set_toc`、`embfile_*`、`xref_*`のストリーム読み出し、その場で値を変える`Rect`/`Point`/`Matrix`のメソッドなど）を書き換え、人手が必要な文の上には`# TODO(pylopdf): …`コメントを付けます。最後に、それらの箇所を`path:line: message`の形で一覧表示します。同じコマンドで、pylopdf 0.15向けに書かれたプログラムも更新できます。
 
 - `--diff`は書き込まずに変更内容を表示します。
 - `--check`は変更されるファイルがあると終了コード1を返します。CI向けです。
 
-このツールは変数の型を知ることができないので、差分を確認してください。実行時に、pylopdfにないpymupdfの名前を使うと`AttributeError`が発生し、そのメッセージに置き換え先か、まだ対応していないことが示されます。
+このツールは変数の型を知ることができないので、差分を確認してください。変数のインデックス参照、長さの取得、イテレーションを`.pages`経由に書き換えるのは、`doc = fitz.open(path)`のように、その変数へのすべての代入が文書を開くものである場合だけです。関数の引数に対する`doc[0]`はそのまま残ります。実行時に、pylopdfにないpymupdfの名前を使うと`AttributeError`が発生し、そのメッセージに置き換え先か、まだ対応していないことが示されます。また、`doc[0]`や`for page in doc`は、`doc.pages`を案内する`TypeError`を送出します。
 
 ## 名前の対応表 { #mapping }
 
@@ -32,17 +32,27 @@ python -m pylopdf.migrate src/
 | pymupdf | pylopdf | 備考 |
 |---|---|---|
 | `import pymupdf`（または`fitz`） | `import pylopdf` | |
-| `pymupdf.open(path)`, `open(stream=…)`, `open("pdf", data)` | 同じ | PDFのみ。`password=`はキーワード専用 |
-| `doc[i]`, `len(doc)`, イテレーション | 同じ | |
+| `pymupdf.open(path)`, `open(stream=…)`, `open("pdf", data)` | `pylopdf.open(path)`, `pylopdf.open(data)` | PDFのみ。`password=`はキーワード専用。ファイルオブジェクトは先に読み出してください |
+| `pymupdf.open()`, `pymupdf.Document()` | `pylopdf.Document()` | 空の文書 |
+| `doc[i]`, `doc.load_page(i)`, `len(doc)`, `doc.page_count`, イテレーション | `doc.pages[i]`, `len(doc.pages)`, `doc.pages`のイテレーション | `doc.pages`は、pymupdfの`doc.pages(start, stop)`と同じようにスライスにも対応します |
+| `page.number`, `page.parent` | `page.index`, `page.document` | |
 | `doc.metadata`, `set_metadata()` | 同じ | |
-| `doc.needs_pass`, `authenticate()` | 同じ | 戻り値も同じ |
+| `doc.get_xml_metadata()`, `set_xml_metadata()`, `del_xml_metadata()` | 同じ | 読み書きとも既定では1 MiBまでです。`max_size=None`で上限を外せます |
+| `doc.language`, `set_language(tag)` | `doc.language_tag`, `set_language_tag(tag)` | 完全なタグを扱います。pymupdfは3文字までしか保持しないため、`zh-TW`と`zh-HK`はどちらも`zh-Hant`になります。移行ツールは`set_language`を書き換えます |
+| `doc.pagemode`, `pagelayout`, `markinfo`とその`set_*`メソッド, `has_links()`, `has_annots()`, `is_closed` | 同じ | |
+| `doc.name` | `doc.path` | `pathlib.Path`。bytesから開いた文書や新しく作った空の文書では`None`。すべての文書がPDFなので、`is_pdf`はなくなりました |
+| `doc.needs_pass`, `authenticate()`, `permissions`, `is_dirty` | `doc.needs_password`。ほかは同じ | 戻り値と値も同じ |
 | `doc.save(garbage=4, deflate=True)` | 同じ | `garbage`がページ、注釈、フォームフィールド、レイヤーを統合することはありません |
 | `doc.save(encryption=…, user_pw=…)` | 同じ | `PDF_ENCRYPT_NONE`と`PDF_ENCRYPT_AES_256`のみ。暗号化なしでパスワードを渡すと、無視せずに例外になります |
-| `doc.select()`, `delete_page()`, `delete_pages()`, `fullcopy_page()`, `new_page()` | 同じ | 削除したページのフォームフィールドとタグ付きPDFの構造も削除します |
-| `doc.copy_page(pno, to)` | `doc.fullcopy_page(pno, to)` | pylopdfは1つのページオブジェクトを2つのページで共有しません |
-| `doc.insert_pdf(docsrc, from_page=, to_page=, start_at=)` | 同じ | 取り込んだフォームフィールドの名前が衝突すると`name+N`に改名します。`widgets=`と`join_duplicates=`はありません |
+| `doc.select(indexes)` | `doc.pages.select(indexes)` | 残さなかったページのフォームフィールドとタグ付きPDFの構造も削除します |
+| `doc.delete_page(i)`, `delete_pages(a, b)` | `del doc.pages[i]`, `del doc.pages[a:b + 1]` | 削除するページをリストで指定していた場合は、残りのページを`doc.pages.select(...)`で残してください |
+| `doc.new_page(pno, width=, height=)` | `doc.pages.new((width, height), index=pno)` | `index`を指定しなければ末尾に追加します |
+| `doc.copy_page(pno, to)`, `fullcopy_page(pno, to)` | `doc.pages.insert(to, doc.pages[pno])` | pylopdfは1つのページオブジェクトを2つのページで共有しません |
+| `doc.move_page(pno, to)` | `doc.pages.move(pno, index)` | `index`はページが移動した後の位置です。pymupdfはページ`to`の前に挿入していました |
+| `doc.insert_pdf(docsrc, from_page=a, to_page=b, start_at=i)` | `doc.pages.insert(i, docsrc.pages[a:b + 1])`, `doc.pages.extend(docsrc.pages)` | 取り込んだフォームフィールドの名前が衝突すると`name+N`に改名します。`widgets=`と`join_duplicates=`はありません |
 | `doc.get_toc()`, `set_toc(toc)` | `doc.get_outline()`, `set_outline(entries)` | ページ番号は1始まりではなく0始まり |
 | `doc.get_page_labels()`, `set_page_labels()`, `page.get_label()` | 同じ | |
+| `doc.get_page_numbers(label)` | `doc.pages.labeled(label)` | |
 | `doc.embfile_add/names/get/del/upd/info/count` | `doc.attachments` | マッピングです: `add(name, data, description=…)`、`list(…)`、`[name].read()`、`del …[name]`、`[name].write(data)`、`len(…)`。`desc=`は`description=`になります |
 | `doc.xref_*`, `pdf_catalog()`, `pdf_trailer()` | `doc.objects`, `doc.catalog`, `doc.trailer` | PDF構文ではなく型付きのPythonの値。[低レベルオブジェクト](api.md#low-level-objects)を参照 |
 
@@ -54,7 +64,7 @@ python -m pylopdf.migrate src/
 | `page.search_for(text)` | 同じ | 矩形を返します。`quads=`はありません。`max_hits=`を上げない限り結果は最大4,096件 |
 | `page.get_textpage_ocr()` | `page.get_text_ocr()`, `page.apply_ocr()` | 組み込みのオフラインOCR。[オフラインOCR](ocr.md)を参照 |
 | `pymupdf4llm.to_markdown(doc)` | `doc.to_markdown()` | 組み込み |
-| `page.get_pixmap(matrix=…, dpi=…)`, `doc.get_page_pixmap()` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません |
+| `page.get_pixmap(matrix=…, dpi=…)` | 同じ | 拡大縮小の行列のみ。`colorspace=`と`annots=`はまだありません。`doc.get_page_pixmap(i)`は`doc.pages[i].get_pixmap()`になります |
 | `pix.samples`, `width`, `height`, `n`, `alpha`, `stride`, `colorspace`, `save()` | 同じ | `save()`と`tobytes()`はPNGのみを書き出します |
 | `page.get_svg_image()` | 同じ | テキストは常にパスとして描きます |
 | `page.get_images()`, `get_image_info()`, `doc.extract_image()` | 同じ | `get_image_info(hashes=True)`にはまだ対応していません |
@@ -88,12 +98,12 @@ python -m pylopdf.migrate src/
 ## 挙動の違い { #behavioral-differences }
 
 - **幾何型の値は変更できません。** `Point`、`Matrix`、`Rect`、`IRect`、`Quad`は不変の名前付きタプルです。インプレースのメソッドを呼ぶ代わりに、演算子の結果を代入してください。pymupdfと同じく、ただのタプルとは異なり、`p + q`は座標を足し、`Rect(0, 0, 0, 0)`は偽になります。
-- **古いページは例外を送出します。** ページを追加・削除・並べ替えた後、それ以前に取得した`Page`は、黙って別のページを指す代わりに`StalePageError`を送出します。`doc[i]`で取得し直してください。
-- **例外。** 基底クラスは`ValueError`のサブクラスである`PdfError`なので、`except ValueError`はそのまま動きます。`FileDataError`と`EmptyFileError`はpymupdfと同じ名前です。存在しないファイルはPython組み込みの`FileNotFoundError`を送出するので、`except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えてください。
+- **古いページは例外を送出します。** ページを追加・削除・並べ替えた後、それ以前に取得した`Page`は、黙って別のページを指す代わりに`StalePageError`を送出します。`doc.pages[i]`で取得し直してください。
+- **例外。** 基底クラスは`ValueError`のサブクラスである`PdfError`なので、`except ValueError`はそのまま動きます。読めるPDFではない入力は、空の入力も含め、pymupdfが`FileDataError`や`EmptyFileError`を送出するところで`MalformedPdfError`を送出します。存在しないファイルはPython組み込みの`FileNotFoundError`を送出するので、`except pymupdf.FileNotFoundError`は`except FileNotFoundError`に書き換えてください。
 - **回転したページ。** 抽出・検索・描き込み・レンダリングはすべて、回転したページも含め、表示されたページの座標を使います。
 - **ページ下端付近の`insert_text`。** pylopdfはどの行が収まるかをページの見える領域（`page.rect`）で判断しますが、pymupdfは回転前のページの下端までで測ります。通常の回転していないページでは両者は一致します。
 - **フォントの扱いは厳格です。** pylopdfは黙って別のフォントを使わず、例外を送出します。たとえば、フォントに文字がない場合や、`is_bold=True`でインストールされていない太字を求めた場合です。
-- **フォームの結合。** `insert_pdf()`は、pymupdfの既定の`widgets=True`と同じく、常にフォームフィールドをコピーします。受け取る側の文書に同じ名前のフィールドがあれば`name+1`、`name+2`のように改名するので、同じフォームのコピーはそれぞれ別の値を持ちます。
+- **フォームの結合。** `doc.pages.insert()`と`extend()`は、pymupdfの既定の`widgets=True`と同じく、常にフォームフィールドをコピーします。受け取る側の文書に同じ名前のフィールドがあれば`name+1`、`name+2`のように改名するので、同じフォームのコピーはそれぞれ別の値を持ちます。
 - **表とMarkdown。** `find_tables()`は既定で罫線で描かれた表を検出します。罫線のない表には`strategy="text"`を渡してください。`to_markdown()`は検出した表を読み順の位置に置き、周囲の段落からその表のテキストを取り除きます。
 
 ## 実装しない機能: 代わりに使うもの { #deliberate-scope }
@@ -124,7 +134,7 @@ doc.save("out.pdf", garbage=4, deflate=True)
 # pylopdf
 import pylopdf
 doc = pylopdf.open("in.pdf")
-page = doc[0]
+page = doc.pages[0]
 page.add_highlight_annot(page.search_for("total"))   # リスト全体を受け取る
 page.get_pixmap(matrix=pylopdf.Matrix(2, 2)).save("page.png")
 doc.save("out.pdf", garbage=4, deflate=True)

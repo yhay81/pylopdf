@@ -34,13 +34,8 @@ def test_one_input(data: bytes) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", pylopdf.PylopdfWarning)
         try:
-            with pylopdf.open(
-                stream=data,
-                limits=_FUZZ_LIMITS,
-            ) as doc:
-                page_count = min(doc.page_count, _MAX_PAGES)
-                for page_number in range(page_count):
-                    page = doc[page_number]
+            with pylopdf.open(data, limits=_FUZZ_LIMITS) as doc:
+                for page in doc.pages[:_MAX_PAGES]:
                     page.get_text("dict")
                     page.get_text("rawdict")
                     page.search_for("pdf")
@@ -49,12 +44,9 @@ def test_one_input(data: bytes) -> None:
                 doc.set_metadata({"producer": "pylopdf fuzz"})
                 saved = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
 
-            with pylopdf.open(
-                stream=saved,
-                limits=_FUZZ_LIMITS,
-            ) as reopened:
-                if reopened.page_count:
-                    reopened[0].get_text()
+            with pylopdf.open(saved, limits=_FUZZ_LIMITS) as reopened:
+                if reopened.pages:
+                    reopened.pages[0].get_text()
         except pylopdf.PdfError:
             # Invalid or unsupported PDFs are expected. Crashes, panics, and
             # exceptions outside pylopdf's documented error hierarchy are not.

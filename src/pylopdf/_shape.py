@@ -225,7 +225,7 @@ class Shape:
             raise TypeError(msg)
         page._page_number()
         self.page = page
-        self.doc = page.parent
+        self.doc = page.document
         self.last_point = None
         self.rect = None
         self._record = _Shape()

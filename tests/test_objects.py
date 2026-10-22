@@ -15,12 +15,12 @@ REAL_WORLD = Path(__file__).parent / "assets" / "real_world"
 
 
 def _two_pages() -> pylopdf.Document:
-    return pylopdf.open(stream=build_pdf(["first", "second"]))
+    return pylopdf.open(build_pdf(["first", "second"]))
 
 
 def test_values_map_to_python_types() -> None:
     doc = pylopdf.open(
-        stream=build_raw_pdf(
+        build_raw_pdf(
             {
                 1: "<< /Type /Catalog /Pages 2 0 R /Extra 3 0 R >>",
                 2: "<< /Type /Pages /Kids [] /Count 0 >>",
@@ -62,11 +62,11 @@ def test_trailer_catalog_and_page_objects() -> None:
     assert doc.catalog == doc.trailer["Root"]
     assert doc.catalog.xref == 1
     assert doc.catalog["Type"] == "Catalog"
-    assert doc.page_xref(0) == doc[0].xref == 4
-    assert doc.page_xref(-1) == 6
-    assert doc[1].obj == doc.objects[6]
-    assert doc[1].obj["Type"] == Name("Page")
-    assert doc.catalog["Pages"]["Kids"][1] == doc[1].obj
+    assert doc.pages[0].xref == doc.pages[0].xref == 4
+    assert doc.pages[-1].xref == 6
+    assert doc.pages[1].obj == doc.objects[6]
+    assert doc.pages[1].obj["Type"] == Name("Page")
+    assert doc.catalog["Pages"]["Kids"][1] == doc.pages[1].obj
 
 
 def test_objects_mapping() -> None:
@@ -87,7 +87,7 @@ def test_objects_mapping() -> None:
 
 def test_dictionary_writes_take_effect_immediately() -> None:
     doc = _two_pages()
-    page = doc[0]
+    page = doc.pages[0]
 
     page.obj["Rotate"] = 90
     page.obj["UserUnit"] = 1.5
@@ -95,19 +95,19 @@ def test_dictionary_writes_take_effect_immediately() -> None:
 
     assert page.rotation == 90
     assert "UserUnit" not in page.obj
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened[0].rotation == 90
+    reopened = pylopdf.open(doc.tobytes())
+    assert reopened.pages[0].rotation == 90
 
 
 def test_writes_invalidate_cached_text_and_rendering() -> None:
     doc = _two_pages()
-    assert doc[0].get_text().strip() == "first"
-    contents = doc[0].obj["Contents"]
+    assert doc.pages[0].get_text().strip() == "first"
+    contents = doc.pages[0].obj["Contents"]
     assert isinstance(contents, Stream)
 
     contents.write(b"BT /F1 12 Tf 72 720 Td (replaced) Tj ET")
 
-    assert doc[0].get_text().strip() == "replaced"
+    assert doc.pages[0].get_text().strip() == "replaced"
     assert contents["Filter"] == "FlateDecode"
     assert contents.read() == b"BT /F1 12 Tf 72 720 Td (replaced) Tj ET"
     assert zlib.decompress(contents.read(decode=False)) == contents.read()
@@ -115,18 +115,18 @@ def test_writes_invalidate_cached_text_and_rendering() -> None:
 
 def test_stream_write_without_a_filter_stores_the_data() -> None:
     doc = _two_pages()
-    contents = doc[0].obj["Contents"]
+    contents = doc.pages[0].obj["Contents"]
 
     contents.write(b"BT /F1 12 Tf 72 720 Td (plain) Tj ET", filter=None)
 
     assert "Filter" not in contents
     assert contents["Length"] == len(b"BT /F1 12 Tf 72 720 Td (plain) Tj ET")
     assert contents.read(decode=False) == contents.read()
-    assert pylopdf.open(stream=doc.tobytes())[0].get_text().strip() == "plain"
+    assert pylopdf.open(doc.tobytes()).pages[0].get_text().strip() == "plain"
 
 
 def test_stream_read_is_bounded() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     xref = doc.objects.add_stream(b"x" * 10_000)
     stream = doc.objects[xref]
 
@@ -141,7 +141,7 @@ def test_stream_read_is_bounded() -> None:
 
 
 def test_unsupported_filters_raise_instead_of_returning_encoded_bytes() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     xref = doc.objects.add_stream(b"data", filter=None)
     doc.objects[xref]["Filter"] = Name("JBIG2Decode")
 
@@ -151,20 +151,20 @@ def test_unsupported_filters_raise_instead_of_returning_encoded_bytes() -> None:
 
 
 def test_add_builds_a_new_page_from_raw_objects() -> None:
-    doc = pylopdf.open()
-    doc.new_page()
+    doc = pylopdf.Document()
+    doc.pages.new()
     font = doc.objects.add({"Type": Name("Font"), "Subtype": Name("Type1"), "BaseFont": Name("Helvetica")})
     content = doc.objects.add_stream(b"BT /F9 24 Tf 72 72 Td (raw) Tj ET")
 
-    doc[0].obj["Resources"] = {"Font": {"F9": doc.objects[font]}}
-    doc[0].obj["Contents"] = doc.objects[content]
+    doc.pages[0].obj["Resources"] = {"Font": {"F9": doc.objects[font]}}
+    doc.pages[0].obj["Contents"] = doc.objects[content]
 
-    assert doc[0].get_text().strip() == "raw"
+    assert doc.pages[0].get_text().strip() == "raw"
     # An indirect handle stored inside a container is a reference.
-    assert doc[0].obj["Resources"]["Font"]["F9"].xref == font
+    assert doc.pages[0].obj["Resources"]["Font"]["F9"].xref == font
     saved = doc.tobytes()
     assert b"/F9 " + str(font).encode() + b" 0 R" in saved
-    assert pylopdf.open(stream=saved)[0].get_text().strip() == "raw"
+    assert pylopdf.open(saved).pages[0].get_text().strip() == "raw"
 
 
 def test_assigning_a_handle_at_top_level_copies_it() -> None:
@@ -187,15 +187,15 @@ def test_direct_handles_are_copied() -> None:
     assert isinstance(media_box, Array)
     assert not media_box.is_indirect
 
-    doc[0].obj["MediaBox"] = media_box
-    doc[0].obj["MediaBox"][2] = 300
+    doc.pages[0].obj["MediaBox"] = media_box
+    doc.pages[0].obj["MediaBox"][2] = 300
 
     assert list(doc.catalog["Pages"]["MediaBox"]) == [0, 0, 612, 792]
-    assert list(doc[0].obj["MediaBox"]) == [0, 0, 300, 792]
+    assert list(doc.pages[0].obj["MediaBox"]) == [0, 0, 300, 792]
 
 
 def test_scalar_objects_read_as_values_and_can_be_replaced() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     xref = doc.objects.add(42)
 
     assert doc.objects[xref] == 42
@@ -206,7 +206,7 @@ def test_scalar_objects_read_as_values_and_can_be_replaced() -> None:
 
 
 def test_text_strings() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     doc.trailer["Info"] = {"Title": "日本語のタイトル", "Author": "ASCII", "Raw": b"\x00\xff"}
 
     info = doc.trailer["Info"]
@@ -221,7 +221,7 @@ def test_text_strings() -> None:
 
 
 def test_names_round_trip_and_reject_a_leading_slash() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     xref = doc.objects.add([Name("A#B"), Name("日本"), Name("a\udcff")])
 
     assert list(doc.objects[xref]) == [Name("A#B"), Name("日本"), Name("a\udcff")]
@@ -233,7 +233,7 @@ def test_names_round_trip_and_reject_a_leading_slash() -> None:
 
 
 def test_a_str_value_is_a_text_string_not_a_name() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     doc.catalog["PageMode"] = "UseOutlines"
 
     assert isinstance(doc.catalog["PageMode"], String)
@@ -241,7 +241,7 @@ def test_a_str_value_is_a_text_string_not_a_name() -> None:
 
 
 def test_array_editing() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     array = doc.objects[doc.objects.add([1, 2, 3])]
 
     array.append(4)
@@ -262,19 +262,19 @@ def test_array_editing() -> None:
 
 def test_reordering_kids_invalidates_pages() -> None:
     doc = _two_pages()
-    page = doc[0]
+    page = doc.pages[0]
     kids = doc.catalog["Pages"]["Kids"]
 
     kids[0], kids[1] = kids[1], kids[0]
 
     with pytest.raises(pylopdf.StalePageError):
         page.get_text()
-    assert doc[0].get_text().strip() == "second"
+    assert doc.pages[0].get_text().strip() == "second"
 
 
 def test_writes_that_keep_the_page_order_keep_pages() -> None:
     doc = _two_pages()
-    page = doc[1]
+    page = doc.pages[1]
 
     doc.catalog["PageLayout"] = Name("TwoColumnLeft")
     doc.objects.add({"Unused": True})
@@ -298,9 +298,9 @@ def test_handles_go_stale_when_objects_are_renumbered() -> None:
 
 def test_handles_to_removed_objects_go_stale() -> None:
     doc = _two_pages()
-    second = doc[1].obj
+    second = doc.pages[1].obj
 
-    doc.delete_page(1)
+    del doc.pages[1]
 
     with pytest.raises(pylopdf.StaleObjectError):
         second["Type"]
@@ -326,7 +326,7 @@ def test_handles_from_another_document_are_refused() -> None:
 
 
 def test_unsupported_values_and_depth_are_refused() -> None:
-    doc = pylopdf.open()
+    doc = pylopdf.Document()
     nested: list[object] = []
     deep = nested
     for _ in range(40):
@@ -363,7 +363,7 @@ def test_handles_compare_and_hash_by_address() -> None:
 def test_closed_and_encrypted_documents_are_refused() -> None:
     doc = _two_pages()
     catalog = doc.catalog
-    encrypted = pylopdf.open(stream=doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret"))
+    encrypted = pylopdf.open(doc.tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="secret"))
     doc.close()
 
     with pytest.raises(pylopdf.DocumentClosedError):
@@ -374,7 +374,7 @@ def test_closed_and_encrypted_documents_are_refused() -> None:
 
 def test_objects_are_readable_after_authentication() -> None:
     encrypted = pylopdf.open(
-        stream=_two_pages().tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner")
+        _two_pages().tobytes(encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner")
     )
     with pytest.raises(pylopdf.EncryptedDocumentError):
         encrypted.catalog  # noqa: B018 - property access is the operation under test.

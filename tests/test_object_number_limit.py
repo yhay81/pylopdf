@@ -110,33 +110,31 @@ def _renumber_raw(data: bytes, renumbered: dict[int, int]) -> bytes:
 
 
 def _with_reloaded(doc: pylopdf.Document) -> tuple[pylopdf.Document, pylopdf.Document]:
-    return doc, pylopdf.Document(stream=doc.tobytes())
+    return doc, pylopdf.open(doc.tobytes())
 
 
 def _probe_document() -> pylopdf.Document:
     """Return the five-object target plus a marker object numbered near 2**32."""
     objects = _objects("5 0 R", catalog=f"/PylopdfProbe {NEAR_U32_MAX} 0 R")
     objects[NEAR_U32_MAX] = "<< /PylopdfMarker (BIG) >>"
-    return pylopdf.Document(stream=_numbered_pdf(objects))
+    return pylopdf.open(_numbered_pdf(objects))
 
 
 _ALLOCATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
-    "insert_text": lambda doc: doc[0].insert_text((20, 250), "Stamp"),
-    "insert_text_embedded_font": lambda doc: doc[0].insert_text((20, 250), "Stamp", fontfile=NOTO_SANS_JP),
-    "insert_image": lambda doc: doc[0].insert_image(
-        (10, 10, 50, 50), pixmap=doc[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
+    "insert_text": lambda doc: doc.pages[0].insert_text((20, 250), "Stamp"),
+    "insert_text_embedded_font": lambda doc: doc.pages[0].insert_text((20, 250), "Stamp", fontfile=NOTO_SANS_JP),
+    "insert_image": lambda doc: doc.pages[0].insert_image(
+        (10, 10, 50, 50), pixmap=doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(0.05, 0.05), alpha=True)
     ),
-    "add_highlight_annot": lambda doc: doc[0].add_highlight_annot([(10, 10, 100, 30)]),
-    "add_link_annot": lambda doc: doc[0].insert_link(
+    "add_highlight_annot": lambda doc: doc.pages[0].add_highlight_annot([(10, 10, 100, 30)]),
+    "add_link_annot": lambda doc: doc.pages[0].insert_link(
         {"kind": pylopdf.LINK_URI, "from": (10, 10, 100, 30), "uri": "https://example.com/"}
     ),
-    "insert_ocr_text_layer": lambda doc: doc[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
-    "insert_pdf": lambda doc: doc.insert_pdf(pylopdf.Document(stream=build_pdf(["Source"]))),
-    "show_pdf_page": lambda doc: doc[0].show_pdf_page(
-        (0, 0, 100, 100), pylopdf.Document(stream=build_pdf(["Source"])), 0
-    ),
-    "new_page": lambda doc: doc.new_page(),
-    "copy_page": lambda doc: doc.fullcopy_page(0),
+    "insert_ocr_text_layer": lambda doc: doc.pages[0].insert_ocr_text_layer([(10, 10, 100, 30, "Word")]),
+    "insert_pdf": lambda doc: doc.pages.extend(pylopdf.open(build_pdf(["Source"])).pages),
+    "show_pdf_page": lambda doc: doc.pages[0].show_pdf_page((0, 0, 100, 100), pylopdf.open(build_pdf(["Source"])), 0),
+    "new_page": lambda doc: doc.pages.new(),
+    "copy_page": lambda doc: doc.pages.extend(doc.pages[0]),
     "set_outline": lambda doc: doc.set_outline([(1, "Start", 0)]),
     "set_metadata": lambda doc: doc.set_metadata({"title": "Edited"}),
     "attachments.add": lambda doc: doc.attachments.add(f"note{len(doc.attachments)}.txt", b"note"),
@@ -160,7 +158,7 @@ def test_new_objects_cannot_wrap_onto_the_catalog(operation: str) -> None:
     assert re.search(rb"/PylopdfProbe 6 0 R", saved)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", saved)
     for current in _with_reloaded(doc):
-        assert "TARGET PAGE" in current.get_page_text(0).splitlines()
+        assert "TARGET PAGE" in current.pages[0].get_text().splitlines()
 
 
 def test_references_above_the_highest_kept_object_follow_it_or_become_null() -> None:
@@ -174,7 +172,7 @@ def test_references_above_the_highest_kept_object_follow_it_or_become_null() -> 
     objects[10_000_000] = _stream("TEN MILLION", 150)
     objects[NEAR_U32_MAX] = _stream("TOP", 250)
 
-    saved = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes()
+    saved = pylopdf.open(_numbered_pdf(objects)).tobytes()
 
     assert re.search(rb"/Contents\[5 0 R 6 0 R 7 0 R null null 8 0 R 9 0 R null\]", saved)
     assert re.search(rb"\n8 0 obj\n<</Length \d+>>stream\nBT /F1 20 Tf 20 150 Td \(TEN MILLION\)", saved)
@@ -190,14 +188,14 @@ def test_moved_objects_keep_their_generation() -> None:
     objects = _objects("[5 0 R 10000000 0 R 10000000 1 R 10000000 2 R]")
     objects[6] = _stream("GEN ONE", 200)
     objects[10_000_000] = _stream("GEN ZERO", 150)
-    doc = pylopdf.Document(stream=_numbered_pdf(objects, headers={6: "10000000 1"}))
+    doc = pylopdf.open(_numbered_pdf(objects, headers={6: "10000000 1"}))
 
     saved = doc.tobytes()
 
     assert re.search(rb"/Contents\[5 0 R 6 0 R 7 1 R null\]", saved)
     assert re.search(rb"\n7 1 obj\n", saved)
     for current in _with_reloaded(doc):
-        assert current.get_page_text(0).splitlines() == ["GEN ONE", "GEN ZERO", "TARGET PAGE"]
+        assert current.pages[0].get_text().splitlines() == ["GEN ONE", "GEN ZERO", "TARGET PAGE"]
 
 
 def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id() -> None:
@@ -208,11 +206,11 @@ def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id(
     """
     objects = _objects("[5 0 R 6 0 R]", catalog=f"/PylopdfProbe {NEAR_U32_MAX} 0 R")
     objects[NEAR_U32_MAX] = _stream("SIX", 200)
-    doc = pylopdf.Document(stream=_numbered_pdf(objects, headers={NEAR_U32_MAX: "6 0"}))
+    doc = pylopdf.open(_numbered_pdf(objects, headers={NEAR_U32_MAX: "6 0"}))
     stamps = ["STAMP ONE", "STAMP TWO"]
 
     for index, stamp in enumerate(stamps):
-        doc[0].insert_text((20, 220 + 40 * index), stamp)
+        doc.pages[0].insert_text((20, 220 + 40 * index), stamp)
 
     saved = doc.tobytes()
     assert re.search(rb"/PylopdfProbe null", saved)
@@ -220,7 +218,7 @@ def test_cross_reference_entry_above_the_limit_without_its_object_lowers_max_id(
     assert size is not None
     assert int(size[1]) < 30
     for current in _with_reloaded(doc):
-        assert Counter(current.get_page_text(0).splitlines()) == Counter([*stamps, "SIX", "TARGET PAGE"])
+        assert Counter(current.pages[0].get_text().splitlines()) == Counter([*stamps, "SIX", "TARGET PAGE"])
 
 
 def test_document_numbered_past_i32_reads_and_saves() -> None:
@@ -231,9 +229,9 @@ def test_document_numbered_past_i32_reads_and_saves() -> None:
     """
     numbers = (4_000_000_000, 4_000_000_001, 4_000_000_002, 4_000_000_003, 4_000_000_004)
     objects = _objects(f"{numbers[4]} 0 R", numbers=numbers)
-    doc = pylopdf.Document(stream=_numbered_pdf(objects, root=numbers[0]))
+    doc = pylopdf.open(_numbered_pdf(objects, root=numbers[0]))
 
-    assert doc.get_page_text(0).split() == ["TARGET", "PAGE"]
+    assert doc.pages[0].get_text().split() == ["TARGET", "PAGE"]
     saved = doc.tobytes()
     assert re.search(rb"/Root 1 0 R", saved)
     assert not re.search(rb"\d{10} \d+ (?:obj|R)", saved)
@@ -261,8 +259,8 @@ def test_document_above_the_limit_saves_in_every_mode(mode: str) -> None:
 
     saved = save(_probe_document())
 
-    reopened = pylopdf.Document(stream=saved, password=password)
-    assert reopened.get_page_text(0).split() == ["TARGET", "PAGE"]
+    reopened = pylopdf.open(saved, password=password)
+    assert reopened.pages[0].get_text().split() == ["TARGET", "PAGE"]
     plain = reopened.tobytes()
     assert re.search(rb"/PylopdfProbe 6 0 R", plain)
     assert re.search(rb"\n6 0 obj\n<</PylopdfMarker\(BIG\)>>", plain)
@@ -297,13 +295,13 @@ def test_image_above_the_limit_is_compressed() -> None:
         4: f"<< /Length {len(commands)} >>\nstream\n{commands}\nendstream",
         10_000_000: image,
     }
-    doc = pylopdf.Document(stream=_numbered_pdf(objects))
+    doc = pylopdf.open(_numbered_pdf(objects))
 
     result = doc.rewrite_images(dpi_threshold=96, dpi_target=64, quality=65)
 
     assert (result["considered"], result["rewritten"]) == (1, 1)
     for current in _with_reloaded(doc):
-        compressed = drawn_images(current[0])[0]
+        compressed = drawn_images(current.pages[0])[0]
         assert (compressed["ext"], compressed["width"], compressed["height"]) == ("jpeg", 64, 64)
 
 
@@ -315,14 +313,14 @@ def test_objects_up_to_the_limit_keep_their_numbers() -> None:
     objects = _objects(f"[5 0 R {LIMIT} 0 R {LIMIT + 1} 0 R {LIMIT + 2} 0 R]")
     objects[LIMIT] = _stream("AT LIMIT", 200)
     objects[LIMIT + 1] = _stream("PAST LIMIT", 150)
-    doc = pylopdf.Document(stream=_numbered_pdf(objects))
+    doc = pylopdf.open(_numbered_pdf(objects))
 
     saved = doc.tobytes()
 
     assert re.search(rb"/Contents\[5 0 R 8388607 0 R 8388608 0 R null\]", saved)
     assert re.search(rb"\n8388608 0 obj\n", saved)
     assert re.search(rb"/Size 8388609\b", saved)
-    assert doc.get_page_text(0).splitlines() == ["AT LIMIT", "PAST LIMIT", "TARGET PAGE"]
+    assert doc.pages[0].get_text().splitlines() == ["AT LIMIT", "PAST LIMIT", "TARGET PAGE"]
 
 
 @pytest.mark.parametrize("unlock", ["password", "authenticate"])
@@ -335,7 +333,7 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     """
     objects = _objects("[5 0 R 6 0 R]")
     objects[6] = _stream("SECRET", 200)
-    encrypted = pylopdf.Document(stream=_numbered_pdf(objects)).tobytes(
+    encrypted = pylopdf.open(_numbered_pdf(objects)).tobytes(
         encryption=pylopdf.PDF_ENCRYPT_AES_256, user_pw="user", owner_pw="owner"
     )
     encrypt_id = re.search(rb"/Encrypt (\d+) 0 R", encrypted)
@@ -343,13 +341,13 @@ def test_encrypted_document_above_the_limit_opens_and_edits(unlock: str) -> None
     patched = _renumber_raw(encrypted, {6: NEAR_U32_MAX, int(encrypt_id[1]): NEAR_U32_MAX - 1})
     assert patched.count(f"{NEAR_U32_MAX} 0 R".encode()) == 1
     if unlock == "password":
-        doc = pylopdf.Document(stream=patched, password="user")
+        doc = pylopdf.open(patched, password="user")
     else:
-        doc = pylopdf.Document(stream=patched)
-        assert doc.needs_pass
+        doc = pylopdf.open(patched)
+        assert doc.needs_password
         assert doc.authenticate("user") == 2
 
-    doc[0].insert_text((20, 250), "STAMP")
+    doc.pages[0].insert_text((20, 250), "STAMP")
 
     for current in _with_reloaded(doc):
-        assert Counter(current.get_page_text(0).splitlines()) == Counter(["SECRET", "STAMP", "TARGET PAGE"])
+        assert Counter(current.pages[0].get_text().splitlines()) == Counter(["SECRET", "STAMP", "TARGET PAGE"])

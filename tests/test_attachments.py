@@ -38,19 +38,19 @@ def _compressed_attachment_pdf(
 
 
 def test_attachment_add_get_roundtrip() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     payload = b"\x00\x01binary\xff\xfe" * 100
     doc.attachments.add("invoice.xml", payload, filename="請求書データ.xml", description="請求書の構造化データ")
     assert list(doc.attachments) == ["invoice.xml"]
     assert doc.attachments["invoice.xml"].read() == payload
 
-    reopened = pylopdf.open(stream=doc.tobytes())
+    reopened = pylopdf.open(doc.tobytes())
     assert list(reopened.attachments) == ["invoice.xml"]
     assert reopened.attachments["invoice.xml"].read() == payload
 
 
 def test_attachment_add_bounds_input_atomically() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     payload = b"1234"
 
     doc.attachments.add("exact.bin", payload, max_size=len(payload))
@@ -80,17 +80,17 @@ def test_attachment_add_rejects_non_positive_size_limits(max_size: int) -> None:
 
 
 def test_attachment_survives_compressed_and_garbage_save() -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     payload = b"repetitive " * 1000
     doc.attachments.add("data.txt", payload)
     data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
-    reopened = pylopdf.open(stream=data)
+    reopened = pylopdf.open(data)
     assert reopened.attachments["data.txt"].read() == payload
 
 
 def test_attachment_multiple_names_sorted() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("b.txt", b"B")
     doc.attachments.add("a.txt", b"A")
     assert list(doc.attachments) == ["a.txt", "b.txt"]
@@ -111,7 +111,7 @@ def test_inline_filespec_reads_do_not_mutate_document() -> None:
             4: b"<< /Type /EmbeddedFile /Length 3 >>\nstream\nabc\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     before = len(doc.tobytes())
 
     for _ in range(4):
@@ -128,18 +128,18 @@ def test_inline_filespec_reads_do_not_mutate_document() -> None:
 
 def test_attachment_del_removes() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("a.txt", b"A")
     doc.attachments.add("b.txt", b"B")
     del doc.attachments["a.txt"]
     assert list(doc.attachments) == ["b.txt"]
-    reopened = pylopdf.open(stream=doc.tobytes())
+    reopened = pylopdf.open(doc.tobytes())
     assert list(reopened.attachments) == ["b.txt"]
 
 
 def test_attachment_errors() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("a.txt", b"A")
     with pytest.raises(pylopdf.PdfError, match="already exists"):
         doc.attachments.add("a.txt", b"other")
@@ -155,7 +155,7 @@ def test_attachment_errors() -> None:
 
 def test_attachment_get_bounds_compressed_output_before_materializing_it() -> None:
     payload = b"attachment payload " * 100_000
-    doc = pylopdf.open(stream=_compressed_attachment_pdf(payload))
+    doc = pylopdf.open(_compressed_attachment_pdf(payload))
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.attachments["payload.bin"].read(max_size=1024)
@@ -168,7 +168,7 @@ def test_attachment_get_bounds_compressed_output_before_materializing_it() -> No
 
 def test_attachment_get_applies_the_same_limit_to_uncompressed_content() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("raw.bin", b"1234")
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.attachments["raw.bin"].read(max_size=3)
@@ -178,27 +178,19 @@ def test_attachment_get_applies_the_same_limit_to_uncompressed_content() -> None
 
 def test_attachment_get_accepts_filter_abbreviations_and_rejects_decode_failures() -> None:
     payload = b"abbreviated Flate attachment"
-    abbreviated = pylopdf.open(
-        stream=_compressed_attachment_pdf(payload, filter_name=b"/Fl"),
-    )
+    abbreviated = pylopdf.open(_compressed_attachment_pdf(payload, filter_name=b"/Fl"))
     assert abbreviated.attachments["payload.bin"].read() == payload
 
-    unsupported = pylopdf.open(
-        stream=_compressed_attachment_pdf(b"encoded", filter_name=b"/DCTDecode"),
-    )
+    unsupported = pylopdf.open(_compressed_attachment_pdf(b"encoded", filter_name=b"/DCTDecode"))
     with pytest.raises(pylopdf.PdfError, match="failed to decode attachment"):
         unsupported.attachments["payload.bin"].read()
 
-    malformed = pylopdf.open(
-        stream=_compressed_attachment_pdf(b"encoded", filter_name=b"123"),
-    )
+    malformed = pylopdf.open(_compressed_attachment_pdf(b"encoded", filter_name=b"123"))
     with pytest.raises(pylopdf.PdfError, match="invalid Filter"):
         malformed.attachments["payload.bin"].read()
 
     filters = b"[" + b" ".join([b"/FlateDecode"] * 17) + b"]"
-    excessive = pylopdf.open(
-        stream=_compressed_attachment_pdf(b"", filter_name=filters),
-    )
+    excessive = pylopdf.open(_compressed_attachment_pdf(b"", filter_name=filters))
     with pytest.raises(pylopdf.LimitError) as filter_count:
         excessive.attachments["payload.bin"].read()
     assert filter_count.value.code == "stream_filter_count"
@@ -207,7 +199,7 @@ def test_attachment_get_accepts_filter_abbreviations_and_rejects_decode_failures
 @pytest.mark.parametrize("max_size", [True, 1.5, "1024"])
 def test_attachment_get_rejects_non_integer_size_limits(max_size: object) -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("x", b"x")
     with pytest.raises(TypeError, match="max_size"):
         doc.attachments["x"].read(max_size=max_size)  # ty: ignore[invalid-argument-type]
@@ -216,7 +208,7 @@ def test_attachment_get_rejects_non_integer_size_limits(max_size: object) -> Non
 @pytest.mark.parametrize("max_size", [0, -1])
 def test_attachment_get_rejects_non_positive_size_limits(max_size: int) -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     doc.attachments.add("x", b"x")
     with pytest.raises(ValueError, match="max_size"):
         doc.attachments["x"].read(max_size=max_size)
@@ -233,7 +225,7 @@ def test_attachment_name_tree_reference_cycle_is_visited_once() -> None:
             6: b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     assert list(doc.attachments) == ["x.txt"]
     assert doc.attachments["x.txt"].read() == b"x"
 
@@ -250,7 +242,7 @@ def test_attachment_name_tree_rejects_excessive_depth() -> None:
     objects[37] = "<< /Type /Filespec /F (x.txt) /EF << /F 38 0 R >> >>"
     objects[38] = b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream"
 
-    doc = pylopdf.open(stream=build_raw_pdf(objects))
+    doc = pylopdf.open(build_raw_pdf(objects))
     with pytest.raises(pylopdf.PdfError, match="32-level safety limit"):
         list(doc.attachments)
 
@@ -267,7 +259,7 @@ def test_attachment_name_tree_rejects_excessive_entries_without_partial_output()
             6: b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
         list(doc.attachments)
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit"):
@@ -286,7 +278,7 @@ def test_attachment_add_refuses_to_create_an_unreadable_oversized_tree() -> None
             6: b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     before = doc.tobytes()
     with pytest.raises(pylopdf.PdfError, match="4096-entry safety limit is reached"):
         doc.attachments.add("one-too-many", b"x")
@@ -307,7 +299,7 @@ def test_attachment_writes_bound_inline_filespec_clone_shape() -> None:
             4: b"<< /Type /EmbeddedFile /Length 1 >>\nstream\nx\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
     before = doc.tobytes()
 
     assert list(doc.attachments) == ["x.txt"]
@@ -331,7 +323,7 @@ def test_attachment_add_bounds_input_metadata_atomically(
     filename: str | None,
     desc: str | None,
 ) -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     before = doc.tobytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
@@ -342,7 +334,7 @@ def test_attachment_add_bounds_input_metadata_atomically(
 
 @pytest.mark.parametrize("method", ["get", "del"])
 def test_attachment_lookup_bounds_name_input_before_traversal(method: str) -> None:
-    doc = pylopdf.open(stream=build_pdf(["Hello"]))
+    doc = pylopdf.open(build_pdf(["Hello"]))
     doc.attachments.add("x", b"x")
     before = doc.tobytes()
     name = "é" * (512 * 1024 + 1)
@@ -380,7 +372,7 @@ def _described_pdf() -> bytes:
 
 
 def test_attachment_handles_report_pymupdf_metadata() -> None:
-    doc = pylopdf.open(stream=_described_pdf())
+    doc = pylopdf.open(_described_pdf())
 
     attachment = doc.attachments["data"]
 
@@ -399,7 +391,7 @@ def test_attachment_handles_report_pymupdf_metadata() -> None:
 
 def test_added_attachments_report_their_metadata() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
 
     added = doc.attachments.add("a.txt", b"hello")
     plain = doc.attachments.add("b.txt", b"", filename="B.TXT")
@@ -413,12 +405,12 @@ def test_added_attachments_report_their_metadata() -> None:
 
 
 def test_attachment_write_replaces_the_data_and_keeps_the_metadata() -> None:
-    doc = pylopdf.open(stream=_described_pdf())
+    doc = pylopdf.open(_described_pdf())
     attachment = doc.attachments["data"]
 
     attachment.write(b"x,y,z\n1,2,3")
 
-    for current in (doc, pylopdf.open(stream=doc.tobytes(garbage=True))):
+    for current in (doc, pylopdf.open(doc.tobytes(garbage=True))):
         rewritten = current.attachments["data"]
         assert rewritten.read() == b"x,y,z\n1,2,3"
         assert (rewritten.filename, rewritten.description, rewritten.size) == ("data.csv", "Rows", 11)
@@ -439,17 +431,17 @@ def test_attachment_write_updates_an_inline_file_specification() -> None:
             4: b"<< /Type /EmbeddedFile /Length 3 >>\nstream\nabc\nendstream",
         }
     )
-    doc = pylopdf.open(stream=pdf)
+    doc = pylopdf.open(pdf)
 
     doc.attachments["x.txt"].write(b"new")
 
     assert doc.attachments["x.txt"].read() == b"new"
-    assert pylopdf.open(stream=doc.tobytes()).attachments["x.txt"].read() == b"new"
+    assert pylopdf.open(doc.tobytes()).attachments["x.txt"].read() == b"new"
 
 
 def test_attachment_write_bounds_its_input_atomically() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     attachment = doc.attachments.add("a.bin", b"1234")
     before = doc.tobytes()
 
@@ -463,7 +455,7 @@ def test_attachment_write_bounds_its_input_atomically() -> None:
 
 def test_deleted_attachment_handles_go_stale() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     attachment = doc.attachments.add("a.txt", b"A")
 
     del doc.attachments["a.txt"]
@@ -477,7 +469,7 @@ def test_deleted_attachment_handles_go_stale() -> None:
 
 def test_attachments_require_an_open_document() -> None:
     doc = pylopdf.Document()
-    doc.new_page()
+    doc.pages.new()
     attachments = doc.attachments
     attachment = attachments.add("a.txt", b"A")
     doc.close()

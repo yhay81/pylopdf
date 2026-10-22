@@ -21,8 +21,8 @@ ASSETS = Path(__file__).parent / "assets" / "real_world"
 
 
 def _extract_document(data: bytes) -> str:
-    with pylopdf.open(stream=data) as doc:
-        return "".join(doc.get_page_text(index) for index in range(doc.page_count))
+    with pylopdf.open(data) as doc:
+        return "".join(doc.pages[index].get_text() for index in range(len(doc.pages)))
 
 
 def _timed_extract_pair(data: bytes, *, parallel: bool) -> tuple[float, tuple[str, str]]:
@@ -38,7 +38,7 @@ def _timed_extract_pair(data: bytes, *, parallel: bool) -> tuple[float, tuple[st
 
 def _compress_jpeg(data: bytes) -> tuple[pylopdf.ImageCompressionResult, tuple[int, int], bytes]:
     doc = pylopdf.Document()
-    page = doc.new_page(width=100, height=100)
+    page = doc.pages.new((100, 100))
     page.insert_image((0, 0, 72, 72), stream=data)
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=65)
     image = drawn_images(page)[0]
@@ -76,7 +76,7 @@ def test_distinct_documents_are_correct_and_scale_across_threads() -> None:
 
 
 def test_distinct_documents_rewrite_images_concurrently() -> None:
-    source = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")[0])[0]["image"]
+    source = drawn_images(pylopdf.open(ASSETS / "wdl6812-manuscript.pdf").pages[0])[0]["image"]
     expected = _compress_jpeg(source)
 
     with ThreadPoolExecutor(max_workers=2) as executor:

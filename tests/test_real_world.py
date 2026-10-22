@@ -243,8 +243,8 @@ def _rgba_pixel(page: pylopdf.Page, x: int, y: int) -> tuple[int, int, int, int]
 @ALL
 def test_open_from_path_and_stream(case: Case) -> None:
     path = ASSETS / case.name
-    assert pylopdf.open(path).page_count == case.pages
-    assert pylopdf.open(stream=path.read_bytes()).page_count == case.pages
+    assert len(pylopdf.open(path).pages) == case.pages
+    assert len(pylopdf.open(path.read_bytes()).pages) == case.pages
 
 
 @ALL
@@ -257,17 +257,17 @@ def test_metadata_format(case: Case) -> None:
 def test_batched_get_text_matches_per_page(case: Case) -> None:
     """One shared-interpreter-cache batch must equal fresh per-page extraction."""
     batched = pylopdf.open(ASSETS / case.name).get_text()
-    per_page = "".join(pylopdf.open(ASSETS / case.name).get_page_text(pno) for pno in range(case.pages))
+    per_page = "".join(pylopdf.open(ASSETS / case.name).pages[pno].get_text() for pno in range(case.pages))
     assert batched == per_page
 
 
 @ALL
-def test_peek_metadata_matches_full_load(case: Case) -> None:
-    """peek_metadata returns the same page count as a full load."""
-    meta = pylopdf.peek_metadata(ASSETS / case.name)
-    assert meta["page_count"] == case.pages
-    assert meta["encrypted"] is False
-    assert meta["repaired"] is False
+def test_probe_matches_full_load(case: Case) -> None:
+    """Probe returns the same page count as a full load."""
+    meta = pylopdf.probe(ASSETS / case.name)
+    assert meta.page_count == case.pages
+    assert meta.is_encrypted is False
+    assert meta.is_repaired is False
 
 
 def _has_ink(page: pylopdf.Page) -> bool:
@@ -291,9 +291,9 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
 
     if outcome == "rejected":
         with pytest.raises(pylopdf.PdfError):
-            pylopdf.open(stream=damaged)
+            pylopdf.open(damaged)
         with pytest.raises(pylopdf.PdfError):
-            pylopdf.peek_metadata(stream=damaged)
+            pylopdf.probe(damaged)
         return
 
     expected_warning = {
@@ -302,11 +302,11 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
     }.get(outcome)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        doc = pylopdf.open(stream=damaged)
-        probe = pylopdf.peek_metadata(stream=damaged)
+        doc = pylopdf.open(damaged)
+        probe = pylopdf.probe(damaged)
     messages = [str(warning.message) for warning in caught if issubclass(warning.category, pylopdf.PylopdfWarning)]
     assert doc.is_repaired is (expected_warning is not None)
-    assert probe["repaired"] is doc.is_repaired
+    assert probe.is_repaired is doc.is_repaired
     if expected_warning is None:
         assert not [message for message in messages if "cross-reference" in message]
     else:
@@ -316,21 +316,21 @@ def test_damaged_corpus_outcome(name: str, damage: str, outcome: str) -> None:
 
     if outcome == "unusable":
         with pytest.raises(pylopdf.PdfError):
-            _ = doc.page_count
+            _ = len(doc.pages)
         return
 
-    assert doc.page_count == probe["page_count"] == case.pages
+    assert len(doc.pages) == probe.page_count == case.pages
     if case.snippet is not None and outcome != "rebuilt-without-snippet":
-        assert case.snippet in doc.get_page_text(0)
-    assert _has_ink(doc[0])
+        assert case.snippet in doc.pages[0].get_text()
+    assert _has_ink(doc.pages[0])
     if expected_warning == REBUILT_WARNING:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            reopened = pylopdf.open(stream=doc.tobytes())
+            reopened = pylopdf.open(doc.tobytes())
         assert not caught
         assert reopened.is_repaired is False
-        assert reopened.page_count == case.pages
-        assert reopened.get_page_text(0) == doc.get_page_text(0)
+        assert len(reopened.pages) == case.pages
+        assert reopened.pages[0].get_text() == doc.pages[0].get_text()
 
 
 @ALL
@@ -339,20 +339,20 @@ def test_incorrect_startxref_value_recovers_classic_xref_exactly(case: Case) -> 
     """Recover nearby and distant startxref damage without changing text."""
     original = (ASSETS / case.name).read_bytes()
     start, end = _startxref_value_span(original)
-    expected_text = pylopdf.open(stream=original).get_text()
+    expected_text = pylopdf.open(original).get_text()
 
     for value, warning in ((int(original[start:end]) + 12, OFFSET_WARNING), (0, REBUILT_WARNING)):
         damaged = _with_startxref(original, value)
         if not _uses_classic_xref(original):
             with pytest.raises(pylopdf.PdfError):
-                pylopdf.open(stream=damaged)
+                pylopdf.open(damaged)
             continue
         with pytest.warns(pylopdf.PylopdfWarning, match=warning):
-            doc = pylopdf.open(stream=damaged)
+            doc = pylopdf.open(damaged)
         assert doc.is_repaired is True
         assert doc.get_text() == expected_text
         with pytest.warns(pylopdf.PylopdfWarning, match=warning):
-            assert pylopdf.peek_metadata(stream=damaged)["repaired"] is True
+            assert pylopdf.probe(damaged).is_repaired is True
 
 
 def test_incorrect_startxref_path_probe_and_prefixed_stream(tmp_path: Path) -> None:
@@ -362,20 +362,20 @@ def test_incorrect_startxref_path_probe_and_prefixed_stream(tmp_path: Path) -> N
     path.write_bytes(damaged)
 
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        metadata = pylopdf.peek_metadata(path)
-    assert metadata["page_count"] == 1
-    assert metadata["repaired"] is True
+        metadata = pylopdf.probe(path)
+    assert metadata.page_count == 1
+    assert metadata.is_repaired is True
 
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
         from_path = pylopdf.open(path)
     assert from_path.is_repaired is True
 
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        prefixed = pylopdf.open(stream=b"transport prefix\n" + damaged)
+        prefixed = pylopdf.open(b"transport prefix\n" + damaged)
     assert prefixed.is_repaired is True
-    assert "Hello World" in prefixed.get_page_text(0)
+    assert "Hello World" in prefixed.pages[0].get_text()
 
-    clean = pylopdf.open(stream=b"transport prefix\n" + (ASSETS / "pdf20-simple.pdf").read_bytes())
+    clean = pylopdf.open(b"transport prefix\n" + (ASSETS / "pdf20-simple.pdf").read_bytes())
     assert clean.is_repaired is False
 
 
@@ -384,16 +384,16 @@ def test_rebuilt_trailer_drops_stale_chain_offsets_before_save() -> None:
     original = (ASSETS / "patent-us223898.pdf").read_bytes()
     damaged = _startxref_keyword_corrupted("patent-us223898.pdf", original)
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        doc = pylopdf.open(stream=damaged)
+        doc = pylopdf.open(damaged)
 
     saved = doc.tobytes()
     assert b"/Prev" not in saved[saved.rindex(b"trailer") :]
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        reopened = pylopdf.open(stream=saved)
+        reopened = pylopdf.open(saved)
     assert not caught
     assert reopened.is_repaired is False
-    assert reopened.get_text() == pylopdf.open(stream=original).get_text()
+    assert reopened.get_text() == pylopdf.open(original).get_text()
 
 
 def test_rebuilt_xref_prefers_later_revision_objects() -> None:
@@ -422,8 +422,8 @@ def test_rebuilt_xref_prefers_later_revision_objects() -> None:
     ).encode()
 
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        doc = pylopdf.open(stream=base + update)
-    text = doc.get_page_text(0)
+        doc = pylopdf.open(base + update)
+    text = doc.pages[0].get_text()
     assert "Later revision" in text
     assert "Earlier revision" not in text
 
@@ -450,18 +450,18 @@ def test_unreachable_page_tree_rebuilds_the_xref_table(number: int, shift: int |
     damaged = with_xref_entry_offset(original, number, 4_294_967_295 if shift is None else header + shift)
 
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        doc = pylopdf.open(stream=damaged)
+        doc = pylopdf.open(damaged)
     with pytest.warns(pylopdf.PylopdfWarning, match=REBUILT_WARNING):
-        probe = pylopdf.peek_metadata(stream=damaged)
+        probe = pylopdf.probe(damaged)
     assert doc.is_repaired is True
-    assert doc.page_count == probe["page_count"] == 1
-    assert probe["repaired"] is True
-    assert doc.get_page_text(0).split() == ["Rebuilt", "page"]
+    assert len(doc.pages) == probe.page_count == 1
+    assert probe.is_repaired is True
+    assert doc.pages[0].get_text().split() == ["Rebuilt", "page"]
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        reopened = pylopdf.open(stream=doc.tobytes())
+        reopened = pylopdf.open(doc.tobytes())
     assert reopened.is_repaired is False
-    assert reopened.get_page_text(0) == doc.get_page_text(0)
+    assert reopened.pages[0].get_text() == doc.pages[0].get_text()
 
 
 @pytest.mark.parametrize("hidden", [1, 2], ids=["catalog", "root-node"])
@@ -477,13 +477,13 @@ def test_page_tree_that_no_rebuild_reaches_keeps_the_resolved_table(hidden: int)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        doc = pylopdf.open(stream=damaged)
-        probe = pylopdf.peek_metadata(stream=damaged)
+        doc = pylopdf.open(damaged)
+        probe = pylopdf.probe(damaged)
     assert doc.is_repaired is False
-    assert probe["repaired"] is False
-    assert probe["page_count"] == 0
+    assert probe.is_repaired is False
+    assert probe.page_count == 0
     with pytest.raises(pylopdf.PdfError, match="object ID 1 0 not found"):
-        _ = doc.page_count
+        _ = len(doc.pages)
 
 
 def test_recovered_documents_keep_document_limits() -> None:
@@ -497,7 +497,7 @@ def test_recovered_documents_keep_document_limits() -> None:
         (pylopdf.DocumentLimits(max_total_decompressed_size=4096), "total_decompressed_size"),
     ):
         with pytest.raises(pylopdf.LimitError) as caught:
-            pylopdf.open(stream=damaged, limits=limits)
+            pylopdf.open(damaged, limits=limits)
         assert caught.value.code == code
 
     bomb = build_raw_pdf(
@@ -513,7 +513,7 @@ def test_recovered_documents_keep_document_limits() -> None:
         }
     )
     with pytest.raises(pylopdf.LimitError) as caught:
-        pylopdf.open(stream=_with_startxref(bomb, 0), max_decompressed_size=100)
+        pylopdf.open(_with_startxref(bomb, 0), limits=pylopdf.DocumentLimits(max_decompressed_size=100))
     assert caught.value.code == "decompressed_size"
 
 
@@ -525,7 +525,7 @@ def test_unterminated_stream_keywords_cannot_make_recovery_quadratic() -> None:
     """
     hostile = b"%PDF-1.4\n" + b"stream\n" * 150_000
     start = time.perf_counter()
-    for load in (lambda: pylopdf.open(stream=hostile), lambda: pylopdf.peek_metadata(stream=hostile)):
+    for load in (lambda: pylopdf.open(hostile), lambda: pylopdf.probe(hostile)):
         with pytest.raises(pylopdf.LimitError) as caught:
             load()
         assert caught.value.code == "recovery_scan_size"
@@ -538,7 +538,7 @@ def test_repeated_xref_keywords_fail_without_quadratic_scanning() -> None:
     hostile = b"%PDF-1.4\n" + b"xref" * 262_144 + b"\ntrailer\n<< >>\nstartxref\n0\n%%EOF\n"
     start = time.perf_counter()
     with pytest.raises(pylopdf.PdfError):
-        pylopdf.open(stream=hostile)
+        pylopdf.open(hostile)
     elapsed = time.perf_counter() - start
     assert elapsed < 2.0, f"malformed xref refusal took {elapsed:.2f}s"
 
@@ -552,7 +552,7 @@ def test_recovery_reports_stay_with_their_own_load() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", pylopdf.PylopdfWarning)
         with ThreadPoolExecutor(max_workers=8) as executor:
-            repaired = list(executor.map(lambda data: pylopdf.open(stream=data).is_repaired, inputs))
+            repaired = list(executor.map(lambda data: pylopdf.open(data).is_repaired, inputs))
     assert repaired == [index % 2 == 1 for index in range(64)]
 
 
@@ -566,15 +566,15 @@ def test_truncated_classic_xref_is_rejected() -> None:
     assert entry >= 0
 
     with pytest.raises(pylopdf.PdfError):
-        pylopdf.open(stream=raw[: entry + 8])
+        pylopdf.open(raw[: entry + 8])
 
 
 def test_max_decompressed_size_guards_against_bombs() -> None:
     """A tiny decompression limit rejects PDFs containing object streams."""
     path = ASSETS / "f1040.pdf"
     with pytest.raises(pylopdf.PdfError, match="limit"):
-        pylopdf.open(path, max_decompressed_size=100)
-    assert pylopdf.open(path, max_decompressed_size=50_000_000).page_count == 2
+        pylopdf.open(path, limits=pylopdf.DocumentLimits(max_decompressed_size=100))
+    assert len(pylopdf.open(path, limits=pylopdf.DocumentLimits(max_decompressed_size=50_000_000)).pages) == 2
 
 
 def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
@@ -593,11 +593,8 @@ def test_recovered_pdf_avoids_slow_initial_reserialization() -> None:
     data[186_564:186_568] = bytes(4)
 
     start = time.perf_counter()
-    document = pylopdf.open(
-        stream=bytes(data),
-        max_decompressed_size=16 * 1024 * 1024,
-    )
-    text = document.get_page_text(0)
+    document = pylopdf.open(bytes(data), limits=pylopdf.DocumentLimits(max_decompressed_size=16 * 1024 * 1024))
+    text = document.pages[0].get_text()
     elapsed = time.perf_counter() - start
 
     assert "U.S. Individual Income Tax Return" in text
@@ -629,28 +626,28 @@ def test_max_decompressed_size_guards_page_content_streams(filter_name: str) -> 
         }
     )
     with pytest.raises(pylopdf.PdfError, match="100-byte limit"):
-        pylopdf.open(stream=pdf, max_decompressed_size=100)
-    doc = pylopdf.open(stream=pdf, max_decompressed_size=len(expanded))
-    assert doc.get_page_text(0) == ""
+        pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_decompressed_size=100))
+    doc = pylopdf.open(pdf, limits=pylopdf.DocumentLimits(max_decompressed_size=len(expanded)))
+    assert doc.pages[0].get_text() == ""
 
 
 @WITH_TEXT
 def test_extract_text_page0(case: Case) -> None:
     assert case.snippet is not None
     doc = pylopdf.open(ASSETS / case.name)
-    assert case.snippet in doc.get_page_text(0)
+    assert case.snippet in doc.pages[0].get_text()
 
 
 def test_narrow_patent_columns_keep_column_major_reading_order() -> None:
     """Keep the two body columns separate despite their sub-em gutter."""
     doc = pylopdf.open(ASSETS / "patent-us223898.pdf")
-    text = doc.get_page_text(1)
+    text = doc.pages[1].get_text()
 
     assert text.index("Beit known") < text.index("sistance shall")
     assert text.index("sistance shall") < text.index("dimensions and good conductors")
     assert text.index("dimensions and good conductors") < text.index("globe cannot")
 
-    drifting = doc.get_page_text(2)
+    drifting = doc.pages[2].get_text()
     assert drifting.index("material be molded") < drifting.index("whole, with a leading-tube")
     assert drifting.index("whole, with a leading-tube") < drifting.index("vacuum has been reached")
     assert drifting.index("vacuum has been reached") < drifting.index("I clain as my invention")
@@ -659,7 +656,7 @@ def test_narrow_patent_columns_keep_column_major_reading_order() -> None:
 def test_nics_table_rows_keep_row_major_reading_order() -> None:
     """Keep the statistics table's state labels beside their own numbers."""
     doc = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
-    text = doc.get_page_text(0)
+    text = doc.pages[0].get_text()
 
     assert text.index("Alabama") < text.index("18,870") < text.index("Alaska")
     assert text.index("Alaska") < text.index("Arizona") < text.index("Arkansas")
@@ -668,7 +665,7 @@ def test_nics_table_rows_keep_row_major_reading_order() -> None:
 @ALL
 def test_extract_drawings_page0(case: Case) -> None:
     """Interpret real vector paths without returning malformed commands."""
-    drawings = pylopdf.open(ASSETS / case.name)[0].get_drawings()
+    drawings = pylopdf.open(ASSETS / case.name).pages[0].get_drawings()
     assert all(drawing["type"] in {"f", "s", "fs"} for drawing in drawings)
     assert all(item[0] in {"l", "c"} for drawing in drawings for item in drawing["items"])
 
@@ -680,12 +677,12 @@ def test_pdf20_comment_streams_extract() -> None:
     remains affected, but pylopdf no longer uses it.
     """
     doc = pylopdf.open(ASSETS / "pdf20-simple.pdf")
-    assert "Hello World" in doc.get_page_text(0)
+    assert "Hello World" in doc.pages[0].get_text()
 
 
 def test_pdfium_type3_svg_retains_stencil_glyphs() -> None:
     """Exercise the independent Type 3 glyph program through the SVG device."""
-    svg = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0].get_svg_image()
+    svg = pylopdf.open(ASSETS / "pdfium-type3.pdf").pages[0].get_svg_image()
 
     assert '<defs id="type3-glyph">' in svg
     assert svg.count("<image ") == 3
@@ -693,7 +690,7 @@ def test_pdfium_type3_svg_retains_stencil_glyphs() -> None:
 
 def test_pdfium_type3_stencil_glyphs_render_to_raster() -> None:
     """Expose the current platform-dependent Type 3 raster behavior."""
-    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf").pages[0]
     pixmap = page.get_pixmap(background=(255, 255, 255), alpha=True)
     samples = pixmap.samples
     has_ink = any(samples[offset : offset + 3] != b"\xff\xff\xff" for offset in range(0, len(samples), 4))
@@ -710,7 +707,7 @@ def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
     ToUnicode CMap, so hayro cannot determine any Unicode value. MuPDF
     recovers "A A A" through a raw character-code fallback.
     """
-    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf").pages[0]
     words = [word[4] for word in page.get_text("words")]
 
     if not words:
@@ -720,7 +717,7 @@ def test_pdfium_type3_text_extraction_recovers_stencil_text() -> None:
 
 def test_pdfium_type3_skipped_glyphs_emit_one_warning() -> None:
     """Losing no-Unicode glyphs must be visible as one PylopdfWarning."""
-    page = pylopdf.open(ASSETS / "pdfium-type3.pdf")[0]
+    page = pylopdf.open(ASSETS / "pdfium-type3.pdf").pages[0]
 
     with pytest.warns(pylopdf.PylopdfWarning, match="no Unicode mapping") as caught:
         page.get_text("text")
@@ -731,7 +728,7 @@ def test_pdfium_type3_skipped_glyphs_emit_one_warning() -> None:
 
 def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
     """Decode an ASCIIHex/LZW/JPX image chain through both image APIs."""
-    page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf")[0]
+    page = pylopdf.open(ASSETS / "pdfium-jpx-lzw.pdf").pages[0]
     images = drawn_images(page)
 
     assert [(image["width"], image["height"], image["ext"]) for image in images] == [(612, 792, "png")]
@@ -741,7 +738,7 @@ def test_pdfium_jpx_inside_lzw_decodes_as_red_image() -> None:
 
 def test_pdfium_soft_mask_and_blend_render_expected_region() -> None:
     """Apply a form soft mask and Screen blend without losing its opacity."""
-    page = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf")[0]
+    page = pylopdf.open(ASSETS / "pdfium-smask-blend.pdf").pages[0]
 
     assert _rgba_pixel(page, 75, 150) == (102, 102, 102, 255)
     assert _rgba_pixel(page, 25, 150) == (255, 255, 255, 255)
@@ -760,7 +757,7 @@ def test_pdfium_soft_mask_forms_survive_edits_and_saves() -> None:
     saved = document.tobytes()
 
     assert len(re.findall(rb"/Type null\s*/Subtype\s*/Form", saved)) == 3
-    for page in (document[0], pylopdf.open(stream=saved)[0]):
+    for page in (document.pages[0], pylopdf.open(saved).pages[0]):
         assert _rgba_pixel(page, 75, 150) == (102, 102, 102, 255)
         assert _rgba_pixel(page, 25, 150) == (255, 255, 255, 255)
         assert _rgba_pixel(page, 75, 50) == (255, 255, 255, 255)
@@ -769,7 +766,7 @@ def test_pdfium_soft_mask_forms_survive_edits_and_saves() -> None:
 def test_pdfium_existing_annotations_and_external_link_are_read() -> None:
     """Read and render independent annotations without editing their source."""
     document = pylopdf.open(ASSETS / "pdfium-links-highlights-annots.pdf")
-    page = document[0]
+    page = document.pages[0]
     annotations = page.annots()
 
     assert [annotation.type[1] for annotation in annotations] == [
@@ -814,26 +811,26 @@ def test_f1040_page_deletion_drops_the_page_from_the_structure_tree(edit: str) -
     page and its widgets reachable through every garbage-collecting save.
     """
     doc = pylopdf.open(ASSETS / "f1040.pdf")
-    first_page = doc[0].get_text()
+    first_page = doc.pages[0].get_text()
     if edit == "delete":
-        doc.delete_pages([1])
+        del doc.pages[1:2]
     else:
-        doc.select([0])
+        doc.pages.select([0])
     saved = doc.tobytes(garbage=True)
 
     assert len(re.findall(rb"/Type\s*/Page(?![a-zA-Z])", saved)) == 1
     assert len(re.findall(rb"/Subtype\s*/Widget", saved)) == 128
     assert b"topmostSubform[0].Page2[0]" not in saved
     assert b"/StructTreeRoot" in saved
-    reopened = pylopdf.open(stream=saved)
-    assert reopened.page_count == 1
-    assert reopened[0].get_text() == first_page
+    reopened = pylopdf.open(saved)
+    assert len(reopened.pages) == 1
+    assert reopened.pages[0].get_text() == first_page
     assert len(reopened.get_form_fields()) == 128
 
 
 def test_f1040_bordered_table() -> None:
     """Extract a real stroked dependency grid without rasterization."""
-    tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables()
+    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].find_tables()
     assert len(tables) >= 1
     table = tables[0]
     assert (table.row_count, table.col_count) == (2, 7)
@@ -844,14 +841,14 @@ def test_f1040_bordered_table() -> None:
 
 def test_f1040_drawing_extraction_retains_form_paths() -> None:
     """Expose the dense vector structure underlying a real tax form."""
-    drawings = pylopdf.open(ASSETS / "f1040.pdf")[0].get_drawings()
+    drawings = pylopdf.open(ASSETS / "f1040.pdf").pages[0].get_drawings()
     assert len(drawings) >= 400
     assert any(drawing["type"] == "fs" for drawing in drawings)
 
 
 def test_f1040_markdown_integrates_bordered_table_once() -> None:
     """Place a real stroked dependency grid into page Markdown."""
-    page = pylopdf.open(ASSETS / "f1040.pdf")[0]
+    page = pylopdf.open(ASSETS / "f1040.pdf").pages[0]
     markdown = page.to_markdown()
 
     assert "| --- | --- | --- | --- | --- | --- | --- |" in markdown
@@ -865,7 +862,7 @@ def test_f1040_markdown_integrates_bordered_table_once() -> None:
 
 def test_f1040_borderless_text_table() -> None:
     """Extract aligned form rows that have no complete surrounding grid."""
-    tables = pylopdf.open(ASSETS / "f1040.pdf")[0].find_tables(strategy="text")
+    tables = pylopdf.open(ASSETS / "f1040.pdf").pages[0].find_tables(strategy="text")
     extracted = [table.extract() for table in tables]
 
     assert any(any(cell == "Filing Status" for row in table for cell in row) for table in extracted)
@@ -873,7 +870,7 @@ def test_f1040_borderless_text_table() -> None:
 
 def test_nics_sparse_grid_infers_individual_rows() -> None:
     """Split dense records inside coarse vector row spans."""
-    table = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")[0].find_tables()[0]
+    table = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf").pages[0].find_tables()[0]
     rows = table.extract()
 
     assert (table.row_count, table.col_count) == (58, 25)
@@ -915,8 +912,8 @@ def test_nics_sparse_grid_infers_individual_rows() -> None:
 def test_nics_markdown_preserves_sparse_grid_reading_order(rotation: int) -> None:
     """Expand merged headers without duplicating adjacent data after rotation."""
     document = pylopdf.open(ASSETS / "nics-background-checks-2015-11.pdf")
-    document[0].set_rotation(rotation)
-    table = document[0].find_tables()[0]
+    document.pages[0].set_rotation(rotation)
+    table = document.pages[0].find_tables()[0]
 
     expected_shape = (58, 25) if rotation in (0, 180) else (25, 58)
     assert (table.row_count, table.col_count) == expected_shape
@@ -930,7 +927,7 @@ def test_nics_markdown_preserves_sparse_grid_reading_order(rotation: int) -> Non
 
 def test_rotated_senate_header_and_borderless_body() -> None:
     """Keep a merged vector header separate from aligned expenditure rows."""
-    page = pylopdf.open(ASSETS / "senate-expenditures.pdf")[0]
+    page = pylopdf.open(ASSETS / "senate-expenditures.pdf").pages[0]
 
     header = page.find_tables()[0]
     assert (header.row_count, header.col_count) == (2, 7)
@@ -944,28 +941,28 @@ def test_rotated_senate_header_and_borderless_body() -> None:
 def test_manuscript_scan_has_no_text_layer() -> None:
     """A pure scan without a text layer correctly extracts as empty."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    assert doc.get_page_text(0).strip() == ""
+    assert doc.pages[0].get_text().strip() == ""
 
 
 def test_manuscript_compression_preserves_mismatched_masks() -> None:
     """Skip real JPEG/mask pairs rather than changing their compositing."""
     doc = pylopdf.open(ASSETS / "wdl6812-manuscript.pdf")
-    before = doc[0].get_pixmap(alpha=True).samples
+    before = doc.pages[0].get_pixmap(alpha=True).samples
 
     result = doc.rewrite_images(dpi_threshold=150, dpi_target=100, quality=50)
 
     assert result["considered"] >= 2
     assert result["rewritten"] == 0
-    assert doc[0].get_pixmap(alpha=True).samples == before
+    assert doc.pages[0].get_pixmap(alpha=True).samples == before
 
 
 @ALL
 def test_select_first_page_and_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    doc.select([0])
-    assert doc.page_count == 1
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened.page_count == 1
+    doc.pages.select([0])
+    assert len(doc.pages) == 1
+    reopened = pylopdf.open(doc.tobytes())
+    assert len(reopened.pages) == 1
 
 
 @ALL
@@ -973,22 +970,22 @@ def test_insert_subset_with_position_roundtrip(case: Case) -> None:
     """Importing page 0 at the front survives pruning without content loss."""
     doc = pylopdf.open(ASSETS / case.name)
     src = pylopdf.open(ASSETS / case.name)
-    doc.insert_pdf(src, from_page=0, to_page=0, start_at=0)
-    assert doc.page_count == case.pages + 1
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened.page_count == case.pages + 1
+    doc.pages.insert(0, src.pages[0:1])
+    assert len(doc.pages) == case.pages + 1
+    reopened = pylopdf.open(doc.tobytes())
+    assert len(reopened.pages) == case.pages + 1
     # Pruning preserves fonts/images referenced by the inserted page.
-    assert reopened.get_page_pixmap(0, alpha=True).tobytes().startswith(b"\x89PNG")
+    assert reopened.pages[0].get_pixmap(alpha=True).tobytes().startswith(b"\x89PNG")
 
 
 @ALL
 def test_merge_self_and_roundtrip(case: Case) -> None:
     raw = (ASSETS / case.name).read_bytes()
-    doc = pylopdf.open(stream=raw)
-    doc.insert_pdf(pylopdf.open(stream=raw))
-    assert doc.page_count == case.pages * 2
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened.page_count == case.pages * 2
+    doc = pylopdf.open(raw)
+    doc.pages.extend(pylopdf.open(raw).pages)
+    assert len(doc.pages) == case.pages * 2
+    reopened = pylopdf.open(doc.tobytes())
+    assert len(reopened.pages) == case.pages * 2
 
 
 @ALL
@@ -996,10 +993,10 @@ def test_merge_into_empty_and_roundtrip(case: Case) -> None:
     """Importing a real PDF into an empty document avoids Catalog/Pages ID collisions."""
     source = pylopdf.open(ASSETS / case.name)
     doc = pylopdf.Document()
-    doc.insert_pdf(source)
-    assert doc.page_count == case.pages
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened.page_count == case.pages
+    doc.pages.extend(source.pages)
+    assert len(doc.pages) == case.pages
+    reopened = pylopdf.open(doc.tobytes())
+    assert len(reopened.pages) == case.pages
 
 
 @ALL
@@ -1007,10 +1004,10 @@ def test_delete_page_and_roundtrip(case: Case) -> None:
     if case.pages < 2:
         pytest.skip("deleting every page from a one-page document is out of scope")
     doc = pylopdf.open(ASSETS / case.name)
-    doc.delete_page(0)
-    assert doc.page_count == case.pages - 1
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert reopened.page_count == case.pages - 1
+    del doc.pages[0]
+    assert len(doc.pages) == case.pages - 1
+    reopened = pylopdf.open(doc.tobytes())
+    assert len(reopened.pages) == case.pages - 1
 
 
 @ALL
@@ -1018,8 +1015,8 @@ def test_save_optimized_roundtrip(case: Case) -> None:
     """Garbage, deflate, and object-stream saves preserve readable content."""
     doc = pylopdf.open(ASSETS / case.name)
     data = doc.tobytes(garbage=True, deflate=True, use_objstms=True)
-    reopened = pylopdf.open(stream=data)
-    assert reopened.page_count == case.pages
+    reopened = pylopdf.open(data)
+    assert len(reopened.pages) == case.pages
 
 
 def test_object_streams_reduce_size() -> None:
@@ -1034,7 +1031,7 @@ def test_object_streams_reduce_size() -> None:
 def test_set_metadata_roundtrip(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
     doc.set_metadata({"title": "回帰テスト", "author": "pylopdf"})
-    reopened = pylopdf.open(stream=doc.tobytes())
+    reopened = pylopdf.open(doc.tobytes())
     assert reopened.metadata["title"] == "回帰テスト"
     assert reopened.metadata["author"] == "pylopdf"
 
@@ -1042,7 +1039,7 @@ def test_set_metadata_roundtrip(case: Case) -> None:
 @ALL
 def test_render_page_png(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    png = doc.get_page_pixmap(0, matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    png = doc.pages[0].get_pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(png) > 1000
 
@@ -1050,7 +1047,7 @@ def test_render_page_png(case: Case) -> None:
 @ALL
 def test_render_page_svg(case: Case) -> None:
     doc = pylopdf.open(ASSETS / case.name)
-    svg = doc[0].get_svg_image()
+    svg = doc.pages[0].get_svg_image()
     assert svg.startswith("<svg")
 
 
@@ -1059,6 +1056,6 @@ def test_extract_text_survives_edit(case: Case) -> None:
     """Text extraction survives select with inherited attributes materialized."""
     assert case.snippet is not None
     doc = pylopdf.open(ASSETS / case.name)
-    doc.select([0])
-    reopened = pylopdf.open(stream=doc.tobytes())
-    assert case.snippet in reopened.get_page_text(0)
+    doc.pages.select([0])
+    reopened = pylopdf.open(doc.tobytes())
+    assert case.snippet in reopened.pages[0].get_text()
