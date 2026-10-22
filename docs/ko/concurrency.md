@@ -62,7 +62,7 @@ with pylopdf.open("report.pdf") as document:
 import numpy as np
 
 pix = page.pixmap()
-pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+pixels = np.asarray(pix)  # 모양은 (높이, 너비, 채널 수)
 ```
 
-반면 `pix.samples`는 독립된 `bytes` 사본을 반환합니다.
+반면 `bytes(pix)`는 독립된 사본을 반환하고, `Pixmap.from_array(pixels)`는 배열을 다시 pixmap으로 만듭니다.

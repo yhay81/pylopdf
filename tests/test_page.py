@@ -30,11 +30,11 @@ def test_page_get_text_and_render(three_page_pdf: bytes) -> None:
     doc = pylopdf.open(three_page_pdf)
     page = doc.pages[1]
     assert "Page two" in page.text()
-    png = page.pixmap(alpha=True).tobytes(max_size=None)
-    assert png == doc.pages[1].pixmap(alpha=True).tobytes()
-    assert page.pixmap(alpha=True).tobytes(max_size=len(png)) == png
+    png = page.pixmap(alpha=True).to_bytes(max_size=None)
+    assert png == doc.pages[1].pixmap(alpha=True).to_bytes()
+    assert page.pixmap(alpha=True).to_bytes(max_size=len(png)) == png
     with pytest.raises(pylopdf.LimitError) as caught:
-        page.pixmap(alpha=True).tobytes(max_size=len(png) - 1)
+        page.pixmap(alpha=True).to_bytes(max_size=len(png) - 1)
     assert caught.value.code == "pixmap_output_size"
     svg = page.svg(max_size=None)
     assert svg == doc.pages[1].svg(max_size=None)
@@ -75,7 +75,7 @@ def test_set_mediabox_roundtrip(one_page_pdf: bytes) -> None:
     # Persist the box through save and apply it to rendering dimensions.
     reopened = pylopdf.open(doc.to_bytes())
     assert reopened.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 300.0, 400.0)
-    assert png_size(reopened.pages[0].pixmap(alpha=True).tobytes()) == (300, 400)
+    assert png_size(reopened.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
 
 
 def test_set_cropbox(one_page_pdf: bytes) -> None:
@@ -84,7 +84,7 @@ def test_set_cropbox(one_page_pdf: bytes) -> None:
     assert doc.pages[0].cropbox == pylopdf.Rect(10.0, 10.0, 310.0, 410.0)
     assert doc.pages[0].mediabox == pylopdf.Rect(0.0, 0.0, 612.0, 792.0)  # MediaBox stays unchanged.
     # Rendering uses the CropBox dimensions.
-    assert png_size(doc.pages[0].pixmap(alpha=True).tobytes()) == (300, 400)
+    assert png_size(doc.pages[0].pixmap(alpha=True).to_bytes()) == (300, 400)
 
 
 @pytest.mark.parametrize(
@@ -111,7 +111,7 @@ def test_rotation_roundtrip_and_render(one_page_pdf: bytes) -> None:
     page.set_rotation(90)
     assert page.rotation == 90
     # Rotation swaps rendered dimensions from 612 x 792 to 792 x 612.
-    assert png_size(doc.pages[0].pixmap(alpha=True).tobytes()) == (792, 612)
+    assert png_size(doc.pages[0].pixmap(alpha=True).to_bytes()) == (792, 612)
     page.set_rotation(-90)
     assert page.rotation == 270
     reopened = pylopdf.open(doc.to_bytes())

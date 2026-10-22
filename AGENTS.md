@@ -1263,11 +1263,25 @@ the concept and API overview.
   retaining it; `max_size=None` is the explicit unbounded opt-out and limit
   failures return no partial list. Other simultaneous calls or edits on the same
   `Document` are outside the contract.
-- `Pixmap.tobytes` defaults to a 64 MiB encoded-PNG output boundary. The
-  shared PNG writer refuses the write crossing the limit before Python bytes
-  conversion and grows its retained output fallibly. `max_size=None` is the
-  explicit trusted-output opt-out. Failures use `pixmap_output_size`; the
-  `Document.render` batch budget uses `render_output_size`.
+- `Pixmap` (`rust/src/pixmap.rs`) holds gray or RGB samples with an
+  optional straight alpha byte (`Layout`), and `Encoding` is PNG or JPEG
+  (jpeg-encoder, which `rewrite_images` already uses, at the default Huffman
+  tables; JPEG refuses alpha). `write_image` serves every writer:
+  `Pixmap.to_bytes` and `Document.render` through bounded writers and
+  `Pixmap.save` straight to its sibling file. `Pixmap.to_bytes` defaults to a
+  64 MiB encoded-output boundary; the bounded writer refuses the write
+  crossing the limit before Python bytes conversion and grows its retained
+  output fallibly. `max_size=None` is the explicit trusted-output opt-out.
+  Failures use `pixmap_output_size`; the `Document.render` batch budget uses
+  `render_output_size`. Gray rendering converts the RGB raster in place with
+  BT.601 weights `(77 R + 150 G + 29 B + 128) >> 8` after hayro renders it,
+  because hayro rasterizes RGB only. `from_array` reads any buffer of
+  unsigned bytes shaped `(height, width[, channels])` through
+  `PyBuffer::to_vec`, which also copies a non-contiguous array, and refuses
+  sides above 65,535 pixels. Every consumer takes the layout:
+  `draw::pixmap_parts` writes DeviceGray or DeviceRGB planes, the placement
+  digest tags each layout, and the canvas's krilla path and OCR expand to
+  RGBA with `expand_to_rgba`.
 - `Page.pixmap` renders opaque RGB (`n == 3`) on white by default and
   straight-alpha RGBA with `alpha=True`. `dpi` and `matrix` are exclusive
   (`_render_scale` refuses both), and only scaling matrices are accepted
@@ -2644,8 +2658,11 @@ the concept and API overview.
   `PylopdfWarning` after each operation.
 - `Pixmap` is immutable. Every build exposes its RGB or RGBA storage through a
   read-only zero-copy buffer, the `abi3-py311` wheels included, because
-  `Py_buffer` entered the stable ABI in Python 3.11; `Pixmap.samples` returns
-  a one-copy `bytes` value. `tests/test_pixmap.py`, `tools/smoke_artifact.py`
+  `Py_buffer` entered the stable ABI in Python 3.11, shaped `(height, width)`
+  for one channel and `(height, width, channels)` otherwise; the shape and
+  strides live in a boxed array that the view's `internal` pointer owns until
+  `__releasebuffer__`, and a consumer that asks for no shape gets one flat
+  dimension. `bytes(pixmap)` copies once. `tests/test_pixmap.py`, `tools/smoke_artifact.py`
   on every release wheel, and the Pyodide contract check the buffer. `Pixmap.save` streams PNG
   encoding directly to disk while the GIL is released rather than retaining a
   second completed PNG. It uses an unpredictable, exclusively created

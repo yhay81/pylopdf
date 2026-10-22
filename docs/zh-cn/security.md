@@ -84,7 +84,7 @@ limits = pylopdf.DocumentLimits(
 | `Document.to_bytes()` | 输出512 MiB | `max_size` |
 | `Document.render()` | PNG输出合计512 MiB | `max_size` |
 | `markdown()`、`Table.markdown()` | 输出64 MiB | `max_size` |
-| `Pixmap.tobytes()`、`Page.svg()` | 输出64 MiB | `max_size` |
+| `Pixmap.to_bytes()`、`Page.svg()` | 输出64 MiB | `max_size` |
 | `Page.search()` | 4,096个结果 | `max_hits` |
 | `Page.content()` | 字形、路径与裁剪的线段、描边的虚线长度以及项合计262,144个 | `max_elements` |
 | `Page.insert_text()`、`insert_textbox()` | 文本1 MiB、4,096行 | `max_text_size` |

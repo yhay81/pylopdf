@@ -51,7 +51,7 @@ def _png() -> bytes:
     page = doc.pages.new((4, 2))
     with page.draw() as canvas:
         canvas.rect((0, 0, 2, 2), fill=RED)
-    return page.pixmap().tobytes()
+    return page.pixmap().to_bytes()
 
 
 def test_pages_join_in_order(font: pylopdf.Font) -> None:
@@ -125,7 +125,7 @@ def test_images(tmp_path: Path) -> None:
     assert (extracted.format, extracted.data) == ("jpeg", PHOTO_JPEG)
     pixels = doc.pages[0].pixmap()
     offset = 20 * pixels.stride + 15 * 3
-    assert pixels.samples[offset : offset + 3] == b"\xff\x00\x00"
+    assert bytes(pixels)[offset : offset + 3] == b"\xff\x00\x00"
 
 
 def test_scopes(font: pylopdf.Font) -> None:

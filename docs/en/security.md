@@ -100,7 +100,7 @@ a default that is safe for most uses. Raise it with the keyword shown, or pass
 | `Document.to_bytes()` | 512 MiB of output | `max_size` |
 | `Document.render()` | 512 MiB of PNG output in total | `max_size` |
 | `markdown()`, `Table.markdown()` | 64 MiB of output | `max_size` |
-| `Pixmap.tobytes()`, `Page.svg()` | 64 MiB of output | `max_size` |
+| `Pixmap.to_bytes()`, `Page.svg()` | 64 MiB of output | `max_size` |
 | `Page.search()` | 4,096 results | `max_hits` |
 | `Page.content()` | 262,144 glyphs, path and clip segments, stroke dash lengths, and items | `max_elements` |
 | `Page.insert_text()`, `insert_textbox()` | 1 MiB of text and 4,096 lines | `max_text_size` |

@@ -43,7 +43,7 @@ OPERATIONS: dict[str, Callable[[pylopdf.Document], object]] = {
     "find_tables": lambda doc: doc.pages[0].tables(),
     "content": lambda doc: doc.pages[0].content(),
     "get_pixmap": lambda doc: doc.pages[0].pixmap(alpha=True),
-    "render_page": lambda doc: doc.pages[0].pixmap(alpha=True).tobytes(),
+    "render_page": lambda doc: doc.pages[0].pixmap(alpha=True).to_bytes(),
     "render_pages": lambda doc: doc.render(alpha=True, workers=2),
     "render_page_svg": lambda doc: doc.pages[0].svg(),
     "to_markdown": lambda doc: doc.markdown(),
@@ -799,7 +799,7 @@ def test_listing_a_deep_form_is_enough_to_refuse_the_page() -> None:
 def test_every_appearance_state_is_checked() -> None:
     """Read every state of a check box, of which hayro draws one, without asking which."""
     drawn = pylopdf.open(appearance_state("0 0 1 rg 0 0 190 50 re f"))
-    assert tuple(drawn.pages[0].pixmap(clip=(20, 110, 40, 130), alpha=True).samples[:3]) == (0, 0, 255)
+    assert tuple(bytes(drawn.pages[0].pixmap(clip=(20, 110, 40, 130), alpha=True))[:3]) == (0, 0, 255)
 
     # `/AS` selects the shallow `/On`, the only state hayro draws, and `/Off` holds the deep content.
     doc = pylopdf.open(appearance_state(_show(_arrays(LIMIT + 1)), holder="/Off"))

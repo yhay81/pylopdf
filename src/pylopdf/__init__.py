@@ -126,7 +126,7 @@ from pylopdf._objects import Array, Dictionary, Name, Objects, Stream, String
 from pylopdf._ocr import OcrEngine, OcrWord
 from pylopdf._page import Page
 from pylopdf._pages import Pages
-from pylopdf._pixmap import CS_CMYK, CS_GRAY, CS_RGB, Colorspace, csCMYK, csGRAY, csRGB
+from pylopdf._pixmap import Colorspace
 from pylopdf._shape import Shape
 from pylopdf._tables import Table, TableDiagnostics
 from pylopdf._text import Block, Char, Layout, Line, Span, Word
@@ -170,9 +170,6 @@ from pylopdf.pylopdf_core import LimitError, OcrError, PasswordError, PdfError, 
 
 __version__ = "0.15.0"
 __all__ = [
-    "CS_CMYK",
-    "CS_GRAY",
-    "CS_RGB",
     "EMPTY_IRECT",
     "EMPTY_QUAD",
     "EMPTY_RECT",
@@ -345,9 +342,6 @@ __all__ = [
     "TransparencyGroup",
     "Word",
     "create",
-    "csCMYK",
-    "csGRAY",
-    "csRGB",
     "open",
     "planish_line",
     "probe",

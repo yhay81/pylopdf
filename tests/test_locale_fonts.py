@@ -50,7 +50,7 @@ def render_with_explicit_serif(font: Path) -> bytes:
     """Render the MS-Mincho fixture with one explicitly configured serif slot."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(font, kind="serif")
-    return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
 
 def package_font_provider(directory: Path) -> SimpleNamespace:
@@ -89,7 +89,7 @@ def render_blank_baseline() -> bytes:
     """Render the blank baseline with fallback and auto-discovery disabled."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(None)
-    return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    return doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
 
 def test_without_fallback_renders_blank() -> None:
@@ -101,7 +101,7 @@ def test_without_fallback_renders_blank() -> None:
 def test_fallback_font_from_path_renders_text() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(SANS)
-    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     # Rendered glyphs add pixels, so the PNG differs from the blank baseline.
     assert png != render_blank_baseline()
@@ -111,14 +111,14 @@ def test_fallback_font_from_path_renders_text() -> None:
 def test_fallback_font_from_bytes_renders_text() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(SANS.read_bytes())
-    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes() != render_blank_baseline()
+    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() != render_blank_baseline()
 
 
 def test_serif_slot_used_for_mincho() -> None:
     """Use the serif slot for PDFs whose BaseFont is MS-Mincho."""
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(SERIF, kind="serif")
-    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes() != render_blank_baseline()
+    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() != render_blank_baseline()
 
 
 def test_svg_rendering_includes_glyphs() -> None:
@@ -142,31 +142,31 @@ def test_invalid_kind_raises() -> None:
 def test_fallback_font_boundary_preserves_previous_font_and_cache() -> None:
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
     doc.set_fallback_font(SANS)
-    baseline = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    baseline = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
     with pytest.raises(pylopdf.LimitError) as caught:
         doc.set_fallback_font(SERIF, max_font_size=SERIF.stat().st_size - 1)
 
     assert caught.value.code == "font_input_size"
-    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes() == baseline
+    assert doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() == baseline
 
 
 def test_latin_rendering_unaffected_by_fallback(one_page_pdf: bytes) -> None:
     """Keep Latin rendering unchanged when a fallback font is configured."""
     plain = pylopdf.open(one_page_pdf)
     plain.set_fallback_font(None)
-    baseline = plain.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    baseline = plain.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
     with_font = pylopdf.open(one_page_pdf)
     with_font.set_fallback_font(SANS)
-    assert with_font.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes() == baseline
+    assert with_font.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() == baseline
 
 
 def test_auto_discovery_via_extra() -> None:
     """Auto-render Japanese text when pylopdf[jp] is installed."""
     pytest.importorskip("pylopdf_fonts_jp")
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    png = doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert png != render_blank_baseline()
 
 
@@ -196,7 +196,7 @@ def test_auto_discovered_fonts_render_like_explicit_fonts() -> None:
     expected = render_with_explicit_serif(SERIF)
     pdf = build_nonembedded_cjk_pdf()
     assert [
-        pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes() for _ in range(3)
+        pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes() for _ in range(3)
     ] == [expected] * 3
 
 
@@ -251,11 +251,11 @@ def test_auto_discovery_rereads_a_replaced_font_file(tmp_path: Path, monkeypatch
     provider = SimpleNamespace(language="ja", extra="jp", sans=SANS, serif=serif)
     monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     pdf = build_nonembedded_cjk_pdf()
-    mincho = pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    mincho = pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert mincho == render_with_explicit_serif(SERIF)
 
     shutil.copy(SANS, serif)
-    gothic = pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    gothic = pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     assert gothic == render_with_explicit_serif(SANS)
     assert gothic != mincho
 
@@ -270,7 +270,7 @@ def test_concurrent_first_renders_share_locale_fonts(tmp_path: Path, monkeypatch
     pdf = build_nonembedded_cjk_pdf()
 
     def render(_: int) -> bytes:
-        return pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+        return pylopdf.open(pdf).pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         rendered = list(executor.map(render, range(32)))
@@ -353,7 +353,7 @@ def test_rendering_and_generation_share_package_font_slots(
     monkeypatch.setattr("pylopdf._fonts._bundled_font_providers", lambda: (provider,))
     reads = _Document.package_font_reads()
     doc = pylopdf.open(build_nonembedded_cjk_pdf())
-    doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).tobytes()
+    doc.pages[0].pixmap(matrix=pylopdf.Matrix(1.0, 1.0), alpha=True).to_bytes()
     doc.pages[0].insert_text((20, 120), "日本語")
     doc.pages[0].insert_text((20, 160), "明朝体", fontname="tiro")
     assert _Document.package_font_reads() - reads == 2
@@ -398,12 +398,12 @@ def test_locale_fallback_matches_adobe_character_collection(
     pdf = build_nonembedded_locale_cjk_pdf(text, font_language)
     blank = pylopdf.open(pdf)
     blank.set_fallback_font(None)
-    blank_png = blank.pages[0].pixmap(alpha=True).tobytes()
+    blank_png = blank.pages[0].pixmap(alpha=True).to_bytes()
 
     doc = pylopdf.open(pdf)
     doc.set_fallback_font(LOCALE_SANS[font_language], font_language=font_language)
 
-    assert doc.pages[0].pixmap(alpha=True).tobytes() != blank_png
+    assert doc.pages[0].pixmap(alpha=True).to_bytes() != blank_png
     assert doc.pages[0].text().strip() == text
 
 
@@ -415,12 +415,12 @@ def test_wrong_locale_does_not_override_matching_collection(
     pdf = build_nonembedded_locale_cjk_pdf("简体中文", "zh-CN")
     blank = pylopdf.open(pdf)
     blank.set_fallback_font(None)
-    blank_png = blank.pages[0].pixmap(alpha=True).tobytes()
+    blank_png = blank.pages[0].pixmap(alpha=True).to_bytes()
 
     doc = pylopdf.open(pdf)
     doc.set_fallback_font(LOCALE_SANS[wrong_language], font_language=wrong_language)
 
-    assert doc.pages[0].pixmap(alpha=True).tobytes() == blank_png
+    assert doc.pages[0].pixmap(alpha=True).to_bytes() == blank_png
 
 
 def test_nonembedded_cjk_extract_text() -> None:

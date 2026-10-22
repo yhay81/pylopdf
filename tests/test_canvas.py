@@ -43,7 +43,7 @@ def _new_page(width: float = 300, height: float = 200) -> tuple[pylopdf.Document
 def _pixel(page: pylopdf.Page, x: float, y: float) -> tuple[int, int, int]:
     pixmap = page.pixmap()
     offset = int(y) * pixmap.stride + int(x) * 3
-    samples = pixmap.samples
+    samples = bytes(pixmap)
     return samples[offset], samples[offset + 1], samples[offset + 2]
 
 
@@ -326,7 +326,7 @@ def _png(width: int = 4, height: int = 2) -> bytes:
     _doc, page = _new_page(width, height)
     with page.draw() as canvas:
         canvas.rect((0, 0, width / 2, height), fill=RED)
-    return page.pixmap().tobytes()
+    return page.pixmap().to_bytes()
 
 
 def test_images_are_stored_once() -> None:

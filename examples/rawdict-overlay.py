@@ -116,7 +116,7 @@ def main() -> None:
         layout = page.layout(chars=True)
         png = page.pixmap(
             matrix=pylopdf.Matrix(args.scale, args.scale), background=(255, 255, 255), alpha=True
-        ).tobytes()
+        ).to_bytes()
         source = f"{args.pdf.name if args.pdf is not None else 'Generated demo'} — page {page.index}"
         output = _create_html(layout, png, source)
     args.output.parent.mkdir(parents=True, exist_ok=True)

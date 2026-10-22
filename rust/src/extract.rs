@@ -4280,20 +4280,23 @@ pub(crate) fn write_png<W: Write>(
 }
 
 pub(crate) enum PngEncodeError {
-    Encoding(png::EncodingError),
+    /// The encoder refused the samples; extraction then skips the image.
+    Encoding,
     OutputLimit,
     Allocation(String),
 }
 
-struct BoundedPngOutput {
-    bytes: Vec<u8>,
+/// A writer that retains output up to `max_size` bytes and refuses the write
+/// that would cross it, growing its buffer fallibly.
+pub(crate) struct BoundedOutput {
+    pub(crate) bytes: Vec<u8>,
     max_size: Option<usize>,
-    exceeded: bool,
-    allocation_error: Option<String>,
+    pub(crate) exceeded: bool,
+    pub(crate) allocation_error: Option<String>,
 }
 
-impl BoundedPngOutput {
-    fn new(max_size: Option<usize>) -> Self {
+impl BoundedOutput {
+    pub(crate) fn new(max_size: Option<usize>) -> Self {
         Self {
             bytes: Vec::new(),
             max_size,
@@ -4303,7 +4306,7 @@ impl BoundedPngOutput {
     }
 }
 
-impl Write for BoundedPngOutput {
+impl Write for BoundedOutput {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         self.write_all(buffer)?;
         Ok(buffer.len())
@@ -4314,14 +4317,14 @@ impl Write for BoundedPngOutput {
             .bytes
             .len()
             .checked_add(buffer.len())
-            .ok_or_else(|| io::Error::other("PNG output size overflowed"))?;
+            .ok_or_else(|| io::Error::other("encoded output size overflowed"))?;
         if self.max_size.is_some_and(|limit| new_len > limit) {
             self.exceeded = true;
-            return Err(io::Error::other("PNG output size limit exceeded"));
+            return Err(io::Error::other("encoded output size limit exceeded"));
         }
         if let Err(error) = self.bytes.try_reserve(buffer.len()) {
-            self.allocation_error = Some(format!("failed to allocate PNG output: {error}"));
-            return Err(io::Error::other("failed to allocate PNG output"));
+            self.allocation_error = Some(format!("failed to allocate encoded output: {error}"));
+            return Err(io::Error::other("failed to allocate encoded output"));
         }
         self.bytes.extend_from_slice(buffer);
         Ok(())
@@ -4341,7 +4344,7 @@ pub(crate) fn encode_png_bounded(
     compression: png::Compression,
     max_size: Option<usize>,
 ) -> Result<Vec<u8>, PngEncodeError> {
-    let mut output = BoundedPngOutput::new(max_size);
+    let mut output = BoundedOutput::new(max_size);
     let result = write_png(&mut output, width, height, color, data, compression);
     if output.exceeded {
         return Err(PngEncodeError::OutputLimit);
@@ -4349,7 +4352,7 @@ pub(crate) fn encode_png_bounded(
     if let Some(error) = output.allocation_error {
         return Err(PngEncodeError::Allocation(error));
     }
-    result.map_err(PngEncodeError::Encoding)?;
+    result.map_err(|_| PngEncodeError::Encoding)?;
     Ok(output.bytes)
 }
 
@@ -4390,7 +4393,7 @@ fn encode_png_stream_bounded(
     max_size: usize,
     write_pixels: impl FnOnce(&mut dyn Write) -> io::Result<()>,
 ) -> Result<Vec<u8>, PngEncodeError> {
-    let mut output = BoundedPngOutput::new(Some(max_size));
+    let mut output = BoundedOutput::new(Some(max_size));
     let result = (|| -> Result<(), png::EncodingError> {
         let mut encoder = png::Encoder::new(&mut output, width, height);
         encoder.set_color(color);
@@ -4410,7 +4413,7 @@ fn encode_png_stream_bounded(
     if let Some(error) = output.allocation_error {
         return Err(PngEncodeError::Allocation(error));
     }
-    result.map_err(PngEncodeError::Encoding)?;
+    result.map_err(|_| PngEncodeError::Encoding)?;
     Ok(output.bytes)
 }
 
@@ -4419,7 +4422,7 @@ fn extracted_png(result: Result<Vec<u8>, PngEncodeError>) -> Result<Option<Vec<u
         Ok(data) => Ok(Some(data)),
         Err(PngEncodeError::OutputLimit) => Err(IMAGE_BYTE_LIMIT_ERROR.to_owned()),
         Err(PngEncodeError::Allocation(error)) => Err(error),
-        Err(PngEncodeError::Encoding(_)) => Ok(None),
+        Err(PngEncodeError::Encoding) => Ok(None),
     }
 }
 

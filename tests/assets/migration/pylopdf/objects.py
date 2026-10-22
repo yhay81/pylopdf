@@ -12,7 +12,7 @@ assert catalog > 0
 assert max(doc.objects) + 1 > max(catalog, xref)
 
 samples = doc.objects[xref].read()
-assert samples == pixmap.samples
+assert samples == bytes(pixmap)
 assert doc.objects[xref].read(decode=False) != samples
 
 doc.objects[xref].write(bytes(len(samples)))

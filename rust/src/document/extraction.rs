@@ -996,11 +996,12 @@ pub(super) fn image_pixmap(
     })?;
     let width = u32::from(pixmap.width());
     let height = u32::from(pixmap.height());
-    let (data, _) = py.detach(|| raster_samples(pixmap, alpha));
+    let layout = Layout { gray: false, alpha };
+    let data = py.detach(|| raster_samples(pixmap, layout));
     Ok(crate::pixmap::Pixmap {
         width,
         height,
-        alpha,
+        layout,
         data: Arc::new(data),
     })
 }

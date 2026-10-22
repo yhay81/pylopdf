@@ -166,7 +166,7 @@ def test_image_extraction_streams_rgb_alpha_without_changing_pixels() -> None:
 
     assert len(extracted) == 1
     assert extracted[0]["ext"] == "png"
-    assert _decode_png(extracted[0]["image"]) == (2, 1, 6, pixmap.samples)
+    assert _decode_png(extracted[0]["image"]) == (2, 1, 6, bytes(pixmap))
 
 
 def test_image_extraction_streams_gray_alpha_without_changing_pixels() -> None:

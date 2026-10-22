@@ -371,9 +371,13 @@ the canvas.
   `render_pages()`, with `dpi` and `matrix` exclusive and an `annotations`
   option. `pixmap()` is named after its result instead of DESIGN.md's first
   `render()`, which 0.15 used for a method that returned PNG bytes.
-- Still to come, each with its codemod rules: the `Pixmap` value (channels,
-  gray, JPEG output, `from_array`), document properties, interaction,
-  writing, and the constants and records.
+- Done: the `Pixmap` value. Gray and RGB pixels with optional alpha,
+  `channels`, the `Colorspace` enum, a buffer shaped `(height, width,
+  channels)` for `numpy.asarray`, `Pixmap.from_array`, and PNG and JPEG
+  through `to_bytes`, `save`, and `doc.render(format=...)`. CMYK waits for a
+  renderer that produces it.
+- Still to come, each with its codemod rules: document properties,
+  interaction, writing, and the remaining constants and records.
 
 Acceptance: every row of the reset table is done; the capability map's
 available entries name the new APIs; the codemod turns the example programs
@@ -398,8 +402,8 @@ engine's maintainer.
 | hayro | No panic on mismatched color components (LaurenzV/hayro#1546) and on the remaining malformed-input panics | reliance on `contain_renderer_panics` |
 | hayro | Interpretation over an object source that is not file bytes, such as lopdf's graph | `object_recovery.rs`, the serialized snapshots, and the cost of reserializing after edits |
 | hayro | Thread-safe render caches, a thread count (LaurenzV/hayro#1317), and faster stencil masks (LaurenzV/hayro#1315) | the per-thread cache slots in `render_cache.rs`; shared caches across `Document.render` workers |
-| hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | rendering options |
-| hayro-svg | Text kept as text | `svg(text_as_path=False)` |
+| hayro, vello_cpu | Gray and CMYK output and anti-aliasing levels | gray converted from the RGB raster in `raster_samples`; no CMYK |
+| hayro-svg | Text kept as text, and a transform | `svg()` takes neither `text_as_path` nor `matrix` |
 | lopdf | A public object parser and serializer | pylopdf's own value conversion |
 | lopdf | Recovery reports through the API instead of the `log` crate; a requested rebuild of the cross-reference table; rebuilding when the catalog or page tree is unreadable, and for damaged cross-reference streams and truncated files | the log capture in `recovery.rs`, the forced rebuild, and inputs rejected today |
 | lopdf | A linear scan for unterminated streams during recovery | the `recovery_scan_size` pre-scan |
@@ -436,11 +440,12 @@ meet a published IoU threshold; quads cover rotated text.
 
 Workstream Rendering.
 
-- Arbitrary affine transforms through hayro's `render_into`; gray, RGB, RGBA,
-  and CMYK output; annotations on or off; anti-aliasing levels; PNG, JPEG,
-  and PNM encoding with resolution metadata.
+- Arbitrary affine transforms through hayro's `render_into`; CMYK output
+  (gray, RGB, and alpha are done); anti-aliasing levels; resolution metadata
+  in PNG and JPEG (annotations on or off, PNG, and JPEG are done).
 - `Pixmap` stays an immutable value with zero-copy NumPy interchange in both
-  directions, plus decoding of PNG, JPEG, and image objects with their masks.
+  directions (done), plus decoding of PNG and JPEG files (image objects with
+  their masks are done through `ImageObject.to_pixmap`).
   Image processing (tinting, gamma, inversion, color statistics, warping,
   scaling) is a tested NumPy, Pillow, or OpenCV recipe rather than `Pixmap`
   methods, recorded in the capability map as `integration`.

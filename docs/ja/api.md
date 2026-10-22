@@ -97,7 +97,7 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, workers=None, max_size=512 MiB)` | 全ページ、または指定したページのPNGのbytesを順番どおりに。並列にレンダリングします |
+| `render(pages=None, *, dpi=None, matrix=None, alpha=False, background=None, annotations=True, colorspace="rgb", format="png", quality=95, workers=None, max_size=512 MiB)` | 全ページ、または指定したページのPNGかJPEGのbytesを順番どおりに。並列にレンダリングします |
 | `images` | オブジェクト番号ごとの画像オブジェクト。[画像](#images)を参照 |
 | `rewrite_images(*, dpi_threshold=None, dpi_target=0, quality=0, ...)` | 画像を縮小・再圧縮してファイルを小さくします |
 | `set_fallback_font(font, kind="sans", index=0, *, font_language="ja")` | フォントが埋め込まれていない中国語・日本語・韓国語のテキストを表示するフォント。CJKのextraを入れると自動で設定されます |
@@ -148,11 +148,11 @@ merged.pages.select(range(len(merged.pages) - 1, -1, -1))  # 順序を逆にす�
 
 | メンバ | 用途 |
 |---|---|
-| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True)` | [`Pixmap`](#pixmap)へレンダリング |
+| `pixmap(*, dpi=None, matrix=None, clip=None, alpha=False, background=None, annotations=True, colorspace="rgb")` | [`Pixmap`](#pixmap)へレンダリング |
 | `svg(*, annotations=True, max_size=64 MiB)` | テキストをパスで描いたSVG文字列へレンダリング |
 | `resources` | ページのリソースが届くもの。`resources.images`が画像オブジェクトを並べます。[画像](#images)を参照 |
 
-ピクセルマップは既定で72 dpi、白地のRGBで、`alpha=True`でRGBAです。`dpi`と`matrix`はどちらか一方を渡します。行列は`Matrix(2, 2)`のような拡大縮小だけのものでなければなりません。`clip`はページの一部だけをレンダリングし、`annotations=False`は注釈とフォームのウィジェットを描きません。
+ピクセルマップは既定で72 dpi、白地のRGBで、`alpha=True`でRGBAです。`dpi`と`matrix`はどちらか一方を渡します。行列は`Matrix(2, 2)`のような拡大縮小だけのものでなければなりません。`clip`はページの一部だけをレンダリングし、`annotations=False`は注釈とフォームのウィジェットを描かず、`colorspace="gray"`はグレーの画素でレンダリングします。
 
 ### ページの幾何情報 { #page-geometry }
 
@@ -559,15 +559,18 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 
 ## Pixmap { #pixmap }
 
-`Pixmap`はレンダリングしたページの画素を保持し、変更できません。
+`Pixmap`はレンダリングしたページや画像の画素を保持し、変更できません。
 
 | メンバ | 用途 |
 |---|---|
-| `width`, `height`, `n`, `alpha`, `stride`, `colorspace` | サイズと配置。`n`はRGBなら3、RGBAなら4 |
-| `samples` | 画素を`bytes`で |
-| `memoryview(pix)`, `np.frombuffer(pix, dtype=np.uint8)` | コピーせずに画素を参照 |
-| `tobytes()` | PNGのbytes |
-| `save(filename)` | PNGファイルを書き出し |
+| `width`, `height`, `channels`, `alpha`, `stride`, `colorspace` | サイズと配置。`channels`はグレーなら1、アルファ付きグレーなら2、RGBなら3、アルファ付きRGBなら4。`colorspace`は`Colorspace.GRAY`か`Colorspace.RGB` |
+| `numpy.asarray(pix)`, `memoryview(pix)` | コピーせずに画素を参照。形はグレーなら`(height, width)`、それ以外は`(height, width, channels)` |
+| `bytes(pix)` | 画素のコピー |
+| `Pixmap.from_array(array)` | 同じ形の`uint8`配列をコピーしたピクセルマップ |
+| `to_bytes(format="png", *, quality=95, max_size=64 MiB)` | PNGかJPEGのbytes。JPEGにアルファはありません |
+| `save(path, /, *, format=None, quality=95)` | PNGかJPEGを書き出し。`format`を省くと拡張子`.png`、`.jpg`、`.jpeg`で決まります |
+
+画像処理はNumPy、Pillow、OpenCVに任せます。`PIL.Image.fromarray(numpy.asarray(pix))`でPillowの画像になります。
 
 ## モジュールの関数と型 { #module-level }
 
@@ -583,7 +586,7 @@ quad = area.morph(area.tl, Matrix(30))       # 角を中心に30度回転
 | `Base14_fontnames`, `Base14_fontdict` | `fontname=`が受け付けるStandard 14フォントの名前 |
 | `Name`, `String`, `Array`, `Dictionary`, `Stream`, `Objects` | [低レベルオブジェクト](#low-level-objects) |
 | `Content`, `TextRun`, `Path`, `Image`, `Glyph`, `FontRef`, `Color`, `Stroke`, `GraphicsContext`ほかの内容の型 | [ページの内容](#content) |
-| `Colorspace`, `csRGB`, `csGRAY`, `csCMYK` | pymupdfと同じデバイス色空間 |
+| `Colorspace` | [`Pixmap`](#pixmap)の色空間。`GRAY`と`RGB` |
 
 定数はpymupdfと同じ名前で、列挙型にもまとめています。`Permissions`（`PDF_PERM_*`）、`LinkKind`（`LINK_*`）、`TextAlign`（`TEXT_ALIGN_*`）、`AnnotType`（`PDF_ANNOT_*`）、`AnnotFlags`（`PDF_ANNOT_IS_*`）です。`Access`のメンバは`USER`と`OWNER`で、`Encryption`は保存するファイルの暗号化方法を表します。ページの内容の列挙型は`BlendMode`、`FillRule`、`LineCap`、`LineJoin`、`TextRenderMode`、`ShadingType`、`SoftMaskType`、`ImageMask`です。
 

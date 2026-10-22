@@ -44,7 +44,14 @@ from pylopdf._limits import (
 from pylopdf._objects import Dictionary, Name, Objects, String
 from pylopdf._page import _PAGE_LABEL_STYLES, Page
 from pylopdf._pages import Pages
-from pylopdf._pixmap import _render_background, _render_scale, _validate_bool
+from pylopdf._pixmap import (
+    Colorspace,
+    _render_background,
+    _render_gray,
+    _render_scale,
+    _validate_bool,
+    _validate_encoding,
+)
 from pylopdf._tables import (
     _bounded_markdown_page_output,
     _markdown_output_limit_error,
@@ -1325,15 +1332,19 @@ class Document:
         alpha: bool = False,
         background: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
         annotations: bool = True,
+        colorspace: Colorspace | Literal["gray", "rgb"] = Colorspace.RGB,
+        format: Literal["png", "jpeg"] = "png",  # noqa: A002 - the public name.
+        quality: int = 95,
         workers: int | None = None,
         max_size: int | None = _DEFAULT_MAX_RENDER_BATCH_SIZE,
     ) -> list[bytes]:
-        """Render pages to PNG concurrently while preserving input order.
+        """Render pages to encoded images concurrently while preserving input order.
 
-        ``dpi``, ``matrix``, ``alpha``, ``background``, and ``annotations``
-        have the meaning of :meth:`Page.pixmap`, so the default is opaque RGB
-        at 72 dpi. ``pages`` contains zero-based page numbers and defaults to
-        every page.
+        ``dpi``, ``matrix``, ``alpha``, ``background``, ``annotations``, and
+        ``colorspace`` have the meaning of :meth:`Page.pixmap`, so the default
+        is opaque RGB at 72 dpi. Each page is encoded as ``format``, PNG or
+        JPEG at ``quality`` (1 through 100); JPEG has no alpha. ``pages``
+        contains zero-based page numbers and defaults to every page.
         Duplicates are allowed. ``workers=None`` uses up to four CPUs; explicit
         values must be between 1 and 64. Actual concurrency is also capped to
         roughly 512 MB of estimated live raster and conversion buffers. A
@@ -1342,8 +1353,8 @@ class Document:
         cache after 4,096 pages. An explicit sequence may contain up to the
         larger of the page count and 4,096 entries; further entries raise
         :class:`LimitError` with code ``page_entry_count``. ``max_size`` caps
-        their cumulative encoded PNG bytes and defaults to 512 MiB; pass
-        ``None`` only to accept unbounded output.
+        their cumulative encoded bytes and defaults to 512 MiB; pass ``None``
+        only to accept unbounded output.
 
         Do not edit or call other methods on this same :class:`Document` from
         another thread during the operation. Such calls are not part of the
@@ -1354,6 +1365,8 @@ class Document:
         scale = _render_scale(matrix, dpi)
         rgba = _render_background(background, alpha=alpha)
         _validate_bool("annotations", annotations)
+        gray = _render_gray(colorspace)
+        _validate_encoding(format, quality, alpha=alpha)
         if workers is None:
             workers = min(4, os.cpu_count() or 1)
         elif isinstance(workers, bool) or not isinstance(workers, int):
@@ -1368,7 +1381,9 @@ class Document:
         if not page_numbers:
             return []
         self._ensure_fallback_fonts()
-        result = self._doc.render_pages_png(page_numbers, scale, alpha, rgba, annotations, workers, max_size)
+        result = self._doc.render_pages_encoded(
+            page_numbers, scale, gray, alpha, rgba, annotations, format, quality, workers, max_size
+        )
         self._emit_warnings()
         return result
 

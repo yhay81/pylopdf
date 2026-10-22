@@ -109,7 +109,7 @@ def _contains(outer: tuple[float, ...], inner: tuple[float, ...]) -> bool:
 
 def _pixel(pixmap: pylopdf.Pixmap, x: float, y: float) -> tuple[int, int, int]:
     offset = int(y) * pixmap.stride + int(x) * 4
-    red, green, blue = pixmap.samples[offset : offset + 3]
+    red, green, blue = bytes(pixmap)[offset : offset + 3]
     return red, green, blue
 
 
@@ -191,7 +191,7 @@ def test_annotations_and_links_share_the_display_space(name: str, rotation: int)
     pixmap = page.pixmap(dpi=72, background=(255, 255, 255), alpha=True)
     if name == "cropbox-misses":
         # hayro clips the page to the empty intersection, so nothing shows.
-        assert pixmap.samples == b"\xff" * len(pixmap.samples)
+        assert bytes(pixmap) == b"\xff" * len(bytes(pixmap))
         return
     assert _pixel(pixmap, 35, 25) == (255, 0, 0)
     assert _pixel(pixmap, 65, 25) == _pixel(pixmap, 35, 45) == (255, 255, 255)

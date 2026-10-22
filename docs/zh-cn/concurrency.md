@@ -62,7 +62,7 @@ with pylopdf.open("report.pdf") as document:
 import numpy as np
 
 pix = page.pixmap()
-pixels = np.frombuffer(pix, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+pixels = np.asarray(pix)  # 形状为(高度, 宽度, 通道数)
 ```
 
-而`pix.samples`会返回一份独立的`bytes`副本。
+而`bytes(pix)`会返回一份独立的副本，`Pixmap.from_array(pixels)`则把数组转换回pixmap。

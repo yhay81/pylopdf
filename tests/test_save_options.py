@@ -26,7 +26,7 @@ def _object_body(data: bytes, number: int) -> bytes:
 
 
 def _signature(doc: pylopdf.Document) -> list[tuple[str, bytes]]:
-    return [(page.text(), page.pixmap(dpi=24, alpha=True).samples) for page in doc.pages]
+    return [(page.text(), bytes(page.pixmap(dpi=24, alpha=True))) for page in doc.pages]
 
 
 def _twice_imported() -> pylopdf.Document:
@@ -282,8 +282,8 @@ def test_images_placed_after_merging_save_and_merge_again() -> None:
     expected = len(re.findall(rb"/Subtype\s*/Image", once.to_bytes(dedupe=True, renumber=True)))
     assert len(re.findall(rb"/Subtype\s*/Image", saved)) == expected
     reopened = pylopdf.open(saved)
-    assert reopened.pages[0].pixmap(dpi=24, alpha=True).samples == doc.pages[0].pixmap(dpi=24, alpha=True).samples
-    assert reopened.pages[1].pixmap(dpi=24, alpha=True).samples == doc.pages[1].pixmap(dpi=24, alpha=True).samples
+    assert bytes(reopened.pages[0].pixmap(dpi=24, alpha=True)) == bytes(doc.pages[0].pixmap(dpi=24, alpha=True))
+    assert bytes(reopened.pages[1].pixmap(dpi=24, alpha=True)) == bytes(doc.pages[1].pixmap(dpi=24, alpha=True))
 
 
 def test_saving_to_a_file_accepts_every_option(tmp_path: Path) -> None:

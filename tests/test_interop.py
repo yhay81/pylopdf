@@ -104,7 +104,7 @@ def test_typst_japanese_watermark_via_show_pdf_page() -> None:
     assert "社外秘" in page.text()
     # fill:none keeps the page transparent; corners stay white on a white render.
     pix = page.pixmap(background=(255, 255, 255), alpha=True)
-    assert tuple(pix.samples[0:3]) == (255, 255, 255)
+    assert tuple(bytes(pix)[0:3]) == (255, 255, 255)
 
 
 def _make_self_signed_cert(tmp_path: Path) -> tuple[Path, Path]:
